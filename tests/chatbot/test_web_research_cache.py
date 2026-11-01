@@ -11,7 +11,6 @@ from plugin.chatbot.web_research_cache import (
     _research_cache_embedding_backfill_worker,
     find_fuzzy_research_match,
     format_research_cache_key,
-    jaccard,
     lookup_research_cache,
     parse_research_cache_key,
     research_cache_similarity,
@@ -154,7 +153,7 @@ def test_lang_prefixed_cache_keys_round_trip():
 
 
 def test_deep_and_shallow_cache_keys_do_not_cross_match(tmp_path):
-    from plugin.chatbot.web_research_cache import research_cache_key_mode
+    from plugin.chatbot.web_research_cache import _same_mode_and_lang
     from plugin.contrib.smolagents.default_tools import _web_cache_set
 
     words = "elevator physics space"
@@ -162,8 +161,10 @@ def test_deep_and_shallow_cache_keys_do_not_cross_match(tmp_path):
     deep = format_research_cache_key("english", words, mode="deep")
     assert shallow == "english|elevator physics space"
     assert deep == "deep|english|elevator physics space"
-    assert research_cache_key_mode(shallow) == ""
-    assert research_cache_key_mode(deep) == "deep"
+    assert _same_mode_and_lang(shallow, mode="", snowball_lang="english") == words
+    assert _same_mode_and_lang(shallow, mode="deep", snowball_lang="english") is None
+    assert _same_mode_and_lang(deep, mode="deep", snowball_lang="english") == words
+    assert _same_mode_and_lang(deep, mode="", snowball_lang="english") is None
     assert parse_research_cache_key(deep) == ("english", words)
     assert format_research_cache_key("english", "", mode="deep") == ""
 
@@ -175,12 +176,12 @@ def test_deep_and_shallow_cache_keys_do_not_cross_match(tmp_path):
     # Shallow exact order stays bare, then language-prefixed. Deep is not in that list.
     bare_hit = lookup_research_cache(db_file, words, "english", 30, 40, 1)
     assert bare_hit is not None
-    assert bare_hit[4] == "BARE"
+    assert bare_hit[3] == "BARE"
 
     deep_hit = lookup_research_cache(db_file, words, "english", 30, 40, 1, mode="deep")
     assert deep_hit is not None
-    assert deep_hit[4] == "DEEP"
-    assert deep_hit[2] == deep
+    assert deep_hit[3] == "DEEP"
+    assert deep_hit[1] == deep
 
     shallow_only = str(tmp_path / "shallow.db")
     _web_cache_set(shallow_only, "research", shallow, "PREFIXED", 50 * 1024 * 1024)
@@ -203,7 +204,7 @@ def test_deep_and_shallow_fuzzy_and_embedding_stay_in_mode(tmp_path):
     shallow_hit = lookup_research_cache(shallow_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8)
     assert shallow_hit is not None
     assert shallow_hit[0] == "hit_fuzzy"
-    assert shallow_hit[4] == "shallow elevator"
+    assert shallow_hit[3] == "shallow elevator"
     assert lookup_research_cache(shallow_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8, mode="deep") is None
 
     deep_db = str(tmp_path / "fuzzy_deep.db")
@@ -211,8 +212,8 @@ def test_deep_and_shallow_fuzzy_and_embedding_stay_in_mode(tmp_path):
     deep_hit = lookup_research_cache(deep_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8, mode="deep")
     assert deep_hit is not None
     assert deep_hit[0] == "hit_fuzzy"
-    assert deep_hit[2] == deep_key
-    assert deep_hit[4] == "deep elevator"
+    assert deep_hit[1] == deep_key
+    assert deep_hit[3] == "deep elevator"
     assert lookup_research_cache(deep_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8) is None
 
     embed_db = str(tmp_path / "embed.db")
@@ -243,18 +244,19 @@ def test_deep_and_shallow_fuzzy_and_embedding_stay_in_mode(tmp_path):
         )
     assert shallow_embed is not None
     assert shallow_embed[0] == "hit_embedding"
-    assert shallow_embed[2] == pizza_shallow
-    assert shallow_embed[4] == "shallow pizza"
+    assert shallow_embed[1] == pizza_shallow
+    assert shallow_embed[3] == "shallow pizza"
     assert deep_embed is not None
     assert deep_embed[0] == "hit_embedding"
-    assert deep_embed[2] == pizza_deep
-    assert deep_embed[4] == "deep pizza"
+    assert deep_embed[1] == pizza_deep
+    assert deep_embed[3] == "deep pizza"
 
 
 def test_research_cache_similarity_beats_union_jaccard_for_longer_repeat_query():
     a = stem_set_from_word_key(SPACE_ELEVATOR_KEY_1, "english")
     b = stem_set_from_word_key(SPACE_ELEVATOR_KEY_2, "english")
-    assert jaccard(a, b) < 0.40
+    union = a | b
+    assert (len(a & b) / len(union) if union else 0.0) < 0.40
     assert research_cache_similarity(a, b) >= 0.40
 
 
@@ -317,8 +319,8 @@ def test_lookup_bare_key_is_english_only(tmp_path):
     english = lookup_research_cache(
         db_file, "paris restaurants", "english", max_age_days=30, jaccard_percent=100, min_overlap=99,
     )
-    assert french is not None and french[4] == "french row"
-    assert english is not None and english[4] == "english legacy"
+    assert french is not None and french[3] == "french row"
+    assert english is not None and english[3] == "english legacy"
 
 
 def test_store_embeddings_skips_row_whose_parent_was_evicted(tmp_path):
@@ -382,9 +384,8 @@ def test_lookup_research_cache_fuzzy_hit(tmp_path):
         min_overlap=8,
     )
     assert hit is not None
-    event, display_key, matched_raw_key, score, cached = hit
+    event, matched_raw_key, score, cached = hit
     assert event == "hit_fuzzy"
-    assert display_key == SPACE_ELEVATOR_KEY_2
     assert matched_raw_key == SPACE_ELEVATOR_KEY_1
     assert score >= 0.40
     assert cached == "Cached elevator report"
@@ -457,9 +458,8 @@ def test_lookup_research_cache_embedding_hit(tmp_path):
     # Must not override with a short lookup timeout; embed_texts default uses the long trusted budget.
     assert embed_texts.call_args.kwargs.get("timeout_sec") is None
     assert hit is not None
-    event, display_key, matched_raw_key, score, cached = hit
+    event, matched_raw_key, score, cached = hit
     assert event == "hit_embedding"
-    assert display_key == "good pizza around"
     assert matched_raw_key == raw_key
     assert score == pytest.approx(1.0)
     assert cached == "Cached pizza report"
@@ -492,7 +492,7 @@ def test_lookup_research_cache_embedding_model_mismatch_falls_back_to_jaccard(tm
     embed_texts.assert_not_called()
     assert hit is not None
     assert hit[0] == "hit_fuzzy"
-    assert hit[4] == "Cached elevator report"
+    assert hit[3] == "Cached elevator report"
 
 
 def test_research_cache_embedding_backfill_worker_stores_missing_vectors(tmp_path):
@@ -529,7 +529,7 @@ def test_research_cache_embedding_backfill_worker_stores_missing_vectors(tmp_pat
 
     assert hit is not None
     assert hit[0] == "hit_embedding"
-    assert hit[2] == "english|space elevator physics"
+    assert hit[1] == "english|space elevator physics"
 
 
 def test_read_doc_char_locale_from_first_paragraph():

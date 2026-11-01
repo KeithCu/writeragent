@@ -182,13 +182,14 @@ def test_set_config_raising_still_runs_help():
 
 def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
     stop_model = SimpleNamespace(Enabled=True)
+    voice_mock = SimpleNamespace(exit_hands_free_record=MagicMock())
     host = SimpleNamespace(
         slash_popup=None,
         query_control=SimpleNamespace(text="/stop"),
         dispatch=MagicMock(),
         _approval_event=None,
         _send_busy=False,
-        exit_hands_free_record=MagicMock(),
+        _voice=voice_mock,
         stop_control=SimpleNamespace(getModel=lambda: stop_model),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
@@ -199,7 +200,7 @@ def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
     set_text.assert_not_called()
     assert host.query_control.text == "/stop"
     stop_speech.assert_called_once()
-    host.exit_hands_free_record.assert_called_once()
+    voice_mock.exit_hands_free_record.assert_called_once()
     host.dispatch.assert_not_called()
     assert stop_model.Enabled is False
 

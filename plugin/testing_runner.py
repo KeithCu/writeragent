@@ -538,6 +538,11 @@ _USER_PROFILE_ONLY_UNO = frozenset(
     }
 )
 
+# Product-video scenes (make demo-video). Never load under make test / test-uno /
+# test-mock-sidebar: setup raises SkipTest without WRITERAGENT_DEMO=1, and the
+# suite-level handler used to count that as a failure (GHA PR 2811).
+_DEMO_ONLY_UNO = frozenset({"test_demo_video_uno.py"})
+
 
 def _parse_cli_args(argv: Sequence[str]) -> list[str]:
     """Split runner flags from suite filters. Sets ``show_window`` / ``use_user_profile``.
@@ -1283,7 +1288,15 @@ def run_module_suite(ctx: Any, module: Any, name: str) -> tuple[int, int, list[s
 
     try:
         if setup_func:
-            _call_with_ctx(setup_func, ctx)
+            try:
+                _call_with_ctx(setup_func, ctx)
+            except unittest.SkipTest as e:
+                # Same as a per-test SkipTest: suite is intentionally offline
+                # (demo video, mock-sidebar without --user-profile, etc.).
+                suite_log.append(f"SUITE SKIPPED: {e}")
+                _progress(f"SUITE end {name} passed=0 failed=0 skipped=1")
+                set_windows_notebook_host(False)
+                return 0, 0, suite_log
 
         for test_func in selected:
             test_line = f"Running test: {test_func.__name__}"
@@ -1586,6 +1599,9 @@ def run_all_tests(ctx: Any) -> str:
                     continue
                 user_only = filename in _USER_PROFILE_ONLY_UNO
                 if user_only != use_user_profile:
+                    continue
+                # Demo scenes only via make demo-video (WRITERAGENT_DEMO=1).
+                if filename in _DEMO_ONLY_UNO and os.environ.get("WRITERAGENT_DEMO") != "1":
                     continue
                 full_path = os.path.join(root, filename)
                 if _module_matches_filters(full_path, _cli_filters):

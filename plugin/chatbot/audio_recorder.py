@@ -103,7 +103,7 @@ def _wav_file_has_bytes(path: str | None) -> bool:
     if not path:
         return False
     try:
-        return os.path.isfile(path) and os.path.getsize(path) > 44
+        return os.path.isfile(path) and os.path.getsize(path) > WAV_HEADER_BYTES
     except OSError:
         return False
 
@@ -111,14 +111,12 @@ def _wav_file_has_bytes(path: str | None) -> bool:
 class AudioRecorder:
     fs: int = 16000
     channels: int = 1
-    ctx: Any
     _auto_stop_lock: threading.Lock
     _auto_stop_notified: bool
     _wav_lock: threading.Lock
     state: AudioRecorderState
 
-    def __init__(self, ctx: Any) -> None:
-        self.ctx = ctx
+    def __init__(self) -> None:
         self.temp_filename: str | None = None
         self._proc: ManagedSubprocess | None = None
         self._stdout_monitor: BackgroundHandle | None = None
@@ -263,24 +261,19 @@ class AudioRecorder:
         ``auto_path`` is the same idea for silence auto-stop, which publishes
         the path before ``ok``.
         """
-        if auto_path:
-            if finalize_wav_header(auto_path):
-                self.temp_filename = auto_path
-                terminate_recording_process(proc, monitor=monitor, handoff=handoff)
-                return
-        elif _wav_file_has_bytes(self.temp_filename):
-            if finalize_wav_header(self.temp_filename):
+        path = auto_path or self.temp_filename
+        if finalize_wav_header(path):
+            if not auto_path:
                 log.warning("Stop handshake failed; using WAV already on disk: %s", exc)
-                terminate_recording_process(proc, monitor=monitor, handoff=handoff)
-                return
+            self.temp_filename = path
+            terminate_recording_process(proc, monitor=monitor, handoff=handoff)
+            return
         log.debug("Failed to stop recording subprocess: %s", exc)
-        # Cleanup terminates ``self._proc``. The stop effect already cleared it,
-        # so put the child back or the mic process is leaked and the empty
-        # temp file is left behind.
-        self._proc = proc
-        self._stdout_monitor = monitor
-        self._stop_handoff = handoff
-        self._cleanup_failed_start()
+        terminate_recording_process(proc, monitor=monitor, handoff=handoff)
+        self._auto_stopped_path = None
+        self._close_host_wav()
+        self._silence_detector = None
+        self._delete_wav()
 
     def _execute_effect(self, effect: object) -> None:
         import wave
@@ -404,25 +397,12 @@ class AudioRecorder:
             if proc is not None and self.temp_filename and self.state.status != "error":
                 try:
                     if auto_path and not proc.is_alive():
-                        # The child has already exited after auto-stop.
-                        # Reap it and drop the stderr drain; updating
-                        # temp_filename alone leaves that thread in
-                        # _recording_stderr_drains.
                         terminate_recording_process(proc, monitor=monitor, handoff=handoff)
                         self.temp_filename = auto_path
-                    elif proc.is_alive():
-                        if handoff is None:
-                            # The monitor is the only writer of the handoff.
-                            # Building a new one here waits out the stop timeout
-                            # and then reaps. No monitor means there is nothing to
-                            # wait for.
-                            terminate_recording_process(proc, monitor=monitor, handoff=handoff)
-                        else:
-                            path = stop_recording_process(proc, handoff=handoff, monitor=monitor)
-                            self.temp_filename = path
+                    elif proc.is_alive() and handoff is not None:
+                        self.temp_filename = stop_recording_process(proc, handoff=handoff, monitor=monitor)
                     else:
                         terminate_recording_process(proc, monitor=monitor, handoff=handoff)
-                        self.temp_filename = auto_path or self.temp_filename
                 except Exception as exc:
                     self._keep_recorded_wav_or_cleanup(proc, auto_path, exc, monitor=monitor, handoff=handoff)
             else:

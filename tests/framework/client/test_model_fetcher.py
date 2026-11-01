@@ -4,6 +4,7 @@ import tempfile
 from unittest.mock import patch
 from plugin.framework.client.model_fetcher import endpoint_url_suitable_for_v1_models_fetch
 import pytest
+from tests.harness.strip_bundle import requires_asserts
 
 class TestEndpointUrlSuitableForModelFetch:
 
@@ -763,9 +764,9 @@ class TestHasNativeVision:
             assert len(scheduled_jobs) == 0
             assert saved == {}
 
+    @requires_asserts
     def test_fetch_branch_asserts_off_ui_thread(self):
         from plugin.framework.client.model_fetcher import has_native_vision
-        import pytest
 
         calls = [False, True]
         with patch("plugin.framework.client.model_fetcher.on_main_thread", side_effect=lambda: calls.pop(0)):

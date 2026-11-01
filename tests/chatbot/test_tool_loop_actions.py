@@ -65,7 +65,7 @@ class FakeHost:
         self.document = Mock()
         from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-        turn = begin_send_turn(self, "chat", model=Mock(name="doc"))
+        turn = begin_send_turn(self, model=Mock(name="doc"))
         turn.queue = queue.Queue()
         turn.active_client = Mock()
         turn.active_max_tokens = 100
@@ -724,8 +724,7 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
             self.session = Session()
 
     host = Host()
-    turn = begin_send_turn(host, "chat")
-    assert turn.mode == "chat"
+    turn = begin_send_turn(host)
     first_q: queue.Queue = queue.Queue()
     turn.queue = first_q
     assert put_for_turn(turn, (StreamQueueKind.CHUNK, "Hello"))
@@ -733,12 +732,10 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     fold_transcript_chunk(host.session, "Hello", "assistant")
     assert turn.open_text() == "Hello"
 
-    turn2 = begin_send_turn(host, "image")
+    turn2 = begin_send_turn(host)
     assert host._turn is turn2
     assert not turn.alive
     assert turn2.alive
-    assert turn2.mode == "image"
-    assert turn.mode == "chat"
     assert put_for_turn(turn, (StreamQueueKind.CHUNK, " late")) is False
     assert put_for_turn(turn, (StreamQueueKind.STATUS, "late-status")) is False
     assert first_q.empty()
@@ -770,7 +767,7 @@ def test_abort_discards_a_late_write():
             self.session = Session()
 
     host = Host()
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     first_q: queue.Queue = queue.Queue()
     turn.queue = first_q
     abort_turn(host)
@@ -800,10 +797,10 @@ def test_second_send_replaces_the_turn():
             self.session = Session()
 
     host = Host()
-    first = begin_send_turn(host, "chat")
+    first = begin_send_turn(host)
     first_q: queue.Queue = queue.Queue()
     first.queue = first_q
-    second = begin_send_turn(host, "chat")
+    second = begin_send_turn(host)
     second_q: queue.Queue = queue.Queue()
     second.queue = second_q
     assert host._turn is second
@@ -852,7 +849,7 @@ def test_stop_closes_a_pending_tool_call():
             self.session = Session()
 
     host = Host()
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     abort_turn(host)
     turn.close_stopped(host, None)
     assistant = next(message for message in host.session.messages if message.get("tool_calls"))
@@ -892,7 +889,7 @@ def test_stop_keeps_open_row_instead_of_no_response():
             self.session = Session()
 
     host = Host()
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     fold_transcript_chunk(host.session, "Hello", "assistant")
     abort_turn(host)
     assert host._turn is turn
@@ -936,7 +933,7 @@ def test_async_tool_failure_uses_model_captured_at_spawn():
 
     def run(spawn_model, later_model, expected_kind):
         host = FakeHost()
-        turn = begin_send_turn(host, "chat")
+        turn = begin_send_turn(host)
         first_q: queue.Queue = queue.Queue()
         turn.queue = first_q
         host._active_q = first_q
@@ -969,7 +966,7 @@ def test_new_send_drops_the_in_flight_tool_result():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 
     host = FakeHost()
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     first_q: queue.Queue = queue.Queue()
     turn.queue = first_q
     host._active_execute_tool_fn = Mock(return_value='{"status": "ok"}')
@@ -985,7 +982,7 @@ def test_new_send_drops_the_in_flight_tool_result():
                 is_async=True,
             )
         )
-    second = begin_send_turn(host, "chat")
+    second = begin_send_turn(host)
     second_q: queue.Queue = queue.Queue()
     second.queue = second_q
     started[0]()
@@ -998,7 +995,7 @@ def test_async_tool_uses_fn_and_model_captured_at_spawn():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 
     host = FakeHost()
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     first_q: queue.Queue = queue.Queue()
     turn.queue = first_q
     host._active_q = first_q
@@ -1050,7 +1047,7 @@ def test_async_tool_aborted_before_run_drops_execution():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 
     host = FakeHost()
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     first_q: queue.Queue = queue.Queue()
     turn.queue = first_q
     host._active_q = first_q
@@ -1080,7 +1077,7 @@ def test_async_tool_aborted_before_run_drops_execution():
         )
 
     # New send happens BEFORE the worker starts
-    second = begin_send_turn(host, "chat")
+    second = begin_send_turn(host)
     second_q: queue.Queue = queue.Queue()
     second.queue = second_q
     host._active_q = second_q
@@ -1097,7 +1094,7 @@ def test_subagent_append_and_approval_use_the_captured_queue():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 
     host = FakeHost()
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     first_q: queue.Queue = queue.Queue()
     turn.queue = first_q
     host._active_q = first_q
@@ -1124,7 +1121,7 @@ def test_subagent_append_and_approval_use_the_captured_queue():
         from plugin.chatbot.tool_loop_actions import begin_send_turn
         host._active_model = Mock(name="new-doc")
         host._active_q = queue.Queue()
-        begin_send_turn(host, "chat")
+        begin_send_turn(host)
 
         if ctx.chat_append_callback:
             ctx.chat_append_callback("research line" if name == "web_research" else "opened doc")
@@ -1214,7 +1211,7 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
             self.messages.append({"role": "assistant", "content": content or ""})
 
     send.session = Session()
-    turn = begin_send_turn(send, "chat")
+    turn = begin_send_turn(send)
     abort_turn(send)
     turn.close_stopped(send, None)
     assert any("[Stopped by user]" in str(message.get("content") or "") for message in send.session.messages)
@@ -1404,7 +1401,7 @@ def test_cleanup_audio_uses_spawn_captured_model(monkeypatch, tmp_path):
         recorded.append((model, endpoint, supported))
 
     monkeypatch.setattr("plugin.chatbot.tool_loop_actions.set_native_audio_support", fake_set_native_audio_support)
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     # The send path captures the model the audio was attached for.
     turn.text_model = "spawn-model"
     turn.endpoint = "https://spawn-endpoint"
@@ -1430,7 +1427,7 @@ def test_cleanup_audio_handles_remove_failure(monkeypatch):
     host = Host()
     monkeypatch.setattr("plugin.chatbot.tool_loop_actions.set_native_audio_support", lambda *a, **k: None)
 
-    begin_send_turn(host, "chat")
+    begin_send_turn(host)
     interpreter = ToolLoopEffectInterpreter(host)
 
     with patch("os.remove", side_effect=OSError("Permission denied")), patch("plugin.chatbot.tool_loop_actions.log.exception") as mock_log_exc:
@@ -1445,7 +1442,7 @@ def test_put_for_turn_signature_and_behavior():
     from plugin.framework.stream_batch import StreamQueueKind
 
     q = queue.Queue()
-    turn = TurnController(None, "chat")
+    turn = TurnController(None)
     turn.queue = q
 
     assert put_for_turn(turn, (StreamQueueKind.CHUNK, "hello")) is True
@@ -1485,7 +1482,7 @@ def test_close_stopped_second_call_writes_nothing_more():
 
     # Empty turn
     host = Host()
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     abort_turn(host)
     turn.close_stopped(host, None)
     count_after_first = len(host.session.messages)
@@ -1499,7 +1496,7 @@ def test_close_stopped_second_call_writes_nothing_more():
     # Open row
     session2 = Session([{"role": "user", "content": "q"}])
     host2 = Host(session2)
-    turn2 = begin_send_turn(host2, "chat")
+    turn2 = begin_send_turn(host2)
     fold_transcript_chunk(session2, "Hello", "assistant")
     abort_turn(host2)
     turn2.close_stopped(host2, "No response.")
@@ -1593,7 +1590,7 @@ def test_begin_send_turn_snapshots_message_count():
             self.session.messages = messages
 
     host = Host([{"role": "system", "content": "s"}, {"role": "user", "content": "u"}])
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     assert isinstance(turn, TurnController)
     assert turn.send_start_msg_count == 2
     host.session.messages.append({"role": "user", "content": "u2"})
@@ -1601,7 +1598,7 @@ def test_begin_send_turn_snapshots_message_count():
     assert turn.stored_user_row() is True
 
     host_none = Host(None)
-    turn_none = begin_send_turn(host_none, "chat")
+    turn_none = begin_send_turn(host_none)
     assert turn_none.send_start_msg_count == 0
     assert turn_none.stored_user_row() is False
 
@@ -1615,7 +1612,7 @@ def test_stored_user_row_ignores_earlier_user_rows():
             self.session.messages = messages
 
     host = Host([{"role": "user", "content": "earlier"}])
-    turn = begin_send_turn(host, "chat")
+    turn = begin_send_turn(host)
     assert turn.stored_user_row() is False
     host.session.messages.append({"role": "assistant", "content": "reply"})
     assert turn.stored_user_row() is False
@@ -1629,7 +1626,7 @@ def test_put_flushes_pending_chunks_before_control_item():
 
     raw_q: queue.Queue = queue.Queue()
     bq = BatchingStreamQueue(raw_q, batch_interval=60.0)
-    turn = TurnController(session=None, mode="chat")
+    turn = TurnController(session=None)
     turn.queue = raw_q
     turn.batcher = bq
 
@@ -1657,11 +1654,11 @@ def test_new_turn_starts_clean_without_copying_previous_turn_client():
     host = MagicMock()
     host.session = MagicMock()
     host.session.messages = []
-    first_turn = begin_send_turn(host, "chat")
+    first_turn = begin_send_turn(host)
     client = MagicMock()
     first_turn.active_client = client
 
-    second_turn = begin_send_turn(host, "chat")
+    second_turn = begin_send_turn(host)
     assert current_turn(host) is second_turn
     assert second_turn.active_client is None
     assert first_turn.active_client is client
@@ -1682,7 +1679,7 @@ def test_turn_controller_can_write_guards():
 
     session = FakeSession()
     host = FakeHost(session)
-    turn = TurnController(session, "chat")
+    turn = TurnController(session)
     host._turn = turn
 
     # Normal turn can write
@@ -1700,7 +1697,7 @@ def test_turn_controller_can_write_guards():
     assert turn.can_write(host) is True
 
     # None session prevents write
-    turn_no_sess = TurnController(None, "chat")
+    turn_no_sess = TurnController(None)
     host_no_sess = FakeHost(None)
     host_no_sess._turn = turn_no_sess
     assert turn_no_sess.can_write(host_no_sess) is False
@@ -1712,7 +1709,7 @@ def test_turn_controller_can_write_guards():
     # Aborting the turn still allows can_write (needed for Stop to persist stop line)
     session2 = FakeSession()
     host2 = FakeHost(session2)
-    turn2 = TurnController(session2, "chat")
+    turn2 = TurnController(session2)
     host2._turn = turn2
     turn2.abort()
     assert turn2.alive is False
@@ -1814,7 +1811,7 @@ def _run_get_image(captured_turn, vision):
 def test_execute_fn_keeps_mcp_image_for_vision_model():
     from plugin.chatbot.tool_loop_actions import TurnController
 
-    turn = TurnController(None, "chat", text_model="qwen3.8:27b-q4_K_M", endpoint="http://localhost:11434")
+    turn = TurnController(None, text_model="qwen3.8:27b-q4_K_M", endpoint="http://localhost:11434")
     res, mock_vision = _run_get_image(turn, vision=True)
     assert res["_mcp_image"]["data"] == _IMAGE_B64
     assert mock_vision.call_args.args == ("qwen3.8:27b-q4_K_M", "http://localhost:11434")
@@ -1823,7 +1820,7 @@ def test_execute_fn_keeps_mcp_image_for_vision_model():
 def test_execute_fn_drops_mcp_image_without_vision():
     from plugin.chatbot.tool_loop_actions import TurnController
 
-    turn = TurnController(None, "chat", text_model="text-only", endpoint="http://localhost:11434")
+    turn = TurnController(None, text_model="text-only", endpoint="http://localhost:11434")
     res, mock_vision = _run_get_image(turn, vision=False)
     assert mock_vision.called
     assert "_mcp_image" not in res

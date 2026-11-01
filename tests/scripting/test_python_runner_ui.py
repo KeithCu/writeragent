@@ -612,7 +612,7 @@ def test_save_current_script_user_success_is_ok():
     ):
         res = inst._save_current_script("new code")
 
-    assert res.channel == "ok"
+    assert res.channel is None
     assert res.text == "Script 'Mine' saved successfully."
     mock_save_user.assert_called_once_with("Mine", "new code")
 
@@ -631,7 +631,7 @@ def test_save_current_script_user_success_updates_catalog():
     ):
         res = inst._save_current_script("new code")
 
-    assert res.channel == "ok"
+    assert res.channel is None
     assert res.text == "Script 'Mine' saved successfully."
     mock_save_user.assert_called_once_with("Mine", "new code")
     assert inst._current_scripts == {"Mine": "new code"}
@@ -753,7 +753,7 @@ def _setup_dialog_and_listeners(doc=None, code="result = 1"):
 
 def test_run_ok_save_shows_running_and_no_save_box():
     inst, controls, trigger = _setup_dialog_and_listeners()
-    save_result = ui._ScriptSaveResult("Script 'Mine' saved successfully.", "ok")
+    save_result = ui._ScriptSaveResult("Script 'Mine' saved successfully.", None)
     lbl = controls["InstructionLbl"]
 
     with (
@@ -851,7 +851,7 @@ def test_run_completion_after_close_touches_nothing():
         captured_on_complete["callback"] = on_complete
 
     with (
-        patch.object(inst, "_save_current_script", return_value=ui._ScriptSaveResult(None, "ok")),
+        patch.object(inst, "_save_current_script", return_value=ui._ScriptSaveResult(None, None)),
         patch.object(pr, "start_native_script_run", side_effect=_capture_run),
     ):
         trigger("BtnRun")

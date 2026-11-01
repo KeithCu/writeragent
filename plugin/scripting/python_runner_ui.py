@@ -31,26 +31,18 @@ from plugin.framework.uno_listeners import (
 )
 
 
-class _ActionListener(BaseActionListener):
-    _action_fn: Callable[[], Any]
+class _FnListener(BaseActionListener, BaseItemListener):
+    _fn: Callable[[], Any]
 
-    def __init__(self, action_fn: Callable[[], Any]) -> None:
+    def __init__(self, fn: Callable[[], Any]) -> None:
         super().__init__()
-        self._action_fn = action_fn
+        self._fn = fn
 
     def on_action_performed(self, rEvent: Any) -> None:
-        self._action_fn()
-
-
-class _ItemListener(BaseItemListener):
-    _item_fn: Callable[[], Any]
-
-    def __init__(self, item_fn: Callable[[], Any]) -> None:
-        super().__init__()
-        self._item_fn = item_fn
+        self._fn()
 
     def on_item_state_changed(self, rEvent: Any) -> None:
-        self._item_fn()
+        self._fn()
 
 
 class ModelessWindowClosingListener(BaseTopWindowListener):
@@ -119,7 +111,7 @@ log = logging.getLogger("writeragent.scripting")
 @dataclass(frozen=True)
 class _ScriptSaveResult:
     text: str | None
-    channel: Literal["builtin", "modal", "ok"]
+    channel: Literal["builtin", "modal"] | None
 
 
 def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str, doc: Any = None) -> None:
@@ -308,13 +300,13 @@ class NativePythonScriptDialog:
     def _save_current_script(self, t: str, *, only_if_changed: bool = False) -> _ScriptSaveResult:
         select_ctrl = self._select_ctrl
         if select_ctrl is None:
-            return _ScriptSaveResult(None, "ok")
+            return _ScriptSaveResult(None, None)
         display_name = _picker_selected_name(select_ctrl)
         if not display_name:
-            return _ScriptSaveResult(None, "ok")
+            return _ScriptSaveResult(None, None)
         real_name, origin = resolve_script_picker_entry(display_name, self._script_origin_map)
         if only_if_changed and script_origin_is_writable(origin) and self._current_scripts.get(display_name) == t:
-            return _ScriptSaveResult(None, "ok")
+            return _ScriptSaveResult(None, None)
         if not script_origin_is_writable(origin):
             # Monaco and the native dialog share this sentence. Save As, with Attach
             # unchecked, copies a helper into My Scripts. Do not add a Copy button and
@@ -333,7 +325,7 @@ class NativePythonScriptDialog:
             # and both READONLY sentences name the document failure.
             if err is None:
                 self._current_scripts[display_name] = t
-                return _ScriptSaveResult(_("Script '%s' saved to this document.") % real_name, "ok")
+                return _ScriptSaveResult(_("Script '%s' saved to this document.") % real_name, None)
             if getattr(err, "code", None) != DocumentScriptErrorCode.READONLY:
                 return _ScriptSaveResult(str(err), "modal")
             if real_name in get_user_scripts():
@@ -356,7 +348,7 @@ class NativePythonScriptDialog:
         if user_err:
             return _ScriptSaveResult(user_err, "modal")
         self._current_scripts[display_name] = t
-        return _ScriptSaveResult(_("Script '%s' saved successfully.") % real_name, "ok")
+        return _ScriptSaveResult(_("Script '%s' saved successfully.") % real_name, None)
 
     def _store_script(
         self,
@@ -573,7 +565,7 @@ class NativePythonScriptDialog:
             else:
                 dlg.endDialog(0)
 
-        select_ctrl.addItemListener(_ItemListener(_on_select))
+        select_ctrl.addItemListener(_FnListener(_on_select))
         for btn_name, handler in (
             ("BtnRun", _on_run),
             ("BtnSave", _on_save),
@@ -584,7 +576,7 @@ class NativePythonScriptDialog:
         ):
             btn = dlg.getControl(btn_name)
             if btn is not None:
-                btn.addActionListener(_ActionListener(handler))
+                btn.addActionListener(_FnListener(handler))
 
 
 def show_python_input_dialog(

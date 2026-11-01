@@ -716,6 +716,38 @@ def test_run_module_suite_prints_fail_reason(capsys) -> None:
     assert "TEST end fake.boom.test_boom FAIL AssertionError: A1 did not become 2.0" in err
 
 
+def test_run_module_suite_setup_skip_is_not_a_failure(capsys) -> None:
+    """Demo/mock suites SkipTest in @setup; that must not abort as failed=1 (PR 2811)."""
+    import unittest
+
+    def _setup(ctx=None):
+        raise unittest.SkipTest("demo scenes only run via make demo-video")
+
+    def test_scene1(ctx=None):
+        raise AssertionError("should not run")
+
+    _setup._is_setup = True
+    test_scene1._is_test = True
+
+    class _Mod:
+        pass
+
+    module = _Mod()
+    module._setup = _setup
+    module.test_scene1 = test_scene1
+    passed, failed, suite_log = tr.run_module_suite(object(), module, "demo.skip")
+    assert passed == 0
+    assert failed == 0
+    assert any("SUITE SKIPPED:" in line for line in suite_log)
+    err = capsys.readouterr().err
+    assert "SUITE end demo.skip passed=0 failed=0 skipped=1" in err
+
+
+def test_demo_only_uno_gate() -> None:
+    assert "test_demo_video_uno.py" in tr._DEMO_ONLY_UNO
+    assert "test_demo_video_uno.py" not in tr._USER_PROFILE_ONLY_UNO
+
+
 def test_soffice_pids_win32_parses_tasklist(monkeypatch) -> None:
     import subprocess
 

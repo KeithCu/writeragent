@@ -507,8 +507,11 @@ class ToolCallingMixin:
         self._panel._set_status("Reading document...")
         started = running_turn(self._panel)
         if isinstance(started, TurnController):
-            # Capture the model/endpoint the audio is sent to, so a model
-            # switch mid-send does not mark the wrong model as audio-capable.
+            # has_native_vision returns False on an empty model id, so the
+            # round-0 image strip and drop_mcp_image_without_vision would drop
+            # every image. Stamp the send-time chat model on every send, not
+            # only after a WAV attaches. Audio cleanup reads the same fields,
+            # so a mid-send combobox change marks this model, not the new one.
             started.text_model = str(api_config.get("model") or "") or None
             started.endpoint = client._endpoint()
         turn_session = started.session if started is not None else None

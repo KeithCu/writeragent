@@ -572,6 +572,28 @@ def _self_check_group_specs(data: dict[str, Any]) -> list[tuple[str, str, tuple[
     return specs
 
 
+def _visible_group_keys(
+    key: str,
+    keys: tuple[str, ...],
+    *,
+    completed_groups: int,
+    partial_group_keys: tuple[str, ...] | None,
+    partial_group_key: str | None,
+) -> tuple[str, ...] | None:
+    if key in _SANDBOX_GROUP_KEYS:
+        s_idx = _SANDBOX_GROUP_KEYS.index(key)
+        if s_idx < completed_groups:
+            return keys
+        if s_idx == completed_groups and partial_group_keys and partial_group_key == key:
+            return partial_group_keys
+        return None
+    if key == "nlp":
+        if completed_groups >= _SELF_CHECK_DISPLAY_GROUP_COUNT:
+            return keys
+        return None
+    return keys
+
+
 def _collect_missing_probe_keys_for_display(
     data: dict[str, Any],
     *,
@@ -595,22 +617,26 @@ def _collect_missing_probe_keys_for_display(
     for key, _title, keys in specs:
         if not keys:
             continue
+        vis_keys = _visible_group_keys(
+            key,
+            keys,
+            completed_groups=completed_groups,
+            partial_group_keys=partial_group_keys,
+            partial_group_key=partial_group_key,
+        )
+        if vis_keys is None:
+            continue
         if key in _SANDBOX_GROUP_KEYS:
-            s_idx = _SANDBOX_GROUP_KEYS.index(key)
-            if s_idx < completed_groups:
-                _add(_missing_keys(keys, packages))
-            elif s_idx == completed_groups and partial_group_keys and partial_group_key == key:
-                _add(_missing_keys(partial_group_keys, packages))
+            _add(_missing_keys(vis_keys, packages))
         elif key == "nlp":
-            if completed_groups >= _SELF_CHECK_DISPLAY_GROUP_COUNT:
-                _add(_missing_keys([k for k in keys if k not in _NLP_OPTIONAL_KEYS], packages))
+            _add(_missing_keys([k for k in vis_keys if k not in _NLP_OPTIONAL_KEYS], packages))
         elif key == "vision":
             if not vision_ocr_stack_ready(packages):
-                _add([key for key in _VISION_OCR_PRIMARY_KEYS if packages.get(key) != "present"])
+                _add([k for k in _VISION_OCR_PRIMARY_KEYS if packages.get(k) != "present"])
         elif key == "vector_search":
-            _add(_missing_keys(keys, packages))
+            _add(_missing_keys(vis_keys, packages))
         elif key == "audio":
-            _add(_missing_keys([k for k in keys if k not in _AUDIO_OPTIONAL_KEYS], packages))
+            _add(_missing_keys([k for k in vis_keys if k not in _AUDIO_OPTIONAL_KEYS], packages))
     return missing
 
 
@@ -678,30 +704,34 @@ def _build_probe_display(
     for key, title, keys in specs:
         if not keys:
             continue
+        vis_keys = _visible_group_keys(
+            key,
+            keys,
+            completed_groups=completed_groups,
+            partial_group_keys=partial_group_keys,
+            partial_group_key=partial_group_key,
+        )
+        if vis_keys is None:
+            continue
         if key in _SANDBOX_GROUP_KEYS:
-            s_idx = _SANDBOX_GROUP_KEYS.index(key)
-            if s_idx < completed_groups:
-                msg_lines.extend(_format_group_lines(title, keys, packages))
-            elif s_idx == completed_groups and partial_group_keys and partial_group_key == key:
-                msg_lines.extend(_format_group_lines(title, partial_group_keys, packages))
+            msg_lines.extend(_format_group_lines(title, vis_keys, packages))
         elif key == "nlp":
-            if completed_groups >= _SELF_CHECK_DISPLAY_GROUP_COUNT:
-                msg_lines.extend(_format_group_lines(title, keys, packages, optional_keys=_NLP_OPTIONAL_KEYS))
-                nlp_failure = data.get("nlp_probe_failure")
-                if nlp_failure:
-                    msg_lines.append(f"  {nlp_failure}")
+            msg_lines.extend(_format_group_lines(title, vis_keys, packages, optional_keys=_NLP_OPTIONAL_KEYS))
+            nlp_failure = data.get("nlp_probe_failure")
+            if nlp_failure:
+                msg_lines.append(f"  {nlp_failure}")
         elif key == "vision":
-            msg_lines.extend(_format_vision_group_lines(title, keys, packages))
+            msg_lines.extend(_format_vision_group_lines(title, vis_keys, packages))
             vision_failure = data.get("vision_probe_failure")
             if vision_failure:
                 msg_lines.append(f"  {vision_failure}")
         elif key == "vector_search":
-            msg_lines.extend(_format_group_lines(title, keys, packages))
+            msg_lines.extend(_format_group_lines(title, vis_keys, packages))
             vector_search_failure = data.get("vector_search_probe_failure")
             if vector_search_failure:
                 msg_lines.append(f"  {vector_search_failure}")
         elif key == "audio":
-            msg_lines.extend(_format_group_lines(title, keys, packages, optional_keys=_AUDIO_OPTIONAL_KEYS))
+            msg_lines.extend(_format_group_lines(title, vis_keys, packages, optional_keys=_AUDIO_OPTIONAL_KEYS))
             audio_failure = data.get("audio_probe_failure")
             if audio_failure:
                 msg_lines.append(f"  {audio_failure}")
@@ -754,10 +784,6 @@ def _attach_external_probes(
         data[f"{group}_probe_failure"] = failure
 
 
-def _normalize_on_status(on_status: Callable[[str], None] | None) -> Callable[[str], None]:
-    return on_status if on_status is not None else lambda text: None
-
-
 def run_venv_self_check_with_progress(
     python_exe: str,
     on_display: Callable[[str], None],
@@ -781,28 +807,7 @@ def run_venv_self_check_with_progress(
     # scripting.python_exec_timeout is the user-script budget. These probes
     # always use SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC,
     # and VECTOR_SEARCH_PROBE_TIMEOUT_SEC. There is no caller timeout argument.
-    last: str | None = None
-
-    def _show(text: str) -> None:
-        nonlocal last
-        last = text
-        on_display(text)
-
-    def _fail(msg: str) -> tuple[bool, str]:
-        # What was wrong: (False, msg) never reached the LogArea.
-        # How: run_modal_probe binds the message to _msg and only finish()es,
-        # and these returns never called on_display. Path checks in
-        # probe_venv_path_with_progress do call on_display; these do not.
-        # Why: show msg when the log is still empty, and append it under the
-        # last body when a group was already drawn. Package IPC failures are
-        # not this path: execute() returns a status dict, and the
-        # status != "ok" branch records a warning and continues.
-        # The returned message stays msg.
-        body = (last + "\n\n" + msg) if last is not None else msg
-        _show(body)
-        return False, msg
-
-    report_status = _normalize_on_status(on_status)
+    report_status = on_status if on_status is not None else lambda text: None
 
     def _refresh(
         data: dict[str, Any],
@@ -811,7 +816,7 @@ def run_venv_self_check_with_progress(
         partial_group_keys: tuple[str, ...] | None = None,
         partial_group_key: str | None = None,
     ) -> None:
-        _show(
+        on_display(
             _build_probe_display(
                 data,
                 completed_groups=completed_groups,
@@ -835,13 +840,20 @@ def run_venv_self_check_with_progress(
 
     if response.get("status") != "ok":
         msg = str(response.get("message", "Unknown error"))
+        # Must call on_display here: a bare (False, msg) never reached the LogArea.
         if "timed out" in msg.lower() or "timeout" in msg.lower():
-            return _fail("Timed out waiting for Python (check venv and try again).")
-        return _fail(msg)
+            timeout_msg = "Timed out waiting for Python (check venv and try again)."
+            on_display(timeout_msg)
+            return False, timeout_msg
+        on_display(msg)
+        return False, msg
 
     version_data = response.get("result")
     if not isinstance(version_data, dict):
-        return _fail(f"Unexpected output from test run: {version_data!r}")
+        # Must call on_display here: a bare (False, msg) never reached the LogArea.
+        msg = f"Unexpected output from test run: {version_data!r}"
+        on_display(msg)
+        return False, msg
 
     data: dict[str, Any] = {
         "v": version_data.get("v", "unknown"),
@@ -917,7 +929,7 @@ def run_venv_self_check_with_progress(
         include_install_footer=True,
         extra_lines_after_header=extra_lines_after_header,
     )
-    _show(final_msg)
+    on_display(final_msg)
     return True, final_msg
 
 
@@ -931,7 +943,7 @@ def probe_venv_path_with_progress(
     include_audio: bool = True,
 ) -> tuple[bool, str]:
     """Resolve *venv_dir* and run a self-check, refreshing the legacy grouped view."""
-    report_status = _normalize_on_status(on_status)
+    report_status = on_status if on_status is not None else lambda text: None
 
     is_blank = not venv_dir or not str(venv_dir).strip()
     if is_blank:

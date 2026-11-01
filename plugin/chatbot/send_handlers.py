@@ -232,7 +232,7 @@ def _send_worker_queues(host: Any) -> tuple[StreamQueue, Any]:
     # ``_do_send`` starts the turn. A direct handler call with no turn yet
     # starts one before the worker. An aborted turn is not replaced.
     if current_turn(host) is None:
-        begin_send_turn(host, "")
+        begin_send_turn(host)
     raw: StreamQueue = StreamQueue()
     turn = current_turn(host)
     if isinstance(turn, TurnController) and turn.alive:

@@ -78,7 +78,7 @@ def _preview(text: str) -> str:
 _AGENT_EDIT_REVIEW_MODES = frozenset({"off", "record", "wait"})
 
 
-def get_agent_edit_review_mode(ctx: Any) -> str:
+def get_agent_edit_review_mode() -> str:
     """Read ``doc.agent_edit_review_mode`` (off / record / wait); unknown values → off."""
     from plugin.framework.config import get_config
 
@@ -90,27 +90,27 @@ def get_agent_edit_review_mode(ctx: Any) -> str:
     return "off"
 
 
-def review_recording_enabled(ctx: Any) -> bool:
+def review_recording_enabled() -> bool:
     """True when agent edits must be recorded as reviewable tracked changes.
 
     Every agent edit path must use this helper (or ``get_agent_edit_review_mode``) — not the
     raw config key.
     """
-    return get_agent_edit_review_mode(ctx) in ("record", "wait")
+    return get_agent_edit_review_mode() in ("record", "wait")
 
 
-def flag_style_unreviewed(ctx: Any, result: dict[str, Any]) -> None:
+def flag_style_unreviewed(result: dict[str, Any]) -> None:
     """Flag style and page-layout mutations for the user when review recording is active.
 
     Page-style and text-style edits do not create redlines; the flag tells the agent to say so.
     """
     if result.get("status") != "ok":
         return
-    if review_recording_enabled(ctx):
+    if review_recording_enabled():
         result["style_unreviewed"] = True
 
 
-def annotate_review_status(uno_ctx: Any, result: Any) -> dict[str, Any]:
+def annotate_review_status(result: Any) -> dict[str, Any]:
     """Tag a successful edit result with the CURRENT review status, so the model gets a fresh,
     per-call signal even if the guidance it read earlier (the connect-time pointer, a pulled
     review-modes topic, or the sidebar prompt) is stale — that text is static while the user
@@ -120,7 +120,7 @@ def annotate_review_status(uno_ctx: Any, result: Any) -> dict[str, Any]:
     if not isinstance(result, dict) or result.get("status") != "ok":
         return result
     try:
-        mode = get_agent_edit_review_mode(uno_ctx)
+        mode = get_agent_edit_review_mode()
     except Exception:
         return result
     if mode not in ("record", "wait"):
@@ -135,11 +135,11 @@ def annotate_review_status(uno_ctx: Any, result: Any) -> dict[str, Any]:
     return result
 
 
-def edit_review_wait_seconds(ctx: Any) -> int:
+def edit_review_wait_seconds() -> int:
     """Max seconds ``apply_document_content`` may block waiting for review; 0 = don't wait."""
     from plugin.framework.config import get_config_int_safe
 
-    if get_agent_edit_review_mode(ctx) != "wait":
+    if get_agent_edit_review_mode() != "wait":
         return 0
     return max(0, get_config_int_safe("doc.edit_review_timeout"))
 
@@ -185,6 +185,15 @@ def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:
     return True, 0
 
 
+def _refresh_review_toolbar(doc: Any, fail_message: str) -> None:
+    try:
+        from plugin.writer.review_toolbar import refresh_review_toolbar
+
+        refresh_review_toolbar(doc)
+    except Exception:
+        log.debug(fail_message, exc_info=True)
+
+
 def tag_agent_redlines(doc: Any, before_ids: set[Any], change_index: int = 0,
                        before_reliable: bool = False) -> str | None:
     """Stamp a fresh ``wa-review:<session>:<n>`` token on every redline created since
@@ -226,12 +235,7 @@ def tag_agent_redlines(doc: Any, before_ids: set[Any], change_index: int = 0,
     # Full success. Streamed edit paths tag their redlines here instead of via record_mutation, so
     # this is where they must reveal the review fast-travel toolbar (#2) -- otherwise it never appears
     # for those edits. Best-effort/silent; runs on the edit's (main) thread.
-    try:
-        from plugin.writer.review_toolbar import refresh_review_toolbar
-
-        refresh_review_toolbar(doc)
-    except Exception:
-        log.debug("tag_agent_redlines: toolbar refresh failed", exc_info=True)
+    _refresh_review_toolbar(doc, "tag_agent_redlines: toolbar refresh failed")
     return token
 
 
@@ -318,7 +322,6 @@ class EditReviewSession:
     session_id: str
     _active: bool
     _was_recording: bool
-    _cleaned: bool
 
     def __init__(self, doc: Any, ctx: Any, enabled: bool) -> None:
         self.doc = doc
@@ -330,15 +333,6 @@ class EditReviewSession:
         self._active = False
         self._was_recording = False
         self._prior_author: tuple[str, str] | None = None
-        self._cleaned = False
-
-    # -- session token helpers -------------------------------------------------------------
-
-    def _token(self, n: int) -> str:
-        return _review_scan.make_agent_token(self.session_id, n)
-
-    def _session_token_prefix(self) -> str:
-        return _review_scan.session_token_prefix(self.session_id)
 
     # -- author scoping --------------------------------------------------------------------
     #
@@ -445,7 +439,7 @@ class EditReviewSession:
             # user resolves the new change.
             n = self._next_change
             self._next_change += 1
-            token = self._token(n)
+            token = _review_scan.make_agent_token(self.session_id, n)
             # All-or-nothing: register ONLY on full success. On any failure the partial set is
             # reverted; orphans==0 is a clean revert, orphans>0 means a tag could not be removed
             # (broken UNO state) -- surface it loudly. Either way leave the edit unregistered.
@@ -526,12 +520,7 @@ class EditReviewSession:
             original_preview or rejected_text, proposed_preview or accepted_text))
         # A new pending change exists -> reveal the review fast-travel toolbar (#2). Runs on the
         # main thread (the edit does), so the LayoutManager call is safe; best-effort/silent.
-        try:
-            from plugin.writer.review_toolbar import refresh_review_toolbar
-
-            refresh_review_toolbar(self.doc)
-        except Exception:
-            log.debug("EditReviewSession: toolbar refresh after record failed", exc_info=True)
+        _refresh_review_toolbar(self.doc, "EditReviewSession: toolbar refresh after record failed")
         return result
 
     # -- review ------------------------------------------------------------------------------
@@ -557,7 +546,7 @@ class EditReviewSession:
         fail-closes and keeps waiting, because the unseen tail might
         still hold a registered change.
         """
-        prefix = self._session_token_prefix()
+        prefix = _review_scan.session_token_prefix(self.session_id)
         registered = {record.token for record in self.changes}
         seen: set[str] = set()
 
@@ -666,10 +655,6 @@ class EditReviewSession:
 
     def cleanup(self) -> None:
         """Remove this session's anchor bookmarks. Safe to call more than once."""
-        # We do not reject record_mutation after cleanup, because cleanup runs only from wait_for_review after the last edit.
-        if self._cleaned:
-            return
-        self._cleaned = True
         if not self._active or not self.changes:
             return
         self._remove_anchor_bookmarks(self.changes)
@@ -896,46 +881,46 @@ def close_surgical_context(undo_mgr: Any, session: EditReviewSession, changes_be
         return False
 
 
+@contextlib.contextmanager
+def _undo_batch(doc: Any, session: EditReviewSession, undo_title: str) -> Generator[Any | None, None, None]:
+    undo_mgr = _try_enter_undo_context(doc, undo_title)
+    if undo_mgr is None:
+        yield None
+        return
+    changes_before = len(session.changes)
+    applied_ok = False
+    try:
+        yield undo_mgr
+        applied_ok = True
+    finally:
+        close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
+
+
 def _apply_in_undo_context(doc: Any, session: EditReviewSession, run: Callable[[bool], Any]) -> None:
     """Run *run(in_undo_context)* -- which must perform exactly ONE session.record_mutation -- inside a
     fresh grouped-undo context when one can be opened, so a split-author delete+insert stays atomic."""
     undo_title = next_surgical_undo_title()
-    undo_mgr = _try_enter_undo_context(doc, undo_title)
-    if undo_mgr is None:
-        log.debug("edit_review: no usable/unlocked undo manager; split-author whole-block edit falls back "
-                  "to the single atomic op (one color)")
-        run(False)
-        return
-
-    changes_before = len(session.changes)
-    applied_ok = False
-    try:
+    with _undo_batch(doc, session, undo_title) as undo_mgr:
+        if undo_mgr is None:
+            log.debug("edit_review: no usable/unlocked undo manager; split-author whole-block edit falls back "
+                      "to the single atomic op (one color)")
+            run(False)
+            return
         run(True)
-        applied_ok = True
-    finally:
-        close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
 
 
 def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callable[[], Any],
                            **record_kwargs: Any) -> Any:
     """Record an HTML/import mutation that DELETES before it inserts."""
     undo_title = next_agent_edit_undo_title()
-    mgr = _try_enter_undo_context(doc, undo_title)
-    if mgr is None:
-        # The helper already caught the undo-manager error and returned None.
-        # Raising RuntimeError only to catch it did not add a cause.
-        raise ToolExecutionError(
-            "Cannot apply this content edit atomically (no usable undo context); "
-            "refusing rather than risk a half-applied edit.")
-
-    changes_before = len(session.changes)
-    applied_ok = False
-    try:
-        result = session.record_mutation(mutate, **record_kwargs)
-        applied_ok = True
-        return result
-    finally:
-        close_surgical_context(mgr, session, changes_before, applied_ok, undo_title)
+    with _undo_batch(doc, session, undo_title) as mgr:
+        if mgr is None:
+            # The helper already caught the undo-manager error and returned None.
+            # Raising RuntimeError only to catch it did not add a cause.
+            raise ToolExecutionError(
+                "Cannot apply this content edit atomically (no usable undo context); "
+                "refusing rather than risk a half-applied edit.")
+        return session.record_mutation(mutate, **record_kwargs)
 
 
 # --- post-edit echo (edited_context) ---------------------------------------
@@ -1038,47 +1023,41 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
         return
     if not result.sub_edits:
         return
-    if len(result.sub_edits) > _MAX_SURGICAL_RUNS:
-        _whole()
-        return
-    if not _block_safe_for_surgical(found):
+    if len(result.sub_edits) > _MAX_SURGICAL_RUNS or not _block_safe_for_surgical(found):
         _whole()
         return
 
     text = found.getText()
     anchor = found.getStart()
 
-    def _select(se: Any) -> Any | None:
+    def _select_verified(se: Any) -> Any | None:
         sub = text.createTextCursorByRange(anchor)
         if se.old_start and not go_right(sub, se.old_start, False):
             return None
         if se.old_end > se.old_start and not go_right(sub, se.old_end - se.old_start, True):
             return None
+        if sub.getString() != se.old_text:
+            return None
         return sub
 
     for se in result.sub_edits:
-        sub = _select(se)
-        if sub is None or sub.getString() != se.old_text:
+        if _select_verified(se) is None:
             # split_change offsets are Python code points. goRight counts UNO characters (UTF-16 code units). A mismatch falls back to a whole-block replace. Do not convert the offsets.
             log.debug("edit_review: surgical pre-flight offset mismatch; falling back to whole-block")
             _whole()
             return
 
     undo_title = next_surgical_undo_title()
-    undo_mgr = _try_enter_undo_context(doc, undo_title)
-    if undo_mgr is None:
-        log.debug("edit_review: no usable/unlocked undo manager; surgical edit falls back to whole-block "
-                  "for atomicity")
-        _whole()
-        return
-
-    changes_before = len(session.changes)
-    applied_ok = False
-    try:
+    with _undo_batch(doc, session, undo_title) as undo_mgr:
+        if undo_mgr is None:
+            log.debug("edit_review: no usable/unlocked undo manager; surgical edit falls back to whole-block "
+                      "for atomicity")
+            _whole()
+            return
         for se in sorted(result.sub_edits, key=lambda e: e.old_start, reverse=True):
             def apply_se(se: Any = se) -> None:
-                sub = _select(se)
-                if sub is None or sub.getString() != se.old_text:
+                sub = _select_verified(se)
+                if sub is None:
                     raise RuntimeError(
                         "surgical sub-edit offset drifted at apply time; aborting to avoid corruption")
                 format_support.replace_preserving_format(doc, sub, se.new_text, uno_ctx,
@@ -1089,9 +1068,6 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                 apply_se,
                 original_preview=_preview(se.old_text),
                 proposed_preview=_preview(se.new_text))
-        applied_ok = True
-    finally:
-        close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
 
 
 def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
@@ -1100,7 +1076,6 @@ def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
 
 
 _BLOCKING_REDLINE_TYPES = frozenset({"Insert", "Delete"})
-_WALK_FAILED = object()
 
 # Shown by the Extend/Edit Selection message box.
 TRACKED_SELECTION_MESSAGE = N_("This selection contains tracked insertions or deletions. Accept or reject those changes first. The selection was not modified.")
@@ -1126,7 +1101,7 @@ def _portion_type(node: Any) -> str | None:
 
 
 def _open_enum(owner: Any) -> Any:
-    """Return an enumeration, ``None`` when the object has none, or ``_WALK_FAILED``.
+    """Return an enumeration, ``None`` when the object has none, or ``_FAILED``.
 
     Missing ``createEnumeration`` is a plain test double (no redlines to protect).
     A method that exists and throws is a walk we could not finish.
@@ -1134,7 +1109,7 @@ def _open_enum(owner: Any) -> Any:
     create = getattr(owner, "createEnumeration", None)
     if not callable(create):
         return None
-    return uno_read(create, _WALK_FAILED)
+    return uno_read(create, _FAILED)
 
 
 def _is_blocking_redline(node: Any) -> bool:
@@ -1164,7 +1139,7 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
     top = _open_enum(text_range)
     if top is None:
         return False
-    if top is _WALK_FAILED:
+    if top is _FAILED:
         log.warning(
             "range_has_tracked_insert_or_delete: could not enumerate the selection; "
             "refusing so setString cannot accept an unseen redline")
@@ -1179,7 +1154,7 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
             if _portion_type(node) is not None:
                 continue
             sub = _open_enum(node)
-            if sub is _WALK_FAILED:
+            if sub is _FAILED:
                 log.warning(
                     "range_has_tracked_insert_or_delete: could not enumerate a selection "
                     "child; refusing so setString cannot accept an unseen redline")
@@ -1276,6 +1251,19 @@ def _collapse_review_context(doc: Any, track_reviewable: bool, was_recording: bo
                 log.debug("%s: redline tagging failed", label, exc_info=True)
 
 
+def _stream_write_warning(exc: Exception) -> str:
+    return _("Failed to write streamed text to the document: {0}").format(exc)
+
+
+def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterCompoundUndo, bool]:
+    refuse_tracked_insert_or_delete(text_range)
+    from plugin.doc.compound_undo import WriterCompoundUndo
+
+    compound_undo = WriterCompoundUndo(doc, title)
+    was_recording = bool(doc.getPropertyValue("RecordChanges"))
+    return compound_undo, was_recording
+
+
 class WriterStreamedRewriteSession:
     """Manage a streamed Writer edit that collapses to one tracked change.
 
@@ -1303,22 +1291,11 @@ class WriterStreamedRewriteSession:
         self.text_range = text_range
         self.original_text = original_text
         self.generated_text = ""
-        self.was_recording = False
         # When True (opt-in flag), the agent's edit is collapsed into one tracked
         # change for the user to review even if they did not have Track Changes on.
         self.track_reviewable = track_reviewable
         self.last_write_error: Exception | None = None
-        # Before the undo context, RecordChanges, and setString(""). See
-        # refuse_tracked_insert_or_delete: setString with tracking off accepts
-        # deletions and flattens insertions in this range.
-        refuse_tracked_insert_or_delete(text_range)
-        from plugin.doc.compound_undo import WriterCompoundUndo
-
-        self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
-
-        # RecordChanges get/set does not fail on a live document. The except
-        # closed undo and re-raised a read that does not fail.
-        self.was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
+        self._compound_undo, self.was_recording = _begin_streamed_edit(doc, text_range, self._UNDO_CONTEXT_TITLE)
 
         log.info("WriterStreamedRewriteSession: was_recording=%s, compound_undo open=%s", self.was_recording, self._compound_undo._open)
         try:
@@ -1361,12 +1338,12 @@ class WriterStreamedRewriteSession:
             if not self.generated_text:
                 self.abort_and_restore()
                 if self.last_write_error is not None:
-                    return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
+                    return _stream_write_warning(self.last_write_error)
                 return None
 
             if not (self.was_recording or self.track_reviewable):
                 if self.last_write_error is not None:
-                    return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
+                    return _stream_write_warning(self.last_write_error)
                 return None
 
             try:
@@ -1412,9 +1389,9 @@ class WriterStreamedRewriteSession:
             restored_via_undo = False
             if was_open:
                 try:
-                    um = self.doc.getUndoManager() if hasattr(self.doc, "getUndoManager") else None
+                    um = self.doc.getUndoManager()
                     if um is not None:
-                        titles = um.getAllUndoActionTitles() if hasattr(um, "getAllUndoActionTitles") else ()
+                        titles = um.getAllUndoActionTitles()
                         if titles and titles[0] == self._UNDO_CONTEXT_TITLE:
                             um.undo()
                             restored_via_undo = True
@@ -1466,23 +1443,8 @@ class WriterStreamedAppendSession:
         self.original_text = original_text
         self.appended_text = ""
         self.track_reviewable = track_reviewable
-        self.was_recording = False
         self.last_write_error: Exception | None = None
-        # Before the undo context and before RecordChanges is turned off. append_chunk's
-        # setString(original_text + continuation) and finish()'s setString(original_text)
-        # would accept deletions and flatten insertions. See refuse_tracked_insert_or_delete.
-        refuse_tracked_insert_or_delete(text_range)
-        from plugin.doc.compound_undo import WriterCompoundUndo
-
-        self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
-
-        # RecordChanges get/set does not fail on a live document. The except
-        # closed undo and re-raised a read that does not fail.
-        self.was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
-        # Stream with tracking OFF so the live continuation isn't recorded as a redline per
-        # chunk; finish() re-records the whole appended run as one tracked insertion.
-        # RecordChanges get/set does not fail on a live document. The except logged
-        # a disable that does not happen and re-raised only disposal.
+        self._compound_undo, self.was_recording = _begin_streamed_edit(doc, text_range, self._UNDO_CONTEXT_TITLE)
         if self.was_recording:
             self.doc.setPropertyValue("RecordChanges", False)
 
@@ -1509,11 +1471,11 @@ class WriterStreamedAppendSession:
                     # except only logged a restore that does not happen.
                     self.doc.setPropertyValue("RecordChanges", True)
                 if self.last_write_error is not None:
-                    return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
+                    return _stream_write_warning(self.last_write_error)
                 return None
             if not (self.was_recording or self.track_reviewable):
                 if self.last_write_error is not None:
-                    return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
+                    return _stream_write_warning(self.last_write_error)
                 return None
 
             try:

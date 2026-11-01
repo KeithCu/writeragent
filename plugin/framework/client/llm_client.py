@@ -117,55 +117,85 @@ def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
     return event_type in _ANTHROPIC_STREAM_TYPES
 
 
-def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | None:
+def _accepted_value_lists(param: str, error_text: str) -> list[list[str]] | None:
+    """Accepted-value lists for one rejected param, or None when the error does not name it.
+
+    A line with no ``Accepted:`` list is an empty list. Trailing JSON punctuation
+    is excluded so ``Accepted: 1:1"}`` does not become part of the token.
     """
-    Parse provider errors (like OpenRouter 'not supported. Accepted: <v1>') and adjust the requested params.
-    Returns the new body bytes, or None if no changes were made.
+    pattern = rf"\b{param}\b: not supported\.(?: Accepted: ([^|}}\n\"]+))?"
+    matches = list(re.finditer(pattern, error_text))
+    if not matches:
+        return None
+    lists: list[list[str]] = []
+    for match in matches:
+        accepted_str = match.group(1)
+        if accepted_str:
+            lists.append([item.strip() for item in accepted_str.split(",") if item.strip()])
+        else:
+            lists.append([])
+    return lists
+
+
+def _common_accepted(lists: list[list[str]]) -> list[str]:
+    """Values every non-empty Accepted list shares, in the first list's order.
+
+    A line that names no values is ignored when another line does, so one
+    provider omitting the list does not erase the other's hint. An empty
+    result means the lists disagree or nobody named a value.
+    """
+    named = [items for items in lists if items]
+    if not named:
+        return []
+    common = set(named[0])
+    for items in named[1:]:
+        common.intersection_update(items)
+    return [item for item in named[0] if item in common]
+
+
+def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | None:
+    """Adjust an image request after ``param: not supported``.
+
+    ``resolution``, ``size``, and ``output_format`` are dropped. Remapping
+    ``512`` to the first ``Accepted:`` token could pick ``4K`` or ``webp``
+    (Flux Klein rejects webp). The provider default is the value that works
+    (``1K`` for gemini-3.1-flash-lite-image).
+
+    ``aspect_ratio`` is remapped to the closest accepted ratio. Dropping it
+    turns a 16:9 request into a square. Unknown tokens and disagreeing lists
+    delete the field instead.
+
+    Returns the new body bytes, or None if nothing changed.
     """
     try:
         data = json.loads(body.decode("utf-8"))
     except Exception:
         return None
+    if not isinstance(data, dict):
+        return None
+
+    from .base_provider_shim import closest_named_aspect
 
     changed = False
-    # Example text: "resolution: not supported. Accepted: 1K | Google AI Studio: resolution: not supported. Accepted: 1K"
-    # or "aspect_ratio: not supported."
+    # Example: "resolution: not supported. Accepted: 1K | Google AI Studio: resolution: not supported. Accepted: 1K"
     for param in ("resolution", "aspect_ratio", "size", "output_format"):
         if param not in data:
             continue
-
-        pattern = rf"\b{param}\b: not supported\.(?: Accepted: ([^|}}\n\"]+))?"
-        matches = list(re.finditer(pattern, error_text))
-        if matches:
-            # all providers rejecting this param must agree on the accepted values
-            accepted_sets = []
-            for m in matches:
-                accepted_str = m.group(1)
-                if accepted_str:
-                    accepted_sets.append([x.strip() for x in accepted_str.split(",")])
-                else:
-                    accepted_sets.append([])
-
-            # Intersect the non-empty Accepted lists. A line with no list is
-            # ignored when another line names a value, so the retry uses that
-            # value. Delete the param only when those lists do not overlap,
-            # or when nobody named a value.
-            valid_accepted = [s for s in accepted_sets if s]
-            if valid_accepted:
-                common = set(valid_accepted[0])
-                for s in valid_accepted[1:]:
-                    common.intersection_update(s)
-                if common:
-                    # Just take the first one from the first set that is in common to preserve order preference
-                    new_val = next(x for x in valid_accepted[0] if x in common)
-                    data[param] = new_val
-                    changed = True
-                else:
-                    del data[param]
-                    changed = True
-            else:
-                del data[param]
-                changed = True
+        accepted_lists = _accepted_value_lists(param, error_text)
+        if accepted_lists is None:
+            continue
+        if param != "aspect_ratio":
+            del data[param]
+            changed = True
+            continue
+        # Keep list order so an equal distance uses the earlier accepted token.
+        new_val = closest_named_aspect(str(data.get(param) or ""), _common_accepted(accepted_lists))
+        if new_val and new_val != data.get(param):
+            data[param] = new_val
+        else:
+            # Same value, or no known ratio: a retry of the rejected body would 400 again.
+            del data[param]
+        changed = True
 
     if changed:
         return json.dumps(data).encode("utf-8")

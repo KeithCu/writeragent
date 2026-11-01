@@ -33,7 +33,6 @@ from plugin.writer.images.images import (
     ImageReplace,
     ImageSetProperties,
     _download_image_to_cache,
-    _object_size,
     _replacement_size_units,
     _resolve_crop_edges,
     _resolve_orient,
@@ -246,9 +245,10 @@ def test_image_generate_omitted_source_edits_when_selected():
     svc.generate_image.return_value = (["/tmp/edited.png"], None)
 
     target_obj = MagicMock()
+    frame_size = MagicMock(Width=6400, Height=4800)
+    target_obj.getSize.return_value = frame_size
     graphic_model = MagicMock()
     graphic_model.getPropertyValue.side_effect = lambda prop: SimpleNamespace(Width=1024, Height=1024) if prop == "SizePixel" else None
-    frame_size = MagicMock(Width=6400, Height=4800)
 
     def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
@@ -258,7 +258,6 @@ def test_image_generate_omitted_source_edits_when_selected():
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
         patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
         patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
-        patch("plugin.writer.images.images._object_size", return_value=frame_size),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
         patch("plugin.writer.images.images.insert_image") as insert,
@@ -271,8 +270,11 @@ def test_image_generate_omitted_source_edits_when_selected():
     assert res["status"] == "ok"
     assert "edited" in res["message"].lower()
     assert svc.generate_image.call_args.kwargs.get("source_image") == base64.b64encode(b"pngsel").decode("ascii")
-    assert svc.generate_image.call_args.kwargs.get("width") == 1024
-    assert svc.generate_image.call_args.kwargs.get("height") == 1024
+    # SizePixel is 1024, but the patched base size is 512. Output pixels follow
+    # the base size; the bytes and the on-page frame do not.
+    assert svc.generate_image.call_args.kwargs.get("width") == 512
+    assert svc.generate_image.call_args.kwargs.get("height") == 512
+    assert svc.generate_image.call_args.kwargs.get("aspect_ratio") == "1:1"
 
     replace.assert_called_once_with(
         ctx.ctx,
@@ -288,13 +290,14 @@ def test_image_generate_omitted_source_edits_when_selected():
 
 
 def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_size():
-    """If native size is not available, uses the display size for generating and replacing."""
+    """Missing SizePixel uses the frame's aspect and the base size, not the frame's pixel count."""
     ctx = TestingFactory.create_context(doc_type="writer")
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/edited.png"], None)
 
     target_obj = MagicMock()
     frame_size = MagicMock(Width=6400, Height=4800)
+    target_obj.getSize.return_value = frame_size
 
     def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
@@ -304,7 +307,6 @@ def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_s
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
         patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
         patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
-        patch("plugin.writer.images.images._object_size", return_value=frame_size),
         patch("plugin.doc.visual_helpers.units_to_px", return_value=(640, 480)),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
@@ -317,8 +319,10 @@ def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_s
     assert res["status"] == "ok"
     assert "edited" in res["message"].lower()
     assert svc.generate_image.call_args.kwargs.get("source_image") == base64.b64encode(b"pngsel").decode("ascii")
-    assert svc.generate_image.call_args.kwargs.get("width") == 640
-    assert svc.generate_image.call_args.kwargs.get("height") == 480
+    # 640x480 is 4:3. Patched base size 512 is the long edge, so the short edge is 384.
+    assert svc.generate_image.call_args.kwargs.get("width") == 512
+    assert svc.generate_image.call_args.kwargs.get("height") == 384
+    assert svc.generate_image.call_args.kwargs.get("aspect_ratio") == "4:3"
 
     replace.assert_called_once_with(
         ctx.ctx,
@@ -340,11 +344,12 @@ def test_image_generate_edit_scales_single_sided_dimension():
     svc.generate_image.return_value = (["/tmp/edited.png"], None)
 
     target_obj = MagicMock()
+    frame_size = MagicMock(Width=6400, Height=4800)
+    target_obj.getSize.return_value = frame_size
     graphic_model = MagicMock()
     graphic_model.getPropertyValue.side_effect = (
         lambda prop: SimpleNamespace(Width=1024, Height=768) if prop == "SizePixel" else None
     )
-    frame_size = MagicMock(Width=6400, Height=4800)
 
     def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
@@ -354,7 +359,6 @@ def test_image_generate_edit_scales_single_sided_dimension():
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
         patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
         patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
-        patch("plugin.writer.images.images._object_size", return_value=frame_size),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
         patch("plugin.writer.images.images.insert_image"),
@@ -583,7 +587,7 @@ def test_image_replace_https_download_verifies_tls():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images._download_image_to_cache", return_value="/tmp/logo.png") as download,
         patch("os.path.isfile", return_value=True),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
@@ -656,7 +660,7 @@ def test_image_get_info_reports_hyperlink_url():
     # ODF draw:a href is HyperLinkURL on the graphic. The tool must return it.
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = _graphic_for_info({"HyperLinkURL": "#ÍNDEX"})
-    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageGetInfo().execute(ctx, name="IndexButton")
     assert res["status"] == "ok"
     assert res["hyperlink_url"] == "#ÍNDEX"
@@ -666,20 +670,10 @@ def test_image_get_info_hyperlink_url_empty_when_absent():
     # Calc/Draw shapes often have no HyperLinkURL. Missing means no link, not an error.
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = _graphic_for_info()
-    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageGetInfo().execute(ctx, name="Plain")
     assert res["status"] == "ok"
     assert res["hyperlink_url"] == ""
-
-
-def test_object_size_reads_writer_property_and_draw_getsize():
-    writer = MagicMock()
-    writer.getSize.return_value = "writer-size"
-    assert _object_size(writer) == "writer-size"
-    draw = MagicMock()
-    draw.getPropertyValue.side_effect = Exception("UnknownPropertyException: Size")
-    draw.getSize.return_value = "draw-size"
-    assert _object_size(draw) == "draw-size"
 
 
 def test_replacement_size_units_preserves_aspect():
@@ -695,10 +689,10 @@ def test_image_replace_one_side_scales():
     size = MagicMock()
     size.Width = 2000
     size.Height = 1000
+    graphic.getSize.return_value = size
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("os.path.isfile", return_value=True),
-        patch("plugin.writer.images.images._object_size", return_value=size),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as mock_replace,
     ):
         res = ImageReplace().execute(ctx, name="Graphic1", path="/tmp/new.png", width_mm=40)
@@ -711,10 +705,10 @@ def test_image_replace_one_side_scales():
 def test_image_replace_size_read_failure_is_tool_execution_error():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
+    graphic.getSize.side_effect = RuntimeError("cannot read size")
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("os.path.isfile", return_value=True),
-        patch("plugin.writer.images.images._object_size", side_effect=RuntimeError("cannot read size")),
         patch("plugin.writer.images.images.replace_graphic_source") as mock_replace,
     ):
         res = ImageReplace().execute_safe(ctx, name="Graphic1", path="/tmp/new.png", width_mm=40)
@@ -730,7 +724,7 @@ def test_image_replace_download_failure_is_tool_error():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images._download_image_to_cache", side_effect=urllib.error.URLError("timed out")),
     ):
         res = ImageReplace().execute(ctx, name="Graphic1", path="https://example.com/pic.png")
@@ -740,7 +734,7 @@ def test_image_replace_download_failure_is_tool_error():
 
     # A local missing file still returns FILE_NOT_FOUND and does not call the downloader
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images._download_image_to_cache") as mock_download,
         patch("os.path.isfile", return_value=False),
     ):
@@ -803,7 +797,7 @@ def test_image_delete_draw_ambiguous_name():
     ctx = MagicMock()
     graphic = MagicMock()
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="draw"),
         patch(
             "plugin.doc.visual_helpers.remove_graphic_from_draw_pages",
@@ -1039,7 +1033,7 @@ def test_image_replace_downloads_between_uno_calls():
         return fn(*args)
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images._download_image_to_cache", side_effect=_mock_download),
         patch("os.path.isfile", return_value=True),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
@@ -1093,7 +1087,7 @@ def test_image_replace_url_existence_scoped_apply_unscoped():
         return fn(*args)
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images._download_image_to_cache") as mock_download,
         patch("plugin.writer.images.images._run_on_main", side_effect=_run_cancel_existence),
     ):
@@ -1111,7 +1105,7 @@ def test_image_replace_url_existence_scoped_apply_unscoped():
         return fn(*args)
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images._download_image_to_cache", return_value="/tmp/logo.png"),
         patch("os.path.isfile", return_value=True),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
@@ -1136,7 +1130,7 @@ def test_image_get_info_anchor_type_from_enum_name():
         "VertOrient": 3,
     }
     graphic = _graphic_for_info(extra)
-    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageGetInfo().execute(ctx, name="Pic")
     assert res["status"] == "ok"
     assert res["anchor_type"] == 2
@@ -1149,7 +1143,7 @@ def test_image_get_info_anchor_type_from_enum_name():
         "VertOrient": 3,
     }
     graphic2 = _graphic_for_info(extra2)
-    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic2):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic2):
         res2 = ImageGetInfo().execute(ctx, name="Pic")
     assert res2["status"] == "ok"
     assert res2["anchor_type"] is None
@@ -1163,7 +1157,7 @@ def test_image_get_info_anchor_type_from_enum_name():
 def test_image_get_info_ignores_fill_bitmap_repr():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = _graphic_for_info({"GraphicURL": "", "GraphicObjectFillBitmap": object()})
-    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageGetInfo().execute(ctx, name="Pic")
     assert res["status"] == "ok"
     assert res["graphic_url"] == ""
@@ -1194,7 +1188,7 @@ def test_image_get_info_disposal_propagates():
     graphic.getPropertyValue.side_effect = _get
     graphic.getAnchor.side_effect = Exception("no anchor")
 
-    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         with pytest.raises(DocumentDisposedError):
             ImageGetInfo().execute(ctx, name="Pic")
 
@@ -1213,16 +1207,12 @@ def test_image_list_reports_unreadable_image():
     good_size = MagicMock()
     good_size.Width = 1000
     good_size.Height = 500
-
-    def _mock_size(obj):
-        if obj is good:
-            return good_size
-        raise RuntimeError("boom")
+    good.getSize.return_value = good_size
+    bad.getSize.side_effect = RuntimeError("boom")
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Good", good), ("Bad", bad)]),
-        patch("plugin.writer.images.images._object_size", side_effect=_mock_size),
     ):
         res = ImageList().execute(ctx)
 
@@ -1238,13 +1228,13 @@ def test_image_list_disposal_is_not_a_short_list():
     ctx = TestingFactory.create_context(doc_type="writer")
     ctx.doc.getGraphicObjects = MagicMock()
     good = MagicMock()
+    good.getSize.side_effect = DocumentDisposedError("closed")
     good.getPropertyValue.side_effect = Exception("no Title")
     good.getAnchor.side_effect = Exception("no anchor")
 
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Good", good)]),
-        patch("plugin.writer.images.images._object_size", side_effect=DocumentDisposedError("closed")),
     ):
         with pytest.raises(DocumentDisposedError):
             ImageList().execute(ctx)
@@ -1255,7 +1245,7 @@ def test_image_set_properties_rejects_anchor_type():
     ok, err = ImageSetProperties().validate(name="G", anchor_type=9)
     assert not ok
 
-    with patch("plugin.writer.images.images._get_graphic_object") as mock_get:
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name") as mock_get:
         res = ImageSetProperties().execute(ctx, name="G", anchor_type=9)
         assert res["code"] == "INVALID_PARAMETER"
         mock_get.assert_not_called()
@@ -1273,10 +1263,10 @@ def test_image_replace_size_disposal_propagates():
 
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
+    graphic.getSize.side_effect = DocumentDisposedError("closed")
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("os.path.isfile", return_value=True),
-        patch("plugin.writer.images.images._object_size", side_effect=DocumentDisposedError("closed")),
         patch("plugin.writer.images.images.replace_graphic_source") as mock_replace,
     ):
         with pytest.raises(DocumentDisposedError):
@@ -1304,9 +1294,9 @@ def test_image_generate_export_disposal_propagates():
 def test_image_set_properties_size_read_failure_is_tool_execution_error():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
+    graphic.getSize.side_effect = RuntimeError("cannot read size")
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
-        patch("plugin.writer.images.images._object_size", side_effect=RuntimeError("cannot read size")),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
     ):
         res = ImageSetProperties().execute_safe(ctx, name="G", width_mm=10)
     assert res["status"] != "ok"
@@ -1333,12 +1323,12 @@ def test_image_crop_bake_failure_is_tool_execution_error():
     size_mock = MagicMock()
     size_mock.Width = 1000
     size_mock.Height = 500
+    obj.getSize.return_value = size_mock
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
         patch("plugin.doc.visual_helpers.pixel_size", return_value=(100, 80)),
         patch("plugin.writer.images.images.image_mark.bake", side_effect=RuntimeError("bake failed")),
-        patch("plugin.writer.images.images._object_size", return_value=size_mock),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
     ):
         res = ImageCropAndHighlight().execute_safe(ctx, name="Pic", crop_box=[0, 0, 10, 10])
@@ -1351,13 +1341,13 @@ def test_image_crop_bake_failure_is_tool_execution_error():
 def test_image_crop_and_highlight_bake_value_error_is_invalid_parameter():
     ctx = TestingFactory.create_context(doc_type="writer")
     obj = MagicMock()
+    obj.getSize.return_value = MagicMock(Width=1000, Height=1000)
     graphic = MagicMock()
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=graphic),
         patch("plugin.doc.visual_helpers.pixel_size", return_value=(50000, 50000)),
         patch("plugin.writer.images.images.image_mark.bake", side_effect=ValueError("Region exceeds maximum bake limit")),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
         patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
     ):
@@ -1378,12 +1368,12 @@ def test_image_crop_rejects_non_positive_width_mm():
 
     obj = MagicMock()
     size_mock = MagicMock(Width=1000, Height=500)
+    obj.getSize.return_value = size_mock
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
         patch("plugin.doc.visual_helpers.pixel_size", return_value=(100, 80)),
         patch("plugin.writer.images.images.image_mark.bake", return_value=MagicMock()),
-        patch("plugin.writer.images.images._object_size", return_value=size_mock),
         patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=True),
         patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=True),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
@@ -1418,6 +1408,7 @@ def test_image_crop_reports_frame_failures():
     obj = MagicMock()
     baked_graphic = MagicMock()
     size_mock = MagicMock(Width=1000, Height=500)
+    obj.getSize.return_value = size_mock
 
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
@@ -1431,11 +1422,10 @@ def test_image_crop_reports_frame_failures():
     ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
         patch("plugin.doc.visual_helpers.pixel_size", return_value=(100, 80)),
         patch("plugin.writer.images.images.image_mark.bake", return_value=baked_graphic) as mock_bake,
-        patch("plugin.writer.images.images._object_size", return_value=size_mock),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
         patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
     ):
@@ -1480,13 +1470,13 @@ def test_image_crop_locked_undo_writes_nothing():
     undo_mgr.isLocked.return_value = True
     ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
     size_mock = MagicMock(Width=1000, Height=500)
+    obj.getSize.return_value = size_mock
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
         patch("plugin.doc.visual_helpers.pixel_size", return_value=(100, 80)),
         patch("plugin.writer.images.images.image_mark.bake", return_value=MagicMock()),
-        patch("plugin.writer.images.images._object_size", return_value=size_mock),
         patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
         patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
     ):
@@ -1503,7 +1493,7 @@ def test_image_crop_and_info_unmeasurable_graphic():
     graphic = SimpleNamespace(getPropertyValue=lambda prop: None)
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=obj),
         patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=graphic),
         patch("plugin.writer.images.images.image_mark.bake") as mock_bake,
     ):
@@ -1527,6 +1517,7 @@ def test_image_list_disposed_anchor_type_raises_document_disposed():
     ctx = TestingFactory.create_context(doc_type="writer")
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
+    graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
 
     def _get_prop(name):
         if name == "AnchorType":
@@ -1538,7 +1529,6 @@ def test_image_list_disposed_anchor_type_raises_document_disposed():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("PagePic", graphic)]),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
     ):
         with pytest.raises(DocumentDisposedError):
             ImageList().execute(ctx)
@@ -1577,6 +1567,7 @@ def test_image_list_at_page_never_calls_gotorange():
     ctx = TestingFactory.create_context(doc_type="writer")
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
+    graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
     graphic.getPropertyValue.side_effect = lambda name: AT_PAGE if name == "AnchorType" else 3 if name == "AnchorPageNo" else MagicMock()
     graphic.getAnchor.return_value = MagicMock()
 
@@ -1588,7 +1579,6 @@ def test_image_list_at_page_never_calls_gotorange():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("PagePic", graphic)]),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
     ):
         res = ImageList().execute(ctx)
 
@@ -1604,6 +1594,7 @@ def test_image_list_at_page_zero_not_reported_as_page():
     ctx = TestingFactory.create_context(doc_type="writer")
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
+    graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
     graphic.getPropertyValue.side_effect = lambda name: AT_PAGE if name == "AnchorType" else 0 if name == "AnchorPageNo" else MagicMock()
     graphic.getAnchor.return_value = MagicMock()
 
@@ -1615,7 +1606,6 @@ def test_image_list_at_page_zero_not_reported_as_page():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("PagePic", graphic)]),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
     ):
         res = ImageList().execute(ctx)
 
@@ -1631,6 +1621,7 @@ def test_image_list_paragraph_anchor_restores_cloned_cursor():
     ctx.doc.getGraphicObjects = MagicMock()
     para_anchor_type = MagicMock()
     graphic = MagicMock()
+    graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
     graphic.getPropertyValue.side_effect = lambda name: para_anchor_type if name == "AnchorType" else MagicMock()
     anchor = MagicMock()
     start_pos = MagicMock()
@@ -1647,7 +1638,6 @@ def test_image_list_paragraph_anchor_restores_cloned_cursor():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("ParaPic", graphic)]),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
         patch("plugin.writer.images.images._cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
     ):
         res = ImageList().execute(ctx)
@@ -1662,6 +1652,7 @@ def test_image_list_cursor_save_fails_skips_gotorange_and_page():
     ctx = TestingFactory.create_context(doc_type="writer")
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
+    graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
     graphic.getPropertyValue.side_effect = lambda name: MagicMock()
     anchor = MagicMock()
     anchor.getStart.return_value = MagicMock()
@@ -1675,7 +1666,6 @@ def test_image_list_cursor_save_fails_skips_gotorange_and_page():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Pic", graphic)]),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
         patch("plugin.writer.images.images._cursor_for_writer_view", side_effect=RuntimeError("cannot clone")),
     ):
         res = ImageList().execute(ctx)
@@ -1690,6 +1680,7 @@ def test_image_list_page_zero_omitted():
     ctx = TestingFactory.create_context(doc_type="writer")
     ctx.doc.getGraphicObjects = MagicMock()
     graphic = MagicMock()
+    graphic.getSize.return_value = MagicMock(Width=1000, Height=1000)
     graphic.getPropertyValue.side_effect = lambda name: MagicMock()
     anchor = MagicMock()
     anchor.getStart.return_value = MagicMock()
@@ -1705,7 +1696,6 @@ def test_image_list_page_zero_omitted():
     with (
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
         patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Pic", graphic)]),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=1000)),
         patch("plugin.writer.images.images._cursor_for_writer_view", return_value=(MagicMock(), saved_cursor)),
     ):
         res = ImageList().execute(ctx)
@@ -1718,7 +1708,7 @@ def test_image_list_page_zero_omitted():
 def test_image_set_properties_unknown_hori_orient_no_writes():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
-    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageSetProperties().execute(ctx, name="Pic", hori_orient="nowhere")
     assert res["status"] != "ok"
     assert res.get("code") == "INVALID_PARAMETER"
@@ -1748,10 +1738,10 @@ def test_image_set_properties_rollback_on_failure():
             raise RuntimeError("disk full on description")
 
     graphic.setPropertyValue.side_effect = _set_prop
+    graphic.getSize.return_value = MagicMock(Width=100, Height=100)
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=100, Height=100)),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
     ):
         res = ImageSetProperties().execute(ctx, name="Pic", title="New Title", description="New Desc")
 
@@ -1763,6 +1753,7 @@ def test_image_set_properties_rollback_on_failure():
 def test_image_set_properties_success_does_not_undo():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
+    graphic.getSize.return_value = MagicMock(Width=100, Height=100)
     psi = MagicMock()
     psi.hasPropertyByName.return_value = True
     graphic.getPropertySetInfo.return_value = psi
@@ -1774,8 +1765,7 @@ def test_image_set_properties_success_does_not_undo():
     ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=100, Height=100)),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
     ):
         res = ImageSetProperties().execute(ctx, name="Pic", title="New Title")
 
@@ -1786,6 +1776,7 @@ def test_image_set_properties_success_does_not_undo():
 def test_image_set_properties_enter_fails_is_undo_unavailable():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
+    graphic.getSize.return_value = MagicMock(Width=100, Height=100)
     psi = MagicMock()
     psi.hasPropertyByName.return_value = True
     graphic.getPropertySetInfo.return_value = psi
@@ -1799,8 +1790,7 @@ def test_image_set_properties_enter_fails_is_undo_unavailable():
     graphic.setPropertyValue.side_effect = RuntimeError("set failed")
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=100, Height=100)),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
     ):
         res = ImageSetProperties().execute(ctx, name="Pic", title="New Title")
 
@@ -1817,6 +1807,7 @@ def test_image_set_properties_single_undo_context():
     psi.hasPropertyByName.return_value = True
     graphic.getPropertySetInfo.return_value = psi
     size_mock = MagicMock(Width=100, Height=100)
+    graphic.getSize.return_value = size_mock
 
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
@@ -1824,8 +1815,7 @@ def test_image_set_properties_single_undo_context():
     ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
-        patch("plugin.writer.images.images._object_size", return_value=size_mock),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
     ):
         res = ImageSetProperties().execute(ctx, name="Pic", width_mm=20, title="New Title")
 
@@ -1848,7 +1838,7 @@ def test_image_set_properties_shape_without_size_property_uses_setsize():
     graphic.getPropertySetInfo.return_value = psi
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images.visual_helpers.has_uno_property", return_value=False),
         patch("plugin.writer.images.images.visual_helpers.safe_set_property", return_value=False),
         patch("plugin.writer.images.images.visual_helpers.safe_try_method", return_value=True) as safe_try,
@@ -1868,7 +1858,7 @@ def test_image_set_properties_draw_shape_unsupported_properties_rejected():
         return name not in ("AnchorType", "GraphicCrop")
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images.visual_helpers.has_uno_property", side_effect=_has_prop),
     ):
         res = ImageSetProperties().execute(ctx, name="DrawShape", anchor_type=0, width_mm=20)
@@ -1885,7 +1875,7 @@ def test_image_set_properties_draw_shape_unsupported_properties_rejected():
 def test_image_set_properties_rejects_negative_crop():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
-    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageSetProperties().execute(ctx, name="Pic", crop_top_mm=-1)
         assert res["status"] != "ok"
         assert res.get("code") == "INVALID_PARAMETER"
@@ -1918,9 +1908,10 @@ def test_image_set_properties_tiny_width_mm_clamps_to_one_unit():
             recorded_sizes.append(val)
         return True
 
+    graphic.getSize.return_value = MagicMock(Width=100, Height=100)
+
     with (
-        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=100, Height=100)),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images.visual_helpers.safe_set_property", side_effect=_record_size),
         patch.object(sys.modules["com.sun.star.awt"], "Size", MagicMock, create=True),
     ):
@@ -2068,6 +2059,7 @@ def test_image_generate_preserves_large_frame_units_without_capping():
     for w_units, h_units in [(16934, 12698), (13500, 10125), (100, 100)]:
         target_obj = MagicMock()
         frame_size = MagicMock(Width=w_units, Height=h_units)
+        target_obj.getSize.return_value = frame_size
 
         def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
             return fn(*args, **kwargs)
@@ -2077,7 +2069,6 @@ def test_image_generate_preserves_large_frame_units_without_capping():
             patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
             patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngdata"),
             patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
-            patch("plugin.writer.images.images._object_size", return_value=frame_size),
             patch("plugin.writer.images.images.ImageService", return_value=svc),
             patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
             patch("plugin.writer.images.images.insert_image") as insert,
@@ -2119,13 +2110,13 @@ def test_image_generate_replaces_original_target_even_if_selection_changed():
         return fn(*args, **kwargs)
 
     frame_size = MagicMock(Width=5000, Height=3000)
+    original_target.getSize.return_value = frame_size
 
     with (
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
         patch("plugin.doc.visual_helpers.selected_graphic_object", side_effect=lambda doc: current_selection[0]),
         patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngdata"),
         patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
-        patch("plugin.writer.images.images._object_size", return_value=frame_size),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
         patch("plugin.writer.images.images.get_config_int", return_value=512),
@@ -2304,46 +2295,48 @@ def test_image_tools_calc_sheet_index_and_ambiguity():
     ambig_err = AmbiguousGraphicNameError("Several shapes named 'Pic' found on sheets [0, 1]", sheet_indices=[0, 1])
 
     # 1. ImageGetInfo returns AMBIGUOUS_NAME with sheet_indices
-    with patch("plugin.writer.images.images._get_graphic_object", side_effect=ambig_err):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
         res = ImageGetInfo().execute(ctx, name="Pic")
         assert res["status"] != "ok"
         assert res.get("code") == "AMBIGUOUS_NAME"
         assert res.get("details", {}).get("sheet_indices") == [0, 1]
 
     # 2. ImageSetProperties returns AMBIGUOUS_NAME with sheet_indices
-    with patch("plugin.writer.images.images._get_graphic_object", side_effect=ambig_err):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
         res = ImageSetProperties().execute(ctx, name="Pic", width_mm=20)
         assert res["status"] != "ok"
         assert res.get("code") == "AMBIGUOUS_NAME"
         assert res.get("details", {}).get("sheet_indices") == [0, 1]
 
     # 3. ImageCropAndHighlight returns AMBIGUOUS_NAME with sheet_indices
-    with patch("plugin.writer.images.images._get_graphic_object", side_effect=ambig_err):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
         res = ImageCropAndHighlight().execute(ctx, name="Pic", crop_box=[0, 0, 10, 10])
         assert res["status"] != "ok"
         assert res.get("code") == "AMBIGUOUS_NAME"
         assert res.get("details", {}).get("sheet_indices") == [0, 1]
 
     # 4. ImageDelete returns AMBIGUOUS_NAME with sheet_indices
-    with patch("plugin.writer.images.images._get_graphic_object", side_effect=ambig_err):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
         res = ImageDelete().execute(ctx, name="Pic")
         assert res["status"] != "ok"
         assert res.get("code") == "AMBIGUOUS_NAME"
         assert res.get("details", {}).get("sheet_indices") == [0, 1]
 
     # 5. ImageReplace returns AMBIGUOUS_NAME with sheet_indices
-    with patch("plugin.writer.images.images._get_graphic_object", side_effect=ambig_err):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=ambig_err):
         res = ImageReplace().execute(ctx, name="Pic", path="/tmp/pic.png")
         assert res["status"] != "ok"
         assert res.get("code") == "AMBIGUOUS_NAME"
         assert res.get("details", {}).get("sheet_indices") == [0, 1]
 
-    # 6. With sheet_index passed, _get_graphic_object receives sheet_index
+    # 6. With sheet_index passed, get_graphic_object_by_name receives sheet_index
     calls = []
 
-    def _mock_get(context, doc, name, sheet_index=None):
+    def _mock_get(doc, name, sheet_index=None):
         calls.append((name, sheet_index))
-        return MagicMock()
+        mock_obj = MagicMock()
+        mock_obj.getSize.return_value = MagicMock(Width=1000, Height=500)
+        return mock_obj
 
     undo_mgr = MagicMock()
     undo_mgr.isLocked.return_value = False
@@ -2351,8 +2344,7 @@ def test_image_tools_calc_sheet_index_and_ambiguity():
     ctx.doc.getUndoManager = MagicMock(return_value=undo_mgr)
 
     with (
-        patch("plugin.writer.images.images._get_graphic_object", side_effect=_mock_get),
-        patch("plugin.writer.images.images._object_size", return_value=MagicMock(Width=1000, Height=500)),
+        patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=_mock_get),
         patch("plugin.doc.visual_helpers.safe_set_property", return_value=True),
     ):
         res = ImageSetProperties().execute(ctx, name="Pic", width_mm=20, sheet_index=1)
@@ -2364,7 +2356,7 @@ def test_image_get_info_draw_skips_paragraph_lookup():
     ctx = TestingFactory.create_context(doc_type="draw")
     graphic = _graphic_for_info()
     ctx.services.document = MagicMock()
-    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic):
         res = ImageGetInfo().execute(ctx, name="Pic")
     assert res["status"] == "ok"
     assert res["paragraph_index"] == -1

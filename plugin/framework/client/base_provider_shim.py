@@ -194,6 +194,50 @@ _PIXEL_ASPECT_RATIOS: tuple[tuple[str, float], ...] = (("1:1", 1.0), ("16:9", 16
 _ASPECT_RATIO_LABELS: frozenset[str] = frozenset(label for label, _ratio in _PIXEL_ASPECT_RATIOS)
 
 
+def closest_aspect_label(width: int | None = None, height: int | None = None) -> str | None:
+    """Closest standard ratio for WxH, including ratios outside the 7% wire window.
+
+    ``canonical_aspect_ratio`` returns None past that window so create can send
+    the raw pixel size. An edit must not: a 1:2 photo or a ~510px frame is not
+    a size any image API accepts.
+    """
+    if not width or not height or width < 1 or height < 1:
+        return None
+    ratio = width / height
+    label, _expected = min(_PIXEL_ASPECT_RATIOS, key=lambda item: abs(ratio - item[1]))
+    return label
+
+
+def _aspect_ratio_value(label: str) -> float | None:
+    key = str(label).strip()
+    for name, value in _PIXEL_ASPECT_RATIOS:
+        if name == key:
+            return value
+    return None
+
+
+def closest_named_aspect(current: str, accepted: list[str]) -> str | None:
+    """Accepted ratio closest to ``current``. Unknown tokens are skipped.
+
+    First-in-list used to win, so a rejected ``16:9`` became ``1:1`` whenever
+    the provider listed square first. Ties keep the earlier accepted token.
+    """
+    current_ratio = _aspect_ratio_value(current)
+    if current_ratio is None:
+        return None
+    best: str | None = None
+    best_dist: float | None = None
+    for token in accepted:
+        value = _aspect_ratio_value(token)
+        if value is None:
+            continue
+        dist = abs(current_ratio - value)
+        if best_dist is None or dist < best_dist:
+            best = token
+            best_dist = dist
+    return best
+
+
 def canonical_aspect_ratio(width: int | None = None, height: int | None = None, named: str | None = None) -> str | None:
     """Return a provider aspect-ratio hint (``1:1``, ``16:9``, …) or None.
 
