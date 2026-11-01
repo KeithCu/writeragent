@@ -61,6 +61,13 @@ _SUPPORTED_SERVICE_NAMES = (
 )
 
 
+def _url_from_descriptor(descriptor: Any) -> str:
+    for prop in descriptor:
+        if getattr(prop, "Name", "") == "URL":
+            return str(prop.Value or "")
+    return ""
+
+
 class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceInfo, XExtendedFilterDetection):
     ctx: Any
     target_doc: Any
@@ -73,11 +80,7 @@ class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceIn
     # PyUNO requires (typeName, descriptor), not a bare string (#482).
     def detect(self, Descriptor: Any) -> Any:  # type: ignore
         descriptor = tuple(Descriptor or ())
-        file_url = ""
-        for prop in descriptor:
-            if getattr(prop, "Name", "") == "URL":
-                file_url = str(prop.Value or "")
-                break
+        file_url = _url_from_descriptor(descriptor)
         type_name = "writer_WriterAgent_Jupyter_Notebook" if file_url.lower().endswith(".ipynb") else ""
         return type_name, descriptor
 
@@ -87,11 +90,7 @@ class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceIn
 
     # XFilter
     def filter(self, aDescriptor: Any) -> bool:
-        file_url = ""
-        for prop in aDescriptor:
-            if prop.Name == "URL":
-                file_url = prop.Value
-                break
+        file_url = _url_from_descriptor(aDescriptor)
 
         if not file_url or not self.target_doc:
             return False

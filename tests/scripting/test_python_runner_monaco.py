@@ -369,7 +369,7 @@ def test_run_python_monaco_on_save_persists_and_executes():
         return True
 
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
-        with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
+        with patch("plugin.scripting.document_scripts.save_user_script", return_value=None) as mock_save:
             with patch.object(pr, "execute_and_insert_result") as mock_execute:
                 with patch.object(pr, "get_config_str", return_value="Prime Numbers"):
                     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Prime Numbers": "print(1)"}):
@@ -438,7 +438,7 @@ def test_run_python_monaco_reopen_refuses_second_run():
         with patch("plugin.framework.uno_context.get_runtime_uid", return_value="doc-1"), patch.object(
             pr, "get_runtime_uid", return_value="doc-1"
         ):
-            with patch("plugin.scripting.document_scripts.save_user_script"):
+            with patch("plugin.scripting.document_scripts.save_user_script", return_value=None):
                 with patch.object(pr, "execute_and_insert_result") as mock_execute:
                     with patch.object(pr, "get_config_str", return_value="Prime Numbers"):
                         with patch(
@@ -522,7 +522,7 @@ def test_run_python_monaco_other_document_can_run():
         with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=_get_uid), patch.object(
             pr, "get_runtime_uid", side_effect=_get_uid
         ):
-            with patch("plugin.scripting.document_scripts.save_user_script"):
+            with patch("plugin.scripting.document_scripts.save_user_script", return_value=None):
                 with patch.object(pr, "get_config_str", return_value="Prime Numbers"):
                     with patch(
                         "plugin.scripting.document_scripts.get_user_scripts",

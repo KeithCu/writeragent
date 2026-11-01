@@ -411,7 +411,7 @@ def _document_script_store(script_session_id: str | None) -> dict[str, str]:
     # Passed from the worker turn. A process-global was overwritten by the
     # embeddings pool, so wa.doc followed the focused window.
     doc = document_for_script_session(uno_ctx, script_session_id)
-    if doc is None and uno_ctx is not None:
+    if doc is None:
         doc = get_active_document(uno_ctx)
     if doc is None:
         return {}
@@ -476,7 +476,7 @@ def handle_tool_call_frame(
     send_cancellation: Any | None = None,
 ) -> bool:
     """Handle a worker ``tool_call`` frame. Returns True if the host should keep reading."""
-    if not isinstance(response, dict) or response.get("type") != "tool_call":
+    if response.get("type") != "tool_call":
         return False
 
     tool_name = response.get("tool")

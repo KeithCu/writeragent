@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.chatbot.dialog_views import (
-    _SETTINGS_LISTENER_DETACH,
     SettingsDialog,
     setup_module_tabs,
 )
@@ -250,11 +249,10 @@ class TestEndpointCombinedListener:
             listener._debounce_gen += 50
             fn()
 
-        listener.run_in_background = run_later
-
         event = MagicMock()
         event.Selected = 0
-        listener.itemStateChanged(event)
+        with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=run_later):
+            listener.itemStateChanged(event)
 
         assert (len(apply_calls)) == (1)
         assert (apply_calls[0][0][0]) == ('https://openrouter.ai/api')
@@ -281,11 +279,11 @@ class TestEndpointCombinedListener:
         listener._apply_dropdowns = track_apply
         listener._bg_fetch = MagicMock()
         listener._tts_model_id_for_voice_fetch = lambda: ""
-        listener.run_in_background = lambda fn, name=None: fn()
 
         event = MagicMock()
         event.Selected = 0
-        listener.itemStateChanged(event)
+        with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()):
+            listener.itemStateChanged(event)
 
         assert (len(apply_calls)) == (1)
         assert (apply_calls[0][1].get('skip_fetch'))
@@ -299,9 +297,9 @@ class TestEndpointCombinedListener:
         combo = MagicMock()
         combo.getText.return_value = 'http://localhost:1a'
         listener = EndpointCombinedListener(dialog, ctx, combo)
-        listener.run_in_background = lambda fn, name=None: fn()
-        listener.post_to_main_thread = lambda fn: fn()
-        listener._run_fetch(listener._debounce_gen)
+        with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
+             patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: fn()):
+            listener._run_fetch(listener._debounce_gen)
 
     def test_apply_dropdowns_openrouter_stt_uses_transcription_models(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
@@ -326,19 +324,19 @@ class TestEndpointCombinedListener:
         def track_populate(ctx, ctrl, current, lru_key, endpoint, **kwargs):
             populate_calls.append({'lru_key': lru_key, 'remote_models': kwargs.get('remote_models')})
 
-        with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect):
-            with patch('plugin.framework.config.get_config_str', return_value='endpoint'):
-                with patch('plugin.framework.config.get_config', return_value=''):
-                    with patch('plugin.framework.config.get_current_endpoint', return_value='http://localhost:11434'):
-                        speech_ids = ['mistralai/voxtral-mini-transcribe', 'openai/whisper-large-v3']
-                        listener.cached_stt_models = lambda endpoint, api_key_override=None: list(speech_ids)
-                        listener.cached_image_models = lambda endpoint, api_key_override=None: []
-                        listener.populate_combobox_with_lru = track_populate
-                        listener._apply_dropdowns(
-                            'https://openrouter.ai/api',
-                            models=['openrouter/fusion', 'openai/gpt-oss-120b'],
-                            skip_fetch=False,
-                        )
+        speech_ids = ['mistralai/voxtral-mini-transcribe', 'openai/whisper-large-v3']
+        with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect), \
+             patch('plugin.framework.config.get_config_str', return_value='endpoint'), \
+             patch('plugin.framework.config.get_config', return_value=''), \
+             patch('plugin.framework.config.get_current_endpoint', return_value='http://localhost:11434'), \
+             patch('plugin.chatbot.dialog_views.cached_stt_models', side_effect=lambda endpoint, api_key_override=None: list(speech_ids)), \
+             patch('plugin.chatbot.dialog_views.cached_image_models', side_effect=lambda endpoint, api_key_override=None: []), \
+             patch('plugin.chatbot.dialog_views.populate_combobox_with_lru', side_effect=track_populate):
+            listener._apply_dropdowns(
+                'https://openrouter.ai/api',
+                models=['openrouter/fusion', 'openai/gpt-oss-120b'],
+                skip_fetch=False,
+            )
 
         stt_calls = [c for c in populate_calls if c['lru_key'] == 'audio_model_lru']
         text_calls = [c for c in populate_calls if c['lru_key'] == 'model_lru']
@@ -372,11 +370,11 @@ class TestEndpointCombinedListener:
         def track_populate(ctx, ctrl, current, lru_key, endpoint, **kwargs):
             populate_calls.append({'lru_key': lru_key, 'current': current})
 
-        with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect):
-            with patch('plugin.framework.config.get_current_endpoint', return_value='http://localhost:11434'):
-                with patch('plugin.framework.client.model_fetcher.get_provider_from_endpoint', return_value='ollama'):
-                    listener.populate_combobox_with_lru = track_populate
-                    listener._apply_dropdowns('http://localhost:11434', models=['llama3'], skip_fetch=True)
+        with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect), \
+             patch('plugin.framework.config.get_current_endpoint', return_value='http://localhost:11434'), \
+             patch('plugin.framework.client.model_fetcher.get_provider_from_endpoint', return_value='ollama'), \
+             patch('plugin.chatbot.dialog_views.populate_combobox_with_lru', side_effect=track_populate):
+            listener._apply_dropdowns('http://localhost:11434', models=['llama3'], skip_fetch=True)
 
         text_calls = [c for c in populate_calls if c['lru_key'] == 'model_lru']
         assert (len(text_calls)) == (1)
@@ -413,10 +411,10 @@ class TestEndpointCombinedListener:
         def track_populate(ctx, ctrl, current, lru_key, endpoint, **kwargs):
             populate_calls.append({'lru_key': lru_key, 'current': current, 'endpoint': endpoint})
 
-        with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect):
-            with patch('plugin.framework.config.get_current_endpoint', return_value='https://openrouter.ai/api'):
-                listener.populate_combobox_with_lru = track_populate
-                listener._apply_dropdowns('https://api.together.xyz', models=None, skip_fetch=True)
+        with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect), \
+             patch('plugin.framework.config.get_current_endpoint', return_value='https://openrouter.ai/api'), \
+             patch('plugin.chatbot.dialog_views.populate_combobox_with_lru', side_effect=track_populate):
+            listener._apply_dropdowns('https://api.together.xyz', models=None, skip_fetch=True)
 
         by_key = {c['lru_key']: c for c in populate_calls}
         assert (by_key['model_lru']['current']) == ('')
@@ -988,9 +986,9 @@ def test_sync_api_key_keeps_typed_key_when_url_changes() -> None:
         "https://api.groq.com/openai/v1": "sk-saved",
         "https://api.groq.com/openai/v1x": "sk-other",
     }
-    listener.get_api_key_for_endpoint = lambda url: saved.get(url, "")
 
-    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+    with patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", side_effect=lambda url: saved.get(url, "")), \
+         patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
          patch("plugin.chatbot.dialog_views.get_control_text", return_value="sk-pasted"):
         combo.getText.return_value = "https://api.groq.com/openai/v1x"
@@ -1022,9 +1020,9 @@ def test_sync_api_key_preset_loads_saved_key() -> None:
     listener._synced_endpoint = "https://api.groq.com/openai/v1"
     listener._catalog_is_warm = lambda resolved: True
     listener._apply_from_cache = MagicMock()
-    listener.get_api_key_for_endpoint = lambda url: "sk-together" if "together" in url else "sk-groq"
 
-    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+    with patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", side_effect=lambda url: "sk-together" if "together" in url else "sk-groq"), \
+         patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
          patch("plugin.chatbot.dialog_views.get_control_text", return_value="sk-pasted"):
         event = MagicMock()
@@ -1099,17 +1097,17 @@ def test_apply_dropdowns_updates_tts_combobox() -> None:
         populate_calls.append({"lru_key": lru_key, "current": current, "remote_models": kwargs.get("remote_models")})
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
-        with patch("plugin.framework.config.get_config_str", return_value="endpoint"):
-            with patch("plugin.framework.config.get_config", return_value=""):
-                with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"):
-                    speech_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
-                    listener.cached_tts_models = lambda endpoint, api_key_override=None: list(speech_ids)
-                    listener.populate_combobox_with_lru = track_populate
-                    listener._apply_dropdowns(
-                        "https://openrouter.ai/api",
-                        models=["openrouter/fusion"],
-                        skip_fetch=False,
-                    )
+        speech_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
+        with patch("plugin.framework.config.get_config_str", return_value="endpoint"), \
+             patch("plugin.framework.config.get_config", return_value=""), \
+             patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+             patch("plugin.chatbot.dialog_views.cached_tts_models", side_effect=lambda endpoint, api_key_override=None: list(speech_ids)), \
+             patch("plugin.chatbot.dialog_views.populate_combobox_with_lru", side_effect=track_populate):
+            listener._apply_dropdowns(
+                "https://openrouter.ai/api",
+                models=["openrouter/fusion"],
+                skip_fetch=False,
+            )
 
     tts_calls = [c for c in populate_calls if c["lru_key"] == "tts_model_lru"]
     assert len(tts_calls) == 1
@@ -1137,16 +1135,16 @@ def test_apply_dropdowns_together_speech_uses_serverless_catalog() -> None:
     def track_populate(c, ctrl, current, lru_key, endpoint, **kwargs):
         populate_calls.append({"lru_key": lru_key, "remote_models": kwargs.get("remote_models")})
 
-    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
-        with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"):
-            listener.populate_combobox_with_lru = track_populate
-            listener.fetch_available_tts_models = lambda *args, **kwargs: ["should-not-be-used"]
-            listener.fetch_available_stt_models = lambda *args, **kwargs: ["should-not-be-used"]
-            listener._apply_dropdowns(
-                "https://api.together.xyz",
-                models=["openai/gpt-oss-120b", "cartesia/sonic", "cartesia/sonic-4"],
-                skip_fetch=False,
-            )
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+         patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"), \
+         patch("plugin.chatbot.dialog_views.populate_combobox_with_lru", side_effect=track_populate), \
+         patch("plugin.chatbot.dialog_views.fetch_available_tts_models", return_value=["should-not-be-used"]), \
+         patch("plugin.chatbot.dialog_views.fetch_available_stt_models", return_value=["should-not-be-used"]):
+        listener._apply_dropdowns(
+            "https://api.together.xyz",
+            models=["openai/gpt-oss-120b", "cartesia/sonic", "cartesia/sonic-4"],
+            skip_fetch=False,
+        )
 
     by_key = {c["lru_key"]: c["remote_models"] for c in populate_calls}
     tts_ids = by_key["tts_model_lru"]
@@ -1261,14 +1259,14 @@ def test_bg_fetch_together_warms_voices() -> None:
     from plugin.chatbot.dialog_views import EndpointCombinedListener
 
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), MagicMock())
-    listener.fetch_available_models = lambda *args, **kwargs: ["cartesia/sonic"]
-    listener.fetch_available_image_models = lambda *args, **kwargs: []
-    listener.fetch_available_tts_models = lambda *args, **kwargs: None
-    listener.fetch_available_stt_models = lambda *args, **kwargs: None
-    listener.post_to_main_thread = lambda fn: None
     listener._debounce_gen = 1
 
-    with patch("plugin.chatbot.dialog_views.get_optional", return_value=None), \
+    with patch("plugin.chatbot.dialog_views.fetch_available_models", return_value=["cartesia/sonic"]), \
+         patch("plugin.chatbot.dialog_views.fetch_available_image_models", return_value=[]), \
+         patch("plugin.chatbot.dialog_views.fetch_available_tts_models", return_value=None), \
+         patch("plugin.chatbot.dialog_views.fetch_available_stt_models", return_value=None), \
+         patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None), \
+         patch("plugin.chatbot.dialog_views.get_optional", return_value=None), \
          patch("plugin.framework.client.model_fetcher.fetch_together_tts_voices") as mock_voices:
         listener._bg_fetch(1, "https://api.together.xyz")
         mock_voices.assert_called_once()
@@ -1331,8 +1329,6 @@ def test_warm_openrouter_catalog_does_not_http_until_test_connection() -> None:
             mock_sync.assert_not_called()
             assert listener._timer is None
 
-            listener.run_in_background = lambda fn, name=None: fn()
-            listener.post_to_main_thread = lambda fn: None
             rechecked = []
 
             def recheck() -> None:
@@ -1341,7 +1337,9 @@ def test_warm_openrouter_catalog_does_not_http_until_test_connection() -> None:
 
             with patch("plugin.chatbot.quick_setup.check_endpoint_connection", return_value=(True, "ok", [])), \
                  patch("plugin.framework.worker_pool.run_in_background", side_effect=lambda fn, **kwargs: fn()), \
-                 patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()):
+                 patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()), \
+                 patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
+                 patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None):
                 TestConnectionListener(MagicMock(), MagicMock(), catalog_recheck=recheck).on_action_performed(MagicMock())
 
             assert rechecked == [True]
@@ -1361,17 +1359,17 @@ def test_close_cancels_catalog_fetch_that_has_not_started() -> None:
     combo = MagicMock()
     combo.getText.return_value = "https://openrouter.ai/api"
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
-    listener.settings_catalog_is_warm = lambda *args, **kwargs: False
-    listener.fetch_available_models = MagicMock()
-    listener._schedule_debounced_models_fetch()
-    timer = listener._timer
-    try:
-        listener.close()
-        listener._run_fetch(listener._debounce_gen - 1)
-        listener.fetch_available_models.assert_not_called()
-    finally:
-        if timer is not None:
-            timer.cancel()
+    with patch("plugin.chatbot.dialog_views.settings_catalog_is_warm", return_value=False), \
+         patch("plugin.chatbot.dialog_views.fetch_available_models") as mock_fetch:
+        listener._schedule_debounced_models_fetch()
+        timer = listener._timer
+        try:
+            listener.close()
+            listener._run_fetch(listener._debounce_gen - 1)
+            mock_fetch.assert_not_called()
+        finally:
+            if timer is not None:
+                timer.cancel()
 
 
 def test_tts_settings_listener_together_cache_miss_does_not_http() -> None:
@@ -1411,7 +1409,7 @@ def test_tts_settings_listener_together_cache_miss_does_not_http() -> None:
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
              patch("plugin.framework.client.requests.sync_request") as mock_sync, \
              patch("plugin.chatbot.dialog_views.get_config", return_value=""):
-            TtsSettingsListener(dlg, MagicMock()).sync_ui()
+            TtsSettingsListener(dlg).sync_ui()
             mock_sync.assert_not_called()
         voice_ctrl.setText.assert_not_called()
     finally:
@@ -1459,7 +1457,7 @@ def test_tts_settings_listener_together_voices_replace_alloy() -> None:
              patch("plugin.framework.client.requests.sync_request") as mock_sync, \
              patch("plugin.framework.config.set_config", side_effect=lambda k, v, **kwargs: stored.__setitem__(k, v)), \
              patch("plugin.chatbot.dialog_views.get_config", return_value=""):
-            TtsSettingsListener(dlg, MagicMock()).sync_ui()
+            TtsSettingsListener(dlg).sync_ui()
             mock_sync.assert_not_called()
         # API order is uuid-2 then uuid-1. The combo sorts labels; the cache does not.
         assert list(voice_model.StringItemList) == ["voice-uuid-1", "voice-uuid-2"]
@@ -1476,7 +1474,6 @@ def test_tts_settings_listener_sync():
     from plugin.chatbot.dialog_views import TtsSettingsListener
 
     dlg = MagicMock()
-    ctx = MagicMock()
 
     prov_ctrl = MagicMock()
     prov_ctrl.getText.return_value = "Kokoro (Local Neural, ONNX CPU)"
@@ -1508,7 +1505,7 @@ def test_tts_settings_listener_sync():
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_enabled") as mock_set_enabled, \
          patch("plugin.framework.config.get_config", side_effect=_cfg):
-        listener = TtsSettingsListener(dlg, ctx)
+        listener = TtsSettingsListener(dlg)
         listener.sync_ui()
 
         # Model combobox is disabled for non-endpoint
@@ -1549,7 +1546,7 @@ def test_tts_settings_listener_promotes_raw_voice_id_to_catalog_label():
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_enabled"), \
          patch("plugin.framework.config.get_config", side_effect=_cfg):
-        TtsSettingsListener(dlg, MagicMock()).sync_ui()
+        TtsSettingsListener(dlg).sync_ui()
 
     voice_ctrl.setText.assert_called_once()
     assert "Thorsten" in voice_ctrl.setText.call_args[0][0]
@@ -1588,7 +1585,7 @@ def test_tts_settings_listener_uses_cached_openrouter_voices():
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
              patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
              patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
-            TtsSettingsListener(dlg, MagicMock()).sync_ui()
+            TtsSettingsListener(dlg).sync_ui()
         assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
         assert voice_ctrl.setText.call_args[0][0] == "Kore"
         assert "audio.tts_voice_openrouter" not in stored
@@ -1634,7 +1631,7 @@ def test_tts_settings_listener_prefers_aoede_for_gemini():
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
              patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
              patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
-            TtsSettingsListener(dlg, MagicMock()).sync_ui()
+            TtsSettingsListener(dlg).sync_ui()
         if voice_ctrl.setText.called:
             shown = voice_ctrl.setText.call_args[0][0]
         else:
@@ -1714,7 +1711,7 @@ def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
              patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
              patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
-            TtsSettingsListener(dlg, MagicMock()).sync_ui()
+            TtsSettingsListener(dlg).sync_ui()
         assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
         voice_ctrl.setText.assert_not_called()
         assert stored.get("audio.tts_voice_openrouter") == "Puck"
@@ -1729,7 +1726,7 @@ def test_tts_test_voice_progress_uses_modeless_box_not_msgbox():
     box = MagicMock()
     box._closed = False
 
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)), \
+    with patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)), \
          patch.object(listener, "_show_progress") as show, \
          patch.object(listener, "_close_progress") as close, \
          patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
@@ -1758,7 +1755,7 @@ def test_tts_test_voice_status_shows_http_body():
          patch("plugin.chatbot.dialog_views.get_checkbox_state", return_value=1), \
          patch("plugin.audio.tts_voices.tts_test_sample", return_value="Hello"), \
          patch("plugin.audio.tts_service.speak_text_async", side_effect=_speak), \
-         patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)), \
+         patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)), \
          patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
         listener.on_action_performed(None)
 
@@ -1894,7 +1891,7 @@ def test_voice_combo_change_does_not_write_config_until_ok():
     stored: dict[str, str] = {}
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.framework.config.set_config", side_effect=lambda k, v, **kwargs: stored.__setitem__(k, v)):
-        TtsSettingsListener(dlg, MagicMock()).sync_ui()
+        TtsSettingsListener(dlg).sync_ui()
     assert "audio.tts_voice" not in stored
     assert "audio.tts_voice_piper" not in stored
 
@@ -2034,8 +2031,8 @@ def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
 
             listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
             fetches: list[str] = []
-            listener.fetch_available_models = lambda *args, **kwargs: fetches.append("fetch") or ["llama3"]
-            with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+            with patch("plugin.chatbot.dialog_views.fetch_available_models", side_effect=lambda *args, **kwargs: fetches.append("fetch") or ["llama3"]), \
+                 patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
                  patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
                  patch("plugin.chatbot.dialog_views.get_control_text", return_value=key), \
                  patch("plugin.framework.config.set_config") as set_config, \
@@ -2051,9 +2048,9 @@ def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
                 set_api.assert_not_called()
                 mock_set.assert_not_called()
 
-                listener.run_in_background = lambda fn, name=None: fn()
-                listener.post_to_main_thread = lambda fn: None
-                listener.force_catalog_refresh()
+                with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
+                     patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None):
+                    listener.force_catalog_refresh()
                 assert fetches
                 mock_sync.assert_not_called()
     finally:
@@ -2070,13 +2067,13 @@ def test_bg_fetch_receives_typed_api_key():
     combo.getItem.return_value = "https://api.openai.com/v1"
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
     listener._api_key_override = MagicMock(return_value="typed-key")
-    listener.run_in_background = lambda fn, name=None: fn()
     listener._catalog_is_warm = MagicMock(return_value=False)
     listener._sync_api_key = MagicMock()
     listener._apply_dropdowns = MagicMock()
     listener._tts_model_id_for_voice_fetch = MagicMock(return_value="")
 
-    with patch.object(listener, "_bg_fetch") as mock_bg_fetch:
+    with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
+         patch.object(listener, "_bg_fetch") as mock_bg_fetch:
         listener.force_catalog_refresh()
         assert mock_bg_fetch.call_count == 1
         args, kwargs = mock_bg_fetch.call_args
@@ -2119,57 +2116,49 @@ def test_settings_cleanup_detaches_each_listener_and_disposes():
     ctx = MagicMock()
     dialog = SettingsDialog(ctx)
     dlg = MagicMock()
-    controls: dict[str, MagicMock] = {}
-
-    def get_control(name: str) -> MagicMock:
-        if name not in controls:
-            controls[name] = MagicMock()
-        return controls[name]
-
-    dlg.getControl.side_effect = get_control
     dialog._dlg = dlg
 
-    api_key_listener = MagicMock()
     endpoint_listener = MagicMock()
-    dialog._api_key_listener = api_key_listener
     dialog._endpoint_listener = endpoint_listener
 
-    listener_objs: dict[str, MagicMock] = {}
-    for attr, _name, _method in _SETTINGS_LISTENER_DETACH:
-        if attr not in listener_objs:
-            listener_objs[attr] = MagicMock()
-        setattr(dialog, attr, listener_objs[attr])
+    ctrl1 = MagicMock()
+    listener1 = MagicMock()
+    ctrl2 = MagicMock()
+    listener2 = MagicMock()
+    dialog._attached = [
+        (ctrl1, "removeActionListener", listener1),
+        (ctrl2, "removeTextListener", listener2),
+    ]
 
     dialog._cleanup()
-
-    controls["api_key"].removeTextListener.assert_called_once_with(api_key_listener)
-    assert dialog._api_key_listener is api_key_listener
 
     endpoint_listener.close.assert_called_once()
     assert dialog._endpoint_listener is endpoint_listener
 
-    for attr, name, method in _SETTINGS_LISTENER_DETACH:
-        ctrl = controls[name]
-        getattr(ctrl, method).assert_called_with(listener_objs[attr])
-        assert getattr(dialog, attr) is None
-
-    assert "tts_model" not in controls
+    ctrl1.removeActionListener.assert_called_once_with(listener1)
+    ctrl2.removeTextListener.assert_called_once_with(listener2)
     dlg.dispose.assert_called_once()
+
+    # Legacy tts_model fallback attaches to tts_model control
+    dlg_legacy = MagicMock()
+    legacy_model_ctrl = MagicMock()
+    dialog._dlg = dlg_legacy
+    dialog._attached = []
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, name: legacy_model_ctrl if name == "tts_model" else None), \
+         patch("plugin.chatbot.dialog_views.TtsSettingsListener"):
+        dialog._setup_tts_listeners()
+    assert any(c is legacy_model_ctrl for c, _m, _l in dialog._attached)
 
 
 def test_settings_cleanup_missing_control_still_clears_listener():
     ctx = MagicMock()
     dialog = SettingsDialog(ctx)
     dlg = MagicMock()
-    dlg.getControl.side_effect = RuntimeError("Control missing")
     dialog._dlg = dlg
-
-    listener = MagicMock()
-    dialog._grammar_recheck_listener = listener
+    dialog._attached = []
 
     dialog._cleanup()
 
-    assert dialog._grammar_recheck_listener is None
     dlg.dispose.assert_called_once()
 
 
@@ -2178,30 +2167,24 @@ def test_settings_cleanup_without_dialog_leaves_listeners():
     dialog = SettingsDialog(ctx)
     dialog._dlg = None
 
+    ctrl = MagicMock()
     listener = MagicMock()
-    dialog._grammar_recheck_listener = listener
+    dialog._attached = [(ctrl, "removeActionListener", listener)]
 
     dialog._cleanup()
 
-    assert dialog._grammar_recheck_listener is listener
+    ctrl.removeActionListener.assert_not_called()
 
 
 def test_settings_cleanup_does_not_swallow_remove_failure():
     ctx = MagicMock()
     dialog = SettingsDialog(ctx)
     dlg = MagicMock()
-    venv_btn = MagicMock()
-    venv_btn.removeActionListener.side_effect = RuntimeError("Removal failed")
-
-    def get_control(name: str) -> MagicMock:
-        if name == "scripting__test_venv":
-            return venv_btn
-        return MagicMock()
-
-    dlg.getControl.side_effect = get_control
     dialog._dlg = dlg
 
-    dialog._scripting_venv_test_listener = MagicMock()
+    venv_btn = MagicMock()
+    venv_btn.removeActionListener.side_effect = RuntimeError("Removal failed")
+    dialog._attached = [(venv_btn, "removeActionListener", MagicMock())]
 
     with pytest.raises(RuntimeError, match="Removal failed"):
         dialog._cleanup()
@@ -2216,26 +2199,25 @@ def test_settings_cleanup_disposed_control_still_detaches_others_and_disposes():
     ctx = MagicMock()
     dialog = SettingsDialog(ctx)
     dlg = MagicMock()
-    other_ctrl = MagicMock()
-
-    def get_control(name: str) -> MagicMock:
-        if name == "scripting__test_venv":
-            raise DisposedException("Control already disposed")
-        if name == "doc__grammar_proofreader_recheck":
-            return other_ctrl
-        return MagicMock()
-
-    dlg.getControl.side_effect = get_control
     dialog._dlg = dlg
-    dialog._scripting_venv_test_listener = MagicMock()
-    listener = MagicMock()
-    dialog._grammar_recheck_listener = listener
 
-    with patch("plugin.chatbot.dialog_views.clear_active_settings_dialog") as mock_clear:
+    ctrl1 = MagicMock()
+    ctrl1.removeActionListener.side_effect = DisposedException("Control already disposed")
+    listener1 = MagicMock()
+
+    other_ctrl = MagicMock()
+    listener2 = MagicMock()
+
+    dialog._attached = [
+        (ctrl1, "removeActionListener", listener1),
+        (other_ctrl, "removeActionListener", listener2),
+    ]
+
+    with patch("plugin.chatbot.dialog_views.clear_active_settings_dialog") as mock_clear, \
+         patch("plugin.chatbot.dialog_views.is_disposed_exception", side_effect=lambda e: isinstance(e, DisposedException)):
         dialog._cleanup()
 
-    other_ctrl.removeActionListener.assert_called_once_with(listener)
-    assert dialog._grammar_recheck_listener is None
+    other_ctrl.removeActionListener.assert_called_once_with(listener2)
     mock_clear.assert_called_once_with(dlg)
     dlg.dispose.assert_called_once()
 

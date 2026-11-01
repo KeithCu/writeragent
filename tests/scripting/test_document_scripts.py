@@ -1663,7 +1663,8 @@ def test_shared_save_selected_script_user_and_doc_and_builtin():
     attach_document_script(doc, "DocScript", "x = 1")
 
     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"UserScript": "u = 1"}), patch(
-        "plugin.scripting.document_scripts.save_user_script"
+        "plugin.scripting.document_scripts.save_user_script",
+        return_value=None,
     ) as mock_user_save, patch(
         "plugin.scripting.document_scripts.save_document_script",
         return_value=None,

@@ -162,7 +162,6 @@ def test_send_handler_stop_does_not_spawn_workers() -> None:
     state = SendHandlerState(
         handler_type="agent",
         status="running",
-        query_text="hi",
     )
     tr = send_handler_next_state(state, StopRequestedEvent())
     assert tr.state.status == "stopped"

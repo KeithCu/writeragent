@@ -112,13 +112,6 @@ def _uno_model_probe_for_log(model: Any, *, cached_doc_type: str | None = None) 
     return "impl=%s" % impl
 
 
-def _is_approval_pending(send_listener: Any) -> bool:
-    """True when web-search inline approval is waiting for user response."""
-    if send_listener is None:
-        return False
-    return getattr(send_listener, "_approval_event", None) is not None
-
-
 class QueryTextListener(BaseTextListener):
     send_listener: Any
 
@@ -327,8 +320,6 @@ class SendButtonListener(BaseActionListener):
     _acp_backend: Any
     _acp_backend_id: str | None
     _approval_event: Any
-    _extracted_peer_query: str
-    _extracted_peer_already_appended: bool
     slash_popup: Any
     clear_listener: Any
     rich_text_widget: Any
@@ -345,9 +336,7 @@ class SendButtonListener(BaseActionListener):
     _last_mcp_turn: dict[str, Any]
     _mcp_turn_lock: threading.Lock
     _stop_mouse_listener: Any
-    _stop_mouse_control: Any
     _record_mouse_listener: Any
-    _record_mouse_control: Any
     _voice: PanelVoiceController
     _events: PanelEventsController
     _sidebar_mode: SidebarModeController
@@ -422,12 +411,8 @@ class SendButtonListener(BaseActionListener):
         self._approval_ui_backup: dict[str, Any] | None = None
         self._approval_query_for_engine: str | None = None
         self._dispatch_reenter: list[SendEvent] | None = None
-        self._extracted_peer_query = ""
-        self._extracted_peer_already_appended = False
         self._stop_mouse_listener = None
-        self._stop_mouse_control = None
         self._record_mouse_listener = None
-        self._record_mouse_control = None
         self.slash_popup = None
         self.clear_listener = None
         self.rich_text_widget = None
@@ -563,20 +548,16 @@ class SendButtonListener(BaseActionListener):
         self._sidebar_mode.on_ppt_master_session_finished()
 
     def hide_popup(self) -> None:
-        popup = getattr(self, "slash_popup", None)
+        popup = self.slash_popup
         hide = getattr(popup, "hide", None)
         if callable(hide):
             hide()
 
     def clear_ask(self) -> None:
         from plugin.chatbot.dialogs import set_control_text
-        from plugin.chatbot.send_state import SendEvent, SendEventKind
 
-        query = getattr(self, "query_control", None)
-        set_control_text(query, "")
-        dispatch = getattr(self, "dispatch", None)
-        if callable(dispatch):
-            dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
+        set_control_text(self.query_control, "")
+        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
 
     def append_output(self, text: str) -> None:
         """Show a UI-only line (slash /help); it is not a chat message.
@@ -584,11 +565,11 @@ class SendButtonListener(BaseActionListener):
         ``_append_response`` drops text when no turn is live, which is always
         the case for a slash command, so /help printed nothing.
         """
-        widget = getattr(self, "rich_text_widget", None)
+        widget = self.rich_text_widget
         if widget is not None:
             self._run_rich_ui(widget.append_chunk, text)
             return
-        response = getattr(self, "response_control", None)
+        response = self.response_control
         if response is None:
             return
         from plugin.chatbot.dialogs import get_control_text, set_control_text
@@ -597,14 +578,10 @@ class SendButtonListener(BaseActionListener):
         set_control_text(response, current + text)
 
     def clear_chat(self) -> None:
-        clear_listener = getattr(self, "clear_listener", None)
-        action = getattr(clear_listener, "on_action_performed", None)
-        if callable(action):
-            action(None)
-        else:
-            session = getattr(self, "session", None)
-            if session is not None and hasattr(session, "clear"):
-                session.clear()
+        if self.clear_listener is not None:
+            self.clear_listener.on_action_performed(None)
+        elif self.session is not None:
+            self.session.clear()
 
     def stop_in_flight(self) -> None:
         StopButtonListener(self).on_action_performed(None)
@@ -677,11 +654,7 @@ class SendButtonListener(BaseActionListener):
             set_control_text(control, plain_transcript_text(session))
             self._scroll_response_to_bottom()
 
-        run_ui = getattr(self, "_run_rich_ui", None)
-        if callable(run_ui):
-            run_ui(_paint)
-        else:
-            _paint()
+        self._run_rich_ui(_paint)
 
     def _project_closing_line(self, text: str, owner: Any) -> None:
         """Write a closing line onto this turn's session after ``abort``.
@@ -836,23 +809,20 @@ class SendButtonListener(BaseActionListener):
         # (e.g. Clear greeting or calc cell-link probes). Only _do_send and
         # _do_send_extracted_peer pass log_failure=True, matching the sidebar error display.
         if log_failure:
+            probe = _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type)
             detail_parts = [
                 "has_frame=%s" % bool(self.frame),
                 "cached_doc_type=%s" % cached_doc_type,
-                "model_probe=%s" % _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type),
+                "model_probe=%s" % probe,
             ]
             if model is not None:
-                detail_parts.append("reject_reason=unsupported_or_uncached_doc_type probe=%s" % _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type))
+                detail_parts.append("reject_reason=unsupported_or_uncached_doc_type probe=%s" % probe)
             log.error("SendButtonListener: no compatible document model for chat (%s)", "; ".join(detail_parts))
         return None
 
     def _mnemonic_cache(self) -> dict[str, str]:
         """Plain label -> label with the mnemonic VCL gave it (see _relabel_button)."""
-        cache = self._button_mnemonics
-        if cache is None:
-            cache = {}
-            self._button_mnemonics = cache
-        return cache
+        return self._button_mnemonics
 
     def _set_button_states(self, send_enabled: bool, stop_enabled: bool) -> None:
         """Set Send/Stop enabled flags (per-control try/except so one UNO failure cannot strand the other)."""
@@ -918,7 +888,7 @@ class SendButtonListener(BaseActionListener):
                 # pending. Web search approval replaces Send/Stop/Clear with
                 # Accept/Change/Reject; a late UpdateUIEffect writes Accept
                 # back to Send (disabled).
-                if not _is_approval_pending(self):
+                if self._approval_event is None:
                     action_map = {
                         "Send": ButtonAction.SEND,
                         "Record": ButtonAction.RECORD,
@@ -1017,8 +987,7 @@ class SendButtonListener(BaseActionListener):
                 session = self.frame_session
                 if session is not None:
                     session.note_user_wants_query()
-                    if hasattr(session, "restore_focus"):
-                        session.restore_focus()
+                    session.restore_focus()
                 from plugin.chatbot.tool_loop_actions import abort_turn
 
                 # Drop later worker callbacks. The drain still closes this
@@ -1482,7 +1451,6 @@ class SendButtonListener(BaseActionListener):
 
             if self._route_sidebar_mode(query_text, model, doc_type_label):
                 return
-                return
 
             # Agent backend: use external agent instead of built-in LLM.
             # Show the error and end the send here. The handler documents
@@ -1534,8 +1502,6 @@ class SendButtonListener(BaseActionListener):
             return False
         if self.sidebar_state.send.is_busy:
             return False
-        self._extracted_peer_query = query_text
-        self._extracted_peer_already_appended = already_appended
         try:
             self.dispatch(SendEvent(SendEventKind.EXTRACTED_SEND))
         except Exception:
@@ -1547,10 +1513,10 @@ class SendButtonListener(BaseActionListener):
             raise
         if not self.sidebar_state.send.is_busy:
             return False
-        self._run_extracted_peer_drain()
+        self._run_extracted_peer_drain(query_text, already_appended=already_appended)
         return True
 
-    def _run_extracted_peer_drain(self) -> None:
+    def _run_extracted_peer_drain(self, query_text: str, *, already_appended: bool = False) -> None:
         """Run peer message drain through ``_run_turn_drain``.
 
         body is ``_do_send_extracted_peer``, and on_close updates status and flushes sticky restart.
@@ -1558,8 +1524,6 @@ class SendButtonListener(BaseActionListener):
         from plugin.framework.i18n import _
         from plugin.framework.send_cancellation import SendCancellation
 
-        query_text = self._extracted_peer_query or ""
-        already_appended = bool(self._extracted_peer_already_appended)
         self._stop_requested_fallback = False
         self._terminal_status = "Ready"
         self._send_cancellation = SendCancellation()
@@ -1648,19 +1612,17 @@ class SendButtonListener(BaseActionListener):
         # and attach_record_mouse_listener add listeners that strongly hold
         # send_listener; leaving them attached leaks the listener.
         stop_mouse = self._stop_mouse_listener
-        stop_ctrl = self._stop_mouse_control or self.stop_control
+        stop_ctrl = self.stop_control
         if stop_mouse is not None and stop_ctrl is not None:
             self._stop_mouse_listener = None
-            self._stop_mouse_control = None
             if hasattr(stop_ctrl, "removeMouseListener"):
                 with suppress_disposed("remove stop mouse listener on dispose", logger=log):
                     stop_ctrl.removeMouseListener(stop_mouse)
 
         rec_mouse = self._record_mouse_listener
-        rec_ctrl = self._record_mouse_control or self.send_control
+        rec_ctrl = self.send_control
         if rec_mouse is not None and rec_ctrl is not None:
             self._record_mouse_listener = None
-            self._record_mouse_control = None
             if hasattr(rec_ctrl, "removeMouseListener"):
                 with suppress_disposed("remove record mouse listener on dispose", logger=log):
                     rec_ctrl.removeMouseListener(rec_mouse)
@@ -1796,23 +1758,18 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
         stop_control.addMouseListener(listener)
         if send_listener is not None:
             send_listener._stop_mouse_listener = listener
-            send_listener._stop_mouse_control = stop_control
     except Exception:
         log.exception("Stop mouse listener attach failed")
 
 
 def notify_record_mouse_pressed(send_listener: Any) -> None:
     """Record mousePressed: arm the 2s hold timer. Do not start capture yet."""
-    if send_listener is None:
-        return
     label_is_record = getattr(send_listener, "_button_action", None) == ButtonAction.RECORD
     send_listener._voice._apply_record_gesture(gesture_press(send_listener._record_gesture, label_is_record=label_is_record))
 
 
 def notify_record_mouse_released(send_listener: Any) -> None:
     """Record mouseReleased: short click records once; long press already did."""
-    if send_listener is None:
-        return
     send_listener._voice._apply_record_gesture(gesture_release(send_listener._record_gesture))
 
 
@@ -1840,7 +1797,6 @@ def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
         send_control.addMouseListener(listener)
         if send_listener is not None:
             send_listener._record_mouse_listener = listener
-            send_listener._record_mouse_control = send_control
     except Exception:
         log.exception("Record mouse listener attach failed")
 
@@ -1862,8 +1818,6 @@ class StopButtonListener(BaseActionListener):
         # so one click is one step.
         # ``is True`` so a MagicMock host (tests) is not treated as recording.
         take_stop = getattr(getattr(self.send_listener, "_voice", None), "stop_during_take", None)
-        if not callable(take_stop):
-            take_stop = getattr(self.send_listener, "stop_during_take", None)
         if callable(take_stop) and take_stop() is True:
             return
         if self.send_listener:
@@ -1984,11 +1938,6 @@ class ClearButtonListener(BaseActionListener):
 class SettingsButtonListener(BaseActionListener):
     """Listener for the Settings button in the Chat sidebar."""
 
-    ctx: Any
-
-    def __init__(self, ctx: Any = None) -> None:
-        self.ctx = ctx
-
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.main_shared import get_action_handler, open_dialog_safely
         from plugin.librepy.sidebar_menus import invoke_action_handler
@@ -2006,11 +1955,9 @@ class ActionHandlerButtonListener(BaseActionListener):
     """Generic listener that delegates to an action handler registered in get_action_handler."""
 
     handler_id: str
-    ctx: Any
 
-    def __init__(self, handler_id: str, ctx: Any = None) -> None:
+    def __init__(self, handler_id: str) -> None:
         self.handler_id = handler_id
-        self.ctx = ctx
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.main_shared import get_action_handler

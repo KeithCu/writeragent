@@ -329,23 +329,6 @@ def _prepare_native_target() -> tuple[str, str]:
     return target_dir, ext_suffix
 
 
-def _download_pinned(
-    on_display: Callable[[str], None],
-    on_status: Callable[[str], None],
-    label: str,
-    url: str,
-    dest_path: str,
-    expected_sha256: str,
-) -> None:
-    on_display(label)
-    _download_url_to_file(
-        url,
-        dest_path,
-        on_status,
-        expected_sha256=expected_sha256,
-    )
-
-
 def run_vec_pack_download(
     on_display: Callable[[str], None],
     on_status: Callable[[str], None],
@@ -369,8 +352,20 @@ def run_vec_pack_download(
     pack_name = f"pack{ext_suffix}"
     if pack_name not in _NATIVE_SHA256:
         raise RuntimeError(f"No pinned sha256 for {pack_name}")
-    _download_pinned(on_display, on_status, "Downloading writeragent_vec/__init__.py...\n", f"{_CONTRIB_BASE_URL}vec_pack/__init__.py", os.path.join(target_dir, "writeragent_vec", "__init__.py"), _NATIVE_SHA256["__init__.py"])
-    _download_pinned(on_display, on_status, f"Downloading binary {pack_name}...\n", f"{_CONTRIB_BASE_URL}vec_pack/{pack_name}", os.path.join(target_dir, "writeragent_vec", pack_name), _NATIVE_SHA256[pack_name])
+    on_display("Downloading writeragent_vec/__init__.py...\n")
+    _download_url_to_file(
+        f"{_CONTRIB_BASE_URL}vec_pack/__init__.py",
+        os.path.join(target_dir, "writeragent_vec", "__init__.py"),
+        on_status,
+        expected_sha256=_NATIVE_SHA256["__init__.py"],
+    )
+    on_display(f"Downloading binary {pack_name}...\n")
+    _download_url_to_file(
+        f"{_CONTRIB_BASE_URL}vec_pack/{pack_name}",
+        os.path.join(target_dir, "writeragent_vec", pack_name),
+        on_status,
+        expected_sha256=_NATIVE_SHA256[pack_name],
+    )
 
     importlib.invalidate_caches()
     if include_header:
@@ -413,7 +408,13 @@ def run_audio_download(
 
     # Download pure Python source zip
     zip_dest = os.path.join(target_dir, "audio_source.zip")
-    _download_pinned(on_display, on_status, "Downloading pure Python audio libraries (audio_source.zip)...\n", f"{_CONTRIB_BASE_URL}audio_source.zip", zip_dest, _NATIVE_SHA256["audio_source.zip"])
+    on_display("Downloading pure Python audio libraries (audio_source.zip)...\n")
+    _download_url_to_file(
+        f"{_CONTRIB_BASE_URL}audio_source.zip",
+        zip_dest,
+        on_status,
+        expected_sha256=_NATIVE_SHA256["audio_source.zip"],
+    )
 
     # Extract audio_source.zip
     on_status("Extracting audio_source.zip...")
@@ -430,12 +431,24 @@ def run_audio_download(
 
     # Download CFFI binary
     cffi_dest = os.path.join(target_dir, cffi_name)
-    _download_pinned(on_display, on_status, f"Downloading binary {cffi_name}...\n", f"{_CONTRIB_BASE_URL}audio/{cffi_name}", cffi_dest, _NATIVE_SHA256[cffi_name])
+    on_display(f"Downloading binary {cffi_name}...\n")
+    _download_url_to_file(
+        f"{_CONTRIB_BASE_URL}audio/{cffi_name}",
+        cffi_dest,
+        on_status,
+        expected_sha256=_NATIVE_SHA256[cffi_name],
+    )
 
     # Download PortAudio binary if needed
     if portaudio_name:
         pa_dest = os.path.join(target_dir, "_sounddevice_data", "portaudio-binaries", portaudio_name)
-        _download_pinned(on_display, on_status, f"Downloading binary {portaudio_name}...\n", f"{_CONTRIB_BASE_URL}audio/_sounddevice_data/portaudio-binaries/{portaudio_name}", pa_dest, _NATIVE_SHA256[portaudio_name])
+        on_display(f"Downloading binary {portaudio_name}...\n")
+        _download_url_to_file(
+            f"{_CONTRIB_BASE_URL}audio/_sounddevice_data/portaudio-binaries/{portaudio_name}",
+            pa_dest,
+            on_status,
+            expected_sha256=_NATIVE_SHA256[portaudio_name],
+        )
 
     # Create _sounddevice_data/__init__.py placeholder
     init_dest = os.path.join(target_dir, "_sounddevice_data", "__init__.py")
