@@ -180,7 +180,7 @@ def install_calc_cell_context_menu(ctx: Any) -> None:
                 for i in range(frames.getCount()):
                     try:
                         frame = frames.getByIndex(i)
-                        controller = uno_probe(frame.getController, None) if frame is not None else None
+                        controller = uno_probe(frame.getController, None)
                         _register_controller(controller)
                     except Exception:
                         log.debug("python_editor_context_menu: frame %s skipped", i, exc_info=True)

@@ -53,21 +53,6 @@ from plugin.scripting.editor_errors import editor_error_markers, failure_message
 log = logging.getLogger("writeragent.scripting")
 
 
-def _cell_formula_content(cell: Any) -> bool | None:
-    if not hasattr(cell, "getType"):
-        return None
-    kind = cell.getType()
-    from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
-
-    # Live getType() is a uno.Enum; uno.Enum != int (calc_utils). int 3 is the
-    # stub/fallback FORMULA. Both checks are required.
-    if kind == FORMULA or kind == 3:
-        return True
-    if kind in (EMPTY, VALUE, TEXT) or isinstance(kind, int):
-        return False
-    return None
-
-
 def _cell_formula_strings(cell: Any) -> list[str]:
     """Collect formula strings LibreOffice may expose for the cell.
 
@@ -77,9 +62,17 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     prepended '=' to. We now check getType() to return [] for non-formula cells, and
     for untyped proxies/mocks, drop strings whose lstrip() does not start with '=' or '{'.
     """
-    content = _cell_formula_content(cell)
-    if content is False:
-        return []
+    content: bool | None = None
+    if hasattr(cell, "getType"):
+        kind = cell.getType()
+        from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
+
+        # Live getType() is a uno.Enum; uno.Enum != int (calc_utils). int 3 is the
+        # stub/fallback FORMULA. Both checks are required.
+        if kind == FORMULA or kind == 3:
+            content = True
+        elif kind in (EMPTY, VALUE, TEXT) or isinstance(kind, int):
+            return []
     out: list[str] = []
     f = cell.getFormula()
     if f:
@@ -194,6 +187,10 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     return model, cell
 
 
+def _data_binding_display(parts: PythonFormulaParts | None) -> str:
+    return "" if parts is None else format_data_binding_display(parts.data_suffix)
+
+
 def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None, *, parsed_parts: PythonFormulaParts | None = None) -> tuple[str, str | None] | dict[str, Any]:
     """When ``scripting.xl_static_rewrite`` is on, lift ``xl("A1")`` into data args.
 
@@ -205,8 +202,7 @@ def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None,
     if data_binding_text is not None:
         existing = parse_data_binding_text(data_binding_text)
     else:
-        suffix = format_data_binding_display(parsed_parts.data_suffix) if parsed_parts is not None else ""
-        existing = parse_data_binding_text(suffix)
+        existing = parse_data_binding_text(_data_binding_display(parsed_parts))
     result = apply_xl_static_rewrite(new_code, existing)
     if result.issues:
         detail = "; ".join(result.issues[:5])
@@ -238,8 +234,7 @@ def _apply_followed_ref_save(formula_cell: Any, *, code_cell: Any, code_ref: str
     code_cell.setString(new_code)
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
-        suffix = format_data_binding_display(parsed_parts.data_suffix) if parsed_parts is not None else ""
-        old_args = parse_data_binding_text(suffix)
+        old_args = parse_data_binding_text(_data_binding_display(parsed_parts))
         # Leave the formula cell alone when only the code changed. Native follow
         # save always sends Data: '' — rewriting =PY($A$1) used to emit =PY($A$1))
         # (Err:508) and is unnecessary when the ranges did not change.
@@ -289,7 +284,7 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | 
 
 def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str, parsed_parts: PythonFormulaParts | None, exe: str, code_cell: Any | None = None, code_ref: str | None = None) -> None:
     follow = bool(code_ref and code_cell is not None and not _same_calc_cell(code_cell, cell))
-    data_binding = format_data_binding_display(parsed_parts.data_suffix) if parsed_parts else ""
+    data_binding = _data_binding_display(parsed_parts)
     display_cell = code_cell if follow else cell
 
     def on_save(code: str, save_as_plain: bool, data_binding: str | None = None, _action: str = "cell_save") -> dict[str, Any]:
@@ -300,8 +295,8 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
             new_code=code,
             save_as_plain=save_as_plain,
             data_binding_text=data_binding,
-            code_cell=code_cell if follow else None,
-            code_ref=code_ref if follow else None,
+            code_cell=code_cell,
+            code_ref=code_ref,
         )
 
     label = format_cell_a1(display_cell)
