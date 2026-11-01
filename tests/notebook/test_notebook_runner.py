@@ -1165,7 +1165,7 @@ def test_run_cells_stop_skips_remainder():
     def _exec(_ctx, _doc, code):
         ran.append(code)
         if code == "x = 1":
-            request_stop(doc)
+            request_stop()
         return {"status": "ok", "result": None, "stdout": ""}
 
     with (
@@ -1201,7 +1201,7 @@ def test_run_cells_stop_during_between_cell_drain_skips_next():
         return {"status": "ok", "result": None, "stdout": ""}
 
     def _flush(*_a, **_k):
-        request_stop(doc)
+        request_stop()
 
     with (
         patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
@@ -1394,7 +1394,7 @@ def test_run_cells_busy_guard_skips_play_but_stop_works():
 
     def _reenter(*_a, **_k):
         nested.append(run_cell(ctx, doc, cells[1].cell_id))
-        request_stop(doc)
+        request_stop()
         return {"status": "ok", "result": None, "stdout": "1\n"}
 
     with (
@@ -1832,10 +1832,8 @@ def test_run_cells_reuses_single_draw_page_walk_and_matches_unscoped():
 def test_request_stop_while_idle_creates_no_state():
     from plugin.notebook import notebook_runner
 
-    doc = MagicMock()
-    doc.getURL.return_value = ""
     notebook_runner._stop_flags.clear()
-    request_stop(doc)
+    request_stop()
     assert notebook_runner._stop_flags == {}
 
 
