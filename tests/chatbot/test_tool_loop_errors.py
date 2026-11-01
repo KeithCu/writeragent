@@ -909,6 +909,38 @@ def test_stream_error_cleans_failed_image_from_history(test_instance):
     test_instance.session.db.update_last_user_content.assert_called_once_with("describe the image")
 
 
+def test_text_send_without_wav_stamps_turn_model(test_instance, mock_get_tools):
+    """A text send with no recording still stamps the chat model on the turn.
+
+    Round 0 and get_image read turn.text_model. An empty id makes
+    has_native_vision return False, which strips every image. The stamp
+    used to run only after a WAV attached.
+    """
+    assert test_instance.audio_wav_path is None
+    mock_get_tools.get_schemas.return_value = []
+    test_instance._start_tool_calling_async = MagicMock()
+    test_instance.client._endpoint.return_value = "https://openrouter.ai/api"
+    api_config = {
+        "endpoint": "https://openrouter.ai/api",
+        "model": "google/gemini-3.8-flash",
+        "api_key": "test-key",
+        "chat_max_tool_rounds": 1,
+    }
+    with (
+        patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
+        patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
+    ):
+        test_instance._do_send_chat_with_tools("hello", MagicMock(), "writer")
+
+    turn = current_turn(test_instance)
+    assert turn is not None
+    assert turn.text_model == "google/gemini-3.8-flash"
+    assert turn.endpoint == "https://openrouter.ai/api"
+    assert test_instance.audio_wav_path is None
+
+
 def test_text_only_model_does_not_attach_image(test_instance, mock_get_tools):
     """A text-only model like gpt-oss-20b:nitro does not attach selected image."""
     test_instance._get_document_model = MagicMock()

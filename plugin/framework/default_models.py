@@ -113,19 +113,12 @@ def merge_provider_default_models(to_show: list[str], provider: str, req_cap: st
             continue
         # stt marks non-default speech-to-text rows (Together Whisper / Nemotron).
         # AUDIO|CHAT models such as Gemini are not STT entries.
-        is_default = (
-            (req_cap == "text" and (m.get("default_text") or effective_id == "openrouter/free"))
-            or (req_cap == "image" and m.get("default_image"))
-            or (req_cap == "audio" and _row_is_stt(m))
-            or (req_cap == "tts" and _row_is_tts(m))
-        )
+        is_default = (req_cap == "text" and (m.get("default_text") or effective_id == "openrouter/free")) or (req_cap == "image" and m.get("default_image")) or (req_cap == "audio" and _row_is_stt(m)) or (req_cap == "tts" and _row_is_tts(m))
         if not is_default:
             continue
         # OpenRouter's speech list returns hexgrad/kokoro-82m; the catalog id
         # is hexgrad/Kokoro-82M. Suffix variants (:nitro) are not the same id.
-        if provider == "openrouter" and any(
-            mid.casefold() == effective_id.casefold() for mid in to_show
-        ):
+        if provider == "openrouter" and any(mid.casefold() == effective_id.casefold() for mid in to_show):
             continue
         if effective_id not in to_show:
             to_show.append(effective_id)
@@ -157,12 +150,7 @@ def get_model_capability(model_id: Any, endpoint: Any) -> int:
 # source of truth; a new sonic-* or nemotron ASR id can still appear).
 _TOGETHER_TTS_PREFIXES: tuple[str, ...] = ("canopylabs/orpheus", "hexgrad/kokoro", "cartesia/sonic")
 _TOGETHER_STT_PREFIXES: tuple[str, ...] = ("openai/whisper", "nvidia/parakeet", "nvidia/nemotron")
-_COMBO_CAP = {
-    "text": ModelCapability.CHAT,
-    "image": ModelCapability.IMAGE,
-    "audio": ModelCapability.AUDIO,
-    "tts": ModelCapability.AUDIO,
-}
+_COMBO_CAP = {"text": ModelCapability.CHAT, "image": ModelCapability.IMAGE, "audio": ModelCapability.AUDIO, "tts": ModelCapability.AUDIO}
 
 
 def together_speech_ids(kind: str, remote_models: list[str] | None = None) -> list[str]:
@@ -187,9 +175,7 @@ def together_speech_ids(kind: str, remote_models: list[str] | None = None) -> li
         # nvidia/nemotron also matches chat ids (nemotron-nano). Those are
         # not ASR unless the id contains "asr". Whisper, parakeet, and the
         # TTS prefixes do not overlap this string.
-        if mid and folded not in seen and folded.startswith(prefixes) and not (
-            folded.startswith("nvidia/nemotron") and "asr" not in folded
-        ):
+        if mid and folded not in seen and folded.startswith(prefixes) and not (folded.startswith("nvidia/nemotron") and "asr" not in folded):
             out.append(mid)
             seen.add(folded)
     return out
