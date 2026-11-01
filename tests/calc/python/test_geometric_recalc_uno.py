@@ -364,7 +364,7 @@ def _leftover_shared_diag(ctx, a1, a3) -> str:
     from plugin.testing_runner import _progress_verbose as _progress
 
     try:
-        mode = python_session_mode(ctx)
+        mode = python_session_mode()
         venv = get_config_str("scripting.python_venv_path")
     except Exception as exc:
         mode = "<unreadable %s>" % exc

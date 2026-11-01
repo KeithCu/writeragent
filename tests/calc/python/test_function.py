@@ -1423,7 +1423,7 @@ def test_execute_python_addin_from_background_thread_isolated(monkeypatch: pytes
     from plugin.framework import thread_guard as tg
 
     monkeypatch.setattr(tg, "GUARD_ON", True)
-    monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda _ctx: "isolated")
+    monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda: "isolated")
 
     ctx = _ctx_with_doc(None)
 
@@ -1457,7 +1457,7 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
     from plugin.framework import thread_guard as tg
 
     monkeypatch.setattr(tg, "GUARD_ON", True)
-    monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda _ctx: "shared")
+    monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda: "shared")
 
     # Simulate execute_on_main_thread timing out because main thread is blocked in UNO dispatch
     def fake_execute_on_main(fn, *args, **kwargs):
