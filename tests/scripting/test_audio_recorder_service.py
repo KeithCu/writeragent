@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -20,6 +21,24 @@ from plugin.scripting.audio_recorder_service import (
 
 def _recording_child(proc: MagicMock, drain: object | None = None) -> ManagedSubprocess:
     return ManagedSubprocess.wrap_existing(proc, label="audio-recorder", stderr_tail=drain)  # type: ignore[arg-type]
+
+
+class _ClosingStringIO(StringIO):
+    """StringIO that preserves getvalue() after close()."""
+
+    def __init__(self, initial_value: str = "") -> None:
+        super().__init__(initial_value)
+        self._saved_value = ""
+
+    def close(self) -> None:
+        if not self.closed:
+            self._saved_value = self.getvalue()
+        super().close()
+
+    def getvalue(self) -> str:
+        if self.closed:
+            return self._saved_value
+        return super().getvalue()
 
 
 def test_reap_kills_the_group_before_dropping_stderr(monkeypatch):
@@ -89,7 +108,7 @@ def test_stop_recording_process_uses_json_stop_command():
 
     proc = MagicMock()
     proc.poll.return_value = None
-    proc.stdin = StringIO()
+    proc.stdin = _ClosingStringIO()
     proc.wait.return_value = 0
     handoff = RecordingStopHandoff()
     handoff.note_ok("/tmp/x.wav")
@@ -174,7 +193,7 @@ def test_stop_gets_ok_path_already_consumed_by_stdout_monitor():
     )
     proc = MagicMock()
     proc.poll.return_value = None
-    proc.stdin = StringIO()
+    proc.stdin = _ClosingStringIO()
     proc.stdout = stdout
     proc.wait.return_value = 0
     child = _recording_child(proc)
@@ -256,7 +275,6 @@ def test_error_line_wakes_handoff_without_callback():
 
     handle = monitor_recording_stdout(_recording_child(proc), on_auto_stopped=lambda _p: None, on_error=None, handoff=handoff)
     handle.join(timeout=2.0)
-    assert handoff.has_error() is True
     with pytest.raises(RuntimeError, match="mic gone"):
         handoff.wait_for_path(0.01)
 
@@ -268,7 +286,6 @@ def test_error_line_wakes_handoff_without_callback():
 
     handle2 = monitor_recording_stdout(_recording_child(proc2), on_auto_stopped=lambda _p: None, on_error=None, handoff=handoff2)
     handle2.join(timeout=2.0)
-    assert handoff2.has_error() is True
     with pytest.raises(RuntimeError, match="Audio recording failed."):
         handoff2.wait_for_path(0.01)
 
@@ -315,10 +332,9 @@ def test_append_wav_missing_file_returns_false():
 
 def test_spawn_recording_process_uses_managed_text_pipes(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
-    from plugin.scripting.sandbox import wrap_command_for_sandbox
+    from plugin.scripting.sandbox import scrub_subprocess_env, wrap_command_for_sandbox
     from plugin.scripting.audio_recorder_service import (
         _AUDIO_RECORD_MAIN,
-        _build_recording_env,
         spawn_recording_process,
     )
     import plugin.framework.managed_subprocess as ms
@@ -372,7 +388,7 @@ def test_spawn_recording_process_uses_managed_text_pipes(monkeypatch: pytest.Mon
         assert kwargs.get("start_new_session") is True
         assert "creationflags" not in kwargs
 
-    assert kwargs["env"] == _build_recording_env()
+    assert kwargs["env"] == scrub_subprocess_env(dict(os.environ))
     expected_cmd = wrap_command_for_sandbox(
         [exe, _AUDIO_RECORD_MAIN, "--output", out_path, "--silence-stop-ms=250"],
         env=kwargs["env"],

@@ -1,3 +1,4 @@
+import io
 import os
 import threading
 import wave
@@ -28,6 +29,24 @@ needs_test_hooks = pytest.mark.skipif(not _HAS_TEST_HOOKS, reason="sidebar_test_
 
 def _recording_child(proc: MagicMock, drain: Any = None) -> ManagedSubprocess:
     return ManagedSubprocess.wrap_existing(proc, label="audio-recorder", stderr_tail=drain)
+
+
+class _ClosingStringIO(io.StringIO):
+    """StringIO that preserves getvalue() after close()."""
+
+    def __init__(self, initial_value: str = "") -> None:
+        super().__init__(initial_value)
+        self._saved_value = ""
+
+    def close(self) -> None:
+        if not self.closed:
+            self._saved_value = self.getvalue()
+        super().close()
+
+    def getvalue(self) -> str:
+        if self.closed:
+            return self._saved_value
+        return super().getvalue()
 
 
 @pytest.fixture
@@ -265,7 +284,7 @@ def test_manual_stop_returns_path_while_silence_monitor_runs(ctx, tmp_path):
     )
     proc = MagicMock()
     proc.stdout = stdout
-    proc.stdin = StringIO()
+    proc.stdin = _ClosingStringIO()
     proc.poll.return_value = None
     proc.wait.return_value = 0
     child = _recording_child(proc)
