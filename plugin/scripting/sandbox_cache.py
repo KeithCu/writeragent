@@ -55,20 +55,6 @@ def _deal_sandbox_imports_ok_crosshair(authorized_imports: object) -> bool:
 _deal_sandbox_imports_ok = _profile(_deal_sandbox_imports_ok_crosshair, _deal_sandbox_imports_ok_pytest)
 
 
-def _deal_sandbox_blocked_ok(blocked_imports: object) -> bool:
-    if blocked_imports is None:
-        return True
-    if not isinstance(blocked_imports, (list, tuple, set, frozenset)):
-        return False
-    return all(
-        isinstance(x, str)
-        and "\0" not in x
-        and "\n" not in x
-        and str_bounded(x, DEAL_MAX_TOKEN)
-        for x in blocked_imports
-    )
-
-
 def _deal_sandbox_code_ok_pytest(code: object) -> bool:
     # `_cache_key` joins with NUL; production =PY() scripts may be non-ASCII.
     # =PY() source is longer than DEAL_MAX_SOURCE. The cap raised
@@ -85,7 +71,19 @@ _deal_sandbox_code_ok = _profile(_deal_sandbox_code_ok_crosshair, _deal_sandbox_
 
 
 def _deal_sandbox_policy_ok(authorized_imports: object, blocked_imports: object = None) -> bool:
-    return _deal_sandbox_imports_ok(authorized_imports) and _deal_sandbox_blocked_ok(blocked_imports)
+    if not _deal_sandbox_imports_ok(authorized_imports):
+        return False
+    if blocked_imports is None:
+        return True
+    if not isinstance(blocked_imports, (list, tuple, set, frozenset)):
+        return False
+    return all(
+        isinstance(x, str)
+        and "\0" not in x
+        and "\n" not in x
+        and str_bounded(x, DEAL_MAX_TOKEN)
+        for x in blocked_imports
+    )
 
 _DEFAULT_MAX_ENTRIES = 256
 _MAX_CACHED_SOURCE_CHARS = 65536

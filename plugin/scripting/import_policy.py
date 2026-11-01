@@ -95,7 +95,7 @@ _DRAW_PLOT_HINT = (
     "PLOTS: plt.plot(...) or result=fig; then image_insert(image_path=<returned path>) on the slide/page."
 )
 
-_MATPLOTLIB_PLOT_HINTS: dict[str, str] = {
+_MATPLOTLIB_PLOT_HINTS: dict[str | None, str] = {
     "calc": (
         "PLOTS: plt.plot(...) or result=fig; chart inserts on the active sheet automatically. "
         "Do not call image_insert. Use data_range for sheet data."
@@ -111,8 +111,6 @@ _MATPLOTLIB_PLOT_HINTS: dict[str, str] = {
 
 def format_matplotlib_plot_hint(*, doc_type: str | None = None) -> str:
     """Return a single-sentence plot egress hint for the active app, or \"\" if unknown."""
-    if not doc_type:
-        return ""
     return _MATPLOTLIB_PLOT_HINTS.get(doc_type, "")
 
 
