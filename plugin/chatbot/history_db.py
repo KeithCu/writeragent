@@ -196,18 +196,15 @@ def _json_history_filename(session_id: str, history_dir: str) -> str:
         or "\\" in name
         or os.path.basename(name) != name
     )
-    if is_unsafe:
-        name = hashlib.sha256(name.encode("utf-8")).hexdigest()
-    elif name != name.lower():
-        hashed_name = hashlib.sha256(name.encode("utf-8")).hexdigest()
-        exact_match_found = False
-        if history_dir:
-            try:
-                exact_match_found = f"{name}.json" in os.listdir(history_dir)
-            except OSError:
-                pass
-        if not exact_match_found:
-            name = hashed_name
+    hashed = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    legacy = False
+    if history_dir and not is_unsafe and name != name.lower():
+        try:
+            legacy = f"{name}.json" in os.listdir(history_dir)
+        except OSError:
+            pass
+    if is_unsafe or (name != name.lower() and not legacy):
+        name = hashed
     return f"{name}.json"
 
 
@@ -231,19 +228,14 @@ class JSONHistory:
 
         self.file_path = os.path.join(self.history_dir, _json_history_filename(session_id, self.history_dir))
 
-    def _load_for_write(self) -> list[dict[str, Any]] | None:
+    def _modify(self, mutate: Callable[[list[dict[str, Any]]], None], error: str) -> bool:
         try:
-            return self.get_messages()
+            messages = self.get_messages()
         except (json.JSONDecodeError, UnicodeDecodeError):
             # open(..., "w") truncated the file before json.dump. A crash or a
             # bad read then looked like an empty session and the next add
             # replaced history with one row. Leave an unreadable file alone.
             log.exception("JSONHistory: refusing to overwrite unreadable session %s", self.session_id)
-            return None
-
-    def _modify(self, mutate: Callable[[list[dict[str, Any]]], None], error: str) -> bool:
-        messages = self._load_for_write()
-        if messages is None:
             return False
         mutate(messages)
         try:
