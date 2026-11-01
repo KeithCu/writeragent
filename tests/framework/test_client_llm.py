@@ -970,7 +970,7 @@ def test_request_with_tools_sync_paces_consecutive_requests(client):
     with (
         patch("http.client.HTTPSConnection") as mock_https,
         patch("time.sleep", side_effect=track_sleep),
-        patch("time.monotonic", side_effect=[1000.0] * 8),
+        patch("time.monotonic", return_value=1000.0),
     ):
         mock_conn = MagicMock()
         mock_https.return_value = mock_conn
@@ -1000,7 +1000,7 @@ def test_stream_request_with_tools_paces_consecutive_requests(client):
     with (
         patch("http.client.HTTPSConnection") as mock_https,
         patch("time.sleep", side_effect=track_sleep),
-        patch("time.monotonic", side_effect=[1000.0] * 8),
+        patch("time.monotonic", return_value=1000.0),
     ):
         mock_conn = MagicMock()
         mock_https.return_value = mock_conn
