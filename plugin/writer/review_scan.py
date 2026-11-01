@@ -154,7 +154,8 @@ def agent_change_presence(model: Any, *, stop_at_first: bool = False) -> tuple[i
         comment, readable = read_redline_comment(rl)
         if not readable:
             return False
-        if comment and is_agent_token(comment):
+        if is_agent_token(comment):
+            assert comment is not None
             tokens.add(comment)
             if stop_at_first:
                 raise RedlineScanAbort()

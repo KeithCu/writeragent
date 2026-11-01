@@ -206,18 +206,6 @@ def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int,
     return entry
 
 
-def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, _show: bool) -> dict[str, Any]:
-    """Calc: show/hide tracked-change markup from tools is deferred (no stable UNO path yet).
-
-    Writer visibility is document RedlineDisplayType; the missing getter only selects this Calc stub.
-    """
-    return {
-        "status": "ok",
-        "message": ("Calc: showing or hiding tracked-change markup from WriterAgent is not supported yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. track_changes_start / track_changes_stop still control recording."),
-        "calc_track_changes_show_unsupported": True,
-    }
-
-
 class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
     """Start recording changes."""
 
@@ -375,8 +363,14 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
                 code="TOOL_EXECUTION_ERROR",
             )
 
-        controller = ctx.doc.getCurrentController()
-        return _calc_track_changes_show_markup(ctx, controller, show_b)
+        # Calc: show/hide tracked-change markup from tools is deferred (no stable UNO path yet).
+        return {
+            "status": "ok",
+            "message": (
+                "Calc: showing or hiding tracked-change markup from WriterAgent is not supported yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. track_changes_start / track_changes_stop still control recording."
+            ),
+            "calc_track_changes_show_unsupported": True,
+        }
 
 
 class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
