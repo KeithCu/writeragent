@@ -281,6 +281,7 @@ def wire_sidebar_header_buttons(ctx: Any, frame: Any, controls: dict[str, Any], 
     ext_url = get_extension_url(ctx)
     from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
 
+    latex_btn: tuple[str, str, str | None, str | None, BaseActionListener]
     if calc_doc:
         latex_btn = ("btn_latex", _("Edit Python in Cell..."), menu_icon_asset_rel("python_cell", ctx=ctx), "", _DispatchActionListener("scripting.edit_python_cell", frame))
     else:
