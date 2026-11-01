@@ -898,7 +898,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
     read from the caller document.
     """
     from plugin.calc.python.geometric_recalc import (
-        current_geometric_strip_safe,
+        _RUNTIME,
         geometric_workbook_key,
         maybe_geometric_on_document_open,
         maybe_strip_geometric_eval_args,
@@ -942,7 +942,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         assert _pred(str(a1.getFormula() or "")) is None
 
         # Strip-safe from the live UNO repair; client eval reads the same sid.
-        safe = current_geometric_strip_safe()
+        safe = _RUNTIME.strip_safe
         assert any(
             key.workbook_key == sid and key.resolved_code == mean_code and key.n_args == 2
             for key in safe

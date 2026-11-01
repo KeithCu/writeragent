@@ -60,7 +60,6 @@ class GeometricPatch:
     old_formula: str
     new_formula: str
     action: Literal["append", "replace", "remove"]
-    predecessor: str | None
 
 
 @dataclass(frozen=True)
@@ -74,14 +73,6 @@ class EvalIndexKey:
     workbook_key: str
     resolved_code: str
     n_args: int
-
-
-@dataclass(frozen=True)
-class SheetRepairResult:
-    """Patch list + post-repair map for one sheet."""
-
-    patches: tuple[GeometricPatch, ...]
-    records: dict[str, GeometricRecord]
 
 
 def local_a1(address: str) -> str:
@@ -138,27 +129,6 @@ def formula_data_args(formula: str) -> list[str] | None:
     return parse_data_binding_text(format_data_binding_display(parts.data_suffix))
 
 
-def _geometric_data_suffix(old_args: list[str], new_args: list[str]) -> str:
-    """Join existing user args verbatim; format only a new/replaced last pred.
-
-    ``build_data_suffix`` / ``_format_py_data_range_body`` strip ``$`` from
-    every token. Keep the parsed original spelling; only the appended/replaced
-    predecessor is formatted.
-    """
-    if not new_args:
-        return ")"
-    emitted: list[str] = []
-    for i, tok in enumerate(new_args):
-        if i < len(old_args) and same_cell_ref(tok, old_args[i]):
-            emitted.append(old_args[i])
-            continue
-        if i == len(new_args) - 1:
-            emitted.append(format_py_data_range(tok))
-        else:
-            emitted.append(tok)
-    return f";{';'.join(emitted)})"
-
-
 def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | None:
     """Spliced formula. Existing user args stay verbatim (including ``$``).
 
@@ -168,8 +138,24 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
     parts = parse_python_formula(formula)
     if parts is None:
         return None
-    old_args = formula_data_args(formula) or []
-    suffix = _geometric_data_suffix(old_args, data_args)
+    old_args = parse_data_binding_text(format_data_binding_display(parts.data_suffix))
+    # Join existing user args verbatim; format only a new/replaced last pred.
+    # ``build_data_suffix`` / ``_format_py_data_range_body`` strip ``$`` from
+    # every token. Keep the parsed original spelling; only the appended/replaced
+    # predecessor is formatted.
+    if not data_args:
+        suffix = ")"
+    else:
+        emitted: list[str] = []
+        for i, tok in enumerate(data_args):
+            if i < len(old_args) and same_cell_ref(tok, old_args[i]):
+                emitted.append(old_args[i])
+                continue
+            if i == len(data_args) - 1:
+                emitted.append(format_py_data_range(tok))
+            else:
+                emitted.append(tok)
+        suffix = f";{';'.join(emitted)})"
     if py_formula_has_unquoted_code_ref(formula):
         return assemble_python_formula(parts.prefix, parts.code, suffix, quoted=False)
     return assemble_python_formula(parts.prefix, escape_code_for_formula(parts.code), suffix, quoted=True)
@@ -386,7 +372,7 @@ def compute_sheet_repair(
     records: Mapping[str, GeometricRecord] | None = None,
     *,
     sheet_name: str = "",
-) -> SheetRepairResult:
+) -> tuple[tuple[GeometricPatch, ...], dict[str, GeometricRecord]]:
     """List-diff + splice for one sheet. No UNO.
 
     *cells* must already be row-major.
@@ -446,7 +432,6 @@ def compute_sheet_repair(
                 old_formula=cell.formula,
                 new_formula=new_formula,
                 action=action,
-                predecessor=desired,
             )
         )
         adj[key] = _adj_for(cell.formula, new_args, live_keys, sheet_name)
@@ -458,7 +443,7 @@ def compute_sheet_repair(
     # Drop keys that are no longer on the sheet (moved or deleted).
     working = {addr: rec for addr, rec in working.items() if addr in live_keys}
 
-    return SheetRepairResult(
-        patches=tuple(patches),
-        records=working,
+    return (
+        tuple(patches),
+        working,
     )
