@@ -51,24 +51,6 @@ def _geometric_open_job(ctx: Any, doc: Any) -> None:
         best_effort(lambda: ensure_calc_workbook_unload_resets_python(ctx, doc), "excel_py lifecycle: unload listener install")
 
 
-def _run_geometric_on_open(ctx: Any, doc: Any) -> None:
-    """Record/reconcile in soffice. Inline when already on the UNO thread.
-
-    ``execute_on_main_thread`` from OnNew/OnCreate enqueues and waits. Those
-    events already run on the VCL thread, which is often not Python's
-    ``MainThread``, so the waiter blocks until AsyncCallback (30s timeout) and
-    leftover Shared ``=PY()`` then sees ``session_id=None`` (Isolated).
-    """
-    from plugin.framework.thread_guard import on_main_thread
-
-    if on_main_thread():
-        _geometric_open_job(ctx, doc)
-        return
-    from plugin.framework.queue_executor import execute_on_main_thread
-
-    execute_on_main_thread(_geometric_open_job, ctx, doc)
-
-
 def _is_calc_doc(doc: Any) -> bool:
     try:
         return bool(doc and doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"))
@@ -118,11 +100,9 @@ def has_excel_python_xlsx(path: str | Path) -> bool:
 @contextmanager
 def _busy_path(path_str: str):
     with _lock:
-        if path_str in _busy_paths:
-            busy = True
-        else:
+        busy = path_str in _busy_paths
+        if not busy:
             _busy_paths.add(path_str)
-            busy = False
     if busy:
         yield False
         return
@@ -288,7 +268,13 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                 if name in _GEOMETRIC_OPEN_EVENTS:
                     try:
                         log.info("excel_py lifecycle: geometric on_open event=%s has_doc=%s", name, doc is not None)
-                        _run_geometric_on_open(ctx, doc)
+                        # VCL OnNew/OnCreate is often not Python's MainThread.
+                        # execute_on_main_thread enqueues and waits for AsyncCallback (30s);
+                        # leftover Shared =PY() then sees session_id=None. run_on_main inlines
+                        # when on_main_thread() is true, including an untagged Dummy thread.
+                        from plugin.framework.queue_executor import run_on_main
+
+                        run_on_main(_geometric_open_job, ctx, doc)
                     except Exception:
                         log.warning("geometric recalc on open failed", exc_info=True)
                 if doc is None:
