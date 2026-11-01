@@ -54,14 +54,9 @@ _LEAVE_QUERY_CONTROL_NAMES: tuple[str, ...] = (
 )
 
 
-def _leave_query_controls(controls: dict[str, Any]) -> tuple[Any, ...]:
-    return tuple(controls.get(name) for name in _LEAVE_QUERY_CONTROL_NAMES)
-
-
 def _install_frame_session_listeners(
     session: Any,
-    query: Any,
-    leave_query_controls: Any,
+    controls: dict[str, Any],
 ) -> None:
     """Pin Ask and attach this frame's focus and click listeners.
 
@@ -71,6 +66,8 @@ def _install_frame_session_listeners(
     is not a successful return. Catching it here keeps the contract inside
     the sidebar. Any other attach failure stays a debug log.
     """
+    query = controls.get("query")
+    leave_query_controls = tuple(controls.get(name) for name in _LEAVE_QUERY_CONTROL_NAMES)
     try:
         session.set_focus_pin(query)
         session.install(query=query, leave_query_controls=leave_query_controls)
@@ -134,12 +131,12 @@ def setup_rich_control_ready(
     if session is not None:
         _install_frame_session_listeners(
             session,
-            controls.get("query"),
-            _leave_query_controls(controls),
+            controls,
         )
     controls["response_rich"] = rich_control
-    if panel._panel_resize_listener:
-        panel._panel_resize_listener.set_control("response_rich", rich_control)
+    rl = panel.toolpanel.resize_listener if panel.toolpanel else None
+    if rl:
+        rl.set_control("response_rich", rich_control)
     if panel.send_listener:
         panel.send_listener.set_rich_text_widget(widget)
 
@@ -168,28 +165,26 @@ def setup_rich_control_ready(
 
     if panel._rich_control_listener:
         panel._rich_control_listener.on_replaced = _on_control_replaced
-    if panel._panel_resize_listener:
-        panel._panel_resize_listener.on_control_replaced = _on_control_replaced
+    if rl:
+        rl.on_control_replaced = _on_control_replaced
 
-    hide_response = False
     if controls.get("response"):
         set_control_visible(controls["response"], False)
-        hide_response = True
     log_rich_control_context(
         panel.ctx,
         "hide_plain",
         ok=1,
-        response=int(hide_response),
+        response=int(bool(controls.get("response"))),
     )
-    if panel._panel_resize_listener:
+    if rl:
         log_rich_scroll("on_ready_step", control=rich_control, step="relayout")
-        panel._panel_resize_listener.relayout_now(root_window)
+        rl.relayout_now(root_window)
     try:
         log_rich_scroll("on_ready_step", control=rich_control, step="history")
         from plugin.chatbot.chat_sidebar_mode import greeting_for_sidebar_mode
 
         rich_greeting = greeting_for_sidebar_mode(initial_mode, model)
-        panel._render_session_history(panel.session, controls["response"], model, rich_greeting)
+        panel._render_session_history(panel.session, controls["response"], rich_greeting)
     except Exception:
         log.exception("Initial RichTextControl render failed")
     if panel._rich_control_listener:
@@ -308,7 +303,6 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
             controls["model_label"],
             controls["model_selector"],
             controls["image_model_selector"],
-            model,
             toggle_image_ui=toggle_image_ui,
         )
     except Exception as e:
@@ -358,8 +352,7 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
     if self.frame_session is not None:
         _install_frame_session_listeners(
             self.frame_session,
-            controls.get("query"),
-            _leave_query_controls(controls),
+            controls,
         )
 
     if controls["status"] and hasattr(controls["status"], "setText"):
@@ -369,27 +362,25 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
     # Stop +22px/windowResized loop when Record <-> Send (see writeragent_debug.log).
     # Measure before first relayout so snapshot preserves stabilized button widths.
     if controls["send"]:
-        with suppress_disposed("send button width stabilize", logger=log):
-            from plugin.chatbot.panel import HAS_RECORDING
+        from plugin.chatbot.panel import HAS_RECORDING
 
-            send_labels = ["Send", "Record", "Stop Rec", "Accept"] if HAS_RECORDING else ["Send", "Accept"]
-            fw = _measure_button_max_width(controls["send"], send_labels)
-            if fw:
-                # No width is pinned on the listener any more: the layout shares
-                # the button row and _relabel_button keeps that rect.
-                sr = controls["send"].getPosSize()
-                controls["send"].setPosSize(sr.X, sr.Y, fw, sr.Height, 15)
-        with suppress_disposed("stop/clear button width stabilize", logger=log):
-            for c, lab_list in ((controls.get("stop"), ["Stop", "Change", "Reject"]), (controls.get("clear"), ["Clear", "Reject"])):
-                if not c:
-                    continue
-                aw = _measure_button_max_width(c, lab_list)
-                if aw:
-                    r = c.getPosSize()
-                    c.setPosSize(r.X, r.Y, aw, r.Height, 15)
+        send_labels = ["Send", "Record", "Stop Rec", "Accept"] if HAS_RECORDING else ["Send", "Accept"]
+        for label, items in (
+            ("send button width stabilize", ((controls["send"], send_labels),)),
+            ("stop/clear button width stabilize", ((controls.get("stop"), ["Stop", "Change", "Reject"]), (controls.get("clear"), ["Clear", "Reject"]))),
+        ):
+            with suppress_disposed(label, logger=log):
+                for c, lab_list in items:
+                    if not c:
+                        continue
+                    w = _measure_button_max_width(c, lab_list)
+                    if w:
+                        r = c.getPosSize()
+                        c.setPosSize(r.X, r.Y, w, r.Height, 15)
 
     _frame_session = self.frame_session
     _restore_focus = _frame_session.restore_focus if _frame_session is not None else None
+    _resize: Any = None
     try:
         log.debug("Attaching _PanelResizeListener to root_window; controls=%s" % (sorted(k for k, v in controls.items() if v)))
         _tp = self.toolpanel
@@ -406,7 +397,6 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
         _resize = _PanelResizeListener(controls, on_dispose=_release_sidebar_on_window_dispose, restore_focus=_restore_focus)
         _resize.set_windows(root_window, (_tp.parent_window if _tp else None) or self.xParentWindow)
         root_window.addWindowListener(_resize)
-        self._panel_resize_listener = _resize
         if _tp is not None:
             _tp.resize_listener = _resize
         _resize.relayout_now(root_window)
@@ -470,8 +460,8 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
                 lambda rc: setup_rich_control_ready(self, root_window, controls, initial_mode, model, rc),
                 restore_focus=_restore_focus,
                 placeholder_rect_fn=lambda: (
-                    self._panel_resize_listener.last_response_rect
-                    if self._panel_resize_listener
+                    _resize.last_response_rect
+                    if _resize
                     else None
                 ),
             )
