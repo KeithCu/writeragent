@@ -156,7 +156,7 @@ class TestAppendRichText:
 
     def test_append_rich_text_anchors_body_start_without_character_count_offset(self):
         """The body range starts one past the prefix's last character, not at a document-start count."""
-        from plugin.chatbot.rich_text import append_rich_text, USER_COLOR
+        from plugin.chatbot.rich_text import append_rich_text
 
         doc = MockDoc()
         append_rich_text(doc, "done", role="assistant")
@@ -175,12 +175,10 @@ class TestAppendRichText:
 
         body_range = by_range[-1]
         assert body_range.go_right_calls == [(1, False)]
-        assert body_range.CharColor == USER_COLOR
+        assert body_range.CharColor == 0x2A6099
 
     def test_user_color(self):
         """Verify the prefix cursor gets USER_COLOR via createTextCursorByRange."""
-        from plugin.chatbot.rich_text import USER_COLOR
-
         doc = MockDoc()
         created_cursors = []
         doc.getText().createTextCursorByRange
@@ -194,17 +192,7 @@ class TestAppendRichText:
         from plugin.chatbot.rich_text import append_rich_text
         append_rich_text(doc, "hi", role="user")
         prefix_cursor = created_cursors[0]
-        assert (prefix_cursor.CharColor) == (USER_COLOR)
-
-    def test_assistant_color_is_deep_slate_gray(self):
-        from plugin.chatbot.rich_text import ASSISTANT_COLOR
-
-        assert (ASSISTANT_COLOR) == (0x1E293B)
-
-    def test_user_color_is_indigo_blue(self):
-        from plugin.chatbot.rich_text import USER_COLOR
-
-        assert (USER_COLOR) == (0x2A6099)
+        assert (prefix_cursor.CharColor) == 0x2A6099
 
     def test_get_theme_colors_light_mode(self):
         """get_theme_colors returns light palette for high luminance background."""
@@ -299,7 +287,7 @@ class TestAppendRichText:
 
     def test_plain_body_gets_role_color(self):
         """Non-HTML body still receives the role tint."""
-        from plugin.chatbot.rich_text import append_rich_text, ASSISTANT_COLOR
+        from plugin.chatbot.rich_text import append_rich_text
 
         doc = MockDoc()
         body_cursors = []
@@ -314,7 +302,7 @@ class TestAppendRichText:
         append_rich_text(doc, "plain answer", role="assistant")
 
         assert (len(body_cursors)) >= (2)
-        assert (body_cursors[-1].CharColor) == (ASSISTANT_COLOR)
+        assert (body_cursors[-1].CharColor) == 0x1E293B
 
     def test_html_import_failure_does_not_insert_raw_tags(self):
         """A filter exception must not leave the tags in the hidden doc."""

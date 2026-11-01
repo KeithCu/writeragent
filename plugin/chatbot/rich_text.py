@@ -148,10 +148,6 @@ def render_calc_cell_refs(text: str) -> str:
     return _CELL_LINK_HTML_RE.sub(_rewrite_href, text)
 
 
-USER_COLOR = 0x2A6099
-ASSISTANT_COLOR = 0x1E293B
-
-
 class ChatTheme:
     """Encapsulates theme-aware colors derived from StyleSettings."""
 
@@ -163,6 +159,9 @@ class ChatTheme:
         self.bg_color = bg_color
         self.user_color = user_color
         self.assistant_color = assistant_color
+
+    def role_color(self, role: str) -> int:
+        return self.user_color if role == "user" else self.assistant_color
 
     @classmethod
     def resolve(cls, doc: Any = None, style_window: Any = None) -> "ChatTheme":
@@ -181,12 +180,9 @@ def _tighten_list_indent(body_range: Any) -> None:
 
     enum = body_range.createEnumeration()
 
-    para_count = 0
-    tightened = 0
     processed_levels = set()
     while enum.hasMoreElements():
         para = enum.nextElement()
-        para_count += 1
         if not uno_probe(lambda: para.getPropertyValue("NumberingIsNumber"), False):
             continue
 
@@ -219,10 +215,7 @@ def _tighten_list_indent(body_range: Any) -> None:
             para.NumberingRules = rules
             return True
 
-        if best_effort(_tighten, f"_tighten_list_indent: failed for level {level}"):
-            tightened += 1
-
-    log.debug("_tighten_list_indent: scanned %d paragraphs, tightened %d", para_count, tightened)
+        best_effort(_tighten, f"_tighten_list_indent: failed for level {level}")
 
 
 def _insert_html_at_cursor(cursor: Any, html_fragment: str) -> None:
@@ -239,15 +232,6 @@ def contains_html_tag(text: str) -> bool:
     not tags. ``<b>``, ``<i>``, and ``<script>`` are.
     """
     return text_has_real_html_tag(text or "")
-
-
-def restore_writer_text(text_obj: Any, previous: str) -> None:
-    """Put a hidden Writer body back to *previous*.
-
-    A failed insert must not stay in the document. ``XText`` is an
-    ``XTextRange``, so ``setString`` replaces the body in one write.
-    """
-    text_obj.setString(previous)
 
 
 def writer_suffix(text_obj: Any, previous: str) -> str:
@@ -354,12 +338,12 @@ def _append_rich_text_with_span(
         prefix_range.gotoRange(cursor.getStart(), True)
         prefix_range.CharHeight = CHAT_FONT_HEIGHT
         prefix_range.CharWeight = 150.0  # BOLD
-        prefix_range.CharColor = theme.user_color if role == "user" else theme.assistant_color
+        prefix_range.CharColor = theme.role_color(role)
 
         # Body content via HTML import
         cursor.gotoEnd(False)
         cursor.CharWeight = CHAT_FONT_WEIGHT  # Reset to normal after bold prefix
-        cursor.CharColor = theme.user_color if role == "user" else theme.assistant_color
+        cursor.CharColor = theme.role_color(role)
         # Anchor on the prefix's last character, one before the insert point.
         # A range AT the insert point does not stay put: the HTML import
         # leaves it after the imported body (see html_import._parked_cursor),
@@ -392,7 +376,8 @@ def _append_rich_text_with_span(
                     # the copy, and a caller that keeps the doc still has the
                     # partial message.
                     log.warning("HTML import failed; restoring hidden doc role=%s", role)
-                    restore_writer_text(text_obj, previous)
+                    # XText.setString replaces the whole body.
+                    text_obj.setString(previous)
                     return False, previous, ""
             else:
                 text_obj.insertString(cursor, text, False)
@@ -409,7 +394,7 @@ def _append_rich_text_with_span(
             if contains_html_tag(added):
                 # The filter returned without raising and left the tags as text.
                 log.warning("HTML import left tags in the hidden doc role=%s", role)
-                restore_writer_text(text_obj, previous)
+                text_obj.setString(previous)
                 return False, previous, ""
 
             # Start body_range one character after body_anchor (the end of
@@ -423,7 +408,7 @@ def _append_rich_text_with_span(
             # Plain text gets the role tint; successful HTML import keeps
             # per-span CharColor from the filter (red/blue runs, etc.).
             if not looks_html:
-                body_range.CharColor = theme.user_color if role == "user" else theme.assistant_color
+                body_range.CharColor = theme.role_color(role)
             _tighten_list_indent(body_range)
 
         return True, previous, added
@@ -431,7 +416,7 @@ def _append_rich_text_with_span(
     except Exception as e:
         log.exception("Error in append_rich_text: %s", e)
         if text_obj is not None:
-            restore_writer_text(text_obj, previous)
+            text_obj.setString(previous)
         return False, previous, ""
 
 
