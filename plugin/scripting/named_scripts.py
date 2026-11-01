@@ -439,12 +439,15 @@ class ScriptLibrary:
         return load_named_script(self._origin, name, executor=self._resolve_executor())
 
     def __dir__(self) -> list[str]:
-        return sorted(set(super().__dir__()) | set(self._ident_map_now().keys()) | set(self._names()))
+        mapping = self._ident_map_now()
+        titles = [t for row in mapping.values() for t in row]
+        return sorted(set(super().__dir__()) | set(mapping) | set(titles))
 
     def __contains__(self, item: object) -> bool:
         if not isinstance(item, str):
             return False
-        return item in self._names() or item in self._ident_map_now()
+        mapping = self._ident_map_now()
+        return item in mapping or any(item in row for row in mapping.values())
 
     def __repr__(self) -> str:
         return f"ScriptLibrary(origin={self._origin!r})"

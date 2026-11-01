@@ -13,9 +13,9 @@ import pytest
 from plugin.scripting.document_scripts import (
     build_python_eval_init_kwargs,
     get_calc_init_script,
-    init_script_hash,
     set_calc_init_script,
 )
+from plugin.scripting.named_scripts import script_body_hash
 from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session, run_sandboxed_code
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
 
@@ -54,7 +54,7 @@ def test_init_script_runs_once_in_isolated_mode():
 
     init_sid = "calc:wb-isolated-test:init"
     init_code = "INIT_RUNS = 1\nHELPER = 41"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
 
     with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
         r1 = run_sandboxed_code(
@@ -116,7 +116,7 @@ def test_shared_kernel_keeps_cell_override_of_init_name():
     init_sid = "calc:wb-override:init"
     cell_sid = "calc:wb-override"
     init_code = "FACTOR = 10"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
     first = run_sandboxed_code(
         "FACTOR = 99\nresult = FACTOR",
         session_id=cell_sid,
@@ -140,7 +140,7 @@ def test_shared_kernel_keeps_cell_override_of_init_name():
 def test_isolated_cell_reseeds_init_name_every_run():
     init_sid = "calc:wb-iso-override:init"
     init_code = "FACTOR = 10"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
     run_sandboxed_code(
         "FACTOR = 99\nresult = FACTOR",
         session_id=None,
@@ -163,7 +163,7 @@ def test_init_visible_in_shared_kernel():
     init_sid = "calc:wb-shared:init"
     cell_sid = "calc:wb-shared"
     init_code = "BASE = 10"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
     run_sandboxed_code(
         "result = BASE + 1",
         session_id=cell_sid,
@@ -192,7 +192,7 @@ def test_isolated_init_function_shares_the_seed():
     """
     init_sid = "calc:wb-iso-fn:init"
     init_code = "items = []\ndef add(x):\n    items.append(x)"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
     kwargs = {
         "session_id": None,
         "init_script": init_code,
@@ -215,7 +215,7 @@ def test_isolated_init_mutation_does_not_leak():
     """A cell that mutates an init list must not change the next isolated cell."""
     init_sid = "calc:wb-iso-mut:init"
     init_code = "items = []"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
     kwargs = {"session_id": None, "init_script": init_code, "init_session_id": init_sid, "init_script_hash": h}
     first = run_sandboxed_code("items.append(1)\nresult = len(items)", **kwargs)
     assert first["status"] == "ok", first.get("message")
@@ -245,7 +245,7 @@ def test_reset_non_calc_session_drops_init_companion():
 def test_isolated_cells_do_not_share_cell_assignments():
     init_sid = "calc:wb-iso-vars:init"
     init_code = "BASE = 0"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
     run_sandboxed_code(
         "x = 7\nresult = x",
         session_id=None,
@@ -269,7 +269,7 @@ def test_reset_clears_init_session():
     init_sid = "calc:wb-reset:init"
     cell_sid = "calc:wb-reset"
     init_code = "INIT_RUNS = 1\nMAGIC = 3"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
     run_sandboxed_code(
         "result = MAGIC",
         session_id=None,
@@ -296,7 +296,7 @@ def test_reset_clears_from_init_session_id():
     init_sid = "calc:wb-reset-init:init"
     cell_sid = "calc:wb-reset-init"
     init_code = "INIT_RUNS = 1\nMAGIC = 7"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
     run_sandboxed_code(
         "result = MAGIC",
         session_id=cell_sid,
@@ -363,7 +363,7 @@ def test_init_helper_function_in_shared_kernel():
     init_sid = "calc:wb-func-shared:init"
     cell_sid = "calc:wb-func-shared"
     init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
 
     r1 = run_sandboxed_code(
         "result = double(21)",
@@ -390,7 +390,7 @@ def test_init_helper_function_in_isolated_mode():
     """Functions defined via `def` in INIT scripts must be callable in isolated cells."""
     init_sid = "calc:wb-func-iso:init"
     init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
 
     r1 = run_sandboxed_code(
         "result = double(21)",
@@ -408,7 +408,7 @@ def test_reset_re_seeds_init_helper_function():
     init_sid = "calc:wb-func-reset:init"
     cell_sid = "calc:wb-func-reset"
     init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
 
     r1 = run_sandboxed_code(
         "result = double(21)",
@@ -438,7 +438,7 @@ def test_init_helper_chained_and_imports():
     init_sid = "calc:wb-func-chain:init"
     cell_sid = "calc:wb-func-chain"
     init_code = "import math\n\ndef add(a, b):\n    return a + b\n\ndef circle_area(r):\n    return math.pi * r * r\n\ndef double_add(x):\n    return add(x, x)"
-    h = init_script_hash(init_code)
+    h = script_body_hash(init_code)
 
     r1 = run_sandboxed_code(
         "result = double_add(7)",
@@ -551,7 +551,7 @@ def test_init_class_instance_is_seeded():
         "        return x * 2\n"
         "h = Helper()\n"
     )
-    h_digest = init_script_hash(init_code)
+    h_digest = script_body_hash(init_code)
 
     shared = run_sandboxed_code(
         "result = h.scale(3)",
