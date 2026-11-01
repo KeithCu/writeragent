@@ -136,8 +136,6 @@ def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len
         if start >= canonical_len:
             continue
         effective_len = min(length, canonical_len - start)
-        if effective_len <= 0:
-            continue
         if effective_len != length:
             e = dict(e)
             e["n_error_length"] = effective_len
@@ -243,28 +241,26 @@ def cache_get_sentence(
     result = None
     with grammar_registry.lock:
         hit = grammar_registry.sentence_cache.get(key)
-        if hit and hit.fingerprint == fp:
+        if hit:
             grammar_registry.sentence_cache.move_to_end(key)
             result = copy.deepcopy(hit.errors)
 
+    p = get_persistence(ctx, doc_id) if ctx and doc_id else None
+    if p:
+        _align_persistence_identity(p, ident)
+
     if result is not None:
-        if ctx and doc_id:
-            p = get_persistence(ctx, doc_id)
-            if p:
-                _align_persistence_identity(p, ident)
-                p.mark_accessed(fp, locale_key)
+        if p:
+            p.mark_accessed(fp, locale_key)
         return result
 
-    if ctx and doc_id:
-        p = get_persistence(ctx, doc_id)
-        if p:
-            _align_persistence_identity(p, ident)
-            # L2 is (locale, fingerprint). Fingerprint alone would return the
-            # other CharLocale's errors, including a good (empty) row.
-            persisted = p.get(fp, locale_key)
-            if persisted is not None:
-                _populate_memory_cache_only(locale_key, sentence, persisted, ident)
-                return list(persisted)
+    if p:
+        # L2 is (locale, fingerprint). Fingerprint alone would return the
+        # other CharLocale's errors, including a good (empty) row.
+        persisted = p.get(fp, locale_key)
+        if persisted is not None:
+            _populate_memory_cache_only(locale_key, sentence, persisted, ident)
+            return list(persisted)
 
     return None
 
@@ -283,21 +279,17 @@ def cache_put_sentence(
     entry = _populate_memory_cache_only(
         locale_key, sentence, errors, ident
     )
-    fp = entry.fingerprint
-    canon = entry.canonical
-    is_complete = entry.complete
-    clipped_errors = entry.errors
 
     if ctx and doc_id:
         p = get_persistence(ctx, doc_id)
         if p:
             _align_persistence_identity(p, ident)
-            p.put(fp, locale_key, clipped_errors)
+            p.put(entry.fingerprint, locale_key, entry.errors)
         # Note: document mode skips incomplete-sentence prefix compaction logic (scans _SENTENCE_CACHE only)
         # but we still performed _populate_memory_cache_only above.
         return
 
-    if not is_complete:
+    if not entry.complete:
         with grammar_registry.lock:
             prefix = sentence_cache_key_prefix(locale_key, ident)
             scan_count = 0
@@ -310,7 +302,7 @@ def cache_put_sentence(
                     continue
                 if scan_count >= MAX_RECENT_INCOMPLETE_SCAN:
                     break
-                if should_evict_incomplete_prefix_predecessor(other_complete=other_entry.complete, other_canon=other_entry.canonical, new_canon=canon):
+                if should_evict_incomplete_prefix_predecessor(other_complete=other_entry.complete, other_canon=other_entry.canonical, new_canon=entry.canonical):
                     to_remove.append(k)
                 scan_count += 1
             for k in to_remove:

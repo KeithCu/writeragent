@@ -384,7 +384,8 @@ class GrammarWorkQueue:
         self._ensure_workers(item.ctx)
 
     def _ensure_workers(self, ctx: Any) -> None:
-        desired = grammar_proofread_locale.grammar_max_in_flight(ctx)
+        del ctx
+        desired = grammar_proofread_locale.grammar_max_in_flight()
         while True:
             with self._lock:
                 if self._worker_count >= desired:
