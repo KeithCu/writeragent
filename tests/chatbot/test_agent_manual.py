@@ -11,7 +11,7 @@ for the MCP channel (get_guidance) and the agent-backend path, adding the MCP-on
 sections are per document type so a Calc session never reads Writer advice. No LibreOffice required."""
 
 from plugin.chatbot.agent_manual import (
-    MANUAL_SECTIONS,
+    _WRITER_TOPICS,
     full_manual,
     get_section,
     list_topics,
@@ -47,7 +47,8 @@ def test_topics_and_sections_align():
     topics = list_topics("writer")
     assert "editing" in topics and "review-modes" in topics
     for t in topics:
-        assert t in MANUAL_SECTIONS and MANUAL_SECTIONS[t].strip()
+        sec = get_section(t, "writer")
+        assert sec and sec.strip()
 
 
 def test_normalize_aliases():
@@ -97,18 +98,19 @@ def test_shared_pieces_are_identical_in_both_channels():
     prompt templates embed — one piece, per-channel assemblies, drift impossible."""
     from plugin.framework import prompts as c
 
+    writer_texts = {topic.id: topic.text for topic in _WRITER_TOPICS}
     # Topic -> the exact constants piece (identity, not a copy that could be edited apart).
-    assert MANUAL_SECTIONS["editing-html"] is c.WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert MANUAL_SECTIONS["review-modes"] is c.WRITER_REVIEW_MODES_RULES
-    assert MANUAL_SECTIONS["search"] is c.WRITER_SEARCH_RULES
-    assert MANUAL_SECTIONS["navigation"] is c.WRITER_NAVIGATION_RULES
-    assert MANUAL_SECTIONS["images"] is c.WRITER_IMAGES_RULES
+    assert writer_texts["editing-html"] is c.WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert writer_texts["review-modes"] is c.WRITER_REVIEW_MODES_RULES
+    assert writer_texts["search"] is c.WRITER_SEARCH_RULES
+    assert writer_texts["navigation"] is c.WRITER_NAVIGATION_RULES
+    assert writer_texts["images"] is c.WRITER_IMAGES_RULES
     # The editing topic bundles the workflow pieces verbatim (the HTML contract is its own
     # subdivision, editing-html). The pointer to the subdivision is appended ONLY when the topic
     # is served alone (get_section) — in full_manual the editing-html section follows inline, so
     # a "go read that topic" sentence would dangle there.
     for piece in (c.CONFIRM_EDITS_FROM_STRUCTURED_FIELDS, c.TOOL_USAGE_PATTERNS, c.TRANSLATION_RULES):
-        assert piece.strip() in MANUAL_SECTIONS["editing"]
+        assert piece.strip() in writer_texts["editing"]
     assert "editing-html" in get_section("editing", "writer")      # on-demand: pointer present
     assert "read the editing-html topic" not in full_manual("writer")  # concatenated: no dangler
     # The generic (Calc/Draw/no-doc) editing topic is the same object the Calc and Draw sidebar
@@ -175,7 +177,8 @@ def test_full_manual_writer_covers_key_rules():
 
 def test_full_manual_contains_every_section_in_order():
     g = full_manual("writer")
-    positions = [g.index(MANUAL_SECTIONS[t]) for t in list_topics("writer")]
+    writer_texts = {topic.id: topic.text for topic in _WRITER_TOPICS}
+    positions = [g.index(writer_texts[t]) for t in list_topics("writer")]
     assert positions == sorted(positions)
 
 

@@ -138,12 +138,8 @@ _GENERIC_TOPICS: tuple[_Topic, ...] = (
 
 _MANUALS: dict[str, tuple[_Topic, ...]] = {
     "writer": _WRITER_TOPICS,
-    "calc": _GENERIC_TOPICS,
-    "draw": _GENERIC_TOPICS,
     "generic": _GENERIC_TOPICS,
 }
-
-MANUAL_SECTIONS: dict[str, str] = {topic.id: topic.text for topic in _WRITER_TOPICS}
 
 # Common aliases -> canonical topic, grouped by canonical id.
 _ALIASES_BY_TOPIC: dict[str, tuple[str, ...]] = {
@@ -167,8 +163,6 @@ def _app(doc_type: str | None) -> str:
     if doc_type is None:
         return "generic"
     label = str(doc_type).strip().lower()
-    if label == "impress":
-        return "draw"
     return label if label in _MANUALS else "generic"
 
 
