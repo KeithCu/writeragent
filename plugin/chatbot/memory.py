@@ -209,12 +209,7 @@ def format_upsert_memory_chat_line(arguments: object) -> str:
         if not isinstance(key, str):
             return "[Running tool: upsert_memory...]\n"
         raw = arguments.get("content", "")
-        if raw is None:
-            val = ""
-        elif isinstance(raw, str):
-            val = raw
-        else:
-            val = str(raw)
+        val = "" if raw is None else str(raw)
         one_line = val.replace("\n", " ").replace("\r", " ")
         if len(one_line) > UPSERT_MEMORY_CHAT_VALUE_MAX:
             one_line = one_line[: UPSERT_MEMORY_CHAT_VALUE_MAX - 3] + "..."

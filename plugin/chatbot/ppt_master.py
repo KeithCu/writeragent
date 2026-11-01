@@ -6,15 +6,12 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Callable, TYPE_CHECKING
 
 from plugin.chatbot.sub_agent_tools import SubAgentSessionToolBase
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-
-log = logging.getLogger(__name__)
 
 
 def _run_ppt_master_venv_agent(
@@ -37,20 +34,16 @@ def _run_ppt_master_venv_agent(
         status_callback("PPT-Master...")
 
     from plugin.framework.uno_context import get_active_document, get_ctx
-    from plugin.framework.thread_guard import on_main_thread
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import run_on_main
 
     # The tool runs on a background thread (is_async=True). ctx.doc and
-    # get_active_document() are main-thread-only; execute_on_main_thread keeps
+    # get_active_document() are main-thread-only; run_on_main keeps
     # that access on VCL.
     def _resolve_session() -> str:
         uno_doc = ctx.doc if hasattr(ctx.doc, "getURL") else get_active_document(get_ctx())
         return ppt_master_session_id(uno_doc)
 
-    if on_main_thread():
-        session_id = _resolve_session()
-    else:
-        session_id = execute_on_main_thread(_resolve_session)
+    session_id = run_on_main(_resolve_session)
 
     def on_worker_event(event: dict[str, Any]) -> None:
         kind = event.get("kind")
@@ -95,7 +88,3 @@ class PptMasterSessionTool(SubAgentSessionToolBase):
         },
         "required": ["query"],
     }
-
-
-
-__all__ = ["PptMasterSessionTool"]

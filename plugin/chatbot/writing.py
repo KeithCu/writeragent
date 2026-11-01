@@ -17,6 +17,7 @@ from plugin.chatbot.sub_agent_tools import (
     SUB_AGENT_DOC_CORE_TOOLS,
     SubAgentResearchWebBase,
     SubAgentSessionToolBase,
+    _session_tool_parameters,
     run_domain_sub_agent,
 )
 from plugin.writer.specialized_base import ToolWriterSpecialBase
@@ -67,7 +68,7 @@ class WriteDocumentSection(HtmlContentToolBase):
     description: str = "Insert or replace a section of document content with formatted HTML."
 
 
-def _run_writing_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, topic: str | None = None, **kwargs: Any) -> dict[str, Any]:
+def _run_writing_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, topic: str | None = None) -> dict[str, Any]:
     """Run one turn of the writing plan smol sub-agent."""
     from plugin.chatbot.sticky_reply import WRITING_PLAN_REPLY_SPEC
 
@@ -94,12 +95,6 @@ class WritingPlanSessionTool(SubAgentSessionToolBase):
     agent_label: str = "Writing plan"
     runner: Callable[..., dict[str, Any]] | None = staticmethod(_run_writing_agent)
     doc_types: list[str] | None = ["writer"]
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "User message or initial task."},
-            "history_text": {"type": "string", "description": "Previous conversation text."},
-            "topic": {"type": "string", "description": "Original context/topic for writing task."},
-        },
-        "required": ["query"],
-    }
+    parameters: dict[str, Any] | None = _session_tool_parameters(
+        "Original context/topic for writing task."
+    )

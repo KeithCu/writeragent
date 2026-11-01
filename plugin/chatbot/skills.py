@@ -79,15 +79,13 @@ class SkillStore:
     to find and edit their agent "personality" files.
     """
 
-    config_dir: str
     skills_dir: str
 
     def __init__(self) -> None:
         config_dir = user_config_dir()
         if config_dir is None:
             raise ConfigError("User configuration directory is not available to resolve skill store path")
-        self.config_dir = config_dir
-        self.skills_dir = os.path.join(self.config_dir, "skills")
+        self.skills_dir = os.path.join(config_dir, "skills")
 
     def get_humanizer_skill_path(self) -> str:
         """Return the full path to the editable SKILL.md for display in UI / docs."""
@@ -115,10 +113,8 @@ class SkillStore:
         except FileNotFoundError:
             # Seed the editable file from the built-in default the first time anyone asks for it.
             self.write_humanizer_guidance(HUMANIZER_GUIDANCE)
-            return HUMANIZER_GUIDANCE
         except (OSError, UnicodeDecodeError) as e:
             log.warning("Failed to read user humanizer skill: %s", e)
-            return HUMANIZER_GUIDANCE
 
         return HUMANIZER_GUIDANCE
 

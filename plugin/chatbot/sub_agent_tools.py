@@ -15,7 +15,14 @@ from plugin.doc.document_research import (
     DOC_RESEARCH_DISCOVERY_TOOL_NAMES,
     filter_document_research_discovery_tools,
 )
-from plugin.framework.errors import ToolExecutionError, format_error_payload
+from plugin.framework.errors import (
+    ToolExecutionError,
+    WriterAgentException,
+    format_error_payload,
+    is_real_disposal,
+    is_tool_document_disposed,
+    resolve_exception_message,
+)
 from plugin.framework.tool import ToolBase
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
@@ -65,27 +72,6 @@ def normalize_html_content_array(content: Any) -> list[str] | None:
     return None
 
 
-def apply_html_content(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-    """Shared implementation for apply_document_content wrapper tools."""
-    content = normalize_html_content_array(kwargs.get("content"))
-    if not content:
-        return tool._tool_error(
-            "content must be a non-empty array of HTML strings.",
-            code="INVALID_CONTENT",
-        )
-
-    target = kwargs.get("target") or "end"
-    if target not in HTML_CONTENT_TARGETS:
-        target = "end"
-
-    registry = ctx.services.get("tools") if ctx.services else None
-    apply_tool = registry.get("apply_document_content") if registry else None
-    if apply_tool is None:
-        return tool._tool_error("apply_document_content is not available.", code="TOOL_NOT_FOUND")
-
-    return apply_tool.execute_safe(ctx, content=content, target=target)
-
-
 SUB_AGENT_DOC_CORE_TOOLS = frozenset(["get_document_content", "get_document_tree", "search_in_document"])
 
 
@@ -101,7 +87,23 @@ class HtmlContentToolBase(ToolWriterSpecialBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return apply_html_content(self, ctx, **kwargs)
+        content = normalize_html_content_array(kwargs.get("content"))
+        if not content:
+            return self._tool_error(
+                "content must be a non-empty array of HTML strings.",
+                code="INVALID_CONTENT",
+            )
+
+        target = kwargs.get("target") or "end"
+        if target not in HTML_CONTENT_TARGETS:
+            target = "end"
+
+        registry = ctx.services.get("tools") if ctx.services else None
+        apply_tool = registry.get("apply_document_content") if registry else None
+        if apply_tool is None:
+            return self._tool_error("apply_document_content is not available.", code="TOOL_NOT_FOUND")
+
+        return apply_tool.execute_safe(ctx, content=content, target=target)
 
 
 class SubAgentResearchWebBase(ToolBase):
@@ -146,6 +148,18 @@ class SubAgentSessionToolBase(ToolBase):
         if self.runner is None:
             raise NotImplementedError("Subagent session tool must define runner")
         return run_subagent_tool(self.agent_label, self.runner, ctx, **kwargs)
+
+
+def _session_tool_parameters(topic_description: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+    return {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "User message or initial task."},
+            "history_text": {"type": "string", "description": "Previous conversation text."},
+            "topic": {"type": "string", "description": topic_description},
+        },
+        "required": ["query"],
+    }
 
 
 def get_sub_agent_instructions(mode_instructions: str, *, tool_names: Sequence[str] = ()) -> str:
@@ -213,7 +227,6 @@ def run_domain_sub_agent(
     query: str = "",
     history_text: str | None = None,
     topic: str | None = None,
-    examples_key: str | None = None,
 ) -> dict[str, Any]:
     from plugin.chatbot.smol_agent import run_smol_side_turn
 
@@ -228,7 +241,7 @@ def run_domain_sub_agent(
         history_text=history_text,
         collector=lambda c: tools,
         instructions=instructions,
-        examples_key=examples_key or domain,
+        examples_key=domain,
         reply_spec=reply_spec,
         report_document_opens=True,
         status_message=status_message,
@@ -264,29 +277,16 @@ def run_subagent_tool(
         # This except is the boundary for subagent runners. log.exception
         # records the traceback; the payload keeps the exception text only.
         log.exception("%s execution failed", agent_label)
-        from plugin.framework.errors import (
-            WriterAgentException,
-            is_real_disposal,
-            is_tool_document_disposed,
-            resolve_exception_message,
-        )
-
         doc = getattr(ctx, "doc", None)
         if is_real_disposal(e) or (doc is not None and is_tool_document_disposed(e, doc)):
             raise
 
+        msg = resolve_exception_message(e)
         if isinstance(e, WriterAgentException):
             payload = format_error_payload(e)
             payload["details"] = {**(e.details or {}), "query": query}
-            msg = resolve_exception_message(e)
-            if msg:
-                payload["message"] = msg
+            payload["message"] = msg
             return payload
 
-        msg = resolve_exception_message(e)
-        if not msg:
-            msg = f"{agent_label} failed: {type(e).__name__}"
-        else:
-            msg = f"{agent_label} failed: {msg}"
-        err = ToolExecutionError(msg, details={"query": query})
+        err = ToolExecutionError(f"{agent_label} failed: {msg}", details={"query": query})
         return format_error_payload(err)
