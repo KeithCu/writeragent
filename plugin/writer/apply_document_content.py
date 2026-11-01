@@ -399,6 +399,27 @@ def _note_read_only_attrs(result: Any, content: Any) -> dict[str, Any]:
     return result
 
 
+def _run_on_main_thread(fn: Any) -> Any:
+    if threading.current_thread() is threading.main_thread():
+        return fn()
+    from plugin.framework.queue_executor import execute_on_main_thread
+    return execute_on_main_thread(fn, timeout=60.0)
+
+
+def _search_options(
+    kwargs: Any,
+    old_stripped: str,
+    search_string: str,
+) -> tuple[bool, bool, bool, str, str | None]:
+    regex = bool(kwargs.get("regex"))
+    case = kwargs.get("case_sensitive")
+    use_opts = regex or case is not None
+    pattern = old_stripped if regex else search_string
+    cs = bool(case) if case is not None else False
+    rex_err = search_mod.validate_regex_pattern(old_stripped) if regex else None
+    return regex, use_opts, cs, pattern, rex_err
+
+
 class ApplyDocumentContent(ToolBase):
     """Insert or replace content in the document.
 
@@ -500,7 +521,8 @@ class ApplyDocumentContent(ToolBase):
             return None, "hyperlink_url cannot be combined with all_matches=true."
         return raw, None
 
-    def _replacement_plain(self, ctx: ToolContext, content: Any) -> str:
+    @staticmethod
+    def _replacement_plain(content: Any) -> str:
         """Visible text a search replace will insert, for outline-URL substitution."""
         from . import format as format_support
 
@@ -620,7 +642,6 @@ class ApplyDocumentContent(ToolBase):
 
     def _finish_search_miss(
         self,
-        ctx: ToolContext,
         doc: Any,
         search_string: str,
         opts_pattern: str,
@@ -732,7 +753,7 @@ class ApplyDocumentContent(ToolBase):
             # What was wrong: fallback conversion ran _replacement_plain per match in all_matches.
             # How it happened: run() called _replacement_plain inside each match.
             # Why this change fixes it: use hoisted replacement_plain when passed; lazy fallback for single match.
-            fallback = replacement_plain if replacement_plain is not None else self._replacement_plain(ctx, content)
+            fallback = replacement_plain if replacement_plain is not None else self._replacement_plain(content)
             return restore_outline_hyperlinks(anchor, snapshot, fallback, override)
 
         if batch:
@@ -765,7 +786,7 @@ class ApplyDocumentContent(ToolBase):
             **details,
         )
 
-    def _review_wait_seconds(self, uno_ctx: Any) -> int:
+    def _review_wait_seconds(self) -> int:
         """Max seconds the edit call should block waiting for review; 0 = don't wait."""
         try:
             return edit_review_wait_seconds()
@@ -775,13 +796,9 @@ class ApplyDocumentContent(ToolBase):
 
     def _wait_enabled_globally(self) -> bool:
         """Config read without a tool context, for long_running/is_async (called by the
-        MCP/chat shells before execute). False whenever the context isn't available."""
+        MCP/chat shells before execute)."""
         try:
-            from plugin.framework.thread_guard import on_main_thread
-            from plugin.framework.uno_context import get_ctx
-
-            ctx = get_ctx() if on_main_thread() else None
-            return self._review_wait_seconds(ctx) > 0
+            return self._review_wait_seconds() > 0
         except Exception:
             return False
 
@@ -839,15 +856,9 @@ class ApplyDocumentContent(ToolBase):
         s = search_mod.normalize_search_string_for_find(s)
         if not s:
             return self._tool_error("old_content is empty after normalization.")
-        regex = bool(kwargs.get("regex"))
-        case = kwargs.get("case_sensitive")
-        use_opts = regex or case is not None
-        pattern = old_stripped if regex else s
-        cs = bool(case) if case is not None else False
-        if regex:
-            rex_err = search_mod.validate_regex_pattern(old_stripped)
-            if rex_err:
-                return self._tool_error(search_mod.invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
+        regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, s)
+        if rex_err:
+            return self._tool_error(search_mod.invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
         try:
             ranges = _find_ranges(ctx.doc, pattern, regex, cs, use_opts, s, all_matches=True)
         except ValueError as e:
@@ -861,7 +872,7 @@ class ApplyDocumentContent(ToolBase):
 
         def _plain() -> str:
             if "value" not in plain_box:
-                plain_box["value"] = self._replacement_plain(ctx, kwargs.get("content"))
+                plain_box["value"] = self._replacement_plain(kwargs.get("content"))
             return plain_box["value"]
 
         def _match_snippet(found: Any) -> tuple[str, str]:
@@ -939,15 +950,11 @@ class ApplyDocumentContent(ToolBase):
             result["selected_match"] = selected_match
         return result
 
-    def _release_review_session(self, session: Any, *, on_main: bool) -> None:
+    def _release_review_session(self, session: Any) -> None:
         if session is None:
             return
         try:
-            if on_main:
-                session.cleanup()
-            else:
-                from plugin.framework.queue_executor import execute_on_main_thread
-                execute_on_main_thread(session.cleanup, timeout=60.0)
+            _run_on_main_thread(session.cleanup)
         except Exception:
             log.exception("apply_document_content: review session cleanup failed")
 
@@ -959,17 +966,11 @@ class ApplyDocumentContent(ToolBase):
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         on_main = threading.current_thread() is threading.main_thread()
 
-        def _run_on_main(fn: Any) -> Any:
-            if on_main:
-                return fn()
-            from plugin.framework.queue_executor import execute_on_main_thread
-            return execute_on_main_thread(fn, timeout=60.0)
-
         if kwargs.get("dry_run"):
             # The preview reads ranges and text through UNO, so a worker-thread call
             # (tool-sync-apply_document_content) marshals it like the edit path does.
-            return _run_on_main(lambda: self._dry_run_preview(ctx, **kwargs))
-        wait_seconds = self._review_wait_seconds(ctx.ctx)
+            return _run_on_main_thread(lambda: self._dry_run_preview(ctx, **kwargs))
+        wait_seconds = self._review_wait_seconds()
         session_box: list[Any] = []
 
         def _do_edit() -> tuple[dict[str, Any], Any]:
@@ -985,13 +986,13 @@ class ApplyDocumentContent(ToolBase):
             # session_sink), so its anchor bookmarks are released in `finally` even if the edit
             # raises mid-way (e.g. the 2nd of 3 replace-all matches fails after the 1st).
             try:
-                result = _run_on_main(_do_edit)[0]
+                result = _run_on_main_thread(_do_edit)[0]
                 return annotate_review_status(result)
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             finally:
                 if session_box:
-                    self._release_review_session(session_box[0], on_main=on_main)
+                    self._release_review_session(session_box[0])
 
         # Review-wait path, on a background (MCP HTTP / chat worker) thread: run the edit
         # on the main thread, then block HERE until the user reviews the tracked changes.
@@ -1001,18 +1002,18 @@ class ApplyDocumentContent(ToolBase):
             # 60s edit budget: matches the synchronous MCP path's processing timeout; the
             # default 30s marshalling timeout would reject large full-document replaces that
             # are fine without review mode.
-            result, session = _run_on_main(_do_edit)
+            result, session = _run_on_main_thread(_do_edit)
         except ToolExecutionError as e:
             if session_box:
-                self._release_review_session(session_box[0], on_main=False)
+                self._release_review_session(session_box[0])
             return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
         except Exception:
             if session_box:
-                self._release_review_session(session_box[0], on_main=False)
+                self._release_review_session(session_box[0])
             raise
         if session is None or not session.changes or result.get("status") != "ok":
             if session is not None:
-                self._release_review_session(session, on_main=False)
+                self._release_review_session(session)
             return result
 
         # In-app chat: surface a sidebar status while we block (MCP has no sidebar -> None, no-op).
@@ -1169,18 +1170,23 @@ class ApplyDocumentContent(ToolBase):
             if has_table and _table_insert_failed(ctx.doc, None):
                 return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
             return {"status": "ok", "message": "Replaced entire document."}, session
-        if target == "end":
+        if target in ("end", "beginning"):
             session = _open_session()
             tables_before = _doc_table_count(ctx.doc) if has_table else None
             with session:
                 session.record_mutation(
-                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "end"),
+                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
                     proposed_preview=_plain_preview(content))
             if has_table and _table_insert_failed(ctx.doc, tables_before):
                 return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
+            endpoints = {
+                "end": ("Inserted content at end.", ctx.doc.getText().getEnd),
+                "beginning": ("Inserted content at beginning.", ctx.doc.getText().getStart),
+            }
+            msg, get_anchor = endpoints[target]
             return attach_edited_context(
-                {"status": "ok", "message": "Inserted content at end."},
-                collapsed_anchor(ctx.doc.getText().getEnd())), session
+                {"status": "ok", "message": msg},
+                collapsed_anchor(get_anchor())), session
         if target == "selection":
             # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
             # collapsed position (not the selection range itself) survives the replace.
@@ -1197,18 +1203,6 @@ class ApplyDocumentContent(ToolBase):
                 return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
             return attach_edited_context(
                 {"status": "ok", "message": "Inserted content at selection."}, anchor), session
-        if target == "beginning":
-            session = _open_session()
-            tables_before = _doc_table_count(ctx.doc) if has_table else None
-            with session:
-                session.record_mutation(
-                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "beginning"),
-                    proposed_preview=_plain_preview(content))
-            if has_table and _table_insert_failed(ctx.doc, tables_before):
-                return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
-            return attach_edited_context(
-                {"status": "ok", "message": "Inserted content at beginning."},
-                collapsed_anchor(ctx.doc.getText().getStart())), session
 
         # target == "search" from here on — old_content must be a findable substring, not the full body.
         # Whole-document replace: target='full_document' (no search, no old_content).
@@ -1242,12 +1236,11 @@ class ApplyDocumentContent(ToolBase):
                 "hyperlink_url only applies to position='replace'.",
                 code="INVALID_PARAM"), None
 
-        if kwargs.get("regex"):
-            rex_err = search_mod.validate_regex_pattern(old_stripped)
-            if rex_err:
-                return self._tool_error(
-                    search_mod.invalid_regex_tool_message(rex_err),
-                    code="INVALID_REGEX", count=0), None
+        regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
+        if rex_err:
+            return self._tool_error(
+                search_mod.invalid_regex_tool_message(rex_err),
+                code="INVALID_REGEX", count=0), None
 
         session = _open_session()
         doc = ctx.doc
@@ -1257,18 +1250,13 @@ class ApplyDocumentContent(ToolBase):
         # TODO(follow-up): share search-path return dicts with string_eval_tools.py to avoid drift.
         # Explicit regex / case control (opt-in): a direct SearchDescriptor find that bypasses the
         # default lenient matcher, so "search with options then replace" agrees with search_in_document.
-        regex = bool(kwargs.get("regex"))
-        case = kwargs.get("case_sensitive")
-        use_opts = regex or case is not None
-        pattern = old_stripped if regex else search_string
-        cs = bool(case) if case is not None else False
 
         all_matches = kwargs.get("all_matches", False)
         if all_matches:
             ranges = _find_ranges(doc, pattern, regex, cs, use_opts, search_string, all_matches=True)
             if not ranges:
                 return self._finish_search_miss(
-                    ctx, doc, search_string, pattern, regex, cs,
+                    doc, search_string, pattern, regex, cs,
                     track_reviewable, _plain_preview(content), all_matches=True), session
             max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
             # Decide before any replace. An empty replacement that is the last text
@@ -1301,7 +1289,7 @@ class ApplyDocumentContent(ToolBase):
                 replacement_plain = content
                 plain_preview = content
             else:
-                replacement_plain = self._replacement_plain(ctx, content)
+                replacement_plain = self._replacement_plain(content)
                 plain_preview = replacement_plain
             try:
                 with session:
@@ -1376,7 +1364,7 @@ class ApplyDocumentContent(ToolBase):
             found = _find_ranges(doc, pattern, regex, cs, use_opts, search_string, all_matches=False)
         if found is None:
             return self._finish_search_miss(
-                ctx, doc, search_string, pattern, regex, cs,
+                doc, search_string, pattern, regex, cs,
                 track_reviewable, _plain_preview(content), all_matches=False), session
         if position in ("before", "after"):
             # INSERT next to the match instead of replacing it: the single most common petition
