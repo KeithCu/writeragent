@@ -105,15 +105,14 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 
             # Shared LO search: NBSP/space normalization plus the newline-chained fallback.
             try:
-                found = find_occurrence_range(
+                rng = find_occurrence_range(
                     doc, insert_after, occurrence=occurrence, case_sensitive=case_sensitive)
             except IndexError:
                 return self._tool_error(
                     f"No match for insert_after_text at occurrence {occurrence} "
                     "(not enough occurrences).")
-            if found is None:
+            if rng is None:
                 return self._tool_error("No match for insert_after_text in the document.")
-            rng = found
         else:
             # View cursor: active insertion point in the UI.
             ctrl = doc.getCurrentController()

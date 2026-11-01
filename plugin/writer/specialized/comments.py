@@ -42,7 +42,7 @@ def _iter_annotations(doc: Any) -> Any:
             reraise_if_disposed(exc)
 
 
-def _annotation_context(ctx: Any) -> tuple[Any, Any, Any, Any, dict[int, str]]:
+def _annotation_reader(ctx: Any) -> Any:
     from plugin.doc.paragraph_search import paragraph_entries
 
     doc = ctx.doc
@@ -51,7 +51,17 @@ def _annotation_context(ctx: Any) -> tuple[Any, Any, Any, Any, dict[int, str]]:
     text_obj = doc.getText()
     entries = paragraph_entries(para_ranges)
     label_cache: dict[int, str] = {}
-    return doc_svc, para_ranges, text_obj, entries, label_cache
+
+    def reader(field: Any) -> dict[str, Any]:
+        return _read_annotation(
+            field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
+        )
+
+    return reader
+
+
+def _comment_not_found(message: str, **extra: Any) -> dict[str, Any]:
+    return {"status": "error", "code": "COMMENT_NOT_FOUND", "message": message, **extra}
 
 
 class CommentList(ToolWriterCommentBase):
@@ -68,7 +78,7 @@ class CommentList(ToolWriterCommentBase):
         fields = list(_iter_annotations(doc))
         comments = []
         if fields:
-            doc_svc, para_ranges, text_obj, entries, label_cache = _annotation_context(ctx)
+            reader = _annotation_reader(ctx)
             af = author_filter.lower() if author_filter else None
             for field in fields:
                 if af is not None:
@@ -80,10 +90,7 @@ class CommentList(ToolWriterCommentBase):
                     if af not in field_author.lower():
                         continue
 
-                entry = _read_annotation(
-                    field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
-                )
-                comments.append(entry)
+                comments.append(reader(field))
 
         result: dict[str, Any] = {"status": "ok", "comments": comments, "count": len(comments)}
         if author_filter:
@@ -128,12 +135,10 @@ class AddComment(ToolBase):
             if parent is None:
                 # Top-level comment_added (not _tool_error details) matches the
                 # search-miss payload so clients can branch on one field.
-                return {
-                    "status": "error",
-                    "code": "COMMENT_NOT_FOUND",
-                    "message": "Comment '%s' not found. Call comment_list to see the current names." % parent_name,
-                    "comment_added": False,
-                }
+                return _comment_not_found(
+                    "Comment '%s' not found. Call comment_list to see the current names." % parent_name,
+                    comment_added=False,
+                )
             success, reply_name_or_err = _insert_annotation_reply(ctx.doc, parent, parent_name, content, author)
             if not success:
                 return {
@@ -278,21 +283,19 @@ class CommentDelete(ToolWriterCommentBase):
             # A miss must be an ERROR: "ok, deleted: 0" reads as success and the agent then
             # reports a deletion that never happened.
             what = ("comment_name '%s'" % comment_name) if comment_name else ("author '%s'" % author)
-            return {"status": "error", "code": "COMMENT_NOT_FOUND",
-                    "message": "No comment matched %s. Call comment_list to see the current names and authors." % what,
-                    "deleted": 0}
+            return _comment_not_found(
+                "No comment matched %s. Call comment_list to see the current names and authors." % what,
+                deleted=0,
+            )
 
         from ..edit_review import next_agent_edit_undo_title
 
         undo_title = next_agent_edit_undo_title()
-        deleted_count = 0
 
         def mutate() -> dict[str, Any] | None:
-            nonlocal deleted_count
             for field in to_delete:
                 # The body XText does not own an annotation anchored in a cell or frame.
                 field.getAnchor().getText().removeTextContent(field)
-                deleted_count += 1
             return None
 
         err = commit_or_rollback_mutation(
@@ -307,7 +310,7 @@ class CommentDelete(ToolWriterCommentBase):
         if err is not None:
             return err
 
-        return {"status": "ok", "deleted": deleted_count}
+        return {"status": "ok", "deleted": len(to_delete)}
 
 
 class CommentResolve(ToolWriterCommentBase):
@@ -332,19 +335,11 @@ class CommentResolve(ToolWriterCommentBase):
         author = kwargs.get("author", "AI")
 
         doc = ctx.doc
-        target = None
-        for field in _iter_annotations(doc):
-            name = field.getPropertyValue("Name")
-            if name == comment_name:
-                target = field
-                break
-
+        target = _find_annotation_by_name(doc, comment_name)
         if target is None:
-            return {
-                "status": "error",
-                "code": "COMMENT_NOT_FOUND",
-                "message": "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
-            }
+            return _comment_not_found(
+                "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
+            )
 
         from ..edit_review import next_agent_edit_undo_title
         undo_title = next_agent_edit_undo_title()
@@ -425,7 +420,7 @@ class CommentScanTasks(ToolWriterCommentBase):
         fields = list(_iter_annotations(doc))
         if not fields:
             return {"status": "ok", "tasks": [], "count": 0}
-        doc_svc, para_ranges, text_obj, entries, label_cache = _annotation_context(ctx)
+        reader = _annotation_reader(ctx)
         tasks = []
         for field in fields:
             try:
@@ -444,12 +439,20 @@ class CommentScanTasks(ToolWriterCommentBase):
                         continue
                 except Exception as exc:
                     reraise_if_disposed(exc)
-            entry = _read_annotation(
-                field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
-            )
+            entry = reader(field)
             entry["prefix"] = matched_prefix
             tasks.append(entry)
         return {"status": "ok", "tasks": tasks, "count": len(tasks)}
+
+
+_WORKFLOW_AUTHOR = "MCP-WORKFLOW"
+
+
+def _workflow_field(doc: Any) -> Any | None:
+    for field in _iter_annotations(doc):
+        if (field.getPropertyValue("Author") or "") == _WORKFLOW_AUTHOR:
+            return field
+    return None
 
 
 class CommentWorkflowGet(ToolWriterCommentBase):
@@ -458,11 +461,8 @@ class CommentWorkflowGet(ToolWriterCommentBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        doc = ctx.doc
-        for field in _iter_annotations(doc):
-            author = field.getPropertyValue("Author") or ""
-            if author != "MCP-WORKFLOW":
-                continue
+        field = _workflow_field(ctx.doc)
+        if field is not None:
             content = field.getPropertyValue("Content") or ""
             workflow = {k: v for k, v in _parse_workflow_content(content) if k is not None}
             return {"status": "ok", "workflow": workflow}
@@ -484,20 +484,15 @@ class CommentWorkflowSet(ToolWriterCommentBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         content = kwargs.get("content", "")
         doc = ctx.doc
-        doc_text = doc.getText()
-        existing = None
-        for field in _iter_annotations(doc):
-            author = field.getPropertyValue("Author") or ""
-            if author == "MCP-WORKFLOW":
-                existing = field
-                break
+        existing = _workflow_field(doc)
         if existing is not None:
             existing.setPropertyValue("Content", content)
         else:
             annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
-            annotation.setPropertyValue("Author", "MCP-WORKFLOW")
+            annotation.setPropertyValue("Author", _WORKFLOW_AUTHOR)
             annotation.setPropertyValue("Content", content)
             _set_annotation_date(annotation)
+            doc_text = doc.getText()
             cursor = doc_text.createTextCursor()
             cursor.gotoStart(False)
             doc_text.insertTextContent(cursor, annotation, False)
@@ -518,7 +513,7 @@ class CommentCheckStop(ToolWriterCommentBase):
             content = field.getPropertyValue("Content") or ""
             author = field.getPropertyValue("Author") or ""
             resolved = field.getPropertyValue("Resolved")
-            if author == "MCP-WORKFLOW" and content:
+            if author == _WORKFLOW_AUTHOR and content:
                 for _key, val in _parse_workflow_content(content):
                     if val.lower() in ("stop", "pause"):
                         workflow_stop = True
