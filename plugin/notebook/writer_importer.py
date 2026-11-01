@@ -42,8 +42,9 @@ from typing import Any, Iterator, final
 
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 from plugin.contrib.nbformat import read_ipynb
+from plugin.doc.visual_helpers import mm_to_units
+from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 from plugin.notebook.cell_registry import NotebookDocState, _coerce_notebook_text, _format_in_prompt, _prepare_display_text, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
 from plugin.notebook.notebook_controls import (
     _CODE_FONT_NAME,
@@ -56,7 +57,7 @@ from plugin.notebook.notebook_controls import (
     _text_area_width_units,
     _text_width_from_style,
 )
-from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, _mm_to_units, insert_image_at_locator
+from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, insert_image_at_locator
 
 log = logging.getLogger("writeragent.notebook")
 
@@ -1169,8 +1170,8 @@ def _display_size_units(raw: bytes, mime: str, *, max_width_mm: float) -> tuple[
             scale = cap_mm / w_mm
             w_mm = cap_mm
             h_mm = h_mm * scale
-        return _mm_to_units(w_mm, h_mm)
-    return _mm_to_units(cap_mm, _DEFAULT_IMAGE_HEIGHT_MM)
+        return mm_to_units(w_mm, h_mm)
+    return mm_to_units(cap_mm, _DEFAULT_IMAGE_HEIGHT_MM)
 
 
 def _notebook_image_payload(data: dict[str, Any]) -> tuple[str, str] | None:

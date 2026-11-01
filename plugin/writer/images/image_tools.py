@@ -78,14 +78,6 @@ def _file_url_for_path(img_path: str) -> str:
     return uno.systemPathToFileUrl(os.path.abspath(img_path))
 
 
-def _mm_to_units(width_mm: int | float, height_mm: int | float) -> tuple[int, int]:
-    return visual_helpers.mm_to_units(width_mm, height_mm)
-
-
-def _safe_try_method(obj: Any, method_name: str, *args: Any) -> bool:
-    return visual_helpers.safe_try_method(obj, method_name, *args)
-
-
 def _apply_graphic_properties(graphic: Any, *, width: int | None = None, height: int | None = None, title: str, description: str, anchor_type: Any = AS_CHARACTER, inside: str = "writer") -> None:
     # Never use hasattr(graphic, "PropName") — PyUNO raises UnknownPropertyException.
     if anchor_type is not None and inside in ("writer", "web"):
@@ -96,7 +88,7 @@ def _apply_graphic_properties(graphic: Any, *, width: int | None = None, height:
             _safe_set_property(graphic, "Width", width)
             _safe_set_property(graphic, "Height", height)
         elif not _safe_set_property(graphic, "Size", size):
-            if not _safe_try_method(graphic, "setSize", size):
+            if not visual_helpers.safe_try_method(graphic, "setSize", size):
                 log.debug("_apply_graphic_properties: could not set size %dx%d", width, height)
     if title:
         _safe_set_property(graphic, "Title", title)
@@ -261,7 +253,7 @@ def insert_image_at_locator(ctx: Any, model: Any, img_path: str, width_mm: int |
     from plugin.doc.compound_undo import WriterCompoundUndo
 
     inside = get_type_doc(model)
-    width_units, height_units = _mm_to_units(width_mm, height_mm)
+    width_units, height_units = visual_helpers.mm_to_units(width_mm, height_mm)
 
     with WriterCompoundUndo(model, "WriterAgent: Insert image"):
         if inside in ("writer", "web"):
@@ -328,7 +320,7 @@ def insert_image_into_header_footer(
 
         region_text = style.getPropertyValue(text_prop)
         cursor = region_text.createTextCursorByRange(region_text.getEnd())
-        width_units, height_units = _mm_to_units(width_mm, height_mm)
+        width_units, height_units = visual_helpers.mm_to_units(width_mm, height_mm)
         graphic = _insert_embedded_at_writer_cursor(
             model,
             img_path,
@@ -567,7 +559,7 @@ def _insert_image_to_drawpage(
             _apply_graphic_properties(graphic, width=width, height=height, title=title, description=description, inside=inside)
             if inside != "calc":
                 pos = visual_helpers.position_on_draw_page(draw_page, width, height, x_mm, y_mm)
-                if not _safe_try_method(graphic, "setPosition", pos):
+                if not visual_helpers.safe_try_method(graphic, "setPosition", pos):
                     log.debug("_insert_image_to_drawpage: setPosition failed on linked graphic")
             return graphic
         log.debug("_insert_image_to_drawpage: linked dispatch failed, embedding fallback")
@@ -577,7 +569,7 @@ def _insert_image_to_drawpage(
     draw_page.add(image)
     if inside != "calc":
         pos = visual_helpers.position_on_draw_page(draw_page, width, height, x_mm, y_mm)
-        if not _safe_try_method(image, "setPosition", pos):
+        if not visual_helpers.safe_try_method(image, "setPosition", pos):
             log.debug("_insert_image_to_drawpage: setPosition failed on embedded graphic")
     return image
 

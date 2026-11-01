@@ -74,12 +74,11 @@ def get_visual_doc_type(doc: Any) -> str:
     they also support TextDocument and would otherwise look like Writer.
     Unknown models keep the legacy ``\"writer\"`` default (not ``\"unknown\"``).
     """
-    if doc is not None:
-        try:
-            if doc.supportsService(WEB_DOCUMENT_SERVICE):
-                return "web"
-        except Exception as exc:
-            log.debug("get_visual_doc_type: WebDocument probe failed (%s)", type(exc).__name__)
+    try:
+        if doc is not None and doc.supportsService(WEB_DOCUMENT_SERVICE):
+            return "web"
+    except Exception as exc:
+        log.debug("get_visual_doc_type: WebDocument probe failed (%s)", type(exc).__name__)
 
     doc_type = get_document_type(doc)
     if doc_type == DocumentType.UNKNOWN:
@@ -565,18 +564,15 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
 # draw page, because getDrawPages() is Draw/Impress-specific and Calc sheets each
 # have their own draw page accessed via sheet.getDrawPage().
 def draw_page_for_insert(model: Any, inside: str, page_index: int | None = None) -> Any:
-    if inside in ("draw", "impress") and page_index is not None:
-        pages = model.getDrawPages()
-        count = pages.getCount()
+    if page_index is not None and inside in ("draw", "impress", "calc"):
+        calc = inside == "calc"
+        container = model.getSheets() if calc else model.getDrawPages()
+        count = container.getCount()
         if page_index < 0 or page_index >= count:
-            raise IndexError("Page index %s out of range (0..%s)." % (page_index, count - 1))
-        return pages.getByIndex(page_index)
-    if inside == "calc" and page_index is not None:
-        sheets = model.getSheets()
-        count = sheets.getCount()
-        if page_index < 0 or page_index >= count:
-            raise IndexError("Sheet index %s out of range (0..%s)." % (page_index, count - 1))
-        return sheets.getByIndex(page_index).getDrawPage()
+            label = "Sheet" if calc else "Page"
+            raise IndexError("%s index %s out of range (0..%s)." % (label, page_index, count - 1))
+        item = container.getByIndex(page_index)
+        return item.getDrawPage() if calc else item
     draw_page = get_active_draw_page(model, inside)
     if draw_page is None:
         raise RuntimeError(f"Could not resolve draw page for {inside}")
@@ -770,16 +766,9 @@ def get_graphic_object_by_name(
 ) -> Any | None:
     if not image_name:
         return None
-    matches: list[tuple[Any, int | None]] = []
-    for item in list_graphic_objects(doc, doc_type=doc_type):
-        name, graphic = item[0], item[1]
-        s_idx = getattr(item, "sheet_index", None)
-        if name == image_name:
-            if sheet_index is not None:
-                if s_idx == sheet_index:
-                    return graphic
-            else:
-                matches.append((graphic, s_idx))
+    matches = [(item[1], getattr(item, "sheet_index", None)) for item in list_graphic_objects(doc, doc_type=doc_type) if item[0] == image_name]
+    if sheet_index is not None:
+        return next((graphic for graphic, idx in matches if idx == sheet_index), None)
     if len(matches) == 1:
         return matches[0][0]
     if len(matches) < 2:
