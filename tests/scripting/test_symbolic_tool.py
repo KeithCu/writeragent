@@ -154,9 +154,8 @@ def test_run_trusted_symbolic_rejects_non_writer_calc_without_hint(mock_main_thr
     assert "Writer or Calc" in str(exc_info.value)
 
 
-@patch("plugin.framework.thread_guard.on_main_thread", return_value=True)
 @patch("plugin.scripting.symbolic.client_run_symbolic")
-def test_run_trusted_symbolic_accepts_writer_without_hint(mock_client_run, mock_main_thread):
+def test_run_trusted_symbolic_accepts_writer_without_hint(mock_client_run):
     from plugin.scripting.symbolic import run_trusted_symbolic
 
     mock_client_run.return_value = {
@@ -171,6 +170,7 @@ def test_run_trusted_symbolic_accepts_writer_without_hint(mock_client_run, mock_
         doc,
         helper="symbolic_simplify",
         params={"expression": "x"},
+        doc_type="writer",
     )
     assert result["status"] == "ok"
     mock_client_run.assert_called_once()
