@@ -212,7 +212,7 @@ def test_chapter_number_on_off_and_locator_uno(ctx, doc):
             assert "chapter_number:1.1" in str(exc)
 
         enable_chapter_numbering(doc, suffix="")
-        tree_svc._drop_tree_cache()
+        tree_svc._tree_cache.clear()
         on = _heading_by_text(tree_svc.build_heading_tree(doc))
         from plugin.doc.text_helpers import build_heading_tree as light_build_heading_tree
 
@@ -228,7 +228,7 @@ def test_chapter_number_on_off_and_locator_uno(ctx, doc):
         assert on["Section Beta"]["para_index"] == ordinal["para_index"]
 
         enable_chapter_numbering(doc, suffix="", start_with=3)
-        tree_svc._drop_tree_cache()
+        tree_svc._tree_cache.clear()
         started = _heading_by_text(tree_svc.build_heading_tree(doc))
         assert started["Chapter One"]["chapter_number"] == "3"
         assert started["Section Alpha"]["chapter_number"] == "3.1"
@@ -247,7 +247,7 @@ def test_chapter_number_on_off_and_locator_uno(ctx, doc):
             assert "chapter_number:1.1" in str(exc)
 
         enable_chapter_numbering(doc, suffix=".")
-        tree_svc._drop_tree_cache()
+        tree_svc._tree_cache.clear()
         dotted = _heading_by_text(tree_svc.build_heading_tree(doc))
         assert dotted["Section Alpha"]["chapter_number"] == "1.1"
         assert resolve_locator(doc, "chapter_number:1.1")["para_index"] == dotted["Section Alpha"]["para_index"]
@@ -289,7 +289,7 @@ def test_chapter_number_not_invented_from_literal_title_uno(ctx, doc):
         assert lit["text"] == "DOCUMENT 7: Vulnerability"
 
         enable_chapter_numbering(doc, suffix="", start_with=3)
-        tree_svc._drop_tree_cache()
+        tree_svc._tree_cache.clear()
         on = _heading_by_text(tree_svc.build_heading_tree(doc))
         assert on["DOCUMENT 7: Vulnerability"]["chapter_number"] == "3"
         assert on["DOCUMENT 7: Vulnerability"]["text"] == "DOCUMENT 7: Vulnerability"

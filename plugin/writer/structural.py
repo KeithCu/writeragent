@@ -119,18 +119,10 @@ class GetPageObjects(ToolBase):
             locator = kwargs.get("locator")
             para_idx = kwargs.get("paragraph")
             if locator:
-                # resolve_locator turns heading_text/section/page and a missing
-                # bookmark into paragraph 0, and this .get defaults a missing
-                # index to 0 as well. The scan would then run on that page and
-                # return status ok. An unresolved locator is a tool error.
-                # Paragraph 0 is still valid when the resolver actually returns it.
                 try:
-                    resolved = doc_svc.resolve_locator(doc, locator)
-                    para_idx = resolved.get("para_index")
+                    para_idx = _resolve_para_index(ctx, {"locator": locator})
                 except (ValueError, ToolExecutionError) as e:
                     return self._tool_error(str(e))
-                if para_idx is None:
-                    return self._tool_error("Cannot resolve locator: %s" % locator)
             if para_idx is not None:
                 # What was wrong: get_page_for_paragraph swallowed exceptions and returned
                 # fallback 1, so failures were reported as status: ok, page: 1 (#1422).

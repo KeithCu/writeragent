@@ -117,22 +117,16 @@ class TreeService(ServiceBase):
         self._tree_cache: dict[Any, tuple[int | None, dict[str, Any]]] = {}  # doc_key -> (fingerprint, root)
         events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
 
-    def _drop_tree_cache(self, key: Any | None = None) -> None:
-        if key is None:
-            self._tree_cache.clear()
-            return
-        self._tree_cache.pop(key, None)
-
     def _on_cache_invalidated(self, doc: Any | None = None, key: Any | None = None, **_kw: Any) -> None:
         # Prefer the stored key so close/unload can pop without calling
         # doc_key() on a disposed model. key= must be checked before
         # doc is None (emit(key=...) leaves doc defaulted to None).
-        if key is not None:
-            self._drop_tree_cache(key)
-        elif doc is None:
-            self._drop_tree_cache()
+        if key is None and doc is not None:
+            key = self._doc_svc.doc_key(doc)
+        if key is None:
+            self._tree_cache.clear()
         else:
-            self._drop_tree_cache(self._doc_svc.doc_key(doc))
+            self._tree_cache.pop(key, None)
 
 
     # ── Tree building ──────────────────────────────────────────────
@@ -210,7 +204,7 @@ class TreeService(ServiceBase):
         next_heading_map: dict[int, int],
     ) -> None:
         para_idx = node.get("para_index", -1)
-        if strategy in ("none", "heading_only"):
+        if strategy == "heading_only":
             pass
         elif strategy == "first_lines":
             next_idx = next_heading_map.get(para_idx, len(para_ranges))
@@ -299,13 +293,11 @@ class TreeService(ServiceBase):
             "page_count": page_count,
         }
 
-    def get_heading_children(self, doc: Any, heading_para_index: int | None = None, heading_bookmark: str | None = None, locator: str | None = None, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
+    def get_heading_children(self, doc: Any, heading_para_index: int | None = None, locator: str | None = None, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
         """Get children of a heading (body paragraphs + sub-headings)."""
         if locator is not None and heading_para_index is None:
             resolved = self._doc_svc.resolve_locator(doc, locator)
             heading_para_index = resolved.get("para_index")
-        elif heading_bookmark is not None and heading_para_index is None:
-            heading_para_index = self._resolve_bookmark_locator(doc, heading_bookmark)["para_index"]
 
         if heading_para_index is None:
             raise ToolExecutionError("Provide locator, heading_para_index, or heading_bookmark")
@@ -320,7 +312,7 @@ class TreeService(ServiceBase):
         next_heading_para_index = ctx.next_heading_map.get(heading_para_index, total)
 
         for idx, element in _iter_body_paragraphs(ctx.para_ranges, heading_para_index + 1, next_heading_para_index):
-            if content_strategy in ("none", "heading_only"):
+            if content_strategy == "heading_only":
                 children.append({"type": "body", "para_index": idx})
             elif content_strategy == "full":
                 para_text = get_string_without_tracked_deletions(element)
@@ -348,6 +340,19 @@ class TreeService(ServiceBase):
         text_obj = doc.getText()
         para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
         return para_idx, para_ranges, text_obj
+
+    def _confirm_anchor_placement(
+        self, doc: Any, obj: Any, not_placed_err: Exception
+    ) -> tuple[int | None, int | None, list[Any]]:
+        try:
+            anchor = obj.getAnchor()
+        except Exception as exc:
+            raise not_placed_err from exc
+        if anchor is None:
+            raise not_placed_err
+        para_idx, para_ranges, text_obj = self._paragraph_at_anchor(doc, anchor)
+        placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+        return placed, para_idx, para_ranges
 
     # ── Locator resolution (called by document.resolve_locator) ────
 
@@ -428,23 +433,18 @@ class TreeService(ServiceBase):
             if not tables.hasByName(loc_value):
                 raise ToolExecutionError("Table '%s' not found" % loc_value)
             table = tables.getByName(loc_value)
-            try:
-                anchor = table.getAnchor()
-            except Exception as exc:
-                raise ToolExecutionError(
+            placed, para_idx, para_ranges = self._confirm_anchor_placement(
+                doc,
+                table,
+                ToolExecutionError(
                     "Table '%s' anchor is not in the document" % loc_value
-                ) from exc
-            if anchor is None:
-                raise ToolExecutionError(
-                    "Table '%s' anchor is not in the document" % loc_value
-                )
-            para_idx, para_ranges, text_obj = self._paragraph_at_anchor(doc, anchor)
+                ),
+            )
             # Same as bookmarks: find_paragraph_for_range returns None when the
             # place fails. confirm_paragraph_index keeps 0 only for a real hit
             # inside a paragraph. A table in enumeration slot 0 is still valid,
             # and confirm only checks paragraph getStart, so accept that slot
             # when the named table is there.
-            placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
             if placed is None:
                 if (
                     isinstance(para_idx, int)
@@ -487,14 +487,9 @@ class TreeService(ServiceBase):
         is inside that paragraph. Anything else is an error, not a
         location.
         """
-        try:
-            anchor = bookmark.getAnchor()
-        except Exception as exc:
-            raise _bookmark_anchor_not_placed(bookmark_name) from exc
-        if anchor is None:
-            raise _bookmark_anchor_not_placed(bookmark_name)
-        para_idx, para_ranges, text_obj = self._paragraph_at_anchor(doc, anchor)
-        placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+        placed, _para_idx, _para_ranges = self._confirm_anchor_placement(
+            doc, bookmark, _bookmark_anchor_not_placed(bookmark_name)
+        )
         if placed is None:
             raise _bookmark_anchor_not_placed(bookmark_name)
         return placed
