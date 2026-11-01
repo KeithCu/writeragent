@@ -105,11 +105,6 @@ def geometric_workbook_key(doc: Any) -> str:
     return f"calc:{key}"
 
 
-def current_geometric_strip_safe() -> frozenset[EvalIndexKey]:
-    """Worker-safe read: return the current snapshot name (do not copy-mutate)."""
-    return _RUNTIME.strip_safe
-
-
 def replace_geometric_strip_safe(workbook_key: str, safe: frozenset[EvalIndexKey]) -> None:
     """Rebind the strip-safe snapshot for one workbook. Other workbooks stay."""
     with _RUNTIME.lock:
@@ -246,7 +241,7 @@ def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any], *, doc:
         return args
     workbook_key = geometric_workbook_key(doc)
     key = EvalIndexKey(workbook_key, resolved_code, len(args))
-    if key not in current_geometric_strip_safe():
+    if key not in _RUNTIME.strip_safe:
         return args
     return args[:-1]
 
@@ -404,25 +399,25 @@ def _repair_one_sheet(
     doc: Any,
     sheet: Any,
     workbook_key: str,
-) -> tuple[bool, list[GeometricCell], str]:
+) -> list[GeometricCell] | None:
     cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
     if truncated:
         notify_geometric_cap_hit(ctx, name, workbook_key=workbook_key)
-        return True, cells, name
+        return None
     incoming = records_for_sheet(workbook_key, name)
-    result = compute_sheet_repair(cells, incoming, sheet_name=name)
+    patches, records = compute_sheet_repair(cells, incoming, sheet_name=name)
 
-    final_records = dict(result.records)
+    final_records = dict(records)
     actual_cells = cells
-    if result.patches:
-        applied_addrs = _apply_patches_to_sheet(sheet, result.patches)
+    if patches:
+        applied_addrs = _apply_patches_to_sheet(sheet, patches)
         # An unapplied patch reverts its key to the pre-patch state: keep
         # the incoming record when there was one, otherwise leave the key
         # absent. _apply_patches_to_sheet can fail (a protected sheet throws
         # in setFormula, or the cell formula changed concurrently). Saving
         # result.records directly records those failed appends and removes,
         # so a stale record marks a group strip-safe and strips real data.
-        unapplied_patches = [p for p in result.patches if local_a1(p.address) not in applied_addrs]
+        unapplied_patches = [p for p in patches if local_a1(p.address) not in applied_addrs]
         for patch in unapplied_patches:
             key = local_a1(patch.address)
             if key in incoming:
@@ -432,7 +427,7 @@ def _repair_one_sheet(
 
         applied_formulas = {
             patch.address: patch.new_formula
-            for patch in result.patches
+            for patch in patches
             if local_a1(patch.address) in applied_addrs
         }
         actual_cells = [
@@ -441,7 +436,7 @@ def _repair_one_sheet(
         ]
 
     replace_records_for_sheet(workbook_key, name, final_records)
-    return False, actual_cells, name
+    return actual_cells
 
 
 def reconcile(
@@ -463,9 +458,9 @@ def reconcile(
             sheet_list = _iter_sheets(doc) if sheet is None else [sheet]
             for sheet in sheet_list:
                 ensure_sheet_modify_listener(ctx, doc, sheet)
-                skipped, live_cells, name = _repair_one_sheet(ctx, doc, sheet, workbook_key)
-                if not skipped:
-                    repaired_sheets[name] = live_cells
+                live_cells = _repair_one_sheet(ctx, doc, sheet, workbook_key)
+                if live_cells is not None:
+                    repaired_sheets[_sheet_name(sheet)] = live_cells
             save_geometric_registry_for_doc(doc, workbook_key)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key, known_sheets=repaired_sheets)
     finally:
@@ -513,7 +508,7 @@ def ensure_geometric_strip_index_for_eval(doc: Any, ctx: Any = None) -> None:
     if not on_main_thread():
         return
     workbook_key = geometric_workbook_key(doc)
-    if geometric_flag_enabled() and any(key.workbook_key == workbook_key for key in current_geometric_strip_safe()):
+    if geometric_flag_enabled() and any(key.workbook_key == workbook_key for key in _RUNTIME.strip_safe):
         return
     load_geometric_registry_for_doc(doc)
     with _RUNTIME.lock:

@@ -23,7 +23,7 @@ from plugin.calc.python.geometric_recalc import (
     after_py_cell_save,
     compute_eval_index,
     compute_sheet_repair,
-    current_geometric_strip_safe,
+    _RUNTIME,
     ensure_geometric_strip_index_for_eval,
     geometric_workbook_key,
     load_geometric_registry_for_doc,
@@ -74,7 +74,8 @@ def _repair(
 
 
 def _safe_after_patches(cells: list[GeometricCell], result, workbook_key: str = WB) -> frozenset[EvalIndexKey]:
-    patches_by_addr = {p.address: p.new_formula for p in result.patches}
+    patches, records = result
+    patches_by_addr = {p.address: p.new_formula for p in patches}
     patched = [
         GeometricCell(
             address=cell.address,
@@ -83,11 +84,12 @@ def _safe_after_patches(cells: list[GeometricCell], result, workbook_key: str = 
         )
         for cell in cells
     ]
-    return compute_eval_index(patched, result.records, workbook_key)
+    return compute_eval_index(patched, records, workbook_key)
 
 
 def _patch_map(result):
-    return {p.address: p for p in result.patches}
+    patches, _records = result
+    return {p.address: p for p in patches}
 
 
 def _key(code: str, n_args: int, workbook_key: str = WB) -> EvalIndexKey:
@@ -110,15 +112,15 @@ def test_local_a1_and_same_cell_ref():
 
 
 def test_empty_list():
-    result = _repair([])
-    assert result.patches == ()
-    assert result.records == {}
+    patches, records = _repair([])
+    assert patches == ()
+    assert records == {}
 
 
 def test_one_cell_no_predecessor():
-    result = _repair([_cell("A1", '=PY("df = load()")')])
-    assert result.patches == ()
-    assert result.records == {}
+    patches, records = _repair([_cell("A1", '=PY("df = load()")')])
+    assert patches == ()
+    assert records == {}
 
 
 def test_two_cells_append_predecessor():
@@ -132,7 +134,8 @@ def test_two_cells_append_predecessor():
     assert "A1" not in patches
     assert patches["A2"].action == "append"
     assert patches["A2"].new_formula == '=PY("df = clean(df)";A1)'
-    assert result.records["A2"].predecessor == "A1"
+    _patches, records = result
+    assert records["A2"].predecessor == "A1"
 
 
 def test_other_sheet_ref_is_not_a_local_cycle():
@@ -154,7 +157,8 @@ def test_quoted_same_sheet_ref_is_a_local_cycle():
     result = _repair(cells, sheet_name="Sheet1")
     patches = _patch_map(result)
     assert "A2" not in patches
-    assert "A2" not in result.records
+    _patches, records = result
+    assert "A2" not in records
 
 
 def test_reverse_ref_skips_attach_to_avoid_cycle():
@@ -166,7 +170,8 @@ def test_reverse_ref_skips_attach_to_avoid_cycle():
         ]
     )
     assert "A2" not in _patch_map(result)
-    assert "A2" not in result.records
+    _patches, records = result
+    assert "A2" not in records
 
 
 def test_reverse_ref_removes_ours_field():
@@ -180,7 +185,8 @@ def test_reverse_ref_removes_ours_field():
     )
     patches = _patch_map(result)
     assert patches["A2"].action == "remove"
-    assert "A2" not in result.records
+    _patches, records = result
+    assert "A2" not in records
 
 
 def test_pred_range_covering_successor_skips_attach():
@@ -190,7 +196,8 @@ def test_pred_range_covering_successor_skips_attach():
             _cell("A2", '=PY("y = 1")'),
         ]
     )
-    assert "A2" not in result.records
+    _patches, records = result
+    assert "A2" not in records
     assert "A2" not in _patch_map(result)
 
 
@@ -199,8 +206,8 @@ def test_pred_code_in_cell_ref_to_successor_skips_attach():
         GeometricCell("A1", "=PY(A2)", resolved_code="x = 1"),
         _cell("A2", '=PY("y = x")'),
     ]
-    result = _repair(cells)
-    assert "A2" not in result.records
+    _patches, records = _repair(cells)
+    assert "A2" not in records
 
 
 def test_3_cell_reverse_ref_chain_skips_attach():
@@ -215,7 +222,8 @@ def test_3_cell_reverse_ref_chain_skips_attach():
     assert "A2" in patches
     assert patches["A2"].new_formula == '=PY("y";A1)'
     assert "A3" not in patches
-    assert "A3" not in result.records
+    _patches, records = result
+    assert "A3" not in records
 
 
 def test_4_cell_reverse_ref_chain_skips_attach():
@@ -231,7 +239,8 @@ def test_4_cell_reverse_ref_chain_skips_attach():
     assert "A2" in patches
     assert "A3" in patches
     assert "A4" not in patches
-    assert "A4" not in result.records
+    _patches, records = result
+    assert "A4" not in records
 
 
 def test_range_arg_3_cell_cycle_skips_attach():
@@ -244,7 +253,8 @@ def test_range_arg_3_cell_cycle_skips_attach():
     result = _repair(cells)
     patches = _patch_map(result)
     assert "A2" not in patches
-    assert "A2" not in result.records
+    _patches, records = result
+    assert "A2" not in records
 
 
 def test_code_in_cell_3_cell_cycle_skips_attach():
@@ -258,7 +268,8 @@ def test_code_in_cell_3_cell_cycle_skips_attach():
     patches = _patch_map(result)
     assert "A2" in patches
     assert "A3" not in patches
-    assert "A3" not in result.records
+    _patches, records = result
+    assert "A3" not in records
 
 
 def test_diamond_still_attaches():
@@ -326,8 +337,9 @@ def test_insert_in_middle_retargets_successor():
     assert patches["A2"].new_formula == '=PY("b";A1)'
     assert patches["A3"].action == "replace"
     assert patches["A3"].new_formula == '=PY("c";A2)'
-    assert result.records["A2"].predecessor == "A1"
-    assert result.records["A3"].predecessor == "A2"
+    _patches, records = result
+    assert records["A2"].predecessor == "A1"
+    assert records["A3"].predecessor == "A2"
 
 
 def test_delete_middle_retargets_successor():
@@ -340,7 +352,8 @@ def test_delete_middle_retargets_successor():
     patches = _patch_map(result)
     assert patches["A3"].action == "replace"
     assert patches["A3"].new_formula == '=PY("c";A1)'
-    assert result.records["A3"].predecessor == "A1"
+    _patches, records = result
+    assert records["A3"].predecessor == "A1"
 
 
 def test_delete_first_remove_field():
@@ -350,19 +363,20 @@ def test_delete_first_remove_field():
     patches = _patch_map(result)
     assert patches["A2"].action == "remove"
     assert patches["A2"].new_formula == '=PY("b")'
-    assert "A2" not in result.records
+    _patches, records = result
+    assert "A2" not in records
 
 
 def test_remove_field_is_idempotent():
-    first = _repair(
+    first_patches, _first_records = _repair(
         [_cell("A1", '=PY("x";Z9)')],
         {"A1": GeometricRecord(predecessor="Z9")},
     )
-    stripped = first.patches[0].new_formula
-    second = _repair([_cell("A1", stripped)])
-    assert first.patches[0].action == "remove"
-    assert second.patches == ()
-    assert second.records == {}
+    stripped = first_patches[0].new_formula
+    second_patches, second_records = _repair([_cell("A1", stripped)])
+    assert first_patches[0].action == "remove"
+    assert second_patches == ()
+    assert second_records == {}
 
 
 def test_reorder_retargets_to_new_previous():
@@ -389,46 +403,47 @@ def test_splice_preserves_user_range():
             _cell("A2", '=PY("np.mean(data)";B1:B10)'),
         ]
     )
+    patches, _records = result
     assert _patch_map(result)["A2"].new_formula == '=PY("np.mean(data)";B1:B10;A1)'
-    assert formula_data_args(result.patches[0].new_formula) == ["B1:B10", "A1"]
+    assert formula_data_args(patches[0].new_formula) == ["B1:B10", "A1"]
 
 
 def test_already_correct_predecessor_is_noop():
-    result = _repair(
+    patches, records = _repair(
         [
             _cell("A1", '=PY("x")'),
             _cell("A2", '=PY("y";A1)'),
         ],
         {"A2": GeometricRecord(predecessor="A1")},
     )
-    assert result.patches == ()
-    assert result.records["A2"].predecessor == "A1"
+    assert patches == ()
+    assert records["A2"].predecessor == "A1"
 
 
 def test_row_insert_move_rehomes_orphan_record():
     """Calc already adjusted A2→A3; leftover map key A2 must move to A3."""
-    result = _repair(
+    patches, records = _repair(
         [
             _cell("A1", '=PY("a")'),
             _cell("A3", '=PY("c";A1)'),
         ],
         {"A2": GeometricRecord(predecessor="A1")},
     )
-    assert result.patches == ()
-    assert result.records["A3"].predecessor == "A1"
-    assert "A2" not in result.records
+    assert patches == ()
+    assert records["A3"].predecessor == "A1"
+    assert "A2" not in records
 
 
 def test_user_authored_previous_py_is_not_recorded():
     """§9.5: last==desired with no incoming record must stay unrecorded."""
-    result = _repair(
+    patches, records = _repair(
         [
             _cell("A1", '=PY("a")'),
             _cell("A3", '=PY("c";A1)'),
         ]
     )
-    assert result.patches == ()
-    assert "A3" not in result.records
+    assert patches == ()
+    assert "A3" not in records
 
 
 def test_unmatched_orphan_does_not_record_user_authored_cell():
@@ -438,21 +453,21 @@ def test_unmatched_orphan_does_not_record_user_authored_cell():
     because we attached A2. ``orphans[0]`` used to record A3 anyway.
     A matching pred (A2→A1) is the row-insert rehome case, not this one.
     """
-    result = _repair(
+    patches, records = _repair(
         [
             _cell("A1", '=PY("a")'),
             _cell("A3", '=PY("c";A1)'),
         ],
         {"A2": GeometricRecord(predecessor="Z9")},
     )
-    assert result.patches == ()
-    assert "A3" not in result.records
-    assert "A2" not in result.records
+    assert patches == ()
+    assert "A3" not in records
+    assert "A2" not in records
 
 
 def test_only_matching_orphan_rehomes_unmatched_is_dropped():
     """Two orphans: only the pred that equals desired may rehome; the other drops."""
-    result = _repair(
+    patches, records = _repair(
         [
             _cell("A1", '=PY("a")'),
             _cell("A3", '=PY("b";A1)'),
@@ -463,16 +478,16 @@ def test_only_matching_orphan_rehomes_unmatched_is_dropped():
             "B9": GeometricRecord(predecessor="Z9"),
         },
     )
-    assert result.patches == ()
-    assert result.records["A3"].predecessor == "A1"
-    assert "A2" not in result.records
-    assert "B9" not in result.records
-    assert "C1" not in result.records
+    assert patches == ()
+    assert records["A3"].predecessor == "A1"
+    assert "A2" not in records
+    assert "B9" not in records
+    assert "C1" not in records
 
 
 def test_row_insert_three_cell_chain_rehomes_all_keys():
     """A1,A2,A3 shifted to A1,A3,A4; every attach record follows the cell."""
-    result = _repair(
+    patches, records = _repair(
         [
             _cell("A1", '=PY("a")'),
             _cell("A3", '=PY("b";A1)'),
@@ -483,10 +498,10 @@ def test_row_insert_three_cell_chain_rehomes_all_keys():
             "A3": GeometricRecord(predecessor="A2"),
         },
     )
-    assert result.patches == ()
-    assert result.records["A3"].predecessor == "A1"
-    assert result.records["A4"].predecessor == "A3"
-    assert "A2" not in result.records
+    assert patches == ()
+    assert records["A3"].predecessor == "A1"
+    assert records["A4"].predecessor == "A3"
+    assert "A2" not in records
 
 
 def test_undo_stale_map_keeps_live_successor_record():
@@ -497,7 +512,7 @@ def test_undo_stale_map_keeps_live_successor_record():
     onto A2 (pred A1 == A2's desired). A3 left unrecorded with ``;A2`` so
     successor-becomes-first remove-field was a noop.
     """
-    result = _repair(
+    patches, records = _repair(
         [
             _cell("A1", '=PY("first")'),
             _cell("A2", '=PY("mid";A1)'),
@@ -505,23 +520,24 @@ def test_undo_stale_map_keeps_live_successor_record():
         ],
         {"A3": GeometricRecord(predecessor="A1")},
     )
-    assert result.patches == ()
-    assert result.records["A3"].predecessor == "A2"
+    assert patches == ()
+    assert records["A3"].predecessor == "A2"
     # Do not move A3's record onto A2. A2 has last==desired but no incoming
     # key (delete dropped it); inventing one is §9.5 user-authored ``;A1``.
-    assert "A2" not in result.records
+    assert "A2" not in records
 
     first_only = _repair(
         [_cell("A3", '=PY("third";A2)')],
-        result.records,
+        records,
     )
     assert _patch_map(first_only)["A3"].action == "remove"
-    assert "A3" not in first_only.records
+    _first_patches, first_records = first_only
+    assert "A3" not in first_records
 
 
 def test_row_insert_four_cell_chain_rehomes_all_keys():
     """A1–A4 shifted +1 row; all three successors rehome, no formula patches."""
-    result = _repair(
+    patches, records = _repair(
         [
             _cell("A1", '=PY("a")'),
             _cell("A3", '=PY("b";A1)'),
@@ -534,22 +550,22 @@ def test_row_insert_four_cell_chain_rehomes_all_keys():
             "A4": GeometricRecord(predecessor="A3"),
         },
     )
-    assert result.patches == ()
-    assert result.records["A3"].predecessor == "A1"
-    assert result.records["A4"].predecessor == "A3"
-    assert result.records["A5"].predecessor == "A4"
-    assert "A2" not in result.records
+    assert patches == ()
+    assert records["A3"].predecessor == "A1"
+    assert records["A4"].predecessor == "A3"
+    assert records["A5"].predecessor == "A4"
+    assert "A2" not in records
 
 
 def test_already_correct_dollar_ref_is_noop():
-    result = _repair(
+    patches, _records = _repair(
         [
             _cell("A1", '=PY("x")'),
             _cell("A2", '=PY("y";$A$1)'),
         ],
         {"A2": GeometricRecord(predecessor="A1")},
     )
-    assert result.patches == ()
+    assert patches == ()
 
 
 def test_user_single_cell_data_is_appended_not_overwritten():
@@ -599,14 +615,14 @@ def test_splice_quoted_code_skips_calc_sanitizer():
 
 
 def test_user_already_passed_previous_py_not_recorded():
-    result = _repair(
+    patches, records = _repair(
         [
             _cell("A1", '=PY("x")'),
             _cell("A2", '=PY("y";A1)'),
         ]
     )
-    assert result.patches == ()
-    assert "A2" not in result.records
+    assert patches == ()
+    assert "A2" not in records
 
 
 def test_read_code_ref_text_missing_sheet_returns_empty():
@@ -748,8 +764,9 @@ def test_user_passed_previous_mixed_with_mapped_poisons():
     result = _repair(cells, {"A3": GeometricRecord(predecessor="A2")})
     # A2 last==desired, not ours → not recorded. A3 ours n_args=1. A2 n_args=1.
     key = _key(code, 1)
-    assert "A2" not in result.records
-    assert "A3" in result.records
+    _patches, records = result
+    assert "A2" not in records
+    assert "A3" in records
     safe = _safe_after_patches(cells, result)
     assert key not in safe
 
@@ -774,8 +791,8 @@ def test_two_workbooks_unambiguous_false_no_strip():
 def test_exact_100_without_truncated_is_chained():
     """Phase 3: an exact 100 that finished the scan is not a cap-hit."""
     cells = [_cell(f"A{i + 1}", '=PY("x")') for i in range(_MAX_PYTHON_CELLS_FOUND)]
-    result = _repair(cells, sheet_name="Data")
-    assert result.patches  # A2..A100 get a predecessor
+    patches, _records = _repair(cells, sheet_name="Data")
+    assert patches  # A2..A100 get a predecessor
 
 
 def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
@@ -861,7 +878,7 @@ def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
     ):
         reconcile("ctx", doc)
 
-    assert current_geometric_strip_safe() == frozenset()
+    assert _RUNTIME.strip_safe == frozenset()
     assert (
         maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc)
         == [col, pred]
@@ -1068,7 +1085,7 @@ def test_cap_hit_sheet_skipped_on_reconcile(monkeypatch):
         assert mock_box.call_count == 1
     # First two cells stay unchained (whole sheet skipped).
     assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("x1")'
-    assert current_geometric_strip_safe() == frozenset()
+    assert _RUNTIME.strip_safe == frozenset()
 
 
 def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch):
@@ -1289,7 +1306,7 @@ def test_ensure_strip_index_empty_registry_skips_discovery(monkeypatch):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
 
     assert mock_discover.call_count == 0
-    assert current_geometric_strip_safe() == frozenset()
+    assert _RUNTIME.strip_safe == frozenset()
 
 
 def test_ensure_strip_index_hydrates_from_udprop():
@@ -1359,7 +1376,7 @@ def test_flag_off_rebuilds_nonempty_strip_index_and_keeps_user_data(monkeypatch)
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
-        assert _key("np.mean(data)", 2, wk) not in current_geometric_strip_safe()
+        assert _key("np.mean(data)", 2, wk) not in _RUNTIME.strip_safe
         assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc) == [
             col,
             pred,
@@ -1401,8 +1418,8 @@ def test_flag_off_nonempty_index_still_strips_unanimous_leftover(monkeypatch):
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
-        assert EvalIndexKey(wk, "stale", 2) not in current_geometric_strip_safe()
-        assert _key("np.mean(data)", 2, wk) in current_geometric_strip_safe()
+        assert EvalIndexKey(wk, "stale", 2) not in _RUNTIME.strip_safe
+        assert _key("np.mean(data)", 2, wk) in _RUNTIME.strip_safe
         assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc) == [col]
 
 
@@ -1423,7 +1440,7 @@ def test_flag_on_keeps_nonempty_strip_index_until_reconcile(monkeypatch):
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
-    assert current_geometric_strip_safe() == seeded
+    assert _RUNTIME.strip_safe == seeded
 
 
 def test_ensure_strip_index_off_main_is_noop():
@@ -1433,7 +1450,7 @@ def test_ensure_strip_index_off_main_is_noop():
     doc = CalcDocStub(url="file:///hydrate-off.ods")
     with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
-    assert current_geometric_strip_safe() == frozenset()
+    assert _RUNTIME.strip_safe == frozenset()
 
 
 def test_user_1x1_not_in_map_no_strip():
@@ -1516,9 +1533,9 @@ def test_strip_safe_snapshot_is_rebound_not_mutated():
     _reset_geo()
     first = frozenset({EvalIndexKey(WB, "a", 2)})
     replace_geometric_strip_safe(WB, first)
-    old = current_geometric_strip_safe()
+    old = _RUNTIME.strip_safe
     replace_geometric_strip_safe(WB, frozenset({EvalIndexKey(WB, "b", 2)}))
-    new = current_geometric_strip_safe()
+    new = _RUNTIME.strip_safe
     assert new is not old
     assert EvalIndexKey(WB, "a", 2) in old
     assert EvalIndexKey(WB, "a", 2) not in new
@@ -1716,7 +1733,7 @@ def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
 def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
     """A data-edit that changes the PY list must rebuild unanimous-ours."""
     from plugin.calc.python.geometric_recalc import (
-        current_geometric_strip_safe,
+        _RUNTIME,
         geometric_workbook_key,
     )
     from plugin.calc.python.sheet_modify import (
@@ -1739,13 +1756,13 @@ def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
     monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     wk = geometric_workbook_key(doc)
-    assert _key("np.mean(data)", 2, wk) in current_geometric_strip_safe()
+    assert _key("np.mean(data)", 2, wk) in _RUNTIME.strip_safe
 
     # User already passed the previous PY cell as real data — do not record.
     # Same (code, n_args=2) triple, mixed, poisons the chain.
     sheet.getCellByPosition(0, 2).setFormula('=PY("np.mean(data)"; B1:B10; A2)')
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
-    assert _key("np.mean(data)", 2, wk) not in current_geometric_strip_safe()
+    assert _key("np.mean(data)", 2, wk) not in _RUNTIME.strip_safe
 
 
 def test_ensure_listener_is_idempotent(monkeypatch):
@@ -1789,7 +1806,7 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
         "plugin.calc.python.geometric_recalc._apply_patches_to_sheet",
         lambda _sheet, _patches: set(),  # No patches applied
     )
-    res, unused_cells, unused_name = _repair_one_sheet("ctx", doc, sheet, wk)
+    _repair_one_sheet("ctx", doc, sheet, wk)
     # The append patch failed to land, so A2 must NOT be recorded with predecessor A1.
     assert "A2" not in records_for_sheet(wk, "Sheet1")
 
@@ -1803,7 +1820,7 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
         "plugin.calc.python.geometric_recalc._apply_patches_to_sheet",
         lambda _sheet, _patches: set(),  # Remove patch fails to apply
     )
-    res2, unused_cells2, unused_name2 = _repair_one_sheet("ctx", doc, sheet, wk)
+    _repair_one_sheet("ctx", doc, sheet, wk)
     # The remove patch failed, so the incoming record for A2 must be kept in pre-patch state.
     assert records_for_sheet(wk, "Sheet1").get("A2") == GeometricRecord(predecessor="A1")
 

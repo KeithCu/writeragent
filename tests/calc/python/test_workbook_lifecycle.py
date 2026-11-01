@@ -17,7 +17,6 @@ from plugin.calc.python.geometric_recalc import (
     GeometricRecord,
     _RUNTIME,
     clear_in_memory_geometric_state,
-    current_geometric_strip_safe,
     replace_geometric_strip_safe,
     reset_geometric_runtime_for_tests,
 )
@@ -129,7 +128,7 @@ def test_unload_clears_in_memory_geometric_state():
         mock_reset.return_value = {"status": "ok"}
         listener.on_document_event(MagicMock(EventName="OnUnload"))
     assert (key, "Sheet1", "A2") not in _RUNTIME.records
-    assert current_geometric_strip_safe() == frozenset()
+    assert _RUNTIME.strip_safe == frozenset()
     clear_in_memory_geometric_state()
 
 
