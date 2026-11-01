@@ -138,15 +138,11 @@ def parse_non_negative_int(
 
 def shape_only_search_message(subject: str, shape_name: str, *, review: bool = False) -> str:
     """Format the message when content is only found inside a drawing shape."""
-    if review:
-        return (
-            f"{subject} is only inside a drawing shape / floating text box ('{shape_name}'). "
-            "In review mode it cannot be edited as a tracked change; "
-            "edit it via the shapes toolset (delegate_to_specialized_writer_toolset domain='shapes')."
-        )
+    note = "In review mode it cannot be edited as a tracked change; " if review else ""
+    verb = "edit" if review else "Edit"
     return (
         f"{subject} is only inside a drawing shape / floating text box ('{shape_name}'). "
-        "Edit it via the shapes toolset (delegate_to_specialized_writer_toolset domain='shapes')."
+        f"{note}{verb} it via the shapes toolset (delegate_to_specialized_writer_toolset domain='shapes')."
     )
 
 
@@ -283,15 +279,20 @@ def _collect_capped(doc: Any, sd: Any) -> list[Any]:
 _DEFAULT_CASE_SENSITIVE_ORDER = (True, False)
 
 
+def _lo_regex_descriptor(doc: Any, text: str) -> Any:
+    sd = doc.createSearchDescriptor()
+    sd.SearchRegularExpression = True
+    sd.SearchString = escape_for_lo_regex(text)
+    return sd
+
+
 def find_lo_regex_ranges(
     doc: Any,
     candidate: str,
     all_matches: bool = False,
 ) -> Any:
     """LO regex findFirst/findNext for one candidate string."""
-    sd = doc.createSearchDescriptor()
-    sd.SearchRegularExpression = True
-    sd.SearchString = escape_for_lo_regex(candidate)
+    sd = _lo_regex_descriptor(doc, candidate)
 
     if not all_matches:
         for case_sens in _DEFAULT_CASE_SENSITIVE_ORDER:
@@ -410,9 +411,7 @@ def _iter_chain_matches(
     case_sensitive_order: tuple[bool, ...],
 ) -> Iterator[Any]:
     """Iterate matches across paragraph breaks via anchor search and chaining."""
-    sd = doc.createSearchDescriptor()
-    sd.SearchRegularExpression = True
-    sd.SearchString = escape_for_lo_regex(parts[anchor_idx])
+    sd = _lo_regex_descriptor(doc, parts[anchor_idx])
 
     for case_sens in case_sensitive_order:
         sd.SearchCaseSensitive = case_sens
@@ -518,9 +517,7 @@ def find_occurrence_range(
 
     for candidate in _search_try_strings(search_string):
         for case_sens in case_order:
-            sd = doc.createSearchDescriptor()
-            sd.SearchRegularExpression = True
-            sd.SearchString = escape_for_lo_regex(candidate)
+            sd = _lo_regex_descriptor(doc, candidate)
             sd.SearchCaseSensitive = case_sens
             count = 0
             found = doc.findFirst(sd)
@@ -549,8 +546,6 @@ def find_occurrence_range(
 
 
 def _safe_name(obj: Any) -> str:
-    if obj is None:
-        return ""
     name = uno_read(lambda: obj.getName(), _FAILED)
     if name is not _FAILED:
         return name
@@ -558,8 +553,6 @@ def _safe_name(obj: Any) -> str:
 
 
 def _prop(obj: Any, name: str) -> Any:
-    if obj is None:
-        return None
     value = uno_read(lambda: obj.getPropertyValue(name), _FAILED)
     return getattr(obj, name, None) if value is _FAILED else value
 
@@ -882,12 +875,12 @@ def _preview_matches(hits: Iterator[tuple[str, str, str]], limit: int) -> list[d
     return matches
 
 
-def sweep_draw_shape_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = 20) -> list[dict[str, Any]]:
+def sweep_draw_shape_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = DEFAULT_SEARCH_RESULTS) -> list[dict[str, Any]]:
     """Edit-reachable draw-layer hits for dry_run (same skip rules as search sweep)."""
     return _preview_matches(iter_shape_hits(doc, pattern, use_regex, case_sensitive), limit)
 
 
-def sweep_comment_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = 20) -> list[dict[str, Any]]:
+def sweep_comment_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = DEFAULT_SEARCH_RESULTS) -> list[dict[str, Any]]:
     return _preview_matches(iter_comment_hits(doc, pattern, use_regex, case_sensitive), limit)
 
 
