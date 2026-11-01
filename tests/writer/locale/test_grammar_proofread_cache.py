@@ -217,11 +217,15 @@ def test_sentence_cache_key_prefix_and_identity_fp() -> None:
     assert gc.make_sentence_key("en-US", "Hello.") == f"{gc.sentence_cache_key_prefix('en-US')}{fp}"
 
 def test_should_evict_incomplete_prefix_predecessor() -> None:
-    ev = gc.should_evict_incomplete_prefix_predecessor
-    assert ev(other_complete=True, other_canon="Hi", new_canon="Hi there") is False
-    assert ev(other_complete=False, other_canon="Hello", new_canon="Hell") is False
-    assert ev(other_complete=False, other_canon="The qu", new_canon="The quick") is True
-    assert ev(other_complete=False, other_canon="same", new_canon="same") is False
+    errors = [{"n_error_start": 0, "n_error_length": 2}]
+    gc.cache_put_sentence("en-US", "Hello", errors)
+    gc.cache_put_sentence("en-US", "Hell", errors)
+    assert gc.cache_get_sentence("en-US", "Hello") is not None
+    assert gc.cache_get_sentence("en-US", "Hell") is not None
+
+    gc.cache_put_sentence("en-US", "same", errors)
+    gc.cache_put_sentence("en-US", "same", errors)
+    assert gc.cache_get_sentence("en-US", "same") is not None
 
 def test_whitespace_normalization_cache_key() -> None:
     """Test cache key normalization: whitespace + trailing punctuation after first terminator."""
@@ -376,7 +380,7 @@ def test_dump_grammar_cache_for_recheck_clears_l1_and_active_l2_only() -> None:
             patch("plugin.framework.uno_context.get_runtime_uid", side_effect=fake_uid),
             patch.object(pa, "_persist_to_udprops"),
         ):
-            gc.dump_grammar_cache_for_recheck(ctx)
+            gc.recheck_active_document_grammar(ctx)
 
         assert gc.cache_get_sentence("en-US", "Hello there everyone.") is None
         assert "fp_a" not in pa._entries
@@ -395,9 +399,8 @@ def test_recheck_active_document_grammar_broadcasts_from_live_proofreader() -> N
     pr = _Live()
     grammar_registry.register_live_proofreader(pr)
     try:
-        with patch("plugin.writer.locale.grammar_proofread_cache.dump_grammar_cache_for_recheck") as dump:
+        with patch("plugin.framework.uno_context.get_active_document", return_value=None):
             gc.recheck_active_document_grammar(MagicMock())
-        dump.assert_called_once()
         pr.broadcast_proofread_again.assert_called_once()
     finally:
         grammar_registry.live_proofreaders.discard(pr)

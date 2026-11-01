@@ -91,13 +91,9 @@ def sentence_cache_key_prefix(locale_key: str, checker_identity: str | None = No
     return f"sent|{locale_key}|{ident}|"
 
 
-def should_evict_incomplete_prefix_predecessor(*, other_complete: bool, other_canon: str, new_canon: str) -> bool:
-    """LRU prefix compaction: drop an older incomplete entry if ``new_canon`` strictly extends it."""
-    if other_complete:
-        return False
-    if len(other_canon) >= len(new_canon):
-        return False
-    return new_canon.startswith(other_canon)
+def _sentence_l1_key(locale_key: str, checker_identity: str | None, fp: str) -> str:
+    """Format an in-memory L1 sentence cache key (locale + checker identity + fingerprint)."""
+    return f"{sentence_cache_key_prefix(locale_key, checker_identity)}{fp}"
 
 
 def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len: int) -> list[dict[str, Any]]:
@@ -145,7 +141,7 @@ def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len
 
 def make_sentence_key(locale_key: str, sentence: str, checker_identity: str | None = None) -> str:
     """Cache key for a specific sentence text (locale + checker identity + fingerprint)."""
-    return f"{sentence_cache_key_prefix(locale_key, checker_identity)}{sentence_identity_fp(sentence)}"
+    return _sentence_l1_key(locale_key, checker_identity, sentence_identity_fp(sentence))
 
 
 def evict_sentence_cache_for_identity(checker_identity: str) -> None:
@@ -164,29 +160,20 @@ def dump_l1_sentence_cache() -> None:
         grammar_registry.sentence_cache.clear()
 
 
-def dump_grammar_cache_for_recheck(ctx: Any) -> None:
-    """Recheck: drop all of L1 and this active document's L2. Does not clear ignore rules."""
+def recheck_active_document_grammar(ctx: Any) -> None:
+    """Dump caches for the active document and ask Writer to walk it again."""
     dump_l1_sentence_cache()
     from plugin.framework.uno_context import get_active_document
     from plugin.writer.locale.grammar_persistence import persistence_for_model
 
     model = get_active_document(ctx)
-    if model is None:
-        return
-    p = persistence_for_model(model)
-    if p is None:
-        return
-    p.clear_and_persist()
+    if model is not None:
+        p = persistence_for_model(model)
+        if p is not None:
+            p.clear_and_persist()
 
-
-def recheck_active_document_grammar(ctx: Any) -> None:
-    """Dump caches for the active document and ask Writer to walk it again."""
-    dump_grammar_cache_for_recheck(ctx)
     for pr in list(grammar_registry.live_proofreaders):
-        fn = getattr(pr, "broadcast_proofread_again", None)
-        if not callable(fn):
-            continue
-        fn()
+        pr.broadcast_proofread_again()
 
 
 def _populate_memory_cache_only(
@@ -204,7 +191,7 @@ def _populate_memory_cache_only(
     """
     canon = _normalize_for_sentence_cache(sentence)
     fp = fingerprint_for_text(canon)
-    key = f"{sentence_cache_key_prefix(locale_key, checker_identity)}{fp}"
+    key = _sentence_l1_key(locale_key, checker_identity, fp)
     clipped = _clip_errors_to_canonical_length(errors, len(canon))
     is_complete = looks_complete_sentence(canon)
     cloned_errors = [dict(e) for e in clipped]
@@ -237,7 +224,7 @@ def cache_get_sentence(
     ident = resolve_checker_identity(checker_identity)
     # The key already ends in fp; one fingerprint serves both (no double SHA-256).
     fp = sentence_identity_fp(sentence)
-    key = f"{sentence_cache_key_prefix(locale_key, ident)}{fp}"
+    key = _sentence_l1_key(locale_key, ident, fp)
     result = None
     with grammar_registry.lock:
         hit = grammar_registry.sentence_cache.get(key)
@@ -302,7 +289,11 @@ def cache_put_sentence(
                     continue
                 if scan_count >= MAX_RECENT_INCOMPLETE_SCAN:
                     break
-                if should_evict_incomplete_prefix_predecessor(other_complete=other_entry.complete, other_canon=other_entry.canonical, new_canon=entry.canonical):
+                if (
+                    not other_entry.complete
+                    and len(other_entry.canonical) < len(entry.canonical)
+                    and entry.canonical.startswith(other_entry.canonical)
+                ):
                     to_remove.append(k)
                 scan_count += 1
             for k in to_remove:

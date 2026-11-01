@@ -447,22 +447,12 @@ def _tokenize(text: str, break_iterator: Any, locale: Any) -> list[str]:
     return tokens
 
 
-def anchor_wrong_in_window(window: str, wrong: str, search_pos: int) -> int | None:
-    """Find ``wrong`` in ``window`` starting at ``search_pos``."""
-    if not wrong:
-        return None
-    rel = window.find(wrong, search_pos)
-    if rel >= 0:
-        return rel
-    return None
-
-
 def _provider_error_span(window: str, item: dict[str, Any], wrong: str) -> tuple[int, int] | None:
     """Return a validated provider-native span relative to *window*, when present.
 
     ``length <= 0`` must not reject Harper inserts
     (``start == end``). ``normalize_errors_for_text`` then fails
-    ``anchor_wrong_in_window`` on the empty ``wrong`` and drops the
+    to anchor on the empty ``wrong`` and drops the
     issue, so the sentence looks clean. A point with
     ``0 <= start <= len(window)`` is kept. Negative starts,
     non-ints, bools, and spans past the end still return None.
@@ -576,12 +566,12 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
             rel, length = provider_span
             pos = slice_start + rel
         else:
-            anchored_rel = anchor_wrong_in_window(window, wrong, search_pos)
-            if anchored_rel is None:
+            rel = window.find(wrong, search_pos) if wrong else -1
+            if rel < 0:
                 continue
-            pos = slice_start + anchored_rel
+            pos = slice_start + rel
             length = len(wrong)
-            search_pos = anchored_rel + 1
+            search_pos = rel + 1
 
         # 2. Expand span for overlap
         if correct and provider_span is None:

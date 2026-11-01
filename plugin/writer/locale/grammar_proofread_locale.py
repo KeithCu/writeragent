@@ -78,13 +78,10 @@ def _clamped_int_config(key: str, lo: int, hi: int, *, warn_name: str = "") -> i
     from plugin.framework import config
 
     n = config.get_config_int_safe(key)
-    if n <= 0:
-        return lo
-    if n < lo or n > hi:
-        if warn_name:
-            _log.warning("[grammar] %s %d out of range [%d, %d], clamping", warn_name, n, lo, hi)
-        return max(lo, min(hi, n))
-    return n
+    clamped = max(lo, min(hi, n))
+    if warn_name and n > 0 and clamped != n:
+        _log.warning("[grammar] %s %d out of range [%d, %d], clamping", warn_name, n, lo, hi)
+    return clamped
 
 
 def grammar_max_in_flight() -> int:
