@@ -64,7 +64,7 @@ def _summarize_redlines(
     Format/Table redlines count toward total but produce no entry. ``truncated`` is the cap
     only: a redline with no text (for example an inserted image) is not truncation.
     """
-    from plugin.writer.tracking import _describe_redline
+    from plugin.writer.tracking import _redline_text
 
     limit = _MAX_TRACKED_CHANGES
     changes: list[dict[str, str]] = []
@@ -80,7 +80,7 @@ def _summarize_redlines(
         if len(changes) >= limit:
             truncated = True
             return True
-        text = _describe_redline(redline, found - 1, doc).get("text") or ""
+        text = _redline_text(redline)
         if text:
             changes.append(
                 {"type": "insertion" if rtype == "Insert" else "deletion", "text": text}

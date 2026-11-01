@@ -156,6 +156,35 @@ def _set_recording(doc: Any, record: bool) -> dict[str, Any]:
 _REDLINE_FIELD_UNREADABLE = "track_changes_list: redline field unreadable"
 
 
+def _redline_text(redline: Any, start: Any = None) -> str:
+    # Text: for an insertion the live span RedlineStart..RedlineEnd holds it; for a
+    # deletion that span is collapsed, so fall back to RedlineText (the removed text).
+    if start is None:
+        try:
+            start = redline.getPropertyValue("RedlineStart")
+        except Exception:
+            log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
+    txt = ""
+    if start is not None:
+        try:
+            end = redline.getPropertyValue("RedlineEnd")
+            stext = start.getText()
+            cur = stext.createTextCursorByRange(start)
+            cur.gotoRange(end, True)
+            txt = cur.getString() or ""
+        except Exception:
+            log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
+    if not txt:
+        try:
+            rt = redline.getPropertyValue("RedlineText")
+            txt = (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
+        except Exception:
+            log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
+    if txt:
+        return txt if len(txt) <= 300 else txt[:299] + "…"
+    return ""
+
+
 def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int, str] | None = None) -> dict[str, Any]:
     entry: dict[str, Any] = {"index": index}
     for prop in ("RedlineType", "RedlineAuthor", "RedlineComment", "RedlineIdentifier"):
@@ -183,26 +212,9 @@ def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int,
             entry["location"] = describe_match_location(start, doc, label_cache=label_cache)
         except Exception:
             log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
-    # Text: for an insertion the live span RedlineStart..RedlineEnd holds it; for a
-    # deletion that span is collapsed, so fall back to RedlineText (the removed text).
-    txt = ""
-    if start is not None:
-        try:
-            end = redline.getPropertyValue("RedlineEnd")
-            stext = start.getText()
-            cur = stext.createTextCursorByRange(start)
-            cur.gotoRange(end, True)
-            txt = cur.getString() or ""
-        except Exception:
-            log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
-    if not txt:
-        try:
-            rt = redline.getPropertyValue("RedlineText")
-            txt = (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
-        except Exception:
-            log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
+    txt = _redline_text(redline, start=start)
     if txt:
-        entry["text"] = txt if len(txt) <= 300 else txt[:299] + "…"
+        entry["text"] = txt
     return entry
 
 
@@ -437,6 +449,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         cmd = ".uno:AcceptAllTrackedChanges" if is_accept else ".uno:RejectAllTrackedChanges"
         res = _dispatch(ctx, cmd)
 
+        msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
         if not has_redlines:
             if res is None:
                 err = self._tool_error(
@@ -446,7 +459,6 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 # make_tool_error stores kwargs under details; set the flat key directly for callers.
                 err["tracked_changes_bulk_unsupported"] = True
                 return err
-            msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
             return {"status": "ok", "message": msg}
 
         # What was wrong: bulk accept/reject relied on executeDispatch return value, which returns None on success in Writer.
@@ -454,7 +466,6 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         # Why this change fixes it: judge bulk resolve success by getCount() before and after dispatch on documents with getRedlines.
         after = int(ctx.doc.getRedlines().getCount())
         if before == 0 or after == 0:
-            msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
             return {"status": "ok", "message": msg}
         if after == before:
             return self._tool_error("Failed to resolve all tracked changes.")
