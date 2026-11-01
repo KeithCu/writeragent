@@ -188,7 +188,7 @@ def test_locale_construction_failure_registers_degraded_and_retries() -> None:
 
     calls = {"n": 0}
 
-    def flaky() -> tuple[object, ...]:
+    def flaky(*_args: object) -> tuple[object, ...]:
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("uno struct failed")
@@ -197,7 +197,7 @@ def test_locale_construction_failure_registers_degraded_and_retries() -> None:
     try:
         with (
             patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
-            patch("plugin.writer.locale.harper_proofreader._harper_locale_tuple", side_effect=flaky),
+            patch("plugin.writer.locale.harper_proofreader.uno_locales_for_tags", side_effect=flaky),
             patch("plugin.writer.locale.harper.maybe_start_harper_async"),
             patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
         ):
@@ -223,13 +223,13 @@ def test_locale_retry_failure_is_logged_once() -> None:
     from plugin.framework.uno_context import reset_package_extension_id_for_tests
     from plugin.writer.locale.harper_proofreader import HarperProofreader
 
-    def boom() -> tuple[object, ...]:
+    def boom(*_args: object) -> tuple[object, ...]:
         raise RuntimeError("still broken")
 
     try:
         with (
             patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
-            patch("plugin.writer.locale.harper_proofreader._harper_locale_tuple", side_effect=boom),
+            patch("plugin.writer.locale.harper_proofreader.uno_locales_for_tags", side_effect=boom),
             patch("plugin.writer.locale.harper.maybe_start_harper_async"),
             patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
         ):

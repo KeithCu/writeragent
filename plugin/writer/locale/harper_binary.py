@@ -65,14 +65,10 @@ def _resolve_harper_asset(system: str, machine: str) -> str:
     _fail(f"Unsupported OS: {system}")
 
 
-def _is_harper_member(name: str) -> bool:
-    normalized = name.replace("\\", "/")
-    return normalized.endswith("harper-ls.exe") or normalized.endswith("/harper-ls") or normalized == "harper-ls"
-
-
 def _pick_harper_member(paths: list[str]) -> str:
     for path in paths:
-        if _is_harper_member(path):
+        normalized = path.replace("\\", "/")
+        if normalized.endswith("harper-ls.exe") or normalized.endswith("/harper-ls") or normalized == "harper-ls":
             return path
     _fail("harper-ls file not found inside archive")
 
@@ -95,16 +91,8 @@ def _github_api_request(url: str) -> dict[str, Any]:
     return payload
 
 
-def _harper_install_dir(user_config_dir: str) -> Path:
-    return Path(user_config_dir) / "harper"
-
-
-def _release_cache_path(harper_dir: Path) -> Path:
-    return harper_dir / _RELEASE_CACHE_FILENAME
-
-
 def _read_persisted_release(harper_dir: Path, asset_name: str) -> HarperReleaseAsset | None:
-    path = _release_cache_path(harper_dir)
+    path = harper_dir / _RELEASE_CACHE_FILENAME
     if not path.is_file():
         return None
     try:
@@ -134,7 +122,7 @@ def _read_persisted_release(harper_dir: Path, asset_name: str) -> HarperReleaseA
 def _write_persisted_release(harper_dir: Path, release: HarperReleaseAsset) -> None:
     harper_dir.mkdir(parents=True, exist_ok=True)
     payload = {"checked_at": time.time(), "version": release.version, "asset_name": release.asset_name, "download_url": release.download_url, "sha256": release.sha256}
-    atomic_write_text(str(_release_cache_path(harper_dir)), json.dumps(payload))
+    atomic_write_text(str(harper_dir / _RELEASE_CACHE_FILENAME), json.dumps(payload))
 
 
 def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> HarperReleaseAsset:
@@ -271,7 +259,7 @@ def _get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str
         _emit_progress(heartbeat_fn, "Using system harper-ls")
         return sys_path
 
-    harper_dir = _harper_install_dir(user_config_dir)
+    harper_dir = Path(user_config_dir) / "harper"
     # TEMP(2026-08): Remove after ~2026-11 — stale .untar/.unzip under harper/.
     _cleanup_harper_install_leftovers(harper_dir)
     suffix = ".exe" if os.name == "nt" else ""

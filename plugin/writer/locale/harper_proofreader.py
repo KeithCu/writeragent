@@ -58,9 +58,6 @@ def normalize_harper_locale_to_bcp47(a_locale: Any) -> str | None:
     normalized = normalize_detected_bcp47(tag)
     return normalized if normalized in HARPER_LOCALE_TAGS else None
 
-def _harper_locale_tuple() -> tuple[Any, ...]:
-    return uno_locales_for_tags(HARPER_LOCALE_TAGS)
-
 
 class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[reportGeneralTypeIssues]
     """Same proofreading pipeline; branded for the LibreHarper extension."""
@@ -101,7 +98,7 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
         super().__init__(ctx, *args)
         self._implementation_name = IMPLEMENTATION_NAME
         try:
-            self._locales = _harper_locale_tuple()
+            self._locales = uno_locales_for_tags(HARPER_LOCALE_TAGS)
         except Exception as exc:
             # Registered degraded: hasLocale / getLocales retry instead of
             # caching ``()`` and silently skipping every proofread.
@@ -139,7 +136,7 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
         if self._locales or not self._locales_degraded:
             return
         try:
-            built = _harper_locale_tuple()
+            built = uno_locales_for_tags(HARPER_LOCALE_TAGS)
         except Exception as exc:
             if not self._locale_retry_logged:
                 self._locale_retry_logged = True
