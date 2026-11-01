@@ -116,7 +116,9 @@ class OpenAIShim(BaseProviderShim):
     ) -> tuple[str, str, bytes, dict[str, str]]:
         if uses_responses_api(model_name, tools):
             level = self._requested_effort_level(chat_extra)
-            mapped = effort_payload("openai", level).get("reasoning_effort")
+            # OpenRouter-hosted models need the OpenRouter effort vocabulary (nested reasoning.effort); hardcoding "openai" dropped it.
+            frag = effort_payload(self._reasoning_provider(), level)
+            mapped = frag.get("reasoning_effort") or (frag.get("reasoning") or {}).get("effort")
             data = responses_payload(
                 messages, max_tokens, temperature, tools, stream, model_name, response_format,
                 effort=mapped or level,

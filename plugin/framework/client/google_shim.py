@@ -72,7 +72,6 @@ class GoogleShim(BaseProviderShim):
         # Key in x-goog-api-key, not ?key=, so it does not land in access logs
         # or ``log.debug("URL: ...")``.
         has_source = bool(image_url or source_image)
-        aspect = canonical_aspect_ratio(width, height) or "1:1"
         if model_name.startswith("imagen"):
             # Imagen :predict is text-to-image only. Posting a prompt-only
             # predict while a graphic is selected would replace it with a
@@ -80,6 +79,7 @@ class GoogleShim(BaseProviderShim):
             if has_source:
                 raise ValueError("Imagen models cannot edit an existing image. Pick a Gemini image model (for example gemini-2.5-flash-image).")
             url = f"{endpoint}/v1beta/models/{model_name}:predict"
+            aspect = canonical_aspect_ratio(width, height) or "1:1"
             params: dict[str, Any] = {"sampleCount": 1, "aspectRatio": aspect}
             # Imagen ignores pixel size; imageSize is 1K/2K only.
             res = canonical_resolution(width, height, family="imagen")
@@ -95,6 +95,7 @@ class GoogleShim(BaseProviderShim):
             # Gemini image models ignore pixel size. aspectRatio is documented
             # for every Nano Banana model. imageSize is only on Gemini 3 image
             # models; gemini-2.5-flash-image samples send aspectRatio alone.
+            aspect = canonical_aspect_ratio(width, height) or "1:1"
             image_config: dict[str, Any] = {"aspectRatio": aspect}
             res = _gemini_image_size(model_name, width, height)
             if res:
