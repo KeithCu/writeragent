@@ -75,17 +75,10 @@ def test_spec_validation_asserts():
     # leave_flag collision with reserved
     with pytest.raises(AssertionError):
         StickyReplySpec(leave_flag="answer", leave_status="finished")
-    # extra_bools collision with reserved
-    with pytest.raises(AssertionError):
-        StickyReplySpec(leave_flag="done", leave_status="finished", extra_bools=(("status", "desc"),))
-    # extra_bools collision with leave_flag
-    with pytest.raises(AssertionError):
-        StickyReplySpec(leave_flag="done", leave_status="finished", extra_bools=(("done", "desc"),))
-    # tuple (name, desc) allowed
     valid = StickyReplySpec(
         leave_flag="done",
         leave_status="finished",
-        extra_bools=(("spec_saved", "recorded flag"),),
+        tracks_spec_saved=True,
     )
     assert valid.leave_flag == "done"
 

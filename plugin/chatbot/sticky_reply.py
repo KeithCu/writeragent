@@ -37,7 +37,7 @@ class StickyReplySpec:
 
     leave_flag: str
     leave_status: str
-    extra_bools: tuple[tuple[str, str], ...] = ()
+    tracks_spec_saved: bool = False
     description: str = (
         "Reply to the user in the sidebar. Set the leave flag true to end this mode "
         "and return to Chat."
@@ -47,9 +47,6 @@ class StickyReplySpec:
         assert self.leave_flag, "leave_flag must be non-empty"
         reserved = {"answer", "message", "result", "status"}
         assert self.leave_flag not in reserved, f"leave_flag {self.leave_flag!r} collision with reserved field"
-        extra_names = tuple(e[0] for e in self.extra_bools)
-        assert not (set(extra_names) & reserved), f"extra_bools collision with reserved field: {set(extra_names) & reserved}"
-        assert self.leave_flag not in set(extra_names), f"extra_bools contains leave_flag {self.leave_flag!r}"
 
 
 LIBRARIAN_REPLY_SPEC = StickyReplySpec(
@@ -64,7 +61,7 @@ LIBRARIAN_REPLY_SPEC = StickyReplySpec(
 BRAINSTORMING_REPLY_SPEC = StickyReplySpec(
     leave_flag="brainstorming_finished",
     leave_status=STATUS_FINISHED,
-    extra_bools=(("spec_saved", "Recorded from a successful save_design_spec this turn."),),
+    tracks_spec_saved=True,
     description=(
         "Reply to the user in the sidebar (HTML). Set brainstorming_finished true "
         "to end brainstorming after the spec is saved and reviewed. spec_saved is "
@@ -138,10 +135,10 @@ class StickyReplyToUserTool(ToolBase):
                 ),
             },
         }
-        for name, desc in spec.extra_bools:
-            properties[name] = {
+        if spec.tracks_spec_saved:
+            properties["spec_saved"] = {
                 "type": "boolean",
-                "description": desc,
+                "description": "Recorded from a successful save_design_spec this turn.",
             }
         self.parameters = {
             "type": "object",
@@ -169,7 +166,7 @@ class StickyReplyToUserTool(ToolBase):
                 "result": answer_text,
                 "message": answer_text,
             }
-            for extra in self.spec.extra_bools:
-                payload[extra[0]] = bool(self.spec_saved)
+            if self.spec.tracks_spec_saved:
+                payload["spec_saved"] = bool(self.spec_saved)
             return payload
         return {"status": STATUS_OK, "result": answer_text}

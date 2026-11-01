@@ -10,20 +10,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, TYPE_CHECKING
+from typing import Any, ClassVar
 
+from plugin.chatbot.sticky_reply import WRITING_PLAN_REPLY_SPEC
 from plugin.chatbot.sub_agent_tools import (
     HtmlContentToolBase,
     SUB_AGENT_DOC_CORE_TOOLS,
     SubAgentResearchWebBase,
     SubAgentSessionToolBase,
+    _domain_sub_agent_runner,
     _session_tool_parameters,
-    run_domain_sub_agent,
 )
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
-if TYPE_CHECKING:
-    from plugin.framework.tool import ToolContext
 
 WRITING_SUB_AGENT_INSTRUCTIONS = """WRITING PLAN MODE:
 You help write documents collaboratively using a structured, plan-driven approach.
@@ -68,32 +67,21 @@ class WriteDocumentSection(HtmlContentToolBase):
     description: str = "Insert or replace a section of document content with formatted HTML."
 
 
-def _run_writing_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, topic: str | None = None) -> dict[str, Any]:
-    """Run one turn of the writing plan smol sub-agent."""
-    from plugin.chatbot.sticky_reply import WRITING_PLAN_REPLY_SPEC
-
-    return run_domain_sub_agent(
-        ctx,
-        domain="writing_plan",
-        base_instructions=WRITING_SUB_AGENT_INSTRUCTIONS,
-        reply_spec=WRITING_PLAN_REPLY_SPEC,
-        topic_header="WRITING TASK / CONTEXT",
-        status_message="Writing...",
-        stop_message="Writing stopped by user.",
-        error_prefix="Writing failed",
-        query=query,
-        history_text=history_text,
-        topic=topic,
-    )
-
-
 class WritingPlanSessionTool(SubAgentSessionToolBase):
     """Orchestrator for one turn of the writing plan sub-agent (sidebar session)."""
 
     name: str | None = "writing_plan_session"
     description: str = "Writing Plan document-generation sub-agent."
     agent_label: str = "Writing plan"
-    runner: Callable[..., dict[str, Any]] | None = staticmethod(_run_writing_agent)
+    runner: Any = staticmethod(
+        _domain_sub_agent_runner(
+            "Writing",
+            "writing_plan",
+            WRITING_SUB_AGENT_INSTRUCTIONS,
+            WRITING_PLAN_REPLY_SPEC,
+            "WRITING TASK / CONTEXT",
+        )
+    )
     doc_types: list[str] | None = ["writer"]
     parameters: dict[str, Any] | None = _session_tool_parameters(
         "Original context/topic for writing task."

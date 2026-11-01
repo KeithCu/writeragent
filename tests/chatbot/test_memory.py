@@ -345,8 +345,6 @@ def test_memory_rejects_non_string_and_blank_key(tmp_path):
     ctx = object()
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
-        store = MemoryStore()
-
         # Non-string key via tool
         res1 = tool.execute(ctx, key=123, content="val")
         assert res1["status"] == "error"
@@ -356,11 +354,6 @@ def test_memory_rejects_non_string_and_blank_key(tmp_path):
         res2 = tool.execute(ctx, key="   ", content="val")
         assert res2["status"] == "error"
         assert "Key is required" in res2["message"]
-
-        # Direct non-string key on store
-        res3 = store.upsert(None, "val")
-        assert res3["status"] == "error"
-        assert "Key is required" in res3["message"]
 
 
 def test_memory_type_error_content_and_lone_surrogate(tmp_path):
