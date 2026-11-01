@@ -93,8 +93,7 @@ def _locale_language(loc: Any) -> str | None:
 @dataclass(eq=False, repr=False, slots=True)
 class _DocIndex:
     terms: dict[str, set[int]] = field(default_factory=dict)
-    para_texts: dict[int, str] = field(default_factory=dict)
-    para_count: int = 0
+    para_texts: list[str] = field(default_factory=list)
     build_ms: float = 0.0
     language: str = "english"
     detected_language: str | None = None
@@ -125,14 +124,6 @@ class _DocIndex:
                 return result
         return result
 
-    def query_not(self, include: set[int], exclude_stems: list[str]) -> set[int]:
-        result = include.copy()
-        for stem in exclude_stems:
-            ps = self.terms.get(stem)
-            if ps:
-                result -= ps
-        return result
-
     def query_near(self, stems_a: list[str], stems_b: list[str], distance: int) -> set[int]:
         set_a = self._paragraphs_for(stems_a)
         set_b = self._paragraphs_for(stems_b)
@@ -152,11 +143,19 @@ class _DocIndex:
 
 def _index_counts(idx: _DocIndex, cached: bool) -> dict[str, Any]:
     return {
-        "paragraphs": idx.para_count,
+        "paragraphs": len(idx.para_texts),
         "unique_stems": len(idx.terms),
         "build_ms": idx.build_ms,
         "cached": cached,
     }
+
+
+def _stem_query_tokens(text: str, stemmer: Any, stop_words: frozenset[str], out_stems: list[str], dropped_stops: list[str]) -> None:
+    for t in _raw_tokens(text):
+        if t in stop_words:
+            dropped_stops.append(t)
+        else:
+            out_stems.append(stemmer.stemWord(t))
 
 
 # ── Service ───────────────────────────────────────────────────────────
@@ -251,48 +250,36 @@ class IndexService(ServiceBase):
         idx.language = lang
         text_obj = doc.getText()
         enum = text_obj.createEnumeration()
-        para_i = 0
 
         while enum.hasMoreElements():
             el = enum.nextElement()
+            para_i = len(idx.para_texts)
             if el.supportsService("com.sun.star.text.Paragraph"):
                 text = get_string_without_tracked_deletions(el)
-                idx.para_texts[para_i] = text
+                idx.para_texts.append(text)
                 raw = _raw_tokens(text)
-                stems = [stemmer.stemWord(t) for t in raw if t not in stop_words]
-                for stem in stems:
-                    s = idx.terms.get(stem)
-                    if s is None:
-                        s = set()
-                        idx.terms[stem] = s
-                    s.add(para_i)
+                for t in raw:
+                    if t not in stop_words:
+                        stem = stemmer.stemWord(t)
+                        s = idx.terms.get(stem)
+                        if s is None:
+                            s = set()
+                            idx.terms[stem] = s
+                        s.add(para_i)
             else:
-                idx.para_texts[para_i] = "[Table]"
-            para_i += 1
+                idx.para_texts.append("[Table]")
 
-        idx.para_count = para_i
         idx.build_ms = round((time.perf_counter() - t0) * 1000, 1)
         if is_cacheable_doc_key(key):
             self._cache[key] = (fingerprint, idx)
             while len(self._cache) > _MAX_CACHED_DOCS:
                 self._cache.popitem(last=False)
-        log.info("Index built [%s]: %d paras, %d stems, %.1fms", lang, para_i, len(idx.terms), idx.build_ms)
+        log.info("Index built [%s]: %d paras, %d stems, %.1fms", lang, len(idx.para_texts), len(idx.terms), idx.build_ms)
         return idx, False
 
     # ── Query parsing ─────────────────────────────────────────────
 
-    def _stem_query_tokens(self, text: str, stemmer: Any, stop_words: frozenset[str]) -> tuple[list[str], list[str]]:
-        raw = _raw_tokens(text)
-        stems = []
-        dropped = []
-        for t in raw:
-            if t in stop_words:
-                dropped.append(t)
-            else:
-                stems.append(stemmer.stemWord(t))
-        return stems, dropped
-
-    def _parse_query(self, query: str, stemmer: Any, stop_words: frozenset[str]) -> dict[str, Any]:
+    def _parse_query(self, query: str, stemmer: Any, stop_words: frozenset[str]) -> tuple[str, list[str], list[str], tuple[list[str], list[str], int] | None, list[str]]:
         not_stems: list[str] = []
         dropped_stops: list[str] = []
 
@@ -305,27 +292,20 @@ class IndexService(ServiceBase):
         not_split = _NOT_RE.split(query)
         main_part = not_split[0].strip()
         for part in not_split[1:]:
-            stems, dropped = self._stem_query_tokens(part, stemmer, stop_words)
-            not_stems.extend(stems)
-            dropped_stops.extend(dropped)
+            _stem_query_tokens(part, stemmer, stop_words, not_stems, dropped_stops)
 
         if len(_NEAR_COUNT_RE.findall(main_part)) > 1:
             fail("Only one NEAR/N is supported per query.")
 
         near_match = _NEAR_RE.search(main_part)
         if near_match:
-            left, dropped_l = self._stem_query_tokens(near_match.group(1), stemmer, stop_words)
+            left: list[str] = []
+            _stem_query_tokens(near_match.group(1), stemmer, stop_words, left, dropped_stops)
             dist = int(near_match.group(2))
-            right, dropped_r = self._stem_query_tokens(near_match.group(3), stemmer, stop_words)
-            dropped_stops.extend(dropped_l + dropped_r)
+            right: list[str] = []
+            _stem_query_tokens(near_match.group(3), stemmer, stop_words, right, dropped_stops)
             if left and right:
-                return {
-                    "mode": "near",
-                    "positive": left + right,
-                    "not_stems": not_stems,
-                    "near": (left, right, dist),
-                    "dropped_stops": dropped_stops,
-                }
+                return ("near", left + right, not_stems, (left, right, dist), dropped_stops)
             if not left and not right:
                 fail("NEAR terms are all stop words")
             fail("No search terms after stop-word filtering")
@@ -338,31 +318,29 @@ class IndexService(ServiceBase):
         chunks = _OR_RE.split(main_part) if has_or else _AND_RE.split(main_part)
         target_stems: list[str] = []
         for chunk in chunks:
-            stems, dropped = self._stem_query_tokens(chunk, stemmer, stop_words)
-            target_stems.extend(stems)
-            dropped_stops.extend(dropped)
+            _stem_query_tokens(chunk, stemmer, stop_words, target_stems, dropped_stops)
 
         if not target_stems:
             fail("No search terms after stop-word filtering")
 
-        return {
-            "mode": "or" if has_or else "and",
-            "positive": target_stems,
-            "not_stems": not_stems,
-            "near": None,
-            "dropped_stops": dropped_stops,
-        }
+        return (
+            "or" if has_or else "and",
+            target_stems,
+            not_stems,
+            None,
+            dropped_stops,
+        )
 
     # ── Query Execution & Formatting ──────────────────────────────
 
-    def _build_result_entry(self, idx: _DocIndex, para_i: int, context_paragraphs: int, all_positive: Any, bookmark_map: Any) -> dict[str, Any]:
+    def _build_result_entry(self, idx: _DocIndex, para_i: int, context_paragraphs: int, positive: list[str], bookmark_map: Any) -> dict[str, Any]:
         ctx_lo = max(0, para_i - context_paragraphs)
-        ctx_hi = min(idx.para_count, para_i + context_paragraphs + 1)
-        context = [{"index": j, "text": idx.para_texts.get(j, "")} for j in range(ctx_lo, ctx_hi)]
+        ctx_hi = min(len(idx.para_texts), para_i + context_paragraphs + 1)
+        context = [{"index": j, "text": idx.para_texts[j]} for j in range(ctx_lo, ctx_hi)]
 
-        matched = [s for s in all_positive if para_i in idx.terms.get(s, set())]
+        matched = [s for s in positive if para_i in idx.terms.get(s, set())]
 
-        entry = {"paragraph_index": para_i, "text": idx.para_texts.get(para_i, ""), "matched_stems": matched, "context": context}
+        entry = {"paragraph_index": para_i, "text": idx.para_texts[para_i], "matched_stems": matched, "context": context}
 
         nearest = self._bm_svc.find_nearest_heading_bookmark(para_i, bookmark_map)
         if nearest:
@@ -383,32 +361,27 @@ class IndexService(ServiceBase):
 
         stemmer = self._get_stemmer(idx.language)
         stop_words = _normalized_stop_words(idx.language)
-        parsed = self._parse_query(query, stemmer, stop_words)
-
-        mode = parsed["mode"]
-        positive = parsed["positive"]
-        near = parsed["near"]
-        not_stems = parsed["not_stems"]
+        mode, positive, not_stems, near, dropped = self._parse_query(query, stemmer, stop_words)
 
         if mode == "near":
+            assert near is not None
             hits = idx.query_near(near[0], near[1], near[2])
         elif mode == "or":
             hits = idx._paragraphs_for(positive)
         else:
             hits = idx.query_and(positive)
-        all_positive = positive
 
         if not_stems:
-            hits = idx.query_not(hits, not_stems)
+            hits = hits - idx._paragraphs_for(not_stems)
 
         total = len(hits)
         selected = sorted(hits)[:max_results]
 
         bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc)
 
-        results = [self._build_result_entry(idx, para_i, context_paragraphs, all_positive, bookmark_map) for para_i in selected]
+        results = [self._build_result_entry(idx, para_i, context_paragraphs, positive, bookmark_map) for para_i in selected]
 
-        resp = {
+        resp: dict[str, Any] = {
             "query": query,
             "mode": mode,
             "language": idx.language,
@@ -421,8 +394,8 @@ class IndexService(ServiceBase):
         }
         if near:
             resp["near"] = {"left": near[0], "right": near[1], "distance": near[2]}
-        if parsed["dropped_stops"]:
-            resp["dropped_stops"] = parsed["dropped_stops"]
+        if dropped:
+            resp["dropped_stops"] = dropped
         return resp
 
     def get_index_stats(self, doc: Any) -> dict[str, Any]:

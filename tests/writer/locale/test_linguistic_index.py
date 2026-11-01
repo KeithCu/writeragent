@@ -377,7 +377,7 @@ def test_parse_query_accepts_one_near(mock_services):
         svc = IndexService(mock_services)
         stop_words = _normalized_stop_words("english")
         parsed = svc._parse_query("apple NEAR/2 pie", mock_stemmer, stop_words)
-        assert parsed["near"] == (["apple"], ["pie"], 2)
+        assert parsed[3] == (["apple"], ["pie"], 2)
 
 
 def test_all_stop_word_query_lists_dropped_words(mock_services):
