@@ -42,51 +42,50 @@ def _iter_annotations(doc: Any) -> Any:
             reraise_if_disposed(exc)
 
 
+def _annotation_context(ctx: Any) -> tuple[Any, Any, Any, Any, dict[int, str]]:
+    from plugin.doc.paragraph_search import paragraph_entries
+
+    doc = ctx.doc
+    doc_svc = ctx.services.document
+    para_ranges = doc_svc.get_paragraph_ranges(doc)
+    text_obj = doc.getText()
+    entries = paragraph_entries(para_ranges)
+    label_cache: dict[int, str] = {}
+    return doc_svc, para_ranges, text_obj, entries, label_cache
+
+
 class CommentList(ToolWriterCommentBase):
     """List all comments (annotations) in the document."""
 
     name: str | None = "comment_list"
     description: str = "List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         author_filter = kwargs.get("author_filter")
         doc = ctx.doc
-        doc_svc = ctx.services.document
         # One field scan first: a comment-free document should not pay for the paragraph map.
         fields = list(_iter_annotations(doc))
-        if not fields:
-            result: dict[str, Any] = {"status": "ok", "comments": [], "count": 0}
-            if author_filter:
-                result["filtered_by"] = author_filter
-            return result
-
-        para_ranges = doc_svc.get_paragraph_ranges(doc)
-        text_obj = doc.getText()
-        from plugin.doc.paragraph_search import paragraph_entries
-
-        entries = paragraph_entries(para_ranges)
-        label_cache: dict[int, str] = {}
-
         comments = []
-        af = (author_filter or "").lower() if author_filter else None
-        for field in fields:
-            if af is not None:
-                try:
-                    field_author = field.getPropertyValue("Author") or ""
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    field_author = ""
-                if af not in field_author.lower():
-                    continue
+        if fields:
+            doc_svc, para_ranges, text_obj, entries, label_cache = _annotation_context(ctx)
+            af = author_filter.lower() if author_filter else None
+            for field in fields:
+                if af is not None:
+                    try:
+                        field_author = field.getPropertyValue("Author") or ""
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        field_author = ""
+                    if af not in field_author.lower():
+                        continue
 
-            entry = _read_annotation(
-                field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
-            )
-            comments.append(entry)
+                entry = _read_annotation(
+                    field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
+                )
+                comments.append(entry)
 
-        result = {"status": "ok", "comments": comments, "count": len(comments)}
+        result: dict[str, Any] = {"status": "ok", "comments": comments, "count": len(comments)}
         if author_filter:
             result["filtered_by"] = author_filter
         return result
@@ -135,7 +134,22 @@ class AddComment(ToolBase):
                     "message": "Comment '%s' not found. Call comment_list to see the current names." % parent_name,
                     "comment_added": False,
                 }
-            return self._insert_reply(ctx.doc, parent, parent_name, content, author)
+            success, reply_name_or_err = _insert_annotation_reply(ctx.doc, parent, parent_name, content, author)
+            if not success:
+                return {
+                    "status": "error",
+                    "message": reply_name_or_err,
+                    "comment_added": False,
+                    "parent_name": parent_name,
+                }
+            return {
+                "status": "ok",
+                "message": "Reply added.",
+                "author": author,
+                "comment_added": True,
+                "name": reply_name_or_err,
+                "parent_name": parent_name,
+            }
 
         search_text = kwargs.get("search")
         if not search_text:
@@ -207,25 +221,6 @@ class AddComment(ToolBase):
             "name": _annotation_name(annotation) or new_name,
         }
 
-    def _insert_reply(self, doc: Any, parent: Any, parent_name: str, content: str, author: str) -> dict[str, Any]:
-        """Insert a threaded reply at the parent's anchor. Does not set Resolved."""
-        success, reply_name_or_err = _insert_annotation_reply(doc, parent, parent_name, content, author)
-        if not success:
-            return {
-                "status": "error",
-                "message": reply_name_or_err,
-                "comment_added": False,
-                "parent_name": parent_name,
-            }
-        return {
-            "status": "ok",
-            "message": "Reply added.",
-            "author": author,
-            "comment_added": True,
-            "name": reply_name_or_err,
-            "parent_name": parent_name,
-        }
-
 
 class CommentDelete(ToolWriterCommentBase):
     """Delete comments by name or author."""
@@ -233,7 +228,6 @@ class CommentDelete(ToolWriterCommentBase):
     name: str | None = "comment_delete"
     description: str = "Delete comments by name or author. Use name to delete a specific comment and its replies. Use author to delete ALL comments by that author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "The 'name' field returned by comment_list."}, "author": {"type": "string", "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW').")}}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -244,43 +238,41 @@ class CommentDelete(ToolWriterCommentBase):
             return self._tool_error("Provide name or author.")
 
         doc = ctx.doc
-        rows = []
+        ordered = []
+        children: dict[str, list[tuple[Any, Any, Any]]] = {}
         for field in _iter_annotations(doc):
             name = field.getPropertyValue("Name")
             parent = field.getPropertyValue("ParentName")
             field_author = field.getPropertyValue("Author")
-            rows.append((field, name, parent, field_author))
-
-        parent_to_children: dict[str, list[int]] = {}
-        for idx, (_field, _name, parent, _field_author) in enumerate(rows):
+            row = (field, name, field_author)
+            ordered.append(row)
             if parent:
-                parent_to_children.setdefault(parent, []).append(idx)
+                children.setdefault(parent, []).append(row)
 
-        selected_indices: set[int] = set()
+        selected_ids: set[int] = set()
 
         # dispose() removes one field, and ParentName is only the immediate
         # parent, so the name set has to be the chain.
         if comment_name:
             queue = [comment_name]
             seen_names = {comment_name}
-            for idx, (_field, name, _parent, _author) in enumerate(rows):
+            for field, name, _author in ordered:
                 if name == comment_name:
-                    selected_indices.add(idx)
+                    selected_ids.add(id(field))
             while queue:
                 curr_name = queue.pop()
-                for child_idx in parent_to_children.get(curr_name, []):
-                    selected_indices.add(child_idx)
-                    child_name = rows[child_idx][1]
+                for child_field, child_name, _author in children.get(curr_name, []):
+                    selected_ids.add(id(child_field))
                     if child_name and child_name not in seen_names:
                         seen_names.add(child_name)
                         queue.append(child_name)
 
         if author:
-            for idx, (_field, _name, _parent, field_author) in enumerate(rows):
+            for field, _name, field_author in ordered:
                 if field_author == author:
-                    selected_indices.add(idx)
+                    selected_ids.add(id(field))
 
-        to_delete = [rows[idx][0] for idx in sorted(selected_indices)]
+        to_delete = [field for field, _name, _author in ordered if id(field) in selected_ids]
 
         if not to_delete:
             # A miss must be an ERROR: "ok, deleted: 0" reads as success and the agent then
@@ -332,7 +324,6 @@ class CommentResolve(ToolWriterCommentBase):
         },
         "required": ["name"],
     }
-    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
@@ -391,8 +382,6 @@ class CommentResolve(ToolWriterCommentBase):
         return result
 
 
-_WORKFLOW_TASK_PREFIXES = WORKFLOW_TASK_PREFIXES
-_COMMENT_UNO = ["com.sun.star.text.TextDocument"]
 _ANNOTATION_PROPERTIES = (
     ("Author", "author"),
     ("Content", "content"),
@@ -400,51 +389,6 @@ _ANNOTATION_PROPERTIES = (
     ("ParentName", "parent_name"),
     ("Resolved", "resolved"),
 )
-
-
-def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
-    unresolved_only = kwargs.get("unresolved_only", True)
-    prefix_filter = kwargs.get("prefix_filter", None)
-    doc = ctx.doc
-    fields = list(_iter_annotations(doc))
-    if not fields:
-        return {"status": "ok", "tasks": [], "count": 0}
-    doc_svc = ctx.services.document
-    para_ranges = doc_svc.get_paragraph_ranges(doc)
-    text_obj = doc.getText()
-    from plugin.doc.paragraph_search import paragraph_entries
-
-    entries = paragraph_entries(para_ranges)
-    label_cache: dict[int, str] = {}
-    tasks = []
-    for field in fields:
-        try:
-            content = field.getPropertyValue("Content") or ""
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            content = ""
-        matched_prefix = None
-        for prefix in _WORKFLOW_TASK_PREFIXES:
-            if content.startswith(prefix):
-                matched_prefix = prefix
-                break
-        if matched_prefix is None:
-            continue
-        if prefix_filter and matched_prefix != prefix_filter:
-            continue
-        if unresolved_only:
-            try:
-                if field.getPropertyValue("Resolved"):
-                    continue
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                pass
-        entry = _read_annotation(
-            field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
-        )
-        entry["prefix"] = matched_prefix
-        tasks.append(entry)
-    return {"status": "ok", "tasks": tasks, "count": len(tasks)}
 
 
 def _parse_workflow_content(content: str) -> list[tuple[str | None, str]]:
@@ -461,62 +405,6 @@ def _parse_workflow_content(content: str) -> list[tuple[str | None, str]]:
     return items
 
 
-def _comment_workflow_get(ctx: Any) -> dict[str, Any]:
-    doc = ctx.doc
-    for field in _iter_annotations(doc):
-        author = field.getPropertyValue("Author") or ""
-        if author != "MCP-WORKFLOW":
-            continue
-        content = field.getPropertyValue("Content") or ""
-        workflow = {k: v for k, v in _parse_workflow_content(content) if k is not None}
-        return {"status": "ok", "workflow": workflow}
-    return {"status": "ok", "workflow": None}
-
-
-def _comment_workflow_set(ctx: Any, kwargs: Any) -> dict[str, Any]:
-    content = kwargs.get("content", "")
-    doc = ctx.doc
-    doc_text = doc.getText()
-    existing = None
-    for field in _iter_annotations(doc):
-        author = field.getPropertyValue("Author") or ""
-        if author == "MCP-WORKFLOW":
-            existing = field
-            break
-    if existing is not None:
-        existing.setPropertyValue("Content", content)
-    else:
-        annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
-        annotation.setPropertyValue("Author", "MCP-WORKFLOW")
-        annotation.setPropertyValue("Content", content)
-        _set_annotation_date(annotation)
-        cursor = doc_text.createTextCursor()
-        cursor.gotoStart(False)
-        doc_text.insertTextContent(cursor, annotation, False)
-    return {"status": "ok", "message": "Workflow status updated."}
-
-
-def _comment_check_stop(ctx: Any) -> dict[str, Any]:
-    doc = ctx.doc
-    stop_signals = []
-    workflow_stop = False
-    for field in _iter_annotations(doc):
-        content = field.getPropertyValue("Content") or ""
-        author = field.getPropertyValue("Author") or ""
-        resolved = field.getPropertyValue("Resolved")
-        if author == "MCP-WORKFLOW" and content:
-            for _key, val in _parse_workflow_content(content):
-                if val.lower() in ("stop", "pause"):
-                    workflow_stop = True
-                    break
-        if not resolved and content:
-            upper = content.strip().upper()
-            if upper.startswith("STOP") or upper.startswith("CANCEL"):
-                stop_signals.append({"author": author, "content": content[:100]})
-    should_stop = bool(stop_signals) or workflow_stop
-    return {"status": "ok", "should_stop": should_stop, "workflow_stop": workflow_stop, "stop_signals": stop_signals, "count": len(stop_signals)}
-
-
 class CommentScanTasks(ToolWriterCommentBase):
     name: str | None = "comment_scan_tasks"
     description: str = f"Find workflow tasks in comments ({', '.join(WORKFLOW_TASK_PREFIXES)} prefixes)."
@@ -528,21 +416,57 @@ class CommentScanTasks(ToolWriterCommentBase):
         },
         "required": [],
     }
-    uno_services: list[str] | None = _COMMENT_UNO
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return _comment_scan_tasks(ctx, kwargs)
+        unresolved_only = kwargs.get("unresolved_only", True)
+        prefix_filter = kwargs.get("prefix_filter", None)
+        doc = ctx.doc
+        fields = list(_iter_annotations(doc))
+        if not fields:
+            return {"status": "ok", "tasks": [], "count": 0}
+        doc_svc, para_ranges, text_obj, entries, label_cache = _annotation_context(ctx)
+        tasks = []
+        for field in fields:
+            try:
+                content = field.getPropertyValue("Content") or ""
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                content = ""
+            matched_prefix = next((p for p in WORKFLOW_TASK_PREFIXES if content.startswith(p)), None)
+            if matched_prefix is None:
+                continue
+            if prefix_filter and matched_prefix != prefix_filter:
+                continue
+            if unresolved_only:
+                try:
+                    if field.getPropertyValue("Resolved"):
+                        continue
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+            entry = _read_annotation(
+                field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
+            )
+            entry["prefix"] = matched_prefix
+            tasks.append(entry)
+        return {"status": "ok", "tasks": tasks, "count": len(tasks)}
 
 
 class CommentWorkflowGet(ToolWriterCommentBase):
     name: str | None = "comment_workflow_get"
     description: str = "Read the MCP-WORKFLOW dashboard comment (key: value lines)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = _COMMENT_UNO
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return _comment_workflow_get(ctx)
+        doc = ctx.doc
+        for field in _iter_annotations(doc):
+            author = field.getPropertyValue("Author") or ""
+            if author != "MCP-WORKFLOW":
+                continue
+            content = field.getPropertyValue("Content") or ""
+            workflow = {k: v for k, v in _parse_workflow_content(content) if k is not None}
+            return {"status": "ok", "workflow": workflow}
+        return {"status": "ok", "workflow": None}
 
 
 class CommentWorkflowSet(ToolWriterCommentBase):
@@ -555,22 +479,56 @@ class CommentWorkflowSet(ToolWriterCommentBase):
         },
         "required": ["content"],
     }
-    uno_services: list[str] | None = _COMMENT_UNO
     is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return _comment_workflow_set(ctx, kwargs)
+        content = kwargs.get("content", "")
+        doc = ctx.doc
+        doc_text = doc.getText()
+        existing = None
+        for field in _iter_annotations(doc):
+            author = field.getPropertyValue("Author") or ""
+            if author == "MCP-WORKFLOW":
+                existing = field
+                break
+        if existing is not None:
+            existing.setPropertyValue("Content", content)
+        else:
+            annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
+            annotation.setPropertyValue("Author", "MCP-WORKFLOW")
+            annotation.setPropertyValue("Content", content)
+            _set_annotation_date(annotation)
+            cursor = doc_text.createTextCursor()
+            cursor.gotoStart(False)
+            doc_text.insertTextContent(cursor, annotation, False)
+        return {"status": "ok", "message": "Workflow status updated."}
 
 
 class CommentCheckStop(ToolWriterCommentBase):
     name: str | None = "comment_check_stop"
     description: str = "Detect STOP/CANCEL comments or a dashboard value exactly equal to stop or pause in the MCP-WORKFLOW dashboard."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = _COMMENT_UNO
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return _comment_check_stop(ctx)
+        doc = ctx.doc
+        stop_signals = []
+        workflow_stop = False
+        for field in _iter_annotations(doc):
+            content = field.getPropertyValue("Content") or ""
+            author = field.getPropertyValue("Author") or ""
+            resolved = field.getPropertyValue("Resolved")
+            if author == "MCP-WORKFLOW" and content:
+                for _key, val in _parse_workflow_content(content):
+                    if val.lower() in ("stop", "pause"):
+                        workflow_stop = True
+                        break
+            if not resolved and content:
+                upper = content.strip().upper()
+                if upper.startswith("STOP") or upper.startswith("CANCEL"):
+                    stop_signals.append({"author": author, "content": content[:100]})
+        should_stop = bool(stop_signals) or workflow_stop
+        return {"status": "ok", "should_stop": should_stop, "workflow_stop": workflow_stop, "stop_signals": stop_signals, "count": len(stop_signals)}
 
 
 # ------------------------------------------------------------------
@@ -593,10 +551,7 @@ def _annotation_name(field: Any) -> str:
 
 def _annotation_field_names(doc: Any) -> list[str]:
     """Name of each Annotation on *doc* (empty string when Name is unset)."""
-    names: list[str] = []
-    for field in _iter_annotations(doc):
-        names.append(field.getPropertyValue("Name") or "")
-    return names
+    return [_annotation_name(field) for field in _iter_annotations(doc)]
 
 
 def _ensure_annotation_name(field: Any, names: list[str]) -> str:
@@ -676,92 +631,76 @@ def _read_annotation(
     from plugin.writer.search import describe_match_location
 
     entry: dict[str, Any] = {}
-    name_read: str | None = None
     props_read = 0
     last_exc: Exception | None = None
+    for prop, key in _ANNOTATION_PROPERTIES:
+        try:
+            val = field.getPropertyValue(prop)
+            if key in ("author", "content") and val is None:
+                val = ""
+            entry[key] = val
+            props_read += 1
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            last_exc = exc
+
     try:
-        for prop, key in _ANNOTATION_PROPERTIES:
-            try:
-                val = field.getPropertyValue(prop)
-                if key in ("author", "content") and val is None:
-                    val = ""
-                entry[key] = val
-                props_read += 1
-                if key == "name" and val:
-                    name_read = val
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                last_exc = exc
-
-        try:
-            dt = field.getPropertyValue("DateTimeValue")
-            if dt is not None:
-                entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
-                    getattr(dt, "Year", 0),
-                    getattr(dt, "Month", 0),
-                    getattr(dt, "Day", 0),
-                    getattr(dt, "Hours", 0),
-                    getattr(dt, "Minutes", 0),
-                )
-                props_read += 1
-            else:
-                entry["date"] = ""
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            last_exc = exc
-
-        if props_read == 0:
-            err_msg = str(last_exc) if last_exc is not None else "failed to read annotation"
-            log.warning("Failed to read annotation: %s", err_msg)
-            err_entry: dict[str, Any] = {"error": err_msg, "stale": True}
-            if name_read is not None:
-                err_entry["name"] = name_read
-            return err_entry
-
-        # getAnchor().getString() is often empty (the anchor reads as a point even for
-        # spanning comments), so fall back to the enclosing paragraph text and say so via
-        # anchor_is_paragraph_context.
-        try:
-            anchor = field.getAnchor()
-            preview = ""
-            if anchor is not None:
-                entry["location"] = describe_match_location(anchor, doc, label_cache=label_cache)
-                doc_text = text_obj
-                try:
-                    anchor_text = anchor.getText()
-                except Exception:
-                    anchor_text = None
-                if anchor_text is not None and doc_text is not None and uno_same(anchor_text, doc_text):
-                    raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                    from plugin.doc.paragraph_search import confirm_paragraph_index
-
-                    placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
-                    if placed is not None:
-                        entry["paragraph_index"] = placed
-
-                try:
-                    preview = (anchor.getString() or "")[:80]
-                except Exception:
-                    preview = ""
-                if not preview:
-                    from plugin.writer.search import enclosing_paragraph_text
-
-                    ptxt = (enclosing_paragraph_text(anchor) or "").strip()
-                    if ptxt:
-                        preview = ptxt[:120]
-                        entry["anchor_is_paragraph_context"] = True
-            else:
-                entry["location"] = "body"
-            entry["anchor_preview"] = preview
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            last_exc = exc
-
-        return entry
+        dt = field.getPropertyValue("DateTimeValue")
+        if dt is not None:
+            entry["date"] = "%04d-%02d-%02d %02d:%02d" % (
+                getattr(dt, "Year", 0),
+                getattr(dt, "Month", 0),
+                getattr(dt, "Day", 0),
+                getattr(dt, "Hours", 0),
+                getattr(dt, "Minutes", 0),
+            )
+            props_read += 1
+        else:
+            entry["date"] = ""
     except Exception as exc:
         reraise_if_disposed(exc)
-        log.warning("Failed to read annotation: %s", exc)
-        outer_err: dict[str, Any] = {"error": str(exc), "stale": True}
-        if name_read is not None:
-            outer_err["name"] = name_read
-        return outer_err
+        last_exc = exc
+
+    if props_read == 0:
+        err_msg = str(last_exc) if last_exc is not None else "failed to read annotation"
+        log.warning("Failed to read annotation: %s", err_msg)
+        return {"error": err_msg, "stale": True}
+
+    # getAnchor().getString() is often empty (the anchor reads as a point even for
+    # spanning comments), so fall back to the enclosing paragraph text and say so via
+    # anchor_is_paragraph_context.
+    try:
+        anchor = field.getAnchor()
+        preview = ""
+        if anchor is not None:
+            entry["location"] = describe_match_location(anchor, doc, label_cache=label_cache)
+            try:
+                anchor_text = anchor.getText()
+            except Exception:
+                anchor_text = None
+            if anchor_text is not None and text_obj is not None and uno_same(anchor_text, text_obj):
+                raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+                from plugin.doc.paragraph_search import confirm_paragraph_index
+
+                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                if placed is not None:
+                    entry["paragraph_index"] = placed
+
+            try:
+                preview = (anchor.getString() or "")[:80]
+            except Exception:
+                preview = ""
+            if not preview:
+                from plugin.writer.search import enclosing_paragraph_text
+
+                ptxt = (enclosing_paragraph_text(anchor) or "").strip()
+                if ptxt:
+                    preview = ptxt[:120]
+                    entry["anchor_is_paragraph_context"] = True
+        else:
+            entry["location"] = "body"
+        entry["anchor_preview"] = preview
+    except Exception as exc:
+        reraise_if_disposed(exc)
+
+    return entry
