@@ -62,7 +62,7 @@ LEARNING_LINE_PATTERN = re.compile(
 )
 URL_PATTERN = re.compile(r"https?://[^\s\]\)>\",;]+")
 
-WebAgentRunner = Callable[[str, str, str | None], str | dict[str, Any]]
+WebAgentRunner = Callable[[str, str], str | dict[str, Any]]
 LlmChatFn = Callable[[list[dict[str, str]], int], str]
 # Each pool task returns its own (run_web_agent, extraction llm_chat). The
 # parent llm_chat stays on the planning thread and is not safe to share.
@@ -209,28 +209,26 @@ def _trim_evidence(
     total_words = 0
     trimmed_learnings: list[str] = []
     for item in learnings:
-        words = len(str(item).split())
+        words = len(item.split())
         if total_words + words <= max_words:
             trimmed_learnings.append(item)
             total_words += words
         else:
             if total_words < max_words:
-                text = str(item)
                 rem = max_words - total_words
-                trimmed_learnings.append(" ".join(text.split()[:rem]))
+                trimmed_learnings.append(" ".join(item.split()[:rem]))
                 total_words += rem
             break
 
     trimmed_context: list[str] = []
     for item in reversed(context_chunks):
-        words = len(str(item).split())
+        words = len(item.split())
         if total_words + words <= max_words:
             trimmed_context.insert(0, item)
             total_words += words
         elif not trimmed_context and total_words < max_words:
-            text = str(item)
             rem = max_words - total_words
-            trimmed_context.insert(0, " ".join(text.split()[:rem]))
+            trimmed_context.insert(0, " ".join(item.split()[:rem]))
             break
         else:
             break
@@ -417,12 +415,10 @@ def synthesize_deep_report(
     context_chunks: list[str],
     plain_text_format: str,
     *,
-    sources: list[str] | None = None,
+    sources: list[str],
 ) -> str:
     trimmed_learnings, trimmed_chunks = _trim_evidence(learnings, context_chunks)
-    evidence_parts = list(trimmed_learnings)
-    evidence_parts.extend(trimmed_chunks)
-    evidence = "\n\n".join(evidence_parts)
+    evidence = "\n\n".join(trimmed_learnings + trimmed_chunks)
     source_block = ""
     if sources:
         source_block = "\n\nSources consulted:\n" + "\n".join(f"- {u}" for u in sources[:50])
@@ -450,7 +446,7 @@ def synthesize_deep_report(
 def _partial_report_from_evidence(
     query: str,
     cited_learnings: list[str],
-    sources: list[str] | None,
+    sources: list[str],
 ) -> str:
     """Plain-text fallback when the synthesis LLM call fails."""
     lines = [
@@ -458,7 +454,7 @@ def _partial_report_from_evidence(
         "",
     ]
     lines.extend(cited_learnings)
-    sources_consulted = (sources or [])[:50]
+    sources_consulted = sources[:50]
     if sources_consulted:
         lines.append("")
         lines.append(_("Sources consulted:"))
@@ -525,7 +521,7 @@ def _process_one_sub_query(
         status_callback(progress.status_text())
 
     try:
-        raw = run_web_agent(sub_query, research_goal, None)
+        raw = run_web_agent(sub_query, research_goal)
         sub_context = _coerce_agent_result(raw)
     except ToolExecutionError as exc:
         payload = format_error_payload(exc)
@@ -549,16 +545,16 @@ def _process_one_sub_query(
         log.warning("deep_research: extraction failed for %s: %s", sub_query, exc)
         results = {}
 
-    sources = _extract_urls_from_text(sub_context)
     # parse_research_results_response stores {learning sentence: list[source url]}.
     citation_map = results.get("citations") or {}
-    citation_urls = []
-    for urls in citation_map.values():
-        citation_urls.extend(urls)
-
-    for url in citation_urls:
-        if url and url not in sources:
-            sources.append(url)
+    sources = list(
+        dict.fromkeys(
+            [
+                *_extract_urls_from_text(sub_context),
+                *(u for urls in citation_map.values() for u in urls if u),
+            ]
+        )
+    )
 
     return {
         "learnings": results.get("learnings") or [],
@@ -582,7 +578,7 @@ def _run_sub_queries_parallel(
         return None
 
     workers = max(1, min(concurrency, len(serp_queries)))
-    work_q: queue.Queue[dict[str, str] | None] = queue.Queue()
+    work_q: queue.Queue[dict[str, str]] = queue.Queue()
     result_q: queue.Queue[tuple[dict[str, str], Any]] = queue.Queue()
 
     for sq in serp_queries:
@@ -592,8 +588,9 @@ def _run_sub_queries_parallel(
         task_run_web_agent, task_llm_chat, worker_cleanup = worker_factory()
         try:
             while True:
-                sq = work_q.get()
-                if sq is None:
+                try:
+                    sq = work_q.get_nowait()
+                except queue.Empty:
                     break
                 try:
                     branch = _process_one_sub_query(
@@ -640,7 +637,7 @@ def _run_sub_queries_parallel(
                 continue
 
             branch = res
-            if isinstance(branch, dict) and branch.get("error"):
+            if branch and branch.get("error"):
                 return branch["error"]
             if branch:
                 _merge_branch_results(acc, branch)
@@ -652,8 +649,6 @@ def _run_sub_queries_parallel(
                 work_q.get_nowait()
             except queue.Empty:
                 break
-        for _ in range(workers):
-            work_q.put(None)
 
         # No public join timeout. The worker set is what shutdown(wait=True) joins.
         deadline = time.monotonic() + _STOP_POOL_JOIN_SEC

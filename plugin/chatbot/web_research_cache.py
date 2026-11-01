@@ -14,7 +14,10 @@ import hashlib
 import json
 import threading
 import time
-from typing import Any, cast
+from typing import Any, cast, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.deal_shim import deal
 from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
@@ -46,10 +49,8 @@ def _get_stemmer(snowball_lang: str) -> Any | None:
         stemmer = snowballstemmer.stemmer(snowball_lang)
         _STEMMER_CACHE[snowball_lang] = stemmer
         return stemmer
-    except (ImportError, KeyError):
+    except ImportError:
         log.warning("No stemmer for '%s', falling back to english", snowball_lang)
-        if snowball_lang != "english":
-            return _get_stemmer("english")
         return None
 
 
@@ -73,16 +74,6 @@ def snowball_lang_from_locale_tag(tag: str) -> str:
     return _ISO_TO_SNOWBALL.get(iso) or "english"
 
 
-def _uno_char_locale_to_tag(char_locale: Any) -> str | None:
-    lang = str(getattr(char_locale, "Language", "") or "").strip()
-    if not lang:
-        return None
-    country = str(getattr(char_locale, "Country", "") or "").strip()
-    if country:
-        return f"{lang}_{country}"
-    return lang
-
-
 def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
     """Read first-paragraph CharLocale from *doc*. Main thread only (UNO)."""
     text = doc.getText()
@@ -91,11 +82,33 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
         return None
     first_para = enum.nextElement()
     char_locale = first_para.getPropertyValue("CharLocale")
-    lo_tag = _uno_char_locale_to_tag(char_locale)
+    lang = str(getattr(char_locale, "Language", "") or "").strip()
+    if not lang:
+        return None
+    country = str(getattr(char_locale, "Country", "") or "").strip()
+    lo_tag = f"{lang}_{country}" if country else lang
     iso = getattr(char_locale, "Language", None)
     snowball = _ISO_TO_SNOWBALL.get(iso) if iso else None
     if lo_tag and snowball:
         return lo_tag, snowball
+    return None
+
+
+def _run_on_main_or_none(fn: Callable[[], Any], what: str, *, reraise_disposed: bool = False) -> Any | None:
+    from plugin.framework.errors import is_disposed_exception
+    from plugin.framework.queue_executor import run_on_main
+    from plugin.framework.send_cancellation import SendCancelled
+
+    try:
+        return run_on_main(fn)
+    except SendCancelled:
+        log.debug("research cache: %s cancelled", what)
+    except TimeoutError:
+        log.warning("research cache: %s timed out on main thread", what)
+    except Exception as e:
+        if reraise_disposed and is_disposed_exception(e):
+            raise
+        log.debug("research cache: %s failed: %s", what, e)
     return None
 
 
@@ -105,42 +118,23 @@ def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
     Query text is not language-detected; document CharLocale first, then LO UI locale.
     UNO reads are marshalled to the main thread because callers include async web_research.
     """
-    from plugin.framework.errors import is_disposed_exception
-    from plugin.framework.queue_executor import _marshal_thread_tag, run_on_main
-    from plugin.framework.send_cancellation import SendCancelled
-
-    log.debug("resolve_research_locale start doc=%s %s", doc is not None, _marshal_thread_tag())
-
     if doc is not None:
-        try:
-            doc_locale = run_on_main(lambda: _read_doc_char_locale(doc))
-            if doc_locale is not None:
-                return doc_locale
-        except SendCancelled:
-            log.debug("research cache: document language detection cancelled")
-        except TimeoutError:
-            log.warning("research cache: document language detection timed out on main thread")
-        except Exception as e:
-            # is_disposed_exception is the disposal predicate.
-            # DocumentDisposedError (thread-guard teardown) does not contain
-            # "DisposedException" in its type name; falling through keys the
-            # research cache as en_US/english. Cancel and timeout still fall
-            # back; a missing name still does too.
-            if is_disposed_exception(e):
-                raise
-            log.debug("research cache: document language detection failed: %s", e)
+        doc_locale = _run_on_main_or_none(
+            lambda: _read_doc_char_locale(doc),
+            "document language detection",
+            reraise_disposed=True,
+        )
+        if doc_locale is not None:
+            return doc_locale
 
-    try:
-        from plugin.framework.i18n import get_lo_locale
+    from plugin.framework.i18n import get_lo_locale
 
-        lo_tag = run_on_main(lambda: get_lo_locale(ctx))
+    lo_tag = _run_on_main_or_none(
+        lambda: get_lo_locale(ctx),
+        "LO locale detection",
+    )
+    if lo_tag is not None:
         return lo_tag, snowball_lang_from_locale_tag(lo_tag)
-    except SendCancelled:
-        log.debug("research cache: LO locale detection cancelled")
-    except TimeoutError:
-        log.warning("research cache: LO locale detection timed out on main thread")
-    except Exception as e:
-        log.debug("research cache: LO locale detection failed: %s", e)
     return "en_US", "english"
 
 
@@ -643,7 +637,7 @@ def lookup_research_cache(
     # Do not fall through to the bare or shallow-prefixed key. Those rows
     # are a different report (ordinary web_research / brainstorm), and
     # returning them made Deep Research skip the live run.
-    exact_keys.append(format_research_cache_key(snowball_lang, word_key, mode="deep" if mode == "deep" else ""))
+    exact_keys.append(format_research_cache_key(snowball_lang, word_key, mode=mode))
     for storage_key in exact_keys:
         cached = _web_cache_get(cache_path, "research", storage_key, max_age_days=max_age_days)
         if cached is not None:
