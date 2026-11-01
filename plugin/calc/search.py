@@ -52,26 +52,23 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
         if not pattern:
             return self._tool_error("pattern is required.")
 
-        raw_max = kwargs.get("max_results", 50)
-        if type(raw_max) is not int or raw_max < 1:
+        max_results = kwargs.get("max_results", 50)
+        if type(max_results) is not int or max_results < 1:
             return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
-        max_results = raw_max
 
         use_regex = kwargs.get("regex", False)
         if use_regex:
             err = _validate_regex(self, pattern)
             if err:
                 return err
-        case_sensitive = kwargs.get("case_sensitive", False)
-        all_sheets = kwargs.get("all_sheets", False)
 
         matches = search_spreadsheet_cells(
             ctx.doc,
             pattern,
             regex=use_regex,
-            case_sensitive=case_sensitive,
+            case_sensitive=kwargs.get("case_sensitive", False),
             max_results=max_results,
-            all_sheets=all_sheets,
+            all_sheets=kwargs.get("all_sheets", False),
             sheet_name=kwargs.get("sheet"),
             stop_checker=ctx.stop_checker,
         )
@@ -110,13 +107,11 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
             err = _validate_regex(self, search)
             if err:
                 return err
-        case_sensitive = kwargs.get("case_sensitive", False)
-        all_sheets = kwargs.get("all_sheets", False)
 
         total = 0
-        for sheet, _name in iter_target_sheets(ctx.doc, all_sheets=all_sheets, sheet_name=kwargs.get("sheet")):
+        for sheet, _name in iter_target_sheets(ctx.doc, all_sheets=kwargs.get("all_sheets", False), sheet_name=kwargs.get("sheet")):
             rd = sheet.createReplaceDescriptor()
-            configure_search_descriptor(rd, search, regex=use_regex, case_sensitive=case_sensitive)
+            configure_search_descriptor(rd, search, regex=use_regex, case_sensitive=kwargs.get("case_sensitive", False))
             rd.ReplaceString = replace
             total += sheet.replaceAll(rd)
 

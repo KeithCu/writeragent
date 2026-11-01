@@ -65,10 +65,10 @@ _DISTINCT_PEEK_HIGH_CARDINALITY = 40
 log = logging.getLogger("writeragent.calc")
 
 
-def _opt_bool(kwargs: dict[str, Any], key: str) -> tuple[bool | None, str | None]:
+def _opt_bool(kwargs: dict[str, Any], key: str, *, default: bool | None = None) -> tuple[bool | None, str | None]:
     raw = kwargs.get(key)
     if raw is None:
-        return None, None
+        return default, None
     if isinstance(raw, bool):
         return raw, None
     if isinstance(raw, str):
@@ -78,10 +78,10 @@ def _opt_bool(kwargs: dict[str, Any], key: str) -> tuple[bool | None, str | None
     return None, f"{key} must be a boolean (true or false), got {type(raw).__name__}"
 
 
-def _strict_int(kwargs: dict[str, Any], key: str, minimum: int | None = None) -> tuple[int | None, str | None]:
+def _strict_int(kwargs: dict[str, Any], key: str, minimum: int | None = None, *, default: int | None = None) -> tuple[int | None, str | None]:
     raw = kwargs.get(key)
     if raw is None:
-        return None, None
+        return default, None
     if type(raw) is not int:
         msg = f"{key} must be an integer"
         if minimum is not None:
@@ -224,16 +224,15 @@ def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
         if not hasattr(cell_range, "getRangeAddress"):
             return None
         addr = cell_range.getRangeAddress()
-        rows = int(addr.EndRow) - int(addr.StartRow) + 1
-        cols = int(addr.EndColumn) - int(addr.StartColumn) + 1
+        sc, sr = int(addr.StartColumn), int(addr.StartRow)
+        ec, er = int(addr.EndColumn), int(addr.EndRow)
+        rows, cols = er - sr + 1, ec - sc + 1
         cells = rows * cols
         if cells <= _READ_CELL_RANGE_MAX_CELLS:
             return None
         preview_rows = min(rows, _READ_CELL_RANGE_PREVIEW_ROWS)
         preview_cols = min(cols, _DISTINCT_PEEK_MAX_COLUMNS)
-        end_row = int(addr.StartRow) + preview_rows - 1
-        end_col = int(addr.StartColumn) + preview_cols - 1
-        local = format_range(int(addr.StartColumn), int(addr.StartRow), end_col, end_row)
+        local = format_range(sc, sr, sc + preview_cols - 1, sr + preview_rows - 1)
 
         prefix = _sheet_prefix_for_clip(range_name, cell_range)
         preview_range = f"{prefix}{local}"
@@ -244,8 +243,8 @@ def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
             "cells": cells,
             "preview_range": preview_range,
             "sheet_prefix": prefix,
-            "start_column": int(addr.StartColumn),
-            "start_row": int(addr.StartRow),
+            "start_column": sc,
+            "start_row": sr,
         }
     except Exception as e:
         if is_real_disposal(e):
@@ -674,27 +673,6 @@ class SetCellStyle(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
-        # Direct execute() skips validate; these type checks stay so
-        # tests/calc/test_cells.py still gets a tool error instead of a silent no-op.
-        def _optional_font_size() -> tuple[float | None, str | None]:
-            raw = kwargs.get("font_size")
-            if raw is None:
-                return None, None
-            # bool is a subclass of int; reject it so true/false cannot become 1.0/0.0.
-            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-                return None, f"font_size must be a number, got {type(raw).__name__}"
-            return float(raw), None
-
-        def _optional_str(key: str) -> tuple[str | None, str | None]:
-            raw = kwargs.get(key)
-            if raw is None:
-                return None, None
-            if not isinstance(raw, str):
-                return None, f"{key} must be a string, got {type(raw).__name__}"
-            if not raw.strip():
-                return None, None
-            return raw, None
-
         style_kwargs: dict[str, Any] = {}
         for key in ("bg_color", "font_color", "border_color"):
             color_val, err = _opt_color(kwargs, key)
@@ -708,16 +686,17 @@ class SetCellStyle(ToolBase):
                 return self._tool_error(err)
             style_kwargs[key] = bool_val
 
-        font_size, err = _optional_font_size()
-        if err:
-            return self._tool_error(err)
-        style_kwargs["font_size"] = font_size
+        # bool is a subclass of int; reject it so true/false cannot become 1.0/0.0.
+        raw_size = kwargs.get("font_size")
+        if isinstance(raw_size, bool) or (raw_size is not None and not isinstance(raw_size, (int, float))):
+            return self._tool_error(f"font_size must be a number, got {type(raw_size).__name__}")
+        style_kwargs["font_size"] = None if raw_size is None else float(raw_size)
 
         for key in ("h_align", "v_align", "number_format"):
-            str_val, err = _optional_str(key)
-            if err:
-                return self._tool_error(err)
-            style_kwargs[key] = str_val
+            raw = kwargs.get(key)
+            if raw is not None and not isinstance(raw, str):
+                return self._tool_error(f"{key} must be a string, got {type(raw).__name__}")
+            style_kwargs[key] = raw if isinstance(raw, str) and raw.strip() else None
 
         if len(rn) == 0:
             return self._tool_error("range is required")
@@ -756,10 +735,10 @@ class MergeCells(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
-        center_val, err = _opt_bool(kwargs, "center")
+        center, err = _opt_bool(kwargs, "center", default=True)
         if err:
             return self._tool_error(err)
-        center = True if center_val is None else center_val
+        assert center is not None
 
         def _apply_merge(r: Any) -> str:
             manipulator.merge_cells(r, center=center)
@@ -809,15 +788,15 @@ class SortRange(ToolCalcRangeBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
-        sort_column_val, err = _strict_int(kwargs, "sort_column", 0)
+        sort_column, err = _strict_int(kwargs, "sort_column", 0, default=0)
         if err:
             return self._tool_error(err)
-        sort_column = 0 if sort_column_val is None else sort_column_val
+        assert sort_column is not None
 
-        ascending_val, err = _opt_bool(kwargs, "ascending")
+        ascending, err = _opt_bool(kwargs, "ascending", default=True)
         if err:
             return self._tool_error(err)
-        ascending = True if ascending_val is None else ascending_val
+        assert ascending is not None
 
         has_header: bool = kwargs["has_header"]
         assert isinstance(has_header, bool)
@@ -858,10 +837,10 @@ class DeleteStructure(ToolBase):
         structure_type: str = kwargs["structure_type"]
         assert structure_type in ("rows", "columns")
 
-        count_val, err = _strict_int(kwargs, "count", 1)
+        count, err = _strict_int(kwargs, "count", 1, default=1)
         if err:
             return self._tool_error(err)
-        count = 1 if count_val is None else count_val
+        assert count is not None
 
         start_raw = kwargs["start"]
         if structure_type == "rows":
@@ -879,8 +858,7 @@ class DeleteStructure(ToolBase):
                 return self._tool_error('start for columns must be a column letter (for example "C")')
             start = start_raw.upper()
 
-        bridge = CalcBridge(ctx.doc)
-        manipulator = CellManipulator(bridge)
+        manipulator = CellManipulator(CalcBridge(ctx.doc))
         try:
             result = manipulator.delete_structure(structure_type, start, count=count)
             return {"status": "ok", "message": result}
