@@ -308,7 +308,6 @@ class TestSendDispose:
         listener = _make_send_listener()
         listener._panel_teardown = True
         listener._do_send_extracted_peer = MagicMock()
-        listener._extracted_peer_query = "hello"
         listener._voice._sticky_restart_pending = True
         listener._record_gesture = RecordGesture(sticky=True)
         listener.audio_recorder = MagicMock()
@@ -317,7 +316,7 @@ class TestSendDispose:
             tool_loop=None,
         )
         listener.status_control.setText.reset_mock()
-        listener._run_extracted_peer_drain()
+        listener._run_extracted_peer_drain("hello")
         listener.status_control.setText.assert_not_called()
         listener.audio_recorder.start_recording.assert_not_called()
 
@@ -1806,8 +1805,6 @@ class TestClearButtonAndPeerDrain:
 
     def test_extracted_peer_drain_finally_runs(self) -> None:
         listener = _make_send_listener()
-        listener._extracted_peer_query = "query"
-        listener._extracted_peer_already_appended = True
 
         with patch.object(listener, "_do_send_extracted_peer"):
             with patch.object(listener, "dispatch", side_effect=RuntimeError("dispatch error")):
@@ -1819,7 +1816,7 @@ class TestClearButtonAndPeerDrain:
                             mock_session.return_value.__enter__.return_value = mock_cancel_scope
 
                             with pytest.raises(RuntimeError, match="dispatch error"):
-                                listener._run_extracted_peer_drain()
+                                listener._run_extracted_peer_drain("query", already_appended=True)
 
                             mock_drop_turn.assert_called_once_with(listener)
                             mock_kick.assert_called_once()
