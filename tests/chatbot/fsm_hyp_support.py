@@ -178,7 +178,6 @@ def send_handler_states(draw):
     return SendHandlerState(
         handler_type=draw(st.sampled_from(("agent", "image", "web"))),
         status=draw(st.sampled_from(("ready", "starting", "running", "done", "stopped"))),
-        query_text=draw(st.sampled_from(("", "hi", "q"))),
     )
 
 

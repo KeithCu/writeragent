@@ -131,10 +131,6 @@ SendEffects = UpdateUIEffect | StartCaptureEffect | StopCaptureEffect | CancelRe
 # --- Pure Transition Function ---
 
 
-def _replace_state(state: SendButtonState, **changes: Any) -> SendButtonState:
-    return dataclasses.replace(state, **changes)
-
-
 def _noop(state: SendButtonState) -> FsmTransition[SendButtonState]:
     return FsmTransition(state, [])
 
@@ -146,6 +142,22 @@ def _get_send_label(state: SendButtonState) -> str:
     if state.has_text or state.has_audio:
         return "Send"
     return "Record" if state.audio_supported else "Send"
+
+
+def _idle_ui_effect(
+    state: SendButtonState,
+    status_text: str,
+    *,
+    stop_enabled: bool = False,
+) -> UpdateUIEffect:
+    action = ButtonAction.SEND if (state.has_text or state.has_audio or not state.audio_supported) else ButtonAction.RECORD
+    return UpdateUIEffect(
+        send_enabled=True,
+        stop_enabled=stop_enabled,
+        send_label=_get_send_label(state),
+        status_text=status_text,
+        action=action,
+    )
 
 
 def _return_idle(
@@ -165,21 +177,12 @@ def _return_idle(
     }
     if clear_text:
         changes["has_text"] = False
-    new_state = _replace_state(state, **changes)
+    new_state = dataclasses.replace(state, **changes)
 
     effects: list[SendEffects] = []
     if release_capture:
         effects.append(CancelRecordingEffect())
-    action = ButtonAction.SEND if (new_state.has_text or new_state.has_audio or not new_state.audio_supported) else ButtonAction.RECORD
-    effects.append(
-        UpdateUIEffect(
-            send_enabled=True,
-            stop_enabled=False,
-            send_label=_get_send_label(new_state),
-            status_text=status_text,
-            action=action,
-        )
-    )
+    effects.append(_idle_ui_effect(new_state, status_text, stop_enabled=False))
     return FsmTransition(new_state, effects)
 
 
@@ -220,7 +223,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
     match event.kind:
         case SendEventKind.TEXT_UPDATED:
             assert event.has_text is not None
-            new_state = _replace_state(state, has_text=event.has_text)
+            new_state = dataclasses.replace(state, has_text=event.has_text)
             # Update has_text for when the turn finishes, and emit no UI effect
             # while busy. Typing during web-search approval or in-flight
             # generation would otherwise emit UpdateUIEffect, relabel Send, and
@@ -228,15 +231,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             if state.is_busy:
                 return _noop(new_state)
             # Typing during a take must not grey out Stop (the take's exit).
-            label = _get_send_label(new_state)
-            action = ButtonAction.SEND if (new_state.has_text or new_state.has_audio or not new_state.audio_supported) else ButtonAction.RECORD
-            effect = UpdateUIEffect(
-                send_enabled=True,
-                stop_enabled=new_state.is_recording,
-                send_label=label,
-                status_text="",
-                action=action,
-            )
+            effect = _idle_ui_effect(new_state, "", stop_enabled=new_state.is_recording)
             return FsmTransition(new_state, [effect])
 
         case SendEventKind.RECORD_CLICKED:
@@ -246,7 +241,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             # Idle + has_audio is a legal cold-send state; leaving the flag set on
             # a new take made a later cancel/error treat an empty box as a committed
             # take (_get_send_label returns Send). A new capture is not that commit.
-            new_state = _replace_state(state, mode=SendMode.RECORDING, has_audio=False)
+            new_state = dataclasses.replace(state, mode=SendMode.RECORDING, has_audio=False)
             effects: list[SendEffects] = [
                 StartCaptureEffect(),
                 UpdateUIEffect(
@@ -263,7 +258,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             if not state.is_recording:
                 return _noop(state)
 
-            new_state = _replace_state(
+            new_state = dataclasses.replace(
                 state,
                 mode=SendMode.BUSY,
                 has_audio=True,  # Commit the take. The WAV is not known in this function.
@@ -281,7 +276,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             if not state.has_text and not state.has_audio:
                 return _noop(state)
 
-            new_state = _replace_state(state, mode=SendMode.BUSY)
+            new_state = dataclasses.replace(state, mode=SendMode.BUSY)
             effects = [
                 BUSY_STARTING_EFFECT,
                 StartSendEffect(),
@@ -292,7 +287,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
             # Peer inject: set busy without StartSendEffect (that posts _do_send / Ask-box).
             if state.is_busy or state.is_recording:
                 return _noop(state)
-            new_state = _replace_state(state, mode=SendMode.BUSY)
+            new_state = dataclasses.replace(state, mode=SendMode.BUSY)
             effects = [
                 BUSY_STARTING_EFFECT,
             ]

@@ -16,13 +16,6 @@ class SendHandlerState(BaseState):
     # str (not Literal aliases) — CrossHair cannot proxy typing.Literal in synthesized fields.
     handler_type: str
     status: str
-    query_text: str = ""
-    model: Any = None
-    doc_type_str: str = ""
-
-    # Simple error info
-    last_error: Optional[str] = None
-    error_time: Optional[float] = None
 
 
 # 2. Define Events
@@ -48,7 +41,6 @@ class StreamDoneEvent(NamedTuple):
 
 class ErrorEvent(NamedTuple):
     error: Exception
-    error_time: Optional[float] = None
 
 
 class StopRequestedEvent(NamedTuple):
@@ -157,10 +149,6 @@ def stop_effects_exclude_spawns(effects: object) -> bool:
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and type(result[0]) is str and type(result[1]) is str and result[0] == "Error" and result[1].endswith("\n"))
 def ui_lines_for_handler_error(handler_type: str, err_msg: str) -> tuple[str, str]:
     """Status + append chat lines for a send-handler error (string message, not Exception)."""
-    if type(handler_type) is not str:
-        handler_type = ""
-    if type(err_msg) is not str:
-        err_msg = ""
     if handler_type == "web":
         append = f"\n[Research Chat error: {err_msg}]\n"
     else:
@@ -209,10 +197,6 @@ def spawn_effects_for_start(
     return effects
 
 
-def _replace_state(state: SendHandlerState, **changes: Any) -> SendHandlerState:
-    return dataclasses.replace(state, **changes)
-
-
 def handle_error(state: SendHandlerState, event: ErrorEvent) -> FsmTransition[SendHandlerState]:
     """Simple error handling - transition to error state"""
     # crosshair: off
@@ -224,7 +208,7 @@ def handle_error(state: SendHandlerState, event: ErrorEvent) -> FsmTransition[Se
     effects.append(SendHandlerUIEffect("append", append_text))
     effects.append(CompleteJobEffect("Error"))
 
-    new_state = _replace_state(state, status="error", last_error=str(event.error), error_time=event.error_time)
+    new_state = dataclasses.replace(state, status="error")
 
     return FsmTransition(new_state, effects)
 
@@ -251,7 +235,7 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
             # by handler type made agent Stop a special case.
             effects.append(SendHandlerUIEffect("status", "Stopped"))
             effects.append(CompleteJobEffect("Stopped"))
-            return FsmTransition(_replace_state(state, status="stopped"), effects)
+            return FsmTransition(dataclasses.replace(state, status="stopped"), effects)
 
         case ErrorEvent():
             # Bugfix: If the handler is already stopped or done, late error events arriving from
@@ -279,11 +263,11 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
             effects.append(SendHandlerUIEffect("status", "Ready"))
             effects.append(CompleteJobEffect("Ready"))
 
-            return FsmTransition(_replace_state(state, status="done"), effects)
+            return FsmTransition(dataclasses.replace(state, status="done"), effects)
 
         case StartEvent(query_text=q_text, model=mod, doc_type_str=doc_type, mode=mode):
             effects.extend(spawn_effects_for_start(state.handler_type, q_text, mod, doc_type, mode=mode))
-            new_state = _replace_state(state, status="starting", query_text=q_text, model=mod, doc_type_str=doc_type)
+            new_state = dataclasses.replace(state, status="starting")
             return FsmTransition(new_state, effects)
 
     return FsmTransition(state, effects)

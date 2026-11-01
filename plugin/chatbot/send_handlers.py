@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import threading
 import logging
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.i18n import _
 from plugin.framework.stream_batch import StreamQueueKind
@@ -241,33 +241,8 @@ def _send_worker_queues(host: Any) -> tuple[StreamQueue, Any]:
     return raw, turn
 
 
-def _specialized_tool_error_payload(note: str) -> dict[str, Any]:
-    """Assistant row for a specialized tool that returned status=error.
-
-    The painted note is the assistant message, same as a stream error.
-    Librarian, brainstorm, writing-plan, PPT, deep research, and shallow
-    research that paint the error and finish with an empty STREAM_DONE
-    leave the user turn unanswered: on_stream_done stores a non-agent row
-    only when assistant_content is non-empty, and the FSM still ends Ready.
-    The open transcript is not a history write.
-    """
-    return {"assistant_content": note.strip()}
-
-
 if TYPE_CHECKING:
-    import queue
     from plugin.framework.client.llm_client import LlmClient
-
-
-def _agent_backend_label(adapter: Any, backend_id: str) -> str:
-    """English backend label from ``display_name``, else the backend id."""
-    name = getattr(adapter, "display_name", None)
-    if isinstance(name, str) and name:
-        return name
-    return backend_id
-
-
-T = TypeVar("T", bound="SendHandlersMixin")
 
 
 class SendHandlersMixin:
@@ -335,45 +310,28 @@ class SendHandlersMixin:
             # payload; looking only for success keys
             # (librarian_switch_to_chat, brainstorming_finished) assigns the
             # host attributes and leaves the combo on the old mode.
-            if payload.get("librarian_switch_to_chat") or payload.get("in_librarian_mode") is False:
-                finished_cb = getattr(self._panel, "on_librarian_session_finished", None)
-                if callable(finished_cb):
-                    finished_cb()
-                elif self._panel._active_mode == CHAT_MODE_LIBRARIAN:
-                    self._panel._active_mode = ""
-                if payload.get("in_librarian_mode") is False and self._panel._active_mode == CHAT_MODE_LIBRARIAN:
-                    self._panel._active_mode = ""
-            if payload.get("brainstorming_finished") or payload.get("in_brainstorming_mode") is False:
-                spec_saved = bool(payload.get("spec_saved", False))
-                finished_cb = getattr(self._panel, "on_brainstorming_session_finished", None)
-                if callable(finished_cb):
-                    finished_cb(spec_saved=spec_saved)
-                elif self._panel._active_mode == CHAT_MODE_BRAINSTORMING:
-                    self._panel._active_mode = ""
-                    self._panel._mode_topic = ""
-                if payload.get("in_brainstorming_mode") is False and self._panel._active_mode == CHAT_MODE_BRAINSTORMING:
-                    self._panel._active_mode = ""
-                    self._panel._mode_topic = ""
-            if payload.get("writing_plan_finished") or payload.get("in_writing_plan_mode") is False:
-                finished_cb = getattr(self._panel, "on_writing_plan_session_finished", None)
-                if callable(finished_cb):
-                    finished_cb()
-                elif self._panel._active_mode == CHAT_MODE_WRITING_PLAN:
-                    self._panel._active_mode = ""
-                    self._panel._mode_topic = ""
-                if payload.get("in_writing_plan_mode") is False and self._panel._active_mode == CHAT_MODE_WRITING_PLAN:
-                    self._panel._active_mode = ""
-                    self._panel._mode_topic = ""
-            if payload.get("ppt_master_finished") or payload.get("in_ppt_master_mode") is False:
-                finished_cb = getattr(self._panel, "on_ppt_master_session_finished", None)
-                if callable(finished_cb):
-                    finished_cb()
-                elif self._panel._active_mode == CHAT_MODE_PPT_MASTER:
-                    self._panel._active_mode = ""
-                    self._panel._mode_topic = ""
-                if payload.get("in_ppt_master_mode") is False and self._panel._active_mode == CHAT_MODE_PPT_MASTER:
-                    self._panel._active_mode = ""
-                    self._panel._mode_topic = ""
+            modes = (
+                ("librarian_switch_to_chat", "in_librarian_mode", "on_librarian_session_finished", CHAT_MODE_LIBRARIAN, False, False),
+                ("brainstorming_finished", "in_brainstorming_mode", "on_brainstorming_session_finished", CHAT_MODE_BRAINSTORMING, True, True),
+                ("writing_plan_finished", "in_writing_plan_mode", "on_writing_plan_session_finished", CHAT_MODE_WRITING_PLAN, False, True),
+                ("ppt_master_finished", "in_ppt_master_mode", "on_ppt_master_session_finished", CHAT_MODE_PPT_MASTER, False, True),
+            )
+            for success_key, flag_key, cb_name, mode, pass_spec_saved, clear_topic in modes:
+                if payload.get(success_key) or payload.get(flag_key) is False:
+                    finished_cb = getattr(self._panel, cb_name, None)
+                    if callable(finished_cb):
+                        if pass_spec_saved:
+                            finished_cb(spec_saved=bool(payload.get("spec_saved", False)))
+                        else:
+                            finished_cb()
+                    elif self._panel._active_mode == mode:
+                        self._panel._active_mode = ""
+                        if clear_topic:
+                            self._panel._mode_topic = ""
+                    if payload.get(flag_key) is False and self._panel._active_mode == mode:
+                        self._panel._active_mode = ""
+                        if clear_topic:
+                            self._panel._mode_topic = ""
 
         def on_stream_done(item: Any) -> None:
             # Stop or a new send already aborted this turn. The worker
@@ -425,21 +383,16 @@ class SendHandlersMixin:
             if append_texts:
                 persist_assistant_on_turn(self._panel, "".join(append_texts))
 
-        def worker_wrapper(worker_q: queue.Queue[Any]) -> None:
-            # worker_q is the q passed to run_async_worker_with_drain. worker_fn
-            # closes over that queue. StreamQueue tracks terminal puts.
-            # Putting on a different object would miss terminal items and the
-            # drain wrapper would queue a second STREAM_DONE.
-            worker_fn()
-
         turn = current_turn(self._panel)
         if isinstance(turn, TurnController) and turn.queue is None:
             # The drain owns the queue. The worker wrapper only calls put.
             turn.queue = q
         try:
+            # worker_fn closes over StreamQueue. Putting on a different object
+            # would miss terminal items and drain would queue a second STREAM_DONE.
             run_async_worker_with_drain(
                 self._panel.ctx,
-                worker_wrapper,
+                lambda _q: worker_fn(),
                 apply_chunk,
                 on_stream_done,
                 on_error,
@@ -463,10 +416,22 @@ class SendHandlersMixin:
 
             defer_until_drain_done(_drain_epilogue)
 
-    def _do_send_direct_image(self, query_text: str, model: Any) -> None:
+    def _start_send_handler(
+        self,
+        handler_type: str,
+        query_text: str,
+        model: Any,
+        doc_type_str: str,
+        mode: str = "",
+    ) -> None:
         interpreter = EffectInterpreter(self._panel)
-        current_state = SendHandlerState(handler_type="image", status="ready")
+        current_state = SendHandlerState(handler_type=handler_type, status="ready")
+        step = next_state(current_state, StartEvent(query_text, model, doc_type_str, mode=mode))
+        current_state = step.state
+        for effect in step.effects:
+            interpreter.interpret(effect, current_state)
 
+    def _do_send_direct_image(self, query_text: str, model: Any) -> None:
         turn_session = turn_session_or_stop(self._panel)
         # Store the user row once here, before the append, like web
         # research; the fold then sees it and only paints. The StartEvent
@@ -476,12 +441,7 @@ class SendHandlersMixin:
         if turn_session is None:
             return
         turn_session.add_user_message(query_text)
-
-        # 1. State machine transition: start
-        step = next_state(current_state, StartEvent(query_text, model, "image"))
-        current_state = step.state
-        for effect in step.effects:
-            interpreter.interpret(effect, current_state)
+        self._start_send_handler("image", query_text, model, "image")
 
     def _execute_direct_image_effect(self, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
         turn_session = turn_session_or_stop(self._panel)
@@ -591,17 +551,9 @@ class SendHandlersMixin:
 
     def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None:
         """Send via external agent backend. No fallback to built-in on failure."""
-        interpreter = EffectInterpreter(self._panel)
-        current_state = SendHandlerState(handler_type="agent", status="ready")
-
         # User row is stored after the backend exists. Writing it here left
         # a user turn with no assistant row when the adapter was missing.
-
-        # 1. State machine transition: start
-        step = next_state(current_state, StartEvent(query_text, model, doc_type_str))
-        current_state = step.state
-        for effect in step.effects:
-            interpreter.interpret(effect, current_state)
+        self._start_send_handler("agent", query_text, model, doc_type_str)
 
     def _retained_agent_backend(self, backend_id: str) -> Any:
         """Keep one CLI on this sidebar until the backend id changes.
@@ -669,9 +621,9 @@ class SendHandlersMixin:
         # so get_backend / _retained_agent_backend always returns an adapter.
         adapter = self._retained_agent_backend(backend_id)
         if not adapter.is_available(self._panel.ctx):
-
-
-            _handle_early_error(ValueError(_("[Agent backend '{0}' is not available. Check Settings (path, install).]").format(_agent_backend_label(adapter, backend_id))))
+            name = getattr(adapter, "display_name", None)
+            label = name if isinstance(name, str) and name else backend_id
+            _handle_early_error(ValueError(_("[Agent backend '{0}' is not available. Check Settings (path, install).]").format(label)))
             return
 
         turn_session.add_user_message(query_text)
@@ -788,13 +740,7 @@ class SendHandlersMixin:
 
         turn_session.add_user_message(query_text)
 
-        # 1. State machine transition: start
-        interpreter = EffectInterpreter(self._panel)
-        current_state = SendHandlerState(handler_type="web", status="ready")
-        step = next_state(current_state, StartEvent(query_text, model, "web", mode=mode))
-        current_state = step.state
-        for effect in step.effects:
-            interpreter.interpret(effect, current_state)
+        self._start_send_handler("web", query_text, model, "web", mode=mode)
 
     def _execute_web_research_effect(self, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter", mode: str = "") -> None:
         from plugin.main import get_tools
@@ -893,7 +839,8 @@ class SendHandlersMixin:
                     msg = data.get("message") or data.get("result") or spec.default_error
                     note = "\n" + _("[{0} error: {1}]").format(spec.error_tag, msg) + "\n"
                     turn.put((StreamQueueKind.CHUNK, note))
-                    done_payload = _specialized_tool_error_payload(note)
+                    # The painted note is the assistant message, same as a stream error.
+                    done_payload = {"assistant_content": note.strip()}
                     if spec.error_flag:
                         # Mode flag rides the one STREAM_DONE so the UI thread applies it.
                         done_payload[spec.error_flag] = False
