@@ -80,12 +80,12 @@ def _apply_document_content(doc, ctx, params):
         return {"status": "error", "message": str(e)}
 
 
-def _find_text(doc, ctx, params):
+def _find_text(doc, params):
     """Call find_text_ranges and return same dict shape as former _find_text."""
     search = params.get("search", "")
     case_sensitive = params.get("case_sensitive", True)
     try:
-        ranges = find_text_ranges(doc, ctx, search, case_sensitive=case_sensitive)
+        ranges = find_text_ranges(doc, search, case_sensitive=case_sensitive)
         return {"status": "ok", "ranges": ranges}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -181,7 +181,7 @@ def test_find_text(ctx, doc):
     cursor.gotoEnd(False)
     text.insertString(cursor, "\n" + marker_find, False)
 
-    result = _find_text(doc, ctx, {
+    result = _find_text(doc, {
         "search": marker_find,
         "case_sensitive": True
     })
@@ -231,11 +231,11 @@ def test_crlf_normalization(ctx, doc):
     })
     assert result.get("status") == "ok", f"crlf apply failed: {result}"
 
-    res_find = _find_text(doc, ctx, {"search": marker_u})
+    res_find = _find_text(doc, {"search": marker_u})
     assert res_find.get("status") == "ok" and res_find.get("ranges"), "Could not find test payload"
     r = res_find["ranges"][0]
 
-    res_find_start = _find_text(doc, ctx, {"search": "Line A"})
+    res_find_start = _find_text(doc, {"search": "Line A"})
     assert res_find_start.get("status") == "ok" and res_find_start.get("ranges"), "Could not find 'Line A' for verification"
     r_start = res_find_start["ranges"][-1]
 
