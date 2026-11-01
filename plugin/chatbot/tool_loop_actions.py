@@ -486,7 +486,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
 
     Skip HTML rerender after an API error. Drain ERROR appends ``[API error: …]``;
     rerender looks up the previous HTML assistant message and
-    ``truncate_control_from`` would delete that error line
+    ``rollback_rich_insert`` would delete that error line
     (Packet F HTTP 429/500 looked like a leftover hello).
 
     Skip rerender after Stop. The Stop path already stored the partial answer

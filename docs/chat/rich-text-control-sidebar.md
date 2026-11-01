@@ -66,7 +66,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | List indent tightening after HTML import | `_tighten_list_indent` in `append_rich_text` (`rich_text.py`) |
 | Streaming plain append | `RichTextChatWidget.stream_session` via `panel.py` `_append_response` |
 | Post-stream HTML rerender | `SendButtonListener.rerender_rich_text_session` → `RichTextChatWidget.rerender_last_assistant_if_html` |
-| Truncate stream tail without flattening earlier formatting | `truncate_control_from` (cursor delete, not `model.Text = ""`) |
+| Truncate stream tail without flattening earlier formatting | `rollback_rich_insert` (cursor delete, not `model.Text = ""`) |
 | Reveal caret without stealing query focus | `reveal_rich_control_caret` passes that panel's Ask field to `focus_preserved`. Stream chunks call the frame session's `restore_focus`. |
 | History reload paints `session.messages` | `RichTextChatWidget.paint_session` → `paint_message_items` |
 | Resize / fill the column | [`panel_resize.py`](../../plugin/chatbot/panel_resize.py) stretches `response` / query / status / selectors to the panel margin; [`sync_rich_control_bounds`](../../plugin/chatbot/rich_text_control.py) insets `response_rich` inside that placeholder. Width negotiation is [`sidebar_column_width`](../../plugin/framework/sidebar_column.py) (fill the deck box; ignore frame-sized `getHeightForWidth` hints) |
@@ -203,7 +203,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | `RichTextControlListener` | Deferred create on `windowShown` / eager init; bounds via `_PanelResizeListener.last_response_rect` |
 | `RichTextChatWidget` | **Primary panel facade** — paint from `session.messages`, clear, history |
 | `append_text_chunk` | Plain-text fallback rows (role color). The transcript paint does not splice with this |
-| `truncate_control_from` | Drop a tail that a failed single-message copy left behind |
+| `rollback_rich_insert` | Drop a tail that a failed single-message copy left behind |
 | `reveal_rich_control_caret` | Focus the control so EditView `ShowCursor` follows the view caret |
 | `clear_control` | Clear transcript |
 | `sync_rich_control_bounds` | Apply inset bounds from `placeholder_rect` (panel listener) or live placeholder size |

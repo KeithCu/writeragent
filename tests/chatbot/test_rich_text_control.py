@@ -20,7 +20,7 @@ from plugin.chatbot.rich_text_control import (
     append_text_chunk,
     clear_control,
     reveal_rich_control_caret,
-    truncate_control_from,
+    rollback_rich_insert,
 )
 
 
@@ -398,7 +398,7 @@ class TestAppendTextChunk:
         cursor = MagicMock()
         model.createTextCursor.return_value = cursor
         control.getModel.return_value = model
-        truncate_control_from(control, 5)
+        rollback_rich_insert(control, 5)
         cursor.goRight.assert_called_once_with(5, False)
         cursor.gotoEnd.assert_called_once_with(True)
         cursor.setString.assert_called_once_with("")
@@ -415,7 +415,7 @@ class TestAppendTextChunk:
         from plugin.chatbot.rich_text_control import get_control_text_length
         assert get_control_text_length(control) == 4
 
-        truncate_control_from(control, 2)
+        rollback_rich_insert(control, 2)
         cursor.goRight.assert_called_once_with(2, False)
         cursor.gotoEnd.assert_called_once_with(True)
         cursor.setString.assert_called_once_with("")
@@ -428,9 +428,9 @@ class TestAppendTextChunk:
         cursor.goRight.return_value = True
         model.createTextCursor.return_value = cursor
         control.getModel.return_value = model
-        # truncate_control_from bails out if start_len >= len(model.Text)
+        # rollback_rich_insert bails out if start_len >= len(model.Text)
         # 40000 < 40001 so it proceeds
-        truncate_control_from(control, 40000)
+        rollback_rich_insert(control, 40000)
 
         from unittest.mock import call
         cursor.goRight.assert_has_calls([
@@ -912,13 +912,13 @@ class TestRichControlListenerInit:
 
 class TestControlTextLength:
     def test_exception_returns_none(self):
-        from plugin.chatbot.rich_text_control import get_control_text_length, truncate_control_from
+        from plugin.chatbot.rich_text_control import get_control_text_length, rollback_rich_insert
 
         control = MagicMock()
         control.getModel.side_effect = RuntimeError("disposed")
         assert get_control_text_length(control) is None
 
-        truncate_control_from(control, None)
+        rollback_rich_insert(control, None)
         control.getModel.assert_called()
         # Unknown length must not ask the model for a cursor (that is "delete from the start").
         assert control.getModel.call_count == 1
