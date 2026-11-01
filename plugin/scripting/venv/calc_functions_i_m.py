@@ -10,7 +10,6 @@ Type errors are left to the worker exception path, which returns #VALUE!.
 
 from __future__ import annotations
 
-import builtins
 import cmath
 import math
 import re
@@ -124,7 +123,7 @@ def ifna(f: Callable[[], Any], alt: Any) -> Any:
         return alt
 
 
-def _parse_complex(val: Any) -> tuple[builtins.complex, str]:
+def _parse_complex(val: Any) -> tuple[complex, str]:
     """Parse a Calc complex into ``(number, suffix)``.
 
     ``suffix`` is ``"i"``, ``"j"``, or ``""`` when the text has no imaginary
@@ -137,16 +136,16 @@ def _parse_complex(val: Any) -> tuple[builtins.complex, str]:
     a complex literal.
     """
     if isinstance(val, (bool, np.bool_)):
-        return builtins.complex(float(val)), ""
-    if isinstance(val, (int, float, builtins.complex)):
-        return builtins.complex(val), ""
+        return complex(float(val)), ""
+    if isinstance(val, (int, float, complex)):
+        return complex(val), ""
     text = str(val).replace(" ", "")
     suffix = ""
     if text and text[-1] in "ijIJ":
         suffix = "j" if text[-1] in "jJ" else "i"
     py_text = text.replace("i", "j").replace("I", "j").replace("J", "j")
     # invalid text raises ValueError; callers map that to "#VALUE!"
-    return builtins.complex(py_text), suffix
+    return complex(py_text), suffix
 
 
 def _im_suffix(first: str, second: str = "") -> str:
@@ -439,11 +438,7 @@ def islogical(val: Any) -> bool:
 
 def isna(val: Any) -> bool:
     """True for float or numpy NaN, or a stripped #N/A token."""
-    if isinstance(val, (float, np.floating)) and math.isnan(val):
-        return True
-    if isinstance(val, str) and val.strip().upper() == "#N/A":
-        return True
-    return False
+    return (isinstance(val, (float, np.floating)) and math.isnan(val)) or (isinstance(val, str) and val.strip().upper() == "#N/A")
 
 
 def isnontext(val: Any) -> bool:
@@ -736,7 +731,7 @@ def maxa(*args: Any) -> float:
     return _a_extreme(args, np.max)
 
 
-def _as_matrix(value: Any, *, numeric: bool) -> np.ndarray:
+def _as_matrix(matrix: np.ndarray) -> np.ndarray:
     """2-D array. A scalar is 1×1. A flat list is a row.
 
     Sheet ranges are already 2-D. ``MMULT`` of two 1-D lists used to be a
@@ -744,7 +739,6 @@ def _as_matrix(value: Any, *, numeric: bool) -> np.ndarray:
     1×1 matrix is that element, so ``MDETERM(5)`` is 5. ndim > 2 keeps
     the first block; det/inv/matmul used to peel that inline.
     """
-    matrix = np.asarray(value, dtype=float if numeric else None)
     if matrix.ndim > 2:
         matrix = matrix[0]
     if matrix.ndim == 0:
@@ -756,22 +750,16 @@ def _as_matrix(value: Any, *, numeric: bool) -> np.ndarray:
 
 def mdeterm(matrix: Any) -> float:
     # non-numeric or non-square input is left to the worker exception path, which returns #VALUE!
-    return float(np.linalg.det(_as_matrix(matrix, numeric=True)))
+    return float(np.linalg.det(_as_matrix(np.asarray(matrix, dtype=float))))
 
 
 def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
     from .calc_functions_d_h import duration
 
-    s = float(settlement)
-    m = float(maturity)
-    c = float(coupon)
-    y = float(yld)
-    f = float(frequency)
-    b = int(float(basis))
-    macd = duration(s, m, c, y, f, b)
+    macd = duration(settlement, maturity, coupon, yld, frequency, basis)
     if math.isnan(macd):
         return macd
-    return macd / (1 + y / f)
+    return macd / (1 + float(yld) / float(frequency))
 
 
 def mina(*args: Any) -> float:
@@ -783,7 +771,7 @@ def minverse(matrix: Any) -> Any:
         # ScMatInv of a singular matrix is IllegalArgument (Err:502), not
         # #NUM!. This helper reports that as #VALUE!. A scalar is 1×1, so
         # MINVERSE(5) is [[0.2]] rather than #VALUE!.
-        return np.linalg.inv(_as_matrix(matrix, numeric=True)).tolist()
+        return np.linalg.inv(_as_matrix(np.asarray(matrix, dtype=float))).tolist()
     except (ValueError, TypeError, OverflowError, np.linalg.LinAlgError):
         return "#VALUE!"
 
@@ -800,8 +788,8 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
 
 def mmult(array1: Any, array2: Any) -> Any:
     try:
-        left = _as_matrix(array1, numeric=True)
-        right = _as_matrix(array2, numeric=True)
+        left = _as_matrix(np.asarray(array1, dtype=float))
+        right = _as_matrix(np.asarray(array2, dtype=float))
         return np.matmul(left, right).tolist()
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
@@ -820,10 +808,9 @@ def mode(*args: Any) -> Any:
     # No repeat is #N/A. na() is float nan, which isna() already treats as #N/A.
     if best < 2:
         return float("nan")
-    winners = [value for value, count in counts.items() if count == best]
     # Tie-break is the lowest value, the first run after ScModalValue sorts.
     # mode([2, 2, 1, 1]) was 2 when Counter's first key won.
-    return float(min(winners))
+    return float(min(value for value, count in counts.items() if count == best))
 
 
 def mround(number: Any, multiple: Any) -> float:
@@ -855,7 +842,7 @@ def mtrans(matrix: Any) -> Any:
         # A scalar stays a scalar. _as_matrix would turn it into 1×1.
         if raw.ndim == 0:
             return raw.tolist()
-        return _as_matrix(matrix, numeric=False).T.tolist()
+        return _as_matrix(raw).T.tolist()
     except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
 
