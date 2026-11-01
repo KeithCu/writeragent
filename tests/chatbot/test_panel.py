@@ -317,8 +317,9 @@ class TestSendDispose:
             tool_loop=None,
         )
         listener.status_control.setText.reset_mock()
-        listener._run_extracted_peer_drain("hello")
-        listener.status_control.setText.assert_not_called()
+        listener.start_extracted_peer_send("hello", already_appended=False)
+        assert "Ready" not in [call.args[0] for call in listener.status_control.setText.call_args_list if call.args]
+        listener.status_control.setText.assert_called_once_with("Starting...")
         listener.audio_recorder.start_recording.assert_not_called()
 
     def test_disposing_unsubscribes_mcp_on_the_services_bus(self) -> None:
@@ -1805,9 +1806,16 @@ class TestClearButtonAndPeerDrain:
 
     def test_extracted_peer_drain_finally_runs(self) -> None:
         listener = _make_send_listener()
+        orig_dispatch = listener.dispatch
+
+        def _dispatch(event: Any) -> None:
+            if getattr(event, "kind", None) == SendEventKind.EXTRACTED_SEND:
+                orig_dispatch(event)
+                return
+            raise RuntimeError("dispatch error")
 
         with patch.object(listener, "_do_send_extracted_peer"):
-            with patch.object(listener, "dispatch", side_effect=RuntimeError("dispatch error")):
+            with patch.object(listener, "dispatch", side_effect=_dispatch):
                 with patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop_turn:
                     with patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick:
                         with patch("plugin.framework.send_cancellation.agent_session") as mock_session:
@@ -1816,7 +1824,7 @@ class TestClearButtonAndPeerDrain:
                             mock_session.return_value.__enter__.return_value = mock_cancel_scope
 
                             with pytest.raises(RuntimeError, match="dispatch error"):
-                                listener._run_extracted_peer_drain("query", already_appended=True)
+                                listener.start_extracted_peer_send("query", already_appended=True)
 
                             mock_drop_turn.assert_called_once_with(listener)
                             mock_kick.assert_called_once()

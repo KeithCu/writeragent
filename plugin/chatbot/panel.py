@@ -97,6 +97,12 @@ from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
 
 log = logging.getLogger(__name__)
 
+_LABEL_ACTION_MAP = {
+    "Send": ButtonAction.SEND,
+    "Record": ButtonAction.RECORD,
+    "Stop Rec": ButtonAction.STOP_REC,
+}
+
 
 def _uno_model_probe_for_log(model: Any, *, cached_doc_type: str | None = None) -> str:
     """Short UNO diagnostic for error logs. No document text or type probing."""
@@ -715,20 +721,25 @@ class SendButtonListener(BaseActionListener):
         elif isinstance(turn, TurnController) and not turn.alive:
             return
         with suppress_disposed("_append_response", logger=log):
-            widget = self.rich_text_widget
-            if widget:
-                from plugin.framework.logging import note_activity
+            from plugin.framework.logging import note_activity
 
+            widget = self.rich_text_widget
+
+            def _filter_chunk() -> str | None:
+                if role != "user" and skip_legacy_assistant_stream_chunk(text):
+                    return None
+                clean = _chunk_text(turn, text, role, strip_non_assistant=(widget is None))
+                note_activity()
+                if role == "assistant" and not clean:
+                    return None
+                return clean
+
+            if widget:
                 log.debug("_append_response: rich-control len=%d role=%s", len(text) if text else 0, role)
                 # "AI:" / "Using chat model" are plain-sidebar labels. The paint
                 # writes Assistant: from the message list, so they are not rows.
-                if role != "user" and skip_legacy_assistant_stream_chunk(text):
-                    return
-                clean_text = _chunk_text(turn, text, role, strip_non_assistant=False)
-                note_activity()
-                # A held tag fragment is not a list change. Drawing now would
-                # rebuild the same paint.
-                if role == "assistant" and not clean_text:
+                clean_text = _filter_chunk()
+                if clean_text is None:
                     return
 
                 def _paint_from_list() -> None:
@@ -740,6 +751,7 @@ class SendButtonListener(BaseActionListener):
                         or not turn.can_write(self)
                     ):
                         return
+                    assert clean_text is not None
                     if not turn.fold_chunk(self, clean_text, role):
                         return
                     # Append, do not repaint. paint_session on every
@@ -765,16 +777,12 @@ class SendButtonListener(BaseActionListener):
 
             if self.response_control and self.response_control.getModel():
                 from plugin.chatbot.dialogs import get_control_text, set_control_text
-                from plugin.framework.logging import note_activity
 
                 # A session list is the transcript. Hosts with no list (unit
                 # tests) still append onto the control.
                 if has_list:
-                    if role != "user" and skip_legacy_assistant_stream_chunk(text):
-                        return
-                    clean_text = _chunk_text(turn, text, role, strip_non_assistant=True)
-                    note_activity()
-                    if role == "assistant" and not clean_text:
+                    clean_text = _filter_chunk()
+                    if clean_text is None:
                         return
                     if isinstance(turn, TurnController):
                         turn.fold_chunk(self, clean_text, role)
@@ -889,12 +897,7 @@ class SendButtonListener(BaseActionListener):
                 # Accept/Change/Reject; a late UpdateUIEffect writes Accept
                 # back to Send (disabled).
                 if self._approval_event is None:
-                    action_map = {
-                        "Send": ButtonAction.SEND,
-                        "Record": ButtonAction.RECORD,
-                        "Stop Rec": ButtonAction.STOP_REC,
-                    }
-                    self._button_action = action_map.get(effect.send_label, effect.action)
+                    self._button_action = _LABEL_ACTION_MAP[effect.send_label]
                     self._set_button_states(effect.send_enabled, effect.stop_enabled)
 
                     if self.send_control and self.send_control.getModel():
@@ -1077,8 +1080,9 @@ class SendButtonListener(BaseActionListener):
             entered = True
             cancel_scope.bind_executor(self.queue_executor)
             self._send_cancellation = cancel_scope
+            stopped = self.stop_requested
             # Safe now: this callback is already running, not a pending post.
-            if stop_before_body and (cancel_scope.is_cancelled() or self._stop_requested_fallback):
+            if stop_before_body and stopped:
                 log.info("Send drain skipped (Stop before drain started)")
                 # Terminal status is "Stopped" so completion and TTS skip
                 # this turn. Leaving it at "Ready" replays the previous
@@ -1091,7 +1095,7 @@ class SendButtonListener(BaseActionListener):
                 # transcribes or attaches it.
                 clear_pending_audio_wav(self)
                 return
-            if not (cancel_scope.is_cancelled() or self._stop_requested_fallback):
+            if not stopped:
                 body()
         except Exception as e:
             from plugin.chatbot.tool_loop_actions import current_turn
@@ -1204,36 +1208,31 @@ class SendButtonListener(BaseActionListener):
                                         # Restore the send-complete status after download/fallback lines.
                                         prior_status = self._terminal_status or "Ready"
 
+                                        def _disable_stop() -> None:
+                                            if not self._send_busy:
+                                                # A take may already be recording (barge-in or sticky
+                                                # restart); its Stop is the step-down exit.
+                                                if self.stop_control and self.stop_control.getModel() and not self.sidebar_state.send.is_recording:
+                                                    with suppress_disposed("disable stop after speech", logger=log):
+                                                        self.stop_control.getModel().Enabled = False
+                                                # A take may still be recording (sticky restart or a manual take).
+                                                # Ready would hide that status or "Hands-free off", so only restore it after.
+                                                if self.sidebar_state.send.is_recording:
+                                                    if self._record_gesture.sticky:
+                                                        self._set_status(hands_free_status_text())
+                                                else:
+                                                    self._set_status(_(prior_status))
+
                                         def _on_tts_status(message: str) -> None:
                                             # Speech runs on a worker; the status control is a UNO widget.
-                                            def _apply() -> None:
-                                                self._set_status(message)
-
                                             try:
-                                                self.queue_executor.post(_apply)
+                                                self.queue_executor.post(self._set_status, message)
                                             except Exception:
                                                 log.debug("TTS status post failed", exc_info=True)
 
-                                        def _on_speech_complete() -> None:
-                                            def _disable_stop() -> None:
-                                                if not self._send_busy:
-                                                    # A take may already be recording (barge-in or sticky
-                                                    # restart); its Stop is the step-down exit.
-                                                    if self.stop_control and self.stop_control.getModel() and not self.sidebar_state.send.is_recording:
-                                                        with suppress_disposed("disable stop after speech", logger=log):
-                                                            self.stop_control.getModel().Enabled = False
-                                                    # A take may still be recording (sticky restart or a manual take).
-                                                    # Ready would hide that status or "Hands-free off", so only restore it after.
-                                                    if self.sidebar_state.send.is_recording:
-                                                        if self._record_gesture.sticky:
-                                                            self._set_status(hands_free_status_text())
-                                                    else:
-                                                        self._set_status(_(prior_status))
-                                            self.queue_executor.post(_disable_stop)
-
                                         speak_text_async(
                                             content_to_speak,
-                                            on_complete=_on_speech_complete,
+                                            on_complete=lambda: self.queue_executor.post(_disable_stop),
                                             on_status=_on_tts_status,
                                             # Sentence breaks use BreakIterator on this UI
                                             # thread. The audio worker only receives the list.
@@ -1291,23 +1290,19 @@ class SendButtonListener(BaseActionListener):
         self,
         message: str = "",
         *,
-        status: str = "Error",
         set_status_text: bool = True,
         restore_query: str | None = None,
-        delete_wav: bool = False,
     ) -> None:
         """Helper for error returns during send: appends error text, updates terminal status, optionally sets status control and restores query."""
         from plugin.framework.i18n import _
 
         if message:
             self._append_response("\n" + message + "\n")
-        self._terminal_status = status
+        self._terminal_status = "Error"
         if set_status_text:
-            self._set_status(_(status))
+            self._set_status(_("Error"))
         if restore_query is not None:
             self._restore_query_text(restore_query)
-        if delete_wav:
-            clear_pending_audio_wav(self)
 
     def _require_send_document(self) -> tuple[Any, str] | None:
         """Resolve compatible document model and cached document type for send.
@@ -1330,12 +1325,7 @@ class SendButtonListener(BaseActionListener):
 
         doc_type_label = self.cached_doc_type
         log.debug("_require_send_document: document type (cached): %s", doc_type_label)
-        if not doc_type_label or doc_type_label == "unknown":
-            impl = model.getImplementationName() if hasattr(model, "getImplementationName") else "Unknown"
-            err_msg = _("[Internal Error: Could not identify document type for {0}. Please report this!]").format(impl)
-            log.error("_require_send_document ERROR: %s", err_msg)
-            self._fail_send(err_msg, set_status_text=False)
-            return None
+        assert doc_type_label is not None
         return model, doc_type_label
 
     def _read_and_clear_query(self) -> str | None:
@@ -1386,17 +1376,29 @@ class SendButtonListener(BaseActionListener):
                 self.query_control.setFocus()
         return query_text
 
+    def _selector_mode(self) -> str:
+        from plugin.chatbot.chat_sidebar_mode import mode_from_selector_with_flags
+
+        return mode_from_selector_with_flags(self.chat_mode_selector, self.sidebar_mode_flags)
+
+    def _begin_send(self) -> tuple[Any, str] | None:
+        from plugin.framework.i18n import _
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        begin_send_turn(self)
+        self._set_status(_("Starting..."))
+        update_activity_state("do_send", status_control=self.status_control)
+        if self.ensure_path_fn:
+            self.ensure_path_fn(self.ctx)
+        return self._require_send_document()
+
     def _route_sidebar_mode(self, query_text: str, model: Any, doc_type_label: str) -> bool:
         """Route to specialized mode handler if active. Returns True if handled."""
-        from plugin.chatbot.chat_sidebar_mode import (
-            mode_from_selector_with_flags,
-            sidebar_mode_flags_for_doc_type,
-        )
         from plugin.chatbot.send_handlers import dispatch_sidebar_send
         from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
-        flags = self.sidebar_mode_flags or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
-        sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
+        _mode = getattr(self, "_selector_mode", None) or (lambda: SendButtonListener._selector_mode(self))
+        sidebar_mode = _mode()
 
         # The document is an argument of the turn already started.
         # A later dropdown change aborts it; it does not retarget the turn.
@@ -1408,7 +1410,6 @@ class SendButtonListener(BaseActionListener):
 
     def _do_send(self) -> None:
         from plugin.framework.i18n import _
-        from plugin.chatbot.tool_loop_actions import begin_send_turn
 
         # begin_send_turn aborts the turn already in flight. A pump re-entry
         # during Whisper must not do that, and must not clear the WAV.
@@ -1419,18 +1420,9 @@ class SendButtonListener(BaseActionListener):
             log.info("_do_send re-entered during speech-to-text; the first Stop still applies")
             return
 
-        # The turn exists before any worker and before early error rows.
-        # The document is filled in once this send knows it.
-        begin_send_turn(self)
-        self._set_status(_("Starting..."))
-        update_activity_state("do_send", status_control=self.status_control)
         log.info("=== _do_send START ===")
-
-        # Ensure extension directory is on sys.path (injected by panel_factory to avoid circular import)
-        if self.ensure_path_fn:
-            self.ensure_path_fn(self.ctx)
-
-        doc_info = self._require_send_document()
+        _begin = getattr(self, "_begin_send", None) or (lambda: SendButtonListener._begin_send(self))
+        doc_info = _begin()
         if not doc_info:
             return
         model, doc_type_label = doc_info
@@ -1496,6 +1488,8 @@ class SendButtonListener(BaseActionListener):
         Does not read/clear Ask, setFocus, or route librarian/image.
         """
         from plugin.framework.async_drain_guard import get_drain_owner
+        from plugin.framework.i18n import _
+        from plugin.framework.send_cancellation import SendCancellation
 
         if get_drain_owner() is not None:
             return False
@@ -1512,23 +1506,10 @@ class SendButtonListener(BaseActionListener):
             raise
         if not self.sidebar_state.send.is_busy:
             return False
-        self._run_extracted_peer_drain(query_text, already_appended=already_appended)
-        return True
-
-    def _run_extracted_peer_drain(self, query_text: str, *, already_appended: bool = False) -> None:
-        """Run peer message drain through ``_run_turn_drain``.
-
-        body is ``_do_send_extracted_peer``, and on_close updates status and flushes sticky restart.
-        """
-        from plugin.framework.i18n import _
-        from plugin.framework.send_cancellation import SendCancellation
 
         self._stop_requested_fallback = False
         self._terminal_status = "Ready"
         self._send_cancellation = SendCancellation()
-
-        def _body() -> None:
-            self._do_send_extracted_peer(query_text, already_appended=already_appended)
 
         def _on_close() -> None:
             update_activity_state("")
@@ -1558,30 +1539,24 @@ class SendButtonListener(BaseActionListener):
                 drop_turn(self)
                 kick_pending_peer_starts()
 
-        self._run_turn_drain(body=_body, on_close=_on_close, stop_before_body=False)
+        self._run_turn_drain(
+            body=lambda: self._do_send_extracted_peer(query_text, already_appended=already_appended),
+            on_close=_on_close,
+            stop_before_body=False,
+        )
+        return True
 
     def _do_send_extracted_peer(self, query_text: str, *, already_appended: bool) -> None:
         """Force chat-with-tools. No Ask read/clear, no setFocus, no librarian/image."""
         from plugin.framework.i18n import _
-        from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_CHAT,
-            mode_from_selector_with_flags,
-            sidebar_mode_flags_for_doc_type,
-        )
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+        from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
-        from plugin.chatbot.tool_loop_actions import TurnController, begin_send_turn, current_turn
-
-        begin_send_turn(self)
-        self._set_status(_("Starting..."))
-        update_activity_state("do_send", status_control=self.status_control)
-        if self.ensure_path_fn:
-            self.ensure_path_fn(self.ctx)
-        doc_info = self._require_send_document()
+        doc_info = self._begin_send()
         if not doc_info:
             return
         model, doc_type_label = doc_info
-        flags = self.sidebar_mode_flags or sidebar_mode_flags_for_doc_type(doc_type_label or "writer")
-        sidebar_mode = mode_from_selector_with_flags(self.chat_mode_selector, flags)
+        sidebar_mode = self._selector_mode()
         if sidebar_mode != CHAT_MODE_CHAT:
             self._append_response(
                 "\n" + _("[Peer send requires Chat mode on this sidebar.]") + "\n"
@@ -1603,27 +1578,22 @@ class SendButtonListener(BaseActionListener):
 
     def disposing(self, Source: Any = None) -> None:
         _stop_tts()
-        popup = getattr(self, "slash_popup", None)
+        popup = self.slash_popup
         if popup is not None and callable(getattr(popup, "dispose", None)):
             popup.dispose()
         # Detach both mouse listeners on dispose. attach_stop_mouse_listener
         # and attach_record_mouse_listener add listeners that strongly hold
         # send_listener; leaving them attached leaks the listener.
-        stop_mouse = self._stop_mouse_listener
-        stop_ctrl = self.stop_control
-        if stop_mouse is not None and stop_ctrl is not None:
-            self._stop_mouse_listener = None
-            if hasattr(stop_ctrl, "removeMouseListener"):
-                with suppress_disposed("remove stop mouse listener on dispose", logger=log):
-                    stop_ctrl.removeMouseListener(stop_mouse)
-
-        rec_mouse = self._record_mouse_listener
-        rec_ctrl = self.send_control
-        if rec_mouse is not None and rec_ctrl is not None:
-            self._record_mouse_listener = None
-            if hasattr(rec_ctrl, "removeMouseListener"):
-                with suppress_disposed("remove record mouse listener on dispose", logger=log):
-                    rec_ctrl.removeMouseListener(rec_mouse)
+        for ctrl, attr, what in (
+            (self.stop_control, "_stop_mouse_listener", "stop"),
+            (self.send_control, "_record_mouse_listener", "record"),
+        ):
+            mouse = getattr(self, attr, None)
+            if mouse is not None and ctrl is not None:
+                setattr(self, attr, None)
+                if hasattr(ctrl, "removeMouseListener"):
+                    with suppress_disposed(f"remove {what} mouse listener on dispose", logger=log):
+                        ctrl.removeMouseListener(mouse)
 
         # Dispose can run on a later VCL turn while an event-driven drain
         # session is still open. Set the flag first so _finish_send_drain_ui
@@ -1682,8 +1652,6 @@ class SendButtonListener(BaseActionListener):
                 except Exception as e:
                     log.debug("SendButtonListener.disposing: error unsubscribing %s: %s", event, e)
             self._subscriptions.clear()
-        except Exception as e:
-            log.debug("SendButtonListener.disposing: error unsubscribing from event bus: %s", e)
         finally:
             self._mcp_event_bus = None
             self.panel = None
@@ -1732,18 +1700,24 @@ def notify_stop_mouse_pressed(send_listener: Any) -> None:
     send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
 
 
+def _swap_mouse_listener(control: Any, send_listener: Any, attr: str, listener: Any, what: str) -> None:
+    if control is None or not hasattr(control, "addMouseListener"):
+        return
+    prior = getattr(send_listener, attr, None)
+    if prior is not None and hasattr(control, "removeMouseListener"):
+        with suppress_disposed(f"remove prior {what} mouse listener", logger=log):
+            control.removeMouseListener(prior)
+
+    try:
+        control.addMouseListener(listener)
+        if send_listener is not None:
+            setattr(send_listener, attr, listener)
+    except Exception:
+        log.exception(f"{what.capitalize()} mouse listener attach failed")
+
+
 def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
     """Deliver Stop during stream even when ActionEvent is swallowed."""
-    if stop_control is None or not hasattr(stop_control, "addMouseListener"):
-        return
-    # Detach the prior listener before attaching a new one. Repeated
-    # attachments or stale sidebar instances otherwise retain mouse
-    # listeners that strongly reference the send_listener.
-    prior = getattr(send_listener, "_stop_mouse_listener", None)
-    if prior is not None and hasattr(stop_control, "removeMouseListener"):
-        with suppress_disposed("remove prior stop mouse listener", logger=log):
-            stop_control.removeMouseListener(prior)
-
     class _StopMouse(BaseMouseListener):
         def mousePressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             notify_stop_mouse_pressed(send_listener)
@@ -1751,13 +1725,7 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
         def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             notify_stop_mouse_entered(send_listener)
 
-    try:
-        listener = _StopMouse()
-        stop_control.addMouseListener(listener)
-        if send_listener is not None:
-            send_listener._stop_mouse_listener = listener
-    except Exception:
-        log.exception("Stop mouse listener attach failed")
+    _swap_mouse_listener(stop_control, send_listener, "_stop_mouse_listener", _StopMouse(), "stop")
 
 
 def notify_record_mouse_pressed(send_listener: Any) -> None:
@@ -1773,16 +1741,6 @@ def notify_record_mouse_released(send_listener: Any) -> None:
 
 def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
     """Own Record press/hold/release so ActionEvent cannot double-start or instant-send."""
-    if send_control is None or not hasattr(send_control, "addMouseListener"):
-        return
-    # Detach the prior listener before attaching a new one. Repeated
-    # attachments or stale sidebar instances otherwise retain mouse
-    # listeners that strongly reference the send_listener.
-    prior = getattr(send_listener, "_record_mouse_listener", None)
-    if prior is not None and hasattr(send_control, "removeMouseListener"):
-        with suppress_disposed("remove prior record mouse listener", logger=log):
-            send_control.removeMouseListener(prior)
-
     class _RecordMouse(BaseMouseListener):
         def mousePressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             notify_record_mouse_pressed(send_listener)
@@ -1790,13 +1748,7 @@ def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
         def mouseReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             notify_record_mouse_released(send_listener)
 
-    try:
-        listener = _RecordMouse()
-        send_control.addMouseListener(listener)
-        if send_listener is not None:
-            send_listener._record_mouse_listener = listener
-    except Exception:
-        log.exception("Record mouse listener attach failed")
+    _swap_mouse_listener(send_control, send_listener, "_record_mouse_listener", _RecordMouse(), "record")
 
 
 class StopButtonListener(BaseActionListener):
@@ -1915,15 +1867,12 @@ class ClearButtonListener(BaseActionListener):
                     from plugin.chatbot.dialogs import set_control_text
 
                     set_control_text(ctrl, greeting + "\n")
-            if self.status_control:
-                self.status_control.setText("")
-            return
-
-        if self.response_control and self.response_control.getModel():
+        elif self.response_control and self.response_control.getModel():
             from plugin.chatbot.dialogs import set_control_text
 
             text = greeting + "\n" if greeting else ""
             set_control_text(self.response_control, text)
+
         if self.status_control:
             self.status_control.setText("")
 
