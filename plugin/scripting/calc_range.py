@@ -160,14 +160,11 @@ def _blank_to_nan(val: Any, op: Any) -> Any:
     return val
 
 
-def _arith_operand(value: Any, op: Any, *, wrap_import: bool) -> Any:
+def _arith_operand(value: Any, op: Any) -> Any:
     """One side of a binary/unary op.
 
     1x1 CalcRange stays a Python scalar. to_numpy() is only for a multi-cell
-    CalcRange. wrap_import is True only where the previous code caught
-    ImportError: a multi-cell self, a multi-cell right operand when self is
-    1x1, and unary multi-cell. A multi-cell self does not wrap ImportError
-    from the right operand's to_numpy.
+    CalcRange.
     """
     if isinstance(value, CalcRange):
         if value.shape == (1, 1):
@@ -175,9 +172,7 @@ def _arith_operand(value: Any, op: Any, *, wrap_import: bool) -> Any:
         try:
             return value.to_numpy()
         except ImportError as exc:
-            if wrap_import:
-                raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
-            raise
+            raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
     return _blank_to_nan(value, op)
 
 
@@ -408,17 +403,12 @@ class CalcRange:
     # Dispatchers
     def _binary_op(self, other: Any, op: Any, *, is_reverse: bool = False) -> Any:
         # crosshair: off
-        if self.shape == (1, 1):
-            val = _arith_operand(self, op, wrap_import=False)
-            other_v = _arith_operand(other, op, wrap_import=True)
-        else:
-            val = _arith_operand(self, op, wrap_import=True)
-            other_v = _arith_operand(other, op, wrap_import=False)
+        val, other_v = _arith_operand(self, op), _arith_operand(other, op)
         return op(other_v, val) if is_reverse else op(val, other_v)
 
     def _unary_op(self, op: Any) -> Any:
         # crosshair: off
-        return op(_arith_operand(self, op, wrap_import=True))
+        return op(_arith_operand(self, op))
 
     # Binary arithmetic
     __add__: Callable[..., Any] = _binop(operator.add)
@@ -601,8 +591,6 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
     # crosshair: off
     if wire is None:
         return ()
-    if is_calc_range_payload(wire):
-        return (materialize_calc_range(wire),)
     selected: Any = None
     if is_multi_data(wire):
         selected = wire.get("items") or []
