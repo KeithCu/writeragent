@@ -50,11 +50,6 @@ class _ClosingStringIO(io.StringIO):
 
 
 @pytest.fixture
-def ctx():
-    return MagicMock()
-
-
-@pytest.fixture
 def recording_mocks(tmp_path):
     wav_path = str(tmp_path / "test.wav")
     proc = MagicMock()
@@ -78,8 +73,8 @@ def recording_mocks(tmp_path):
         }
 
 
-def test_audio_recorder_spawns_venv_subprocess(ctx, recording_mocks):
-    recorder = AudioRecorder(ctx)
+def test_audio_recorder_spawns_venv_subprocess(recording_mocks):
+    recorder = AudioRecorder()
     try:
         recorder.start_recording()
         recording_mocks["spawn"].assert_called_once()
@@ -96,11 +91,11 @@ def test_audio_recorder_spawns_venv_subprocess(ctx, recording_mocks):
             os.remove(recording_mocks["wav_path"])
 
 
-def test_audio_recorder_multiple_sessions(ctx, recording_mocks):
+def test_audio_recorder_multiple_sessions(recording_mocks):
     paths = [str(recording_mocks["wav_path"]), str(recording_mocks["wav_path"]) + "2"]
 
     with patch("plugin.chatbot.audio_recorder.make_temp_wav_path", side_effect=paths):
-        recorder = AudioRecorder(ctx)
+        recorder = AudioRecorder()
         recorder.start_recording()
         first = recorder.temp_filename
         recorder.stop_recording()
@@ -115,12 +110,12 @@ def test_audio_recorder_multiple_sessions(ctx, recording_mocks):
 
 
 @needs_test_hooks
-def test_audio_recorder_skip_spawn_from_control_file(ctx, tmp_path, monkeypatch):
+def test_audio_recorder_skip_spawn_from_control_file(tmp_path, monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     fixture = tmp_path / "inject.wav"
     fixture.write_bytes(b"RIFF....WAVEfmt ")
     write_stub_recorder_control(wav=str(fixture), skip=True)
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     try:
         recorder.start_recording()
         assert recorder.state.status == "recording"
@@ -133,7 +128,7 @@ def test_audio_recorder_skip_spawn_from_control_file(ctx, tmp_path, monkeypatch)
 
 
 @needs_test_hooks
-def test_audio_recorder_stub_auto_stop_fires_after_start_returns(ctx, tmp_path, monkeypatch):
+def test_audio_recorder_stub_auto_stop_fires_after_start_returns(tmp_path, monkeypatch):
     """G4 stub auto-stop is reported from a tagged worker, like the stdout monitor.
 
     Firing it inline on the caller re-entered Record's transition
@@ -145,7 +140,7 @@ def test_audio_recorder_stub_auto_stop_fires_after_start_returns(ctx, tmp_path, 
     fixture = tmp_path / "inject.wav"
     fixture.write_bytes(b"RIFF....WAVEfmt ")
     write_stub_recorder_control(wav=str(fixture), skip=True, auto_stop=True)
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     fired = threading.Event()
     seen: dict[str, object] = {}
 
@@ -177,11 +172,11 @@ def test_audio_recorder_stub_auto_stop_fires_after_start_returns(ctx, tmp_path, 
 
 
 @needs_test_hooks
-def test_audio_recorder_skip_spawn_injects_wav(ctx, tmp_path, monkeypatch):
+def test_audio_recorder_skip_spawn_injects_wav(tmp_path, monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     fixture = tmp_path / "inject.wav"
     fixture.write_bytes(b"RIFF....WAVEfmt ")
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     write_stub_recorder_control(skip=True, wav=str(fixture))
     try:
         recorder.start_recording()
@@ -197,9 +192,9 @@ def test_audio_recorder_skip_spawn_injects_wav(ctx, tmp_path, monkeypatch):
 
 
 @needs_test_hooks
-def test_audio_recorder_skip_spawn_hang_ready(ctx, monkeypatch):
+def test_audio_recorder_skip_spawn_hang_ready(monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     write_stub_recorder_control(skip=True, hang_ready=True)
     try:
         with pytest.raises(RuntimeError, match="timed out"):
@@ -210,12 +205,12 @@ def test_audio_recorder_skip_spawn_hang_ready(ctx, monkeypatch):
 
 
 @needs_test_hooks
-def test_audio_recorder_control_file_clears_hang_ready(ctx, tmp_path, monkeypatch):
+def test_audio_recorder_control_file_clears_hang_ready(tmp_path, monkeypatch):
     """G21 hang_ready must not stick on the live recorder for later Packet G cases."""
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     fixture = tmp_path / "inject.wav"
     fixture.write_bytes(b"RIFF....WAVEfmt ")
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     try:
         write_stub_recorder_control(skip=True, hang_ready=True)
         with pytest.raises(RuntimeError, match="timed out"):
@@ -232,9 +227,9 @@ def test_audio_recorder_control_file_clears_hang_ready(ctx, tmp_path, monkeypatc
 
 
 @needs_test_hooks
-def test_audio_recorder_skip_spawn_fail_start(ctx, monkeypatch):
+def test_audio_recorder_skip_spawn_fail_start(monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     write_stub_recorder_control(skip=True, fail_start="stub crash")
     try:
         with pytest.raises(RuntimeError, match="stub crash"):
@@ -245,12 +240,12 @@ def test_audio_recorder_skip_spawn_fail_start(ctx, monkeypatch):
 
 
 @needs_test_hooks
-def test_audio_recorder_control_file_clears_fail_start(ctx, tmp_path, monkeypatch):
+def test_audio_recorder_control_file_clears_fail_start(tmp_path, monkeypatch):
     """Same live recorder: JSON fail_start=null must not keep G12's crash flag."""
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     fixture = tmp_path / "inject.wav"
     fixture.write_bytes(b"RIFF....WAVEfmt ")
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     try:
         write_stub_recorder_control(skip=True, fail_start="stub crash")
         with pytest.raises(RuntimeError, match="stub crash"):
@@ -266,7 +261,7 @@ def test_audio_recorder_control_file_clears_fail_start(ctx, tmp_path, monkeypatc
             os.remove(recorder.temp_filename)
 
 
-def test_manual_stop_returns_path_while_silence_monitor_runs(ctx, tmp_path):
+def test_manual_stop_returns_path_while_silence_monitor_runs(tmp_path):
     """Stop Rec goes through the real monitor and the real stop handshake.
 
     ``ready`` is read before the monitor starts. The monitor then consumes
@@ -293,7 +288,7 @@ def test_manual_stop_returns_path_while_silence_monitor_runs(ctx, tmp_path):
         patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
         patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=child),
     ):
-        recorder = AudioRecorder(ctx)
+        recorder = AudioRecorder()
         recorder.start_recording()
         assert recorder.state.status == "recording"
         assert recorder._stop_handoff is not None
@@ -324,7 +319,7 @@ def _make_zero_frame_wav(pcm_bytes: bytes) -> bytes:
 _WAV_WITH_AUDIO = _make_zero_frame_wav(b"\x00" * 32)
 
 
-def test_stop_keeps_nonempty_wav_when_handshake_fails(ctx, tmp_path):
+def test_stop_keeps_nonempty_wav_when_handshake_fails(tmp_path):
     wav_path = tmp_path / "keep.wav"
     wav_path.write_bytes(_WAV_WITH_AUDIO)
     proc = MagicMock()
@@ -342,7 +337,7 @@ def test_stop_keeps_nonempty_wav_when_handshake_fails(ctx, tmp_path):
             side_effect=RuntimeError("timed out"),
         ),
     ):
-        recorder = AudioRecorder(ctx)
+        recorder = AudioRecorder()
         recorder.start_recording()
         returned = recorder.stop_recording()
     assert returned == str(wav_path)
@@ -351,7 +346,7 @@ def test_stop_keeps_nonempty_wav_when_handshake_fails(ctx, tmp_path):
         assert wf.getnframes() == 16
 
 
-def test_stop_deletes_empty_wav_when_handshake_fails(ctx, tmp_path):
+def test_stop_deletes_empty_wav_when_handshake_fails(tmp_path):
     wav_path = tmp_path / "empty.wav"
     wav_path.write_bytes(b"")
     proc = MagicMock()
@@ -369,19 +364,19 @@ def test_stop_deletes_empty_wav_when_handshake_fails(ctx, tmp_path):
             side_effect=RuntimeError("timed out"),
         ),
     ):
-        recorder = AudioRecorder(ctx)
+        recorder = AudioRecorder()
         recorder.start_recording()
         returned = recorder.stop_recording()
     assert returned is None
     assert not wav_path.exists()
 
 
-def test_stdout_error_after_ready_keeps_nonempty_wav(ctx, tmp_path):
+def test_stdout_error_after_ready_keeps_nonempty_wav(tmp_path):
     from plugin.chatbot.audio_recorder_state import AudioRecorderState
 
     wav_path = tmp_path / "partial.wav"
     wav_path.write_bytes(_WAV_WITH_AUDIO)
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     recorder.state = AudioRecorderState(status=AudioStatus.RECORDING)
     recorder.temp_filename = str(wav_path)
     recorder._proc = MagicMock()
@@ -393,12 +388,12 @@ def test_stdout_error_after_ready_keeps_nonempty_wav(ctx, tmp_path):
     assert wav_path.read_bytes() == _WAV_WITH_AUDIO
 
 
-def test_stdout_error_callback_does_not_apply_on_monitor(ctx, tmp_path):
+def test_stdout_error_callback_does_not_apply_on_monitor(tmp_path):
     from plugin.chatbot.audio_recorder_state import AudioRecorderState
 
     wav_path = tmp_path / "partial.wav"
     wav_path.write_bytes(_WAV_WITH_AUDIO)
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     recorder.state = AudioRecorderState(status=AudioStatus.RECORDING)
     recorder.temp_filename = str(wav_path)
     seen: list[str] = []
@@ -411,7 +406,7 @@ def test_stdout_error_callback_does_not_apply_on_monitor(ctx, tmp_path):
     assert wav_path.is_file()
 
 
-def test_audio_recorder_missing_venv(ctx):
+def test_audio_recorder_missing_venv():
     with (
         patch(
             "plugin.chatbot.audio_recorder.resolve_recording_python",
@@ -419,7 +414,7 @@ def test_audio_recorder_missing_venv(ctx):
         ),
         patch.dict("sys.modules", {"sounddevice": None}),
     ):
-        recorder = AudioRecorder(ctx)
+        recorder = AudioRecorder()
         with pytest.raises(RuntimeError, match="Configure Settings|Please configure a Python venv"):
             recorder.start_recording()
 
@@ -792,11 +787,11 @@ def test_audio_record_main_protocol(tmp_path, monkeypatch):
     assert emitted[-1] == {"status": "ok", "path": os.path.abspath(output_path), "auto_stopped": False}
 
 
-def test_cleanup_failure_closes_wav(ctx):
+def test_cleanup_failure_closes_wav():
     """A failed Stop used to leave the host WAV open."""
     from plugin.chatbot.audio_recorder_state import AudioRecorderState
 
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     wav = MagicMock()
     stream = MagicMock()
     recorder.wav_file = wav
@@ -823,8 +818,8 @@ def test_cleanup_failure_closes_wav(ctx):
     assert recorder._silence_detector is None
 
 
-def test_close_host_wav_waits_until_callback_drops_the_file(ctx):
-    recorder = AudioRecorder(ctx)
+def test_close_host_wav_waits_until_callback_drops_the_file():
+    recorder = AudioRecorder()
     wav = MagicMock()
     recorder.wav_file = wav
     in_callback = threading.Event()
@@ -856,7 +851,7 @@ def test_close_host_wav_waits_until_callback_drops_the_file(ctx):
     closer.join(2)
 
 
-def test_host_callback_writeframes_error_is_swallowed(ctx, tmp_path, monkeypatch):
+def test_host_callback_writeframes_error_is_swallowed(tmp_path, monkeypatch):
     import sys
     import types
 
@@ -878,7 +873,7 @@ def test_host_callback_writeframes_error_is_swallowed(ctx, tmp_path, monkeypatch
         patch("plugin.chatbot.audio_recorder.ensure_native_binaries_on_path"),
         patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
     ):
-        recorder = AudioRecorder(ctx)
+        recorder = AudioRecorder()
         recorder.start_recording()
     assert recorder.state.status == "recording"
     real_wav = recorder.wav_file
@@ -902,12 +897,12 @@ def test_wav_file_has_bytes_treats_header_only_as_empty(tmp_path):
 
 
 @needs_test_hooks
-def test_stub_control_file_ignored_without_testing_env(ctx, recording_mocks, monkeypatch, tmp_path):
+def test_stub_control_file_ignored_without_testing_env(recording_mocks, monkeypatch, tmp_path):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     fixture = tmp_path / "inject.wav"
     fixture.write_bytes(b"RIFF....WAVEfmt ")
     write_stub_recorder_control(wav=str(fixture), skip=True)
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     try:
         recorder.start_recording()
         recording_mocks["spawn"].assert_called_once()
@@ -917,23 +912,23 @@ def test_stub_control_file_ignored_without_testing_env(ctx, recording_mocks, mon
 
 
 @needs_test_hooks
-def test_unset_testing_env_never_touches_stub_control_file(ctx, recording_mocks, monkeypatch):
+def test_unset_testing_env_never_touches_stub_control_file(recording_mocks, monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     from plugin.chatbot.sidebar_test_hooks import stub_recorder_control_path
 
     path = stub_recorder_control_path()
     if os.path.exists(path):
         os.remove(path)
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     recorder.start_recording()
     recorder.stop_recording()
     assert not os.path.exists(path)
 
 
 @needs_test_hooks
-def test_notify_auto_stop_once_per_take(ctx, monkeypatch):
+def test_notify_auto_stop_once_per_take(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     counts = 0
 
     def _on_auto_stop() -> None:
@@ -960,8 +955,8 @@ def test_notify_auto_stop_once_per_take(ctx, monkeypatch):
         clear_stub_recorder_control()
 
 
-def test_stop_forwards_stdout_monitor(ctx, recording_mocks):
-    recorder = AudioRecorder(ctx)
+def test_stop_forwards_stdout_monitor(recording_mocks):
+    recorder = AudioRecorder()
     try:
         recorder.start_recording()
         monitor = recorder._stdout_monitor
@@ -977,13 +972,13 @@ def test_stop_forwards_stdout_monitor(ctx, recording_mocks):
             os.remove(recording_mocks["wav_path"])
 
 
-def test_error_after_ready_reaps_with_the_stdout_monitor(ctx, tmp_path):
+def test_error_after_ready_reaps_with_the_stdout_monitor(tmp_path):
     from plugin.chatbot.audio_recorder_state import AudioRecorderState
     from plugin.scripting.audio_recorder_service import RecordingStopHandoff
 
     wav_path = tmp_path / "partial.wav"
     wav_path.write_bytes(_WAV_WITH_AUDIO)
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     recorder.state = AudioRecorderState(status=AudioStatus.RECORDING)
     recorder.temp_filename = str(wav_path)
     proc = MagicMock()
@@ -1002,13 +997,13 @@ def test_error_after_ready_reaps_with_the_stdout_monitor(ctx, tmp_path):
 
 
 @needs_test_hooks
-def test_next_recording_deletes_wav_kept_after_stdout_error(ctx, tmp_path, monkeypatch):
+def test_next_recording_deletes_wav_kept_after_stdout_error(tmp_path, monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     from plugin.chatbot.audio_recorder_state import AudioRecorderState
 
     old_wav = tmp_path / "old.wav"
     old_wav.write_bytes(_WAV_WITH_AUDIO)
-    recorder = AudioRecorder(ctx)
+    recorder = AudioRecorder()
     recorder.state = AudioRecorderState(status=AudioStatus.RECORDING)
     recorder.temp_filename = str(old_wav)
     recorder._proc = MagicMock()
@@ -1071,7 +1066,7 @@ def test_finalize_wav_header_odd_pcm_length(tmp_path):
     assert finalize_wav_header(str(wav_file)) is False
 
 
-def test_host_callback_max_duration(ctx, monkeypatch):
+def test_host_callback_max_duration(monkeypatch):
     import time
     from unittest.mock import MagicMock, patch
     from plugin.chatbot.audio_recorder import MAX_RECORDING_DURATION_SEC
@@ -1101,7 +1096,7 @@ def test_host_callback_max_duration(ctx, monkeypatch):
         patch("plugin.chatbot.audio_recorder.ensure_native_binaries_on_path"),
         patch.dict("sys.modules", {"sounddevice": fake_sd}),
     ):
-        recorder = AudioRecorder(ctx)
+        recorder = AudioRecorder()
         auto_stops = []
         errors = []
         recorder.set_auto_stop_callbacks(

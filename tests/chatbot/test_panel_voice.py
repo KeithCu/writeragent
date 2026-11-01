@@ -40,12 +40,6 @@ class DummyPanel:
     def exit_hands_free_record(self) -> None:
         self._record_gesture = RecordGesture(sticky=False)
 
-    def _arm_record_hold_timer(self) -> None:
-        pass
-
-    def _spawn_record_hold_wait(self, gen: int) -> None:
-        pass
-
     def _apply_record_gesture(self, step: Any) -> None:
         pass
 
