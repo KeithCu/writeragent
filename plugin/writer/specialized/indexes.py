@@ -206,8 +206,6 @@ def collect_bibliography_field_pairs(kwargs: dict[str, Any]) -> dict[str, Any]:
 def fields_sequence_to_dict(raw: Any) -> dict[str, Any]:
     """Map a Fields PropertyValue sequence to {Name: Value} (non-empty only)."""
     result: dict[str, Any] = {}
-    if not raw:
-        return result
     try:
         items = list(raw)
     except TypeError:
@@ -226,24 +224,19 @@ def fields_sequence_to_dict(raw: Any) -> dict[str, Any]:
 def index_kind_from_uno(idx: Any) -> str:
     """Prefer getServiceName(); fall back to the old SwX* remaps."""
     # A missing service name falls through; a closed document must not list as "unknown".
-    service = uno_read(lambda: idx.getServiceName(), None)
-    if isinstance(service, str) and service in _INDEX_SERVICE_TO_KIND:
-        return _INDEX_SERVICE_TO_KIND[service]
+    raw = uno_read(lambda: idx.getServiceName(), None)
+    service = raw if isinstance(raw, str) else ""
+    kind = _INDEX_SERVICE_TO_KIND.get(service)
+    if kind:
+        return kind
 
-    impl = uno_read(lambda: idx.getImplementationName(), None)
-    if isinstance(impl, str) and impl in _INDEX_IMPL_TO_KIND:
-        return _INDEX_IMPL_TO_KIND[impl]
-    if isinstance(impl, str) and impl:
-        return impl
-    if isinstance(service, str) and service:
-        return service
-    return "unknown"
+    raw = uno_read(lambda: idx.getImplementationName(), None)
+    impl = raw if isinstance(raw, str) else ""
+    return _INDEX_IMPL_TO_KIND.get(impl) or impl or service or "unknown"
 
 
 def is_bibliography_text_field(field: Any) -> bool:
     """True for native Writer bibliography cite fields (not the index table)."""
-    if field is None:
-        return False
     if hasattr(field, "supportsService"):
         for service in (_BIB_CITE_SERVICE, _BIB_CITE_SERVICE_ALT):
             # supportsService does not throw on a live field.
@@ -306,13 +299,6 @@ def _contained(text: Any, outer: Any, inner: Any) -> bool:
     )
 
 
-def _set_protected(idx: Any, value: bool) -> None:
-    if hasattr(idx, "setPropertyValue"):
-        idx.setPropertyValue("IsProtected", value)
-        return
-    idx.IsProtected = value
-
-
 def _entry_before(found: Any, content: str) -> tuple[str, str]:
     """The entry paragraph, and that paragraph with this one match replaced.
 
@@ -339,8 +325,6 @@ def _entry_before(found: Any, content: str) -> tuple[str, str]:
 
 def _paragraph_string(cursor: Any) -> str:
     """Visible text of the paragraph that contains *cursor*."""
-    if cursor is None:
-        return ""
     try:
         return (_select_paragraph(cursor).getString() or "")[:160]
     except Exception:
@@ -467,14 +451,14 @@ def _commit_toc_mutation(
 
     def _wrapped_mutate() -> dict[str, Any] | None:
         if was_protected:
-            _set_protected(idx, False)
+            idx.setPropertyValue("IsProtected", False)
         restore_err: dict[str, Any] | None = None
         try:
             res = mutate()
         finally:
             if was_protected:
                 try:
-                    _set_protected(idx, True)
+                    idx.setPropertyValue("IsProtected", True)
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     # Bugfix: Returning inside a finally block swallowed any active
@@ -545,14 +529,6 @@ def _outline_level(style: str) -> int | None:
         return None
     level = int(tail)
     return level if 1 <= level <= 10 else None
-
-
-def _level(raw: Any) -> tuple[int | None, str | None]:
-    if raw is None:
-        return None, None
-    if type(raw) is not int or raw < 1 or raw > 10:
-        return None, "level must be an integer from 1 to 10."
-    return raw, None
 
 
 def _para_style_name(para: Any) -> str:
@@ -1024,6 +1000,38 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
         )
 
 
+def _page_text(raw: Any) -> tuple[str | None, str | None]:
+    if raw is None:
+        return None, None
+    if isinstance(raw, bool) or isinstance(raw, float):
+        return None, "page must be plain text (or an integer)."
+    if isinstance(raw, int):
+        return str(raw), None
+    if not isinstance(raw, str) or not raw.strip():
+        return None, "page must be plain text."
+    page = _one_line(raw.strip(), " ")
+    if _reject_markup(page):
+        return None, "page must be plain text."
+    return page, None
+
+
+def _outline_url(raw: Any) -> tuple[str | None, str | None]:
+    if raw is None:
+        return None, None
+    if not raw.strip():
+        return None, "hyperlink_url must be a non-empty string."
+    url = raw.strip()
+    # Discussion #1426: a TOC row may jump to a text table. LibreOffice stores
+    # that as #Name|table. The table:Name locator is a different address, and
+    # this string is not an outline title, so it is stored as given.
+    if not url.startswith("#") or ("|outline" not in url and "|table" not in url):
+        return None, (
+            "hyperlink_url must be an outline target (#…|outline) "
+            "or a text-table target (#Name|table)."
+        )
+    return _one_line(url, ""), None
+
+
 class IndexesInsertTocEntry(ToolWriterIndexBase):
     name: str | None = "indexes_insert_toc_entry"
     description: str = (
@@ -1069,22 +1077,16 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             return self._tool_error(
                 "indexes_insert_toc_entry takes plain text so the new entry's formatting can be cloned.",
                 code="INVALID_PARAM")
-        page, page_error = self._page_text(kwargs.get("page"))
+        page, page_error = _page_text(kwargs.get("page"))
         if page_error:
             return self._tool_error(page_error, code="INVALID_PARAM")
-        if page is not None:
-            page = _one_line(page, " ")
-        if page is not None and _reject_markup(page):
-            return self._tool_error("page must be plain text.", code="INVALID_PARAM")
         if page is not None and "\t" in content:
             return self._tool_error(
                 "Pass either a full line in content (title, tab, page) or a separate page, not both.",
                 code="INVALID_PARAM")
-        url, url_error = self._outline_url(kwargs.get("hyperlink_url"))
+        url, url_error = _outline_url(kwargs.get("hyperlink_url"))
         if url_error:
             return self._tool_error(url_error, code="INVALID_PARAM")
-        if url is not None:
-            url = _one_line(url, "")
         # schema enum. Omitted position defaults to end.
         position = kwargs.get("position") or "end"
         old_content = kwargs.get("old_content")
@@ -1109,9 +1111,9 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                     code="INVALID_PARAM")
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
-        level, level_error = _level(kwargs.get("level"))
-        if level_error:
-            return self._tool_error(level_error, code="INVALID_PARAM")
+        level = kwargs.get("level")
+        if level is not None and (isinstance(level, bool) or type(level) is not int or level < 1 or level > 10):
+            return self._tool_error("level must be an integer from 1 to 10.", code="INVALID_PARAM")
         idx, anchor, _pos, err = _resolve_toc_target(self, doc, kwargs.get("index"))
         if err is not None:
             return err
@@ -1171,33 +1173,6 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             bool(kwargs.get("dry_run")),
             failure_message="TOC entry insert failed; the change was rolled back",
         )
-
-    def _page_text(self, raw: Any) -> tuple[str | None, str | None]:
-        if raw is None:
-            return None, None
-        if isinstance(raw, bool) or isinstance(raw, float):
-            return None, "page must be plain text (or an integer)."
-        if isinstance(raw, int):
-            return str(raw), None
-        if not isinstance(raw, str) or not raw.strip():
-            return None, "page must be plain text."
-        return raw.strip(), None
-
-    def _outline_url(self, raw: Any) -> tuple[str | None, str | None]:
-        if raw is None:
-            return None, None
-        if not raw.strip():
-            return None, "hyperlink_url must be a non-empty string."
-        url = raw.strip()
-        # Discussion #1426: a TOC row may jump to a text table. LibreOffice stores
-        # that as #Name|table. The table:Name locator is a different address, and
-        # this string is not an outline title, so it is stored as given.
-        if not url.startswith("#") or ("|outline" not in url and "|table" not in url):
-            return None, (
-                "hyperlink_url must be an outline target (#…|outline) "
-                "or a text-table target (#Name|table)."
-            )
-        return url, None
 
     def _style_name(self, doc: Any, ref: Any, level: int | None) -> tuple[str | None, str | None]:
         if level is not None:
