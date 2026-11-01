@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent, TextEvent
 
 from plugin.calc.python import editor
-from plugin.calc.python.formula_edit import format_data_binding_display
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
     get_control_text,
@@ -116,8 +115,11 @@ class NativePythonCellEditorDialog:
         if not self._loading:
             self._dirty = True
 
+    def _edited_cell(self) -> Any:
+        return self._code_cell if self._following_ref() else self._cell
+
     def _set_cell_addr(self) -> None:
-        addr = editor.format_cell_a1(self._code_cell if self._following_ref() else self._cell)
+        addr = editor.format_cell_a1(self._edited_cell())
         set_control_text(self._ctrl("CellAddr"), addr)
 
     def _following_ref(self) -> bool:
@@ -130,10 +132,7 @@ class NativePythonCellEditorDialog:
         self._set_cell_addr()
         code_ctrl = self._ctrl("CodeEdit")
         set_control_text(code_ctrl, initial_code or "")
-        data_text = ""
-        if self._parsed_parts is not None:
-            data_text = format_data_binding_display(self._parsed_parts.data_suffix)
-        set_control_text(self._ctrl("DataEdit"), data_text)
+        set_control_text(self._ctrl("DataEdit"), editor._data_binding_display(self._parsed_parts))
         plain = editor.editor_load_save_as_plain(parsed_parts=self._parsed_parts, initial_code=initial_code or "", follow_code_ref=self._following_ref())
         set_checkbox_state(self._ctrl("ChkPlainText"), 1 if plain else 0)
         self._sync_data_enabled()
@@ -166,7 +165,6 @@ class NativePythonCellEditorDialog:
         try:
             self._set_status(_("Saving…"))
             save_as_plain = bool(get_checkbox_state(self._ctrl("ChkPlainText")))
-            follow = self._following_ref()
             outcome = editor._apply_cell_save(
                 self._doc,
                 self._cell,
@@ -174,8 +172,8 @@ class NativePythonCellEditorDialog:
                 new_code=str(get_control_text(self._ctrl("CodeEdit")) or ""),
                 save_as_plain=save_as_plain,
                 data_binding_text=get_control_text(self._ctrl("DataEdit")).strip(),
-                code_cell=self._code_cell if follow else None,
-                code_ref=self._code_ref if follow else None,
+                code_cell=self._code_cell,
+                code_ref=self._code_ref,
             )
             if outcome.get("type") == "error":
                 self._set_status(str(outcome.get("message") or _("Error")))
@@ -201,19 +199,16 @@ class NativePythonCellEditorDialog:
             self._wire_listeners(dlg)
             owner = self
 
-            def _on_toolkit_close(_source: Any) -> None:
-                # External dispose (e.g. toolkit shutdown) must clear the singleton so
-                # subsequent opens do not target a dead dialog. toolkit_teardown=True
-                # avoids calling dispose() again on an already disposing peer.
-                # windowClosing uses the same path: the toolkit already tore the peer down.
-                owner.close(toolkit_teardown=True)
-
+            # External dispose (e.g. toolkit shutdown) must clear the singleton so
+            # subsequent opens do not target a dead dialog. toolkit_teardown=True
+            # avoids calling dispose() again on an already disposing peer.
+            # windowClosing uses the same path: the toolkit already tore the peer down.
             class _TopWindowListener(BaseTopWindowListener):
                 def on_window_closing(self, rEvent: Any) -> None:
-                    _on_toolkit_close(rEvent)
+                    owner.close(toolkit_teardown=True)
 
                 def on_disposing(self, Source: Any) -> None:
-                    _on_toolkit_close(Source)
+                    owner.close(toolkit_teardown=True)
 
             self._top_listener = _TopWindowListener()
             dlg.addTopWindowListener(self._top_listener)
@@ -264,8 +259,7 @@ def show_native_python_cell_editor(ctx: Any, *, doc: Any, cell: Any, initial_cod
             # Bugfix: Unsaved prompt previously named the selection (_cell), which was
             # wrong when follow mode started editing the referenced code cell (_code_cell).
             # Name the cell actually being edited matching _set_cell_addr.
-            shown = _active._code_cell if _active._following_ref() else _active._cell
-            choice = editor.confirm_unsaved_cell_edit(ctx, editor.format_cell_a1(shown))
+            choice = editor.confirm_unsaved_cell_edit(ctx, editor.format_cell_a1(_active._edited_cell()))
             if choice == "cancel":
                 return True, None
             if choice == "save":
