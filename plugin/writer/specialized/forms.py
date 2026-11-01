@@ -45,11 +45,6 @@ from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 # One registration per tool name; union services for Writer + Calc + Draw/Impress (see AGENTS.md shared tools).
 _FORM_DOC_SERVICES = list(ALL_DOCUMENT_SERVICES)
 
-# Local aliases keep call sites short.
-_is_spreadsheet_doc = is_calc
-_is_draw_doc = is_draw
-_get_form_draw_page = get_active_draw_page
-
 
 def _no_form_draw_page_payload() -> dict[str, Any]:
     return format_error_payload(ToolExecutionError("No draw page available for form operations."))
@@ -60,7 +55,7 @@ def _resolve_form_page(doc: Any, page: Any = None) -> Any:
 
     Writer/Calc ignore *page* (Writer has one canvas; Calc uses the active sheet).
     """
-    if page is not None and _is_draw_doc(doc):
+    if page is not None and is_draw(doc):
         from plugin.draw.bridge import DrawBridge
 
         try:
@@ -82,7 +77,7 @@ def _resolve_form_page(doc: Any, page: Any = None) -> Any:
             if is_real_disposal(exc) or isinstance(exc, ToolExecutionError):
                 raise
             return None
-    return _get_form_draw_page(doc)
+    return get_active_draw_page(doc)
 
 
 def _find_control_shape(dp: Any, index: int | None = None, name: Any = None) -> tuple[Any, Any, dict[str, Any] | None]:
@@ -143,16 +138,8 @@ def _resolve_form_page_and_control(
     return dp, idx, shape, None
 
 
-def _delete_form_control(tool_or_doc: Any, doc_or_kwargs: Any, kwargs: dict[str, Any] | None = None) -> dict[str, Any]:
-    if kwargs is None:
-        doc = tool_or_doc
-        kwargs = doc_or_kwargs
-        tool = FormDeleteControl()
-    else:
-        tool = tool_or_doc
-        doc = doc_or_kwargs
-
-    dp, idx, shape, err = _resolve_form_page_and_control(doc, kwargs or {})
+def _delete_form_control(tool: Any, doc: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    dp, idx, shape, err = _resolve_form_page_and_control(doc, kwargs)
     if err or dp is None or shape is None:
         return err or format_error_payload(ToolExecutionError("Form control not found."))
 
@@ -197,13 +184,12 @@ def _parse_date_default_value(raw: str) -> tuple[int, int, int] | None:
     return None
 
 
-def _items_or_error(tool: Any, kwargs: dict[str, Any]) -> tuple[list[str] | None, dict[str, Any] | None]:
+def _items_or_error(kwargs: dict[str, Any]) -> tuple[list[str] | None, dict[str, Any] | None]:
     if "items" in kwargs and kwargs["items"] is not None:
         coerced_items = _coerce_items(kwargs["items"])
         if coerced_items is None:
             msg = "Parameter 'items' must be a list of strings or comma-separated string."
-            err = tool._tool_error(msg) if tool is not None else format_error_payload(ToolExecutionError(msg))
-            return None, err
+            return None, format_error_payload(ToolExecutionError(msg))
         return coerced_items, None
     return None, None
 
@@ -249,14 +235,9 @@ class _PageCursors:
 
 
 def _form_page_cursors(doc: Any) -> _PageCursors | None:
-    if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
+    if is_calc(doc) or is_draw(doc):
         return _PageCursors()
     return None
-
-
-def _next_stacked_position_on_draw_page(dp: Any, default_height: int) -> Point:
-    """Place new controls below existing shapes on a draw page (1/100 mm)."""
-    return _StackedDrawPageCursor(dp).next_position(default_height)
 
 
 def _commit_form_batch(
@@ -299,13 +280,7 @@ def _calc_cell_content_kind(cell: Any) -> str:
         if isinstance(content_type, str):
             raw = content_type
         else:
-            # uno.Enum repr when .value is absent:
-            # <Enum instance com.sun.star.table.CellContentType ('FORMULA')>
-            text = str(content_type)
-            if "('" in text and text.endswith("')>"):
-                raw = text[text.rfind("('") + 2 : -3]
-            else:
-                return ""
+            return ""
     name = raw.strip().upper()
     if name in _CALC_CELL_KINDS:
         return name
@@ -328,19 +303,17 @@ def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
     controller = doc.getCurrentController()
     sheet = controller.ActiveSheet
     selection = controller.getSelection()
+    col, row = 0, 0
     if selection is not None and hasattr(selection, "getRangeAddress"):
         addr = selection.getRangeAddress()
-        cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
+        col, row = addr.StartColumn, addr.StartRow
     elif selection is not None and hasattr(selection, "getRangeAddresses"):
         ranges = selection.getRangeAddresses()
         if ranges:
             # Why-comment: a multi-range has no getRangeAddress, and A1 is not that selection.
             addr = ranges[0]
-            cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
-        else:
-            cell = sheet.getCellByPosition(0, 0)
-    else:
-        cell = sheet.getCellByPosition(0, 0)
+            col, row = addr.StartColumn, addr.StartRow
+    cell = sheet.getCellByPosition(col, row)
     kind = _calc_cell_content_kind(cell)
     if kind not in _CALC_APPENDABLE_KINDS:
         return
@@ -350,7 +323,7 @@ def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
     cell.setString(prev + (text or ""))
 
 
-def _field_failure_result(tool: Any, results: list[Any], *, total: int, action: str, names: list[Any] | None = None) -> dict[str, Any] | None:
+def _field_failure_result(tool: Any, results: list[Any], *, action: str, names: list[Any]) -> dict[str, Any] | None:
     """Return an error payload when any form field failed, else None.
 
     ``form_create`` and ``form_generate`` must not return status ok
@@ -364,19 +337,17 @@ def _field_failure_result(tool: Any, results: list[Any], *, total: int, action: 
             continue
         msg = str(res.get("message") or res.get("code") or "field failed")
         name = ""
-        if names is not None and index < len(names):
+        if index < len(names):
             item = names[index]
             if isinstance(item, dict):
                 name = str(item.get("name") or "")
-            elif isinstance(item, str):
-                name = item
         bits.append(f"{name}: {msg}" if name else msg)
     if not bits:
         return None
     shown = "; ".join(bits[:5])
     if len(bits) > 5:
         shown += "; ..."
-    return tool._tool_error(f"{action}: {len(bits)} of {total} fields failed. {shown}", results=results)
+    return tool._tool_error(f"{action}: {len(bits)} of {len(results)} fields failed. {shown}", results=results)
 
 
 def _plain_text_for_calc_html_fragment(html: str) -> str:
@@ -445,7 +416,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
     else:
         date_val = None
 
-    coerced_items, items_err = _items_or_error(None, kwargs)
+    coerced_items, items_err = _items_or_error(kwargs)
     if items_err:
         return items_err
 
@@ -533,13 +504,14 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
             shape.Name = name
             group_name = getattr(model, "Name", "") or ""
 
-        if _is_spreadsheet_doc(doc) or _is_draw_doc(doc):
+        if is_calc(doc) or is_draw(doc):
             if dp is None:
                 return _no_form_draw_page_payload()
             if page_cursors is not None:
                 pos = page_cursors.for_page(dp).next_position(h)
             else:
-                pos = _next_stacked_position_on_draw_page(dp, h)
+                # Place new controls below existing shapes on a draw page (1/100 mm).
+                pos = _StackedDrawPageCursor(dp).next_position(h)
             shape.setPosition(pos)
             dp.add(shape)
             if cursor is not None:
@@ -612,7 +584,7 @@ class FormCreate(ToolWriterFormBase):
                 if isinstance(res, dict) and res.get("status") != "error":
                     self._insert_space(ctx)
 
-            failure = _field_failure_result(self, results, total=len(fields), action="form_create", names=fields)
+            failure = _field_failure_result(self, results, action="form_create", names=fields)
             if failure is not None:
                 return failure
             return None
@@ -631,10 +603,10 @@ class FormCreate(ToolWriterFormBase):
 
     def _insert_space(self, ctx: Any) -> None:
         doc = ctx.doc
-        if _is_spreadsheet_doc(doc):
+        if is_calc(doc):
             _append_text_to_calc_active_area(doc, " ")
             return
-        if _is_draw_doc(doc):
+        if is_draw(doc):
             return
         vc = doc.getCurrentController().getViewCursor()
         doc.getText().insertString(vc, " ", False)
@@ -743,7 +715,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                         # A TypeError after a partial insert was inserting the text again and hiding the error.
                         self._insert_text(ctx, part, page_cursors=page_cursors)
 
-            failure = _field_failure_result(self, field_results, total=len(field_results), action="form_generate", names=field_names)
+            failure = _field_failure_result(self, field_results, action="form_generate", names=field_names)
             if failure is not None:
                 return failure
             return None
@@ -762,12 +734,12 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
 
     def _insert_text(self, ctx: Any, text: str, page_cursors: Any = None) -> None:
         doc = ctx.doc
-        if _is_spreadsheet_doc(doc):
+        if is_calc(doc):
             plain = _plain_text_for_calc_html_fragment(text)
             if plain:
                 _append_text_to_calc_active_area(doc, plain + " ")
             return
-        if _is_draw_doc(doc):
+        if is_draw(doc):
             from plugin.draw.bridge import DrawBridge
             from plugin.draw.shapes import DrawShapes
 
@@ -778,10 +750,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                 return
             # Create a text shape for the label/text
             w, h = 8000, 1000  # Default size for text labels
-            if page_cursors is not None:
-                pos = page_cursors.for_page(dp).next_position(h)
-            else:
-                pos = _next_stacked_position_on_draw_page(dp, h)
+            pos = page_cursors.for_page(dp).next_position(h)
             shape, _, _ = DrawShapes().safe_create_shape(
                 doc, dp, "com.sun.star.drawing.TextShape", Point(pos.X, pos.Y), Size(w, h)
             )
@@ -862,9 +831,9 @@ class FormListControls(ToolWriterFormBase):
                 controls.append({"index": i, "error": str(e), "stale": True})
 
         out: dict[str, Any] = {"status": "ok", "controls": controls, "count": len(controls)}
-        if _is_spreadsheet_doc(doc):
+        if is_calc(doc):
             out["note"] = "Indices are ControlShapes on the active sheet draw page only."
-        elif _is_draw_doc(doc):
+        elif is_draw(doc):
             out["note"] = "Address controls by name; index is the draw-page shape index and shifts when other shapes sit between widgets."
         return out
 
@@ -919,7 +888,7 @@ class FormEditControl(ToolWriterFormBase):
         if "items" in kwargs and not hasattr(model, "StringItemList"):
             return self._tool_error(f"{ctrl_type} control has no items.")
 
-        coerced_items, items_err = _items_or_error(self, kwargs)
+        coerced_items, items_err = _items_or_error(kwargs)
         if items_err:
             return items_err
 
