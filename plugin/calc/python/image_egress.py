@@ -132,8 +132,6 @@ def _aspect_size(aspect: tuple[int, int] | None) -> Any:
 
 def _drop_extra_plot_slots(draw_page: Any, target_cell: Any, image_count: int) -> None:
     """Remove existing plot shapes on target_cell with slot index >= image_count."""
-    if draw_page is None or target_cell is None:
-        return
     try:
         to_remove = []
         for index in range(draw_page.getCount()):
@@ -165,7 +163,7 @@ def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> b
     return None
 
 
-def _located_image_cell(ctx: Any, doc: Any, code: str | None) -> tuple[Any, Any, tuple[int, int]] | None:
+def _located_image_cell(doc: Any, code: str | None) -> tuple[Any, Any, tuple[int, int]] | None:
     if not code or doc is None:
         return None
     try:
@@ -176,51 +174,38 @@ def _located_image_cell(ctx: Any, doc: Any, code: str | None) -> tuple[Any, Any,
         return None
 
 
-def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_message: str) -> None:
+def _set_image_cell_annotation(doc: Any, code: str | None, error_message: str) -> None:
     """Set error annotation on the located formula cell after off-main egress failure."""
-    located = _located_image_cell(ctx, doc, code)
+    located = _located_image_cell(doc, code)
     if located is None:
         return
     sheet, cell, _unused = located
     try:
         text = f"{_IMAGE_ANNOTATION_PREFIX}{error_message}"
         ann = cell.getAnnotation()
-        val = ann.getString() if ann is not None else ""
-        if val is None:
-            note_str = ""
-        elif isinstance(val, str):
-            note_str = val
-        else:
-            log.debug("_set_image_cell_annotation: note text is not a string")
-            return
-
-        if note_str.startswith(_IMAGE_ANNOTATION_PREFIX) and ann is not None:
+        # ScCellObj::getAnnotation (cellsuno.cxx) always returns a ScAnnotationObj.
+        note = ann.getString() or ""
+        if note.startswith(_IMAGE_ANNOTATION_PREFIX):
             ann.setString(text)
             return
-
-        if note_str and not note_str.startswith(_IMAGE_ANNOTATION_PREFIX):
-            # Bugfix: What was wrong: a failed off-main plot overwrote whatever comment was
-            # already on the =PY() cell, and a later success deleted that note.
-            # How it happened: the branch was "getAnnotation() returned an object and
-            # getString() was non-empty", so any user comment took setString. The other
-            # branch calls insertNew. ScCellObj::getAnnotation (cellsuno.cxx) always returns
-            # a ScAnnotationObj, and ScAnnotationsObj::insertNew (docuno.cxx) calls
-            # ScDocFunc::ReplaceNote, which releases the cell's only note and creates a new
-            # one. There is no second comment to write into.
-            # Why this change fixes it: setString runs only when the note already starts
-            # with the WriterAgent image prefix. Any other non-empty text is left as-is.
-            # insertNew runs only for an empty note, which is what creates the error comment.
+        if note:
+            # Bugfix: a failed off-main plot overwrote any comment on the =PY() cell,
+            # and a later success deleted it. Non-empty getString() took setString.
+            # insertNew goes through ScAnnotationsObj::insertNew (docuno.cxx) to
+            # ScDocFunc::ReplaceNote, which replaces the cell's only note.
+            # setString runs only when the note already starts with the WriterAgent
+            # image prefix. Any other non-empty text stays. insertNew runs only
+            # for an empty note.
             log.debug("_set_image_cell_annotation: user annotation left in place")
             return
-
         sheet.getAnnotations().insertNew(cell.getCellAddress(), text)
     except Exception:
         log.debug("_set_image_cell_annotation failed", exc_info=True)
 
 
-def _clear_image_cell_annotation(ctx: Any, doc: Any, code: str | None) -> None:
+def _clear_image_cell_annotation(doc: Any, code: str | None) -> None:
     """Remove WriterAgent image: annotation on the located formula cell on success."""
-    located = _located_image_cell(ctx, doc, code)
+    located = _located_image_cell(doc, code)
     if located is None:
         return
     sheet, cell, (row, col) = located
@@ -283,8 +268,6 @@ def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
     A page-anchored shape's Anchor is the sheet, whose range address starts at
     0,0, so it used to "match" A1. It matches no cell.
     """
-    if not hasattr(shape, "getPropertyValue"):
-        return False
     anchor = shape.getPropertyValue("Anchor")
     if _supports_service(anchor, "com.sun.star.sheet.Spreadsheet"):
         return False
@@ -294,10 +277,7 @@ def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
 
 
 def _shape_name(shape: Any) -> str:
-    if hasattr(shape, "getPropertyValue"):
-        value = shape.getPropertyValue("Name")
-    else:
-        value = getattr(shape, "Name", "")
+    value = shape.getPropertyValue("Name")
     return value if isinstance(value, str) else ""
 
 
@@ -369,7 +349,6 @@ def insert_image_result_on_sheet(
     # instead, because the formula has already been answered by the time the posted callable runs.
     def _run() -> None:
         _insert_image_result_on_sheet_impl(
-            ctx,
             payload,
             code=code,
             doc=doc,
@@ -378,7 +357,7 @@ def insert_image_result_on_sheet(
             image_count=image_count,
         )
         if notify_cell:
-            _clear_image_cell_annotation(ctx, doc, code)
+            _clear_image_cell_annotation(doc, code)
 
     if not on_main_thread():
         def _off_main_wrapper() -> None:
@@ -386,7 +365,7 @@ def insert_image_result_on_sheet(
                 _run()
             except ImageEgressError as err:
                 if notify_cell:
-                    _set_image_cell_annotation(ctx, doc, code, str(err))
+                    _set_image_cell_annotation(doc, code, str(err))
                 else:
                     raise
 
@@ -397,7 +376,6 @@ def insert_image_result_on_sheet(
 
 
 def _insert_image_result_on_sheet_impl(
-    ctx: Any,
     payload: dict[str, Any],
     code: str | None = None,
     doc: Any | None = None,
@@ -434,7 +412,7 @@ def _insert_image_result_on_sheet_impl(
         target_cell = None
 
         if code:
-            located = _located_image_cell(ctx, doc, code)
+            located = _located_image_cell(doc, code)
             if located is not None:
                 sheet, target_cell = located[0], located[1]
             if sheet is None or target_cell is None:
