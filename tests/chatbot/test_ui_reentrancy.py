@@ -235,7 +235,7 @@ def test_unguarded_listener_does_not_infinite_loop_because_event_bus_drops():
         def on_text_changed(self, rEvent):
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 
-            sync_sidebar_text_model(panel.ctx, combo)
+            sync_sidebar_text_model(combo)
 
     combo.addTextListener(Unguarded())
 

@@ -127,12 +127,12 @@ def test_apply_module_config_result_stores_select_option_values():
          patch("plugin.chatbot.settings_fields.get_config", side_effect=lambda key: disk[key]), \
          patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
         specs = get_module_config_field_specs(ctx, "demo")
-        apply_field_specs_result(ctx, {"count": "42", "mode": "Fast Mode"}, specs)
+        apply_field_specs_result({"count": "42", "mode": "Fast Mode"}, specs)
         mock_set_configs.assert_called_once_with({"demo.count": "42"})
 
         mock_set_configs.reset_mock()
         disk["demo.mode"] = "slow"
-        apply_field_specs_result(ctx, {"count": "42", "mode": "Fast Mode"}, specs)
+        apply_field_specs_result({"count": "42", "mode": "Fast Mode"}, specs)
         mock_set_configs.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
 
 
@@ -158,7 +158,8 @@ def test_extract_result_prefers_numeric_getvalue_over_stale_gettext():
     dialog._dlg = dlg
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", return_value=1):
-        result = dialog._extract_result()
+        specs = get_module_config_field_specs(dialog._ctx, "demo")
+        result = dialog._extract_result(specs)
     assert result == {"count": 42}
 
 
@@ -187,7 +188,8 @@ def test_extract_result_checkbox_bool_skips_write_when_already_true():
 
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", return_value=True):
-        result = dialog._extract_result()
+        specs = get_module_config_field_specs(dialog._ctx, "demo")
+        result = dialog._extract_result(specs)
 
     assert result == {"enabled": True}
     assert result["enabled"] is True
@@ -200,7 +202,7 @@ def test_extract_result_checkbox_bool_skips_write_when_already_true():
          patch("plugin.chatbot.settings_fields.get_config", return_value=True), \
          patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
         specs = get_module_config_field_specs(MagicMock(), "demo")
-        apply_field_specs_result(MagicMock(), result, specs)
+        apply_field_specs_result(result, specs)
         mock_set_configs.assert_not_called()
 
 

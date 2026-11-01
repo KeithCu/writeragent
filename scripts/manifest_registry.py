@@ -233,7 +233,8 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
             
         y = add_fields(name.replace(".", "_"), config, y)
         if children:
-            for child_m, child_cfg in children:
+            for child_m in children:
+                child_cfg = child_m.get("config", {})
                 # Skip children with no visible config fields
                 visible_child_fields = [
                     (fn, s) for fn, s in child_cfg.items()

@@ -1429,7 +1429,7 @@ class SendButtonListener(BaseActionListener):
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 
-            sync_sidebar_text_model(self.ctx, self.model_selector)
+            sync_sidebar_text_model(self.model_selector)
 
             query_text, should_exit = self._voice.resolve_voice_query(query_text)
             if should_exit:

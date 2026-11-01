@@ -230,12 +230,11 @@ def populate_combobox_with_lru(
             # ids and any remote id in those families; drop the chat catalog.
             # OpenRouter callers pass modality-filtered ids (output_modalities=
             # speech or transcription). output_modalities=audio is not TTS.
+            fetch_succeeded = True
             if provider == "together" and req_cap in ("audio", "tts"):
-                fetch_succeeded = True
                 kind = "tts" if req_cap == "tts" else "stt"
                 fetched_models = together_speech_ids(kind, remote_models)
             else:
-                fetch_succeeded = True
                 fetched_models = remote_models
         elif skip_remote_fetch:
             fetched_models = None
@@ -356,9 +355,8 @@ def sync_sidebar_image_model(ctrl: Any, update_lru: bool = True) -> str | None:
     return _sync_sidebar_model(ctrl, "image_model", "image_model_lru", get_image_model, update_lru=update_lru)
 
 
-def sync_sidebar_text_model(ctx: Any, ctrl: Any) -> str | None:
+def sync_sidebar_text_model(ctrl: Any) -> str | None:
     """Persist sidebar chat model combobox text to text_model and model_lru."""
-    del ctx  # Listeners pass the panel context; the write uses the config store.
     from plugin.framework.client.model_fetcher import get_text_model
 
     return _sync_sidebar_model(ctrl, "text_model", "model_lru", get_text_model, update_lru=True)
@@ -397,12 +395,7 @@ def populate_endpoint_selector(ctrl: Any, current_endpoint: Any) -> None:
     if current_url and current_url not in preset_urls_normalized and current_url not in to_show:
         to_show.append(current_url)
 
-    ctrl.removeItems(0, ctrl.getItemCount())
-    if to_show:
-        ctrl.addItems(tuple(to_show), 0)
-    # Always show the actual URL in the text field so user can see and edit it
-    if current_url:
-        ctrl.setText(current_url)
+    _paint_combo(ctrl, to_show, current_url)
 
 
 def populate_image_model_selector(
