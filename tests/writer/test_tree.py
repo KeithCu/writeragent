@@ -55,10 +55,13 @@ class TestTreeServiceSearch:
         assert (res["bookmark"]) == ("bm_intro")
 
     def test_heading_children_missing_bookmark_uses_resolver_error(self):
+        from plugin.doc import document_helpers
+
+        self.doc_svc.resolve_locator = document_helpers.resolve_locator
         self.doc.getBookmarks = MagicMock()
         self.doc.getBookmarks.return_value.hasByName.return_value = False
         with pytest.raises(ToolExecutionError) as raised:
-            self.tree_svc.get_heading_children(self.doc, heading_bookmark="nope")
+            self.tree_svc.get_heading_children(self.doc, locator="bookmark:nope")
         assert "Bookmark 'nope' not found" in str(raised.value)
 
     @pytest.mark.parametrize(
@@ -307,7 +310,7 @@ def test_heading_tree_fingerprint():
     assert tree_svc._tree_cache["doc_test"][0] == 42
 
     doc_none = WriterDocStub([])
-    tree_svc._drop_tree_cache()
+    tree_svc._tree_cache.clear()
     first = tree_svc.build_heading_tree(doc_none)
     assert tree_svc._tree_cache["doc_test"][0] is None
     second = tree_svc.build_heading_tree(doc_none)
@@ -365,7 +368,7 @@ def test_get_document_tree_single_enumeration_and_stats():
     doc_svc.get_page_count.reset_mock()
 
     # 2. first_lines enumerates once
-    tree_svc._drop_tree_cache()
+    tree_svc._tree_cache.clear()
     doc.enum_calls = 0
     res_fl = tree_svc.get_document_tree(doc, content_strategy="first_lines", depth=1)
     assert doc.enum_calls == 1

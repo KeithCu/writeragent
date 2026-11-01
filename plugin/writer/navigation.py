@@ -114,4 +114,5 @@ class NavHeadingChildren(ToolWriterStructuralBase):
         provided = [name for name, value in (("locator", kwargs.get("locator")), ("para_index", para_index), ("bookmark", bookmark)) if value is not None]
         if len(provided) > 1:
             return self._tool_error("Provide only one of locator, para_index, bookmark (got: %s)" % ", ".join(provided))
-        return _nav_result(self, lambda: tree_svc.get_heading_children(ctx.doc, heading_para_index=para_index, heading_bookmark=bookmark, locator=kwargs.get("locator"), content_strategy=strategy, depth=kwargs.get("depth", 1)))
+        locator = ("bookmark:" + bookmark) if bookmark is not None else kwargs.get("locator")
+        return _nav_result(self, lambda: tree_svc.get_heading_children(ctx.doc, heading_para_index=para_index, locator=locator, content_strategy=strategy, depth=kwargs.get("depth", 1)))
