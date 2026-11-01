@@ -290,8 +290,6 @@ class GrammarWorkQueue:
     def end_status_cycle(self) -> None:
         """Drop in-flight count; emit one terminal sidebar ``done`` when all parallel batches finish."""
         pending: _PendingGrammarDone | None = None
-        had_cycle = False
-        last = False
         with self._lock:
             had_cycle = self._status_inflight > 0
             if had_cycle:
@@ -423,11 +421,6 @@ class GrammarWorkQueue:
                 batch_size=len(batch),
                 seqs=tuple(x.enqueue_seq for x in batch),
                 keys=tuple(x.inflight_key for x in batch),
-            )
-            grammar_obs(
-                "queue_drain_survivors",
-                survivor_count=len(batch),
-                seqs=tuple(x.enqueue_seq for x in batch),
             )
             groups = filter_stale_and_group(
                 batch, lambda it: self.inflight_superseded(it.inflight_key, it.enqueue_seq)

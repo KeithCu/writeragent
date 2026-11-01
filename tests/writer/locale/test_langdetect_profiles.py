@@ -28,9 +28,9 @@ def test_get_grammar_detect_language_mode_legacy_bool(value, expected, value_2) 
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(config, "get_config", lambda _key: value)
-        assert get_grammar_detect_language_mode(object()) == expected
+        assert get_grammar_detect_language_mode() == expected
         mp.setattr(config, "get_config", lambda _key: value_2)
-        assert get_grammar_detect_language_mode(object()) == "off"
+        assert get_grammar_detect_language_mode() == "off"
 
 def test_langdetect_rpc_smoke_french() -> None:
     from plugin.embeddings.venv import langdetect_rpc as rpc_mod
