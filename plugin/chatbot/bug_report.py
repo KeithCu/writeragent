@@ -36,8 +36,7 @@ from plugin.framework.errors import best_effort
 
 log = logging.getLogger("writeragent.bugreport")
 
-BUG_REPORT_REPO = "KeithCu/writeragent"
-BUG_REPORT_ISSUES_URL = f"https://github.com/{BUG_REPORT_REPO}/issues/new"
+BUG_REPORT_ISSUES_URL = "https://github.com/KeithCu/writeragent/issues/new"
 
 # The cap is on the encoded URL because percent-encoding expands newlines and
 # non-ASCII; GitHub/proxy request lines sit near 8 KB.
@@ -56,25 +55,6 @@ def _redact_endpoint(endpoint: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc.rsplit("@", 1)[-1], parts.path, "", ""))
 
 
-def _config_has_property(ca: Any, name: str) -> bool:
-    """Return True when *name* exists on a ConfigurationAccess node."""
-    info = ca.getPropertySetInfo()
-    if info is None or not hasattr(info, "hasPropertyByName"):
-        return False
-    return bool(info.hasPropertyByName(name))
-
-
-def _read_config_string(ca: Any, prop: str) -> str | None:
-    """Read a non-empty string property from ConfigurationAccess, or None."""
-    if not _config_has_property(ca, prop):
-        return None
-    val = ca.getPropertyValue(prop)
-    if val is None:
-        return None
-    text = str(val).strip()
-    return text or None
-
-
 def _get_lo_product_info(ctx: Any) -> dict[str, str]:
     """Read LibreOffice version strings from setup configuration."""
     if not ctx:
@@ -88,27 +68,31 @@ def _get_lo_product_info(ctx: Any) -> dict[str, str]:
         config_provider = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
         node = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="nodepath", Value="/org.openoffice.Setup/Product")
         ca = config_provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess", (node,))
+        info = ca.getPropertySetInfo()
         for key, prop in (
             ("name", "ooName"),
             ("about", "ooSetupVersionAboutBox"),
             ("version", "ooSetupVersion"),
             ("suffix", "ooSetupVersionAboutBoxSuffix"),
         ):
-            val = _read_config_string(ca, prop)
-            if val:
-                out[key] = val
+            if info.hasPropertyByName(prop):
+                val = ca.getPropertyValue(prop)
+                if val is not None:
+                    text = str(val).strip()
+                    if text:
+                        out[key] = text
         return out
 
     return best_effort(_read, "bug_report: read LO product info", {})
 
 
 def _format_lo_version(product: dict[str, str]) -> str:
-    about = product.get("about", "").strip()
+    about = product.get("about", "")
     if about:
-        suffix = product.get("suffix", "").strip()
+        suffix = product.get("suffix", "")
         return f"{about} {suffix}".strip()
-    name = product.get("name", "").strip()
-    version = product.get("version", "").strip()
+    name = product.get("name", "")
+    version = product.get("version", "")
     nv = " ".join(part for part in (name, version) if part)
     return nv or "unknown"
 
@@ -134,7 +118,7 @@ def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
     lines.append(f"- LibreOffice: {_format_lo_version(product)}")
     lines.append(f"- OS: {platform.platform()} ({platform.machine()})")
 
-    locale = get_lo_locale(ctx) if ctx else get_lo_locale()
+    locale = get_lo_locale(ctx)
     lines.append(f"- Locale: {locale}")
 
     lines.append(f"- Python: {sys.version.split()[0]} ({sys.platform})")
@@ -196,23 +180,20 @@ def _issue_url(body: str, title: str) -> str:
 
 def _fit_section(base: str, section: str, title: str, *, keep_head: bool) -> str:
     """Append the largest part of *section* that keeps the encoded URL in budget."""
+    def cut(n: int) -> str:
+        return section[:n] + "\n\n" + _TRUNCATED if keep_head else _TRUNCATED + "\n\n" + section[-n:]
+
     sep = "\n\n" if base else ""
     lo, hi = 0, len(section)
     while lo < hi:
         mid = (lo + hi + 1) // 2
-        if keep_head:
-            cut = section[:mid] + "\n\n" + _TRUNCATED
-        else:
-            cut = _TRUNCATED + "\n\n" + section[-mid:]
-        if len(_issue_url(base + sep + cut, title)) <= _MAX_URL_CHARS:
+        if len(_issue_url(base + sep + cut(mid), title)) <= _MAX_URL_CHARS:
             lo = mid
         else:
             hi = mid - 1
     if lo == 0:
         return base
-    if keep_head:
-        return base + sep + section[:lo] + "\n\n" + _TRUNCATED
-    return base + sep + _TRUNCATED + "\n\n" + section[-lo:]
+    return base + sep + cut(lo)
 
 
 def _compose_issue_body(header: str, rest: str, extra_body: str, *, title: str = "") -> str:
@@ -223,9 +204,9 @@ def _compose_issue_body(header: str, rest: str, extra_body: str, *, title: str =
     """
     body = ""
     sections = (
-        ((header or "").strip(), True),
-        ((extra_body or "").strip(), False),
-        ((rest or "").strip(), True),
+        (header, True),
+        (extra_body, False),
+        (rest, True),
     )
     for section, keep_head in sections:
         if not section:
@@ -246,15 +227,14 @@ def build_github_issue_url(*, title: str = "", extra_body: str = "", ctx: Any | 
     from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 
     header, rest = _issue_sections(ctx)
-    title_clean = (title or "").strip()
-    extra_body = extra_body or ""
+    title_clean = title.strip()
 
     endpoint = get_current_endpoint()
     secrets = collect_secrets(secrets_from_target(endpoint), [get_api_key_for_endpoint(endpoint)])
 
     header = redact_secrets(header, secrets)
     rest = redact_secrets(rest, secrets)
-    extra_body = redact_secrets(extra_body, secrets)
+    extra_body = redact_secrets(extra_body, secrets).strip()
     title_clean = redact_secrets(title_clean, secrets)
 
     body = _compose_issue_body(header, rest, extra_body, title=title_clean)
