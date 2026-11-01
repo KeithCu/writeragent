@@ -48,7 +48,6 @@ _NEAR_RE = re.compile(r"(.+?)\s+NEAR/(\d+)\s+(.+)", re.IGNORECASE)
 _NEAR_COUNT_RE = re.compile(r"NEAR/\d+", re.IGNORECASE)
 _AND_RE = re.compile(r"\bAND\b", re.IGNORECASE)
 _OR_RE = re.compile(r"\bOR\b", re.IGNORECASE)
-_MIN_TOKEN_LEN = 2
 _MAX_CACHED_DOCS = 4
 
 
@@ -59,7 +58,7 @@ def _deaccent(text: str) -> str:
 
 def _raw_tokens(text: str) -> list[str]:
     cleaned = _PUNCT_RE.sub(" ", _deaccent(text.lower()))
-    return [t for t in cleaned.split() if len(t) >= _MIN_TOKEN_LEN]
+    return [t for t in cleaned.split() if len(t) >= 2]
 
 
 @lru_cache(maxsize=None)
@@ -134,12 +133,12 @@ class _DocIndex:
                 found |= ps
         return found
 
-    def query_and(self, stem_groups: list[list[str]]) -> set[int]:
-        if not stem_groups:
+    def query_and(self, stems: list[str]) -> set[int]:
+        if not stems:
             return set()
         sets: list[set[int]] = []
-        for group in stem_groups:
-            s = self._paragraphs_for(group)
+        for stem in stems:
+            s = self.terms.get(stem)
             if not s:
                 return set()
             sets.append(s)
@@ -150,9 +149,6 @@ class _DocIndex:
             if not result:
                 return result
         return result
-
-    def query_or(self, stems: list[str]) -> set[int]:
-        return self._paragraphs_for(stems)
 
     def query_not(self, include: set[int], exclude_stems: list[str]) -> set[int]:
         result = include.copy()
@@ -177,9 +173,6 @@ class _DocIndex:
                 elif pb > pa + distance:
                     break
         return result
-
-
-_TOP_STEMS = 20
 
 
 def _index_counts(idx: _DocIndex, cached: bool) -> dict[str, Any]:
@@ -224,13 +217,9 @@ class IndexService(ServiceBase):
     def _get_stemmer(self, lang: str) -> Any:
         if lang in self._stemmers:
             return self._stemmers[lang]
-        try:
-            import snowballstemmer  # type: ignore[import-untyped]
+        import snowballstemmer  # type: ignore[import-untyped]
 
-            s = snowballstemmer.stemmer(lang)
-        except (ImportError, KeyError):
-            s = self._get_stemmer("english") if lang != "english" else None
-            log.warning("No stemmer for '%s', falling back to english", lang)
+        s = snowballstemmer.stemmer(lang)
         self._stemmers[lang] = s
         return s
 
@@ -253,9 +242,6 @@ class IndexService(ServiceBase):
             if iso is not None:
                 return iso
         return None
-
-    def _stem(self, stemmer: Any, tokens: list[str], stop_words: frozenset[str]) -> list[str]:
-        return [stemmer.stemWord(t) for t in tokens if t not in stop_words]
 
     # ── Index build ───────────────────────────────────────────────
 
@@ -294,10 +280,7 @@ class IndexService(ServiceBase):
                 text = get_string_without_tracked_deletions(el)
                 idx.para_texts[para_i] = text
                 raw = _raw_tokens(text)
-                if stemmer:
-                    stems = self._stem(stemmer, raw, stop_words)
-                else:
-                    stems = [t for t in raw if t not in stop_words]
+                stems = [stemmer.stemWord(t) for t in raw if t not in stop_words]
                 for stem in stems:
                     s = idx.terms.get(stem)
                     if s is None:
@@ -327,81 +310,71 @@ class IndexService(ServiceBase):
             if t in stop_words:
                 dropped.append(t)
             else:
-                stems.append(stemmer.stemWord(t) if stemmer else t)
+                stems.append(stemmer.stemWord(t))
         return stems, dropped
 
     def _parse_query(self, query: str, stemmer: Any, stop_words: frozenset[str]) -> dict[str, Any]:
-        result: dict[str, Any] = {"and_stems": [], "or_stems": [], "not_stems": [], "near": [], "dropped_stops": [], "mode": "and", "error": None}
+        not_stems: list[str] = []
+        dropped_stops: list[str] = []
+
+        def fail(msg: str) -> None:
+            dropped = sorted(set(dropped_stops))
+            if dropped:
+                msg += " (stop words dropped: %s)" % ", ".join(dropped)
+            raise ToolExecutionError(msg)
 
         not_split = _NOT_RE.split(query)
         main_part = not_split[0].strip()
         for part in not_split[1:]:
             stems, dropped = self._stem_query_tokens(part, stemmer, stop_words)
-            result["not_stems"].extend(stems)
-            result["dropped_stops"].extend(dropped)
+            not_stems.extend(stems)
+            dropped_stops.extend(dropped)
 
         if len(_NEAR_COUNT_RE.findall(main_part)) > 1:
-            result["error"] = "Only one NEAR/N is supported per query."
-            return result
+            fail("Only one NEAR/N is supported per query.")
 
-        # NEAR/N
         near_match = _NEAR_RE.search(main_part)
         if near_match:
             left, dropped_l = self._stem_query_tokens(near_match.group(1), stemmer, stop_words)
             dist = int(near_match.group(2))
             right, dropped_r = self._stem_query_tokens(near_match.group(3), stemmer, stop_words)
-            result["dropped_stops"].extend(dropped_l + dropped_r)
+            dropped_stops.extend(dropped_l + dropped_r)
             if left and right:
-                result["near"].append((left, right, dist))
-                result["mode"] = "near"
-            elif not left and not right:
-                result["error"] = "NEAR terms are all stop words"
-            return result
- 
+                return {
+                    "and_stems": [],
+                    "or_stems": [],
+                    "not_stems": not_stems,
+                    "near": (left, right, dist),
+                    "dropped_stops": dropped_stops,
+                }
+            if not left and not right:
+                fail("NEAR terms are all stop words")
+            fail("No search terms after stop-word filtering")
+
         has_and = bool(_AND_RE.search(main_part))
         has_or = bool(_OR_RE.search(main_part))
         if has_and and has_or:
-            result["error"] = "Mixed AND/OR not supported. Use one operator per query."
-            return result
- 
-        if has_or:
-            chunks = _OR_RE.split(main_part)
-            for chunk in chunks:
-                stems, dropped = self._stem_query_tokens(chunk, stemmer, stop_words)
-                result["or_stems"].extend(stems)
-                result["dropped_stops"].extend(dropped)
-            result["mode"] = "or"
-        else:
-            if has_and:
-                chunks = _AND_RE.split(main_part)
-            else:
-                chunks = [main_part]
-            for chunk in chunks:
-                stems, dropped = self._stem_query_tokens(chunk, stemmer, stop_words)
-                for stem in stems:
-                    result["and_stems"].append([stem])
-                result["dropped_stops"].extend(dropped)
-            result["mode"] = "and"
+            fail("Mixed AND/OR not supported. Use one operator per query.")
 
-        return result
+        chunks = _OR_RE.split(main_part) if has_or else _AND_RE.split(main_part)
+        target_stems: list[str] = []
+        for chunk in chunks:
+            stems, dropped = self._stem_query_tokens(chunk, stemmer, stop_words)
+            target_stems.extend(stems)
+            dropped_stops.extend(dropped)
+
+        if not target_stems:
+            fail("No search terms after stop-word filtering")
+
+        return {
+            "and_stems": [] if has_or else target_stems,
+            "or_stems": target_stems if has_or else [],
+            "not_stems": not_stems,
+            "near": None,
+            "dropped_stops": dropped_stops,
+        }
 
     # ── Query Execution & Formatting ──────────────────────────────
-
-    def _execute_query(self, idx: _DocIndex, mode: str, near: Any, or_stems: Any, and_stems: Any, not_stems: Any) -> set[int]:
-        if mode == "near" and near:
-            left, right, dist = near[0]
-            hits = idx.query_near(left, right, dist)
-        elif or_stems:
-            hits = idx.query_or(or_stems)
-        elif and_stems:
-            hits = idx.query_and(and_stems)
-        else:
-            raise ToolExecutionError("No search terms after stop-word filtering")
-
-        if not_stems:
-            hits = idx.query_not(hits, not_stems)
-
-        return hits
 
     def _build_result_entry(self, idx: _DocIndex, para_i: int, context_paragraphs: int, all_positive: Any, bookmark_map: Any) -> dict[str, Any]:
         ctx_lo = max(0, para_i - context_paragraphs)
@@ -433,29 +406,26 @@ class IndexService(ServiceBase):
         stop_words = _normalized_stop_words(idx.language)
         parsed = self._parse_query(query, stemmer, stop_words)
 
-        if parsed["error"] or not (parsed["and_stems"] or parsed["or_stems"] or parsed["near"]):
-            error = parsed["error"] or "No search terms after stop-word filtering"
-            dropped = sorted(set(parsed["dropped_stops"]))
-            if dropped:
-                error += " (stop words dropped: %s)" % ", ".join(dropped)
-            raise ToolExecutionError(error)
-
-        mode = parsed["mode"]
-        and_stems = parsed["and_stems"]
-        or_stems = parsed["or_stems"]
-        not_stems = parsed["not_stems"]
         near = parsed["near"]
+        or_stems = parsed["or_stems"]
+        and_stems = parsed["and_stems"]
+        not_stems = parsed["not_stems"]
 
-        all_positive = []
-        for group in and_stems:
-            all_positive.extend(group)
-        all_positive.extend(or_stems)
         if near:
-            for left, right, _unused in near:
-                all_positive.extend(left + right)
+            mode = "near"
+            hits = idx.query_near(near[0], near[1], near[2])
+            all_positive = near[0] + near[1]
+        elif or_stems:
+            mode = "or"
+            hits = idx._paragraphs_for(or_stems)
+            all_positive = list(or_stems)
+        else:
+            mode = "and"
+            hits = idx.query_and(and_stems)
+            all_positive = list(and_stems)
 
-        # Execute query
-        hits = self._execute_query(idx, mode, near, or_stems, and_stems, not_stems)
+        if not_stems:
+            hits = idx.query_not(hits, not_stems)
 
         total = len(hits)
         selected = sorted(hits)[:max_results]
@@ -476,7 +446,7 @@ class IndexService(ServiceBase):
             "index": _index_counts(idx, was_cached),
         }
         if near:
-            resp["near"] = {"left": near[0][0], "right": near[0][1], "distance": near[0][2]}
+            resp["near"] = {"left": near[0], "right": near[1], "distance": near[2]}
         if parsed["dropped_stops"]:
             resp["dropped_stops"] = parsed["dropped_stops"]
         return resp
@@ -485,7 +455,7 @@ class IndexService(ServiceBase):
         """Index statistics + top 20 most frequent stems."""
         idx, was_cached = self._get_index(doc)
 
-        top = sorted(idx.terms.items(), key=lambda x: len(x[1]), reverse=True)[:_TOP_STEMS]
+        top = sorted(idx.terms.items(), key=lambda x: len(x[1]), reverse=True)[:20]
 
         stats: dict[str, Any] = {
             "language": idx.language,
