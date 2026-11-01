@@ -21,9 +21,12 @@ import json
 import logging
 import os
 from contextlib import closing
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from plugin.framework.config import atomic_write_text
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+from plugin.framework.config import atomic_write_text, user_config_dir
 
 try:
     import sqlite3
@@ -33,8 +36,6 @@ except ImportError:
     sqlite3 = None  # type: ignore
     HAS_SQLITE = False
 
-from plugin.framework.config import user_config_dir
-
 log = logging.getLogger(__name__)
 
 
@@ -42,8 +43,7 @@ def _get_db_path() -> str:
     config_dir = user_config_dir()
     if config_dir:
         try:
-            if not os.path.exists(config_dir):
-                os.makedirs(config_dir, exist_ok=True)
+            os.makedirs(config_dir, exist_ok=True)
         except OSError:
             log.exception("Error creating config directory")
         path = os.path.join(config_dir, "writeragent_history.db")
@@ -117,12 +117,14 @@ class SQLite3History:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_session_id ON message_store(session_id)")
-            conn.commit()
+
+    def _insert_message(self, conn: Any, msg: dict[str, Any]) -> None:
+        conn.execute("INSERT INTO message_store (session_id, message) VALUES (?, ?)", (self.session_id, json.dumps(msg)))
 
     def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         msg_dict = message_to_dict(role, content, tool_calls)
         with self._connect() as conn:
-            conn.execute("INSERT INTO message_store (session_id, message) VALUES (?, ?)", (self.session_id, json.dumps(msg_dict)))
+            self._insert_message(conn, msg_dict)
             conn.commit()
             log.debug(f"SQLite3: Added message for session {self.session_id}")
 
@@ -145,10 +147,7 @@ class SQLite3History:
                 except json.JSONDecodeError:
                     continue
             else:
-                conn.execute(
-                    "INSERT INTO message_store (session_id, message) VALUES (?, ?)",
-                    (self.session_id, json.dumps(msg_dict)),
-                )
+                self._insert_message(conn, msg_dict)
             conn.commit()
 
     def get_messages(self) -> list[dict[str, Any]]:
@@ -177,17 +176,10 @@ class SQLite3History:
         later insert fails. Other session ids in the same file are untouched.
         """
         with self._connect() as conn:
-            try:
-                conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
-                for msg in messages:
-                    conn.execute(
-                        "INSERT INTO message_store (session_id, message) VALUES (?, ?)",
-                        (self.session_id, json.dumps(msg)),
-                    )
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
+            conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
+            for msg in messages:
+                self._insert_message(conn, msg)
+            conn.commit()
 
 
 def _json_history_filename(session_id: str, history_dir: str) -> str:
@@ -201,7 +193,6 @@ def _json_history_filename(session_id: str, history_dir: str) -> str:
     is_unsafe = (
         not name
         or name in (".", "..")
-        or "/" in name
         or "\\" in name
         or os.path.basename(name) != name
     )
@@ -233,8 +224,7 @@ class JSONHistory:
         # Use a directory based on the db_path filename (e.g. writeragent_history.json.d/)
         self.history_dir = db_path + ".d"
         try:
-            if not os.path.exists(self.history_dir):
-                os.makedirs(self.history_dir, exist_ok=True)
+            os.makedirs(self.history_dir, exist_ok=True)
             log.info(f"JSONHistory: Using directory {self.history_dir}")
         except OSError:
             log.exception("JSONHistory: Error creating directory")
@@ -251,37 +241,35 @@ class JSONHistory:
             log.exception("JSONHistory: refusing to overwrite unreadable session %s", self.session_id)
             return None
 
-    def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
-        msg_dict = message_to_dict(role, content, tool_calls)
+    def _modify(self, mutate: Callable[[list[dict[str, Any]]], None], error: str) -> bool:
         messages = self._load_for_write()
         if messages is None:
-            return
-        messages.append(msg_dict)
+            return False
+        mutate(messages)
         try:
             self.replace_messages(messages)
-            log.debug(f"JSONHistory: Added message for session {self.session_id}")
         except (OSError, TypeError):
-            # The turn is already in ChatSession.messages. Swallowing the save
-            # left the next open without that row. get_messages already re-raises.
-            log.exception("JSONHistory: Error saving message")
+            log.exception(error)
             raise
+        return True
+
+    def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
+        msg_dict = message_to_dict(role, content, tool_calls)
+        if self._modify(lambda msgs: msgs.append(msg_dict), "JSONHistory: Error saving message"):
+            log.debug(f"JSONHistory: Added message for session {self.session_id}")
 
     def update_last_user_content(self, content: Any) -> None:
         msg_dict = message_to_dict("user", content)
-        messages = self._load_for_write()
-        if messages is None:
-            return
-        for i in range(len(messages) - 1, -1, -1):
-            if messages[i].get("role") == "user":
-                messages[i] = msg_dict
-                break
-        else:
-            messages.append(msg_dict)
-        try:
-            self.replace_messages(messages)
-        except (OSError, TypeError):
-            log.exception("JSONHistory: Error updating last user message")
-            raise
+
+        def mutate(messages: list[dict[str, Any]]) -> None:
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i].get("role") == "user":
+                    messages[i] = msg_dict
+                    break
+            else:
+                messages.append(msg_dict)
+
+        self._modify(mutate, "JSONHistory: Error updating last user message")
 
     def get_messages(self) -> list[dict[str, Any]]:
         if not os.path.exists(self.file_path):

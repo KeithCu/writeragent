@@ -81,10 +81,8 @@ from plugin.chatbot.tool_loop_state import (
     object_dict_or_empty,
 )
 from plugin.chatbot.compaction import (
-    MAX_OVERFLOW_COMPACTION_ATTEMPTS,
     compact_session,
     is_context_overflow_error,
-    is_process_death_error,
     messages_for_llm,
     should_retry_overflow,
 )
@@ -245,7 +243,6 @@ def _compact_bound_session(
         stop_checker=stop_checker,
         force=force,
         status_callback=status_cb,
-        enabled=True,
     )
     # bind_spawn's current_turn can be None (no live turn); only a real
     # TurnController carries the _last_compact_* fields.
@@ -983,9 +980,7 @@ class ToolCallingMixin:
                 and retry_q is not None
                 and isinstance(live_turn, TurnController)
                 and live_turn.active_client is not None
-                and not is_process_death_error(crash_blob)
                 and is_context_overflow_error(crash_blob)
-                and live_turn._overflow_compact_attempts < MAX_OVERFLOW_COMPACTION_ATTEMPTS
                 and should_retry_overflow(
                     live_turn._overflow_compact_attempts,
                     live_turn._last_compact_reason,

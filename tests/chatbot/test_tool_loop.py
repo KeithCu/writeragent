@@ -1351,3 +1351,12 @@ def test_compact_bound_session_tolerates_missing_turn():
          patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=1000), \
          patch("plugin.chatbot.tool_loop.compact_session", return_value=result):
         assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, stop_checker=None, force=False, status_cb=Mock()) is True
+
+
+def test_compact_bound_session_disabled_skips_compact():
+    from plugin.chatbot.tool_loop import _compact_bound_session
+
+    with patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False), \
+         patch("plugin.chatbot.tool_loop.compact_session") as mock_compact:
+        assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, stop_checker=None, force=True, status_cb=Mock()) is True
+        mock_compact.assert_not_called()
