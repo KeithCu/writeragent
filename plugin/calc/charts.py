@@ -479,13 +479,13 @@ def _chart_step(warnings: list[str], label: str, fn: Callable[[], None]) -> None
         log.warning("Setting chart %s failed: %s", label, exc)
 
 
-def _set_diagram_flag(diagram: Any, prop: str, value: Any, warnings: list[str], debug: str) -> None:
+def _set_diagram_flag(diagram: Any, prop: str, value: Any, warnings: list[str]) -> None:
     if value is None:
         return
     if hasattr(diagram, prop):
         def _apply() -> None:
             setattr(diagram, prop, value)
-            log.debug(debug, value)
+            log.debug("Set diagram %s: %s", prop, value)
         _chart_step(warnings, prop, _apply)
     else:
         warnings.append(f"Diagram does not support {prop}")
@@ -515,14 +515,14 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
         return warnings
 
     # 1. 3D Mode, Stacking, Percent
-    _set_diagram_flag(diagram, "Dim3D", kwargs.get("is_3d"), warnings, "Set diagram 3D mode: %s")
-    _set_diagram_flag(diagram, "Stacked", kwargs.get("stacked"), warnings, "Set diagram stacked mode: %s")
-    _set_diagram_flag(diagram, "Percent", kwargs.get("percent"), warnings, "Set diagram percent stacked: %s")
+    _set_diagram_flag(diagram, "Dim3D", kwargs.get("is_3d"), warnings)
+    _set_diagram_flag(diagram, "Stacked", kwargs.get("stacked"), warnings)
+    _set_diagram_flag(diagram, "Percent", kwargs.get("percent"), warnings)
 
     # 2. Bar/Column Orientation
     chart_type = kwargs.get("chart_type")
     if chart_type in ["bar", "column"]:
-        _set_diagram_flag(diagram, "Vertical", chart_type == "bar", warnings, "Set diagram orientation: vertical=%s")
+        _set_diagram_flag(diagram, "Vertical", chart_type == "bar", warnings)
 
     # 3. Titles
     def _apply_chart_title(prop: str, getter: str, text: str, label: str) -> None:
@@ -707,15 +707,13 @@ def _format_chart_exception_msg(e: Exception) -> str:
     return f"{type(e).__name__}"
 
 
-def _chart_op_error(tool: Any, exc: Exception, *, prefix: str, log_msg: str | None = None, code: str | None = None) -> dict[str, Any]:
+def _chart_op_error(tool: Any, exc: Exception, *, prefix: str, log_msg: str | None = None, code: str = "TOOL_EXECUTION_ERROR") -> dict[str, Any]:
     # Closed-document disposal must stay DOCUMENT_DISPOSED, not a chart error code.
     if is_real_disposal(exc):
         raise exc
     if log_msg is not None:
         log.exception(log_msg)
     text = f"{prefix}: {_format_chart_exception_msg(exc)}"
-    if code is None:
-        return tool._tool_error(text)
     return tool._tool_error(text, code=code)
 
 
@@ -1149,7 +1147,7 @@ class UpsertChart(ToolBaseDummy):
             rect = uno.createUnoStruct("com.sun.star.awt.Rectangle", X=1000, Y=1000, Width=12000, Height=8000)
 
             try:
-                if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
+                if is_calc:
                     return self._create_calc_chart(ctx, rect, chart_service, **kwargs)
                 elif supportsService(doc, "com.sun.star.text.TextDocument"):
                     return self._create_writer_chart(ctx, rect, chart_service, **kwargs)
