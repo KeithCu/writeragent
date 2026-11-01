@@ -73,13 +73,13 @@ GRAMMAR_BATCH_MAX_SENTENCES = 8
 GRAMMAR_MAX_IN_FLIGHT = 8
 
 
-def _clamped_int_config(key: str, default: int, lo: int, hi: int, *, warn_name: str = "") -> int:
-    """Read an int config key, falling back to default if <= 0 and clamping to [lo, hi]."""
+def _clamped_int_config(key: str, lo: int, hi: int, *, warn_name: str = "") -> int:
+    """Read an int config key, falling back to lo if <= 0 and clamping to [lo, hi]."""
     from plugin.framework import config
 
     n = config.get_config_int_safe(key)
     if n <= 0:
-        return default
+        return lo
     if n < lo or n > hi:
         if warn_name:
             _log.warning("[grammar] %s %d out of range [%d, %d], clamping", warn_name, n, lo, hi)
@@ -87,18 +87,16 @@ def _clamped_int_config(key: str, default: int, lo: int, hi: int, *, warn_name: 
     return n
 
 
-def grammar_max_in_flight(ctx: Any = None) -> int:
+def grammar_max_in_flight() -> int:
     """Clamp ``doc.grammar_proofreader_max_in_flight`` to [1, GRAMMAR_MAX_IN_FLIGHT].
 
-    ``ctx`` unused; kept so call sites can pass the UNO context they already hold.
     Local providers (Harper, LanguageTool, Vale) always use 1 worker; parallel
     drain threads and HTTP slots apply only when the grammar provider is LLM.
     """
     # Lazy: grammar_worker imports this module at top level, so importing it here would cycle.
     from plugin.writer.locale.grammar_worker import get_grammar_provider
 
-    del ctx
-    n = _clamped_int_config("doc.grammar_proofreader_max_in_flight", default=1, lo=1, hi=GRAMMAR_MAX_IN_FLIGHT)
+    n = _clamped_int_config("doc.grammar_proofreader_max_in_flight", lo=1, hi=GRAMMAR_MAX_IN_FLIGHT)
     if get_grammar_provider() != "llm":
         # Harper / LanguageTool / Vale: never parallel drain threads.
         if n > 1:
@@ -107,35 +105,30 @@ def grammar_max_in_flight(ctx: Any = None) -> int:
     return n
 
 
-def grammar_batch_sentences(ctx: Any = None) -> int:
+def grammar_batch_sentences() -> int:
     """Clamp ``doc.grammar_proofreader_batch_sentences`` to [1, GRAMMAR_BATCH_MAX_SENTENCES].
 
-    ``ctx`` unused; kept so call sites can pass the UNO context they already hold.
     Logs a warning and clamps if the value is out of bounds or malformed.
     """
-    del ctx
     return _clamped_int_config(
         "doc.grammar_proofreader_batch_sentences",
-        default=1,
         lo=1,
         hi=GRAMMAR_BATCH_MAX_SENTENCES,
         warn_name="batch_sentences",
     )
 
 
-def grammar_max_tokens(ctx: Any = None) -> int:
+def grammar_max_tokens() -> int:
     """Return the fixed max output tokens for an LLM grammar response.
 
     Not user-configurable (there is no config key for it).
     This is the per-request cap (used for both single-sentence and batch requests,
     not multiplied by batch size).
-    ``ctx`` unused; kept so call sites can pass the UNO context they already hold.
     """
-    del ctx
     return GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
 
 
-def grammar_max_chars(ctx: Any = None) -> int:
+def grammar_max_chars() -> int:
     """Return the fixed max sentence character limit for LLM grammar checks.
 
     Not user-configurable (there is no config key for it).
@@ -143,9 +136,7 @@ def grammar_max_chars(ctx: Any = None) -> int:
     is the checked prefix; a tail-only edit does not miss that prefix and does not raise
     a new squiggle. Old rows stored under the full-sentence fingerprint miss once and are
     rewritten under the prefix. No migration.
-    ``ctx`` unused; kept so call sites can pass the UNO context they already hold.
     """
-    del ctx
     return GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS
 
 

@@ -353,8 +353,6 @@ def candidate_sentence_spans_for_proofreading(
 ) -> list[SentenceSpan]:
     """Return ``(abs_start, abs_end, sentence_text)`` for all sentences in ``a_text``."""
     all_sents = split_into_sentences(ctx, loc_key, a_text)
-    if not all_sents:
-        return []
     all_sents = merge_dialogue_sentences(all_sents)
     return [(off, off + len(txt), txt) for off, txt in all_sents]
 
@@ -449,15 +447,13 @@ def _tokenize(text: str, break_iterator: Any, locale: Any) -> list[str]:
     return tokens
 
 
-def anchor_wrong_in_window(window: str, wrong: str, search_pos: int, *, wrong_idx: int | None = None) -> int | None:
-    """Find ``wrong`` in ``window`` starting at ``search_pos``, with ordered-scan fallback."""
+def anchor_wrong_in_window(window: str, wrong: str, search_pos: int) -> int | None:
+    """Find ``wrong`` in ``window`` starting at ``search_pos``."""
     if not wrong:
         return None
     rel = window.find(wrong, search_pos)
     if rel >= 0:
         return rel
-    if window.find(wrong) >= 0:
-        grammar_obs("normalize_skip_duplicate", wrong=wrong, wrong_idx=wrong_idx, search_pos=search_pos)
     return None
 
 
@@ -566,7 +562,7 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
 
     search_pos = 0
 
-    for idx, it in enumerate(items):
+    for it in items:
         wrong = it.get("wrong", "")
         correct = it.get("correct", "")
 
@@ -580,7 +576,7 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
             rel, length = provider_span
             pos = slice_start + rel
         else:
-            anchored_rel = anchor_wrong_in_window(window, wrong, search_pos, wrong_idx=idx)
+            anchored_rel = anchor_wrong_in_window(window, wrong, search_pos)
             if anchored_rel is None:
                 continue
             pos = slice_start + anchored_rel

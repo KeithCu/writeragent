@@ -619,7 +619,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         combined_errors: list[dict[str, Any]] = []
         uncached_spans: list[tuple[int, int, str]] = []
         is_llm = checker_identity.startswith("llm:")
-        max_chars = grammar_proofread_locale.grammar_max_chars(self.ctx) if is_llm else 0
+        max_chars = grammar_proofread_locale.grammar_max_chars() if is_llm else 0
         for sent_start, _sent_end, sent_text in work_spans:
             lookup_text = (
                 grammar_proofread_locale.checked_grammar_text(sent_text, max_chars)

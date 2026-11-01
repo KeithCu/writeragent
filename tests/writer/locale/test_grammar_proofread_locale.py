@@ -184,30 +184,27 @@ def test_fingerprint_for_text() -> None:
 
 @pytest.mark.parametrize("provider", ("harper", "languagetool", "vale"))
 def test_grammar_max_in_flight_local_providers_always_one(provider: str) -> None:
-    ctx = MagicMock()
     with (
         patch("plugin.framework.config.get_config_int_safe", return_value=4),
         patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value=provider),
     ):
-        assert gl.grammar_max_in_flight(ctx) == 1
+        assert gl.grammar_max_in_flight() == 1
 
 
 def test_grammar_max_in_flight_llm_uses_config() -> None:
-    ctx = MagicMock()
     with (
         patch("plugin.framework.config.get_config_int_safe", return_value=4),
         patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="llm"),
     ):
-        assert gl.grammar_max_in_flight(ctx) == 4
+        assert gl.grammar_max_in_flight() == 4
 
 
 def test_grammar_max_in_flight_llm_clamps_to_hard_cap() -> None:
-    ctx = MagicMock()
     with (
         patch("plugin.framework.config.get_config_int_safe", return_value=99),
         patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="llm"),
     ):
-        assert gl.grammar_max_in_flight(ctx) == gl.GRAMMAR_MAX_IN_FLIGHT
+        assert gl.grammar_max_in_flight() == gl.GRAMMAR_MAX_IN_FLIGHT
 
 
 def test_grammar_batch_sentences_defaults_and_clamping() -> None:

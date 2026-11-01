@@ -80,7 +80,7 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
 def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Generator[None, None, None]:
     """Gate grammar proofreader HTTP: limit=1 uses global lane; limit>1 allows N parallel grammar calls.
 
-    Callers resolve the limit (Writer ``grammar_max_in_flight(ctx)``) and pass it in —
+    Callers resolve the limit (Writer ``grammar_max_in_flight()``) and pass it in —
     this module must not import ``plugin.writer``.
     """
     if max_in_flight <= 1:

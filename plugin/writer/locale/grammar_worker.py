@@ -197,7 +197,7 @@ def cache_lookup_text(item: GrammarWorkItem) -> str:
     cache_ident = _item_cache_identity(item) or ""
     if cache_ident.startswith("llm:"):
         return grammar_proofread_locale.checked_grammar_text(
-            item.text, grammar_proofread_locale.grammar_max_chars(item.ctx)
+            item.text, grammar_proofread_locale.grammar_max_chars()
         )
     return item.text
 
@@ -638,7 +638,7 @@ def call_grammar_llm(
         max_tokens = ec.max_tok
 
     request_start = time.monotonic()
-    with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight(ec.ctx)):
+    with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight()):
         content = grammar_llm_sync(ec, messages, max_tokens)
     elapsed_ms = int((time.monotonic() - request_start) * 1000)
 
@@ -728,7 +728,7 @@ def _detect_via_llm_batch(
     detect_max_tok = grammar_proofread_locale.GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_PER_BATCH_ITEM * len(chunk)
 
     emit_grammar_status("request", f"Batch of {len(chunk)}", result="Detecting language")
-    with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight(ec.ctx)):
+    with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight()):
         detect_content = language_detect_llm_sync(ec, detect_messages, detect_max_tok)
 
     parsed_langs = grammar_proofread_json.parse_language_detect_batch_json(detect_content or "")
@@ -768,7 +768,7 @@ def _detect_via_llm_single(
     detect_messages = [{"role": "system", "content": detect_prompt}, {"role": "user", "content": text}]
 
     emit_grammar_status("request", text, result="Detecting language")
-    with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight(ec.ctx)):
+    with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight()):
         detect_content = language_detect_llm_sync(
             ec,
             detect_messages,
@@ -998,7 +998,7 @@ def run_llm_and_cache_batch(
         # Local engines never need LlmClient / model_fetcher (and must not import framework.client package).
         local_provider = provider in ("harper", "languagetool", "vale")
 
-        max_tok = grammar_proofread_locale.grammar_max_tokens(ctx)
+        max_tok = grammar_proofread_locale.grammar_max_tokens()
         model = ""
         client: Any = None
         if not local_provider:
@@ -1012,7 +1012,7 @@ def run_llm_and_cache_batch(
                 model = model_fetcher.get_grammar_model()
             client = _get_or_create_thread_llm_client(config.get_api_config(), ctx)
 
-        batch_size = 1 if local_provider else grammar_proofread_locale.grammar_batch_sentences(ctx)
+        batch_size = 1 if local_provider else grammar_proofread_locale.grammar_batch_sentences()
         detect_lang_mode = "off" if local_provider else get_grammar_detect_language_mode(ctx)
         detect_lang_enabled = detect_lang_mode != "off"
 
