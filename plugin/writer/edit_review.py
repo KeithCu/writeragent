@@ -255,10 +255,22 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
 
     parts: list[str] = []
 
-    def walk() -> bool:
+    def walk() -> None:
         # Tip: keep skipping across paragraphs; emit a break only between paragraphs with kept text.
         emitted_any = False
         skipping = False
+
+        def take_para(on_error: bool) -> None:
+            nonlocal emitted_any
+            if not has_non_skipped or (on_error and not para_chunks):
+                return
+            if emitted_any:
+                parts.append("\n")
+            if not on_error:
+                emitted_any = True
+            if para_chunks:
+                parts.append("".join(para_chunks))
+
         while para_enum.hasMoreElements():
             para = para_enum.nextElement()
             try:
@@ -284,22 +296,20 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
                         para_chunks.append(chunk)
             except Exception as exc:
                 reraise_if_disposed(exc)
-                if has_non_skipped and para_chunks:
-                    if emitted_any:
-                        parts.append("\n")
-                    parts.append("".join(para_chunks))
+                take_para(True)
                 break
 
-            if has_non_skipped:
-                if emitted_any:
-                    parts.append("\n")
-                emitted_any = True
-                if para_chunks:
-                    parts.append("".join(para_chunks))
-        return True
+            take_para(False)
 
-    uno_read(walk, False)
+    uno_read(walk, None)
     return "".join(parts)
+
+
+def _force_show_changes(doc: Any, who: str) -> None:
+    try:
+        doc.setPropertyValue("ShowChanges", True)
+    except Exception:
+        log.debug("%s: could not force ShowChanges", who, exc_info=True)
 
 
 @dataclass(frozen=True)
@@ -335,24 +345,6 @@ class EditReviewSession:
         self._was_recording = False
         self._prior_author: tuple[str, str] | None = None
 
-    # -- author scoping --------------------------------------------------------------------
-    #
-    # Redlines record the author at creation time (read-only afterward). Split authoring
-    # (review_authors) sets the INSERT author as the default and lets the replace primitives
-    # author their setString("") deletion as the DELETE author -- two authors so LibreOffice's
-    # by-author coloring shows insertions and deletions in two distinct colors.
-
-    def _swap_author(self) -> None:
-        from plugin.writer import review_authors
-
-        self._prior_author = review_authors.begin(self.ctx)
-
-    def _restore_author(self) -> None:
-        from plugin.writer import review_authors
-
-        review_authors.end(self.ctx, self._prior_author)
-        self._prior_author = None
-
     # -- context manager --------------------------------------------------------------------
 
     def __enter__(self) -> "EditReviewSession":
@@ -369,18 +361,20 @@ class EditReviewSession:
                 log.warning("EditReviewSession: could not enable RecordChanges; edits will be unreviewed")
                 return self
         self._active = True
-        self._swap_author()
+        from plugin.writer import review_authors
+
+        self._prior_author = review_authors.begin(self.ctx)
         # Make the markup visible so the user actually sees what to review.
-        try:
-            self.doc.setPropertyValue("ShowChanges", True)
-        except Exception:
-            log.debug("EditReviewSession: could not force ShowChanges", exc_info=True)
+        _force_show_changes(self.doc, "EditReviewSession")
         return self
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
         if not self._active:
             return
-        self._restore_author()
+        from plugin.writer import review_authors
+
+        review_authors.end(self.ctx, self._prior_author)
+        self._prior_author = None
         if not self._was_recording:
             try:
                 self.doc.setPropertyValue("RecordChanges", False)
@@ -811,9 +805,13 @@ _SURGICAL_UNDO_TITLE = "WriterAgent surgical edit"
 _surgical_batch_counter = itertools.count(1)
 
 
+def _next_undo_title(base: str) -> str:
+    return "%s#%d" % (base, next(_surgical_batch_counter))
+
+
 def next_surgical_undo_title() -> str:
     """A process-unique grouped-undo title for one surgical batch (base + a monotonic counter)."""
-    return "%s#%d" % (_SURGICAL_UNDO_TITLE, next(_surgical_batch_counter))
+    return _next_undo_title(_SURGICAL_UNDO_TITLE)
 
 
 _AGENT_EDIT_UNDO_TITLE = "WriterAgent edit"
@@ -821,7 +819,7 @@ _AGENT_EDIT_UNDO_TITLE = "WriterAgent edit"
 
 def next_agent_edit_undo_title() -> str:
     """A process-unique grouped-undo title for one HTML/import edit (shares the monotonic counter)."""
-    return "%s#%d" % (_AGENT_EDIT_UNDO_TITLE, next(_surgical_batch_counter))
+    return _next_undo_title(_AGENT_EDIT_UNDO_TITLE)
 
 
 def _try_enter_undo_context(doc: Any, title: str) -> Any | None:
@@ -1198,10 +1196,7 @@ def _collapse_review_context(doc: Any, track_reviewable: bool, was_recording: bo
             # when the user has Track Changes display off (matches
             # EditReviewSession.__enter__). Review mode only -- never when the user
             # merely has their own Track Changes on (we respect their view setting).
-            try:
-                doc.setPropertyValue("ShowChanges", True)
-            except Exception:
-                log.debug("%s: could not force ShowChanges", label, exc_info=True)
+            _force_show_changes(doc, label)
         except Exception:
             log.debug("%s: review tagging setup failed", label, exc_info=True)
     try:
@@ -1245,6 +1240,14 @@ def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterC
     compound_undo = WriterCompoundUndo(doc, title)
     was_recording = bool(doc.getPropertyValue("RecordChanges"))
     return compound_undo, was_recording
+
+
+def _write_stream_chunk(session: Any, text: str, label: str) -> None:
+    try:
+        session.text_range.setString(text)
+    except Exception as exc:
+        session.last_write_error = exc
+        log.warning("%s: chunk apply failed", label, exc_info=True)
 
 
 class WriterStreamedRewriteSession:
@@ -1299,11 +1302,7 @@ class WriterStreamedRewriteSession:
         if not chunk:
             return
         self.generated_text += chunk
-        try:
-            self.text_range.setString(self.generated_text)
-        except Exception as exc:
-            self.last_write_error = exc
-            log.warning("streamed rewrite: chunk apply failed", exc_info=True)
+        _write_stream_chunk(self, self.generated_text, "streamed rewrite")
 
     def finish(self) -> str | None:
         """Finalize the rewrite. Returns a warning message on degraded success."""
@@ -1432,11 +1431,7 @@ class WriterStreamedAppendSession:
         if not chunk:
             return
         self.appended_text += chunk
-        try:
-            self.text_range.setString(self.original_text + self.appended_text)
-        except Exception as exc:
-            self.last_write_error = exc
-            log.warning("streamed append: chunk apply failed", exc_info=True)
+        _write_stream_chunk(self, self.original_text + self.appended_text, "streamed append")
 
     def finish(self) -> str | None:
         """Collapse the appended continuation into one tracked insertion. Returns a warning on degraded success."""
