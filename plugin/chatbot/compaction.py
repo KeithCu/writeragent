@@ -56,7 +56,6 @@ KEEP_RECENT_FLOOR = 2048  # preference, not a hard min after remaining-budget cl
 KEEP_RECENT_CAP = 20_000  # OpenClaw DEFAULT_COMPACTION_SETTINGS.keepRecentTokens
 MIN_TAIL_TOKENS = 256  # hard floor; below this, nothing to gain
 IMAGE_BLOCK_TOKENS = 2000  # OpenClaw compaction.ts:278 (Hermes default is 1500)
-AUDIO_BLOCK_TOKENS = 2000
 # Hermes ContextCompressor._PRUNE_MIN_CHARS
 # https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L661
 PRUNE_MIN_CHARS = 200
@@ -255,10 +254,9 @@ def estimate_message_tokens(msg: dict[str, Any]) -> int:
     tokens = estimate_tokens_rough(text)
     for tc in msg.get("tool_calls") or []:
         fn = (tc.get("function") or {}) if isinstance(tc, dict) else {}
-        tokens += estimate_tokens_rough(str(fn.get("name") or ""))
-        tokens += estimate_tokens_rough(str(fn.get("arguments") or ""))
-    tokens += n_img * IMAGE_BLOCK_TOKENS
-    tokens += n_aud * AUDIO_BLOCK_TOKENS
+        tokens += estimate_tokens_rough(fn.get("name"))
+        tokens += estimate_tokens_rough(fn.get("arguments"))
+    tokens += (n_img + n_aud) * IMAGE_BLOCK_TOKENS
     return max(1, tokens)
 
 
@@ -408,6 +406,12 @@ def _tool_stub(messages: list[dict[str, Any]], idx: int, text: str) -> str:
     return "[%s] (%d chars)" % (_tool_name_for(messages, idx), len(text))
 
 
+def _stub_copy(messages: list[dict[str, Any]], idx: int, msg: dict[str, Any], text: str) -> dict[str, Any]:
+    copied = dict(msg)
+    copied["content"] = _tool_stub(messages, idx, text)
+    return copied
+
+
 def newest_assistant_tool_span(messages: list[dict[str, Any]], start_index: int) -> tuple[int, int] | None:
     """(asst_idx, end_idx exclusive) of the newest assistant+tool_calls group.
 
@@ -467,10 +471,8 @@ def pressure_stub_newest_tool_group(messages: list[dict[str, Any]], keep_tokens:
         text = flatten_content(work[j].get("content"))[0]
         if len(text) <= PRUNE_MIN_CHARS:
             continue
-        copied = dict(work[j])
-        copied["content"] = _tool_stub(messages, j, text)
-        work[j] = copied
-        cid = copied.get("tool_call_id")
+        work[j] = _stub_copy(messages, j, work[j], text)
+        cid = work[j].get("tool_call_id")
         if cid:
             stubbed.append(cid)
         if tail_tokens() <= keep_tokens:
@@ -549,8 +551,6 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     (``context_compressor.py:3846-3884``); not a port of that method.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L3846-L3884
     """
-    if not messages:
-        return []
     out = []
     i = 0
     n = len(messages)
@@ -606,17 +606,13 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _apply_tail_stubs(messages: list[dict[str, Any]], first_kept_index: int, stubbed_ids: Any) -> list[dict[str, Any]]:
-    if not stubbed_ids:
-        return list(messages[first_kept_index:])
-    ids = set(stubbed_ids)
+    ids = set(stubbed_ids or ())
     tail = []
     for i in range(first_kept_index, len(messages)):
         msg = messages[i]
         if msg.get("role") == "tool" and msg.get("tool_call_id") in ids:
             text = flatten_content(msg.get("content"))[0]
-            copied = dict(msg)
-            copied["content"] = _tool_stub(messages, i, text)
-            tail.append(copied)
+            tail.append(_stub_copy(messages, i, msg, text))
         else:
             tail.append(msg)
     return tail
@@ -783,19 +779,15 @@ def _next_summary_chunk(
         return None
 
     end = start + 1
-    while end < len(lines):
-        candidate_text = "\n".join(lines[start:end + 1])
-        if fits(candidate_text):
-            end += 1
-        else:
-            break
+    while end < len(lines) and fits("\n".join(lines[start:end + 1])):
+        end += 1
 
     return "\n".join(lines[start:end]), end
 
 
 def _cap_running_summary(summary: str, window: int) -> str:
-    summary = cap_summary(summary, _summary_budget(window) * CHARS_PER_TOKEN)
     budget = _summary_budget(window)
+    summary = cap_summary(summary, budget * CHARS_PER_TOKEN)
     while estimate_tokens(summary_pair(summary)) > budget and len(summary) > 32:
         summary = cap_summary(summary, max(32, len(summary) * 3 // 4))
     return summary
@@ -811,20 +803,19 @@ def _summarize_bounded(
     stop_checker: Callable[[], bool] | None,
     session: Any,
     messages: list[dict[str, Any]],
-) -> tuple[str | None, str, int]:
+) -> tuple[str | None, str]:
     lines = _summary_lines(slice_messages)
     if not lines:
-        return None, "failed", 0
+        return None, "failed"
 
     running = previous_summary
     idx = 0
-    chunks = 0
 
     while idx < len(lines):
         if stop_checker and stop_checker():
-            return None, "aborted", chunks
+            return None, "aborted"
         if getattr(session, "messages", None) is not messages:
-            return None, "aborted", chunks
+            return None, "aborted"
 
         next_chunk = _next_summary_chunk(
             lines,
@@ -834,7 +825,7 @@ def _summarize_bounded(
             previous_summary=running,
         )
         if next_chunk is None:
-            return None, "failed", chunks
+            return None, "failed"
 
         chunk_text, next_idx = next_chunk
         user_body = _summarizer_user_body(chunk_text, running)
@@ -853,21 +844,19 @@ def _summarize_bounded(
             )
         except Exception:
             log.exception("Compaction failed")
-            return None, "failed", chunks
-
-        chunks += 1
+            return None, "failed"
 
         if stop_checker and stop_checker():
-            return None, "aborted", chunks
+            return None, "aborted"
 
         content = (result or {}).get("content") or ""
         if not content.strip():
-            return None, "failed", chunks
+            return None, "failed"
 
         running = _cap_running_summary(content, window)
         idx = next_idx
 
-    return running, "ok", chunks
+    return running, "ok"
 
 
 def compact_session(
@@ -927,7 +916,7 @@ def compact_session(
     # or a reloaded history the summarizer prompt itself overflowed, compact_session
     # returned "failed", and should_retry_overflow stopped retrying. Chunks keep each
     # request inside window - gen_reserve.
-    summary, reason, chunks = _summarize_bounded(
+    summary, reason = _summarize_bounded(
         client,
         slice_to_summarize,
         window=window,
@@ -958,13 +947,12 @@ def compact_session(
         session.compaction = state  # revert; do not ship a too-large view
         return CompactResult(False, "failed", before, after)
     log.info(
-        "Compaction ok window=%s tokens_before=%s tokens_after=%s cut=%s prev_kept=%s chunks=%s",
+        "Compaction ok window=%s tokens_before=%s tokens_after=%s cut=%s prev_kept=%s",
         window,
         before,
         after,
         new_cut,
         prev_kept,
-        chunks,
     )
     if status_callback:
         status_callback("Thinking...")
