@@ -61,14 +61,23 @@ def call_properties(schema: Any) -> dict[str, Any] | None:
     return props
 
 
+def required_keys(schema: Any) -> list[Any]:
+    """``required`` when it is a list, else [].
+
+    Bugfix: a string required (``"name"`` / ``"ab"``) used to be iterated as
+    characters. Only a list is a set of keys. Leave a non-list value on the
+    schema object itself; this helper only supplies the key list.
+    """
+    raw = schema.get("required") if isinstance(schema, dict) else None
+    return raw if isinstance(raw, list) else []
+
+
 def without_unknown_kwargs(schema: Any, kwargs: dict[str, Any], extra_ok: Any = None) -> dict[str, Any]:
     """Drop keys the schema does not declare.
 
     Returns *kwargs* unchanged when every key is allowed, so callers can
     keep the original argument text when nothing was hallucinated.
     """
-    if not isinstance(kwargs, dict):
-        return kwargs
     props = call_properties(schema)
     if props is None:
         return kwargs
@@ -172,8 +181,6 @@ def normalize_outbound_tool_calls(messages: _OutboundMessages, tools: Any) -> _O
     if not tools:
         return messages
     schemas = _schemas_by_tool_name(tools)
-    if not schemas:
-        return messages
     for message in messages:
         if not isinstance(message, dict):
             continue
@@ -295,29 +302,19 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     if params.get("required") == []:
         params.pop("required", None)
 
-    # Bugfix: When 'required' was a string (e.g. "ab"), set(params.get("required") or [])
-    # split it into individual characters {'a', 'b'}, incorrectly treating properties as required.
-    # Treat required as keys only when it is a list; leave non-list required intact in params.
-    required_raw = params.get("required")
-    required_keys = set(required_raw) if isinstance(required_raw, list) else set()
-
     # Walk whenever ``properties`` is a dict, then walk ``items`` too.
     # JSON Schema still describes an object when ``type`` is omitted.
     # Requiring ``type == "object"`` returns ``{"properties": {...}}``
     # untouched, so children never get nullable or union normalization.
     if isinstance(params.get("properties"), dict):
-        new_props = {}
         for k, v in params["properties"].items():
             v = _normalize_schema_for_strict_providers(v)
-            if k not in required_keys:
+            if k not in required_keys(params):
                 v = _make_optional_scalar_nullable(v)
-            new_props[k] = v
-        params["properties"] = new_props
+            params["properties"][k] = v
     if "items" in params:
         if isinstance(params["items"], dict):
             params["items"] = _normalize_schema_for_strict_providers(params["items"])
-        elif isinstance(params["items"], list) and params["items"]:
-            params["items"] = _normalize_schema_for_strict_providers(params["items"][0])
     return params
 
 
@@ -341,8 +338,7 @@ def to_openai_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any
     # Host Tool + deepcopy of nested JSON Schema; pytest still checks @deal.
     # crosshair: off
     params = copy.deepcopy(tool.get_parameters(doc_type) or {})
-    if "type" not in params:
-        params["type"] = "object"
+    params.setdefault("type", "object")
     params = _normalize_schema_for_strict_providers(params)
     desc = tool.get_description(doc_type)
 
@@ -366,15 +362,12 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
     # Host Tool + deepcopy of nested JSON Schema; pytest still checks @deal.
     # crosshair: off
     input_schema = copy.deepcopy(tool.get_parameters(doc_type) or {})
-    if "type" not in input_schema:
-        input_schema["type"] = "object"
-    if "properties" not in input_schema:
-        input_schema["properties"] = {}
-    if "document_url" not in input_schema["properties"]:
-        input_schema["properties"]["document_url"] = {
-            "type": "string",
-            "description": "Optional URL or RuntimeUID of the target document (both come from list_open_documents). If not provided, the active document is used. A RuntimeUID also targets unsaved/untitled documents that have no file URL yet.",
-        }
+    input_schema.setdefault("type", "object")
+    props = input_schema.setdefault("properties", {})
+    props.setdefault("document_url", {
+        "type": "string",
+        "description": "Optional URL or RuntimeUID of the target document (both come from list_open_documents). If not provided, the active document is used. A RuntimeUID also targets unsaved/untitled documents that have no file URL yet.",
+    })
     desc = tool.get_description(doc_type)
 
     agent_label = getattr(tool, "_agent_label", None)
@@ -395,19 +388,16 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
     # MCP hosts validate args against inputSchema before tools/call. Keep string|array for
     # write_formula_range so native JSON arrays are accepted (OpenAI/Gemini stay string-only
     # via to_openai_schema collapse — see docs/calc/date-time-handling.md §4.3).
-    props = input_schema.get("properties")
-    if isinstance(props, dict):
-        if tool.name == "write_formula_range" and "values" in props:
-            fov = props["values"]
-            if isinstance(fov, dict):
-                fov["type"] = ["string", "array"]
-                fov["items"] = {"type": ["string", "number"]}
-                desc_bits = fov.get("description") or ""
-                if "Native JSON array" not in desc_bits:
-                    fov["description"] = ((desc_bits + " " if desc_bits else "") + "Native JSON array of strings/numbers is accepted (same length as the range); a single string still fills the entire range.").strip()
-        # Execute already coerces a bare range string to [str]. Source schemas stay
-        # array-only; widen MCP so a host may send the string execute already wraps.
-        rn = props.get("range")
-        if isinstance(rn, dict) and rn.get("type") == "array":
-            rn["type"] = ["string", "array"]
+    props = input_schema["properties"]
+    if tool.name == "write_formula_range" and "values" in props:
+        fov = props["values"]
+        fov["type"] = ["string", "array"]
+        fov["items"] = {"type": ["string", "number"]}
+        desc_bits = fov.get("description") or ""
+        fov["description"] = ((desc_bits + " " if desc_bits else "") + "Native JSON array of strings/numbers is accepted (same length as the range); a single string still fills the entire range.").strip()
+    # Execute already coerces a bare range string to [str]. Source schemas stay
+    # array-only; widen MCP so a host may send the string execute already wraps.
+    rn = props.get("range")
+    if isinstance(rn, dict) and rn.get("type") == "array":
+        rn["type"] = ["string", "array"]
     return {"name": tool.name, "description": desc, "inputSchema": input_schema}

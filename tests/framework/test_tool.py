@@ -389,7 +389,7 @@ class TestRegister:
         assert reg.get("another_tool") is not None
         assert reg.get("dummy_tool") is None
         assert reg.get("imported_tool") is None
-        assert len(reg) == 2
+        assert len(reg.tool_names) == 2
 
     def test_register_and_get(self):
         reg = _make_registry(FakeTool())
@@ -423,7 +423,7 @@ class TestRegister:
 
     def test_len(self):
         reg = _make_registry(FakeTool(), AllDocTool())
-        assert len(reg) == 2
+        assert len(reg.tool_names) == 2
 
 class TestDocTypeFiltering:
     def test_tools_for_writer(self):
