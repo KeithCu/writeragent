@@ -440,6 +440,7 @@ def test_db_and_ddb_period_and_validation():
     assert math.isnan(calc.ddb(1000, 100, 10, 0))
     assert math.isnan(calc.ddb(1000, 100, 10, 11))
     assert math.isnan(calc.ddb(-1000, 100, 10, 1))
+    assert math.isnan(calc.ddb(0, 0, 10, 1, float("inf")))
     val_ddb = calc.ddb(1000, 100, 10, 1)
     assert not math.isnan(val_ddb) and val_ddb > 0
 
@@ -522,6 +523,10 @@ def test_frequency_bincount():
     # >10: count 0
     freqs = calc.frequency(data, bins)
     assert freqs == [4, 1, 2, 0]
+    assert calc.frequency([], []) == [0]
+    assert calc.frequency([1, 2, 3], []) == [3]
+    assert calc.frequency([], [1, 2]) == [0, 0, 0]
+    assert calc.frequency(["a"], []) == [0]
 
 
 def test_frequency_conversion_error_is_value():
