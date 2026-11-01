@@ -34,6 +34,8 @@ from plugin.writer.tree import _collect_heading_indices, heading_ref
 
 log = logging.getLogger("writeragent.writer.nav.proximity")
 
+_ANCHORED_KINDS = ("images", "tables", "frames", "comments")
+
 
 def _validate_para_index(index: int, total: int) -> None:
     """Reject a paragraph index outside the document before it becomes a wrong window."""
@@ -61,6 +63,19 @@ def _collect_anchored(
     return items
 
 
+def _flatten_tree(root: dict[str, Any]) -> list[Any]:
+    def _flatten_recurse(children: list[Any], parent_entry: dict[str, Any] | None, flat: list[Any]) -> None:
+        for child in children:
+            entry = {"node": child, "parent": parent_entry}
+            flat.append(entry)
+            if child.get("children"):
+                _flatten_recurse(child["children"], entry, flat)
+
+    flat: list[Any] = []
+    _flatten_recurse(root["children"], None, flat)
+    return flat
+
+
 class ProximityService(ServiceBase):
     """Local proximity navigation on Writer documents."""
 
@@ -74,22 +89,6 @@ class ProximityService(ServiceBase):
         self._doc_svc = services.document
         self._tree_svc = services.writer_tree
         self._bm_svc = services.writer_bookmarks
-
-    # ==================================================================
-    # Flattened tree (ordered heading list with parent pointers)
-    # ==================================================================
-
-    def _flatten_tree(self, root: dict[str, Any]) -> list[Any]:
-        def _flatten_recurse(children: list[Any], parent_entry: dict[str, Any] | None, flat: list[Any]) -> None:
-            for child in children:
-                entry = {"node": child, "parent": parent_entry}
-                flat.append(entry)
-                if child.get("children"):
-                    _flatten_recurse(child["children"], entry, flat)
-
-        flat: list[Any] = []
-        _flatten_recurse(root["children"], None, flat)
-        return flat
 
     # ==================================================================
     # Heading context (binary search)
@@ -117,7 +116,7 @@ class ProximityService(ServiceBase):
         bookmark_map = self._bm_svc.ensure_heading_bookmarks(
             doc, heading_para_indices=indices, para_ranges=para_ranges
         )
-        return self._flatten_tree(tree), bookmark_map
+        return _flatten_tree(tree), bookmark_map
 
     # ==================================================================
     # navigate_heading
@@ -234,7 +233,7 @@ class ProximityService(ServiceBase):
             raise ToolExecutionError("radius must be an integer") from exc
         radius = max(0, min(50, radius))
         if include is None:
-            include = ["paragraphs", "images", "tables", "frames", "comments", "headings"]
+            include = ["paragraphs", *_ANCHORED_KINDS, "headings"]
 
         para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         total = len(para_ranges)
@@ -278,7 +277,7 @@ class ProximityService(ServiceBase):
             result["paragraphs"] = paragraphs
 
         entries = None
-        if any(k in include for k in ("images", "tables", "frames", "comments")):
+        if any(k in include for k in _ANCHORED_KINDS):
             entries = paragraph_entries(para_ranges)
 
         def anchored(anchor: Any) -> int | None:

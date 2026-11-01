@@ -9,7 +9,7 @@ from plugin.doc.paragraph_search import get_paragraph_ranges
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.tests.testing_utils import ElementStub, WriterDocStub
 from plugin.writer.navigation import NavHeading
-from plugin.writer.proximity import ProximityService, _collect_anchored
+from plugin.writer.proximity import ProximityService, _collect_anchored, _flatten_tree
 from plugin.writer.tree import TreeService
 
 
@@ -30,7 +30,6 @@ def _proximity(doc_key="uid:1"):
 
 
 def test_flatten_tree_links_parents_in_document_order():
-    prox = _proximity()
     root = {
         "children": [
             {
@@ -50,7 +49,7 @@ def test_flatten_tree_links_parents_in_document_order():
             },
         ]
     }
-    flat = prox._flatten_tree(root)
+    flat = _flatten_tree(root)
     assert [e["node"]["text"] for e in flat] == ["A", "A1", "A2", "B"]
     assert flat[0]["parent"] is None
     assert flat[1]["parent"] is flat[0]
