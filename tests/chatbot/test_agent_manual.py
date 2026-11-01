@@ -281,3 +281,33 @@ def test_alias_targets_exist_and_no_duplicate_aliases():
             assert alias not in seen, f"Duplicate alias: {alias}"
             seen.add(alias)
 
+
+def test_manual_topics_and_aliases_consistency():
+    from plugin.chatbot.agent_manual import _ALIASES_BY_TOPIC, _MANUALS, normalize_topic
+
+    for app_name, topics in _MANUALS.items():
+        seen_ids: set[str] = set()
+        for t in topics:
+            assert t.id and t.summary, f"Topic missing id or summary in {app_name}: {t}"
+            assert t.id not in seen_ids, f"Duplicate topic {t.id} in {app_name}"
+            seen_ids.add(t.id)
+
+    writer_ids = {t.id for t in _MANUALS["writer"]}
+    for canon_id in _ALIASES_BY_TOPIC:
+        assert canon_id in writer_ids, f"Alias key {canon_id} not in writer topics"
+
+    generic_ids = {t.id for t in _MANUALS["generic"]}
+    assert generic_ids.issubset(writer_ids), (
+        "Generic topic ids must be a subset of writer topic ids"
+    )
+
+    for app_name, topics in _MANUALS.items():
+        app_topic_ids = {t.id for t in topics}
+        for canon_id, alias_tuple in _ALIASES_BY_TOPIC.items():
+            if canon_id in app_topic_ids:
+                for alias in alias_tuple:
+                    assert normalize_topic(alias, app_name) == canon_id, (
+                        f"Alias {alias} did not resolve to {canon_id} in {app_name}"
+                    )
+
+
