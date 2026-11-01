@@ -182,7 +182,10 @@ def test_independent_ui_restore_for_clear():
     panel._events = controller
     panel.clear_control.model.Label = "Reject"
     panel._approval_event = threading.Event()
-    panel._approval_ui_backup = {"controls": {"clear": ("Clear", True)}}
+    panel._approval_ui_backup = {
+        "actions": (ButtonAction.RECORD, ButtonAction.IGNORE, ButtonAction.IGNORE),
+        "controls": {"clear": ("Clear", True)},
+    }
     controller._finish_inline_web_approval(False)
     assert panel.clear_control.model.Label == "Clear"
 
@@ -219,7 +222,10 @@ def test_open_web_search_change_dialog():
     ev = threading.Event()
     panel._approval_event = ev
     panel._approval_query_for_engine = "original"
-    panel._approval_ui_backup = {"controls": {"send": ("Send", True)}}
+    panel._approval_ui_backup = {
+        "actions": (ButtonAction.RECORD, ButtonAction.IGNORE, ButtonAction.IGNORE),
+        "controls": {"send": ("Send", True)},
+    }
 
     with patch("plugin.chatbot.dialogs.show_web_search_query_edit_dialog", return_value="edited"):
         controller._open_web_search_change_dialog()

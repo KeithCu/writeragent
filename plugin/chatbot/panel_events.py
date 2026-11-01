@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from plugin.chatbot.panel_resize import _set_pos_size_if_changed
 from plugin.chatbot.send_state import ButtonAction
 from plugin.framework.errors import suppress_disposed
 
@@ -34,18 +35,7 @@ def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
     if peer is not None and label in mnemonics:
         peer.setProperty("Label", mnemonics[label])
     if rect.Width > 0:
-        cur = ctrl.getPosSize()
-        if (cur.X, cur.Y, cur.Width, cur.Height) != (rect.X, rect.Y, rect.Width, rect.Height):
-            ctrl.setPosSize(rect.X, rect.Y, rect.Width, rect.Height, 15)
-
-
-def _restore_control(ctrl: Any, label: str, enabled: bool, mnemonics: dict[str, str]) -> None:
-    """Restore button label and enabled status from backup."""
-    if not ctrl or not ctrl.getModel():
-        return
-    m = ctrl.getModel()
-    _relabel_button(ctrl, label, mnemonics)
-    m.Enabled = enabled
+        _set_pos_size_if_changed(ctrl, rect.X, rect.Y, rect.Width, rect.Height)
 
 
 class PanelEventsController:
@@ -166,13 +156,13 @@ class PanelEventsController:
             return
         self._panel._approval_event = None
         self._panel._approval_query_for_engine = None
-        b: dict[str, Any] = self._panel._approval_ui_backup or {}
+        b = self._panel._approval_ui_backup
         self._panel._approval_ui_backup = None
         (
             self._panel._button_action,
             self._panel._stop_button_action,
             self._panel._clear_button_action,
-        ) = b.get("actions", (ButtonAction.RECORD, ButtonAction.IGNORE, ButtonAction.IGNORE))
+        ) = b["actions"]
         with suppress_disposed("_finish_inline_web_approval restore", logger=log):
             cache = self._panel._mnemonic_cache()
             controls = b.get("controls", {})
@@ -182,8 +172,12 @@ class PanelEventsController:
                 ("clear", self._panel.clear_control),
             ):
                 if key in controls:
+                    model = ctrl.getModel() if ctrl else None
+                    if not model:
+                        continue
                     label, enabled = controls[key]
-                    _restore_control(ctrl, label, enabled, cache)
+                    _relabel_button(ctrl, label, cache)
+                    model.Enabled = enabled
             if self._panel.status_control and "status_text" in b:
                 self._panel.status_control.setText(b["status_text"])
         ev.approved = approved

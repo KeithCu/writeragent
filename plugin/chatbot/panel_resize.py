@@ -103,7 +103,6 @@ def compute_chat_panel_layout(
     height: int,
     snapshot: dict[str, tuple[int, int, int, int]],
     *,
-    right_margin: int | None = None,
     preferred: dict[str, tuple[int, int]] | None = None,
 ) -> dict[str, ControlRect]:
     """Pure layout: bottom band anchored near the bottom, transcript fills the rest.
@@ -114,8 +113,7 @@ def compute_chat_panel_layout(
     """
     if width <= 0 or height <= 0 or not snapshot or "response" not in snapshot:
         return {}
-    if right_margin is None:
-        right_margin = column_right_margin(snapshot)
+    right_margin = column_right_margin(snapshot)
 
     bottom_top_initial, cluster_height = _cluster_metrics(snapshot)
     response_y = snapshot["response"][1]
@@ -372,16 +370,19 @@ def _clamp_to_column(x: int, w: int, width: int, right_margin: int) -> tuple[int
 
 def _measure(ctrl: Any, method: str) -> tuple[int, int] | None:
     """(width, height) from XLayoutConstrains on a control, or None."""
-    fn = getattr(ctrl, method, None)
-    if not callable(fn):
-        return None
-    size: Any = uno_probe(fn, None)
+    size: Any = uno_probe(getattr(ctrl, method, None), None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyright: ignore[reportArgumentType]
     if size is None:
         return None
     w, h = getattr(size, "Width", 0), getattr(size, "Height", 0)
     if not isinstance(w, int) or not isinstance(h, int) or w <= 0 or h <= 0:
         return None
     return w, h
+
+
+def _set_pos_size_if_changed(ctrl: Any, x: int, y: int, w: int, h: int) -> None:
+    cur = ctrl.getPosSize()
+    if (cur.X, cur.Y, cur.Width, cur.Height) != (x, y, w, h):
+        ctrl.setPosSize(x, y, w, h, 15)
 
 
 class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedClass]  # constructed from panel_wiring; covered by tests
@@ -400,6 +401,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     _restore_focus: Any
     _pending_win: Any
     _last_logged_size: tuple[int, int] | None
+    last_response_rect: tuple[int, int, int, int] | None
     on_control_replaced: Any
 
     def __init__(self, controls: dict[str, Any], on_dispose: Any = None, restore_focus: Any = None) -> None:
@@ -413,7 +415,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         self._root_window = None
         self._parent_window = None
         self._viewport_w = 0
-        self._last_response_rect: tuple[int, int, int, int] | None = None
+        self.last_response_rect = None
         self._last_logged_size = None
         self.on_control_replaced = None
 
@@ -430,10 +432,6 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     def invalidate_measurements(self) -> None:
         self._snapshot = None
         self._preferred.clear()
-
-    @property
-    def last_response_rect(self) -> tuple[int, int, int, int] | None:
-        return self._last_response_rect
 
     def disposing(self, Source: Any) -> None:
         # VCL calls this on deck close. ChatPanelElement.disposing is not
@@ -511,16 +509,6 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             len(snapshot),
         )
 
-    def _apply_rect(self, ctrl: Any, rect: ControlRect) -> None:
-        cur = ctrl.getPosSize()
-        if (
-            cur.X != rect.x
-            or cur.Y != rect.y
-            or cur.Width != rect.width
-            or cur.Height != rect.height
-        ):
-            ctrl.setPosSize(rect.x, rect.y, rect.width, rect.height, 15)
-
     def _relayout(self, win: Any) -> None:
         r = win.getPosSize()
         w, h = int(r.Width), int(r.Height)
@@ -561,10 +549,10 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         for name, rect in layouts.items():
             ctrl = self._c.get(name)
             if ctrl is not None:
-                self._apply_rect(ctrl, rect)
+                _set_pos_size_if_changed(ctrl, rect.x, rect.y, rect.width, rect.height)
 
         response = layouts["response"]
-        self._last_response_rect = (response.x, response.y, response.width, response.height)
+        self.last_response_rect = (response.x, response.y, response.width, response.height)
         max_right = 0
         for rect in layouts.values():
             max_right = max(max_right, rect.x + rect.width)
@@ -590,7 +578,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
                     rich,
                     win,
                     self._c.get("response"),
-                    placeholder_rect=self._last_response_rect,
+                    placeholder_rect=self.last_response_rect,
                     control_out=rich_out,
                     restore_focus=self._restore_focus,
                 )
