@@ -396,6 +396,15 @@ class TestRegister:
         assert reg.get("fake_tool") is not None
         assert reg.get("missing") is None
 
+    def test_register_rejects_non_dict_properties(self):
+        def _exec(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        Cls = type("OpenSchemaTool", (ToolBase,), {"name": "open_schema", "description": "d", "parameters": {"type": "object", "properties": None}, "execute": _exec})
+        reg = ToolRegistry(ServiceRegistry())
+        reg.register(Cls())
+        assert reg.get("open_schema") is None
+
     def test_register_warns_same_class_name_different_module(self, caplog):
         def _exec(self, ctx, **kwargs):
             return {"status": "ok"}

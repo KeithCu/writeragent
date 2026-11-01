@@ -609,6 +609,12 @@ class ToolRegistry:
         if tool.parameters is not None and not isinstance(tool.parameters, dict):
             log.error("Failed to register tool '%s': parameters must be a dictionary or None.", tool.name)
             return
+        # A non-dict "properties" makes call_properties() treat the schema as open, so a
+        # model "ctx" key would collide with execute(ctx, ...) now that prepare_tool_call
+        # no longer pops it (#2720).
+        if isinstance(tool.parameters, dict) and "properties" in tool.parameters and not isinstance(tool.parameters["properties"], dict):
+            log.error("Failed to register tool '%s': parameters 'properties' must be a dictionary.", tool.name)
+            return
 
         if tool.name in self._tools:
             existing_tool = self._tools[tool.name]
