@@ -50,11 +50,7 @@ class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
 
     @staticmethod
     def _style_of(attrs: list[tuple[str, str | None]]) -> str | None:
-        val = None
-        for k, v in attrs:
-            if k == "data-lo-style":
-                val = v
-        return val
+        return dict(attrs).get("data-lo-style")
 
     def _is_block(self, tag: str, attrs: list[tuple[str, str | None]]) -> bool:
         # A <div> is a transparent container -- except the one the read path gives a
@@ -139,7 +135,6 @@ def _extract_block_lo_styles(html: str) -> tuple[str, list[str | None]]:
 
 
 def _resolve_paragraph_style_token(
-    model: Any,
     fam: Any,
     token: str,
     element_names: list[str] | tuple[str, ...] | None = None,
@@ -215,7 +210,7 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
         if style:
             resolved = token_cache.get(style)
             if resolved is None:
-                resolved = _resolve_paragraph_style_token(model, fam, style, element_names=element_names)
+                resolved = _resolve_paragraph_style_token(fam, style, element_names=element_names)
                 token_cache[style] = resolved
             # The import already set the style; re-applying only re-reads every portion.
             current = uno_read(lambda: walk_cur.getPropertyValue("ParaStyleName"), None)

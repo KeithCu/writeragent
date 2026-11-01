@@ -64,7 +64,7 @@ def test_replace_full_document_html_plus_inline_math(ctx: Any, doc: Any) -> None
         "</math>"
         "<p>World</p>"
     )
-    format_support.replace_full_document(doc, ctx, html, config_svc=None)
+    format_support.replace_full_document(doc, ctx, html)
     assert _embed_count(doc) >= 1
     body = doc.getText().getString()
     assert "Hello" in body
@@ -94,7 +94,7 @@ def test_display_math_inserts_embed(ctx: Any, doc: Any) -> None:
         '<math display="block" xmlns="http://www.w3.org/1998/Math/MathML">'
         "<mrow><mi>z</mi></mrow></math>"
     )
-    format_support.replace_full_document(doc, ctx, m, config_svc=None)
+    format_support.replace_full_document(doc, ctx, m)
     assert _embed_count(doc) >= 1
 
 
@@ -131,7 +131,7 @@ def test_apply_document_content_end_with_mathml(ctx: Any, doc: Any) -> None:
 def test_replace_full_document_tex_inline(ctx: Any, doc: Any) -> None:
     _skip_windows_leftover_hidden_mathml()
     html = r"<p>Hi</p><p>\(x^2\)</p><p>Bye</p>"
-    format_support.replace_full_document(doc, ctx, html, config_svc=None)
+    format_support.replace_full_document(doc, ctx, html)
     assert _embed_count(doc) >= 1
     body = doc.getText().getString()
     assert "Hi" in body and "Bye" in body
@@ -142,7 +142,7 @@ def test_replace_full_document_tex_inline(ctx: Any, doc: Any) -> None:
 def test_replace_full_document_tex_display_dollars(ctx: Any, doc: Any) -> None:
     _skip_windows_leftover_hidden_mathml()
     html = r"<p>Intro</p>$$\frac{1}{2}$$<p>Outro</p>"
-    format_support.replace_full_document(doc, ctx, html, config_svc=None)
+    format_support.replace_full_document(doc, ctx, html)
     assert _embed_count(doc) >= 1
     body = doc.getText().getString()
     assert "Intro" in body and "Outro" in body
@@ -159,7 +159,7 @@ def test_replace_full_document_mixed_mathml_and_tex(ctx: Any, doc: Any) -> None:
         r"\(y\)"
         r"<p>C</p>"
     )
-    format_support.replace_full_document(doc, ctx, html, config_svc=None)
+    format_support.replace_full_document(doc, ctx, html)
     assert _embed_count(doc) >= 2
     body = doc.getText().getString()
     assert "A" in body and "B" in body and "C" in body

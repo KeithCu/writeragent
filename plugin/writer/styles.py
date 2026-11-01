@@ -1063,7 +1063,7 @@ class ApplyStyle(FrameworkToolBase):
             s = str(old_content).strip() if old_content is not None else ""
             if not s:
                 return {"status": "error", "message": "target='search' requires old_content.", "applied": False, "matched": False}
-            s = plain_text_if_markup(s, ctx.ctx, ctx.services.get("config"))
+            s = plain_text_if_markup(s)
             s = normalize_search_string_for_find(s)
             ranges = find_all_ranges(ctx.doc, s) if s else []
             if not ranges:

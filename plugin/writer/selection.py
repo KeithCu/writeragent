@@ -99,7 +99,7 @@ class SetSelection(ToolBase):
         # --- resolve the range to select ---
         if has_search:
             case_sensitive = bool(kwargs.get("case_sensitive", True))
-            search_str = plain_text_if_markup(str(search_text), ctx.ctx, ctx.services.get("config"))
+            search_str = plain_text_if_markup(str(search_text))
             if not search_str.strip():
                 return self._tool_error("search_text is empty after normalization.")
 

@@ -110,7 +110,7 @@ def _matching_span_end(html: str, start_pos: int) -> int | None:
     depth = 1
     for m in _SPAN_TAG_RE.finditer(html, start_pos):
         tag_text = m.group(0)
-        if tag_text.startswith("</") or tag_text.startswith("</"):
+        if tag_text.startswith("</"):
             depth -= 1
             if depth == 0:
                 return m.end()
@@ -336,10 +336,6 @@ def _first_remaining_field_token(text_obj: Any, nonce: str | None) -> Any:
     return None
 
 
-def _is_body_text(model: Any, text_obj: Any) -> bool:
-    return uno_same(text_obj, uno_read(lambda: model.getText(), None))
-
-
 def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str | None = None) -> int:
     """Replace ``[[WA-FIELD:…]]`` tokens inside *text_obj* without document search.
 
@@ -419,6 +415,14 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str | None = Non
     return restored
 
 
+def _raise_if_token_remains(text_obj: Any, nonce: str | None) -> None:
+    tok = _first_remaining_field_token(text_obj, nonce)
+    if isinstance(tok, str):
+        raise ToolExecutionError(
+            f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
+        )
+
+
 def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | None = None) -> int:
     """Turn ``[[WA-FIELD:…]]`` tokens back into UNO fields.
 
@@ -436,11 +440,7 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
 
     if model is None or not hasattr(model, "createSearchDescriptor"):
         if text_obj is not None:
-            tok = _first_remaining_field_token(text_obj, nonce)
-            if isinstance(tok, str):
-                raise ToolExecutionError(
-                    f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
-                )
+            _raise_if_token_remains(text_obj, nonce)
         return walked
 
     restored = walked
@@ -455,7 +455,7 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
 
     while found is not None:
         in_region = True
-        if text_obj is not None and not _is_body_text(model, text_obj):
+        if text_obj is not None and not uno_same(text_obj, uno_read(lambda: model.getText(), None)):
             in_region = uno_same(found.getText(), text_obj)
 
         props: dict[str, str] = {}
@@ -470,18 +470,11 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None, nonce: str | N
         nxt = model.findNext(found.getEnd(), sd)
 
         if in_region and field_title:
-            if props:
-                _insert_restored_field(model, found, field_title, props)
-            else:
-                _insert_restored_field(model, found, field_title)
+            _insert_restored_field(model, found, field_title, props)
             restored += 1
 
         found = nxt
 
     if text_obj is not None:
-        tok = _first_remaining_field_token(text_obj, nonce)
-        if isinstance(tok, str):
-            raise ToolExecutionError(
-                f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
-            )
+        _raise_if_token_remains(text_obj, nonce)
     return restored

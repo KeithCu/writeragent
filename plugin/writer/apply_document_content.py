@@ -501,7 +501,7 @@ class ApplyDocumentContent(ToolBase):
             content = "\n".join(str(part) for part in content)
         text = "" if content is None else str(content)
         if format_support.content_has_markup(text):
-            return format_support.plain_text_if_markup(text, ctx.ctx, ctx.services.get("config"))
+            return format_support.plain_text_if_markup(text)
         return text.replace("\\n", "\n").replace("\\t", "\t")
 
     def _outline_override_error(self) -> dict[str, Any]:
@@ -662,7 +662,7 @@ class ApplyDocumentContent(ToolBase):
 
     def _replace_found(self, session: EditReviewSession, doc: Any, found: Any, *,
                        use_preserve: bool, raw_content: str, content: Any,
-                       ctx: ToolContext, config_svc: Any, track_reviewable: bool,
+                       ctx: ToolContext, track_reviewable: bool,
                        override: str | None, batch: bool, plain_preview: str,
                        replacement_plain: str | None = None) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
@@ -705,7 +705,7 @@ class ApplyDocumentContent(ToolBase):
                 # record_html_atomically would nest another and close it early.
                 def replace_one(f: Any = found) -> None:
                     format_support.replace_single_range_with_content(
-                        doc, f, content, ctx.ctx, config_svc)
+                        doc, f, content, ctx.ctx)
 
                 session.record_mutation(
                     replace_one,
@@ -714,7 +714,7 @@ class ApplyDocumentContent(ToolBase):
                 record_html_atomically(
                     session, doc,
                     lambda: format_support.replace_single_range_with_content(
-                        doc, found, content, ctx.ctx, config_svc),
+                        doc, found, content, ctx.ctx),
                     original_preview=original, proposed_preview=plain_preview)
 
         def run() -> list[dict[str, Any]]:
@@ -831,7 +831,7 @@ class ApplyDocumentContent(ToolBase):
         from . import format as format_support
 
         old_stripped = str(old_content).strip()
-        s = format_support.plain_text_if_markup(old_stripped, ctx.ctx, ctx.services.get("config"))
+        s = format_support.plain_text_if_markup(old_stripped)
         s = search_mod.normalize_search_string_for_find(s)
         if not s:
             return self._tool_error("old_content is empty after normalization.")
@@ -1152,7 +1152,6 @@ class ApplyDocumentContent(ToolBase):
 
         raw_content = content
 
-        config_svc = ctx.services.get("config")
         # Opt-in review mode: when doc.agent_edit_review_mode is record/wait, EditReviewSession records
         # the agent's edits as native tracked changes (redlines) the user can accept/reject --
         # tagging each logical change so its outcome can be reported -- and restores the prior
@@ -1174,7 +1173,7 @@ class ApplyDocumentContent(ToolBase):
             if use_preserve:
                 return s
             try:
-                return format_support.plain_text_if_markup(s, ctx.ctx, config_svc)
+                return format_support.plain_text_if_markup(s)
             except Exception:
                 return s
 
@@ -1186,7 +1185,7 @@ class ApplyDocumentContent(ToolBase):
                 # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
                 record_html_atomically(
                     session, ctx.doc,
-                    lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content_to_insert, config_svc=config_svc),
+                    lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content_to_insert),
                     proposed_preview=_plain_preview(content))
             if has_table and _table_insert_failed(ctx.doc, None):
                 return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
@@ -1196,7 +1195,7 @@ class ApplyDocumentContent(ToolBase):
             tables_before = _doc_table_count(ctx.doc) if has_table else None
             with session:
                 session.record_mutation(
-                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "end", config_svc=config_svc),
+                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "end"),
                     proposed_preview=_plain_preview(content))
             if has_table and _table_insert_failed(ctx.doc, tables_before):
                 return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
@@ -1213,7 +1212,7 @@ class ApplyDocumentContent(ToolBase):
                 # Selection insert clears the selection first, then imports -> atomic (full_document above).
                 record_html_atomically(
                     session, ctx.doc,
-                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "selection", config_svc=config_svc),
+                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "selection"),
                     proposed_preview=_plain_preview(content))
             if has_table and _table_insert_failed(ctx.doc, tables_before):
                 return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
@@ -1224,7 +1223,7 @@ class ApplyDocumentContent(ToolBase):
             tables_before = _doc_table_count(ctx.doc) if has_table else None
             with session:
                 session.record_mutation(
-                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "beginning", config_svc=config_svc),
+                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content_to_insert, "beginning"),
                     proposed_preview=_plain_preview(content))
             if has_table and _table_insert_failed(ctx.doc, tables_before):
                 return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
@@ -1236,7 +1235,7 @@ class ApplyDocumentContent(ToolBase):
         # Whole-document replace: target='full_document' (no search, no old_content).
         old_stripped = str(old_content).strip()
 
-        search_string = format_support.plain_text_if_markup(old_stripped, ctx.ctx, config_svc)
+        search_string = format_support.plain_text_if_markup(old_stripped)
         # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
         search_string = search_mod.normalize_search_string_for_find(search_string)
         if not search_string:
@@ -1337,7 +1336,7 @@ class ApplyDocumentContent(ToolBase):
                         # outline URL write stays in the same Ctrl+Z as the text.
                         reports, link_err = self._replace_found(
                             session, doc, found, use_preserve=use_preserve, raw_content=raw_content,
-                            content=content, ctx=ctx, config_svc=config_svc,
+                            content=content, ctx=ctx,
                             track_reviewable=track_reviewable, override=override, batch=True,
                             plain_preview=plain_preview,
                             replacement_plain=replacement_plain)
@@ -1469,9 +1468,9 @@ class ApplyDocumentContent(ToolBase):
 
             def _insert_next_to_match() -> None:
                 if not is_block:
-                    format_support.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content), config_svc=config_svc)
+                    format_support.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content))
                 elif position != "after":
-                    format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False)
+                    format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
                 else:
                     # Importing at a paragraph END merges the first block into that paragraph; at a
                     # paragraph START it does not. Open an empty paragraph and import at its start.
@@ -1480,7 +1479,7 @@ class ApplyDocumentContent(ToolBase):
                     # which is then left over empty. This cursor stays at its start through the
                     # import (checked live, also with a table next and at the end of the text).
                     leftover = text_obj.createTextCursorByRange(insert_cursor.getStart())
-                    format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, config_svc=config_svc, apply_styles=False)
+                    format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
                     leftover.gotoEndOfParagraph(True)
                     if leftover.getString() == "":
                         # Delete the last imported block's break; a tracked insertion swallows it.
@@ -1539,7 +1538,7 @@ class ApplyDocumentContent(ToolBase):
             return _table_deletion_result([name for _table, name in doomed], tracked_delete), session
         reports, link_err = self._replace_found(
             session, doc, found, use_preserve=use_preserve, raw_content=raw_content,
-            content=content, ctx=ctx, config_svc=config_svc,
+            content=content, ctx=ctx,
             track_reviewable=track_reviewable, override=override, batch=False,
             plain_preview=_plain_preview(content))
         if link_err:

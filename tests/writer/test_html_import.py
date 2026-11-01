@@ -1007,14 +1007,14 @@ def test_html_to_plain_text_pure_does_not_call_scratch_writer():
     from plugin.writer.html_import import html_to_plain_text
 
     with patch("plugin.framework.scratch_writer.new_blank_writer") as mock_new_writer:
-        assert html_to_plain_text("<b>foo</b>", MagicMock()) == "foo"
+        assert html_to_plain_text("<b>foo</b>") == "foo"
         mock_new_writer.assert_not_called()
 
-        assert html_to_plain_text("<p>Hello</p><p>World</p>", MagicMock()) == "Hello\nWorld"
+        assert html_to_plain_text("<p>Hello</p><p>World</p>") == "Hello\nWorld"
         mock_new_writer.assert_not_called()
 
         # Ruby input returns base text only
-        assert html_to_plain_text("<ruby>漢字<rt>かんじ</rt></ruby>", MagicMock()) == "漢字"
+        assert html_to_plain_text("<ruby>漢字<rt>かんじ</rt></ruby>") == "漢字"
         mock_new_writer.assert_not_called()
 
 
@@ -1022,7 +1022,7 @@ def test_html_to_plain_text_plain_string_without_markup_succeeds_without_scratch
     from plugin.writer.html_import import html_to_plain_text
 
     with patch("plugin.framework.scratch_writer.new_blank_writer") as mock_new_writer:
-        res = html_to_plain_text("  plain text search  ", MagicMock())
+        res = html_to_plain_text("  plain text search  ")
         assert res == "plain text search"
         mock_new_writer.assert_not_called()
 
@@ -1250,7 +1250,7 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     fam = MagicMock()
     fam.getElementNames.return_value = ("Heading 1", "Heading 1", "Text Body")
     fam.hasByName.return_value = True
-    assert _resolve_paragraph_style_token(MagicMock(), fam, "Heading1") == "Heading 1"
+    assert _resolve_paragraph_style_token(fam, "Heading1") == "Heading 1"
 
 
 def test_resolve_paragraph_style_token_fallback_and_disposal():
@@ -1266,17 +1266,17 @@ def test_resolve_paragraph_style_token_fallback_and_disposal():
     fam = MagicMock()
     fam.getElementNames.return_value = ("Heading 1", "Standard")
     fam.hasByName.return_value = True
-    assert _resolve_paragraph_style_token(MagicMock(), fam, "heading 1") == "Heading 1"
+    assert _resolve_paragraph_style_token(fam, "heading 1") == "Heading 1"
 
     # (ii) Unknown fallback
     fam.hasByName.return_value = False
-    assert _resolve_paragraph_style_token(MagicMock(), fam, "heading 1") == "Standard"
+    assert _resolve_paragraph_style_token(fam, "heading 1") == "Standard"
 
     # (iii) DisposedException on hasByName
     fam.getElementNames.return_value = []
     fam.hasByName.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
-        _resolve_paragraph_style_token(MagicMock(), fam, "heading 1")
+        _resolve_paragraph_style_token(fam, "heading 1")
 
 
 def test_styled_math_insert_styles_from_paragraph_before_insert():
@@ -1289,8 +1289,7 @@ def test_styled_math_insert_styles_from_paragraph_before_insert():
     with patch.object(html_import, "_insert_mixed_html_and_math_at_cursor"), \
          patch.object(html_import, "_paragraph_before", return_value=before) as pb, \
          patch.object(html_import, "_paragraph_after", return_value=start) as pa, \
-         patch.object(html_import_styles, "_apply_block_lo_styles") as apply, \
-         patch.object(html_import, "_cursor_goto_document_end"):
+         patch.object(html_import_styles, "_apply_block_lo_styles") as apply:
         html_import._insert_mixed_or_plain_html(
             MagicMock(), MagicMock(), cursor,
             '<p data-lo-style="Heading1">Equation \\(x^2\\) here</p>',

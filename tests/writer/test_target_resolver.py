@@ -85,7 +85,7 @@ def test_search_converts_markup_before_find(monkeypatch):
         captured["search_string"] = search_string
         return found
 
-    monkeypatch.setattr("plugin.writer.target_resolver.plain_text_if_markup", lambda text, uno_ctx, config_svc: "plain needle")
+    monkeypatch.setattr("plugin.writer.target_resolver.plain_text_if_markup", lambda text: "plain needle")
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", fake_find)
     resolve_target_cursor(ctx, "search", "<b>needle</b>")
     assert captured.get("search_string") == "plain needle"
