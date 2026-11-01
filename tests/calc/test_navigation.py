@@ -84,6 +84,7 @@ def test_normalize_cell_address_round_trips():
 
 def test_cell_link_registry_lookup():
     control = MagicMock()
+    control.getText.return_value = ""
     cell_link_registry.clear(control)
     cell_link_registry.add(control, 10, 12, "B2")
     assert lookup_cell_ref_at_index(control, 10) == "B2"
@@ -93,6 +94,7 @@ def test_cell_link_registry_lookup():
 
 def test_cell_link_registry_drop_from_keeps_spans_ending_at_cut():
     control = MagicMock()
+    control.getText.return_value = ""
     cell_link_registry.clear(control)
     cell_link_registry.add(control, 0, 5, "A1")
     cell_link_registry.add(control, 3, 8, "B2")
