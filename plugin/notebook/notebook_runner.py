@@ -60,7 +60,6 @@ _stop_flags: dict[str, threading.Event] = {}
 _stop_lock = threading.Lock()
 
 _OUT_PROMPT_RE = re.compile(r"^Out \[[0-9 ]*\]:")
-_LEGACY_CHROME_RE = re.compile(r"^Cell \d+: (Markdown|Raw|Code)\b")
 
 
 # ---------------------------------------------------------------------------
@@ -113,11 +112,11 @@ def _is_stop_requested(busy_key: str) -> bool:
     return scope is not None and scope.is_cancelled()
 
 
-def request_stop(doc: Any | None) -> None:
+def request_stop() -> None:
     """Ask the in-flight cell / remaining Run All sequence to stop.
 
     Must not check ``_stop_flags`` as a busy guard — Stop has to land while
-    that key is held. *doc* is not a filter; every in-flight run is signalled;
+    that key is held. Every in-flight run is signalled;
     Stop while idle must not create state.
     """
     with _stop_lock:
@@ -278,7 +277,8 @@ def _is_leftover_empty_paragraph(cursor: Any) -> bool:
 def _cursor_after_bookmark(doc: Any, bookmark_name: str) -> Any | None:
     if not bookmark_name or not hasattr(doc, "getBookmarks"):
         return None
-    try:
+
+    def _get() -> Any:
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(bookmark_name):
             return None
@@ -288,24 +288,23 @@ def _cursor_after_bookmark(doc: Any, bookmark_name: str) -> Any | None:
         cursor = text.createTextCursorByRange(anchor)
         cursor.collapseToEnd()
         return cursor
-    except Exception:
-        log.debug("notebook run: bookmark %r not usable", bookmark_name, exc_info=True)
-        return None
+
+    return best_effort(_get, f"notebook run: bookmark {bookmark_name!r} not usable")
 
 
 def _code_field_paragraph_end(doc: Any, cell: NotebookCodeCell) -> Any | None:
     shape = form_lookup.find_control_shape_by_name(doc, cell.code_field_name)
     if shape is None:
         return None
-    try:
+
+    def _get() -> Any:
         anchor = shape.getAnchor()
         text = doc.getText()
         cursor = text.createTextCursorByRange(anchor)
         cursor.gotoEndOfParagraph(False)
         return cursor
-    except Exception:
-        log.debug("notebook run: code field anchor unusable for %s", cell.code_field_name, exc_info=True)
-        return None
+
+    return best_effort(_get, f"notebook run: code field anchor unusable for {cell.code_field_name}")
 
 
 def _is_this_cell_field_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any) -> bool:
@@ -365,12 +364,8 @@ def _is_next_cell_boundary(para_style: str, content: str, notebook_in_resolved: 
         return True
     if _IN_PROMPT_RE.match(stripped):
         return True
-    if stripped.startswith("[In [") and ": Code" in stripped:
-        return True
     if _OUT_PROMPT_RE.match(stripped) or _style_is_preformatted(para_style):
         return False
-    if _LEGACY_CHROME_RE.match(stripped):
-        return True
     if _style_is_heading12(para_style) and stripped:
         return True
     # Treat following markdown blockquote/list (and other non-output notebook body
@@ -778,14 +773,13 @@ def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *
     cursor = _cell_end_range(doc, cell)
     output_style = output_para_style(doc)
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
-    if out_text.strip():
-        display = _prepare_display_text(out_text)
-        if display.strip():
-            if cursor is not None:
-                _insert_stdout_paragraph(doc, cell, cursor, display, output_style, notebook_in)
-            else:
-                # Never dump at the document end — that was the re-click bug.
-                log.warning("notebook run: output bookmark missing for cell %d; not appending at document end", cell.index)
+    display = _prepare_display_text(out_text)
+    if display.strip():
+        if cursor is not None:
+            _insert_stdout_paragraph(doc, cell, cursor, display, output_style, notebook_in)
+        else:
+            # Never dump at the document end — that was the re-click bug.
+            log.warning("notebook run: output bookmark missing for cell %d; not appending at document end", cell.index)
     if result.get("status") == "ok":
         wire = result.get("result")
         images = find_image_payloads(wire)
@@ -996,12 +990,8 @@ def run_cell(ctx: Any, doc: Any, cell_id: str) -> RunResult:
 
 def run_cell_for_doc_hex(ctx: Any, doc: Any, hex_id: str) -> None:
     """Run a cell on a known Writer *doc* (button listener or protocol dispatch)."""
-    if not is_writer(doc):
-        msgbox(ctx, "WriterAgent", _("Notebook run is only supported in LibreOffice Writer."))
-        return
-    state = load_registry(doc)
-    if state is None or not state.code_cells:
-        msgbox(ctx, "WriterAgent", _("This document has no imported notebook. File → Open a Jupyter notebook (.ipynb) first."))
+    state = _notebook_doc_or_msgbox(ctx, doc)
+    if state is None:
         return
     cell = find_cell_by_hex(state, hex_id)
     if cell is None:
@@ -1059,10 +1049,7 @@ def flush_ui_idle(ctx: Any | None) -> None:
     """
     if ctx is None:
         return
-    try:
-        process_events_to_idle(ctx)
-    except Exception:
-        log.debug("processEventsToIdle failed", exc_info=True)
+    best_effort(lambda: process_events_to_idle(ctx), "processEventsToIdle failed")
 
 
 def _pump_between_notebook_cells(ctx: Any) -> None:
@@ -1202,5 +1189,4 @@ def run_from_here_from_menu(ctx: Any | None = None, frame: Any | None = None) ->
 
 
 def stop_from_menu(ctx: Any | None = None, frame: Any | None = None) -> None:
-    doc = _doc_from_frame(ctx, frame)[1]
-    request_stop(doc)
+    request_stop()
