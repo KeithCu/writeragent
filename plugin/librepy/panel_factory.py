@@ -36,8 +36,9 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.errors import UnoObjectError, suppress_disposed
+from plugin.framework.logging import init_logging
 from plugin.framework.queue_executor import run_on_main
-from plugin.framework.uno_context import get_extension_url, property_arg
+from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
 
 if TYPE_CHECKING:
     from com.sun.star.uno import XInterface
@@ -58,13 +59,9 @@ _IMPL_NAME = "org.extension.librepy.PythonPanelFactory"
 
 def _ensure_paths(ctx: Any) -> None:
     try:
-        from plugin.framework.uno_context import get_extension_path
-
         ext_path = get_extension_path(ctx)
         if ext_path and ext_path not in sys.path:
             sys.path.insert(0, ext_path)
-        from plugin.framework.logging import init_logging
-
         init_logging(ctx)
     except Exception:
         log.debug("LibrePy sidebar path init failed", exc_info=True)
@@ -114,12 +111,10 @@ class PythonPanelElement(unohelper.Base, XUIElement):
     """XUIElement wrapper; creates panel window in getRealInterface() via ContainerWindowProvider."""
 
     ctx: Any
-    xFrame: Any
     xParentWindow: Any
 
     def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str) -> None:
         self.ctx = ctx
-        self.xFrame = frame
         self.xParentWindow = parent_window
         # XUIElement exposes these as properties; assignment annotations avoid
         # reportIncompatibleMethodOverride from a class-body instance attr.
@@ -153,7 +148,7 @@ class PythonPanelElement(unohelper.Base, XUIElement):
                     new_controller = PythonSidebarController(
                         self.ctx,
                         root_window,
-                        self.xFrame,
+                        self.Frame,
                         on_torn_down=_on_torn_down,
                     )
                     panel.resize_listener = getattr(new_controller, "resize_listener", None)
