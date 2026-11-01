@@ -61,16 +61,6 @@ def _annotation_text(sheet: Any, col: int, row: int) -> tuple[Any, str]:
     return cell_ann, text
 
 
-def _resolve_comment_cell(
-    doc: Any,
-    cell_ref: str,
-    sheet_name_arg: str | None = None,
-) -> tuple[Any, int, int]:
-    sheet, address = CalcBridge(doc).resolve(cell_ref, sheet_name_arg)
-    col, row = parse_address(address)
-    return sheet, col, row
-
-
 class ListCellComments(ToolCalcCommentBase):
     """List all cell comments/annotations in a sheet."""
 
@@ -125,7 +115,8 @@ class AddCellComment(ToolCalcCommentBase):
             return self._tool_error("cell and text are required.")
 
         try:
-            sheet, col, row = _resolve_comment_cell(ctx.doc, cell_ref, kwargs.get("sheet"))
+            sheet, address = CalcBridge(ctx.doc).resolve(cell_ref, kwargs.get("sheet"))
+            col, row = parse_address(address)
         except Exception as e:
             if is_real_disposal(e):
                 raise
@@ -154,7 +145,8 @@ class DeleteCellComment(ToolCalcCommentBase):
             return self._tool_error("cell is required.")
 
         try:
-            sheet, col, row = _resolve_comment_cell(ctx.doc, cell_ref, kwargs.get("sheet"))
+            sheet, address = CalcBridge(ctx.doc).resolve(cell_ref, kwargs.get("sheet"))
+            col, row = parse_address(address)
         except Exception as e:
             if is_real_disposal(e):
                 raise

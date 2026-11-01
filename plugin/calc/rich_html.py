@@ -77,12 +77,8 @@ def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
     """
     try:
         # Do not import chatbot for the clipboard; LibrePy ships this module.
-        smgr = get_service_manager(uno_ctx)
-        if smgr is None:
-            return
+        smgr: Any = get_service_manager(uno_ctx)
         clip = smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx)
-        if clip is None:
-            return
         contents = clip.getContents()
         # Identity before ==: a thrown UNO == must not skip a real match.
         if contents is not None and (contents is transferable or contents == transferable):
