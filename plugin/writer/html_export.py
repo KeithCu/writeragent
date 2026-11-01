@@ -101,7 +101,7 @@ def _truncate_html(content: str, max_chars: int) -> str:
     return window + "\n\n[... truncated ...]"
 
 
-def _read_filter_text(doc: Any, filter_name: str, ext: str | None = None) -> str:
+def _read_filter_text(doc: Any, filter_name: str, ext: str = ".html") -> str:
     from . import format as format_mod
     with format_mod._with_temp_buffer(ext=ext) as (path, file_url):
         props = (format_mod.create_property_value("FilterName", filter_name),)

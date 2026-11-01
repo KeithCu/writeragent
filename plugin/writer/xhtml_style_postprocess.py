@@ -83,11 +83,6 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
     return bool(_BODY_AUTOSTYLE_RE.search(body))
 
 
-def _split_decls(decl: str) -> list[str]:
-    # crosshair: off
-    return [p.strip() for p in decl.split(";") if p.strip()]
-
-
 # Direct paragraph overrides surfaced to the agent as read-only ``data-lo-para``. v1 dropped them
 # entirely, so an agent could not tell an indented block quote from body text, nor verify an
 # indent it had just set.
@@ -185,17 +180,10 @@ def parse_style_block(xhtml: str) -> tuple[dict[str, str], dict[str, str]]:
     text = xhtml if type(xhtml) is str else ""
     for block in _STYLE_BLOCK_RE.findall(text):
         for name, decl in _RULE_RE.findall(block):
-            parts = _split_decls(decl)
+            parts = [p.strip() for p in decl.split(";") if p.strip()]
             raw_map[name] = "; ".join(parts)
             norm_map[name] = ";".join(sorted(parts))
     return raw_map, norm_map
-
-
-def _strip_body(xhtml: str) -> str:
-    """Return the inner HTML of ``<body>`` (or the input unchanged if there is no body)."""
-    # crosshair: off
-    m = _BODY_RE.search(xhtml or "")
-    return m.group(1).strip() if m else (xhtml or "")
 
 
 def _drop_trailing_empty_paragraphs(html: str) -> str:
@@ -348,7 +336,7 @@ class _SemanticTransformer(_HtmlPassthroughParser):
             if _AUTOSTYLE_RE.match(suffix):
                 para_css = self._autostyle_overrides.get(suffix, "")
         # Strip every paragraph-* class (top-level or cell) so it never leaks to the agent.
-        raw = _strip_class_names(raw, _PARA_CLASS_RE)
+        raw = _strip_class_names(raw)
         if token:
             raw = _inject_attr(raw, ' data-lo-style="%s"' % _html.escape(token, quote=True))
         if para_css:
@@ -407,11 +395,11 @@ class _SemanticTransformer(_HtmlPassthroughParser):
         return "".join(self._out)
 
 
-def _strip_class_names(start_tag: str, name_re: re.Pattern[str]) -> str:
-    """Remove class names matching *name_re* from a start tag; drop the attr if it empties."""
+def _strip_class_names(start_tag: str) -> str:
+    """Remove class names matching _PARA_CLASS_RE from a start tag; drop the attr if it empties."""
     # crosshair: off
     def _sub(m: Any) -> str:
-        kept = [c for c in m.group(2).split() if not name_re.fullmatch(c)]
+        kept = [c for c in m.group(2).split() if not _PARA_CLASS_RE.fullmatch(c)]
         return (" class=%s%s%s" % (m.group(1), " ".join(kept), m.group(1))) if kept else ""
 
     return re.sub(r'\s+class=(["\'])(.*?)\1', _sub, start_tag)
@@ -431,7 +419,8 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     """
     # crosshair: off
     raw_map, norm_map = parse_style_block(full_xhtml)
-    body = _strip_body(full_xhtml)
+    m = _BODY_RE.search(full_xhtml or "")
+    body = m.group(1).strip() if m else (full_xhtml or "")
     tr = _SemanticTransformer(raw_map, norm_map, autostyle_parents, autostyle_overrides)
     tr.feed(body)
     tr.close()
