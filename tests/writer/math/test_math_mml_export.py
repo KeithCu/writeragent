@@ -14,14 +14,10 @@ from plugin.writer.math.math_mml_export import (
 
 class _Hit:
     def __init__(
-        self, latex: str, display_block: bool = False, embed_name: str | None = None
+        self, latex: str = "", display_block: bool = False, embed_name: str | None = None
     ) -> None:
         self.starmath = "a over b"
-        self.latex = latex
-        self.mathml = None
-        self.error_message = None
         self.display_block = display_block
-        self.para_index = 0
         self.embed_name = embed_name
 
 

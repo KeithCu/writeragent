@@ -64,23 +64,18 @@ class MathSegment:
 
 def html_fragment_contains_mathml(fragment: str) -> bool:
     """Fast check for MathML root elements."""
-    if not fragment or not isinstance(fragment, str):
+    if not fragment:
         return False
     return _MATH_OPEN_RE.search(_mask_html_nontext(fragment)) is not None
 
 
-def _preceding_backslashes(s: str, idx: int) -> int:
-    """Count consecutive ``\\`` characters immediately before *idx*."""
+def _is_escaped(s: str, idx: int) -> bool:
     n = 0
     j = idx - 1
     while j >= 0 and s[j] == "\\":
         n += 1
         j -= 1
-    return n
-
-
-def _is_escaped(s: str, idx: int) -> bool:
-    return _preceding_backslashes(s, idx) % 2 == 1
+    return n % 2 == 1
 
 
 # A single ``$`` must not open a TeX region just because the next
@@ -131,7 +126,7 @@ def html_fragment_contains_tex_math(fragment: str) -> bool:
     there is complete or not). A ``<math>`` span can swallow a complete TeX
     region, so ``True`` here does not guarantee a ``tex`` segment.
     """
-    if not fragment or not isinstance(fragment, str):
+    if not fragment:
         return False
     return _next_complete_tex_region(_mask_html_nontext(fragment), 0) is not None
 
@@ -160,21 +155,25 @@ def _tag_end(s: str, start: int) -> int:
 
 def _display_block_from_open_tag(open_tag: str) -> bool:
     """True for display-style math per MathML / common authoring conventions."""
-    m = re.search(r"\bdisplay\s*=\s*(['\"])(.*?)\1", open_tag, flags=re.IGNORECASE | re.DOTALL)
-    if m:
-        v = m.group(2).strip().lower()
-        if v == "block":
-            return True
-        if v == "inline":
-            return False
-    m2 = re.search(r"\bmode\s*=\s*(['\"])(.*?)\1", open_tag, flags=re.IGNORECASE | re.DOTALL)
-    if m2:
-        v = m2.group(2).strip().lower()
-        if v == "display":
-            return True
-        if v == "inline":
-            return False
+    for attr, block_val, inline_val in (
+        ("display", "block", "inline"),
+        ("mode", "display", "inline"),
+    ):
+        m = re.search(rf"\b{attr}\s*=\s*(['\"])(.*?)\1", open_tag, flags=re.IGNORECASE | re.DOTALL)
+        if m:
+            v = m.group(2).strip().lower()
+            if v == block_val:
+                return True
+            if v == inline_val:
+                return False
     return False
+
+
+_TWO_CHAR_OPENERS: dict[str, tuple[TexDelim, bool]] = {
+    "$$": ("$$", True),
+    "\\[": ("\\[", True),
+    "\\(": ("\\(", False),
+}
 
 
 def _scan_next_tex_open(s: str, pos: int) -> tuple[int, TexDelim, bool] | None:
@@ -185,12 +184,10 @@ def _scan_next_tex_open(s: str, pos: int) -> tuple[int, TexDelim, bool] | None:
         if _is_escaped(s, i):
             i += 1
             continue
-        if i + 1 < n and s[i : i + 2] == "$$":
-            return (i, "$$", True)
-        if i + 1 < n and s[i : i + 2] == "\\[":
-            return (i, "\\[", True)
-        if i + 1 < n and s[i : i + 2] == "\\(":
-            return (i, "\\(", False)
+        two = s[i : i + 2]
+        op = _TWO_CHAR_OPENERS.get(two)
+        if op is not None:
+            return (i, op[0], op[1])
         if s[i] == "$":
             if _is_currency_dollar(s, i):
                 i += 1
@@ -268,29 +265,22 @@ def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
             tex_region = _next_complete_tex_region(masked, pos, no_close)
             no_more_tex = tex_region is None
 
-        math_start = m_open.start() if m_open else len(fragment) + 1
-        tex_start = tex_region[0] if tex_region else len(fragment) + 1
-
         if not m_open and not tex_region:
-            tail = fragment[pos:]
-            if tail:
-                out.append(MathSegment(kind="html", text=tail))
+            out.append(MathSegment(kind="html", text=fragment[pos:]))
             break
 
-        if m_open and (not tex_region or math_start <= tex_start):
+        if m_open and (not tex_region or m_open.start() <= tex_region[0]):
+            math_start = m_open.start()
             if math_start > pos:
                 out.append(MathSegment(kind="html", text=fragment[pos:math_start]))
             open_start = math_start
             gt = _tag_end(fragment, open_start)
-            if gt < 0:
+            close_m = _MATH_CLOSE_RE.search(masked, gt + 1) if gt >= 0 else None
+            if not close_m:
                 out.append(MathSegment(kind="html", text=fragment[open_start:]))
                 break
             open_tag = fragment[open_start : gt + 1]
             display = _display_block_from_open_tag(open_tag)
-            close_m = _MATH_CLOSE_RE.search(masked, gt + 1)
-            if not close_m:
-                out.append(MathSegment(kind="html", text=fragment[open_start:]))
-                break
             math_xml = fragment[open_start : close_m.end()]
             out.append(MathSegment(kind="math", text=math_xml, display_block=display))
             pos = close_m.end()
