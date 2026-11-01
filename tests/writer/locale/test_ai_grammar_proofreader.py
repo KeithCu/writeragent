@@ -156,8 +156,7 @@ def _run_llm_one(
     )
     run_llm_and_cache_batch(
         [item],
-        grammar_queue_instance=kwargs.get("grammar_queue_instance"),
-        original_bcp47=kwargs.get("original_bcp47", ""),
+        grammar_queue_instance=kwargs.get("grammar_queue_instance") or GrammarWorkQueue(),
     )
 # =============================================================================
 # Worker Tests (Mocked)
@@ -1344,7 +1343,8 @@ def test_llm_checker_identity_cache_roundtrip_preserves_rows_and_ignores(
 
         ec = MagicMock()
         ec.ctx = pr.ctx
-        ec.gq = None
+        ec.gq = MagicMock()
+        ec.gq.inflight_superseded.return_value = False
         ec.model = "gpt-test"
         err1 = {
             "wrong": "are",
@@ -1418,7 +1418,8 @@ def test_local_provider_checker_identity_and_persistence(
 
         ec = MagicMock()
         ec.ctx = pr.ctx
-        ec.gq = None
+        ec.gq = MagicMock()
+        ec.gq.inflight_superseded.return_value = False
         err1 = {
             "wrong": "are",
             "correct": "is",

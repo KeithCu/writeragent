@@ -260,10 +260,11 @@ def test_run_grammar_check_single_sentence_provider_dispatch() -> None:
              patch("plugin.writer.locale.grammar_worker.run_single_sentence_provider") as mock_run:
             run_grammar_check([(item, item.text)], "en-US", "en-US", ec)
             mock_run.assert_called_once()
-            args, kwargs = mock_run.call_args
-            assert args[0] == spec.name
-            assert kwargs["obs_event_name"] == spec.obs_event
-            assert kwargs["emit_request_status"] == spec.emit_request_status
+            args, _kwargs = mock_run.call_args
+            passed_spec = args[0]
+            assert passed_spec.name == spec.name
+            assert passed_spec.obs_event == spec.obs_event
+            assert passed_spec.emit_request_status == spec.emit_request_status
 
 
 def test_fill_from_cache_and_persistence() -> None:
@@ -378,7 +379,7 @@ def test_run_llm_and_cache_batch_success() -> None:
             GrammarWorkItem(ctx=ctx, text="All good.", grammar_bcp47="en-US", partial_sentence=False, doc_id="d1", inflight_key="k2", enqueue_seq=2),
         ]
 
-        run_llm_and_cache_batch(items)
+        run_llm_and_cache_batch(items, grammar_queue_instance=GrammarWorkQueue())
 
         # Verify LLM was called once with batch prompt
         assert mock_client.chat_completion_sync.call_count == 1
@@ -396,9 +397,10 @@ def test_run_llm_and_cache_batch_success() -> None:
             [{"n_error_start": 5, "n_error_length": 2, "suggestions": ("are",), "short_comment": "grammar", "full_comment": "grammar", "rule_identifier": "wa_grammar_0_0f61208a"}],
             ctx=ANY,
             doc_id="d1",
+            checker_identity=None,
         )
         # Second call: "All good." -> no errors
-        mock_put.assert_any_call("en-US", "All good.", [], ctx=ANY, doc_id="d1")
+        mock_put.assert_any_call("en-US", "All good.", [], ctx=ANY, doc_id="d1", checker_identity=None)
 
 
 def test_run_llm_and_cache_batch_size_1() -> None:
@@ -427,7 +429,7 @@ def test_run_llm_and_cache_batch_size_1() -> None:
             for i in range(3)
         ]
 
-        run_llm_and_cache_batch(items)
+        run_llm_and_cache_batch(items, grammar_queue_instance=GrammarWorkQueue())
 
         # 3 items -> 3 LLM calls
         assert mock_client.chat_completion_sync.call_count == 3
@@ -479,7 +481,7 @@ def test_locale_mismatch_proceeds_and_double_caches(
             enqueue_seq=1,
         )
     
-        run_llm_and_cache_batch([item])
+        run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
     
         # 1. Verify document update was triggered with paragraph_text and failure was observed
         mock_apply.assert_called_once_with(ctx, "doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP", start_pos=0, paragraph_text="")
@@ -919,7 +921,8 @@ def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status()
 
     item = _item("They is here.", doc_id="doc-1")
     ec = _ec()
-    ec.gq = None
+    ec.gq = MagicMock()
+    ec.gq.inflight_superseded.return_value = False
     errors = [{"wrong": "They is", "correct": "They are", "type": "grammar", "reason": "agr", "rule_identifier": "wa_g_rule||agr"}]
     norm_err = NormalizedProofError(
         n_error_start=0,
@@ -985,7 +988,7 @@ def test_call_grammar_llm_and_cache_cap_prefix() -> None:
         mock_client = mock_llm_client.return_value
         mock_client.chat_completion_sync.return_value = '{"errors": []}'
 
-        run_llm_and_cache_batch([item])
+        run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
 
         args, _ = mock_client.chat_completion_sync.call_args
         assert args[0][1]["content"] == prefix
@@ -1024,7 +1027,7 @@ def test_worker_runs_model_from_checker_identity() -> None:
         mock_client = mock_llm_client.return_value
         mock_client.chat_completion_sync.return_value = '{"errors": []}'
 
-        run_llm_and_cache_batch([item])
+        run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
 
         args, kwargs = mock_client.chat_completion_sync.call_args
         assert kwargs.get("model") == "model-a"
@@ -1099,7 +1102,7 @@ def test_worker_detection_cache_hit_applies_locale_without_grammar_call() -> Non
         patch("plugin.writer.locale.grammar_worker.grammar_obs"),
         patch("plugin.framework.client.llm_client.LlmClient"),
     ):
-        run_llm_and_cache_batch([item])
+        run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
 
     mock_run_grammar.assert_not_called()
     mock_apply.assert_called_once_with(ctx, "d1", item.text, "fr-FR", start_pos=0, paragraph_text="")
@@ -1137,7 +1140,7 @@ def test_detect_once_per_group_eight_items_batch_1() -> None:
         patch("plugin.writer.locale.grammar_worker.grammar_obs"),
         patch("plugin.framework.client.llm_client.LlmClient"),
     ):
-        run_llm_and_cache_batch(items)
+        run_llm_and_cache_batch(items, grammar_queue_instance=GrammarWorkQueue())
 
     assert detect_call_count == 1
     assert grammar_call_count == 8
@@ -1173,7 +1176,7 @@ def test_detect_batch_parse_failure_affects_only_that_chunk() -> None:
         patch("plugin.writer.locale.grammar_worker.grammar_obs"),
         patch("plugin.framework.client.llm_client.LlmClient"),
     ):
-        run_llm_and_cache_batch(items)
+        run_llm_and_cache_batch(items, grammar_queue_instance=GrammarWorkQueue())
 
     assert chunks_seen == [8, 1]
     assert len(grammar_locales) == 9
@@ -1250,7 +1253,7 @@ def test_requeue_and_retarget_agree_on_inflight_key_completeness() -> None:
             grammar_bcp47="en-US",
             max_tok=64,
         )
-        requeue_individual_item(item, text, "fr-FR", "en-US", ec_requeue)
+        requeue_individual_item(item, "fr-FR", "en-US", ec_requeue)
         mock_gq.enqueue.assert_called_once()
         requeued_item = mock_gq.enqueue.call_args[0][0]
         requeued_key = requeued_item.inflight_key
