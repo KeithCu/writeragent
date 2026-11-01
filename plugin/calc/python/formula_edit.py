@@ -13,23 +13,64 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.calc.python.formula_edit_contracts import (
-    _DEAL_ASCII_STR,
-    _deal_data_args_ok,
-    _deal_range_addr_ok,
-    _parts_result_ok,
-    _quoted_parse_result_ok,
-)
 from plugin.framework.deal_shim import (
     DEAL_MAX_CELL_REF,
+    DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
+    UNDER_CROSSHAIR,
     ascii_bounded,
     deal,
     inverse_ensure,
     str_bounded,
 )
 from plugin.framework.i18n import _
+
+# Sheet/A1 range tokens. Space and ``"`` are product (``My Sheet.A1``, quoted sheets).
+_RANGE_ADDR_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.!:'$_ \"")
+
+# Under pytest this is str_bounded (Unicode); under CrossHair it is ascii_bounded.
+_DEAL_ASCII_STR = ascii_bounded if UNDER_CROSSHAIR else str_bounded
+
+
+def _deal_range_addr_ok(s: object) -> bool:
+    """Closed A1 / sheet-range domain for formatters and ``_deal_data_args_ok``."""
+    return isinstance(s, str) and len(s) <= DEAL_MAX_TOKEN and all(c in _RANGE_ADDR_CHARS for c in s)
+
+
+def _deal_data_args_ok(data_args: object) -> bool:
+    """CrossHair domain for =PY() data-arg lists."""
+    return (
+        isinstance(data_args, list)
+        and len(data_args) <= DEAL_MAX_SHAPE_DIM
+        and all(_deal_range_addr_ok(x) for x in data_args)
+    )
+
+
+def _quoted_parse_result_ok(s: str, start: int, result: tuple[str, int] | None) -> bool:
+    # crosshair: off
+    """Postcondition check for double-quoted string parser."""
+    if result is None:
+        return True
+    code, end = result
+    return isinstance(code, str) and isinstance(end, int) and 0 <= start < end <= len(s)
+
+
+def _parts_result_ok(result: Any) -> bool:
+    # crosshair: off
+    """Postcondition check for PythonFormulaParts parser."""
+    if result is None:
+        return True
+    prefix = result.prefix
+    code = result.code
+    data_suffix = result.data_suffix
+    return (
+        isinstance(prefix, str)
+        and prefix.endswith("(")
+        and isinstance(code, str)
+        and isinstance(data_suffix, str)
+        and data_suffix.endswith(")")
+    )
 
 # Preferred display name for newly built formulas; PYTHON remains a backward-compatible alias.
 CALC_PYTHON_FN = "PY"

@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-from plugin.calc.python.formula_edit import PythonFormulaParts
-from plugin.calc.python.formula_edit_contracts import (
+from plugin.calc.python.formula_edit import (
+    PythonFormulaParts,
     _deal_data_args_ok,
     _deal_range_addr_ok,
     _parts_result_ok,
