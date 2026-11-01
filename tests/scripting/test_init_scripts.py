@@ -347,7 +347,7 @@ def test_workbook_session_id_recursion_off_main_thread(monkeypatch: pytest.Monke
 
     # No caller doc: None without a desktop lookup or deadlock (#402)
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
-    monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda ctx: "shared")
+    monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda: "shared")
 
     doc = MagicMock()
     monkeypatch.setattr("plugin.scripting.session_manager._calc_document", lambda ctx: doc)

@@ -329,26 +329,20 @@ def _prepare_native_target() -> tuple[str, str]:
     return target_dir, ext_suffix
 
 
-def run_vec_pack_download(
-    on_display: Callable[[str], None],
-    on_status: Callable[[str], None],
-    *,
-    include_header: bool = True,
-) -> bool:
-    """Download the platform-specific Cython pack binary from contrib/vec_pack on GitHub.
-
-    Does not insert sys.path or clear the accelerator; Settings binds on the
-    main thread after it returns.
-    """
+def _display_download_header(on_display: Callable[[str], None], target_dir: str) -> None:
     import platform
 
-    target_dir, ext_suffix = _prepare_native_target()
+    on_display(f"Target directory: {target_dir}\n")
+    on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
+    on_display(f"Python: {platform.python_version()}\n\n")
 
-    if include_header:
-        on_display(f"Target directory: {target_dir}\n")
-        on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
-        on_display(f"Python: {platform.python_version()}\n\n")
 
+def _download_vec_pack(
+    target_dir: str,
+    ext_suffix: str,
+    on_display: Callable[[str], None],
+    on_status: Callable[[str], None],
+) -> None:
     pack_name = f"pack{ext_suffix}"
     if pack_name not in _NATIVE_SHA256:
         raise RuntimeError(f"No pinned sha256 for {pack_name}")
@@ -368,8 +362,21 @@ def run_vec_pack_download(
     )
 
     importlib.invalidate_caches()
-    if include_header:
-        on_display("\nCython accelerator binary installed successfully.\n")
+
+
+def run_vec_pack_download(
+    on_display: Callable[[str], None],
+    on_status: Callable[[str], None],
+) -> bool:
+    """Download the platform-specific Cython pack binary from contrib/vec_pack on GitHub.
+
+    Does not insert sys.path or clear the accelerator; Settings binds on the
+    main thread after it returns.
+    """
+    target_dir, ext_suffix = _prepare_native_target()
+    _display_download_header(on_display, target_dir)
+    _download_vec_pack(target_dir, ext_suffix, on_display, on_status)
+    on_display("\nCython accelerator binary installed successfully.\n")
     return True
 
 
@@ -402,9 +409,7 @@ def run_audio_download(
     if portaudio_name and portaudio_name not in _NATIVE_SHA256:
         raise RuntimeError(f"No pinned sha256 for {portaudio_name}")
 
-    on_display(f"Target directory: {target_dir}\n")
-    on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
-    on_display(f"Python: {platform.python_version()}\n\n")
+    _display_download_header(on_display, target_dir)
 
     # Download pure Python source zip
     zip_dest = os.path.join(target_dir, "audio_source.zip")
@@ -456,6 +461,6 @@ def run_audio_download(
     with open(init_dest, "w") as f:
         f.write("# Placeholder\n")
 
-    run_vec_pack_download(on_display, on_status, include_header=False)
+    _download_vec_pack(target_dir, ext_suffix, on_display, on_status)
     on_display("\nAll downloaded files installed successfully!\n")
     return True

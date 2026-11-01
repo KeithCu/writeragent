@@ -238,7 +238,7 @@ def workbook_key_for_doc(doc: Any) -> str:
 
 def format_runtime_status(ctx: Any) -> str:
     """Compact status text: session mode + venv path resolution (no package probe)."""
-    mode = python_session_mode(ctx)
+    mode = python_session_mode()
     mode_label = _("Shared kernel") if mode == "shared" else _("Isolated")
     venv = (get_config_str("scripting.python_venv_path") or "").strip()
     if not venv:

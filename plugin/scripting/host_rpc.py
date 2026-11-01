@@ -286,6 +286,27 @@ def format_script_api_catalog(domains: list[str]) -> str:
     return _format_script_api_catalog_cached(tuple(domains))
 
 
+def _script_target_doc(uno_ctx: Any, script_session_id: str | None) -> Any:
+    # A venv tool must not always use the focused document. A PPT-Master
+    # turn started on deck A exported into B after the user switched
+    # windows, because the frame URL lived only inside the child payload
+    # and this RPC had no session id. Named scripts already resolve
+    # document_for_script_session before get_active_document. The IPC
+    # request carries ppt_master:{url}, and that lookup matches the open
+    # component's URL. Chat run_venv_python_script passes a doc: pin of
+    # ctx.doc the same way. That pin is host-only and is not the worker
+    # namespace id.
+    # Passed from the worker turn. A process-global was overwritten by the
+    # embeddings pool, so wa.doc followed the focused window.
+    from plugin.framework.uno_context import get_active_document
+    from plugin.scripting.session_manager import document_for_script_session
+
+    doc = document_for_script_session(uno_ctx, script_session_id)
+    if doc is None:
+        doc = get_active_document(uno_ctx)
+    return doc
+
+
 def execute_tool(
     tool_name: str,
     args: dict[str, Any] | None = None,
@@ -333,28 +354,15 @@ def execute_tool(
         try:
             from plugin.doc.doc_type import is_calc, is_draw, is_writer
             from plugin.framework.tool import ToolContext
-            from plugin.framework.uno_context import get_active_document, get_ctx
+            from plugin.framework.uno_context import get_ctx
             from plugin.main import get_tools
         except ImportError as exc:
             raise RuntimeError(
                 "Document tool RPC is not available in this extension build."
             ) from exc
 
-        from plugin.scripting.session_manager import document_for_script_session
-
         uno_ctx = get_ctx()
-        # A venv tool must not always use the focused document. A PPT-Master
-        # turn started on deck A exported into B after the user switched
-        # windows, because the frame URL lived only inside the child payload
-        # and this RPC had no session id. Named scripts already resolve
-        # document_for_script_session before get_active_document. The IPC
-        # request carries ppt_master:{url}, and that lookup matches the open
-        # component's URL. Chat run_venv_python_script passes a doc: pin of
-        # ctx.doc the same way. That pin is host-only and is not the worker
-        # namespace id.
-        doc = document_for_script_session(uno_ctx, script_session_id)
-        if doc is None:
-            doc = get_active_document(uno_ctx)
+        doc = _script_target_doc(uno_ctx, script_session_id)
         if not doc:
             raise RuntimeError("No active document found to run tool")
         if is_calc(doc):
@@ -403,16 +411,11 @@ def execute_tool(
 
 
 def _document_script_store(script_session_id: str | None) -> dict[str, str]:
-    from plugin.framework.uno_context import get_active_document, get_ctx
+    from plugin.framework.uno_context import get_ctx
     from plugin.scripting.document_scripts import get_document_scripts
-    from plugin.scripting.session_manager import document_for_script_session
 
     uno_ctx = get_ctx()
-    # Passed from the worker turn. A process-global was overwritten by the
-    # embeddings pool, so wa.doc followed the focused window.
-    doc = document_for_script_session(uno_ctx, script_session_id)
-    if doc is None:
-        doc = get_active_document(uno_ctx)
+    doc = _script_target_doc(uno_ctx, script_session_id)
     if doc is None:
         return {}
     return get_document_scripts(doc)
