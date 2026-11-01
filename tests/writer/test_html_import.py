@@ -265,20 +265,20 @@ def test_insert_content_entry_points_decode_complete_entities():
     model.getPropertyValue.return_value = False
 
     with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed:
-        html_import._replace_full_document(model, MagicMock(), raw)
+        html_import.replace_full_document(model, MagicMock(), raw)
         assert mock_mixed.call_args.args[3] == expected
 
     cursor = MagicMock()
     model.getText.return_value.createTextCursor.return_value = cursor
     with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed:
-        html_import._insert_content_at_position(model, MagicMock(), raw, "beginning")
+        html_import.insert_content_at_position(model, MagicMock(), raw, "beginning")
         assert mock_mixed.call_args.args[3] == expected
 
     text_range = MagicMock()
     text_range.getText.return_value = MagicMock()
     with patch.object(html_import, "_insert_mixed_or_plain_html") as mock_mixed, \
          patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"):
-        html_import._replace_single_range_with_content(model, text_range, raw, MagicMock())
+        html_import.replace_single_range_with_content(model, text_range, raw, MagicMock())
         assert mock_mixed.call_args.args[3] == expected
 
 
@@ -497,7 +497,7 @@ def test_insert_inline_at_cursor_skips_prefix_count_without_ruby():
     cursor = MagicMock()
     with patch.object(range_copy, "_prefix_char_count") as count, \
          patch.object(html_import, "insert_html_fragment_at_cursor"):
-        html_import._insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>x</b>")
+        html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>x</b>")
     count.assert_not_called()
 
 
@@ -992,15 +992,14 @@ def test_restore_image_placeholders_passes_name():
 
 def test_full_document_refuses_before_deleting_anything():
     import pytest
-    from unittest.mock import patch
 
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_import
 
     model = _graphics_doc()
-    with patch.object(html_import, "_replace_full_document") as replace, pytest.raises(ToolExecutionError):
+    with pytest.raises(ToolExecutionError):
         html_import.replace_full_document(model, None, _FRAME)
-    replace.assert_not_called()
+    model.getText.assert_not_called()
 
 
 def test_html_to_plain_text_pure_does_not_call_scratch_writer():
@@ -1248,9 +1247,10 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     assert _cursor_paragraph_has_visible_text(cursor) is True
 
     fam = MagicMock()
-    fam.getElementNames.return_value = ("Heading 1", "Heading 1", "Text Body")
+    names = ("Heading 1", "Heading 1", "Text Body")
+    fam.getElementNames.return_value = names
     fam.hasByName.return_value = True
-    assert _resolve_paragraph_style_token(fam, "Heading1") == "Heading 1"
+    assert _resolve_paragraph_style_token(fam, "Heading1", element_names=names) == "Heading 1"
 
 
 def test_resolve_paragraph_style_token_fallback_and_disposal():
@@ -1264,19 +1264,20 @@ def test_resolve_paragraph_style_token_fallback_and_disposal():
 
     # (i) Case-insensitive fallback
     fam = MagicMock()
-    fam.getElementNames.return_value = ("Heading 1", "Standard")
+    names = ("Heading 1", "Standard")
+    fam.getElementNames.return_value = names
     fam.hasByName.return_value = True
-    assert _resolve_paragraph_style_token(fam, "heading 1") == "Heading 1"
+    assert _resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Heading 1"
 
     # (ii) Unknown fallback
     fam.hasByName.return_value = False
-    assert _resolve_paragraph_style_token(fam, "heading 1") == "Standard"
+    assert _resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Standard"
 
     # (iii) DisposedException on hasByName
     fam.getElementNames.return_value = []
     fam.hasByName.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
-        _resolve_paragraph_style_token(fam, "heading 1")
+        _resolve_paragraph_style_token(fam, "heading 1", element_names=[])
 
 
 def test_styled_math_insert_styles_from_paragraph_before_insert():
