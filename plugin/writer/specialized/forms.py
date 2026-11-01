@@ -66,11 +66,9 @@ def _resolve_form_page(doc: Any, page: Any = None) -> Any:
                 raise ToolExecutionError(f"Page index must be an integer, got {page!r}.")
             try:
                 n = int(pages.getCount())
-                in_range = 0 <= page_idx < n
             except Exception:
-                in_range = True
                 n = None
-            if not in_range:
+            if n is not None and not (0 <= page_idx < n):
                 raise ToolExecutionError(f"Page index {page_idx} is out of range (document has {n} pages).")
             return pages.getByIndex(page_idx)
         except Exception as exc:
@@ -375,12 +373,11 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         legal = ", ".join(CONTROL_TYPE_MAP.keys())
         return format_error_payload(ToolExecutionError(f"Unknown control type '{control_type}'. Allowed types: {legal}"))
 
+    date_val = None
     if control_type == "date" and kwargs.get("default_value"):
         date_val = _parse_date_default_value(kwargs["default_value"])
         if date_val is None:
             return format_error_payload(ToolExecutionError(f"Invalid date format for default_value '{kwargs['default_value']}'; expected DD.MM.YYYY or YYYY-MM-DD."))
-    else:
-        date_val = None
 
     coerced_items, items_err = _items_or_error(kwargs)
     if items_err:
@@ -469,15 +466,13 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         if is_calc(doc) or is_draw(doc):
             if dp is None:
                 return _no_form_draw_page_payload()
-            if cursor is not None:
-                pos = cursor.next_position(h)
-            else:
+            if cursor is None:
                 # Place new controls below existing shapes on a draw page (1/100 mm).
-                pos = _StackedDrawPageCursor(dp).next_position(h)
+                cursor = _StackedDrawPageCursor(dp)
+            pos = cursor.next_position(h)
             shape.setPosition(pos)
             dp.add(shape)
-            if cursor is not None:
-                cursor.control_names.add(name)
+            cursor.control_names.add(name)
         else:
             # Anchor 'As Character' so it flows with text
             shape.setPropertyValue("AnchorType", AS_CHARACTER)
@@ -759,9 +754,8 @@ class FormListControls(ToolWriterFormBase):
                 shape = dp.getByIndex(i)
                 if shape.getShapeType() == "com.sun.star.drawing.ControlShape":
                     model = shape.Control
-                    shape_name = getattr(shape, "Name", "") or ""
                     model_name = getattr(model, "Name", "") or ""
-                    ctrl_name = shape_name if shape_name else model_name
+                    ctrl_name = _preferred_control_name(shape)
                     snap = control_snapshot(model)
                     info = {"index": i, "name": ctrl_name, "type": snap.get("type", "unknown")}
                     if model_name and ctrl_name != model_name:
