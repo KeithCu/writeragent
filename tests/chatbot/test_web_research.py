@@ -293,8 +293,6 @@ def test_web_research_module_imports_despite_threading_lock_annotation():
 
     mod = importlib.reload(wr)
     assert mod.WebAgentRunParams is not None
-    hints = getattr(mod.WebAgentRunParams, "__annotations__", {})
-    assert "visited_urls_lock" in hints
 
 
 def test_web_search_engine_step_chat_text():
@@ -585,10 +583,10 @@ def test_web_search_no_prompt_dedup_when_matches_outer_query():
 
 
 def test_visit_handler_does_not_preclaim_the_url():
-    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+    from plugin.chatbot.web_research import WebAgentRunParams, _VisitedUrls, _run_web_agent
     from plugin.contrib.smolagents.memory import ToolCall
 
-    visited: set[str] = set()
+    visited = _VisitedUrls()
     params = WebAgentRunParams(
         smol_model=MagicMock(),
         max_steps=5,
@@ -604,7 +602,6 @@ def test_visit_handler_does_not_preclaim_the_url():
         prompt_for_web_research=False,
         outer_query="topic",
         visited_urls=visited,
-        visited_urls_lock=__import__("threading").Lock(),
     )
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
@@ -626,24 +623,24 @@ def test_visit_handler_does_not_preclaim_the_url():
 
 
 def test_visit_dedup_fetches_the_first_url_only():
-    from plugin.chatbot.web_research import _VisitWebpageDedupTool
+    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
 
     inner = MagicMock()
     inner.forward.return_value = "page body"
-    seen: set[str] = set()
-    tool = _VisitWebpageDedupTool(inner, seen, __import__("threading").Lock())
+    seen = _VisitedUrls()
+    tool = _VisitWebpageDedupTool(inner, seen)
     assert tool.forward("https://example.com/a") == "page body"
     assert "Already visited" in tool.forward("https://example.com/a/")
     inner.forward.assert_called_once_with("https://example.com/a")
 
 
 def test_visit_dedup_retries_after_a_fetch_error():
-    from plugin.chatbot.web_research import _VisitWebpageDedupTool
+    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
 
     inner = MagicMock()
     inner.forward.return_value = "Error visiting page"
-    seen: set[str] = set()
-    tool = _VisitWebpageDedupTool(inner, seen, __import__("threading").Lock())
+    seen = _VisitedUrls()
+    tool = _VisitWebpageDedupTool(inner, seen)
     assert tool.forward("https://example.com/a").startswith("Error")
     assert seen == set()
     inner.forward.side_effect = RuntimeError("navigate failed")
@@ -664,12 +661,12 @@ def test_visit_dedup_retries_after_a_fetch_error():
 
 
 def test_visit_dedup_retries_after_an_empty_extract():
-    from plugin.chatbot.web_research import _VisitWebpageDedupTool
+    from plugin.chatbot.web_research import _VisitedUrls, _VisitWebpageDedupTool
 
     inner = MagicMock()
     inner.forward.return_value = ""
-    seen: set[str] = set()
-    tool = _VisitWebpageDedupTool(inner, seen, __import__("threading").Lock())
+    seen = _VisitedUrls()
+    tool = _VisitWebpageDedupTool(inner, seen)
     assert tool.forward("https://example.com/a") == ""
     assert seen == set()
     inner.forward.return_value = "   \n"

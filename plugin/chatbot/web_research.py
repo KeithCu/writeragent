@@ -16,9 +16,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Web research tool using smolagents sub-agent."""
 
-# Postponed annotations: on Python before 3.13, threading.Lock is a factory
-# (builtin_function_or_method), so `Lock | None` raises at class-body time and
-# aborts ChatbotModule.initialize (missing librarian_onboarding / web_research).
+# Postponed annotations: TYPE_CHECKING names (such as ChatMessage) do not
+# raise at class-body time and abort ChatbotModule.initialize.
 from __future__ import annotations
 
 import logging
@@ -28,6 +27,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Callable
 
+from plugin.framework.i18n import _
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -59,6 +59,16 @@ WEB_RESEARCH_PLAIN_TEXT_FORMAT = """Research output: plain text only in final_an
 - No HTML tags, no Markdown (# or **), no JSON."""
 
 
+class _VisitedUrls(set[str]):
+    """Shared URL set and lock for visit deduplication in deep research."""
+
+    lock: threading.Lock
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.lock = threading.Lock()
+
+
 @dataclass
 class WebAgentRunParams:
     """Shared setup for one shallow ReAct web-research sub-agent run."""
@@ -76,8 +86,7 @@ class WebAgentRunParams:
     chat_append_callback: Callable[[str], None] | None
     prompt_for_web_research: bool
     outer_query: str
-    visited_urls: set[str] | None = None
-    visited_urls_lock: threading.Lock | None = None
+    visited_urls: _VisitedUrls | None = None
     # Pool workers do not see the send thread's cancellation thread-local.
     # LlmClient only auto-registers get_current_send_cancellation() on the
     # constructing thread, so each worker must be handed this scope explicitly.
@@ -141,13 +150,14 @@ def _research_cache_result_fields(
     }
     if stem_lang:
         fields["research_cache_lang"] = stem_lang
-    if matched_key:
-        fields["research_cache_matched_key"] = matched_key
-    if score is not None:
-        if event == "hit_embedding":
-            fields["research_cache_similarity"] = round(score, 2)
-        else:
-            fields["research_cache_jaccard"] = round(score, 2)
+    if event in ("hit_fuzzy", "hit_embedding"):
+        if matched_key:
+            fields["research_cache_matched_key"] = matched_key
+        if score is not None:
+            if event == "hit_embedding":
+                fields["research_cache_similarity"] = round(score, 2)
+            else:
+                fields["research_cache_jaccard"] = round(score, 2)
     return fields
 
 
@@ -169,8 +179,8 @@ def _write_research_cache(
     storage_key = format_research_cache_key(stem_lang, unique_key, mode=mode)
     _web_cache_set(cache_path, "research", storage_key, result_text, cache_max_mb * 1024 * 1024)
     if embedding_text:
-        enqueue_research_cache_embedding_for_row(getattr(ctx, "ctx", ctx), cache_path, storage_key, embedding_text)
-    enqueue_research_cache_embedding_backfill(getattr(ctx, "ctx", ctx), cache_path, max_age_days)
+        enqueue_research_cache_embedding_for_row(ctx.ctx, cache_path, storage_key, embedding_text)
+    enqueue_research_cache_embedding_backfill(ctx.ctx, cache_path, max_age_days)
     return _research_cache_result_fields("saved", unique_key, stem_lang=stem_lang)
 
 
@@ -188,10 +198,10 @@ def _visit_result_has_page_text(text: Any) -> bool:
     whitespace-only innerText is not an error prefix, so it used to be stored
     as visited and the next sub-query was told the URL was already read.
     """
-    body = str(text or "").lstrip()
-    if body.startswith("Error") or body.startswith("Failed"):
+    body = str(text or "").strip()
+    if body.startswith(("Error", "Failed")):
         return False
-    return bool(body.strip())
+    return bool(body)
 
 
 class _VisitWebpageDedupTool(Tool):
@@ -202,20 +212,18 @@ class _VisitWebpageDedupTool(Tool):
     inputs: dict[str, dict[str, str | type[Any] | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type: str = "string"
     _inner: Tool
-    _visited_urls: set[str]
-    _visited_urls_lock: threading.Lock
+    _visited_urls: _VisitedUrls
 
-    def __init__(self, inner: Tool, visited_urls: set[str], visited_urls_lock: threading.Lock) -> None:
+    def __init__(self, inner: Tool, visited_urls: _VisitedUrls) -> None:
         super().__init__()
         self._inner = inner
         self._visited_urls = visited_urls
-        self._visited_urls_lock = visited_urls_lock
 
     def forward(self, url: str) -> str:
         key = _normalize_visit_url(url)
         if not key:
             return self._inner.forward(url)
-        with self._visited_urls_lock:
+        with self._visited_urls.lock:
             if key in self._visited_urls:
                 return f"(Already visited in this research run: {key})"
         text = self._inner.forward(url)
@@ -224,7 +232,7 @@ class _VisitWebpageDedupTool(Tool):
         # keeps a CDP/HTTP error or a blank page in the set, and later
         # sub-queries get "Already visited" instead of a retry.
         if _visit_result_has_page_text(text):
-            with self._visited_urls_lock:
+            with self._visited_urls.lock:
                 self._visited_urls.add(key)
         return text
 
@@ -449,8 +457,8 @@ def _run_web_agent(
         else VisitWebpageTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days)
     )
     visit_tool = (
-        _VisitWebpageDedupTool(visit_inner, params.visited_urls, params.visited_urls_lock)
-        if params.visited_urls is not None and params.visited_urls_lock is not None
+        _VisitWebpageDedupTool(visit_inner, params.visited_urls)
+        if params.visited_urls is not None
         else visit_inner
     )
     agent = WebResearchToolCallingAgent(
@@ -565,8 +573,7 @@ def _run_deep_web_research(
 
     llm_chat = _chat_via(parent_client)
 
-    visited_urls: set[str] = set()
-    visited_lock = threading.Lock()
+    visited = _VisitedUrls()
     sub_steps = get_config_int_safe("chatbot.deep_research_sub_agent_steps")
     if sub_steps > 0:
         run_max_steps = sub_steps
@@ -579,8 +586,7 @@ def _run_deep_web_research(
     # any new field the next time one is added.
     deep_params = replace(
         agent_params,
-        visited_urls=visited_urls,
-        visited_urls_lock=visited_lock,
+        visited_urls=visited,
         max_steps=run_max_steps,
     )
 
@@ -692,7 +698,7 @@ class WebResearchTool(ToolBase):
         query_str = str(query or "")
         from plugin.chatbot.web_research_cache import resolve_research_locale
 
-        _lo_locale, stem_lang = resolve_research_locale(ctx.ctx, getattr(ctx, "doc", None))
+        _lo_locale, stem_lang = resolve_research_locale(ctx.ctx, ctx.doc)
         unique_key, embedding_text = _cache_key_inputs(query_str, stem_lang)
 
         from plugin.framework.config import get_config_bool_safe, get_config_int, user_config_dir
@@ -709,7 +715,7 @@ class WebResearchTool(ToolBase):
 
         from plugin.framework.prompts import get_research_completion_instruction
 
-        doc_type = getattr(ctx, "doc_type", None)
+        doc_type = ctx.doc_type
         instruction = get_research_completion_instruction(doc_type)
 
         # deep used to be read only after this lookup, so a shallow row for the
@@ -721,7 +727,6 @@ class WebResearchTool(ToolBase):
         if cache_enabled and cache_path and os.path.exists(cache_path) and unique_key:
             try:
                 from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill, lookup_research_cache
-                from plugin.framework.i18n import _
 
                 jaccard_percent = get_config_int("web_research_cache_jaccard_percent")
                 embedding_percent = get_config_int("web_research_cache_embedding_percent")
@@ -746,17 +751,17 @@ class WebResearchTool(ToolBase):
                         event,
                         unique_key,
                         stem_lang=stem_lang,
-                        matched_key=matched_raw_key if event in ("hit_fuzzy", "hit_embedding") else None,
-                        score=score if event in ("hit_fuzzy", "hit_embedding") else None,
+                        matched_key=matched_raw_key,
+                        score=score,
                     )
                     return {"status": "ok", "message": _("Web research completed."), "result": cached, "instruction": instruction, **cache_fields}
             except Exception as e:
                 log.warning("Failed to lookup web research cache: %s", e)
 
-        status_callback = getattr(ctx, "status_callback", None)
-        append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
-        approval_callback = getattr(ctx, "approval_callback", None)
-        chat_append_callback = getattr(ctx, "chat_append_callback", None)
+        status_callback = ctx.status_callback
+        append_thinking_callback = ctx.append_thinking_callback
+        approval_callback = ctx.approval_callback
+        chat_append_callback = ctx.chat_append_callback
 
         from plugin.chatbot.web_research_chat import clip_sub_agent_history
 
@@ -777,8 +782,8 @@ class WebResearchTool(ToolBase):
         cdp_url = None
         cdp_held = False
 
-        stop_checker = getattr(ctx, "stop_checker", None)
-        cancel_scope = getattr(ctx, "send_cancellation", None)
+        stop_checker = ctx.stop_checker
+        cancel_scope = ctx.send_cancellation
         smol_model = create_smol_model(ctx, status_callback=status_callback)
 
         prompt_for_web_research = as_bool(get_config("chatbot.prompt_for_web_research"))
@@ -838,8 +843,6 @@ class WebResearchTool(ToolBase):
                     return format_error_payload(
                         ToolExecutionError("Web research finished without a result.", code="WEB_RESEARCH_EMPTY_RESULT")
                     )
-                from plugin.framework.i18n import _
-
                 final_ans = {"status": "ok", "message": _("Web research completed."), "result": result_str, "instruction": instruction}
                 cacheable = True
 
