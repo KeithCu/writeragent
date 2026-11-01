@@ -592,10 +592,16 @@ def test_split_into_sentences_trailing_whitespace() -> None:
     assert gt.split_into_sentences(None, "en-US", "word") == [(0, "word")]
 
 def test_anchor_wrong_in_window() -> None:
-    assert gt.anchor_wrong_in_window("hello bob there", "bob", 0) == 6
-    assert gt.anchor_wrong_in_window("bob x bob", "bob", 0) == 0
-    assert gt.anchor_wrong_in_window("bob x bob", "bob", 1) == 6
-    assert gt.anchor_wrong_in_window("", "x", 0) is None
+    res = gt.normalize_errors_for_text("hello bob there", 0, 15, [{"wrong": "bob"}])
+    assert len(res) == 1
+    assert res[0].n_error_start == 6
+
+    res = gt.normalize_errors_for_text("bob x bob", 0, 9, [{"wrong": "bob"}, {"wrong": "bob"}])
+    assert len(res) == 2
+    assert res[0].n_error_start == 0
+    assert res[1].n_error_start == 6
+
+    assert gt.normalize_errors_for_text("", 0, 0, [{"wrong": "x"}]) == []
 
 
 def test_calculate_covered_span_end() -> None:
