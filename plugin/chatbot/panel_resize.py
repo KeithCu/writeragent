@@ -31,7 +31,6 @@ _STRETCH_CONTROLS = frozenset({
 # Completion menu overlays the transcript; do not park it in the bottom band.
 _OVERLAY_CONTROLS = frozenset({"slash_popup", "response_rich"})
 
-_INDICATOR_CONTROLS = frozenset({"backend_indicator"})
 _INDICATOR_GAP = 4
 
 # ChatPanelDialog.xdl: response top=16 height=110, status top=128 -> gap=2.
@@ -86,7 +85,7 @@ def _cluster_metrics(snapshot: dict[str, tuple[int, int, int, int]]) -> tuple[in
     return bottom_top, bottom_bottom - bottom_top
 
 
-def column_right_margin(snapshot: dict[str, tuple[int, int, int, int]], right_margin: int = _RIGHT_MARGIN) -> int:
+def column_right_margin(snapshot: dict[str, tuple[int, int, int, int]]) -> int:
     """Right inset of the column, as wide as the left inset.
 
     Mirror the left inset (already DPI-mapped) plus a pixel of slack per
@@ -95,8 +94,8 @@ def column_right_margin(snapshot: dict[str, tuple[int, int, int, int]], right_ma
     makes the panel wider than the deck (the window asks for the children's
     extent plus the left inset) and the deck shows a horizontal scrollbar.
     """
-    left = snapshot.get("response", (right_margin, 0, 0, 0))[0]
-    return max(right_margin, left + max(1, left // 4))
+    left = snapshot.get("response", (_RIGHT_MARGIN, 0, 0, 0))[0]
+    return max(_RIGHT_MARGIN, left + max(1, left // 4))
 
 
 def compute_chat_panel_layout(
@@ -128,7 +127,7 @@ def compute_chat_panel_layout(
     # the viewport (deck H-bar). Move X too so nothing extends past the column.
     layouts: dict[str, ControlRect] = {}
     for name, (ox, oy, ow, oh) in snapshot.items():
-        if name in _OVERLAY_CONTROLS or name in _INDICATOR_CONTROLS:
+        if name in _OVERLAY_CONTROLS or name == "backend_indicator":
             continue
 
         if name in _STRETCH_CONTROLS:

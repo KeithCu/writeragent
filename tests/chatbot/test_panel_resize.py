@@ -617,7 +617,6 @@ def test_xdl_all_ids_classified():
     from plugin.chatbot.panel_resize import (
         _BOTTOM_CLUSTER,
         _BUTTON_ROW,
-        _INDICATOR_CONTROLS,
         _OVERLAY_CONTROLS,
         _STRETCH_CONTROLS,
     )
@@ -637,8 +636,8 @@ def test_xdl_all_ids_classified():
             "btn_latex",
             "btn_search",
             "btn_hamburger",
+            "backend_indicator",
         }
-        | _INDICATOR_CONTROLS
     )
 
     ns = {"dlg": "http://openoffice.org/2000/dialog"}
