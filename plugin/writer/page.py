@@ -94,8 +94,7 @@ def _mirrored_region_skip(style_name: str, region: str) -> dict[str, Any]:
 def _in_text_table(cursor: Any) -> bool:
     """True when the cursor is positioned inside a table cell."""
     try:
-        tbl = cursor.getPropertyValue("TextTable")
-        return tbl is not None
+        return cursor.getPropertyValue("TextTable") is not None
     except Exception as e:
         if is_disposed_exception(e):
             raise
@@ -103,31 +102,32 @@ def _in_text_table(cursor: Any) -> bool:
 
 
 _PAGE_SET_SPECS = (
-    ("width_mm", "width", "Width", "mm"),
-    ("height_mm", "height", "Height", "mm"),
-    ("left_margin_mm", "left_margin", "LeftMargin", "mm"),
-    ("right_margin_mm", "right_margin", "RightMargin", "mm"),
-    ("top_margin_mm", "top_margin", "TopMargin", "mm"),
-    ("bottom_margin_mm", "bottom_margin", "BottomMargin", "mm"),
-    ("gutter_margin_mm", "gutter_margin", "GutterMargin", "mm"),
-    ("header_is_on", "header_is_on", "HeaderIsOn", "bool"),
-    ("footer_is_on", "footer_is_on", "FooterIsOn", "bool"),
-    ("header_is_shared", "header_is_shared", "HeaderIsShared", "bool"),
-    ("footer_is_shared", "footer_is_shared", "FooterIsShared", "bool"),
-    ("first_is_shared", "first_is_shared", "FirstIsShared", "bool"),
-    ("header_height_mm", "header_height", "HeaderHeight", "mm"),
-    ("footer_height_mm", "footer_height", "FooterHeight", "mm"),
-    ("header_body_distance_mm", "header_body_distance", "HeaderBodyDistance", "mm"),
-    ("footer_body_distance_mm", "footer_body_distance", "FooterBodyDistance", "mm"),
-    ("back_color", "back_color", "BackColor", "color_int"),
-    ("back_transparent", "back_transparent", "BackTransparent", "bool"),
-    ("numbering_type", "numbering_type", "NumberingType", "int"),
-    ("footnote_height_mm", "footnote_height", "FootnoteHeight", "mm"),
-    ("register_paragraph_style", "register_paragraph_style", "RegisterParagraphStyle", "str"),
-    ("page_style_layout", "page_style_layout", "PageStyleLayout", "layout"),
+    ("width_mm", "Width", _mm_to_hmm),
+    ("height_mm", "Height", _mm_to_hmm),
+    ("left_margin_mm", "LeftMargin", _mm_to_hmm),
+    ("right_margin_mm", "RightMargin", _mm_to_hmm),
+    ("top_margin_mm", "TopMargin", _mm_to_hmm),
+    ("bottom_margin_mm", "BottomMargin", _mm_to_hmm),
+    ("gutter_margin_mm", "GutterMargin", _mm_to_hmm),
+    ("header_is_on", "HeaderIsOn", None),
+    ("footer_is_on", "FooterIsOn", None),
+    ("header_is_shared", "HeaderIsShared", None),
+    ("footer_is_shared", "FooterIsShared", None),
+    ("first_is_shared", "FirstIsShared", None),
+    ("header_height_mm", "HeaderHeight", _mm_to_hmm),
+    ("footer_height_mm", "FooterHeight", _mm_to_hmm),
+    ("header_body_distance_mm", "HeaderBodyDistance", _mm_to_hmm),
+    ("footer_body_distance_mm", "FooterBodyDistance", _mm_to_hmm),
+    ("back_color", "BackColor", None),
+    ("back_transparent", "BackTransparent", None),
+    ("numbering_type", "NumberingType", None),
+    ("footnote_height_mm", "FootnoteHeight", _mm_to_hmm),
+    ("register_paragraph_style", "RegisterParagraphStyle", None),
+    ("page_style_layout", "PageStyleLayout", _page_style_layout_to_uno),
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from plugin.framework.tool import ToolContext
 
 # region name -> (is_on property, text property)
@@ -146,8 +146,6 @@ _REGION_PROPS = {
     "header_left": ("HeaderIsOn", "HeaderTextLeft"),
     "footer_left": ("FooterIsOn", "FooterTextLeft"),
 }
-
-_REGIONS = tuple(_REGION_PROPS)
 
 # In-flow header/footer HTML does not carry draw-page shapes. Probe C4: a new
 # TextGraphicObject with these props keeps a floating hyperlink in the clone.
@@ -169,31 +167,11 @@ def _region_kind(region: str) -> str:
     return "header" if region.startswith("header") else "footer"
 
 
-def _empty_scan() -> dict[str, Any]:
-    """The shape _scan_region_content returns, for a region with nothing to scan."""
-    return {"fields": [], "images": [], "has_table": False, "paragraph_count": 0}
-
-
-def _region_has_table(text_obj: Any) -> bool:
-    """True when the region's enumeration includes a text table (letterhead grid)."""
+def _region_is_on(style: Any, prop: str) -> bool:
     try:
-        enum = text_obj.createEnumeration()
+        return style.getPropertyValue(prop) is True
     except Exception:
         return False
-    seen = 0
-    while enum.hasMoreElements() is True and seen < _SCAN_PARA_LIMIT:
-        seen += 1
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
-        try:
-            # `is True`: MagicMock supportsService() is truthy and would false-positive.
-            if el.supportsService("com.sun.star.text.TextTable") is True:
-                return True
-        except Exception:  # noqa: S112 - non-standard element may not implement supportsService
-            continue
-    return False
 
 
 def _region_holds_content(doc: Any, text_obj: Any | None) -> bool:
@@ -291,6 +269,48 @@ def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) ->
     return None
 
 
+def _region_shapes(
+    doc: Any,
+    text_obj: Any,
+    *,
+    strict: bool = False,
+) -> Iterator[tuple[Any, Any]]:
+    """Yield (shape, anchor) for shapes whose anchor text matches text_obj.
+
+    Snapshots shapes from the draw page first so copy's insertTextContent does
+    not mutate the list being iterated. When strict is True (used by the disable
+    guard), read failures re-raise so we fail closed.
+    """
+    try:
+        draw_page = doc.getDrawPage()
+        count = int(draw_page.getCount())
+    except Exception:
+        if strict:
+            raise
+        return
+    shapes: list[Any] = []
+    for i in range(min(count, _SCAN_SHAPE_LIMIT)):
+        try:
+            shapes.append(draw_page.getByIndex(i))
+        except Exception:
+            if strict:
+                raise
+            break
+    for shape in shapes:
+        try:
+            anchor = shape.getAnchor()
+            if anchor is None:
+                continue
+            if not uno_same(anchor.getText(), text_obj):
+                continue
+        except Exception as exc:
+            if strict:
+                raise
+            log.debug("region shapes: anchor unreadable: %s", exc)
+            continue
+        yield shape, anchor
+
+
 def _scan_region_content(doc: Any, text_obj: Any, *, strict: bool = False) -> dict[str, Any]:
     """Report fields and anchored images in a header/footer as get-side extras.
 
@@ -299,7 +319,7 @@ def _scan_region_content(doc: Any, text_obj: Any, *, strict: bool = False) -> di
     ``{"fields": [...], "images": [...], "paragraph_count": int}``. ``strict``
     (the disable guard) re-raises read failures instead of skipping them.
     """
-    out = _empty_scan()
+    out: dict[str, Any] = {"fields": [], "images": [], "has_table": False, "paragraph_count": 0}
     try:
         para_enum = text_obj.createEnumeration()
     except Exception:
@@ -360,30 +380,11 @@ def _scan_region_content(doc: Any, text_obj: Any, *, strict: bool = False) -> di
         out["warning"] = notes[0]
     # Images anchored in the region live on the draw page, whatever their anchor type, so they are
     # found by matching the anchor's text object rather than by walking portions.
-    try:
-        draw_page = doc.getDrawPage()
-        for i in range(min(int(draw_page.getCount()), _SCAN_SHAPE_LIMIT)):
-            shape = draw_page.getByIndex(i)
-            try:
-                # Distinct PyUNO wrappers for the same header XText used to make
-                # ``!=`` skip the logo (false miss). uno_same is the identity
-                # ladder; a miss here is still wrong for get/metadata (and was
-                # the disaster when wipe used this scan as a refuse gate).
-                # A page-anchored shape has no anchor text range.
-                anchor = shape.getAnchor()
-                if anchor is None or not uno_same(anchor.getText(), text_obj):
-                    continue
-            except Exception:
-                if strict:
-                    raise
-                continue
-            try:
-                out["images"].append(str(shape.getName()) or "unnamed")
-            except Exception:
-                out["images"].append("unnamed")
-    except Exception:
-        if strict:
-            raise
+    for shape, _anchor in _region_shapes(doc, text_obj, strict=strict):
+        try:
+            out["images"].append(str(shape.getName()) or "unnamed")
+        except Exception:
+            out["images"].append("unnamed")
     return out
 
 
@@ -399,11 +400,11 @@ def set_header_footer_auto_height(style: Any, region: str, enabled: bool) -> Non
     Without this, a header keeps its fixed height and taller content —
     a letterhead logo, say — overlaps the text and spills into the body.
     """
-    dyn_prop, spacing_prop, _unused = _height_props(region)
-    style.setPropertyValue(dyn_prop, bool(enabled))
+    props = _height_props(region)
+    style.setPropertyValue(props[0], bool(enabled))
     best_effort(
-        lambda: style.setPropertyValue(spacing_prop, bool(enabled)),
-        "set_header_footer_auto_height: %s not on this page style" % spacing_prop,
+        lambda: style.setPropertyValue(props[1], bool(enabled)),
+        "set_header_footer_auto_height: %s not on this page style" % props[1],
     )
 
 
@@ -435,24 +436,7 @@ def _copy_region_graphics(doc: Any, src_text: Any, dest_text: Any) -> tuple[int,
     """
     copied = 0
     skipped: list[str] = []
-    try:
-        draw_page = doc.getDrawPage()
-        count = int(draw_page.getCount())
-    except Exception:
-        return 0, []
-    shapes: list[Any] = []
-    for i in range(min(count, _SCAN_SHAPE_LIMIT)):
-        try:
-            shapes.append(draw_page.getByIndex(i))
-        except Exception:
-            break
-    for shape in shapes:
-        try:
-            if not uno_same(shape.getAnchor().getText(), src_text):
-                continue
-        except Exception as exc:
-            log.debug("page style clone: shape anchor unreadable: %s", exc)
-            continue
+    for shape, _anchor in _region_shapes(doc, src_text):
         label = _shape_name(shape)
         try:
             # `is True`: MagicMock supportsService() is truthy and would copy a frame.
@@ -502,15 +486,11 @@ def _copy_page_regions(
     doc: Any,
     source: Any,
     clone: Any,
-    *,
-    uno_ctx: Any,
-    services: Any,
 ) -> tuple[int, list[str]]:
     """Copy on, non-mirror header/footer regions onto the clone.
 
-    uno_ctx and services are unused. They stay so copy_page_style's keyword
-    call does not change. Flow is copied in-document; this no longer opens a
-    hidden Writer or reads the HTML import config service.
+    Flow is copied in-document; this no longer opens a hidden Writer or reads
+    the HTML import config service.
     """
     shapes_copied = 0
     skipped_shapes: list[str] = []
@@ -564,7 +544,7 @@ def _copy_page_regions(
                 plain = dest_text.getString() or ""
             except Exception:
                 plain = ""
-            if not str(plain).strip() and fields_copied == 0 and not _region_has_table(dest_text):
+            if not str(plain).strip() and fields_copied == 0 and not _scan_region_content(doc, dest_text)["has_table"]:
                 raise RuntimeError(
                     "Page style clone: copied %s flow content was empty." % region
                 )
@@ -596,9 +576,6 @@ def copy_page_style(
     doc: Any,
     source_name: str,
     new_name: str,
-    *,
-    uno_ctx: Any = None,
-    services: Any = None,
 ) -> dict[str, Any]:
     """Clone a page style: direct properties, header/footer flow, floating graphics.
 
@@ -631,9 +608,7 @@ def copy_page_style(
     _PAGE_STYLE_KEEPALIVE.append(clone)
     try:
         copied, skipped = _copy_direct_style_properties(source, clone)
-        shapes_copied, skipped_shapes = _copy_page_regions(
-            doc, source, clone, uno_ctx=uno_ctx, services=services,
-        )
+        shapes_copied, skipped_shapes = _copy_page_regions(doc, source, clone)
     except Exception:
         try:
             if styles.hasByName(new_name):
@@ -853,18 +828,26 @@ class PageSetStyleProperties(ToolWriterPageBase):
         if "is_landscape" in kwargs:
             conversions["is_landscape"] = kwargs["is_landscape"]
 
-        for kwarg, _label, _uno_prop, kind in _PAGE_SET_SPECS:
+        for kwarg, _uno_prop, converter in _PAGE_SET_SPECS:
             if kwarg not in kwargs:
                 continue
             val = kwargs[kwarg]
-            if kind == "mm":
-                conversions[kwarg] = _mm_to_hmm(val)
-            elif kind == "layout":
-                conversions[kwarg] = _page_style_layout_to_uno(val)
-            else:
-                conversions[kwarg] = val
+            conversions[kwarg] = converter(val) if converter else val
 
         updated: list[str] = []
+
+        def fail(label: str, exc: Exception) -> dict[str, Any]:
+            if not updated:
+                msg = f"Failed to set {label} on page style '{style_name}': {exc}. Nothing was changed."
+            else:
+                msg = f"Failed to set {label} on page style '{style_name}': {exc}. Earlier properties ({', '.join(updated)}) stay applied."
+            return {
+                "status": "error",
+                "style_name": style_name,
+                "updated": updated,
+                "failed": {label: str(exc)},
+                "message": msg,
+            }
 
         # is_landscape is applied first. If width/height were not passed, restore
         # the snapshotted dimensions so the setter doesn't swap them silently.
@@ -881,35 +864,19 @@ class PageSetStyleProperties(ToolWriterPageBase):
             except Exception as e:
                 if is_disposed_exception(e):
                     raise
-                return {
-                    "status": "error",
-                    "style_name": style_name,
-                    "updated": updated,
-                    "failed": {"is_landscape": str(e)},
-                    "message": f"Failed to set is_landscape on page style '{style_name}': {e}. Nothing was changed.",
-                }
+                return fail("is_landscape", e)
 
         # Write remaining properties in spec order, stopping at first failure.
-        for kwarg, label, uno_prop, _kind in _PAGE_SET_SPECS:
+        for kwarg, uno_prop, _converter in _PAGE_SET_SPECS:
             if kwarg in conversions:
+                label = kwarg.removesuffix("_mm")
                 try:
                     style.setPropertyValue(uno_prop, conversions[kwarg])
                     updated.append(label)
                 except Exception as e:
                     if is_disposed_exception(e):
                         raise
-                    failed_dict = {label: str(e)}
-                    if not updated:
-                        msg = f"Failed to set {label} on page style '{style_name}': {e}. Nothing was changed."
-                    else:
-                        msg = f"Failed to set {label} on page style '{style_name}': {e}. Earlier properties ({', '.join(updated)}) stay applied."
-                    return {
-                        "status": "error",
-                        "style_name": style_name,
-                        "updated": updated,
-                        "failed": failed_dict,
-                        "message": msg,
-                    }
+                    return fail(label, e)
 
         result = {"status": "ok", "style_name": style_name, "updated": updated}
         flag_style_unreviewed(result)
@@ -937,7 +904,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         "properties": {
             "style": _STYLE_PROPERTY,
             "region": enum_param(
-                list(_REGIONS),
+                list(_REGION_PROPS),
                 (
                     "Which region to read. 'header'/'footer' are the shared ones. Use the "
                     "'_first' variants for a 'different first page' letterhead and the '_left' "
@@ -974,7 +941,6 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         is_on = bool(style.getPropertyValue(is_on_prop))
         # F5: disabling the region *clears* HeaderText — typically None
         # while off. Still export if a text object is present.
-        text_obj = None
         try:
             text_obj = style.getPropertyValue(text_prop)
         except Exception:
@@ -1003,10 +969,10 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
                 result["images"] = scan["images"]
             if scan.get("warning"):
                 result["warning"] = scan["warning"]
-        dyn_prop, _unused_spacing, height_prop = _height_props(region)
+        props = _height_props(region)
         try:
-            result["auto_height"] = bool(style.getPropertyValue(dyn_prop))
-            result["height_mm"] = round(style.getPropertyValue(height_prop) / 100.0, 1)
+            result["auto_height"] = bool(style.getPropertyValue(props[0]))
+            result["height_mm"] = round(style.getPropertyValue(props[2]) / 100.0, 1)
         except Exception as exc:
             log.debug("page header/footer read: auto_height or height unreadable: %s", exc)
         return result
@@ -1037,7 +1003,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         "properties": {
             "style": _STYLE_PROPERTY,
             "region": enum_param(
-                list(_REGIONS),
+                list(_REGION_PROPS),
                 (
                     "Which region to set. 'header'/'footer' are the shared ones; '_first' targets a "
                     "'different first page' letterhead and '_left' the left-hand pages."
@@ -1083,18 +1049,13 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             return _mirrored_region_skip(style_name, region)
 
         is_on_prop, text_prop = _REGION_PROPS[region]
-        was_on = False
-        try:
-            was_on = style.getPropertyValue(is_on_prop) is True
-        except Exception:
-            was_on = False
+        was_on = _region_is_on(style, is_on_prop)
 
         auto_height = kwargs.get("auto_height")
         old_auto_height = None
         if auto_height is not None:
-            dyn_prop, _spacing_prop, _height_prop = _height_props(region)
             try:
-                old_auto_height = bool(style.getPropertyValue(dyn_prop))
+                old_auto_height = bool(style.getPropertyValue(_height_props(region)[0]))
             except Exception:
                 old_auto_height = None
 
@@ -1186,6 +1147,12 @@ def _lower_keeps_length(text: str) -> bool:
     return len(folded) == len(text)
 
 
+def _fold(a: str, b: str, case_sensitive: bool) -> tuple[str, str]:
+    if case_sensitive or not (_lower_keeps_length(a) and _lower_keeps_length(b)):
+        return a, b
+    return a.lower(), b.lower()
+
+
 def _match_offsets(hay: str, needle: str, case_sensitive: bool) -> list[int]:
     """Non-overlapping start indexes of *needle* in *hay*.
 
@@ -1195,10 +1162,7 @@ def _match_offsets(hay: str, needle: str, case_sensitive: bool) -> list[int]:
     """
     if not needle:
         return []
-    if case_sensitive or not (_lower_keeps_length(hay) and _lower_keeps_length(needle)):
-        src, pat = hay, needle
-    else:
-        src, pat = hay.lower(), needle.lower()
+    src, pat = _fold(hay, needle, case_sensitive)
     step = len(needle)
     hits: list[int] = []
     start = 0
@@ -1215,9 +1179,8 @@ def _same_region_text(selected: Any, needle: str, case_sensitive: bool) -> bool:
     """True when the cursor selection is the requested match."""
     if not isinstance(selected, str):
         return False
-    if case_sensitive or not (_lower_keeps_length(selected) and _lower_keeps_length(needle)):
-        return selected == needle
-    return selected.lower() == needle.lower()
+    a, b = _fold(selected, needle, case_sensitive)
+    return a == b
 
 
 def _find_region_matches(text_obj: Any, needle: str, case_sensitive: bool) -> tuple[list[tuple[Any, int, int]], list[str]]:
@@ -1295,25 +1258,7 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
     """
     from com.sun.star.text.TextContentAnchorType import AT_CHARACTER
 
-    try:
-        draw_page = doc.getDrawPage()
-        count = int(draw_page.getCount())
-    except Exception:
-        return None
-    shapes: list[Any] = []
-    for i in range(min(count, _SCAN_SHAPE_LIMIT)):
-        try:
-            shapes.append(draw_page.getByIndex(i))
-        except Exception:
-            break
-    for shape in shapes:
-        try:
-            anchor = shape.getAnchor()
-            if not uno_same(anchor.getText(), text_obj):
-                continue
-        except Exception as exc:
-            log.debug("_character_anchor_in_matches: anchor unreadable: %s", exc)
-            continue
+    for shape, anchor in _region_shapes(doc, text_obj):
         try:
             if shape.getPropertyValue("AnchorType") != AT_CHARACTER:
                 continue
@@ -1408,7 +1353,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 "description": "Page style name. Defaults to 'Standard'.",
             },
             "region": enum_param(
-                list(_REGIONS),
+                list(_REGION_PROPS),
                 (
                     "Which region to edit. 'header'/'footer' are the shared ones. "
                     "'_first' and '_left' are skipped when they only mirror the shared region."
@@ -1475,11 +1420,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             return _mirrored_region_skip(style_name, region)
 
         is_on_prop, text_prop = _REGION_PROPS[region]
-        try:
-            is_on = style.getPropertyValue(is_on_prop) is True
-        except Exception:
-            is_on = False
-        if not is_on:
+        if not _region_is_on(style, is_on_prop):
             return self._tool_error(
                 "The %s is off on page style '%s'. Turn it on before replacing text."
                 % (region, style_name)

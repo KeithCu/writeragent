@@ -319,7 +319,7 @@ def test_page_insert_break_applies_cloned_style_and_restarts_numbering(ctx, doc)
     pages = doc.getStyleFamilies().getByName("PageStyles")
     if pages.hasByName("AnnexRestart1424"):
         pages.removeByName("AnnexRestart1424")
-    copy_page_style(doc, _style_name(doc), "AnnexRestart1424", uno_ctx=ctx)
+    copy_page_style(doc, _style_name(doc), "AnnexRestart1424")
 
     text = doc.getText()
     cursor = text.createTextCursor()
@@ -366,7 +366,7 @@ def test_page_insert_break_after_text_styles_the_following_paragraph(ctx, doc):
     pages = doc.getStyleFamilies().getByName("PageStyles")
     if pages.hasByName("AnnexAfter1424"):
         pages.removeByName("AnnexAfter1424")
-    copy_page_style(doc, _style_name(doc), "AnnexAfter1424", uno_ctx=ctx)
+    copy_page_style(doc, _style_name(doc), "AnnexAfter1424")
 
     text = doc.getText()
     cursor = text.createTextCursor()
@@ -440,7 +440,7 @@ def test_page_insert_break_after_last_paragraph_does_not_apply_style(ctx, doc):
     pages = doc.getStyleFamilies().getByName("PageStyles")
     if pages.hasByName("AnnexLast1424"):
         pages.removeByName("AnnexLast1424")
-    copy_page_style(doc, _style_name(doc), "AnnexLast1424", uno_ctx=ctx)
+    copy_page_style(doc, _style_name(doc), "AnnexLast1424")
 
     text = doc.getText()
     cursor = text.createTextCursor()
@@ -475,7 +475,7 @@ def test_page_insert_break_view_cursor_applies_style_and_keeps_selection(ctx, do
     pages = doc.getStyleFamilies().getByName("PageStyles")
     if pages.hasByName("AnnexCursor1424"):
         pages.removeByName("AnnexCursor1424")
-    copy_page_style(doc, _style_name(doc), "AnnexCursor1424", uno_ctx=ctx)
+    copy_page_style(doc, _style_name(doc), "AnnexCursor1424")
 
     text = doc.getText()
     cursor = text.createTextCursor()
@@ -559,7 +559,7 @@ def test_copy_page_style_keeps_footer_field_and_graphic(ctx, doc):
     source_scan = _scan_region_content(doc, footer)
     assert source_scan["fields"], source_scan
 
-    stats = copy_page_style(doc, name, "AnnexFooterClone", uno_ctx=ctx)
+    stats = copy_page_style(doc, name, "AnnexFooterClone")
 
     assert stats["shapes_copied"] >= 1, stats
     clone = pages.getByName("AnnexFooterClone")
@@ -723,7 +723,7 @@ def test_copy_page_style_clones_height_and_fields_correctly(ctx, doc):
 
     from plugin.writer.page import copy_page_style
     # Clone the page style
-    stats = copy_page_style(doc, name, "CloneBug1424", uno_ctx=ctx)
+    stats = copy_page_style(doc, name, "CloneBug1424")
     assert stats["properties_copied"] > 0
 
     clone = pages.getByName("CloneBug1424")
@@ -799,7 +799,7 @@ def test_copy_page_style_clones_next_page_number_and_roman(ctx, doc):
 
     from plugin.writer.page import copy_page_style
     # Clone the page style
-    stats = copy_page_style(doc, name, "CloneBug1424_Next", uno_ctx=ctx)
+    stats = copy_page_style(doc, name, "CloneBug1424_Next")
     assert stats["properties_copied"] > 0
 
     clone = pages.getByName("CloneBug1424_Next")
@@ -889,7 +889,7 @@ def test_page_break_inside_table_cell_with_page_style_uno(ctx, doc):
     pages = doc.getStyleFamilies().getByName("PageStyles")
     if pages.hasByName("AnnexCell1424"):
         pages.removeByName("AnnexCell1424")
-    copy_page_style(doc, _style_name(doc), "AnnexCell1424", uno_ctx=ctx)
+    copy_page_style(doc, _style_name(doc), "AnnexCell1424")
 
     text = doc.getText()
     cursor = text.createTextCursor()
