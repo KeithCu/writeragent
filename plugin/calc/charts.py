@@ -49,7 +49,7 @@ _MAX_CHART_DATA_CELLS = 10_000
 class ChartRef(NamedTuple):
     host: Any
     parent: Any
-    kind: Literal["calc_sheet", "writer_embed", "writer_draw_page", "draw_page"]
+    kind: Literal["calc_sheet", "writer_embed", "draw_page"]
     page_index: int | None = None
 
 
@@ -252,9 +252,7 @@ def _unique_chart_name(existing: set[str]) -> str:
 def _listed_chart_name(shape_or_name: Any) -> str:
     # Tip: a made-up Chart_{page}_{index} is not the shape's name, so get/edit/delete cannot find it.
     name = getattr(shape_or_name, "Name", shape_or_name)
-    if isinstance(name, str) and name:
-        return name
-    return ""
+    return name if isinstance(name, str) and name else ""
 
 
 def _validate_headers_and_rows(headers: Any, rows: Any) -> tuple[bool, str | None]:
@@ -604,7 +602,7 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
                 log.warning("Invalid series color ignored: '%s'", c)
 
         if parsed_colors:
-            try:
+            def _apply_series_colors() -> None:
                 diag = chart_doc.getFirstDiagram()
                 if diag:
                     coords = diag.getCoordinateSystems()
@@ -632,11 +630,8 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
                 else:
                     warnings.append("Could not retrieve first diagram to apply series colors")
                     log.warning("Could not retrieve first diagram using getFirstDiagram")
-            except Exception as exc:
-                if is_real_disposal(exc):
-                    raise
-                warnings.append(f"Failed to set series colors: {_format_chart_exception_msg(exc)}")
-                log.warning("Failed to set data series colors: %s", exc)
+
+            _chart_step(warnings, "series colors", _apply_series_colors)
 
     return warnings
 
@@ -710,6 +705,18 @@ def _format_chart_exception_msg(e: Exception) -> str:
     if detail:
         return f"{type(e).__name__}: {detail}"
     return f"{type(e).__name__}"
+
+
+def _chart_op_error(tool: Any, exc: Exception, *, prefix: str, log_msg: str | None = None, code: str | None = None) -> dict[str, Any]:
+    # Closed-document disposal must stay DOCUMENT_DISPOSED, not a chart error code.
+    if is_real_disposal(exc):
+        raise exc
+    if log_msg is not None:
+        log.exception(log_msg)
+    text = f"{prefix}: {_format_chart_exception_msg(exc)}"
+    if code is None:
+        return tool._tool_error(text)
+    return tool._tool_error(text, code=code)
 
 
 def _with_warnings(out: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
@@ -841,7 +848,6 @@ def _named_ole_chart_ref(
     parent: Any,
     shape_type: Any,
     name: str,
-    kind: Literal["writer_draw_page", "draw_page"],
     page_index: int | None = None,
 ) -> ChartRef | None:
     if isinstance(shape_type, Exception):
@@ -851,7 +857,7 @@ def _named_ole_chart_ref(
             return None
         listed_name = _listed_chart_name(shape)
         if listed_name and listed_name == name and _is_chart_host(shape, is_embed=False):
-            return ChartRef(shape, parent, kind, page_index)
+            return ChartRef(shape, parent, "draw_page", page_index)
     except Exception as exc:
         if is_disposed_exception(exc):
             return None
@@ -884,7 +890,7 @@ def _lookup_chart(
                 raise
         page_obj = doc.getDrawPage()
         for shape, parent, shape_type in _iter_page_shapes(page_obj, doc):
-            ref = _named_ole_chart_ref(shape, parent, shape_type, name, "writer_draw_page")
+            ref = _named_ole_chart_ref(shape, parent, shape_type, name)
             if ref is not None:
                 return ChartLookup(ref=ref)
         return ChartLookup()
@@ -899,7 +905,7 @@ def _lookup_chart(
         for i in indices:
             pg = draw_pages.getByIndex(i)
             for shape, parent, shape_type in _iter_page_shapes(pg, doc):
-                ref = _named_ole_chart_ref(shape, parent, shape_type, name, "draw_page", i)
+                ref = _named_ole_chart_ref(shape, parent, shape_type, name, i)
                 if ref is not None:
                     if page is not None:
                         return ChartLookup(ref=ref)
@@ -929,8 +935,6 @@ def _require_chart(
 
 class ListCharts(ToolBaseDummy):
     """List charts; Dummy backend for ``ManageCharts`` action=list."""
-
-    name: str | None = "list_charts"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -1052,8 +1056,6 @@ class ListCharts(ToolBaseDummy):
 class GetChartInfo(ToolBaseDummy):
     """Chart details; Dummy backend for ``ManageCharts`` action=get_info."""
 
-    name: str | None = "get_chart_info"
-
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         target = _require_chart(self, doc, kwargs)
@@ -1127,8 +1129,6 @@ def _writer_body_has_no_text(text: Any) -> bool:
 class UpsertChart(ToolBaseDummy):
     """Create/edit chart; Dummy backend for ``ManageCharts`` action=create|edit."""
 
-    name: str | None = "upsert_chart"
-
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         action = kwargs.get("action")
         doc = ctx.doc
@@ -1161,11 +1161,7 @@ class UpsertChart(ToolBaseDummy):
                 # except turned that into CHART_CREATE_ERROR.
                 # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
                 # Any other failure stays on the existing error path.
-                if is_real_disposal(e):
-                    raise
-                msg = _format_chart_exception_msg(e)
-                log.exception("Chart creation failed")
-                return self._tool_error(f"Failed to create chart: {msg}", code="CHART_CREATE_ERROR")
+                return _chart_op_error(self, e, prefix="Failed to create chart", log_msg="Chart creation failed", code="CHART_CREATE_ERROR")
 
         elif action == "edit":
             target = _require_chart(self, doc, kwargs)
@@ -1195,11 +1191,7 @@ class UpsertChart(ToolBaseDummy):
                         addr = cell_range.getRangeAddress()
                         chart_obj.setRanges((addr,))
                     except Exception as e:
-                        if is_real_disposal(e):
-                            raise
-                        msg = _format_chart_exception_msg(e)
-                        log.exception("Setting chart data range failed")
-                        return self._tool_error(f"Failed to set data_range: {msg}", code="CHART_EDIT_ERROR")
+                        return _chart_op_error(self, e, prefix="Failed to set data_range", log_msg="Setting chart data range failed", code="CHART_EDIT_ERROR")
 
                 if "has_header" in kwargs:
                     if not (hasattr(chart_obj, "setHasColumnHeaders") and hasattr(chart_obj, "setHasRowHeaders")):
@@ -1209,11 +1201,7 @@ class UpsertChart(ToolBaseDummy):
                         chart_obj.setHasColumnHeaders(has_hdr)
                         chart_obj.setHasRowHeaders(has_hdr)
                     except Exception as e:
-                        if is_real_disposal(e):
-                            raise
-                        msg = _format_chart_exception_msg(e)
-                        log.exception("Setting chart headers failed")
-                        return self._tool_error(f"Failed to set has_header: {msg}", code="CHART_EDIT_ERROR")
+                        return _chart_op_error(self, e, prefix="Failed to set has_header", log_msg="Setting chart headers failed", code="CHART_EDIT_ERROR")
 
             try:
                 _apply_chart_data_arrays(chart_doc, kwargs.get("headers"), kwargs.get("rows"))
@@ -1227,11 +1215,7 @@ class UpsertChart(ToolBaseDummy):
                 styling_warnings = _apply_chart_styling(chart_doc, **kwargs)
                 warnings.extend(styling_warnings)
             except Exception as e:
-                if is_real_disposal(e):
-                    raise
-                msg = _format_chart_exception_msg(e)
-                log.exception("Chart edit failed")
-                return self._tool_error(f"Failed to edit chart: {msg}", code="CHART_EDIT_ERROR")
+                return _chart_op_error(self, e, prefix="Failed to edit chart", log_msg="Chart edit failed", code="CHART_EDIT_ERROR")
 
             out: dict[str, Any] = {"status": "ok", "name": chart_name, "message": "Chart updated."}
             return _with_warnings(out, warnings)
@@ -1279,23 +1263,6 @@ class UpsertChart(ToolBaseDummy):
                 if is_real_disposal(exc):
                     raise
                 return self._tool_error(f"Invalid position '{pos_str}': {_format_chart_exception_msg(exc)}")
-
-        # The log does not place the chart. Missing fields stay None.
-        # Reading rect.X before addNewByName aborts create on the headless
-        # pytest stub (an empty SimpleNamespace), so a legend failure never
-        # reaches removeByName.
-        log.debug(
-            "Creating Calc chart: sheet=%s, rect=(%s,%s,%s,%s), range=(%s,%s,%s,%s)",
-            sheet.getName(),
-            getattr(rect, "X", None),
-            getattr(rect, "Y", None),
-            getattr(rect, "Width", None),
-            getattr(rect, "Height", None),
-            getattr(addr, "StartColumn", None),
-            getattr(addr, "StartRow", None),
-            getattr(addr, "EndColumn", None),
-            getattr(addr, "EndRow", None),
-        )
 
         existing_names = _get_all_calc_chart_names(ctx.doc)
         name = _unique_chart_name(existing_names)
@@ -1453,24 +1420,24 @@ class UpsertChart(ToolBaseDummy):
             except Exception as e:
                 log.debug("Last ditch effort failed: %s", e)
 
-        warnings: list[str] = []
         # 5. Configure Diagram
-        if chart_doc:
-            try:
-                diagram = chart_doc.createInstance(service)
-                if not diagram:
-                    raise RuntimeError(f"Failed to create diagram instance for service: {service}")
-                chart_doc.setDiagram(diagram)
-                log.info("Set chart diagram: %s", service)
-                _apply_chart_data_arrays(chart_doc, kwargs.get("headers"), kwargs.get("rows"))
-                warnings = _apply_chart_styling(chart_doc, **kwargs)
-            except Exception:
-                # Diagram installation and styling must succeed or the embed is rolled back.
-                _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, actual_name), actual_name)
-                raise
-        else:
+        if not chart_doc:
             _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, actual_name), actual_name)
             return self._tool_error("Cannot access chart content.")
+
+        warnings: list[str] = []
+        try:
+            diagram = chart_doc.createInstance(service)
+            if not diagram:
+                raise RuntimeError(f"Failed to create diagram instance for service: {service}")
+            chart_doc.setDiagram(diagram)
+            log.info("Set chart diagram: %s", service)
+            _apply_chart_data_arrays(chart_doc, kwargs.get("headers"), kwargs.get("rows"))
+            warnings = _apply_chart_styling(chart_doc, **kwargs)
+        except Exception:
+            # Diagram installation and styling must succeed or the embed is rolled back.
+            _drop_failed_chart_insert(lambda: _remove_writer_chart(doc, chart_obj, actual_name), actual_name)
+            raise
 
         # Force a refresh of the chart model using direct UNO calls on the chart document itself.
         try:
@@ -1560,8 +1527,6 @@ class UpsertChart(ToolBaseDummy):
 class DeleteChart(ToolBaseDummy):
     """Delete chart; Dummy backend for ``ManageCharts`` action=delete."""
 
-    name: str | None = "delete_chart"
-
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         target = _require_chart(self, doc, kwargs)
@@ -1576,15 +1541,11 @@ class DeleteChart(ToolBaseDummy):
             elif ref.kind == "writer_embed":
                 _remove_writer_chart(doc, ref.host, chart_name)
                 return {"status": "ok", "deleted": chart_name}
-            elif ref.kind in ("writer_draw_page", "draw_page"):
+            else:
                 ref.parent.remove(ref.host)
                 return {"status": "ok", "deleted": chart_name}
-            else:
-                return self._tool_error(f"Unknown chart kind: {ref.kind}")
         except Exception as exc:
-            if is_real_disposal(exc):
-                raise
-            return self._tool_error(f"Failed to delete chart: {_format_chart_exception_msg(exc)}")
+            return _chart_op_error(self, exc, prefix="Failed to delete chart")
 
 
 class ManageCharts(ToolCalcChartBase):
