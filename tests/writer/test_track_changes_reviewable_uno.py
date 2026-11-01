@@ -338,13 +338,11 @@ def test_html_import_failure_rolls_back_in_review_mode_uno(ctx, doc):
     prev = get_config(_FLAG)
     set_config(_FLAG, "record")
     real = html_import._insert_mixed_or_plain_html
-    real_fmt = fmt._insert_mixed_or_plain_html
 
     def _boom(*a, **k):
         raise RuntimeError("simulated HTML import failure")
 
     html_import._insert_mixed_or_plain_html = _boom
-    fmt._insert_mixed_or_plain_html = _boom
     try:
         res = None
         try:
@@ -358,7 +356,6 @@ def test_html_import_failure_rolls_back_in_review_mode_uno(ctx, doc):
             "no tracked change may survive the rolled-back edit, got %r" % _redline_types(doc)
     finally:
         html_import._insert_mixed_or_plain_html = real
-        fmt._insert_mixed_or_plain_html = real_fmt
         set_config(_FLAG, prev)
         if len(doc.getRedlines()):
             _reject_all(doc, ctx)

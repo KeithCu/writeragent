@@ -27,8 +27,7 @@ def test_extend_selection_uses_non_empty_range(mock_create_client, mock_stream_c
     selection.getByIndex.side_effect = by_index
     model.CurrentController.getSelection.return_value = selection
 
-    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"):
         do_extend_selection(ctx, model)
 
         # apply_chunk should be passed to stream_completion
@@ -67,8 +66,7 @@ def test_extend_selection_falls_back_to_index0_if_all_empty(mock_create_client, 
     selection.getByIndex.side_effect = by_index
     model.CurrentController.getSelection.return_value = selection
 
-    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="fallback_orig"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="fallback_orig"):
         do_extend_selection(ctx, model)
 
         apply_chunk_fn = mock_stream_completion.call_args.args[5]
@@ -97,8 +95,7 @@ def test_extend_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create
     selection.getByIndex.return_value = text_range
     model.CurrentController.getSelection.return_value = selection
 
-    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"):
 
         do_extend_selection(ctx, model)
 
@@ -129,7 +126,6 @@ def test_edit_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_c
     model.CurrentController.getSelection.return_value = selection
 
     with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False), \
          patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("make it better", "")):
 
         do_edit_selection(ctx, model, MagicMock())
@@ -157,8 +153,7 @@ def test_extend_selection_fails_closed_on_stop_checker_error(mock_create_client,
     selection = MagicMock()
     model.CurrentController.getSelection.return_value = selection
 
-    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"):
 
         do_extend_selection(ctx, model)
 
@@ -186,8 +181,7 @@ def test_extend_selection_fails_when_setString_fails(mock_create_client, mock_st
     selection.getByIndex.return_value = text_range
     model.CurrentController.getSelection.return_value = selection
 
-    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"):
 
         do_extend_selection(ctx, model)
 
@@ -217,8 +211,7 @@ def test_extend_selection_on_error_long_error_does_not_raise_contract_error(mock
     model.CurrentController.getSelection.return_value = selection
 
     long_err = ValueError("x" * (DEAL_MAX_MSGID + 50))
-    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"):
         do_extend_selection(ctx, model)
         on_error_fn = mock_stream_completion.call_args.args[7]
         on_error_fn(long_err)
@@ -243,7 +236,6 @@ def test_edit_selection_on_error_long_error_does_not_raise_contract_error(mock_c
 
     long_err = ValueError("x" * (DEAL_MAX_MSGID + 50))
     with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False), \
          patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("make it better", "")):
         do_edit_selection(ctx, model, MagicMock())
         on_error_fn = mock_stream_completion.call_args.args[7]
@@ -293,8 +285,7 @@ def test_edit_selection_empty_text_shows_message_before_prompt(mock_get_str, moc
     selection.getByIndex.return_value = text_range
     model.CurrentController.getSelection.return_value = selection
 
-    with patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
-        do_edit_selection(ctx, model, MagicMock())
+    do_edit_selection(ctx, model, MagicMock())
 
     mock_msgbox.assert_called_once()
     assert "Select text first" in mock_msgbox.call_args.args[2]
@@ -314,8 +305,7 @@ def test_edit_selection_no_client_skips_prompt(mock_create_client, mock_prompt, 
     selection.getByIndex.return_value = text_range
     model.CurrentController.getSelection.return_value = selection
 
-    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"):
         do_edit_selection(ctx, model, MagicMock())
 
     mock_prompt.assert_not_called()
@@ -335,8 +325,7 @@ def test_extend_selection_empty_text_shows_message(mock_get_str, mock_stream, mo
     selection.getByIndex.return_value = text_range
     model.CurrentController.getSelection.return_value = selection
 
-    with patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
-        do_extend_selection(ctx, model)
+    do_extend_selection(ctx, model)
 
     mock_msgbox.assert_called_once()
     assert "Select text first" in mock_msgbox.call_args.args[2]
@@ -372,7 +361,6 @@ def test_both_commands_write_model_lru_once(
     model.CurrentController.getSelection.return_value = selection
 
     with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False), \
          patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("rewrite", "")):
 
         do_extend_selection(ctx, model)
@@ -403,8 +391,7 @@ def test_extend_selection_uses_extend_system_prompt(mock_create_client, mock_str
     selection.getByIndex.return_value = text_range
     model.CurrentController.getSelection.return_value = selection
 
-    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="hello selection"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False):
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="hello selection"):
         do_extend_selection(ctx, model)
 
     assert mock_stream.called
@@ -432,7 +419,6 @@ def test_edit_selection_uses_edit_system_prompt(mock_create_client, mock_stream)
     model.CurrentController.getSelection.return_value = selection
 
     with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="hello selection"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False), \
          patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("shorter", "")):
         do_edit_selection(ctx, model, MagicMock())
 
@@ -460,7 +446,6 @@ def test_edit_selection_dialog_extras_win_over_config(mock_create_client, mock_s
     model.CurrentController.getSelection.return_value = selection
 
     with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="hello selection"), \
-         patch("plugin.writer.editselection._stop_for_tracked_changes", return_value=False), \
          patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("shorter", "dialog extra")):
         do_edit_selection(ctx, model, MagicMock())
 

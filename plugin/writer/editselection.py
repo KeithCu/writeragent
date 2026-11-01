@@ -43,30 +43,23 @@ from plugin.writer.edit_review import (
 )
 
 
-def _stop_for_tracked_changes(ctx: Any, title: str, text_range: Any) -> bool:
-    """Stop Extend/Edit Selection when the range already has an Insert or Delete.
-
-    The message box is the user-visible path. The streamed session raises the same
-    way before ``setString``, so skipping this wrapper still cannot wipe the redlines.
-    A deletion-only selection reads as empty after skipping deletes; that used to
-    return from Extend Selection with no message and, on Edit Selection, still
-    reached ``setString``. Check before that empty return and before the prompt.
-    """
-    try:
-        refuse_tracked_insert_or_delete(text_range)
-    except TrackedChangesInSelection:
-        msgbox(ctx, title, _(TRACKED_SELECTION_MESSAGE))
-        return True
-    return False
-
-
 def _selection_target(ctx: Any, model: Any, title: str) -> tuple[Any, str] | None:
     """Return (range, text without tracked deletions), or None after telling the user why not."""
     text_range = selected_text_range(model.CurrentController)
     if text_range is None:
         msgbox(ctx, title, _("Select text first"))
         return None
-    if _stop_for_tracked_changes(ctx, title, text_range):
+    # Stop Extend/Edit Selection when the range already has an Insert or Delete.
+    #
+    # The message box is the user-visible path. The streamed session raises the same
+    # way before ``setString``, so skipping this wrapper still cannot wipe the redlines.
+    # A deletion-only selection reads as empty after skipping deletes; that used to
+    # return from Extend Selection with no message and, on Edit Selection, still
+    # reached ``setString``. Check before that empty return and before the prompt.
+    try:
+        refuse_tracked_insert_or_delete(text_range)
+    except TrackedChangesInSelection:
+        msgbox(ctx, title, _(TRACKED_SELECTION_MESSAGE))
         return None
     original_text = get_string_without_tracked_deletions(text_range)
     if not original_text:

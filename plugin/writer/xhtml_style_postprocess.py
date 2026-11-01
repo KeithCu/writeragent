@@ -18,7 +18,7 @@
 #     round-trip on WRITE; FODT recovers the base style NAME only. Char-level overrides via
 #     text-* spans survive (including run colour). Read REPORTS geometry, paragraph font, and
 #     fo:color as read-only data-lo-para, taken from the flat-ODF sidecar (see
-#     extract_autostyle_overrides_from_fodt): the XHTML CSS is flattened and cannot tell an
+#     _parse_fodt_autostyles): the XHTML CSS is flattened and cannot tell an
 #     override from an inherited value.
 #   - Inside <table>: paragraph-* classes stripped; no data-lo-style (cell styles out of scope).
 #   - Colliding compact tokens (two UNO names -> same token): token omitted on read.
@@ -30,7 +30,7 @@ from __future__ import annotations
 import html as _html
 import re
 from html.parser import HTMLParser
-from typing import Any
+from typing import Any, final
 
 # Block tags that carry a paragraph style (read) and that produce exactly one paragraph on
 # import (write, where each consumes one positional data-lo-style slot). NOTE: <div> is
@@ -86,18 +86,6 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
 def _split_decls(decl: str) -> list[str]:
     # crosshair: off
     return [p.strip() for p in decl.split(";") if p.strip()]
-
-
-def _clean_decl_ordered(decl: str) -> str:
-    """Cleaned declaration, original order preserved, no trailing ``;`` (for inlining)."""
-    # crosshair: off
-    return "; ".join(_split_decls(decl))
-
-
-def _normalize_decl(decl: str) -> str:
-    """Order-independent fingerprint of a declaration set (for autostyle matching)."""
-    # crosshair: off
-    return ";".join(sorted(_split_decls(decl)))
 
 
 # Direct paragraph overrides surfaced to the agent as read-only ``data-lo-para``. v1 dropped them
@@ -162,7 +150,7 @@ def _fodt_override_css(style_block: str) -> str:
     return "; ".join(parts)
 
 
-def _parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]:
+def _parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]:  # pyright: ignore[reportUnusedFunction]
     # crosshair: off
     # FODT autostyle extraction over unbounded XML.
     parents: dict[str, str] = {}
@@ -183,30 +171,6 @@ def _parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]:
     return parents, overrides
 
 
-@deal.post(lambda result: isinstance(result, dict))
-def extract_autostyle_parents_from_fodt(fodt: str) -> dict[str, str]:
-    """Map automatic paragraph style name (``P1``, ``P2``, ...) -> its parent named style, from a
-    flat ODF (.fodt) export. The XHTML export flattens this parent away, so an autostyle's CSS
-    often matches no named rule (the common case after a StarWriter HTML import); the flat ODF
-    keeps ``style:parent-style-name``, and the automatic style name (``Pn``) is identical to the
-    XHTML ``paragraph-Pn`` class suffix — a reliable, order-independent join. Parent values may
-    still be ODF-encoded (``Text_20_body``); decode at use via ``decode_lo_css_class_suffix``.
-    """
-    # crosshair: off
-    return _parse_fodt_autostyles(fodt)[0]
-
-
-def extract_autostyle_overrides_from_fodt(fodt: str) -> dict[str, str]:
-    """Map automatic paragraph style name (``P1``, ...) -> its DIRECT overrides as CSS text.
-
-    Companion to :func:`extract_autostyle_parents_from_fodt`, parsed from the same export. An
-    automatic style in flat ODF lists only what was set on top of its parent, so what comes back
-    is exactly the hand-set formatting — the thing the XHTML projection cannot express.
-    """
-    # crosshair: off
-    return _parse_fodt_autostyles(fodt)[1]
-
-
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], dict) and isinstance(result[1], dict))
 def parse_style_block(xhtml: str) -> tuple[dict[str, str], dict[str, str]]:
     """Return ``(raw_map, norm_map)`` for every class rule in the ``<style>`` block(s).
@@ -221,8 +185,9 @@ def parse_style_block(xhtml: str) -> tuple[dict[str, str], dict[str, str]]:
     text = xhtml if type(xhtml) is str else ""
     for block in _STYLE_BLOCK_RE.findall(text):
         for name, decl in _RULE_RE.findall(block):
-            raw_map[name] = _clean_decl_ordered(decl)
-            norm_map[name] = _normalize_decl(decl)
+            parts = _split_decls(decl)
+            raw_map[name] = "; ".join(parts)
+            norm_map[name] = ";".join(sorted(parts))
     return raw_map, norm_map
 
 
@@ -288,6 +253,7 @@ class _HtmlPassthroughParser(HTMLParser):
         self._out.append("<!--%s-->" % data)
 
 
+@final
 class _SemanticTransformer(_HtmlPassthroughParser):
     """Rewrite LO XHTML body into the agent-facing semantic HTML.
 
@@ -304,7 +270,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
     _autostyle_overrides: dict[str, str]
     _colliding_tokens: set[str]
     _norm: dict[str, str]
-    _table_depth: int
 
     def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> None:
         # crosshair: off
@@ -459,7 +424,7 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     emit ``data-lo-style`` compact tokens for named paragraph styles, drop trailing ghost
     paragraphs. Pure string work — fully unit-testable without LibreOffice.
 
-    *autostyle_parents* — ``{Pn: parent_style_name}`` from ``extract_autostyle_parents_from_fodt``
+    *autostyle_parents* — ``{Pn: parent_style_name}`` from ``_parse_fodt_autostyles``
     on a paired flat-ODF export. Joined by autostyle name (``paragraph-Pn`` suffix), not block
     index. Recovers the base style **name** after StarWriter write→read when CSS fingerprint
     fails; does not recover whole-paragraph Para* overrides (v1 limitation — see plan doc).

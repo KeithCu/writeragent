@@ -662,14 +662,12 @@ def test_target_end_entity_decoded_proposed_preview():
 
     ctx = _edit_ctx()
     with patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(format_support, "html_to_plain_text", return_value="STRIPPED") as mock_html_plain, \
          patch.object(format_support, "insert_content_at_position"), \
          patch.object(EditReviewSession, "record_mutation") as mock_record:
         res = ApplyDocumentContent().execute(
             ctx, target="end", content="&lt;b&gt;hi&lt;/b&gt;"
         )
     assert res["status"] == "ok"
-    mock_html_plain.assert_not_called()
     mock_record.assert_called_once()
     assert mock_record.call_args[1]["proposed_preview"] == "<b>hi</b>"
 

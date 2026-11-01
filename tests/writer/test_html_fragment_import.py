@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, patch
 from plugin.writer.format import (  # noqa: E402
     HTML_FILTER,
     _content_has_block_markup,
-    insert_html_fragment_at_cursor,
 )
 from plugin.writer.html_import import (
     _wrap_html_fragment,
+    insert_html_fragment_at_cursor,
 )
 
 

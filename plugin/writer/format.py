@@ -554,31 +554,20 @@ def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) 
 # ---------------------------------------------------------------------------
 
 from .html_export import (
-    _apply_image_export_options as _apply_image_export_options,
     document_to_content as document_to_content,
-    strip_embedded_image_data as strip_embedded_image_data,
-    xtext_to_content as xtext_to_content,
 )
 from .html_import import (
     _content_has_block_markup as _content_has_block_markup,
     _ensure_html_linebreaks as _ensure_html_linebreaks,
-    _insert_mixed_html_and_math_at_cursor as _insert_mixed_html_and_math_at_cursor,
-    _insert_mixed_or_plain_html as _insert_mixed_or_plain_html,
     _insert_starwriter_html_at_cursor as _insert_starwriter_html_at_cursor,
     content_has_markup as content_has_markup,
-    html_to_plain_text as html_to_plain_text,
     plain_text_if_markup as plain_text_if_markup,
     insert_content_at_position as insert_content_at_position,
     insert_html_at_cursor as insert_html_at_cursor,
-    insert_html_fragment_at_cursor as insert_html_fragment_at_cursor,
     insert_inline_at_cursor as insert_inline_at_cursor,
     replace_full_document as replace_full_document,
     replace_preserving_format as replace_preserving_format,
     replace_single_range_with_content as replace_single_range_with_content,
-    replace_xtext_with_html as replace_xtext_with_html,
-)
-from .field_restore import (
-    rewrite_exported_field_spans as rewrite_exported_field_spans,
 )
 
 
