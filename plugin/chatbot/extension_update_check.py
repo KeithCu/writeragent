@@ -71,10 +71,8 @@ UPDATE_CHECK_PROFILES: dict[str, UpdateCheckProfile] = {
 }
 
 
-def get_update_check_profile(extension_id: str | None) -> UpdateCheckProfile | None:
+def get_update_check_profile(extension_id: str) -> UpdateCheckProfile | None:
     """Return the profile for ``extension_id``, or None if unknown."""
-    if not extension_id:
-        return None
     return UPDATE_CHECK_PROFILES.get(extension_id)
 
 
@@ -109,24 +107,21 @@ def parse_update_xml(data: bytes) -> tuple[str | None, str | None]:
     return ident, ver
 
 
-def schedule_extension_update_check_once(ctx: Any, extension_id: str | None = None) -> None:
+def schedule_extension_update_check_once(ctx: Any, extension_id: str) -> None:
     """Run weekly update check at most once per process per product, after init_logging."""
-    from plugin.framework.uno_context import resolve_package_extension_id
-
-    eid = extension_id or resolve_package_extension_id(ctx)
-    profile = get_update_check_profile(eid)
+    profile = get_update_check_profile(extension_id)
     if profile is None:
-        log.info("extension update check: no profile for %r, not scheduling", eid)
+        log.info("extension update check: no profile for %r, not scheduling", extension_id)
         return
     with _schedule_lock:
-        if eid in _scheduled_extension_ids:
-            log.debug("extension update check: already queued this process for %s, skipping", eid)
+        if extension_id in _scheduled_extension_ids:
+            log.debug("extension update check: already queued this process for %s, skipping", extension_id)
             return
-        _scheduled_extension_ids.add(eid)
+        _scheduled_extension_ids.add(extension_id)
     from plugin.framework.worker_pool import run_in_background
 
-    log.debug("extension update check: scheduling background worker for %s", eid)
-    run_in_background(run_extension_update_check, ctx, name=f"extension_update_check_{profile.display_name}", extension_id=eid, dedicated=True)
+    log.debug("extension update check: scheduling background worker for %s", extension_id)
+    run_in_background(run_extension_update_check, ctx, name=f"extension_update_check_{profile.display_name}", extension_id=extension_id, dedicated=True)
 
 
 def reset_extension_update_check_schedule_for_tests() -> None:
@@ -136,18 +131,16 @@ def reset_extension_update_check_schedule_for_tests() -> None:
 
 
 @background
-def run_extension_update_check(ctx: Any, extension_id: str | None = None) -> None:
+def run_extension_update_check(ctx: Any, extension_id: str) -> None:
     """Background worker: fetch update.xml, compare versions, optionally notify. Call after init_logging."""
     from plugin.framework.config import set_config
     from plugin.chatbot.dialogs import msgbox
     from plugin.framework.client.requests import sync_request
-    from plugin.framework.uno_context import resolve_package_extension_id
     from plugin.version import EXTENSION_VERSION
 
-    eid = extension_id or resolve_package_extension_id(ctx)
-    profile = get_update_check_profile(eid)
+    profile = get_update_check_profile(extension_id)
     if profile is None:
-        log.info("extension update check: no profile for %r, not running", eid)
+        log.info("extension update check: no profile for %r, not running", extension_id)
         return
 
     retry_delay: float | None = None

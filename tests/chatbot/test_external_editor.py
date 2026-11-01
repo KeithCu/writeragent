@@ -23,13 +23,6 @@ def test_resolve_editor_argv_darwin(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ee.resolve_editor_argv("/tmp/w.json") == ["open", "-t", "/tmp/w.json"]
 
 
-def test_resolve_editor_argv_windows_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.chatbot import external_editor as ee
-
-    monkeypatch.setattr("sys.platform", "win32")
-    assert ee.resolve_editor_argv("C:\\a.json") is None
-
-
 def test_resolve_editor_argv_linux_kate_first(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.chatbot import external_editor as ee
 

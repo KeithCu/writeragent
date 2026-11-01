@@ -23,8 +23,6 @@ from plugin.framework.i18n import _
 
 def resolve_editor_argv(path: str) -> list[str] | None:
     """Return a subprocess argv to open *path* in an editor, or None if none found."""
-    if sys.platform == "win32":
-        return None  # use os.startfile
     if sys.platform == "darwin":
         return ["open", "-t", path]
 

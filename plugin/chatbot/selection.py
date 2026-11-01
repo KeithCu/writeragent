@@ -93,7 +93,7 @@ def stream_completion_tasks(
     ``on_finished`` runs once when every task is done or the first task fails.
     This returns before that when the next cell is waiting on drain idle.
     """
-    task_index = [0]
+    task_index = 0
     finished = False
 
     def finish_once() -> None:
@@ -111,11 +111,12 @@ def stream_completion_tasks(
     # (NestedDrainOwnerError).
 
     def schedule_next_when_idle() -> None:
-        fired = [False]
+        fired = False
 
         def _once() -> None:
-            if not fired[0]:
-                fired[0] = True
+            nonlocal fired
+            if not fired:
+                fired = True
                 # It is possible this is running from _notify_drain_idle traversing the list,
                 # meaning it's still in the list when it runs. We remove it so it's gone for good.
                 remove_drain_idle_callback(_once)
@@ -124,14 +125,15 @@ def stream_completion_tasks(
         add_drain_idle_callback(_once)
 
     def run_next_task() -> None:
-        if task_index[0] > 0 and get_drain_owner() is not None:
+        nonlocal task_index
+        if task_index > 0 and get_drain_owner() is not None:
             schedule_next_when_idle()
             return
-        if task_index[0] >= len(tasks):
+        if task_index >= len(tasks):
             finish_once()
             return
-        task = tasks[task_index[0]]
-        task_index[0] += 1
+        task = tasks[task_index]
+        task_index += 1
         try:
             apply_chunk_fn, on_error_fn = prepare_task_fn(task)
         except BaseException:

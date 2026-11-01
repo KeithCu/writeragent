@@ -39,7 +39,6 @@ class ChatSession:
         # would keep summarizing against a stale first_kept_index.
         self.compaction = None
 
-        history_load_failed = False
         if session_id:
             try:
                 self.db = get_chat_history(session_id)
@@ -49,17 +48,16 @@ class ChatSession:
                 # messages still []. The seed below then add_message'd a system
                 # row without deleting the old ones (or over a truncated file).
                 log.exception("ChatSession history load failed")
-                history_load_failed = True
+                if self.db is not None:
+                    # Backend opened, then get_messages raised: must not insert
+                    # a system row, which would replace a corrupt history with a
+                    # one-message session.
+                    return
 
-        # Empty new session still seeds and is written. A failed read (the
-        # backend opened, then get_messages raised) must not insert a system
-        # row: that replaced a corrupt history with a one-message session.
-        # If the backend never opened, there is no file to protect, so the
-        # prompt stays in memory for this run and nothing is written.
-        if history_load_failed:
-            if self.db is None and self.base_system_prompt:
-                self.set_system_context(self.base_system_prompt, "")
-        elif not self.messages and self.base_system_prompt:
+        # Empty new session still seeds and is written. If the backend never
+        # opened, there is no file to protect, so the prompt stays in memory
+        # for this run and nothing is written.
+        if not self.messages and self.base_system_prompt:
             self._seed_system_message()
 
     def _seed_system_message(self) -> None:
