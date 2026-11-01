@@ -1425,7 +1425,7 @@ def test_iter_markdown_blocks_list_continuation():
 
 
 def test_append_markdown_cell_multi_paragraph_blockquote(monkeypatch):
-    from plugin.notebook.writer_importer import _append_markdown_cell
+    from plugin.notebook.writer_importer import _RemoteImageBudget, _append_markdown_cell
 
     doc, body_text, _ = _writer_doc_mock()
     html_calls: list[str] = []
@@ -1441,7 +1441,7 @@ def test_append_markdown_cell_multi_paragraph_blockquote(monkeypatch):
         ">\n"
         "> Second paragraph in same blockquote.\n"
     )
-    _append_markdown_cell(doc, source, lead_break=False)
+    _append_markdown_cell(doc, source, lead_break=False, budget=_RemoteImageBudget())
     assert len(html_calls) == 1
     html = html_calls[0]
     assert "<blockquote><p>First paragraph" in html
@@ -1557,7 +1557,7 @@ def test_html_img_and_a_to_markdown_extracts_tags():
 
 
 def test_resolve_markdown_image_path_relative_to_notebook_dir(tmp_path):
-    from plugin.notebook.writer_importer import _resolve_markdown_image
+    from plugin.notebook.writer_importer import _RemoteImageBudget, _resolve_markdown_image
 
     nb_dir = tmp_path / "fixtures"
     img_dir = tmp_path / "images"
@@ -1565,18 +1565,20 @@ def test_resolve_markdown_image_path_relative_to_notebook_dir(tmp_path):
     img_dir.mkdir()
     img = img_dir / "foo.png"
     img.write_bytes(_TINY_PNG)
-    resolved = _resolve_markdown_image("../images/foo.png", str(nb_dir))
+    budget = _RemoteImageBudget()
+    resolved = _resolve_markdown_image("../images/foo.png", str(nb_dir), budget=budget)
     assert resolved is not None
     raw, hint = resolved
     assert Path(hint).resolve() == img.resolve()
     assert raw == _TINY_PNG
-    assert _resolve_markdown_image("../images/missing.png", str(nb_dir)) is None
+    assert _resolve_markdown_image("../images/missing.png", str(nb_dir), budget=budget) is None
 
 
 def test_resolve_bourke_images_from_fixture_notebook_dir():
-    from plugin.notebook.writer_importer import _resolve_markdown_image
+    from plugin.notebook.writer_importer import _RemoteImageBudget, _resolve_markdown_image
 
     fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    budget = _RemoteImageBudget()
     for name in (
         "numpy-6-step-ml-framework-tools-numpy-highlight.png",
         "numpy-anatomy-of-an-array-updated.png",
@@ -1584,7 +1586,7 @@ def test_resolve_bourke_images_from_fixture_notebook_dir():
         "numpy-car-photo.png",
         "numpy-dog-photo.png",
     ):
-        resolved = _resolve_markdown_image(f"../images/{name}", str(fixtures))
+        resolved = _resolve_markdown_image(f"../images/{name}", str(fixtures), budget=budget)
         assert resolved is not None, name
         raw, hint = resolved
         assert Path(hint).is_file(), name
@@ -1778,7 +1780,7 @@ def test_inline_markdown_link_allows_one_paren_level():
 
 
 def test_iter_markdown_blocks_inline_and_linked_images(monkeypatch):
-    from plugin.notebook.writer_importer import _append_markdown_cell, _iter_markdown_blocks
+    from plugin.notebook.writer_importer import _RemoteImageBudget, _append_markdown_cell, _iter_markdown_blocks
 
     blocks = _iter_markdown_blocks("See ![alt](pic.png) now")
     assert len(blocks) == 1
@@ -1790,13 +1792,13 @@ def test_iter_markdown_blocks_inline_and_linked_images(monkeypatch):
 
     embed_calls = []
 
-    def fake_embed(doc, src, notebook_dir, *, ctx=None, budget=None):
+    def fake_embed(doc, src, notebook_dir, *, ctx=None, budget=None, field_w=None):
         embed_calls.append(src)
         return True
 
     monkeypatch.setattr("plugin.notebook.writer_importer._embed_markdown_image", fake_embed)
     doc, body_text, _cursor = _writer_doc_mock()
-    _append_markdown_cell(doc, "See ![alt](pic.png) now", lead_break=False)
+    _append_markdown_cell(doc, "See ![alt](pic.png) now", lead_break=False, budget=_RemoteImageBudget())
     assert embed_calls == ["pic.png"]
     inserted = [call.args[1] for call in body_text.insertString.call_args_list]
     assert any("See" in s for s in inserted)
@@ -1812,17 +1814,18 @@ def test_split_markdown_image_src_quotes_angles():
 
 
 def test_resolve_markdown_image_path_unquotes_and_angles(tmp_path):
-    from plugin.notebook.writer_importer import _resolve_markdown_image
+    from plugin.notebook.writer_importer import _RemoteImageBudget, _resolve_markdown_image
 
     pic = tmp_path / "my pic.png"
     pic.write_bytes(_TINY_PNG)
-    res1 = _resolve_markdown_image("my%20pic.png", str(tmp_path))
+    budget = _RemoteImageBudget()
+    res1 = _resolve_markdown_image("my%20pic.png", str(tmp_path), budget=budget)
     assert res1 is not None
     raw1, hint1 = res1
     assert Path(hint1).resolve() == pic.resolve()
     assert raw1 == _TINY_PNG
 
-    res2 = _resolve_markdown_image("<my pic.png>", str(tmp_path))
+    res2 = _resolve_markdown_image("<my pic.png>", str(tmp_path), budget=budget)
     assert res2 is not None
     raw2, hint2 = res2
     assert Path(hint2).resolve() == pic.resolve()
@@ -1973,7 +1976,7 @@ def test_import_failed_output_image_writes_placeholder(tmp_path, monkeypatch):
 
 def test_import_cells_closed_document_aborts(monkeypatch):
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.notebook.writer_importer import _import_cells
+    from plugin.notebook.writer_importer import _RemoteImageBudget, _import_cells
 
     class _Cell:
         cell_type = "raw"
@@ -1991,7 +1994,7 @@ def test_import_cells_closed_document_aborts(monkeypatch):
     doc = MagicMock()
     stats = {"cells": 0, "markdown": 0, "code": 0, "raw": 0, "shapes": 0, "images": 0, "outputs": 0, "controls": 0}
     with pytest.raises(DocumentDisposedError):
-        _import_cells(doc, _Nb(), stats, 0.0, registry_state=NotebookDocState())
+        _import_cells(doc, _Nb(), stats, registry_state=NotebookDocState(), budget=_RemoteImageBudget())
     # Counted before the try. The second cell must not run.
     assert stats["cells"] == 1
 
