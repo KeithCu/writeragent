@@ -791,7 +791,6 @@ class WebResearchTool(ToolBase):
                     log.info("CDP web research enabled (%s). Local debug WS URL: %s", browser_type, cdp_url)
                 except Exception as e:
                     log.warning("Failed to launch or connect to local %s via CDP: %s. Falling back to static HTTP.", browser_type, e)
-                    cdp_enabled = False
 
             agent_params = WebAgentRunParams(
                 smol_model=smol_model,
@@ -824,10 +823,11 @@ class WebResearchTool(ToolBase):
 
             cacheable = False
             if isinstance(final_ans, dict) and "status" in final_ans:
+                # Synthesis notes set cacheable False. A missing flag still
+                # caches a normal ok payload. Pop it before the status check so
+                # a stray flag on a non-ok payload never reaches the model.
+                cacheable = final_ans.pop("cacheable", True)
                 if final_ans.get("status") == "ok":
-                    # Synthesis notes set cacheable False. A missing flag still
-                    # caches a normal ok payload. Pop it so the model does not see it.
-                    cacheable = final_ans.pop("cacheable", True)
                     final_ans.setdefault("instruction", instruction)
             else:
                 # Sub-agent execution can return None or empty string when it finishes

@@ -1646,13 +1646,14 @@ def test_web_research_tool_includes_instruction_in_result(tmp_path):
         assert "sent ONLY to you — the user has NOT seen it yet" in res["instruction"]
 
 
-def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
+@pytest.mark.parametrize("status", ["ok", "error"])
+def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path, status):
     from plugin.chatbot.web_research import WebResearchTool
     from plugin.contrib.smolagents.default_tools import _web_cache_list_keys
     from plugin.tests.testing_utils import MockContext
 
     notes = {
-        "status": "ok",
+        "status": status,
         "message": "Web research completed.",
         "result": "Research notes (automatic synthesis failed) for: topic\n\nFinding X",
         "cacheable": False,
@@ -1682,8 +1683,9 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
          patch("plugin.chatbot.web_research._run_deep_web_research", return_value=(dict(notes), "topic ratings")):
         res = WebResearchTool().execute(ctx, query="topic ratings", deep=True)
 
-    assert res["status"] == "ok"
+    assert res["status"] == status
     assert "Finding X" in res["result"]
+    # A cacheable flag must not leak to the model even on non-ok payloads.
     assert "cacheable" not in res
     db_file = str(tmp_path / "writeragent_web_cache.db")
     assert _web_cache_list_keys(db_file, "research", 30) == []
