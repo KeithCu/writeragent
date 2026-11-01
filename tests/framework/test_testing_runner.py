@@ -104,9 +104,9 @@ def test_module_matches_filters_by_path_or_def_name(tmp_path: Path) -> None:
     path = tmp_path / "test_cells_uno.py"
     path.write_text("def test_read_range_format_info_performance(ctx, doc):\n    return\n", encoding="utf-8")
     full = str(path)
-    assert _module_matches_filters(full, path.name, ["test_cells_uno"]) is True
-    assert _module_matches_filters(full, path.name, ["test_read_range_format_info_performance"]) is True
-    assert _module_matches_filters(full, path.name, ["test_unrelated_other"]) is False
+    assert _module_matches_filters(full, ["test_cells_uno"]) is True
+    assert _module_matches_filters(full, ["test_read_range_format_info_performance"]) is True
+    assert _module_matches_filters(full, ["test_unrelated_other"]) is False
 
 
 def test_module_matches_filters_by_packet_letter(tmp_path: Path) -> None:
@@ -116,10 +116,10 @@ def test_module_matches_filters_by_packet_letter(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     full = str(path)
-    assert _module_matches_filters(full, path.name, ["E"]) is True
-    assert _module_matches_filters(full, path.name, ["B"]) is False
-    assert _module_matches_filters(full, path.name, ["f1"]) is True
-    assert _module_matches_filters(full, path.name, ["f10"]) is False
+    assert _module_matches_filters(full, ["E"]) is True
+    assert _module_matches_filters(full, ["B"]) is False
+    assert _module_matches_filters(full, ["f1"]) is True
+    assert _module_matches_filters(full, ["f10"]) is False
 
 
 def test_cli_filters_default_empty() -> None:
