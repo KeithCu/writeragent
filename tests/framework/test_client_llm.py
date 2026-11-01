@@ -2636,7 +2636,7 @@ def test_adjust_image_body_for_rejection_matches_and_updates():
     new_body = adjust_image_body_for_rejection(body, error_text)
     assert new_body is not None
     data = json.loads(new_body.decode("utf-8"))
-    assert data["resolution"] == "1K"
+    assert "resolution" not in data
     assert data["aspect_ratio"] == "1:1"  # untouched
 
 
@@ -2677,7 +2677,7 @@ def test_image_completion_retries_on_not_supported(client):
             raise NetworkError("HTTP 400: No provider supports the requested parameter(s). Provider rejections: Google: resolution: not supported. Accepted: 1K")
         assert call_count == 2
         data = json.loads(body.decode("utf-8"))
-        assert data["resolution"] == "1K"
+        assert "resolution" not in data
         return {"data": [{"url": "http://example.com/img.png"}]}
 
     with patch.object(client, "_request_json", side_effect=mock_request_json):
