@@ -228,7 +228,7 @@ def run_domain_sub_agent(
     history_text: str | None = None,
     topic: str | None = None,
 ) -> dict[str, Any]:
-    from plugin.chatbot.smol_agent import run_smol_side_turn
+    from plugin.chatbot.smol_agent import _document_open_tool_handler, run_smol_side_turn
 
     tools = collect_sub_agent_tools(ctx, domain)
     tool_names = [t.name for t in tools if t.name]
@@ -243,7 +243,7 @@ def run_domain_sub_agent(
         instructions=instructions,
         examples_key=domain,
         reply_spec=reply_spec,
-        report_document_opens=True,
+        tool_call_handler=_document_open_tool_handler(ctx),
         status_message=status_message,
         stop_message=stop_message,
         error_prefix=error_prefix,

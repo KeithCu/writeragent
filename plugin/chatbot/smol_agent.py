@@ -94,6 +94,8 @@ class SmolToolAdapter(SmolTool):
         self._inner_tctx = tctx
         self._safe = safe
         self.name = cast("str", tool.name or "")
+        # ToolBaseDummy subclasses (e.g. AnalyzeDataTool) define description as a bare attribute
+        # without get_description() or is_final_answer_tool; support them gracefully.
         if hasattr(tool, "get_description"):
             self.description = tool.get_description(tctx.doc_type)
         else:
@@ -234,9 +236,6 @@ class SmolAgentExecutor:
     """Executes a smolagent and streams its progress to the document chat UI."""
 
     ctx: ToolContext
-    status_callback: Any
-    append_thinking_callback: Any
-    stop_checker: Any
 
     def __init__(self, ctx: ToolContext) -> None:
         """Initialize the executor with the tool context.
@@ -245,12 +244,9 @@ class SmolAgentExecutor:
             ctx: ToolContext with doc, services, and UI callbacks.
         """
         self.ctx = ctx
-        self.status_callback = getattr(ctx, "status_callback", None)
-        self.append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
-        self.stop_checker = getattr(ctx, "stop_checker", None)
 
     def _abort_if_stopped(self, agent: Any) -> None:
-        if self.stop_checker and self.stop_checker():
+        if self.ctx.stop_checker and self.ctx.stop_checker():
             agent.interrupt()
             raise ToolExecutionError("Task stopped by user.", code="USER_STOPPED")
 
@@ -287,13 +283,13 @@ class SmolAgentExecutor:
                             return res
                     else:
                         # Default ToolCall handling
-                        if self.append_thinking_callback:
-                            self.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
-                        if self.status_callback:
-                            self.status_callback(f"Tool: {step.name}...")
+                        if self.ctx.append_thinking_callback:
+                            self.ctx.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+                        if self.ctx.status_callback:
+                            self.ctx.status_callback(f"Tool: {step.name}...")
 
                 elif isinstance(step, ActionStep):
-                    if self.append_thinking_callback:
+                    if self.ctx.append_thinking_callback:
                         msg = f"Step {step.step_number}:\n"
                         if step.model_output:
                             mo = step.model_output
@@ -307,7 +303,7 @@ class SmolAgentExecutor:
                         if step.observations:
                             msg += f"Observation: {str(step.observations).strip()}\n"
 
-                        self.append_thinking_callback(msg + "\n")
+                        self.ctx.append_thinking_callback(msg + "\n")
 
                 elif isinstance(step, FinalAnswerStep):
                     final_ans = step.output
@@ -367,11 +363,11 @@ def create_smol_model(
     if max_tokens is None:
         max_tokens = get_config_int("chat_max_tokens")
     if stop_checker is None and ctx is not None:
-        stop_checker = getattr(ctx, "stop_checker", None)
+        stop_checker = ctx.stop_checker
     if cancellation_scope is None and ctx is not None:
-        cancellation_scope = getattr(ctx, "send_cancellation", None)
+        cancellation_scope = ctx.send_cancellation
     if status_callback is None and ctx is not None:
-        status_callback = getattr(ctx, "status_callback", None)
+        status_callback = ctx.status_callback
     if client is None:
         uno_ctx = ctx.ctx if ctx is not None else None
         config = get_api_config()
@@ -384,10 +380,10 @@ def create_smol_model(
     )
 
 
-def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str, status_callback: object | None = None) -> ToolCallingAgent:
+def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str) -> ToolCallingAgent:
     """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
     max_steps = get_config_int("chatbot.max_tool_rounds")
-    smol_model = create_smol_model(ctx, status_callback=status_callback)
+    smol_model = create_smol_model(ctx)
     return ToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)
 
 
@@ -411,7 +407,6 @@ def run_inner_tool_agent(
         instructions=instructions,
         final_answer_tool_name=final_answer_tool_name,
         examples_block=examples_block,
-        status_callback=getattr(ctx, "status_callback", None),
     )
     # execute_safe calls interrupt() before it reports USER_STOPPED, which
     # closes the model's HTTP client. Returning from this loop without that
@@ -425,15 +420,15 @@ def run_inner_tool_agent(
     )
 
 
-def _document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:
+def _document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:  # pyright: ignore[reportUnusedFunction]
     """Brainstorming and writing report each delegate_read_document in the chat.
 
     The status line is the tool name alone. Deep research does not use this
     handler, so its steps keep the executor default (``Tool: name...``).
     """
-    status_callback = getattr(ctx, "status_callback", None)
-    append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
-    chat_append_callback = getattr(ctx, "chat_append_callback", None)
+    status_callback = ctx.status_callback
+    append_thinking_callback = ctx.append_thinking_callback
+    chat_append_callback = ctx.chat_append_callback
 
     def tool_call_handler(step: ToolCall) -> None:
         if step.name == "delegate_read_document" and chat_append_callback:
@@ -458,7 +453,6 @@ def run_smol_side_turn(
     instructions: str,
     examples_key: str,
     reply_spec: StickyReplySpec | None = None,
-    report_document_opens: bool = False,
     status_message: str,
     stop_message: str,
     error_prefix: str,
@@ -474,7 +468,7 @@ def run_smol_side_turn(
     """
     from plugin.chatbot.web_research_chat import clip_sub_agent_history
 
-    status_callback = getattr(ctx, "status_callback", None)
+    status_callback = ctx.status_callback
     history_text = clip_sub_agent_history(history_text)
     if status_callback:
         status_callback(status_message)
@@ -488,8 +482,8 @@ def run_smol_side_turn(
     class _ObservedSmolToolAdapter(SmolToolAdapter):
         def forward(self, *args: Any, **kwargs: Any) -> Any:
             result = super().forward(*args, **kwargs)
-            if reply_tool is not None:
-                reply_tool.record_tool_result(self.name or "", result)
+            assert reply_tool is not None
+            reply_tool.record_tool_result(self.name or "", result)
             return result
 
     collector_tools = collector(ctx)
@@ -502,7 +496,6 @@ def run_smol_side_turn(
         smol_tools.append(SmolToolAdapter(reply_tool, ctx, safe=False, inputs_style="librarian"))
 
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
-    effective_handler = tool_call_handler or (_document_open_tool_handler(ctx) if report_document_opens else None)
     res = run_inner_tool_agent(
         ctx,
         smol_tools,
@@ -512,7 +505,7 @@ def run_smol_side_turn(
         task=task,
         stop_message=stop_message,
         error_prefix=error_prefix,
-        tool_call_handler=effective_handler,
+        tool_call_handler=tool_call_handler,
     )
     if isinstance(res, dict) and res.get("status") == "error":
         return res

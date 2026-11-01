@@ -728,7 +728,6 @@ def test_build_toolcalling_agent_wires_max_tokens_and_steps(
         instructions="inst",
         final_answer_tool_name="reply_to_user",
         examples_block="examples",
-        status_callback=None,
     )
     mock_llm.assert_called_once_with({"model": "test/model"}, ctx.ctx, cancellation_scope=ctx.send_cancellation)
     assert mock_wsm.call_args.kwargs["max_tokens"] == 512
@@ -761,7 +760,7 @@ def test_create_smol_model_reads_chat_max_tokens_and_explicit_max_tokens_wins():
 
 
 def test_run_smol_side_turn_trims_history_and_reports_document_opens():
-    from plugin.chatbot.smol_agent import run_smol_side_turn
+    from plugin.chatbot.smol_agent import _document_open_tool_handler, run_smol_side_turn
     from plugin.chatbot.smol_examples import get_examples_block
 
     ctx = MagicMock()
@@ -778,7 +777,7 @@ def test_run_smol_side_turn_trims_history_and_reports_document_opens():
             collector=lambda c: [],
             instructions="inst",
             examples_key="brainstorming",
-            report_document_opens=True,
+            tool_call_handler=_document_open_tool_handler(ctx),
             status_message="Brainstorming...",
             stop_message="Brainstorming stopped by user.",
             error_prefix="Brainstorming failed",
@@ -859,7 +858,6 @@ def test_run_inner_tool_agent():
             instructions="test instructions",
             final_answer_tool_name="specialized_workflow_finished",
             examples_block=get_examples_block("brainstorming"),
-            status_callback=ctx.status_callback,
         )
         mock_exec_cls.assert_called_once_with(ctx)
         executor.execute_safe.assert_called_once_with(
