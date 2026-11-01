@@ -598,9 +598,6 @@ def start_native_script_run(
     """
     from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
 
-    def _deliver(outcome: dict[str, Any]) -> None:
-        post_to_main_thread(on_complete, outcome)
-
     def _native_script_run_worker() -> None:
         from plugin.scripting.session_manager import pin_script_document, release_script_document
 
@@ -612,19 +609,21 @@ def start_native_script_run(
                 )
                 early = prepared.get("early_outcome")
                 if early is not None:
-                    _deliver(early)
+                    post_to_main_thread(on_complete, early)
                     return
                 try:
                     response = _run_prepared_rps(prepared)
                 except Exception as exc:
                     log.exception("native script run failed")
-                    _deliver(rps_error_outcome(str(exc), t0=prepared["t0"], traceback=exception_traceback(exc)))
+                    post_to_main_thread(
+                        on_complete, rps_error_outcome(str(exc), t0=prepared["t0"], traceback=exception_traceback(exc))
+                    )
                     return
                 outcome = execute_on_main_thread(_finish_rps_execution, prepared, response)
-                _deliver(outcome)
+                post_to_main_thread(on_complete, outcome)
             except Exception as exc:
                 log.exception("native script run failed")
-                _deliver({"ok": False, "message": str(exc)})
+                post_to_main_thread(on_complete, {"ok": False, "message": str(exc)})
         finally:
             release_script_document(pin_token)
 
