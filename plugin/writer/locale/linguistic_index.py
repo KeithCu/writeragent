@@ -21,11 +21,12 @@ Language detected from UNO CharLocale. Stemming via bundled snowballstemmer.
 """
 
 from collections import OrderedDict
+from dataclasses import dataclass, field
 from functools import lru_cache
 import logging
 import re
 import time
-from typing import Any, ClassVar
+from typing import Any
 import unicodedata
 
 from plugin.framework.errors import ToolExecutionError
@@ -86,44 +87,18 @@ def _locale_language(loc: Any) -> str | None:
     return iso
 
 
-def _doc_locale_language(doc: Any) -> str | None:
-    for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
-        try:
-            iso = _locale_language(doc.getPropertyValue(prop))
-            if iso is not None:
-                return iso
-        except Exception:  # noqa: S110 - not every document model exposes all three
-            pass
-    return None
-
-
 # ── Per-document index ────────────────────────────────────────────────
 
 
+@dataclass(eq=False, repr=False, slots=True)
 class _DocIndex:
-    para_count: int
-    build_ms: float
-    language: str
-    detected_language: str | None
-    stem_fallback: bool
-    __slots__: ClassVar[tuple[str, ...]] = (
-        "terms",
-        "para_texts",
-        "para_count",
-        "build_ms",
-        "language",
-        "detected_language",
-        "stem_fallback",
-    )
-
-    def __init__(self) -> None:
-        self.terms: dict[str, set[int]] = {}
-        self.para_texts: dict[int, str] = {}
-        self.para_count = 0
-        self.build_ms = 0.0
-        self.language = "english"
-        self.detected_language = None
-        self.stem_fallback = False
+    terms: dict[str, set[int]] = field(default_factory=dict)
+    para_texts: dict[int, str] = field(default_factory=dict)
+    para_count: int = 0
+    build_ms: float = 0.0
+    language: str = "english"
+    detected_language: str | None = None
+    stem_fallback: bool = False
 
     def _paragraphs_for(self, stems: list[str]) -> set[int]:
         found: set[int] = set()
@@ -224,9 +199,13 @@ class IndexService(ServiceBase):
         return s
 
     def _detect_language_iso(self, doc: Any) -> str | None:
-        doc_lang = _doc_locale_language(doc)
-        if doc_lang is not None:
-            return doc_lang
+        for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
+            try:
+                iso = _locale_language(doc.getPropertyValue(prop))
+                if iso is not None:
+                    return iso
+            except Exception:  # noqa: S110 - not every document model exposes all three
+                pass
         enum = doc.getText().createEnumeration()
         while enum.hasMoreElements():
             el = enum.nextElement()
@@ -341,8 +320,8 @@ class IndexService(ServiceBase):
             dropped_stops.extend(dropped_l + dropped_r)
             if left and right:
                 return {
-                    "and_stems": [],
-                    "or_stems": [],
+                    "mode": "near",
+                    "positive": left + right,
                     "not_stems": not_stems,
                     "near": (left, right, dist),
                     "dropped_stops": dropped_stops,
@@ -367,8 +346,8 @@ class IndexService(ServiceBase):
             fail("No search terms after stop-word filtering")
 
         return {
-            "and_stems": [] if has_or else target_stems,
-            "or_stems": target_stems if has_or else [],
+            "mode": "or" if has_or else "and",
+            "positive": target_stems,
             "not_stems": not_stems,
             "near": None,
             "dropped_stops": dropped_stops,
@@ -406,23 +385,18 @@ class IndexService(ServiceBase):
         stop_words = _normalized_stop_words(idx.language)
         parsed = self._parse_query(query, stemmer, stop_words)
 
+        mode = parsed["mode"]
+        positive = parsed["positive"]
         near = parsed["near"]
-        or_stems = parsed["or_stems"]
-        and_stems = parsed["and_stems"]
         not_stems = parsed["not_stems"]
 
-        if near:
-            mode = "near"
+        if mode == "near":
             hits = idx.query_near(near[0], near[1], near[2])
-            all_positive = near[0] + near[1]
-        elif or_stems:
-            mode = "or"
-            hits = idx._paragraphs_for(or_stems)
-            all_positive = list(or_stems)
+        elif mode == "or":
+            hits = idx._paragraphs_for(positive)
         else:
-            mode = "and"
-            hits = idx.query_and(and_stems)
-            all_positive = list(and_stems)
+            hits = idx.query_and(positive)
+        all_positive = positive
 
         if not_stems:
             hits = idx.query_not(hits, not_stems)
@@ -457,11 +431,10 @@ class IndexService(ServiceBase):
 
         top = sorted(idx.terms.items(), key=lambda x: len(x[1]), reverse=True)[:20]
 
-        stats: dict[str, Any] = {
+        return {
             "language": idx.language,
             "detected_language": idx.detected_language,
             "stem_fallback": idx.stem_fallback,
+            **_index_counts(idx, was_cached),
+            "top_stems": [{"stem": t, "paragraphs": len(s)} for t, s in top],
         }
-        stats.update(_index_counts(idx, was_cached))
-        stats["top_stems"] = [{"stem": t, "paragraphs": len(s)} for t, s in top]
-        return stats
