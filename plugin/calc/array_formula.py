@@ -111,10 +111,7 @@ def _scan_calls(formula: str) -> Iterator[tuple[str, int]]:
         else:
             match = _CALL.match(text, i)
             if match and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] in "_.")):
-                fn = match.group(1).upper()
-                for prefix in ("_XLFN.", "_XLWS."):
-                    if fn.startswith(prefix):
-                        fn = fn[len(prefix):]
+                fn = match.group(1).upper().removeprefix("_XLFN.").removeprefix("_XLWS.")
                 yield fn, depth
                 # Land on '(' so this '(' counts on the next iteration.
                 # =SUM(FILTER(...)) then yields FILTER at depth 1.

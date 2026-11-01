@@ -30,18 +30,6 @@ class _Part:
     col_abs: bool
     row_abs: bool
 
-    @property
-    def is_cell(self) -> bool:
-        return self.col is not None and self.row is not None
-
-    @property
-    def is_col_only(self) -> bool:
-        return self.col is not None and self.row is None
-
-    @property
-    def is_row_only(self) -> bool:
-        return self.col is None and self.row is not None
-
 
 @dataclass(frozen=True)
 class _Ref:
@@ -61,16 +49,14 @@ def expand_single_formula(formula: str, num_rows: int, num_cols: int) -> list[st
     """
     if num_rows < 1 or num_cols < 1:
         raise ValueError("num_rows and num_cols must be >= 1")
-    if num_rows > 1 and num_cols > 1:
-        axis = "both" if _looks_like_python_formula(formula) else None
-        return [
-            adjust_a1_formula(formula, c, r, axis=axis)
-            for r in range(num_rows)
-            for c in range(num_cols)
-        ]
-    if num_rows > 1:
-        return [adjust_a1_formula(formula, 0, r, axis="rows") for r in range(num_rows)]
-    return [adjust_a1_formula(formula, c, 0, axis="cols") for c in range(num_cols)]
+    # "both" on every 2-D fill: a Python cell at (c>0, r=0) would infer "cols".
+    # Non-Python formulas ignore axis; 1-D offsets infer rows vs cols.
+    axis = "both" if num_rows > 1 and num_cols > 1 else None
+    return [
+        adjust_a1_formula(formula, c, r, axis=axis)
+        for r in range(num_rows)
+        for c in range(num_cols)
+    ]
 
 
 def _ref_crosses_axis(ref: _Ref, axis: str) -> bool:
@@ -81,13 +67,9 @@ def _ref_crosses_axis(ref: _Ref, axis: str) -> bool:
     ``None != None`` would miss a whole column on a vertical fill.
     """
     if axis == "rows":
-        if ref.end is not None and ref.start.row is None:
-            return True
-        return ref.end is not None and ref.start.row != ref.end.row
+        return ref.end is not None and (ref.start.row is None or ref.start.row != ref.end.row)
     if axis == "cols":
-        if ref.end is not None and ref.start.col is None:
-            return True
-        return ref.end is not None and ref.start.col != ref.end.col
+        return ref.end is not None and (ref.start.col is None or ref.start.col != ref.end.col)
     if axis == "both":
         return ref.end is not None
     return False
@@ -103,7 +85,7 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
     if not formula or (dcol == 0 and drow == 0):
         return formula
 
-    is_py = _looks_like_python_formula(formula)
+    is_py = py_call_open_end(formula, require_equals=True) is not None
     if is_py and axis is None:
         if dcol != 0 and drow == 0:
             axis = "cols"
@@ -153,10 +135,6 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
         out.append(formula[i])
         i += 1
     return "".join(out)
-
-
-def _looks_like_python_formula(formula: str) -> bool:
-    return py_call_open_end(formula, require_equals=True) is not None
 
 
 def _is_letter(ch: str) -> bool:
@@ -287,13 +265,9 @@ def _try_match_ref(s: str, i: int) -> tuple[int, _Ref] | None:
             other, end = part2
             if _next_is_open_paren(s, end):
                 return None
-            if part.is_cell and other.is_cell:
+            if (part.col is None, part.row is None) == (other.col is None, other.row is None):
                 return end, _Ref(sheet1, sheet2, part, other)
-            if part.is_col_only and other.is_col_only:
-                return end, _Ref(sheet1, sheet2, part, other)
-            if part.is_row_only and other.is_row_only:
-                return end, _Ref(sheet1, sheet2, part, other)
-    if part.is_cell:
+    if part.col is not None and part.row is not None:
         if _next_is_open_paren(s, j):
             return None
         return j, _Ref(sheet1, "", part, None)

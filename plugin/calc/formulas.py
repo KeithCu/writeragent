@@ -208,13 +208,13 @@ class EvaluateFormula(ToolCalcErrorBase):
         active_sheet = resolve_sheet(doc)
         active_name = active_sheet.getName()
 
-        temp_sheet_name = f"__wa_eval_copy_{int(now_aware().timestamp())}_0__"
-
         # Ensure name uniqueness
         counter = 0
-        while sheets.hasByName(temp_sheet_name):
-            counter += 1
+        while True:
             temp_sheet_name = f"__wa_eval_copy_{int(now_aware().timestamp())}_{counter}__"
+            if not sheets.hasByName(temp_sheet_name):
+                break
+            counter += 1
 
         eval_result: dict[str, Any] | None = None
         sheet_copied = False
@@ -279,9 +279,5 @@ class EvaluateFormula(ToolCalcErrorBase):
 
         if cleanup_failed and eval_result is None:
             return self._tool_error(f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'")
-        if eval_exc is not None:
-            raise eval_exc
-
-        if eval_result is not None:
-            return eval_result
-        return self._tool_error("Failed to evaluate formula")
+        assert eval_exc is not None
+        raise eval_exc

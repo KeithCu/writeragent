@@ -17,8 +17,8 @@ from plugin.framework.errors import best_effort, safe_json_loads
 _FORMULA_DEP_CHAIN_CMD = ".uno:FormulaDepChain"
 # A full-column precedent such as A:Z is about 27 million cells. Walking
 # every one with getCellByPosition freezes the UI, and each snapshot is a
-# verbose dict. 80 matches the chat range budget in cells.py; a whole-column
-# SUM used to return 10,000 dicts. Stop after this many snapshots.
+# verbose dict. 80 matches the chat range budget in cells.py. Stop after
+# this many snapshots.
 _MAX_PRECEDENT_CELLS = 80
 
 
@@ -64,9 +64,8 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any = Non
         for addr in addresses
     )
     for addr in addresses:
-        # Sheet lookup stays before the cap check. A following address whose
-        # sheet index throws still throws once the previous addresses filled
-        # the cap exactly, which is what the old inner break did.
+        # Sheet lookup stays before the cap check so a bad Sheet index still
+        # throws after earlier addresses filled the cap exactly.
         # CellRangeAddress.Sheet is the precedent sheet. A missing index,
         # or no doc, stays on the formula sheet. Dropping Sheet makes
         # =Data.A1 report the formula sheet's A1.
@@ -93,8 +92,6 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any = Non
 
 def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] | None:
     """Return dependency JSON for *address* using LO command values or ``XFormulaQuery``."""
-    if doc is None:
-        return None
     resolved = _resolve_sheet_and_cell(doc, address)
     if resolved is None:
         return None
