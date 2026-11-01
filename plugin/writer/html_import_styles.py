@@ -26,8 +26,7 @@ log = logging.getLogger("writeragent.writer")
 
 def _strip_data_lo_style(start_tag: str) -> str:
     """Remove any data-lo-style attribute from a single start-tag string."""
-    start_tag = re.sub(r'\s+data-lo-style="[^"]*"', "", start_tag)
-    return re.sub(r"\s+data-lo-style='[^']*'", "", start_tag)
+    return re.sub(r'\s+data-lo-style=(?:"[^"]*"|\'[^\']*\')', "", start_tag)
 
 
 
@@ -115,10 +114,6 @@ class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
                     break
         self._out.append("</%s>" % tag)
 
-    def result(self) -> tuple[str, list[str | None]]:
-        return "".join(self._out), self.styles
-
-
 
 def _extract_block_lo_styles(html: str) -> tuple[str, list[str | None]]:
     """Return ``(clean_html, [data_lo_style_or_None per top-level block])``.
@@ -130,8 +125,7 @@ def _extract_block_lo_styles(html: str) -> tuple[str, list[str | None]]:
     ex = _BlockLoStyleExtractor()
     ex.feed(html)
     ex.close()
-    return ex.result()
-
+    return "".join(ex._out), ex.styles
 
 
 def _resolve_paragraph_style_token(
@@ -148,24 +142,22 @@ def _resolve_paragraph_style_token(
     to ``Standard`` instead of silently picking one. No candidate -> case-insensitive resolve,
     then ``Standard``. The ambiguity gate runs BEFORE any exact-name shortcut so a colliding
     token can never silently land on the wrong style (per docs/writer/html-style-model-plan.md)."""
-    names = element_names
-    if names:
-        # dict.fromkeys keeps first-seen order and drops duplicates.
-        candidates: list[str] = list(
-            dict.fromkeys(
-                n for n in names
-                if n == token or xhtml_post.compact_lo_style_name(n) == token
-            )
+    # dict.fromkeys keeps first-seen order and drops duplicates.
+    candidates: list[str] = list(
+        dict.fromkeys(
+            n for n in element_names
+            if n == token or xhtml_post.compact_lo_style_name(n) == token
         )
-        if len(candidates) == 1:
-            return candidates[0]
-        if len(candidates) > 1:
-            log.debug("data-lo-style: token %r is ambiguous across %r; falling back to Standard",
-                      token, candidates)
-            return "Standard"
+    )
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        log.debug("data-lo-style: token %r is ambiguous across %r; falling back to Standard",
+                  token, candidates)
+        return "Standard"
     lower = token.lower()
     resolved = token
-    for name in names:
+    for name in element_names:
         if name.lower() == lower:
             resolved = name
             break

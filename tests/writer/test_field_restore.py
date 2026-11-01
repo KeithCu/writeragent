@@ -3,7 +3,6 @@ import pytest
 
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.writer.field_restore import (
-    _EXPORTED_FIELD_TITLES,
     _FIELD_TITLE_TO_SERVICE,
     _insert_restored_field,
     _restore_field_placeholders,
@@ -76,7 +75,7 @@ def test_insert_restored_field_letterhead_services():
     }
     for title, service in expected.items():
         model, text_range, field, text = _mock_field_range()
-        assert _insert_restored_field(model, text_range, title) is True
+        _insert_restored_field(model, text_range, title)
         model.createInstance.assert_called_once_with(service)
         text.insertTextContent.assert_called_once()
         field.setPropertyValue.assert_not_called()
@@ -85,12 +84,12 @@ def test_insert_restored_field_letterhead_services():
 def test_insert_restored_field_author_fullname_flag():
     """author-name and author-initials share Author; FullName selects the form."""
     model, text_range, field, text = _mock_field_range()
-    assert _insert_restored_field(model, text_range, "author-name") is True
+    _insert_restored_field(model, text_range, "author-name")
     model.createInstance.assert_called_once_with("com.sun.star.text.textfield.Author")
     field.setPropertyValue.assert_any_call("FullName", True)
 
     model, text_range, field, text = _mock_field_range()
-    assert _insert_restored_field(model, text_range, "author-initials") is True
+    _insert_restored_field(model, text_range, "author-initials")
     model.createInstance.assert_called_once_with("com.sun.star.text.textfield.Author")
     field.setPropertyValue.assert_any_call("FullName", False)
 
@@ -98,19 +97,21 @@ def test_insert_restored_field_author_fullname_flag():
 def test_restore_field_placeholders_creates_mapped_services():
     """Placeholder search walks every mapped title and inserts that service."""
     created = []
+    text_obj = MagicMock()
+    text_obj.getString.return_value = "[[WA-FIELD:nonce:page-number]]"
 
     def create_instance(svc):
+        text_obj.getString.return_value = ""
         created.append(svc)
         return MagicMock()
 
-    titles = list(_EXPORTED_FIELD_TITLES)
+    titles = list(_FIELD_TITLE_TO_SERVICE)
     sd_captured = []
 
     def make_hit(title):
         rng = MagicMock()
-        text = MagicMock()
-        text.createTextCursorByRange.return_value = MagicMock()
-        rng.getText.return_value = text
+        text_obj.createTextCursorByRange.return_value = MagicMock()
+        rng.getText.return_value = text_obj
         rng.getEnd.return_value = MagicMock()
         rng.getString.return_value = f"[[WA-FIELD:nonce:{title}]]"
         return rng
@@ -130,10 +131,10 @@ def test_restore_field_placeholders_creates_mapped_services():
     model.findFirst.side_effect = find_first
     model.findNext.side_effect = find_next
 
-    restored = _restore_field_placeholders(model)
-    assert restored == len(_EXPORTED_FIELD_TITLES)
+    restored = _restore_field_placeholders(model, text_obj, nonce="nonce")
+    assert restored == len(_FIELD_TITLE_TO_SERVICE)
     model.findFirst.assert_called_once()
-    assert all(title in sd_captured[0] for title in _EXPORTED_FIELD_TITLES)
+    assert all(title in sd_captured[0] for title in _FIELD_TITLE_TO_SERVICE)
     assert set(created) == set(_FIELD_TITLE_TO_SERVICE.values())
     # Author is shared by name + initials; DocInfo title/subject must both land.
     assert created.count("com.sun.star.text.textfield.Author") == 2
@@ -159,16 +160,16 @@ def test_restore_field_placeholders_scopes_region_with_uno_same():
 
     with (
         patch.object(fr, "uno_same", return_value=True),
-        patch.object(fr, "_insert_restored_field", return_value=True) as insert,
+        patch.object(fr, "_insert_restored_field", return_value=None) as insert,
     ):
-        assert fr._restore_field_placeholders(model, header) >= 1
+        assert fr._restore_field_placeholders(model, header, nonce="nonce") >= 1
         assert insert.called
 
     with (
         patch.object(fr, "uno_same", return_value=False),
-        patch.object(fr, "_insert_restored_field", return_value=True) as insert,
+        patch.object(fr, "_insert_restored_field", return_value=None) as insert,
     ):
-        assert fr._restore_field_placeholders(model, header) == 0
+        assert fr._restore_field_placeholders(model, header, nonce="nonce") == 0
         insert.assert_not_called()
 
 
@@ -606,15 +607,19 @@ def test_insert_restored_field_puts_placeholder_back_when_insert_fails():
 def test_restore_field_placeholders_search_error_propagates():
     model = MagicMock()
     model.createSearchDescriptor.side_effect = RuntimeError("no search")
+    text = MagicMock()
+    text.getString.return_value = "[[WA-FIELD:nonce:page-number]]"
     with pytest.raises(RuntimeError, match="no search"):
-        _restore_field_placeholders(model)
+        _restore_field_placeholders(model, text, nonce="nonce")
 
 
 def test_restore_field_placeholders_find_error_propagates():
     model = MagicMock()
     model.findFirst.side_effect = RuntimeError("find failed")
+    text = MagicMock()
+    text.getString.return_value = "[[WA-FIELD:nonce:page-number]]"
     with pytest.raises(RuntimeError, match="find failed"):
-        _restore_field_placeholders(model)
+        _restore_field_placeholders(model, text, nonce="nonce")
 
 
 def test_restore_field_placeholders_ignores_token_with_different_or_missing_nonce():

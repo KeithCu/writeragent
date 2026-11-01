@@ -727,17 +727,15 @@ def _rollback_undo_action(mgr: Any, title: str | None, log_message: str) -> bool
     return False
 
 
-def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any = None) -> None:
+def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
     """Clear *text_obj* and import *html* via the shared StarWriter path.
 
     Field spans from ``document_to_content`` / ``xtext_to_content`` are
     restored as live fields after import. *model* is the owning document
     (needed to create fields, enter the undo context, and find placeholders).
 
-    When *model* is provided, the clear and import are protected by a document
-    undo context: any failure rolls back to the previous state, preserving
-    graphics and fields. When *model* is None, a failed import falls back to
-    plain-text restore, which cannot rebuild fields or graphics.
+    The clear and import are protected by a document undo context: any
+    failure rolls back to the previous state, preserving graphics and fields.
     """
     if text_obj is None:
         raise ToolExecutionError("No text object to import into.")
@@ -751,30 +749,24 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any = None) -> N
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
 
+    from .edit_review import next_agent_edit_undo_title
+
+    title = next_agent_edit_undo_title()
     mgr = None
-    title = None
-    if model is not None:
-        from .edit_review import next_agent_edit_undo_title
+    try:
+        candidate = model.getUndoManager()
+        # `is True`: MagicMock isLocked() is truthy and must not look locked.
+        if candidate is not None and candidate.isLocked() is not True:
+            candidate.enterUndoContext(title)
+            mgr = candidate
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        mgr = None
+    if mgr is None:
+        raise ToolExecutionError("Could not enter undo context for header/footer import.")
 
-        title = next_agent_edit_undo_title()
-        try:
-            candidate = model.getUndoManager()
-            # `is True`: MagicMock isLocked() is truthy and must not look locked.
-            if candidate is not None and candidate.isLocked() is not True:
-                candidate.enterUndoContext(title)
-                mgr = candidate
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            mgr = None
-        if mgr is None:
-            raise ToolExecutionError("Could not enter undo context for header/footer import.")
-
-    original = uno_read(lambda: cursor.getString(), None) if model is None else None
-
-    cleared = False
     try:
         cursor.setString("")
-        cleared = True
         cursor.gotoStart(False)
         insert_html_fragment_at_cursor(
             cursor, prepared, wrap=False, model=None,
@@ -819,34 +811,22 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any = None) -> N
             reraise_if_disposed(e)
             log.debug("Failed to inspect trailing paragraph: %s", e)
     except Exception as exc:
-        if mgr is not None:
-            try:
-                mgr.leaveUndoContext()
-            except Exception:
-                log.exception("replace_xtext_with_html: leaveUndoContext failed")
-                raise ToolExecutionError(
-                    f"the header/footer was written and could not be rolled back: {exc}"
-                ) from exc
-            if not _rollback_undo_action(mgr, title, "replace_xtext_with_html: undo failed"):
-                raise ToolExecutionError(
-                    f"the header/footer was written and could not be rolled back: {exc}"
-                ) from exc
-            raise
-        if cleared and original is not None:
-            try:
-                cur = text_obj.createTextCursor()
-                cur.gotoStart(False)
-                cur.gotoEnd(True)
-                cur.setString(original)
-            except Exception:
-                log.exception("replace_xtext_with_html: could not restore text after a failed import")
-        raise
-
-    if mgr is not None:
+        leave_ok = False
         try:
             mgr.leaveUndoContext()
+            leave_ok = True
         except Exception:
             log.exception("replace_xtext_with_html: leaveUndoContext failed")
+        if not (leave_ok and _rollback_undo_action(mgr, title, "replace_xtext_with_html: undo failed")):
+            raise ToolExecutionError(
+                f"the header/footer was written and could not be rolled back: {exc}"
+            ) from exc
+        raise
+
+    try:
+        mgr.leaveUndoContext()
+    except Exception:
+        log.exception("replace_xtext_with_html: leaveUndoContext failed")
 
 
 def content_has_markup(content: str | None) -> bool:
@@ -918,13 +898,17 @@ def _collect_range_portions(target_range: Any) -> tuple[bool, list[tuple[str, in
 _ADVANCE_FAILED_MSG = "Could not replace that text in place (the selection did not advance)."
 
 
+def _advance(cur: Any, n: int, expand: bool = False) -> None:
+    if not go_right(cur, n, expand):
+        raise ToolExecutionError(_ADVANCE_FAILED_MSG)
+
+
 def _step_replace_characters(
     text: Any, main_cursor: Any, old_text: str, new_text: str, start: int, stop: int
 ) -> None:
     for i in range(start, stop):
         sel = text.createTextCursorByRange(main_cursor)
-        if not sel.goRight(1, True):
-            raise ToolExecutionError(_ADVANCE_FAILED_MSG)
+        _advance(sel, 1, True)
         if new_text[i] != old_text[i]:
             sel.setString(new_text[i])
         main_cursor.gotoRange(sel.getEnd(), False)
@@ -1046,16 +1030,14 @@ def replace_preserving_format(
             slice_len = len(old_slice)
 
             if old_slice == new_slice:
-                if not go_right(main_cursor, slice_len, False):
-                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
+                _advance(main_cursor, slice_len, False)
                 continue
 
             p = 0
             while p < slice_len and old_slice[p] == new_slice[p]:
                 p += 1
             if p > 0:
-                if not go_right(main_cursor, p, False):
-                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
+                _advance(main_cursor, p, False)
 
             s = 0
             max_s = slice_len - p
@@ -1065,14 +1047,12 @@ def replace_preserving_format(
             diff_len = slice_len - p - s
             if diff_len > 0:
                 sel = text.createTextCursorByRange(main_cursor)
-                if not go_right(sel, diff_len, True):
-                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
+                _advance(sel, diff_len, True)
                 sel.setString(new_slice[p : slice_len - s])
                 main_cursor.gotoRange(sel.getEnd(), False)
 
             if s > 0:
-                if not go_right(main_cursor, s, False):
-                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
+                _advance(main_cursor, s, False)
 
         if offset < overlap:
             _step_replace_characters(text, main_cursor, old_text, new_text, offset, overlap)
@@ -1084,12 +1064,10 @@ def replace_preserving_format(
                 while i < overlap and new_text[i] == old_text[i]:
                     i += 1
                 k = i - run_start
-                if not go_right(main_cursor, k, False):
-                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
+                _advance(main_cursor, k, False)
             else:
                 sel = text.createTextCursorByRange(main_cursor)
-                if not sel.goRight(1, True):
-                    raise ToolExecutionError(_ADVANCE_FAILED_MSG)
+                _advance(sel, 1, True)
                 sel.setString(new_text[i])
                 main_cursor.gotoRange(sel.getEnd(), False)
                 i += 1
@@ -1102,8 +1080,7 @@ def replace_preserving_format(
         # Delete remaining original characters. go_right chunks and reports a short range,
         # so a stop must fail loudly instead of silently under-deleting.
         del_cursor = text.createTextCursorByRange(main_cursor)
-        if not go_right(del_cursor, old_len - new_len, True):
-            raise ToolExecutionError(_ADVANCE_FAILED_MSG)
+        _advance(del_cursor, old_len - new_len, True)
         del_cursor.setString("")
 
 
