@@ -168,12 +168,12 @@ def librepy_hamburger_actions(*, is_calc_doc: bool, is_writer_doc: bool, doc: An
 def execute_popup_under_button(popup: Any, button_ctrl: Any) -> int:
     from com.sun.star.awt import Rectangle
 
-    peer = button_ctrl.getPeer() if hasattr(button_ctrl, "getPeer") else None
+    peer = button_ctrl.getPeer()
     if peer is None:
         log.warning("execute_popup_under_button: button has no peer; not showing the popup")
         return 0
 
-    ps = button_ctrl.getPosSize() if hasattr(button_ctrl, "getPosSize") else None
+    ps = button_ctrl.getPosSize()
     if ps is None:
         log.warning("execute_popup_under_button: button has no position; not showing the popup")
         return 0
@@ -206,18 +206,16 @@ def show_python_sidebar_hamburger(ctx: Any, frame: Any, button_ctrl: Any) -> Non
 @main_thread_only
 def show_librepy_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
     """Popup of LibrePy-registered actions beneath the hamburger button."""
-    if ctx is None or button_ctrl is None:
+    if button_ctrl is None:
         return
     try:
         model = None
-        if frame and hasattr(frame, "getController"):
+        if frame:
             ctrl = frame.getController()
-            if ctrl and hasattr(ctrl, "getModel"):
+            if ctrl:
                 model = ctrl.getModel()
 
-        smgr = getattr(ctx, "getServiceManager", lambda: None)()
-        if smgr is None:
-            return
+        smgr = ctx.getServiceManager()
         popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
         if popup is None:
             return
@@ -284,21 +282,15 @@ def wire_sidebar_header_buttons(ctx: Any, frame: Any, controls: dict[str, Any], 
     from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
 
     if calc_doc:
-        third_action = "scripting.edit_python_cell"
-        third_tip = _("Edit Python in Cell...")
-        third_icon = menu_icon_asset_rel("python_cell", ctx=ctx)
-        third_label = ""
+        latex_btn = ("btn_latex", _("Edit Python in Cell..."), menu_icon_asset_rel("python_cell", ctx=ctx), "", _DispatchActionListener("scripting.edit_python_cell", frame))
     else:
-        third_action = "writer.insert_latex_dialog"
-        third_tip = _("Insert LaTeX Math...")
         # Keep √x glyph (not an emoji asset); only PNG buttons use the DPI resolver.
-        third_icon = None
-        third_label = "√x"
+        latex_btn = ("btn_latex", _("Insert LaTeX Math..."), None, "√x", _DispatchActionListener("writer.insert_latex_dialog", frame))
 
     specs: list[tuple[str, str, str | None, str | None, BaseActionListener]] = [
         ("btn_hdr_settings", _("Settings"), menu_icon_asset_rel("gear", ctx=ctx), "", _DispatchActionListener("main.settings", frame)),
         ("btn_python", _("Run Python Script..."), menu_icon_asset_rel("python", ctx=ctx), "", _DispatchActionListener("scripting.run_python_dialog", frame)),
-        ("btn_latex", third_tip, third_icon, third_label, _DispatchActionListener(third_action, frame)),
+        latex_btn,
         ("btn_hamburger", _("More actions..."), None, None, _HamburgerListener(ctx, frame)),
     ]
     for btn_id, tooltip, icon_rel, label_text, listener in specs:
