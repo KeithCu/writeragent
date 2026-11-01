@@ -324,30 +324,6 @@ class TestAppendRichTextViaClipboard:
         mock_copy.assert_called_once()
         doc.close.assert_called_once_with(True)
 
-    def test_user_insert_invokes_on_after_insert(self):
-        control = MagicMock()
-        control.getModel.return_value = MagicMock(Text="")
-        ctx = MagicMock()
-        doc = MagicMock()
-        seen = []
-
-        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
-             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
-             patch("plugin.chatbot.rich_text_paste.append_rich_text"), \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=42), \
-             patch("plugin.chatbot.rich_text_paste._ensure_trailing_line_break"):
-            append_formatted_row(
-                ctx,
-                control,
-                "<p>hello</p>",
-                role="user",
-                on_after_insert=seen.append,
-            )
-
-        assert seen == [42]
-        doc.close.assert_called_once_with(True)
-
     def test_plain_insert_skips_hidden_writer(self):
         control = MagicMock()
         model = MagicMock(Text="")
@@ -355,7 +331,6 @@ class TestAppendRichTextViaClipboard:
         model.createTextCursor.return_value = cursor
         control.getModel.return_value = model
         ctx = MagicMock()
-        seen = []
         inserts = []
 
         def record_insert(_model, _cursor, text, char_color=None, bold=None, **_k):
@@ -369,12 +344,10 @@ class TestAppendRichTextViaClipboard:
                 control,
                 "hello",
                 role="user",
-                on_after_insert=seen.append,
             )
 
         assert ok is True
         mock_create.assert_not_called()
-        assert seen == [15]
         assert any(txt.startswith("You:") and bold is True for txt, bold in inserts)
 
     def test_trailing_break_restores_through_the_frame_session_callback(self):
@@ -952,7 +925,7 @@ class TestPaintMessageItems:
 
         def _copy(*_args, **_kwargs):
             model.Text = "PARTIAL_NOT_IN_MESSAGES"
-            return False
+            return False, None
 
         def _capture(_model, _cursor, text, **_kwargs):
             written.append(text)

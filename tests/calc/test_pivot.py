@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
 
-from plugin.calc.pivot import AVERAGE, CreatePivotTable, DeletePivotTable, ListPivotTables, RefreshPivotTable
+from plugin.calc.pivot import AVERAGE, CreatePivotTable, DeletePivotTable, ListPivotTables, RefreshPivotTable, _find_pivot
 from plugin.framework.errors import UnoObjectError
 
 
@@ -382,3 +382,102 @@ def test_refresh_and_delete_pivot_table():
         res = del_tool.execute(ctx, name="NoSuchPivot")
         assert res["status"] == "error"
         assert "not found" in res["message"]
+
+
+def test_find_pivot():
+    doc = MagicMock()
+
+    # Case 1: sheet_name given, bridge raises exception
+    with patch("plugin.calc.pivot.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.side_effect = RuntimeError("Bridge failed")
+        res = _find_pivot(doc, "Pivot1", sheet_name="Nonexistent")
+        assert res == "Bridge failed"
+
+    # Case 2: sheet_name given, pivot found
+    sheet1 = MagicMock()
+    dp1 = MagicMock()
+    tbl1 = MagicMock()
+    dp1.hasByName.return_value = True
+    dp1.getByName.return_value = tbl1
+    with patch("plugin.calc.pivot.CalcBridge") as bridge_cls, \
+         patch("plugin.calc.pivot._get_dp_tables", return_value=dp1):
+        bridge_cls.return_value.get_sheet.return_value = sheet1
+        res = _find_pivot(doc, "Pivot1", sheet_name="Sheet1")
+        assert res == (tbl1, sheet1)
+
+    # Case 3: sheet_name given, pivot not found
+    dp1.hasByName.return_value = False
+    with patch("plugin.calc.pivot.CalcBridge") as bridge_cls, \
+         patch("plugin.calc.pivot._get_dp_tables", return_value=dp1):
+        bridge_cls.return_value.get_sheet.return_value = sheet1
+        res = _find_pivot(doc, "Pivot1", sheet_name="Sheet1")
+        assert res == "Pivot table 'Pivot1' not found on sheet 'Sheet1'."
+
+    # Case 4: all sheets, pivot found on second sheet
+    doc_sheets = MagicMock()
+    doc.getSheets.return_value = doc_sheets
+    doc_sheets.getElementNames.return_value = ("SheetA", "SheetB")
+    sheetA = MagicMock()
+    sheetB = MagicMock()
+    doc_sheets.getByName.side_effect = lambda n: sheetA if n == "SheetA" else sheetB
+    dpA = MagicMock()
+    dpA.hasByName.return_value = False
+    dpB = MagicMock()
+    dpB.hasByName.return_value = True
+    dpB.getByName.return_value = tbl1
+    with patch("plugin.calc.pivot._get_dp_tables", side_effect=lambda s: dpA if s is sheetA else dpB):
+        res = _find_pivot(doc, "PivotB")
+        assert res == (tbl1, sheetB)
+
+    # Case 5: all sheets, pivot not found anywhere
+    dpB.hasByName.return_value = False
+    with patch("plugin.calc.pivot._get_dp_tables", side_effect=lambda s: dpA if s is sheetA else dpB):
+        res = _find_pivot(doc, "NoSuchPivot")
+        assert res == "Pivot table 'NoSuchPivot' not found."
+
+
+def test_create_pivot_table_page_filter_not_in_page_fields():
+    doc = MagicMock()
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    src_range = MagicMock()
+    src_addr = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=1, EndRow=3)
+    src_range.getRangeAddress.return_value = src_addr
+    cells = [_make_mock_cell("Region"), _make_mock_cell("Sales")]
+    src_range.getCellByPosition.side_effect = lambda col, row: cells[col]
+
+    dest_cell = MagicMock()
+    dest_cell.getCellAddress.return_value = SimpleNamespace(Sheet=0, Column=5, Row=0)
+
+    dp_tables = MagicMock()
+    dp_tables.hasByName.return_value = False
+    desc = MagicMock()
+    dp_tables.createDataPilotDescriptor.return_value = desc
+
+    f_region = MagicMock()
+    f_region.getName.return_value = "Region"
+    f_sales = MagicMock()
+    f_sales.getName.return_value = "Sales"
+    fields = MagicMock()
+    fields.getCount.return_value = 2
+    fields.getByIndex.side_effect = lambda i: [f_region, f_sales][i]
+    desc.getDataPilotFields.return_value = fields
+
+    with patch("plugin.calc.pivot.CalcBridge") as bridge_cls, \
+         patch("plugin.calc.pivot._get_dp_tables", return_value=dp_tables):
+        bridge = bridge_cls.return_value
+        bridge.resolve_range_or_address.side_effect = lambda ref: src_range if "A1:B4" in ref else dest_cell
+
+        tool = CreatePivotTable()
+        res = tool.execute(
+            ctx,
+            name="MyPivot",
+            source_range="A1:B4",
+            destination_cell="F1",
+            data_fields=["Sales"],
+            page_filters={"Region": "North"},
+        )
+
+    assert res["status"] == "error"
+    assert "Field 'Region' in page_filters must be in page_fields." in res["message"]

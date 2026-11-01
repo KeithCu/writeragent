@@ -541,7 +541,7 @@ def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) 
     except ImportError:
         apply_fn()
         return
-    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled(ctx))
+    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled())
     try:
         with review:
             review.record_mutation(apply_fn)

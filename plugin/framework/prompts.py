@@ -1099,12 +1099,11 @@ def _profile_data_block(heading: str, body: str) -> str:
 def format_user_memory_prompt_block() -> str:
     """Read MemoryStore and return a fenced, capped user profile block, or empty string."""
     try:
-        from plugin.chatbot.memory import MemoryStore
+        from plugin.chatbot.memory import MemoryStore, user_memory_is_blank
 
         store = MemoryStore()
         user_mem = store.read()
-        text = str(user_mem or "").strip()
-        if not text or text == "{}":
+        if user_memory_is_blank(user_mem):
             return ""
         return _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
     except Exception:

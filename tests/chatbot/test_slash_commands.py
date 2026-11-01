@@ -34,15 +34,15 @@ from plugin.chatbot.send_state import ButtonAction
 @pytest.fixture
 def mock_commands() -> tuple[SlashCommand, ...]:
     return (
-        SlashCommand("help", "Print the command list", "wired", clears_ask=True),
-        SlashCommand("clear", "Start a new chat", "wired", clears_ask=True),
-        SlashCommand("stop", "Cancel the in-flight send", "wired", clears_ask=False),
-        SlashCommand("mock-alpha", "Mock command (echo only)", "mock", clears_ask=True),
-        SlashCommand("mock-bravo", "Mock command (echo only)", "mock", clears_ask=True),
-        SlashCommand("mock-charlie", "Mock command (echo only)", "mock", clears_ask=True),
-        SlashCommand("apply", "Apply last draft (mock)", "mock", clears_ask=True),
-        SlashCommand("web", "Web research (mock)", "mock", clears_ask=True),
-        SlashCommand("model", "Switch model (mock)", "mock", clears_ask=True),
+        SlashCommand("help", "Print the command list"),
+        SlashCommand("clear", "Start a new chat"),
+        SlashCommand("stop", "Cancel the in-flight send"),
+        SlashCommand("mock-alpha", "Mock command (echo only)"),
+        SlashCommand("mock-bravo", "Mock command (echo only)"),
+        SlashCommand("mock-charlie", "Mock command (echo only)"),
+        SlashCommand("apply", "Apply last draft (mock)"),
+        SlashCommand("web", "Web research (mock)"),
+        SlashCommand("model", "Switch model (mock)"),
     )
 
 
@@ -181,15 +181,20 @@ def test_set_config_raising_still_runs_help():
 
 
 def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
+    from plugin.chatbot.panel import StopButtonListener
+
     stop_model = SimpleNamespace(Enabled=True)
+    voice_mock = SimpleNamespace(exit_hands_free_record=MagicMock())
     host = SimpleNamespace(
         slash_popup=None,
         query_control=SimpleNamespace(text="/stop"),
         dispatch=MagicMock(),
         _approval_event=None,
         _send_busy=False,
-        exit_hands_free_record=MagicMock(),
+        _voice=voice_mock,
         stop_control=SimpleNamespace(getModel=lambda: stop_model),
+        hide_popup=MagicMock(),
+        stop_in_flight=lambda: StopButtonListener(host).on_action_performed(None),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
@@ -199,12 +204,13 @@ def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
     set_text.assert_not_called()
     assert host.query_control.text == "/stop"
     stop_speech.assert_called_once()
-    host.exit_hands_free_record.assert_called_once()
+    voice_mock.exit_hands_free_record.assert_called_once()
     host.dispatch.assert_not_called()
     assert stop_model.Enabled is False
 
 
 def test_run_stop_during_inline_approval_opens_change_dialog_without_clearing_ask():
+    from plugin.chatbot.panel import StopButtonListener
     from plugin.framework.i18n import _
 
     stop_model = SimpleNamespace(Label=_("Change"), Enabled=True)
@@ -222,6 +228,8 @@ def test_run_stop_during_inline_approval_opens_change_dialog_without_clearing_as
         _events=events_mock,
         _finish_inline_web_approval=events_mock._finish_inline_web_approval,
         _open_web_search_change_dialog=events_mock._open_web_search_change_dialog,
+        hide_popup=MagicMock(),
+        stop_in_flight=lambda: StopButtonListener(host).on_action_performed(None),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
@@ -249,8 +257,6 @@ def test_mock_commands_not_registered_outside_harness(monkeypatch):
 
     monkeypatch.setattr(slash, "_mock_commands_enabled", False)
     assert [c.name for c in slash.registered_slash_commands()] == ["help", "clear", "stop"]
-    assert all(c.kind == "wired" for c in slash.SLASH_COMMANDS)
-    assert "mock" not in [c.kind for c in filter_slash_commands("/", ["mock-bravo"])]
     assert "[mock]" not in format_help_text()
     host = MagicMock()
     assert run_slash_command("mock-bravo", host) is False

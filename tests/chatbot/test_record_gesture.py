@@ -4,11 +4,8 @@ import inspect
 
 from plugin.chatbot.record_gesture import (
     EMPTY_TAKES_EXIT,
-    HANDS_FREE_STATUS,
     RecordGesture,
     RecordPhase,
-    StickyRestart,
-    TakeStop,
     exit_sticky,
     gesture_action,
     gesture_hold_elapsed,
@@ -16,8 +13,6 @@ from plugin.chatbot.record_gesture import (
     gesture_release,
     hands_free_silence_text,
     hands_free_status_text,
-    stop_during_take,
-    sticky_restart,
 )
 import pytest
 
@@ -118,22 +113,8 @@ def test_exit_while_idle_sticky_does_not_swallow_the_next_action() -> None:
     assert step.swallowed_action is False
 
 
-def test_sticky_restart_matrix() -> None:
-    assert sticky_restart(sticky=False, speaking=False) is StickyRestart.NONE
-    assert sticky_restart(sticky=False, speaking=True) is StickyRestart.NONE
-    assert sticky_restart(sticky=True, speaking=False) is StickyRestart.RECORD
-    assert sticky_restart(sticky=True, speaking=True) is StickyRestart.WAIT_FOR_TTS
-
-
 def test_hands_free_status_msgid() -> None:
-    assert HANDS_FREE_STATUS in inspect.getsource(hands_free_status_text)
-    assert hands_free_status_text() == HANDS_FREE_STATUS
-
-
-def test_stop_during_take_steps_down_one_level() -> None:
-    """Locked take: Stop drops the lock. One-shot take: Stop cancels."""
-    assert stop_during_take(sticky=True) is TakeStop.EXIT_LOCK
-    assert stop_during_take(sticky=False) is TakeStop.CANCEL
+    assert hands_free_status_text() == "Hands-free recording..."
 
 
 def test_exit_lock_keeps_the_next_stop_rec_click() -> None:

@@ -185,7 +185,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 | Area | Files |
 |------|--------|
 | **Vision trusted stack + host wiring** | [`vision.py`](../../plugin/vision/venv/vision.py) (dispatcher), [`vision_docling.py`](../../plugin/vision/venv/vision_docling.py) (Docling default), [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py) (fallback), [`vision_common.py`](../../plugin/vision/vision_common.py), [`vision_client.py`](../../plugin/framework/client/vision_client.py), [`vision_runner.py`](../../plugin/vision/vision_runner.py) (`resolve_vision_image_bytes`, `run_and_insert_vision_for_selection`, `supports_vision_manual`), [`vision_templates.py`](../../plugin/vision/vision_templates.py), [`vision_egress.py`](../../plugin/vision/vision_egress.py) (Writer) |
-| Image export (selection + name) | [`export_graphic_object_to_bytes`](../../plugin/writer/images/image_tools.py), [`resolve_vision_image_bytes`](../../plugin/vision/vision_runner.py), [`graphic_objects_in_selection`](../../plugin/doc/visual_helpers.py), [`_get_graphic_object`](../../plugin/writer/images/images.py) |
+| Image export (selection + name) | [`export_graphic_object_to_bytes`](../../plugin/writer/images/image_tools.py), [`resolve_vision_image_bytes`](../../plugin/vision/vision_runner.py), [`graphic_objects_in_selection`](../../plugin/doc/visual_helpers.py), [`get_graphic_object_by_name`](../../plugin/doc/visual_helpers.py) |
 | Run Python vision fast path | [`python_runner.py`](../../plugin/scripting/python_runner.py) — `insert_vision_result` (Writer + Calc) |
 | Calc vision egress | [`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py) — `calc_output_anchor_from_graphic`, `insert_vision_html_into_calc` |
 | HTML export (Docling / Paddle) | [`vision_docling.py`](../../plugin/vision/venv/vision_docling.py) (`export_docling_to_html`), [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py) (`html_from_paddle_regions`, `html_from_paddle_structure`), [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) (`prepare_html_for_lo_import`, **css-inline** required; heading/body/table/MathML augment) |
@@ -355,7 +355,7 @@ Draw/Impress: extend `supports_vision_manual` with `is_draw`; minimal `TextShape
 | [`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py) | `insert_vision_html_into_calc` (rich HTML in cell below anchor) |
 | [`plugin/writer/images/image_tools.py`](../../plugin/writer/images/image_tools.py) | `export_graphic_to_bytes`, `export_graphic_object_to_bytes` |
 
-**Image resolution:** `params.image_name` empty → selected graphic; non-empty → [`_get_graphic_object`](plugin/writer/images/images.py) by name (`IMAGE_NOT_FOUND` on miss).
+**Image resolution:** `params.image_name` empty → selected graphic; non-empty → [`get_graphic_object_by_name`](../../plugin/doc/visual_helpers.py) by name (`IMAGE_NOT_FOUND` on miss).
 
 **First PP-Structure run:** uses `VISION_WORKER_TIMEOUT_SEC` (same as OCR model download).
 
@@ -385,7 +385,7 @@ Extended [`test_vision.py`](../../tests/vision/venv/test_vision.py), [`test_visi
 | Capability | Entry point |
 |------------|-------------|
 | Export selection to PNG | [`get_selected_image_bytes`](../../plugin/vision/vision_runner.py) / [`resolve_vision_image_bytes`](../../plugin/vision/vision_runner.py) |
-| Export by graphic name | [`resolve_vision_image_bytes`](plugin/vision/vision_runner.py) + [`_get_graphic_object`](plugin/writer/images/images.py) |
+| Export by graphic name | [`resolve_vision_image_bytes`](plugin/vision/vision_runner.py) + [`get_graphic_object_by_name`](../../plugin/doc/visual_helpers.py) |
 | List in-document graphics | [`image_list`](../../plugin/writer/images/images.py) |
 | Metadata | [`image_get_info`](../../plugin/writer/images/images.py) |
 | Return a viewable image to the model | [`get_image`](../../plugin/writer/get_image.py) — an embedded graphic by name, the current selection, or `page=<n>` (0-based) to render a whole page as PNG (Writer: `writer_png_Export`; Draw/Impress: `GraphicExportFilter` on the draw page) |
@@ -672,7 +672,7 @@ Calc insert uses `image_name` when set. An unknown name is `IMAGE_NOT_FOUND`, no
 | `code` | When |
 |--------|------|
 | `NO_IMAGE_SELECTED` | Host could not export graphic bytes (also used before venv call) |
-| `IMAGE_NOT_FOUND` | Host: `image_name` in params not found via `_get_graphic_object` |
+| `IMAGE_NOT_FOUND` | Host: `image_name` in params not found via `get_graphic_object_by_name` |
 | `NO_OUTPUT_ANCHOR` | Calc: selected graphic has no resolvable cell **Anchor** |
 | `PADDLEOCR_UNAVAILABLE` | Import/install failure in venv (paddle engine or fallback) |
 | `DOCLING_UNAVAILABLE` | Docling not installed (`engine=docling`, no fallback) |

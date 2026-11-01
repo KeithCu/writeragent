@@ -246,7 +246,7 @@ def test_event_drain_slice_is_bounded() -> None:
     session = ChatSession("system prompt")
     session.add_user_message("question")
     listener.session = session
-    begin_send_turn(listener, "chat")
+    begin_send_turn(listener)
     rearm = _Rearm()
     q: queue.Queue = queue.Queue()
 
@@ -286,7 +286,7 @@ def test_each_slice_that_applies_chunks_notes_watchdog_activity() -> None:
     session = ChatSession("system prompt")
     session.add_user_message("question")
     listener.session = session
-    begin_send_turn(listener, "chat")
+    begin_send_turn(listener)
     rearm = _Rearm()
     q: queue.Queue = queue.Queue()
 

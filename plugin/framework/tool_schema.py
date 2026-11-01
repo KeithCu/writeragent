@@ -38,11 +38,11 @@ _SCALAR_TYPES = frozenset({"integer", "number", "boolean", "string"})
 _OutboundMessages = TypeVar("_OutboundMessages", bound=Sequence[Any])
 
 
-def _schema_type_includes_array(type_value: Any) -> bool:
-    """True when a JSON-schema ``type`` is ``array`` or a list that includes it."""
-    if type_value == "array":
+def _type_includes(type_value: Any, name: str) -> bool:
+    """True when a JSON-schema ``type`` is *name* or a list that includes it."""
+    if type_value == name:
         return True
-    return isinstance(type_value, list) and "array" in type_value
+    return isinstance(type_value, list) and name in type_value
 
 
 def call_properties(schema: Any) -> dict[str, Any] | None:
@@ -207,7 +207,7 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
     out = dict(kwargs)
     range_schema = props.get("range")
     range_type = range_schema.get("type") if isinstance(range_schema, dict) else None
-    if isinstance(out.get("range"), str) and _schema_type_includes_array(range_type):
+    if isinstance(out.get("range"), str) and _type_includes(range_type, "array"):
         out["range"] = [out["range"]]
     for k, v in out.items():
         if isinstance(v, float) and v.is_integer():
@@ -216,7 +216,7 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
                 t = prop.get("type")
                 # _tool_arg_matches_type rejects 3.0 for "integer", so models sending
                 # whole floats get VALIDATION_ERROR. 3.5 must still fail.
-                if t == "integer" or (isinstance(t, list) and "integer" in t):
+                if _type_includes(t, "integer"):
                     out[k] = int(v)
 
     if tool_name == "write_formula_range":
@@ -295,7 +295,7 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     # ``["array", "null"]``). Popping ``items`` then hides the element
     # schema. No ``type`` plus ``items`` is an implicit array, and a union
     # ``validate`` accepts must keep its element schema.
-    if "items" in params and type_value is not None and not _schema_type_includes_array(type_value):
+    if "items" in params and type_value is not None and not _type_includes(type_value, "array"):
         params.pop("items", None)
     if params.get("required") == []:
         params.pop("required", None)
@@ -305,14 +305,14 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     # Requiring ``type == "object"`` returns ``{"properties": {...}}``
     # untouched, so children never get nullable or union normalization.
     if isinstance(params.get("properties"), dict):
+        req = required_keys(params)
         for k, v in params["properties"].items():
             v = _normalize_schema_for_strict_providers(v)
-            if k not in required_keys(params):
+            if k not in req:
                 v = _make_optional_scalar_nullable(v)
             params["properties"][k] = v
-    if "items" in params:
-        if isinstance(params["items"], dict):
-            params["items"] = _normalize_schema_for_strict_providers(params["items"])
+    if "items" in params and isinstance(params["items"], dict):
+        params["items"] = _normalize_schema_for_strict_providers(params["items"])
     return params
 
 
@@ -335,7 +335,7 @@ def to_openai_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any
     """
     # Host Tool + deepcopy of nested JSON Schema; pytest still checks @deal.
     # crosshair: off
-    params = copy.deepcopy(tool.get_parameters(doc_type) or {})
+    params = copy.copy(tool.get_parameters(doc_type) or {})
     params.setdefault("type", "object")
     params = _normalize_schema_for_strict_providers(params)
     desc = tool.get_description(doc_type)

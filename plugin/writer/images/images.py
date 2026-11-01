@@ -99,10 +99,7 @@ def _orient_number(raw: Any) -> int | None:
     # 0 is HoriOrientation.NONE. Do not treat 0 as missing.
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return None
+    return int(raw)
 
 
 def resolve_image_generate_is_edit(source_image: typing.Any, *, selection_available: bool) -> bool:
@@ -342,8 +339,6 @@ class ImageGenerate(ToolWriterImageBase):
                 if graphic is not None:
                     try:
                         px = visual_helpers.safe_get_property(graphic, "SizePixel")
-                        if px is None and hasattr(graphic, "getPropertyValue"):
-                            px = graphic.getPropertyValue("SizePixel")
                         if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
                             nw, nh = int(px.Width), int(px.Height)
                     except Exception as ex:
@@ -353,7 +348,7 @@ class ImageGenerate(ToolWriterImageBase):
                 # Frame size in 1/100 mm for on-page display
                 frame_w, frame_h = None, None
                 try:
-                    size = _object_size(obj)
+                    size = obj.getSize()
                     if size is not None and getattr(size, "Width", 0) > 0 and getattr(size, "Height", 0) > 0:
                         frame_w, frame_h = int(size.Width), int(size.Height)
                 except Exception as ex:
@@ -629,7 +624,7 @@ class ImageList(ToolWriterImageBase):
             for item in graphics_names:
                 name, graphic = item[0], item[1]
                 try:
-                    size = _object_size(graphic)
+                    size = graphic.getSize()
                     title = _optional_property(graphic, "Title", "")
                     description = _optional_property(graphic, "Description", "")
 
@@ -690,8 +685,6 @@ class ImageList(ToolWriterImageBase):
                                             pass
                             except Exception as exc:
                                 reraise_if_disposed(exc)
-                    else:
-                        entry_pos = {}
 
                     entry = {"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "title": title, "description": description, "paragraph_index": paragraph_index}
                     if is_calc:
@@ -725,13 +718,9 @@ class ImageList(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _get_graphic_object(ctx: typing.Any, doc: typing.Any, image_name: str, sheet_index: int | None = None) -> Any | None:
-    return visual_helpers.get_graphic_object_by_name(doc, image_name, sheet_index=sheet_index)
-
-
 def _resolve_graphic(tool: Any, ctx: Any, image_name: str, sheet_index: int | None = None) -> tuple[Any, dict[str, Any] | None]:
     try:
-        graphic = _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index)
+        graphic = visual_helpers.get_graphic_object_by_name(ctx.doc, image_name, sheet_index=sheet_index)
     except ValueError as exc:
         sheets = getattr(exc, "sheet_indices", None)
         return None, tool._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
@@ -748,11 +737,6 @@ def _validate_dimensions(tool: Any, kwargs: dict[str, Any]) -> dict[str, Any] | 
     if height_mm_val is not None and height_mm_val <= 0:
         return tool._tool_error("height_mm must be greater than 0.", code="INVALID_PARAMETER", parameter="height_mm")
     return None
-
-
-def _object_size(obj: typing.Any) -> Any:
-    """Frame size in 1/100 mm via getSize(), which matches the Size property wherever it exists."""
-    return obj.getSize()
 
 
 class ImageGetInfo(ToolWriterImageBase):
@@ -778,7 +762,7 @@ class ImageGetInfo(ToolWriterImageBase):
         if err is not None:
             return err
 
-        size = _object_size(graphic)
+        size = graphic.getSize()
 
         # GraphicObjectFillBitmap is an XGraphic, not a URL. str() of it was a pyuno repr.
         # Keep GraphicURL only when it is already a string.
@@ -871,22 +855,12 @@ _HORI_ORIENT_NAMES = ("left", "center", "right")
 _VERT_ORIENT_NAMES = ("top", "center", "bottom")
 
 
-# Published UNO constant values (com.sun.star.text.HoriOrientation / VertOrientation) — a stable,
-# documented part of the UNO API. Used ONLY as a fallback when the live enum import is unavailable
-# (e.g. headless tests); production resolves through the live import below, so production never
-# depends on these literals being right — they just keep the name-mapping testable without UNO.
-_HORI_ORIENT_FALLBACK = {"left": 3, "center": 2, "right": 1}
-_VERT_ORIENT_FALLBACK = {"top": 1, "center": 2, "bottom": 3}
-
-
 def _resolve_orient(value: typing.Any, axis: str) -> tuple[Any | None, str | None]:
     """Map a friendly position to a UNO orientation constant. *axis* is 'hori' or 'vert'.
 
     Accepts a name ('left'/'center'/'right' for hori; 'top'/'center'/'bottom' for vert; 'centre' ok)
     OR a raw UNO integer constant (back-compat). Returns (constant, None) on success or
-    (None, error_message) on an unknown name. The name is validated first (no UNO needed); the value
-    is then read from the LIVE UNO enum, falling back to the published constant only if that import
-    is unavailable."""
+    (None, error_message) on an unknown name."""
     if isinstance(value, bool):  # guard: bool is an int subclass
         return None, "orientation must be a position name or an integer, not a boolean."
     if isinstance(value, int):
@@ -901,12 +875,8 @@ def _resolve_orient(value: typing.Any, axis: str) -> tuple[Any | None, str | Non
         return None, f"unknown {axis} position '{value}'. Use one of: {', '.join(valid)}."
     group = "com.sun.star.text.HoriOrientation" if axis == "hori" else "com.sun.star.text.VertOrientation"
     member = name.upper()  # left/center/right/top/bottom -> LEFT/CENTER/RIGHT/TOP/BOTTOM
-    try:
-        import uno
-        return uno.getConstantByName("%s.%s" % (group, member)), None
-    except Exception:
-        fallback = _HORI_ORIENT_FALLBACK if axis == "hori" else _VERT_ORIENT_FALLBACK
-        return fallback[name], None
+    import uno
+    return uno.getConstantByName("%s.%s" % (group, member)), None
 
 
 def _resolve_crop_edges(kwargs: typing.Any, current: typing.Any) -> tuple[int, int, int, int]:
@@ -1030,7 +1000,7 @@ class ImageSetProperties(ToolWriterImageBase):
         if width_mm is not None or height_mm is not None:
             from com.sun.star.awt import Size
 
-            current = _object_size(graphic)
+            current = graphic.getSize()
             curr_w, curr_h = current.Width, current.Height
 
             new_size = Size()
@@ -1209,7 +1179,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         from com.sun.star.awt import Size
         from com.sun.star.text import GraphicCrop
 
-        size = _object_size(obj)
+        size = obj.getSize()
         width_mm = kwargs.get("width_mm")
         if width_mm is not None:
             if isinstance(width_mm, bool) or not isinstance(width_mm, (int, float)) or int(round(width_mm * 100)) < 1:
@@ -1304,6 +1274,17 @@ class ImageDownload(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
+def _local_image_path(tool: Any, path: str, stop_checker: Any = None) -> str | dict[str, Any]:
+    if path.startswith("http://") or path.startswith("https://"):
+        dl_result = _download_for_tool(tool, path, stop_checker=stop_checker)
+        if isinstance(dl_result, dict):
+            return dl_result
+        path = dl_result
+    if not os.path.isfile(path):
+        return tool._tool_error(f"File not found: {path}", code="FILE_NOT_FOUND", path=path)
+    return path
+
+
 class ImageInsert(ToolWriterImageBase):
     """Insert an image from local path or URL into the document."""
 
@@ -1378,13 +1359,10 @@ class ImageInsert(ToolWriterImageBase):
         style_name = kwargs.get("style", "Standard")
 
         stop_checker = getattr(ctx, "stop_checker", None)
-        if image_path.startswith("http://") or image_path.startswith("https://"):
-            dl_result = _download_for_tool(self, image_path, stop_checker=stop_checker)
-            if isinstance(dl_result, dict):
-                return dl_result
-            image_path = dl_result
-        if not os.path.isfile(image_path):
-            return self._tool_error(f"File not found: {image_path}", code="FILE_NOT_FOUND", path=image_path)
+        local_path = _local_image_path(self, image_path, stop_checker)
+        if isinstance(local_path, dict):
+            return local_path
+        image_path = local_path
 
         def _place() -> dict[str, Any]:
             nonlocal paragraph_index
@@ -1586,24 +1564,13 @@ class ImageReplace(ToolWriterImageBase):
 
         if is_url:
             # Existence is UNO. Do not hold the graphic proxy across the download.
-            try:
-                exists = _run_on_main(lambda: _get_graphic_object(ctx, ctx.doc, image_name, sheet_index=sheet_index) is not None)
-            except ValueError as exc:
-                sheets = getattr(exc, "sheet_indices", None)
-                return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
-            if not exists:
-                return self._tool_error(
-                    "Image '%s' not found or document does not support graphic objects." % image_name,
-                    code="IMAGE_NOT_FOUND",
-                    image_name=image_name,
-                )
-            stop_checker = getattr(ctx, "stop_checker", None)
-            dl_result = _download_for_tool(self, new_image_path, stop_checker=stop_checker)
-            if isinstance(dl_result, dict):
-                return dl_result
-            new_image_path = dl_result
-            if not os.path.isfile(new_image_path):
-                return self._tool_error(f"File not found: {new_image_path}", code="FILE_NOT_FOUND", path=new_image_path)
+            err = _run_on_main(lambda: _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)[1])
+            if err is not None:
+                return err
+            local_path = _local_image_path(self, new_image_path, getattr(ctx, "stop_checker", None))
+            if isinstance(local_path, dict):
+                return local_path
+            new_image_path = local_path
 
         def _apply() -> dict[str, Any]:
             graphic, err = _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)
@@ -1618,7 +1585,7 @@ class ImageReplace(ToolWriterImageBase):
             if width_mm is not None or height_mm is not None:
                 # Same as image_set_properties: a size-read failure must not become
                 # SIZE_UNAVAILABLE. execute_safe reports it before the replace.
-                current = _object_size(graphic)
+                current = graphic.getSize()
                 current_width, current_height = current.Width, current.Height
                 width_units, height_units = _replacement_size_units(current_width, current_height, width_mm, height_mm)
 
@@ -1665,6 +1632,12 @@ def _prune_image_cache(cache_dir: str, keep_path: str) -> None:
                 continue
             real = os.path.realpath(entry.path)
             if real == keep_real:
+                continue
+            if entry.name.split(".")[0] == os.path.basename(keep_path).split(".")[0]:
+                try:
+                    os.unlink(entry.path)
+                except OSError:
+                    pass
                 continue
             try:
                 st = entry.stat()
@@ -1817,16 +1790,6 @@ def _download_image_to_cache(
         local_path = os.path.join(cache_dir, url_hash + sniffed_ext)
         os.replace(partial_path, local_path)
         partial_path = ""
-
-        try:
-            for entry in os.scandir(cache_dir):
-                if entry.is_file() and entry.name.split(".")[0] == url_hash and os.path.realpath(entry.path) != os.path.realpath(local_path):
-                    try:
-                        os.unlink(entry.path)
-                    except OSError:
-                        pass
-        except OSError:
-            pass
 
         _prune_image_cache(cache_dir, local_path)
     finally:

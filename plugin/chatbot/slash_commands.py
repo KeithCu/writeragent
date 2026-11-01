@@ -39,27 +39,25 @@ class SlashCommand:
 
     name: str
     description: str
-    kind: str = "wired"  # "wired" | "mock"
-    clears_ask: bool = True
 
 
 # Product commands: /help /clear /stop.
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
-    SlashCommand("help", N_("Print the command list"), "wired", clears_ask=True),
-    SlashCommand("clear", N_("Start a new chat"), "wired", clears_ask=True),
-    SlashCommand("stop", N_("Cancel the in-flight send"), "wired", clears_ask=False),
+    SlashCommand("help", N_("Print the command list")),
+    SlashCommand("clear", N_("Start a new chat")),
+    SlashCommand("stop", N_("Cancel the in-flight send")),
 )
 
 # Echo-only stubs for the mock-LLM sidebar harness and prefix/LRU tests.
 # Never in the product list: only ``enable_mock_slash_commands()`` (called by
 # the debug-only sidebar test hooks) adds them to ``registered_slash_commands``.
 MOCK_SLASH_COMMANDS: tuple[SlashCommand, ...] = (
-    SlashCommand("mock-alpha", N_("Mock command (echo only)"), "mock", clears_ask=True),
-    SlashCommand("mock-bravo", N_("Mock command (echo only)"), "mock", clears_ask=True),
-    SlashCommand("mock-charlie", N_("Mock command (echo only)"), "mock", clears_ask=True),
-    SlashCommand("apply", N_("Apply last draft (mock)"), "mock", clears_ask=True),
-    SlashCommand("web", N_("Web research (mock)"), "mock", clears_ask=True),
-    SlashCommand("model", N_("Switch model (mock)"), "mock", clears_ask=True),
+    SlashCommand("mock-alpha", N_("Mock command (echo only)")),
+    SlashCommand("mock-bravo", N_("Mock command (echo only)")),
+    SlashCommand("mock-charlie", N_("Mock command (echo only)")),
+    SlashCommand("apply", N_("Apply last draft (mock)")),
+    SlashCommand("web", N_("Web research (mock)")),
+    SlashCommand("model", N_("Switch model (mock)")),
 )
 
 _mock_commands_enabled = False
@@ -97,30 +95,18 @@ def filter_slash_commands(
 ) -> list[SlashCommand]:
     """Prefix-filter ``commands`` and rank by LRU then registry order.
 
-    ``typed`` is raw Ask-box text (``/he``) or a bare prefix. Recently used
-    names float to the top when the filter is empty and as a tie-break
-    among equal prefix matches.
+    ``typed`` is raw Ask-box text (``/he``). Recently used names float to
+    the top when the filter is empty and as a tie-break among equal
+    prefix matches.
     """
     registry = tuple(commands) if commands is not None else registered_slash_commands()
     prefix = slash_typed_prefix(typed)
     if prefix is None:
-        if (typed or "").startswith("/"):
-            prefix = ""
-        elif typed:
-            # Allow unit tests to pass ``"he"`` without a leading slash.
-            prefix = typed.lower().lstrip("/")
-        else:
-            return []
+        return []
     matches = [cmd for cmd in registry if cmd.name.startswith(prefix)]
-    lru_names = [str(n).lstrip("/").lower() for n in (lru or ()) if str(n).strip()]
+    lru_names = [str(n) for n in (lru or ()) if str(n).strip()]
     lru_index = {name: idx for idx, name in enumerate(lru_names)}
-    registry_index = {cmd.name: idx for idx, cmd in enumerate(registry)}
-    sentinel = len(lru_names) + 1
-
-    def _key(cmd: SlashCommand) -> tuple[int, int]:
-        return (lru_index.get(cmd.name, sentinel), registry_index.get(cmd.name, sentinel))
-
-    return sorted(matches, key=_key)
+    return sorted(matches, key=lambda cmd: lru_index.get(cmd.name, len(lru_names)))
 
 
 def classify_slash_key(key_code: int, modifiers: int = 0) -> str | None:
@@ -139,7 +125,7 @@ def classify_slash_key(key_code: int, modifiers: int = 0) -> str | None:
 
 
 def format_slash_item(cmd: SlashCommand) -> str:
-    tag = " [mock]" if cmd.kind == "mock" else ""
+    tag = " [mock]" if cmd.name in {c.name for c in MOCK_SLASH_COMMANDS} else ""
     return "/%s%s — %s" % (cmd.name, tag, _(cmd.description))
 
 
@@ -173,39 +159,6 @@ def record_slash_lru(name: str) -> None:
     )
 
 
-def _append_sidebar_line(host: Any, text: str) -> None:
-    append_output = getattr(host, "append_output", None)
-    if callable(append_output):
-        append_output(text)
-        return
-    append = getattr(host, "_append_response", None)
-    if callable(append):
-        append(text, role="assistant")
-        return
-    response = getattr(host, "response_control", None)
-    if response is None:
-        return
-    from plugin.chatbot.dialogs import get_control_text, set_control_text
-
-    current = get_control_text(response) or ""
-    set_control_text(response, current + text)
-
-
-def _clear_ask_box(host: Any) -> None:
-    clear_ask_fn = getattr(host, "clear_ask", None)
-    if callable(clear_ask_fn):
-        clear_ask_fn()
-        return
-    from plugin.chatbot.dialogs import set_control_text
-    from plugin.chatbot.send_state import SendEvent, SendEventKind
-
-    query = getattr(host, "query_control", None)
-    set_control_text(query, "")
-    dispatch = getattr(host, "dispatch", None)
-    if callable(dispatch):
-        dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
-
-
 def run_slash_command(name: str, host: Any, commands: Sequence[SlashCommand] | None = None) -> bool:
     """Run a registry command on the live send listener. Not a chat turn.
 
@@ -221,39 +174,17 @@ def run_slash_command(name: str, host: Any, commands: Sequence[SlashCommand] | N
     if cmd is None:
         return False
     record_slash_lru(cmd.name)
-    hide = getattr(host, "hide_popup", None)
-    if callable(hide):
-        hide()
-    elif hasattr(host, "slash_popup") and getattr(getattr(host, "slash_popup", None), "hide", None):
-        host.slash_popup.hide()
+    host.hide_popup()
 
     if cmd.name == "stop":
-        stop_fn = getattr(host, "stop_in_flight", None)
-        if callable(stop_fn):
-            stop_fn()
-        else:
-            from plugin.chatbot.panel import StopButtonListener
-
-            StopButtonListener(host).on_action_performed(None)
+        host.stop_in_flight()
         return True
-    if cmd.clears_ask:
-        _clear_ask_box(host)
+    host.clear_ask()
     if cmd.name == "help":
-        _append_sidebar_line(host, "\n" + format_help_text(commands) + "\n")
+        host.append_output("\n" + format_help_text(commands) + "\n")
         return True
     if cmd.name == "clear":
-        clear_chat_fn = getattr(host, "clear_chat", None)
-        if callable(clear_chat_fn):
-            clear_chat_fn()
-        else:
-            clear_listener = getattr(host, "clear_listener", None)
-            action = getattr(clear_listener, "on_action_performed", None)
-            if callable(action):
-                action(None)
-            else:
-                session = getattr(host, "session", None)
-                if session is not None and hasattr(session, "clear"):
-                    session.clear()
+        host.clear_chat()
         return True
-    _append_sidebar_line(host, "\nslash: /%s\n" % cmd.name)
+    host.append_output("\nslash: /%s\n" % cmd.name)
     return True

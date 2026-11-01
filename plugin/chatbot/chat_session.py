@@ -119,11 +119,7 @@ class ChatSession:
             self.db.add_message("user", content)
 
     def add_assistant_message(self, content: Any = None, tool_calls: Any = None, reasoning_replay: Any = None) -> None:
-        msg = {"role": "assistant"}
-        if content:
-            msg["content"] = content
-        else:
-            msg["content"] = ""
+        msg = {"role": "assistant", "content": content or ""}
         if tool_calls:
             msg["tool_calls"] = tool_calls
         if reasoning_replay:

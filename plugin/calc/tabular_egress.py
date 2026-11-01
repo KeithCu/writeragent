@@ -62,14 +62,30 @@ def _append_truncation_note(rows: list[list[Any]], table: dict[str, Any]) -> Non
         rows.append([f"(showing first rows; {total} total)" if total is not None else "(truncated)"])
 
 
+def _error_grid(result: dict[str, Any], domain_label: str, failed_message: str) -> list[list[Any]]:
+    code = str(result.get("code") or "ERROR")
+    message = str(result.get("message") or failed_message)
+    return [[f"{domain_label} error ({code})"], [message]]
+
+
+def _append_flag_lines(rows: list[list[Any]], lines: list[str]) -> None:
+    _append_blank(rows)
+    rows.append(["Flags"])
+    for line in lines:
+        rows.append([line])
+
+
+def _append_no_tabular_output(rows: list[list[Any]]) -> None:
+    if len(rows) == 1:
+        rows.append(["(no tabular output)"])
+
+
 def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str, default_helper: str, failed_message: str, metadata_keys: tuple[str, ...] = ("n_rows", "n_cols", "numeric_cols")) -> list[list[Any]]:
     """Turn a tabular helper result dict into a row-major grid for ``write_formula_range``."""
     rows: list[list[Any]] = []
 
     if result.get("status") == "error":
-        code = str(result.get("code") or "ERROR")
-        message = str(result.get("message") or failed_message)
-        return [[f"{domain_label} error ({code})"], [message]]
+        return _error_grid(result, domain_label, failed_message)
 
     helper = str(result.get("helper") or default_helper)
     raw_ctx = result.get("context")
@@ -79,15 +95,12 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
     rows.append([title])
 
     metrics = result.get("metrics")
-    if isinstance(metrics, dict) and metrics:
+    if isinstance(metrics, dict):
         _append_key_value_block(rows, "Metrics", metrics)
 
     flags = result.get("flags")
     if isinstance(flags, list) and flags:
-        _append_blank(rows)
-        rows.append(["Flags"])
-        for item in flags:
-            rows.append([str(item)])
+        _append_flag_lines(rows, [str(item) for item in flags])
 
     tables = result.get("tables")
     if isinstance(tables, list):
@@ -100,13 +113,12 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
             _append_truncation_note(rows, table)
 
     metadata = result.get("metadata")
-    if isinstance(metadata, dict) and metadata:
+    if isinstance(metadata, dict):
         subset = {k: metadata[k] for k in metadata_keys if k in metadata}
         if subset:
             _append_key_value_block(rows, "Metadata", subset)
 
-    if len(rows) == 1:
-        rows.append(["(no tabular output)"])
+    _append_no_tabular_output(rows)
     return rows
 
 

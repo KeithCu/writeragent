@@ -313,16 +313,17 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
     return str(delim).join(parts)
 
 
-def _split_text(text: str, delimiter: str, case_insensitive: bool) -> list[str]:
-    if not delimiter:
-        raise ValueError("empty separator")
-    if case_insensitive:
-        return re.split(re.escape(delimiter), text, flags=re.IGNORECASE)
-    return text.split(delimiter)
-
-
 def _split_pieces(text: str, delimiter: Any, case_insensitive: bool, skip_empty: bool) -> list[str]:
-    parts = [text] if delimiter is None else _split_text(text, str(delimiter), case_insensitive)
+    if delimiter is None:
+        parts = [text]
+    else:
+        delim = str(delimiter)
+        if not delim:
+            raise ValueError("empty separator")
+        if case_insensitive:
+            parts = re.split(re.escape(delim), text, flags=re.IGNORECASE)
+        else:
+            parts = text.split(delim)
     return [part for part in parts if part] if skip_empty else parts
 
 
@@ -369,8 +370,6 @@ def time(hour: Any, minute: Any, second: Any) -> float:
     # this helper returns NaN for that, same as its other numeric failures.
     # math.fmod keeps the dividend's sign, matching C fmod.
     total = float(hour) * 3600.0 + float(minute) * 60.0 + float(second)
-    if not math.isfinite(total):
-        return float("nan")
     wrapped = math.fmod(total, 86400.0)
     if wrapped < 0.0 or not math.isfinite(wrapped):
         return float("nan")
@@ -1024,7 +1023,7 @@ def xor(*args: Any) -> bool | float | str:
             if isinstance(val, np.generic):
                 val = val.item()
             if isinstance(val, int):
-                bit = int(val) != 0
+                bit = val != 0
             elif isinstance(val, (float, np.floating)):
                 number = float(val)
                 if math.isnan(number):
@@ -1032,10 +1031,8 @@ def xor(*args: Any) -> bool | float | str:
                 bit = number != 0.0
             elif isinstance(val, str) and val.strip() in _LO_ERROR_TOKENS:
                 return val.strip()
-            elif val is None or isinstance(val, str):
-                if in_range:
-                    continue
-                return "#VALUE!"
+            elif in_range and (val is None or isinstance(val, str)):
+                continue
             else:
                 return "#VALUE!"
             saw = True
@@ -1051,14 +1048,13 @@ def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: A
     """Annual yield of a discounted security (e.g. Treasury bill)."""
     p = float(pr)
     red = float(redemption)
-    b = int(float(basis))
     settle = float(settlement)
     mature = float(maturity)
     # getYielddisc throws when settlement >= maturity. yearfrac swaps
     # those dates, so a reversed pair used to return a positive yield.
-    if p <= 0 or red <= 0 or b < 0 or b > 4 or settle >= mature:
+    if p <= 0 or red <= 0 or settle >= mature:
         return float("nan")
-    yf = yearfrac(settle, mature, b)
+    yf = yearfrac(settle, mature, basis)
     if math.isnan(yf) or yf <= 0:
         return float("nan")
     return float(((red - p) / p) / yf)
@@ -1069,17 +1065,16 @@ def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, bas
     """Annual yield of a security that pays interest at maturity."""
     r = float(rate)
     p = float(pr)
-    b = int(float(basis))
     settle = float(settlement)
     mature = float(maturity)
     issued = float(issue)
     # getYieldmat throws when settlement >= maturity or settlement < issue.
     # Equal issue and settlement is allowed. yearfrac would hide the order.
-    if r < 0 or p <= 0 or b < 0 or b > 4 or settle >= mature or settle < issued:
+    if r < 0 or p <= 0 or settle >= mature or settle < issued:
         return float("nan")
-    dim_b = yearfrac(issued, mature, b)
-    dis_b = yearfrac(issued, settle, b)
-    dsm_b = yearfrac(settle, mature, b)
+    dim_b = yearfrac(issued, mature, basis)
+    dis_b = yearfrac(issued, settle, basis)
+    dsm_b = yearfrac(settle, mature, basis)
     if math.isnan(dim_b) or math.isnan(dis_b) or math.isnan(dsm_b) or dsm_b <= 0:
         return float("nan")
     denom = (p / 100.0) + r * dis_b

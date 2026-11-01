@@ -126,8 +126,7 @@ class TestDeepResearchParsers:
             llm_chat=llm_chat,
             stop_checker=lambda: False,
             acc=_ResearchAccumulator(),
-            max_sub_queries=3,
-            progress=ResearchProgress(),
+            progress=ResearchProgress(max_sub_queries=3),
             status_callback=None,
         )
         assert branch is not None
@@ -1008,6 +1007,7 @@ def _execute_deep_with_recording_client(tmp_path, *, extract_raises: bool, synth
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
          patch("plugin.framework.client.llm_client.LlmClient", _RecordingClient), \
+         patch("plugin.chatbot.smol_agent.LlmClient", _RecordingClient), \
          patch("plugin.chatbot.web_research._run_web_agent", return_value="sub context"), \
          patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg:
         ddg.return_value.forward.return_value = "preview"
@@ -1092,9 +1092,8 @@ def _run_parallel(queries, run_web_agent, stop_checker, *, concurrency, llm_chat
         llm_chat=llm_chat,
         stop_checker=stop_checker,
         acc=_ResearchAccumulator(),
-        max_sub_queries=5,
         concurrency=concurrency,
-        progress=ResearchProgress(),
+        progress=ResearchProgress(max_sub_queries=5),
         status_callback=None,
     )
 

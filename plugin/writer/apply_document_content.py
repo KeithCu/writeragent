@@ -668,7 +668,7 @@ class ApplyDocumentContent(ToolBase):
                                   "formatting preserved)." % shape_name),
                       "replaced_count": 1, "review_bypassed": True},
                     None)
-                return annotate_review_status(ctx.ctx, result)
+                return annotate_review_status(result)
             return search_mod.build_search_not_found_response(shape_name=shape_name)
         return search_mod.build_search_not_found_response(
             all_matches=all_matches, tracked_deletions=document_has_tracked_deletions(doc))
@@ -769,7 +769,7 @@ class ApplyDocumentContent(ToolBase):
     def _review_wait_seconds(self, uno_ctx: Any) -> int:
         """Max seconds the edit call should block waiting for review; 0 = don't wait."""
         try:
-            return edit_review_wait_seconds(uno_ctx)
+            return edit_review_wait_seconds()
         except Exception:
             log.exception("apply_document_content: could not read review wait seconds")
             return 0
@@ -976,7 +976,7 @@ class ApplyDocumentContent(ToolBase):
         def _do_edit() -> tuple[dict[str, Any], Any]:
             return self._execute_edit(ctx, session_sink=session_box, **kwargs)
 
-        if get_agent_edit_review_mode(ctx.ctx) != "wait" or on_main:
+        if get_agent_edit_review_mode() != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
             # to a worker thread, or we ARE the main thread (where blocking would freeze the UI
             # and the user could never click accept/reject). Edit once, don't wait -- but UNO is
@@ -987,7 +987,7 @@ class ApplyDocumentContent(ToolBase):
             # raises mid-way (e.g. the 2nd of 3 replace-all matches fails after the 1st).
             try:
                 result = _run_on_main(_do_edit)[0]
-                return annotate_review_status(ctx.ctx, result)
+                return annotate_review_status(result)
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             finally:
@@ -1030,7 +1030,7 @@ class ApplyDocumentContent(ToolBase):
         user_stop = getattr(ctx, "stop_checker", None)
 
         def _stop() -> bool:
-            if get_agent_edit_review_mode(ctx.ctx) != "wait":
+            if get_agent_edit_review_mode() != "wait":
                 return True
             try:
                 return bool(user_stop()) if callable(user_stop) else False
@@ -1138,7 +1138,7 @@ class ApplyDocumentContent(ToolBase):
         # tagging each logical change so its outcome can be reported -- and restores the prior
         # recording state. Default off -> the session is inert and behavior is unchanged.
         # get_config_bool_safe tolerates the flag not being registered yet (returns False).
-        track_reviewable = review_recording_enabled(ctx.ctx)
+        track_reviewable = review_recording_enabled()
 
         # What was wrong: EditReviewSession was created before search param checks, registering with session_sink on invalid params.
         # How it happened: session was instantiated and appended to session_sink at the start of _execute_edit.

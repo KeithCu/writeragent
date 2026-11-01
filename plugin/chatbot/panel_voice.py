@@ -9,13 +9,9 @@ from plugin.chatbot.record_gesture import (
     EMPTY_TAKES_EXIT,
     RECORD_HOLD_MS,
     STICKY_TTS_POLL_MS,
-    StickyRestart,
-    TakeStop,
     exit_sticky,
     gesture_hold_elapsed,
     hands_free_silence_text,
-    sticky_restart,
-    stop_during_take as plan_take_stop,
 )
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.blocking_wait import run_blocking_in_thread
@@ -47,8 +43,6 @@ def stop_playback_if_speaking(host: Any) -> bool:
             # hands-free, or the TTS poll would arm the mic again.
             if hasattr(host, "_voice"):
                 host._voice.exit_hands_free_record()
-            elif hasattr(host, "exit_hands_free_record"):
-                host.exit_hands_free_record()
             if host.stop_control and host.stop_control.getModel():
                 from plugin.framework.errors import suppress_disposed
 
@@ -91,6 +85,13 @@ class _CancellableWaiter:
         run_in_background(_worker, name=name, dedicated=True)
 
 
+def _join_voice_text(a: str, b: str) -> str:
+    """Combine voice transcript with typed text separated by a newline."""
+    if a and b:
+        return (a + "\n" + b).strip()
+    return a or b
+
+
 class PanelVoiceController:
     """Voice controller for STT, TTS, and recording gestures."""
 
@@ -111,15 +112,13 @@ class PanelVoiceController:
         self._sticky_waiter.cancel()
 
     def note_send_completed(self, was_busy: bool) -> None:
-        gesture = getattr(self._panel, "_record_gesture", None)
         # Flag only. The drain flushes after speak_text_async so a voice reply
         # is already speaking (or known idle) before we touch the mic.
-        if was_busy and gesture is not None and getattr(gesture, "sticky", False):
+        if was_busy and self._panel._record_gesture.sticky:
             self._sticky_restart_pending = True
 
     def note_empty_take(self) -> bool:
-        gesture = getattr(self._panel, "_record_gesture", None)
-        if gesture is not None and getattr(gesture, "sticky", False):
+        if self._panel._record_gesture.sticky:
             self._empty_take_count += 1
             # End hands-free after EMPTY_TAKES_EXIT empty
             # takes in a row. An empty take finishes as
@@ -174,8 +173,7 @@ class PanelVoiceController:
 
         if not self._panel.sidebar_state.send.is_recording:
             return False
-        # The method and record_gesture.stop_during_take had the same name; this calls the pure planner.
-        if plan_take_stop(sticky=self._panel._record_gesture.sticky) == TakeStop.EXIT_LOCK:
+        if self._panel._record_gesture.sticky:
             self.exit_hands_free_record()
             self._panel._set_status(_("Hands-free off"))
         else:
@@ -192,29 +190,23 @@ class PanelVoiceController:
             self._hold_waiter.cancel()
             self._panel._record_hold_gen += 1
         if step.start_timer:
-            self._arm_record_hold_timer()
+            self._panel._record_hold_gen += 1
+            gen = self._panel._record_hold_gen
+            self._hold_waiter.wait_and_post(
+                RECORD_HOLD_MS,
+                self._panel.queue_executor,
+                lambda: self._on_record_hold_elapsed(gen),
+                "record-hold",
+            )
         if step.dispatch_record:
             _stop_tts()
             self._panel.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
 
-    def _arm_record_hold_timer(self) -> None:
-        self._panel._record_hold_gen += 1
-        self._spawn_record_hold_wait(self._panel._record_hold_gen)
-
-    def _spawn_record_hold_wait(self, gen: int) -> None:
-        """Sleep off the UI thread, then hop back through QueueExecutor.
-
-        The generation is checked on the UI thread; releasing early just bumps it.
-        """
-        self._hold_waiter.wait_and_post(
-            RECORD_HOLD_MS,
-            self._panel.queue_executor,
-            lambda: self._on_record_hold_elapsed(gen),
-            "record-hold",
-        )
+    def _panel_gone(self) -> bool:
+        return bool(getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None)
 
     def _on_record_hold_elapsed(self, gen: int) -> None:
-        if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+        if self._panel_gone():
             return
         if gen != self._panel._record_hold_gen:
             return
@@ -250,7 +242,7 @@ class PanelVoiceController:
         self._begin_sticky_rerecord()
 
     def _begin_sticky_rerecord(self) -> None:
-        if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+        if self._panel_gone():
             return
         send = self._panel.sidebar_state.send
         if send.is_busy or send.is_recording or not send.audio_supported:
@@ -262,14 +254,13 @@ class PanelVoiceController:
             speaking = bool(is_speaking())
         except Exception:
             log.debug("hands-free re-record: is_speaking failed", exc_info=True)
-        decision = sticky_restart(sticky=True, speaking=speaking)
-        if decision == StickyRestart.RECORD:
-            log.info("Hands-free record restarting")
-            self._panel.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
-        elif decision == StickyRestart.WAIT_FOR_TTS:
+        if speaking:
             self._panel._sticky_restart_gen += 1
             log.debug("Hands-free record waiting for TTS")
             self._spawn_sticky_tts_wait(self._panel._sticky_restart_gen)
+        else:
+            log.info("Hands-free record restarting")
+            self._panel.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
 
     def _spawn_sticky_tts_wait(self, gen: int) -> None:
         """Poll ``is_speaking`` later. Do not sleep on the UNO thread."""
@@ -281,7 +272,7 @@ class PanelVoiceController:
         )
 
     def _poll_sticky_rerecord(self, gen: int) -> None:
-        if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+        if self._panel_gone():
             return
         if gen != self._panel._sticky_restart_gen or not self._panel._record_gesture.sticky:
             return
@@ -290,7 +281,7 @@ class PanelVoiceController:
     def _on_audio_auto_stop(self) -> None:
         """Silence detector ended capture; same FSM path as clicking Stop Rec (stop + send)."""
         # A post can already be queued when disposing clears the recorder hooks.
-        if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+        if self._panel_gone():
             return
         if not self._panel.sidebar_state.send.is_recording:
             log.info("audio auto-stop ignored (not recording)")
@@ -306,7 +297,7 @@ class PanelVoiceController:
         Stop Rec. ERROR_OCCURRED drops the recording label.
         """
         # A post can already be queued when disposing clears the recorder hooks.
-        if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+        if self._panel_gone():
             return
         recorder = getattr(self._panel, "audio_recorder", None)
         if recorder is not None:
@@ -328,7 +319,7 @@ class PanelVoiceController:
     def _on_audio_silence_progress(self, silence_ms: int) -> None:
         from plugin.framework.i18n import _
 
-        if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+        if self._panel_gone():
             return
         if self._panel.sidebar_state.send.is_recording:
             if self._panel._record_gesture.sticky:
@@ -432,7 +423,6 @@ class PanelVoiceController:
             if stop_checker():
                 log.info("Speech-to-text finished after Stop; preserving transcript for query box")
                 self._panel._terminal_status = "Stopped"
-                return transcript_text
             return transcript_text
         finally:
             self._panel._stt_inflight = False
@@ -490,17 +480,9 @@ class PanelVoiceController:
                     if self._panel._terminal_status == "Stopped":
                         # R10: Do not auto-send late transcript into the new typed turn.
                         # Put it back in Ask so it is not silently lost.
-                        new_text = (
-                            (query_text + "\n" + transcript).strip()
-                            if (query_text and transcript)
-                            else (transcript or query_text)
-                        )
+                        new_text = _join_voice_text(query_text, transcript)
                         if typed_after and typed_after != query_text:
-                            new_text = (
-                                (typed_after + "\n" + transcript).strip()
-                                if (typed_after and transcript)
-                                else (transcript or typed_after)
-                            )
+                            new_text = _join_voice_text(typed_after, transcript)
 
                         self._panel._restore_query_text(new_text)
                         self._panel._sync_has_text_from_query()
@@ -513,14 +495,10 @@ class PanelVoiceController:
                     if transcript:
                         self._empty_take_count = 0
                         if user_changed_ask:
-                            restored = (typed_after + "\n" + transcript).strip()
+                            restored = _join_voice_text(typed_after, transcript)
                             self._panel._restore_query_text(restored)
                         else:
-                            query_text = (
-                                (query_text + "\n" + transcript).strip()
-                                if query_text
-                                else transcript
-                            )
+                            query_text = _join_voice_text(query_text, transcript)
                 except Exception as e:
                     from plugin.framework.errors import NetworkError
 

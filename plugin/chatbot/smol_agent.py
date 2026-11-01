@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
@@ -27,9 +27,7 @@ from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, rem
 from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.chatbot import smol_examples
 from plugin.framework.errors import ToolExecutionError, make_tool_error
-from plugin.framework.client import llm_client
 from plugin.framework.client.llm_client import LlmClient
-_ORIGINAL_LLM_CLIENT = LlmClient
 from plugin.framework.tool import field_from_tool_arguments, prepare_tool_call
 
 
@@ -91,27 +89,19 @@ class SmolToolAdapter(SmolTool):
     inputs: dict[str, dict[str, str | type | bool]]
     output_type: str
 
-    def __init__(self, tool: ToolBase, tctx: ToolContext, *, safe: bool = False, inputs_style: SmolInputsStyle = "librarian", output_type: str | None = None) -> None:
+    def __init__(self, tool: ToolBase, tctx: ToolContext, *, safe: bool = False, inputs_style: SmolInputsStyle = "librarian") -> None:
         self._inner_tool = tool
         self._inner_tctx = tctx
         self._safe = safe
         self.name = cast("str", tool.name or "")
-        doc_type = getattr(tctx, "doc_type", None)
-        if hasattr(tool, "get_description") and callable(tool.get_description):
-            self.description = tool.get_description(doc_type)
+        if hasattr(tool, "get_description"):
+            self.description = tool.get_description(tctx.doc_type)
         else:
             self.description = tool.description
         self.is_final_answer_tool = getattr(tool, "is_final_answer_tool", False)
-        params = getattr(tool, "parameters", None) or {}
-        if hasattr(tool, "get_parameters") and callable(tool.get_parameters):
-            params = tool.get_parameters(tctx.doc_type) or params
+        params = tool.get_parameters(tctx.doc_type) or {}
         self.inputs = to_smol_inputs(params, style=inputs_style)
-        if output_type is not None:
-            self.output_type = output_type
-        elif inputs_style == "librarian":
-            self.output_type = "any"
-        else:
-            self.output_type = "object"
+        self.output_type = "any" if inputs_style == "librarian" else "object"
         super().__init__()
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
@@ -143,8 +133,7 @@ class SmolToolAdapter(SmolTool):
         if getattr(ctx, "read_only_target", False) is True and tool.detects_mutation():
             return make_tool_error("This document is open for read-only document_research access; writes are not allowed.", code="READ_ONLY_TARGET", **prepared.details)
 
-        is_async = getattr(tool, "is_async", lambda: False)()
-        if is_async:
+        if tool.is_async():
             _spec_log.debug("SmolToolAdapter executing async tool '%s' on worker", self.name)
             result = (tool.execute_safe if self._safe else tool.execute)(ctx, **kwargs)
         else:
@@ -262,9 +251,7 @@ class SmolAgentExecutor:
 
     def _abort_if_stopped(self, agent: Any) -> None:
         if self.stop_checker and self.stop_checker():
-            interrupt = getattr(agent, "interrupt", None)
-            if callable(interrupt):
-                interrupt()
+            agent.interrupt()
             raise ToolExecutionError("Task stopped by user.", code="USER_STOPPED")
 
     def run(self, agent: Any, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None) -> Any:
@@ -285,24 +272,18 @@ class SmolAgentExecutor:
             ToolExecutionError: If the task is stopped by the user or an error occurs.
         """
         final_ans = None
-        stream_iter = iter(cast("Iterable[Any]", agent.run(task, stream=True)))
+        stream_iter = agent.run(task, stream=True)
 
         try:
-            while True:
-                self._abort_if_stopped(agent)
-                try:
-                    step = next(stream_iter)
-                except StopIteration:
-                    break
+            self._abort_if_stopped(agent)
+            for step in stream_iter:
                 self._abort_if_stopped(agent)
 
                 if isinstance(step, ToolCall):
                     if tool_call_handler:
                         res = tool_call_handler(step)
                         if res is not None:
-                            interrupt = getattr(agent, "interrupt", None)
-                            if callable(interrupt):
-                                interrupt()
+                            agent.interrupt()
                             return res
                     else:
                         # Default ToolCall handling
@@ -316,12 +297,12 @@ class SmolAgentExecutor:
                         msg = f"Step {step.step_number}:\n"
                         if step.model_output:
                             mo = step.model_output
-                            msg += f"{(mo.strip() if isinstance(mo, str) else str(mo).strip())}\n"
+                            msg += f"{str(mo).strip()}\n"
                         else:
-                            mom = getattr(step, "model_output_message", None)
-                            if mom is not None and getattr(mom, "content", None):
+                            mom = step.model_output_message
+                            if mom is not None and mom.content:
                                 mc = mom.content
-                                msg += f"{(mc.strip() if isinstance(mc, str) else str(mc).strip())}\n"
+                                msg += f"{str(mc).strip()}\n"
 
                         if step.observations:
                             msg += f"Observation: {str(step.observations).strip()}\n"
@@ -330,6 +311,8 @@ class SmolAgentExecutor:
 
                 elif isinstance(step, FinalAnswerStep):
                     final_ans = step.output
+
+                self._abort_if_stopped(agent)
 
             return final_ans
         finally:
@@ -392,8 +375,7 @@ def create_smol_model(
     if client is None:
         uno_ctx = ctx.ctx if ctx is not None else None
         config = get_api_config()
-        client_cls = LlmClient if LlmClient is not _ORIGINAL_LLM_CLIENT else llm_client.LlmClient
-        client = client_cls(config, uno_ctx, cancellation_scope=cancellation_scope)
+        client = LlmClient(config, uno_ctx, cancellation_scope=cancellation_scope)
     return WriterAgentSmolModel(
         client,
         max_tokens=max_tokens,

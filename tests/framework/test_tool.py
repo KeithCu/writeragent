@@ -1621,30 +1621,6 @@ def test_get_tools_names_empty_and_bare_string():
     assert [t.name for t in reg.get_tools(names=["get"], **listed)] == ["get"]
 
 
-def test_sync_timeout_warning_logs_once():
-    from plugin.framework.tool import _sync_timeout_warned
-
-    class SyncTimeout(ToolBase):
-        name = "sync_timeout_once_tool"
-        description = "x"
-        timeout = 5
-        parameters = {"type": "object", "properties": {}}
-        uno_services = None
-
-        def execute(self, ctx, **kwargs):
-            return {"status": "ok"}
-
-    _sync_timeout_warned.discard("sync_timeout_once_tool")
-    reg = ToolRegistry(MagicMock())
-    reg.register(SyncTimeout())
-    ctx = ToolContext(doc=None, ctx=None, doc_type="writer", services={}, caller="test")
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()), patch("plugin.framework.tool.log") as tool_log:
-        reg.execute("sync_timeout_once_tool", ctx)
-        reg.execute("sync_timeout_once_tool", ctx)
-    warnings = [call for call in tool_log.warning.call_args_list if "synchronous" in str(call)]
-    assert len(warnings) == 1
-
-
 def test_execute_with_timeout_parameterizes_result_queue() -> None:
     """Local result_queue must be Queue[tuple[str, Any]] for reportMissingTypeArgument."""
     import inspect

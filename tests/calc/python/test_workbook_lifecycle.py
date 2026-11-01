@@ -129,7 +129,7 @@ def test_unload_clears_in_memory_geometric_state():
         listener.on_document_event(MagicMock(EventName="OnUnload"))
     assert (key, "Sheet1", "A2") not in _RUNTIME.records
     assert _RUNTIME.strip_safe == frozenset()
-    clear_in_memory_geometric_state()
+    clear_in_memory_geometric_state(workbook_key=key)
 
 
 def test_ensure_registers_listener_once():

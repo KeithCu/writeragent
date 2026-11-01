@@ -303,10 +303,6 @@ class TestToolcallingPromptExamples:
                 "allowed": {"validate_ppt_master_project", "export_presentation_project", "ppt_master_finished"},
                 "finish": "ppt_master_finished",
             },
-            "ppt_master": {
-                "allowed": {"validate_ppt_master_project", "export_presentation_project", "ppt_master_finished"},
-                "finish": "ppt_master_finished",
-            },
             "writer:python": {
                 "allowed": {"run_venv_python_script", "delegate_tool_domains", "specialized_workflow_finished"},
                 "finish": "specialized_workflow_finished",
@@ -367,9 +363,6 @@ class TestToolcallingPromptExamples:
             assert "Unknown smol examples key 'completely_unknown_key'" in caplog.text
             unknown_actions = parse_actions(unknown_block)
             assert unknown_actions[-1]["name"] == "specialized_workflow_finished"
-
-        # ppt_master alias
-        assert get_examples_block("ppt_master") == get_examples_block("ppt-master")
 
 
 # =============================================================================

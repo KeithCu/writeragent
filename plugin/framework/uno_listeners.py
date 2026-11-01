@@ -549,6 +549,14 @@ class BaseTerminateListener(BaseListener, _XTerminateListenerParent):
         pass
 
 
+def _controller_alive(controller: Any) -> bool:  # pyright: ignore[reportUnusedFunction]
+    """Pruning must never raise: uno_probe re-raises real disposal."""
+    try:
+        return controller.getModel() is not None
+    except Exception:
+        return False
+
+
 def install_view_doc_listener(
     ctx: Any,
     register_controller: Callable[[Any], None],

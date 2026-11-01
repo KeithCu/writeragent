@@ -37,7 +37,7 @@ class StickyReplySpec:
 
     leave_flag: str
     leave_status: str
-    extra_bools: tuple[str | tuple[str, str], ...] = ()
+    extra_bools: tuple[tuple[str, str], ...] = ()
     description: str = (
         "Reply to the user in the sidebar. Set the leave flag true to end this mode "
         "and return to Chat."
@@ -47,7 +47,7 @@ class StickyReplySpec:
         assert self.leave_flag, "leave_flag must be non-empty"
         reserved = {"answer", "message", "result", "status"}
         assert self.leave_flag not in reserved, f"leave_flag {self.leave_flag!r} collision with reserved field"
-        extra_names = tuple(e[0] if isinstance(e, (tuple, list)) else e for e in self.extra_bools)
+        extra_names = tuple(e[0] for e in self.extra_bools)
         assert not (set(extra_names) & reserved), f"extra_bools collision with reserved field: {set(extra_names) & reserved}"
         assert self.leave_flag not in set(extra_names), f"extra_bools contains leave_flag {self.leave_flag!r}"
 
@@ -139,11 +139,7 @@ class StickyReplyToUserTool(ToolBase):
             },
         }
         self._extra_names: list[str] = []
-        for extra in spec.extra_bools:
-            if isinstance(extra, (tuple, list)):
-                name, desc = extra[0], extra[1]
-            else:
-                name, desc = extra, f"Optional extra flag for this mode ({extra})."
+        for name, desc in spec.extra_bools:
             self._extra_names.append(name)
             properties[name] = {
                 "type": "boolean",

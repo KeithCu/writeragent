@@ -119,7 +119,7 @@ def do_extend_selection(ctx: Any, model: Any) -> None:
 
     session = WriterStreamedAppendSession(
         model, text_range, original_text,
-        track_reviewable=review_recording_enabled(ctx),
+        track_reviewable=review_recording_enabled(),
     )
     _stream_into_session(ctx, title, client, original_text, system_prompt, max_tokens, session)
 
@@ -147,6 +147,6 @@ def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
 
     session = WriterStreamedRewriteSession(
         model, text_range, original_text,
-        track_reviewable=review_recording_enabled(ctx),
+        track_reviewable=review_recording_enabled(),
     )
     _stream_into_session(ctx, title, client, prompt, system_prompt, max_tokens, session)

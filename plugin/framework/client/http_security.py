@@ -49,7 +49,7 @@ def secrets_from_headers(headers: dict[str, str] | None) -> list[str]:
         raw = str(value).strip()
         parts = raw.split(None, 1)
         token = parts[1].strip() if low == "authorization" and len(parts) == 2 else raw
-        if token and token not in secrets:
+        if token:
             secrets.append(token)
     return secrets
 
@@ -66,23 +66,19 @@ def secrets_from_target(url_or_path: str) -> list[str]:
         return []
     secrets: list[str] = []
     for key, value in pairs:
-        if key.lower() in _SECRET_QUERY_KEYS and value and value not in secrets:
+        if key.lower() in _SECRET_QUERY_KEYS and value:
             secrets.append(value)
     password = parsed.password
     if password:
         revealed = urllib.parse.unquote(password)
-        if revealed and revealed not in secrets:
+        if revealed:
             secrets.append(revealed)
     return secrets
 
 
 def collect_secrets(*groups: list[str] | None) -> list[str]:
-    """Merge secret lists, dropping empties and duplicates."""
-    found: list[str] = []
-    for secret in (secret for group in groups if group for secret in group):
-        if secret and secret not in found:
-            found.append(secret)
-    return found
+    """Merge secret lists, dropping empties."""
+    return [s for g in groups if g for s in g if s]
 
 
 def _bracket_ipv6_host(host: str) -> str:

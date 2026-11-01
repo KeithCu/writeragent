@@ -45,18 +45,14 @@ def resolve_editor_argv(path: str) -> list[str] | None:
     return None
 
 
-def _ensure_config_file(path: str) -> tuple[bool, str | None]:
-    """Ensure *path* exists (minimal ``{}``). Returns (ok, error_message)."""
+def _ensure_config_file(path: str) -> None:
+    """Ensure *path* exists (minimal ``{}``). Raises OSError if creation fails."""
     if os.path.isfile(path):
-        return True, None
+        return
     parent = os.path.dirname(path)
-    try:
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        atomic_write_text(path, "{}\n")
-        return True, None
-    except OSError as e:
-        return False, str(e)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    atomic_write_text(path, "{}\n")
 
 
 def _popen_detached(argv: list[str]) -> None:
@@ -82,9 +78,10 @@ def open_writeragent_json_in_editor(ctx: Any) -> None:
         msgbox(ctx, _("Error"), str(e))
         return
 
-    ok, err = _ensure_config_file(path)
-    if not ok:
-        msgbox(ctx, _("Error"), _("Could not create config file: {0}").format(err or path))
+    try:
+        _ensure_config_file(path)
+    except OSError as e:
+        msgbox(ctx, _("Error"), _("Could not create config file: {0}").format(str(e) or path))
         return
 
     if sys.platform == "win32":

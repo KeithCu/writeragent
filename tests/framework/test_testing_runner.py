@@ -525,7 +525,7 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) ->
     )
 
     monkeypatch.setattr(tr, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_parse_cli_args", lambda _argv: [])
+    monkeypatch.setattr(tr, "_cli_filters", [])
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
@@ -651,7 +651,7 @@ def test_typo_filter_fails_the_run(monkeypatch, tmp_path) -> None:
     )
 
     monkeypatch.setattr(tr, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_parse_cli_args", lambda _argv: ["no_such_test_zzz"])
+    monkeypatch.setattr(tr, "_cli_filters", ["no_such_test_zzz"])
     monkeypatch.setattr(tr, "_soak_repeat", 1)
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
@@ -673,7 +673,6 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
     plugin_dir.mkdir()
 
     monkeypatch.setattr(tr, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_parse_cli_args", lambda _argv: [])
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)

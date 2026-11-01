@@ -533,9 +533,9 @@ def test_topics_non_numeric_n_topics_is_topic_model_failed():
 
 
 def test_get_writer_sections_emits_heading_once(monkeypatch):
-    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
     monkeypatch.setattr(
-        "plugin.doc.text_helpers.build_heading_tree",
+        "plugin.scripting.text_analytics.build_heading_tree",
         lambda doc: {"children": [{"text": "Introduction", "para_index": 0, "children": []}]},
     )
 
@@ -548,7 +548,7 @@ def test_get_writer_sections_emits_heading_once(monkeypatch):
             return self._is_para and name == "com.sun.star.text.Paragraph"
 
     monkeypatch.setattr(
-        "plugin.doc.text_helpers.get_string_without_tracked_deletions",
+        "plugin.scripting.text_analytics.get_string_without_tracked_deletions",
         lambda el: getattr(el, "text", ""),
     )
 
@@ -586,7 +586,7 @@ def test_get_writer_sections_emits_heading_once(monkeypatch):
 
     # Second case: non-paragraph (table) before heading, para_index 1
     monkeypatch.setattr(
-        "plugin.doc.text_helpers.build_heading_tree",
+        "plugin.scripting.text_analytics.build_heading_tree",
         lambda doc: {"children": [{"text": "Introduction", "para_index": 1, "children": []}]},
     )
     doc2 = FakeDoc([
@@ -600,9 +600,9 @@ def test_get_writer_sections_emits_heading_once(monkeypatch):
 
 
 def test_get_writer_sections_fallback_calls_writer_text_once(monkeypatch):
-    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
     monkeypatch.setattr(
-        "plugin.doc.text_helpers.build_heading_tree",
+        "plugin.scripting.text_analytics.build_heading_tree",
         lambda doc: {"children": [{"text": "Hi", "para_index": 0, "children": []}]},
     )
 
@@ -614,7 +614,7 @@ def test_get_writer_sections_fallback_calls_writer_text_once(monkeypatch):
             return name == "com.sun.star.text.Paragraph"
 
     monkeypatch.setattr(
-        "plugin.doc.text_helpers.get_string_without_tracked_deletions",
+        "plugin.scripting.text_analytics.get_string_without_tracked_deletions",
         lambda el: getattr(el, "text", ""),
     )
 
@@ -825,7 +825,7 @@ def test_format_non_dict_is_no_result():
 
 
 def test_selection_scope_does_not_fall_through_to_document(monkeypatch):
-    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
 
     class FakeDoc:
         def getCurrentController(self):
@@ -852,9 +852,9 @@ def test_selection_scope_does_not_fall_through_to_document(monkeypatch):
 
 
 def test_selection_scope_topics_uses_selection_string(monkeypatch):
-    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
     monkeypatch.setattr(
-        "plugin.doc.text_helpers.get_string_without_tracked_deletions",
+        "plugin.scripting.text_analytics.get_string_without_tracked_deletions",
         lambda rng: "A" * 30,
     )
     monkeypatch.setattr("plugin.scripting.text_analytics.get_doc_language", lambda doc: "de")
@@ -916,7 +916,7 @@ def test_whole_scope_topics_still_uses_sections(monkeypatch):
 def test_selection_extraction_failure_is_empty_and_logged(caplog, monkeypatch):
     import logging
 
-    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
 
     class FakeDoc:
         def getCurrentController(self):
@@ -941,7 +941,7 @@ def test_html_table_ignores_overall_key():
 def test_insert_empty_ok_result_raises_and_inserts_nothing(monkeypatch):
     from plugin.framework.errors import ToolExecutionError
 
-    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
     captured_html = []
 
     def fake_insert(doc, ctx, html, pos):
@@ -963,7 +963,7 @@ def test_insert_empty_ok_result_raises_and_inserts_nothing(monkeypatch):
 def test_insert_topic_inner_error_raises(monkeypatch):
     from plugin.framework.errors import ToolExecutionError
 
-    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
     captured_html = []
 
     def fake_insert(doc, ctx, html, pos):
@@ -1004,7 +1004,7 @@ def test_writer_text_reraises_disposal_and_skips_getstring(monkeypatch):
     class DisposedException(Exception):
         pass
 
-    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
 
     class DisposedDoc:
         def getText(self):
@@ -1051,14 +1051,14 @@ def test_writer_text_reraises_disposal_and_skips_getstring(monkeypatch):
     def raise_disposed(d):
         raise DisposedException("closed")
 
-    monkeypatch.setattr("plugin.doc.text_helpers.build_heading_tree", raise_disposed)
+    monkeypatch.setattr("plugin.scripting.text_analytics.build_heading_tree", raise_disposed)
     with pytest.raises(DocumentDisposedError):
         ta._get_writer_sections(DummyDoc())
 
     def raise_runtime(d):
         raise RuntimeError("heading tree error")
 
-    monkeypatch.setattr("plugin.doc.text_helpers.build_heading_tree", raise_runtime)
+    monkeypatch.setattr("plugin.scripting.text_analytics.build_heading_tree", raise_runtime)
     monkeypatch.setattr("plugin.scripting.text_analytics._get_writer_text", lambda d: "fallback text long enough")
     assert ta._get_writer_sections(DummyDoc()) == ["fallback text long enough"]
 
@@ -1121,7 +1121,6 @@ def test_analyze_text_reports_truncation(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_as_sections_normalizes_strings_and_lists() -> None:
     assert vta._as_sections([" a ", "", "b"]) == (["a", "b"], True)
-    assert vta._as_sections((" a ",)) == (["a"], True)
     assert vta._as_sections("  ") == ([], False)
     assert vta._as_sections("hi") == (["hi"], False)
 

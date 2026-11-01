@@ -184,12 +184,8 @@ TOOLS FOR COMPLETION:
     def tool_call_handler(step: Any) -> None:
         name = getattr(step, "name", "")
         arguments = getattr(step, "arguments", {})
-        if name == "upsert_memory":
-            line = format_upsert_memory_chat_line(arguments)
-            if callable(chat_append_callback):
-                chat_append_callback(line)
-            elif append_thinking_callback:
-                append_thinking_callback(f"Running tool: {name} with {arguments}\n")
+        if name == "upsert_memory" and callable(chat_append_callback):
+            chat_append_callback(format_upsert_memory_chat_line(arguments))
         elif append_thinking_callback:
             append_thinking_callback(f"Running tool: {name} with {arguments}\n")
         if status_callback:

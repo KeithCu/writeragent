@@ -140,13 +140,14 @@ def test_precedents_via_formula_query_caps_cell_snapshots(monkeypatch):
     sheet = _sheet_with_precedent_ranges(
         monkeypatch,
         [
-            SimpleNamespace(StartColumn=0, EndColumn=2, StartRow=0, EndRow=3999),
-            SimpleNamespace(StartColumn=5, EndColumn=5, StartRow=9, EndRow=9),
+            SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=2, StartRow=0, EndRow=3999),
+            SimpleNamespace(Sheet=0, StartColumn=5, EndColumn=5, StartRow=9, EndRow=9),
         ],
         calls,
     )
+    doc = SimpleNamespace(getSheets=lambda: SimpleNamespace(getByIndex=lambda _idx: sheet))
 
-    result = _precedents_via_formula_query(sheet, 0, 0)
+    result = _precedents_via_formula_query(sheet, 0, 0, doc)
 
     assert result["truncated"] is True
     assert len(result["precedents"]) == _MAX_PRECEDENT_CELLS
@@ -252,13 +253,14 @@ def test_precedents_via_formula_query_small_range_is_not_truncated(monkeypatch):
     sheet = _sheet_with_precedent_ranges(
         monkeypatch,
         [
-            SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=1),
-            SimpleNamespace(StartColumn=3, EndColumn=3, StartRow=0, EndRow=0),
+            SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=1, StartRow=0, EndRow=1),
+            SimpleNamespace(Sheet=0, StartColumn=3, EndColumn=3, StartRow=0, EndRow=0),
         ],
         calls,
     )
+    doc = SimpleNamespace(getSheets=lambda: SimpleNamespace(getByIndex=lambda _idx: sheet))
 
-    result = _precedents_via_formula_query(sheet, 0, 0)
+    result = _precedents_via_formula_query(sheet, 0, 0, doc)
 
     assert result["truncated"] is False
     assert len(result["precedents"]) == 5
@@ -271,12 +273,13 @@ def test_precedents_via_formula_query_reports_whole_column_total(monkeypatch):
     sheet = _sheet_with_precedent_ranges(
         monkeypatch,
         [
-            SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=1048575),
+            SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=0, StartRow=0, EndRow=1048575),
         ],
         calls,
     )
+    doc = SimpleNamespace(getSheets=lambda: SimpleNamespace(getByIndex=lambda _idx: sheet))
 
-    result = _precedents_via_formula_query(sheet, 0, 0)
+    result = _precedents_via_formula_query(sheet, 0, 0, doc)
 
     assert result["total_cells"] == 1048576
     assert result["truncated"] is True
@@ -287,13 +290,14 @@ def test_precedents_via_formula_query_reads_sheet_name_once(monkeypatch):
     calls: list[tuple[int, int]] = []
     sheet = _sheet_with_precedent_ranges(
         monkeypatch,
-        [SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=1)],
+        [SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=1, StartRow=0, EndRow=1)],
         calls,
     )
     name_calls: list[int] = []
     sheet.getName = lambda: (name_calls.append(1), "Sheet1")[1]
+    doc = SimpleNamespace(getSheets=lambda: SimpleNamespace(getByIndex=lambda _idx: sheet))
 
-    result = _precedents_via_formula_query(sheet, 0, 0)
+    result = _precedents_via_formula_query(sheet, 0, 0, doc)
 
     assert len(name_calls) == 1
     assert len(result["precedents"]) == 4

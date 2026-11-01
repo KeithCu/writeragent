@@ -35,9 +35,6 @@ RECORD_HOLD_MS = 2000
 # UI-thread poll gap while TTS is still speaking. Not a silence threshold.
 STICKY_TTS_POLL_MS = 200
 
-# English msgid. Panel passes it through gettext. Matches the literal below.
-HANDS_FREE_STATUS = "Hands-free recording..."
-
 # Consecutive "[No speech detected.]" takes that end hands-free. Noise can
 # trip silence auto-stop, and each empty take re-arms Record, so without a
 # cap a loud room loops forever.
@@ -56,26 +53,6 @@ def hands_free_silence_text(silence_ms: int) -> str:
     from plugin.framework.i18n import _
 
     return _("Hands-free… (%d ms silence)") % silence_ms
-
-
-class TakeStop(Enum):
-    """What Stop does while a take is recording."""
-
-    EXIT_LOCK = auto()
-    CANCEL = auto()
-
-
-def stop_during_take(*, sticky: bool) -> TakeStop:
-    """One step per click: drop the lock first, cancel the take after that."""
-    return TakeStop.EXIT_LOCK if sticky else TakeStop.CANCEL
-
-
-class StickyRestart(Enum):
-    """What to do with the mic after a turn finishes."""
-
-    NONE = auto()
-    RECORD = auto()
-    WAIT_FOR_TTS = auto()
 
 
 class RecordPhase(Enum):
@@ -114,10 +91,6 @@ class RecordGesture:
     @property
     def fired(self) -> bool:
         return self.phase in (RecordPhase.FIRED, RecordPhase.FIRED_ACTION_SEEN)
-
-    @property
-    def action_seen(self) -> bool:
-        return self.phase in (RecordPhase.DOWN_ACTION_SEEN, RecordPhase.FIRED_ACTION_SEEN)
 
     @property
     def suppress_action(self) -> bool:
@@ -220,12 +193,3 @@ def exit_sticky(gesture: RecordGesture) -> RecordGesture:
     swallow = gesture.phase != RecordPhase.IDLE
     new_phase = RecordPhase.SUPPRESS_ACTION if swallow else RecordPhase.IDLE
     return RecordGesture(phase=new_phase, sticky=False)
-
-
-def sticky_restart(*, sticky: bool, speaking: bool) -> StickyRestart:
-    """After send completes: record now, wait out TTS, or do nothing."""
-    if not sticky:
-        return StickyRestart.NONE
-    if speaking:
-        return StickyRestart.WAIT_FOR_TTS
-    return StickyRestart.RECORD

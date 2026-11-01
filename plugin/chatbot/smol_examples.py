@@ -12,7 +12,7 @@
 - **writing_plan** — document section drafting (`reply_to_user`, `write_document_section`).
 - **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
 - **web_research** — web sub-agent (`final_answer`; ``web_search`` arguments are ``{"query": "..."}``).
-- **ppt-master** / **ppt_master** — venv PPT-Master agent (`ppt_master_finished`).
+- **ppt-master** — venv PPT-Master agent (`ppt_master_finished`).
 - **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``), footnotes via ``delegate_tool_domains``, and a ring of shapes (``delegate_tool_domains`` whose task tells the inner agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish).
 - **``domain_tools:shapes``** — inner agent after that hop: one ``run_venv_python_script`` with the for-loop, then ``specialized_workflow_finished``. Not the outer ``*:python`` block (that block calls ``delegate_tool_domains``, which the inner list does not include).
 - **``*:images``** — edit selected image via ``image_generate(source_image='selection')``.
@@ -332,7 +332,6 @@ _EXACT_EXAMPLES: dict[str, str] = {
     "writing_plan": WRITING_PLAN_EXAMPLES,
     "deep_research": DEEP_RESEARCH_EXAMPLES,
     "ppt-master": PPT_MASTER_EXAMPLES,
-    "ppt_master": PPT_MASTER_EXAMPLES,
     "web_research": WEB_RESEARCH_EXAMPLES_BLOCK,
     "domain_tools:shapes": INNER_SHAPES_SCRIPT_EXAMPLES,
 }
@@ -354,7 +353,7 @@ def get_examples_block(key: str) -> str:
         return PYTHON_SPECIALIZED_EXAMPLES
     if key.endswith(":images"):
         return IMAGES_SPECIALIZED_EXAMPLES
-    if not (":" in key or key.startswith("domain_tools:")):
+    if ":" not in key:
         log.warning("Unknown smol examples key %r; falling back to generic delegate demo", key)
     return DELEGATE_GENERIC_EXAMPLES_BLOCK
 

@@ -23,8 +23,7 @@ _MAX_PRECEDENT_CELLS = 80
 
 
 def _sheet_name(sheet: Any) -> str:
-    name = sheet.getName()
-    return name if isinstance(name, str) else ""
+    return sheet.getName()
 
 
 def _cell_snapshot(sheet: Any, col: int, row: int, sheet_name: str) -> dict[str, Any]:
@@ -41,14 +40,14 @@ def _cell_snapshot(sheet: Any, col: int, row: int, sheet_name: str) -> dict[str,
     return snapshot
 
 
-def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any = None) -> dict[str, Any]:
+def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any) -> dict[str, Any]:
     """Build a lightweight precedent list when ``FormulaDepChain`` UNO is unavailable.
 
     Precedent ranges are expanded to cell snapshots up to
     ``_MAX_PRECEDENT_CELLS``. ``truncated`` is true when the cap stopped
     the walk (for example a whole-column ``SUM``). ``doc`` resolves
     ``CellRangeAddress.Sheet`` so a cross-sheet precedent is read from
-    that sheet. Without ``doc``, ranges are read from *sheet*.
+    that sheet.
     """
     cell_range = sheet.getCellRangeByPosition(col, row, col, row)
     # pyuno needs a UNO type here; the imported IDL class raises "Couldn't convert".
@@ -66,11 +65,8 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any = Non
     for addr in addresses:
         # Sheet lookup stays before the cap check so a bad Sheet index still
         # throws after earlier addresses filled the cap exactly.
-        # CellRangeAddress.Sheet is the precedent sheet. A missing index,
-        # or no doc, stays on the formula sheet. Dropping Sheet makes
-        # =Data.A1 report the formula sheet's A1.
-        sheet_index = getattr(addr, "Sheet", None)
-        prec_sheet = sheet if doc is None or sheet_index is None else doc.getSheets().getByIndex(int(sheet_index))
+        # CellRangeAddress.Sheet is the precedent sheet.
+        prec_sheet = doc.getSheets().getByIndex(int(addr.Sheet))
         prec_name = _sheet_name(prec_sheet)
         room = _MAX_PRECEDENT_CELLS - len(precedents)
         if room <= 0:

@@ -828,7 +828,7 @@ def test_outer_turn_is_peer_work_active_query_text_returns_true():
     panel = MagicMock()
     listener = MagicMock()
     panel.send_listener = listener
-    turn = begin_send_turn(listener, "chat")
+    turn = begin_send_turn(listener)
     turn.active_query_text = "[Peer work from: writer_uid] Please format table"
 
     with patch("plugin.framework.uno_context.get_runtime_uid", return_value="doc_uid_123"), \

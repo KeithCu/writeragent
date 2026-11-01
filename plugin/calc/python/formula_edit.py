@@ -11,7 +11,10 @@ use the shorter ``PY``; existing ``PYTHON`` cells keep their prefix when edited 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_CELL_REF,
@@ -279,7 +282,7 @@ def _python_call_parts(formula: str) -> tuple[str, str, str] | None:
         code = _parse_unquoted_code_arg(inner_body)
         if code is None:
             return None
-        rest = inner_body[len(code) :].strip() if code != inner_body else ""
+        rest = inner_body[len(code) :].strip()
         return prefix, code, rest
     code_parsed = _parse_quoted_string(inner_body, 0)
     if code_parsed is None:
@@ -503,6 +506,10 @@ def format_excel_data_range(range_addr: str) -> str:
     return _format_qualified_range(range_addr, separator="!")
 
 
+def _data_range_formatter(separator: str) -> Callable[[str], str]:
+    # crosshair: off
+    return format_excel_data_range if separator == "," else format_py_data_range
+
 
 # Defaulted kwargs: deal only forwards provided args + result= (see framework/formal-verification.md §8.1 A).
 @deal.pre(lambda data_args, *_unused, **__: _deal_data_args_ok(data_args))
@@ -513,7 +520,7 @@ def build_data_suffix(data_args: list[str], *, separator: str = ";") -> str:
     *separator* is ``;`` for Calc formulas and ``,`` for Excel OOXML formulas.
     """
     # crosshair: off
-    fmt = format_excel_data_range if separator == "," else format_py_data_range
+    fmt = _data_range_formatter(separator)
     args = [fmt(a.strip()) for a in data_args if a.strip()]
     if not args:
         return ")"
@@ -590,7 +597,7 @@ def rebuild_python_formula_with_code_ref(code_ref: str, data_args: list[str], *,
     *code_ref* is a sheet-qualified address (``py_code_Pivots.A1`` or ``py_code_Pivots!A1``).
     """
     # crosshair: off
-    fmt = format_excel_data_range if separator == "," else format_py_data_range
+    fmt = _data_range_formatter(separator)
     ref = fmt(code_ref.strip())
     prefix = f"={CALC_PYTHON_FN}("
     suffix = build_data_suffix(data_args, separator=separator)

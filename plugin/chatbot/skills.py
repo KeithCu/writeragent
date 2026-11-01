@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.errors import ConfigError
@@ -83,15 +82,15 @@ class SkillStore:
     config_dir: str
     skills_dir: str
 
-    def __init__(self, ctx: Any = None) -> None:
-        del ctx
+    def __init__(self) -> None:
         config_dir = user_config_dir()
         if config_dir is None:
             raise ConfigError("User configuration directory is not available to resolve skill store path")
         self.config_dir = config_dir
         self.skills_dir = os.path.join(self.config_dir, "skills")
 
-    def _humanizer_path(self) -> str:
+    def get_humanizer_skill_path(self) -> str:
+        """Return the full path to the editable SKILL.md for display in UI / docs."""
         return os.path.join(self.skills_dir, "humanizer", "SKILL.md")
 
     def get_humanizer_guidance(self) -> str:
@@ -103,7 +102,7 @@ class SkillStore:
         On first access we proactively write the default SKILL.md into the user's profile
         so they can immediately open and customize it.
         """
-        path = self._humanizer_path()
+        path = self.get_humanizer_skill_path()
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -126,7 +125,7 @@ class SkillStore:
     def write_humanizer_guidance(self, content: str) -> bool:
         """Persist a user-edited version of the humanizer rules."""
         try:
-            path = self._humanizer_path()
+            path = self.get_humanizer_skill_path()
             os.makedirs(os.path.dirname(path), exist_ok=True)
             atomic_write_text(path, content.strip() + "\n", prefix=".skill-", fsync=False)
             return True
@@ -134,9 +133,5 @@ class SkillStore:
             log.exception("Failed to write humanizer skill: %s", e)
             return False
 
-    def get_humanizer_skill_path(self) -> str:
-        """Return the full path to the editable SKILL.md for display in UI / docs."""
-        return self._humanizer_path()
 
-
-__all__ = ["SkillStore", "HUMANIZER_GUIDANCE", "strip_skill_front_matter"]
+__all__ = ["SkillStore", "HUMANIZER_GUIDANCE"]

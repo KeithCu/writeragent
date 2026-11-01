@@ -69,7 +69,7 @@ def test_writing_research_web_delegates_to_web_research():
         ctx = MagicMock()
         tool = WritingResearchWeb()
         out = tool.execute(ctx, query="topic")
-        instance.execute.assert_called_once_with(ctx, query="topic")
+        instance.execute.assert_called_once_with(ctx, query="topic", deep=False)
         assert out["result"] == "facts"
 
 
@@ -115,7 +115,7 @@ def test_collect_writing_tools_excludes_specialized_workflow_finished():
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_examples.get_examples_block", return_value="")
-@patch("plugin.chatbot.writing.get_sub_agent_instructions", return_value="instr")
+@patch("plugin.chatbot.sub_agent_tools.get_sub_agent_instructions", return_value="instr")
 def test_writing_plan_session_tool_returns_ok(mock_instr, mock_examples, mock_build):
     from plugin.contrib.smolagents.memory import FinalAnswerStep
 

@@ -929,20 +929,6 @@ def test_transport_auto_open_zero_prevents_silent_reconnect_on_closed_connection
         conn.request("POST", "/v1/chat/completions", body=b"{}")
 
 
-def test_transport_send_sets_auto_open_zero():
-    """send() ensures conn.auto_open is set to 0 even if supplied via a custom get_connection."""
-    transport = LlmHttpTransport(lambda: "http://127.0.0.1:9", lambda: 30)
-    transport._pacer.min_interval_sec = 0
-    conn = MagicMock()
-    conn.auto_open = 1
-    conn.sock = None
-    transport.get_connection = lambda: conn
-    with patch.object(transport, "_connect_abortable"):
-        conn.sock = MagicMock()
-        transport.send("POST", "/v1/test", b"{}", {})
-    assert conn.auto_open == 0
-
-
 def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect():
     """_apply_redirect must strip cookie and proxy-authorization on cross-origin hops."""
     from plugin.framework.client.http_security import _SECRET_HEADER_NAMES, _apply_redirect

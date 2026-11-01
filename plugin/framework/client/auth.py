@@ -46,7 +46,7 @@ class ProviderConfig:
     # Header style controls how the API key is attached:
     # - "bearer"   -> Authorization: Bearer <key> (key required)
     # - "x-api-key" -> x-api-key: <key> (key required)
-    # - "none"     -> key not required; empty key sends no auth header; a non-empty key still becomes Authorization: Bearer in build_auth_headers (Ollama, LM Studio, and any other style that did not set Authorization or x-api-key)
+    # - "none"     -> key not required; empty key sends no auth header; a non-empty key becomes Authorization: Bearer in build_auth_headers (Ollama, LM Studio)
     header_style: str = "bearer"
     # Optional static headers that should always be sent for this provider.
     # Host matching lives in provider_detection. This table is auth behavior only.
@@ -71,7 +71,7 @@ PROVIDERS: dict[str, ProviderConfig] = {
     "google": ProviderConfig(id="google"),
     "ollama": ProviderConfig(id="ollama", header_style="none"),
     # Local LM Studio accepts an empty key the way Ollama does. A key, when
-    # set, still becomes Authorization: Bearer via build_auth_headers fallback.
+    # set, still becomes Authorization: Bearer via build_auth_headers.
     "lmstudio": ProviderConfig(id="lmstudio", header_style="none"),
     "zai": ProviderConfig(id="zai"),
     "nvidia": ProviderConfig(id="nvidia"),
@@ -181,12 +181,15 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
         # spaces, DEL, and non-ASCII chars while code stays invalid_api_key.
         if any(ord(c) < 33 or ord(c) > 126 for c in api_key):
             raise AuthError("API key must be printable ASCII", code="invalid_api_key")
-
-    if style == "bearer" and api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    elif style == "x-api-key" and api_key:
-        headers["x-api-key"] = api_key
-    # style == "none" -> no auth header
+        if style == "x-api-key":
+            headers["x-api-key"] = api_key
+        else:
+            # What was wrong: Style "none" providers (Ollama / LM Studio) dropped the API
+            # key on model fetching and /api/show because the fallback was previously only
+            # in LlmClient._headers.
+            # Why this fixes it: Consolidate here so all HTTP paths (chat, catalog
+            # fetch, and /api/show probes) send the key. Null/empty keys remain header-less.
+            headers["Authorization"] = f"Bearer {api_key}"
 
     # Merge any provider-specific static headers (e.g., version pins).
     extra = auth_info.get("headers") or {}
@@ -197,15 +200,5 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
             continue
         headers[str(k)] = str(v)
         existing.add(str(k).lower())
-
-    # Legacy fallback for simple/manual endpoints: if an api_key exists and no
-    # auth header was added (e.g. style='none' or unknown provider), add Bearer.
-    # What was wrong: Style "none" providers (Ollama / LM Studio) dropped the API
-    # key on model fetching and /api/show because the fallback was previously only
-    # in LlmClient._headers.
-    # Why this fixes it: Consolidate fallback here so all HTTP paths (chat, catalog
-    # fetch, and /api/show probes) send the key. Null/empty keys remain header-less.
-    if api_key and not ({"authorization", "x-api-key"} & {h.lower() for h in headers}):
-        headers["Authorization"] = f"Bearer {api_key}"
 
     return headers
