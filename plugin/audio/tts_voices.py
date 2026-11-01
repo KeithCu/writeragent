@@ -57,14 +57,6 @@ def clean_provider_name(provider_or_label: str) -> str:
     return "system"
 
 
-def _normalize_voice_family(family: str) -> str:
-    """Canonical family key, or a provider label via clean_provider_name."""
-    fam = (family or "").strip().lower()
-    if fam in ("kokoro", "piper", "openai", "openrouter", "together", "system"):
-        return fam
-    return clean_provider_name(family)
-
-
 def _locale_language_stem(locale: str | None) -> str:
     """Language prefix (``en_US`` / ``en-US`` → ``en``). None is the active UI locale."""
     if locale is None:
@@ -234,29 +226,27 @@ def _kokoro_default_for_stem(stem: str) -> str:
 
 
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
-    """Return default voice for a family (canonical key or provider label) and UI locale."""
-    fam = _normalize_voice_family(family)
+    """Return default voice for a family and UI locale."""
     stem = _locale_language_stem(locale)
-    if fam == "piper":
+    if family == "piper":
         return _piper_default_for_stem(stem)
-    if fam == "kokoro":
+    if family == "kokoro":
         return _kokoro_default_for_stem(stem)
-    if fam in ("openai", "endpoint"):
+    if family == "openai":
         return DEFAULT_VOICE_FOR_FAMILY["openai"]
-    if fam in ("openrouter", "together"):
+    if family in ("openrouter", "together"):
         return ""
     return DEFAULT_VOICE_FOR_FAMILY["system"]
 
 
 def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, str]]:
-    """Return ordered voice options for a family (canonical key or provider label), prioritizing locale."""
-    fam = _normalize_voice_family(family)
-    if fam not in ("piper", "kokoro"):
-        return VOICE_CATALOGS.get(fam, [])
+    """Return ordered voice options for a family, prioritizing locale."""
+    if family not in ("piper", "kokoro"):
+        return VOICE_CATALOGS.get(family, [])
 
     stem = _locale_language_stem(locale)
 
-    if fam == "kokoro":
+    if family == "kokoro":
         return _buckets(
             _KOKORO_CATALOG_ITEMS,
             is_locale=lambda opt: stem != "en" and opt.get("lang") == stem,
@@ -312,18 +302,17 @@ def canonical_voice_id(family: str, voice: str) -> str:
     if _looks_like_path(clean_v):
         return clean_v
 
-    fam = _normalize_voice_family(family)
-    if fam == "kokoro":
+    if family == "kokoro":
         alias_target = match_voice_id(clean_v, _KOKORO_OPENAI_ALIASES)
         if alias_target is not None:
             clean_v = _KOKORO_OPENAI_ALIASES[alias_target]
 
-    if fam in ("kokoro", "piper", "openai", "system"):
-        catalog_values = [opt["value"] for opt in get_voice_catalog(fam)]
+    if family in ("kokoro", "piper", "openai", "system"):
+        catalog_values = [opt["value"] for opt in get_voice_catalog(family)]
         matched = match_voice_id(clean_v, catalog_values)
         if matched is not None:
             return matched
-        if fam == "kokoro" and is_kokoro_voice_id(clean_v):
+        if family == "kokoro" and is_kokoro_voice_id(clean_v):
             return clean_v.lower()
 
     return clean_v
@@ -338,30 +327,21 @@ def _preferred_harvested_voice(model: str | None, voices: Sequence[str]) -> str:
         matched = match_voice_id("Aoede", voices)
         if matched is not None:
             return matched
-    sorted_ids = sorted(voices, key=lambda vid: vid.casefold())
-    return sorted_ids[0]
+    return voices[0]
 
 
-def _voice_belongs_to_other_family(voice: str, current_family: str) -> bool:
+def _voice_belongs_to_other_family(voice: str) -> bool:
     """True if voice is known to belong exclusively to another family."""
     if not voice:
         return False
     clean_v = clean_voice_name(voice)
     for fam in ("kokoro", "piper", "openai", "system"):
-        if fam == current_family:
-            continue
         fam_voices = [opt["value"] for opt in get_voice_catalog(fam)]
         if match_voice_id(clean_v, fam_voices) is not None:
             return True
-    if current_family not in ("kokoro",):
-        if match_voice_id(clean_v, _KOKORO_OPENAI_ALIASES) is not None or is_kokoro_voice_id(clean_v):
-            return True
+    if match_voice_id(clean_v, _KOKORO_OPENAI_ALIASES) is not None or is_kokoro_voice_id(clean_v):
+        return True
     return False
-
-
-def _catalog_context(family: str, locale: str | None = None) -> VoiceContext:
-    rows = get_voice_catalog(family, locale)
-    return VoiceContext(family=family, source="catalog", rows=tuple(rows))
 
 
 def resolve_voice_context(
@@ -373,12 +353,12 @@ def resolve_voice_context(
     """Resolve TTS voice family, source, catalog rows, and editability."""
     prov = clean_provider_name(provider or "")
     if prov in ("kokoro", "piper", "system"):
-        return _catalog_context(prov, locale)
+        return VoiceContext(family=prov, source="catalog", rows=tuple(get_voice_catalog(prov, locale)))
 
     # Provider is "endpoint"
     m_str = str(model or "").strip()
     if m_str and "kokoro" in m_str.lower():
-        return _catalog_context("kokoro", locale)
+        return VoiceContext(family="kokoro", source="catalog", rows=tuple(get_voice_catalog("kokoro", locale)))
 
     # Resolve endpoint and host
     ep_val = endpoint if (endpoint is not None and str(endpoint).strip()) else config.get_current_endpoint()
@@ -400,11 +380,11 @@ def resolve_voice_context(
         tokens = cached_tts_supported_voices(m_str)
         if tokens:
             fam = "together" if host == "together" else "openrouter"
-            harvested_rows = [{"value": t, "label": t} for t in tokens]
+            ordered = sorted(tokens, key=str.casefold)
             return VoiceContext(
                 family=fam,
                 source="harvested",
-                rows=tuple(sorted(harvested_rows, key=lambda row: row.get("label", "").casefold())),
+                rows=tuple({"value": t, "label": t} for t in ordered),
             )
 
     if host == "together":
@@ -417,7 +397,7 @@ def resolve_voice_context(
         if models is None or (m_str and match_voice_id(m_str, models) is not None):
             return VoiceContext(family="openrouter", source="unknown", rows=())
 
-    return _catalog_context("openai", locale)
+    return VoiceContext(family="openai", source="catalog", rows=tuple(get_voice_catalog("openai", locale)))
 
 
 def get_voice_family(
@@ -445,14 +425,14 @@ def voice_choice_to_id(choice: str, options: Sequence[dict[str, str]] | None = N
     if not text:
         return ""
     rows = options or []
-    values = [str(opt.get("value") or "") for opt in rows if "value" in opt]
+    values = [opt["value"] for opt in rows]
     matched_val = match_voice_id(text, values)
     if matched_val is not None:
         return matched_val
     for opt in rows:
-        label = str(opt.get("label") or "")
+        label = opt["label"]
         if text == label or (label and text == i18n._(label)):
-            return str(opt.get("value") or "")
+            return opt["value"]
     return clean_voice_name(text)
 
 
@@ -469,7 +449,7 @@ def pick_voice_id(
     if not options:
         return current_id or stored_id
 
-    values = [str(opt.get("value") or "") for opt in options if "value" in opt]
+    values = [opt["value"] for opt in options]
     for cand in (current_id, stored_id):
         matched = match_voice_id(cand, values)
         if matched is not None:
@@ -502,28 +482,25 @@ def get_scoped_tts_voice(
     context = resolve_voice_context(prov_clean, model, endpoint=endpoint, locale=locale)
     family = context.family
     scoped_key = f"audio.tts_voice_{family}"
-    val = config.get_config(scoped_key)
-    clean_scoped = clean_voice_name(val) if isinstance(val, str) else ""
-    general_voice = str(config.get_config("audio.tts_voice") or "").strip()
-    clean_gen = clean_voice_name(general_voice)
+    cands = tuple(clean_voice_name(str(config.get_config(k) or "")) for k in (scoped_key, "audio.tts_voice"))
 
     if context.source == "harvested":
         harvested_values = [opt["value"] for opt in context.rows]
-        for cand in (clean_scoped, clean_gen):
+        for cand in cands:
             matched = match_voice_id(cand, harvested_values)
             if matched is not None:
                 return matched
         return _preferred_harvested_voice(model, harvested_values)
 
     if context.source == "unknown":
-        for cand in (clean_scoped, clean_gen):
-            if cand and not _voice_belongs_to_other_family(cand, family):
+        for cand in cands:
+            if cand and not _voice_belongs_to_other_family(cand):
                 return cand
         return ""
 
     # Catalog families
     valid_voices = {opt["value"] for opt in context.rows}
-    for cand in (clean_scoped, clean_gen):
+    for cand in cands:
         canon = canonical_voice_id(family, cand)
         if canon in valid_voices or _looks_like_path(canon):
             return canon
