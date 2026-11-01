@@ -208,7 +208,7 @@ class AudioRecorder:
             handoff=handoff,
         )
 
-    def _take_new_temp_wav(self) -> None:
+    def _take_new_temp_wav(self) -> str:
         # Bugfix:
         # - What was wrong: a child error after ready keeps a non-empty WAV
         #   (_cleanup_failed_start used to unlink it). The next InitializeDeviceEffect
@@ -220,7 +220,9 @@ class AudioRecorder:
         # - Why this fixes it: the three new-take assignments delete the abandoned
         #   file first. A path already returned to the sidebar is None here.
         self._delete_wav()
-        self.temp_filename = make_temp_wav_path()
+        path = make_temp_wav_path()
+        self.temp_filename = path
+        return path
 
     def _teardown_capture(self) -> None:
         """Idempotent teardown of child process, stream, and WAV file."""
@@ -258,23 +260,24 @@ class AudioRecorder:
         the path before ``ok``.
         """
         path = auto_path or self.temp_filename
-        if finalize_wav_header(path):
+        finalized = finalize_wav_header(path)
+        terminate_recording_process(proc, monitor=monitor, handoff=handoff)
+        if finalized:
             if not auto_path:
                 log.warning("Stop handshake failed; using WAV already on disk: %s", exc)
             self.temp_filename = path
-            terminate_recording_process(proc, monitor=monitor, handoff=handoff)
             return
         log.debug("Failed to stop recording subprocess: %s", exc)
-        terminate_recording_process(proc, monitor=monitor, handoff=handoff)
         self._teardown_capture()
         self._delete_wav()
 
     def _execute_effect(self, effect: object) -> None:
         import wave
 
+        testing = os.environ.get("WRITERAGENT_TESTING") == "1"
         if isinstance(effect, InitializeDeviceEffect):
             self._auto_stop_notified = False
-            if os.environ.get("WRITERAGENT_TESTING") == "1":
+            if testing:
                 from plugin.chatbot.sidebar_test_hooks import try_stub_initialize
 
                 if try_stub_initialize(self):
@@ -284,9 +287,8 @@ class AudioRecorder:
             exe, _err = resolve_recording_python()
             if exe:
                 try:
-                    self._take_new_temp_wav()
-                    assert self.temp_filename is not None
-                    self._proc = spawn_recording_process(exe, self.temp_filename, silence_config=silence_config)
+                    temp_path = self._take_new_temp_wav()
+                    self._proc = spawn_recording_process(exe, temp_path, silence_config=silence_config)
                     log.info(
                         "audio recorder: venv subprocess path (silence_stop_ms=%d)",
                         silence_config.silence_stop_ms,
@@ -304,9 +306,8 @@ class AudioRecorder:
                     ensure_native_binaries_on_path()
                     import sounddevice as sd
 
-                    self._take_new_temp_wav()
-                    assert self.temp_filename is not None
-                    self.wav_file = wave.open(self.temp_filename, "wb")
+                    temp_path = self._take_new_temp_wav()
+                    self.wav_file = wave.open(temp_path, "wb")
                     self.wav_file.setnchannels(self.channels)
                     self.wav_file.setsampwidth(2)  # 16-bit
                     self.wav_file.setframerate(self.fs)
@@ -371,7 +372,7 @@ class AudioRecorder:
                     self._apply_event(ErrorOccurredEvent(f"Audio recording failed to start stream: {e}"))
 
         elif isinstance(effect, StopRecordingEffect):
-            if os.environ.get("WRITERAGENT_TESTING") == "1":
+            if testing:
                 from plugin.chatbot.sidebar_test_hooks import try_stub_stop
 
                 if try_stub_stop(self):

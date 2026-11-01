@@ -41,8 +41,7 @@ def stop_playback_if_speaking(host: Any) -> bool:
         if not getattr(host, "_send_busy", False):
             # Playback-only Stop does not dispatch STOP_CLICKED. Still leave
             # hands-free, or the TTS poll would arm the mic again.
-            if hasattr(host, "_voice"):
-                host._voice.exit_hands_free_record()
+            host._voice.exit_hands_free_record()
             if host.stop_control and host.stop_control.getModel():
                 from plugin.framework.errors import suppress_disposed
 
@@ -73,10 +72,14 @@ class _CancellableWaiter:
         self._event = ev
         delay_s = delay_ms / 1000.0
 
+        def _fire() -> None:
+            if ev is self._event:
+                callback()
+
         def _worker() -> None:
             if not ev.wait(delay_s):
                 try:
-                    executor.post(callback)
+                    executor.post(_fire)
                 except Exception:
                     log.debug("%s post failed", name, exc_info=True)
 
@@ -138,7 +141,7 @@ class PanelVoiceController:
         transcript in the Ask box instead of sending it.
         """
         kill = self._panel._stt_kill
-        if not callable(kill):
+        if not kill:
             return
         try:
             kill()
@@ -152,8 +155,6 @@ class PanelVoiceController:
         was_sticky = self._panel._record_gesture.sticky
         self._panel._record_gesture = exit_sticky(self._panel._record_gesture)
         self._sticky_restart_pending = False
-        self._panel._sticky_restart_gen += 1
-        self._panel._record_hold_gen += 1
         self._empty_take_count = 0
         if was_sticky:
             log.info("Hands-free record cleared")
@@ -188,14 +189,11 @@ class PanelVoiceController:
             log.info("Hands-free record armed")
         if step.cancel_timer:
             self._hold_waiter.cancel()
-            self._panel._record_hold_gen += 1
         if step.start_timer:
-            self._panel._record_hold_gen += 1
-            gen = self._panel._record_hold_gen
             self._hold_waiter.wait_and_post(
                 RECORD_HOLD_MS,
                 self._panel.queue_executor,
-                lambda: self._on_record_hold_elapsed(gen),
+                self._on_record_hold_elapsed,
                 "record-hold",
             )
         if step.dispatch_record:
@@ -205,10 +203,8 @@ class PanelVoiceController:
     def _panel_gone(self) -> bool:
         return bool(getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None)
 
-    def _on_record_hold_elapsed(self, gen: int) -> None:
+    def _on_record_hold_elapsed(self) -> None:
         if self._panel_gone():
-            return
-        if gen != self._panel._record_hold_gen:
             return
         self._apply_record_gesture(gesture_hold_elapsed(self._panel._record_gesture))
 
@@ -255,23 +251,21 @@ class PanelVoiceController:
         except Exception:
             log.debug("hands-free re-record: is_speaking failed", exc_info=True)
         if speaking:
-            self._panel._sticky_restart_gen += 1
-            gen = self._panel._sticky_restart_gen
             log.debug("Hands-free record waiting for TTS")
             self._sticky_waiter.wait_and_post(
                 STICKY_TTS_POLL_MS,
                 self._panel.queue_executor,
-                lambda: self._poll_sticky_rerecord(gen),
+                self._poll_sticky_rerecord,
                 "sticky-rerecord",
             )
         else:
             log.info("Hands-free record restarting")
             self._panel.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
 
-    def _poll_sticky_rerecord(self, gen: int) -> None:
+    def _poll_sticky_rerecord(self) -> None:
         if self._panel_gone():
             return
-        if gen != self._panel._sticky_restart_gen or not self._panel._record_gesture.sticky:
+        if not self._panel._record_gesture.sticky:
             return
         self._begin_sticky_rerecord()
 
@@ -376,9 +370,7 @@ class PanelVoiceController:
                     register_with_send=False,
                 )
                 if cancel_scope is not None and not cancel_scope.is_cancelled():
-                    clearer = getattr(client, "clear_stop", None)
-                    if callable(clearer):
-                        clearer()
+                    client.clear_stop()
 
             transcribing = status_for_transcription()
             self._panel._set_status(transcribing)

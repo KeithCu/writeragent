@@ -1165,7 +1165,7 @@ class TestHandsFreeRecord:
         listener, _send_model = _hands_free_listener()
         notify_record_mouse_pressed(listener)
         listener._voice._hold_waiter.wait_and_post.assert_called_once()
-        listener._voice._on_record_hold_elapsed(listener._record_hold_gen)
+        listener._voice._on_record_hold_elapsed()
         assert listener._record_gesture.sticky is True
         assert listener.sidebar_state.send.is_recording
         assert listener.audio_recorder.start_recording.call_count == 1
@@ -1177,11 +1177,23 @@ class TestHandsFreeRecord:
         assert listener.audio_recorder.start_recording.call_count == 1
 
     def test_stale_hold_timer_does_not_arm_sticky(self) -> None:
+        import threading
+        from plugin.chatbot.panel_voice import _CancellableWaiter
+
         listener, _send_model = _hands_free_listener()
-        notify_record_mouse_pressed(listener)
-        notify_record_mouse_released(listener)
-        listener._voice._on_record_hold_elapsed(listener._record_hold_gen - 1)
+        listener._voice._hold_waiter = _CancellableWaiter()
+        posted: list[Any] = []
+        listener.queue_executor.post = posted.append
+        with patch("plugin.framework.worker_pool.run_in_background", side_effect=lambda fn, **kw: fn()):
+            with patch.object(threading.Event, "wait", return_value=False):
+                notify_record_mouse_pressed(listener)
+                notify_record_mouse_pressed(listener)
+        assert len(posted) == 2
+        posted[0]()
         assert listener._record_gesture.sticky is False
+        assert listener.audio_recorder.start_recording.call_count == 0
+        posted[1]()
+        assert listener._record_gesture.sticky is True
         assert listener.audio_recorder.start_recording.call_count == 1
 
     def test_keyboard_record_is_not_sticky(self) -> None:
@@ -1193,7 +1205,7 @@ class TestHandsFreeRecord:
     def test_stop_rec_keeps_sticky_for_restart(self) -> None:
         listener, send_model = _hands_free_listener()
         notify_record_mouse_pressed(listener)
-        listener._voice._on_record_hold_elapsed(listener._record_hold_gen)
+        listener._voice._on_record_hold_elapsed()
         notify_record_mouse_released(listener)
         listener.on_action_performed(MagicMock())
         assert send_model.Label == "Stop Rec"
@@ -1243,7 +1255,7 @@ class TestHandsFreeRecord:
         assert listener.sidebar_state.send.is_recording is False
         listener._voice._sticky_waiter.wait_and_post.assert_called_once()
         with patch("plugin.audio.tts_service.is_speaking", return_value=False):
-            listener._voice._poll_sticky_rerecord(listener._sticky_restart_gen)
+            listener._voice._poll_sticky_rerecord()
         assert listener.sidebar_state.send.is_recording
         assert listener._record_gesture.sticky is True
         listener.status_control.setText.assert_any_call(hands_free_status_text())
@@ -1282,7 +1294,7 @@ class TestHandsFreeRecord:
         listener.audio_recorder.start_recording.side_effect = RuntimeError("no microphone")
         listener._append_response = MagicMock()
         notify_record_mouse_pressed(listener)
-        listener._voice._on_record_hold_elapsed(listener._record_hold_gen)
+        listener._voice._on_record_hold_elapsed()
         assert listener._record_gesture.sticky is False
         assert listener.sidebar_state.send.is_recording is False
 
@@ -1315,20 +1327,19 @@ class TestHandsFreeRecord:
     def test_stop_during_playback_clears_sticky_without_cancel(self) -> None:
         listener, _send_model = _hands_free_listener()
         listener._record_gesture = RecordGesture(sticky=True)
-        listener._sticky_restart_gen = 3
         with patch("plugin.audio.tts_service.is_speaking", return_value=True):
             with patch("plugin.audio.tts_service.stop_speech"):
                 notify_stop_mouse_pressed(listener)
         assert listener._record_gesture.sticky is False
         assert listener._stop_requested_fallback is False
-        listener._voice._poll_sticky_rerecord(3)
+        listener._voice._poll_sticky_rerecord()
         assert listener.sidebar_state.send.is_recording is False
 
 
     def _arm_locked_take(self) -> tuple[SendButtonListener, Any]:
         listener, send_model = _hands_free_listener()
         notify_record_mouse_pressed(listener)
-        listener._voice._on_record_hold_elapsed(listener._record_hold_gen)
+        listener._voice._on_record_hold_elapsed()
         notify_record_mouse_released(listener)
         listener.on_action_performed(MagicMock())
         assert listener._record_gesture.sticky is True

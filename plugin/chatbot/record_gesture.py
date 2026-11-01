@@ -112,12 +112,10 @@ def gesture_press(gesture: RecordGesture, *, label_is_record: bool) -> GestureSt
             dataclasses.replace(gesture, phase=RecordPhase.DOWN),
             start_timer=True,
         )
-    if gesture.holding:
-        return GestureStep(
-            dataclasses.replace(gesture, phase=RecordPhase.IDLE),
-            cancel_timer=True,
-        )
-    return GestureStep(dataclasses.replace(gesture, phase=RecordPhase.IDLE))
+    return GestureStep(
+        dataclasses.replace(gesture, phase=RecordPhase.IDLE),
+        cancel_timer=gesture.holding,
+    )
 
 
 def gesture_hold_elapsed(gesture: RecordGesture) -> GestureStep:
@@ -164,12 +162,10 @@ def gesture_action(gesture: RecordGesture) -> GestureStep:
             swallowed_action=True,
         )
     if gesture.holding:
-        if gesture.phase == RecordPhase.DOWN:
-            new_phase = RecordPhase.DOWN_ACTION_SEEN
-        elif gesture.phase == RecordPhase.FIRED:
-            new_phase = RecordPhase.FIRED_ACTION_SEEN
-        else:
-            new_phase = gesture.phase
+        new_phase = {
+            RecordPhase.DOWN: RecordPhase.DOWN_ACTION_SEEN,
+            RecordPhase.FIRED: RecordPhase.FIRED_ACTION_SEEN,
+        }.get(gesture.phase, gesture.phase)
         return GestureStep(
             dataclasses.replace(gesture, phase=new_phase),
             swallowed_action=True,

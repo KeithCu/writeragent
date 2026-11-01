@@ -26,8 +26,6 @@ class DummyPanel:
             tool_loop=None,
         )
         self._record_gesture = RecordGesture()
-        self._record_hold_gen = 0
-        self._sticky_restart_gen = 0
         self._sticky_restart_pending = False
         self._empty_take_count = 0
         self._panel_teardown = False
@@ -93,5 +91,3 @@ def test_exit_hands_free_record():
     controller.exit_hands_free_record()
     assert not panel._record_gesture.sticky
     assert not controller._sticky_restart_pending
-    assert panel._sticky_restart_gen == 1
-    assert panel._record_hold_gen == 1

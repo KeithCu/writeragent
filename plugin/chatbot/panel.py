@@ -334,8 +334,6 @@ class SendButtonListener(BaseActionListener):
     audio_recorder: Any
     sidebar_state: SidebarCompositeState
     _record_gesture: RecordGesture
-    _record_hold_gen: int
-    _sticky_restart_gen: int
     _panel_teardown: bool
     _mcp_event_bus: Any
     _turn: Any
@@ -441,8 +439,6 @@ class SendButtonListener(BaseActionListener):
         self.sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None)
         # Hands-free Record is a panel flag. The send FSM stays timer-free.
         self._record_gesture = RecordGesture()
-        self._record_hold_gen = 0
-        self._sticky_restart_gen = 0
         # Set at the start of disposing so a drain still on the stack skips
         # status, TTS, and a sticky re-record after ctx is cleared.
         self._panel_teardown = False
