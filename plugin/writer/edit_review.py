@@ -58,6 +58,7 @@ from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.i18n import N_, _
 from plugin.writer import review_scan as _review_scan
+from plugin.writer.word_diff_split import _DEFAULT_THRESHOLD
 
 log = logging.getLogger(__name__)
 
@@ -586,9 +587,7 @@ class EditReviewSession:
             return None
 
     def _outcome(self, record: ChangeRecord, pending_tokens: set[str], pending_reliable: bool) -> str:
-        if record.token in pending_tokens:
-            return "pending"
-        if not pending_reliable:
+        if record.token in pending_tokens or not pending_reliable:
             # The pending scan was incomplete, so "not in pending_tokens" does NOT prove this change
             # is resolved -- it might be unresolved but unseen. Report "pending" rather than guess an
             # accepted/rejected/modified outcome from the anchor text.
@@ -721,10 +720,7 @@ class EditReviewSession:
         """
         run = uno_runner if uno_runner is not None else (lambda fn: fn())
         if not self._active or not self.changes:
-            try:
-                return {"complete": True, "timed_out": False, "changes": []}
-            finally:
-                run(self.cleanup)
+            return {"complete": True, "timed_out": False, "changes": []}
         try:
             deadline = time.monotonic() + max(0.0, timeout)
             timed_out = False
@@ -773,7 +769,7 @@ def _env_num(name: str, default: Any, cast: Any, ok: Any) -> Any:
 
 
 _WORD_DIFF_THRESHOLD = _env_num(
-    "WRITERAGENT_AGENT_EDIT_DIFF_THRESHOLD", 0.6, float, lambda v: 0.0 <= v <= 1.0)
+    "WRITERAGENT_AGENT_EDIT_DIFF_THRESHOLD", _DEFAULT_THRESHOLD, float, lambda v: 0.0 <= v <= 1.0)
 
 _MAX_SURGICAL_RUNS = _env_num(
     "WRITERAGENT_AGENT_EDIT_MAX_SURGICAL_RUNS", 40, int, lambda v: v >= 1)
@@ -896,19 +892,6 @@ def _undo_batch(doc: Any, session: EditReviewSession, undo_title: str) -> Genera
         close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
 
 
-def _apply_in_undo_context(doc: Any, session: EditReviewSession, run: Callable[[bool], Any]) -> None:
-    """Run *run(in_undo_context)* -- which must perform exactly ONE session.record_mutation -- inside a
-    fresh grouped-undo context when one can be opened, so a split-author delete+insert stays atomic."""
-    undo_title = next_surgical_undo_title()
-    with _undo_batch(doc, session, undo_title) as undo_mgr:
-        if undo_mgr is None:
-            log.debug("edit_review: no usable/unlocked undo manager; split-author whole-block edit falls back "
-                      "to the single atomic op (one color)")
-            run(False)
-            return
-        run(True)
-
-
 def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callable[[], Any],
                            **record_kwargs: Any) -> Any:
     """Record an HTML/import mutation that DELETES before it inserts."""
@@ -998,18 +981,16 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
 
     def _whole() -> None:
         original = found.getString()
-
-        def _run(in_undo_context: bool) -> None:
+        ctx_mgr = _undo_batch(doc, session, next_surgical_undo_title()) if split_author else contextlib.nullcontext()
+        with ctx_mgr as mgr:
+            if split_author and mgr is None:
+                log.debug("edit_review: no usable/unlocked undo manager; split-author whole-block edit falls back "
+                          "to the single atomic op (one color)")
             session.record_mutation(
                 lambda: format_support.replace_preserving_format(
                     doc, found, new_text, uno_ctx,
-                    in_undo_context=in_undo_context, split_author=split_author),
+                    in_undo_context=(mgr is not None), split_author=split_author),
                 original_preview=_preview(original), proposed_preview=_preview(new_text))
-
-        if split_author:
-            _apply_in_undo_context(doc, session, _run)
-        else:
-            _run(False)
 
     if not split:
         _whole()
@@ -1251,7 +1232,9 @@ def _collapse_review_context(doc: Any, track_reviewable: bool, was_recording: bo
                 log.debug("%s: redline tagging failed", label, exc_info=True)
 
 
-def _stream_write_warning(exc: Exception) -> str:
+def _stream_write_warning(exc: Exception | None) -> str | None:
+    if exc is None:
+        return None
     return _("Failed to write streamed text to the document: {0}").format(exc)
 
 
@@ -1337,14 +1320,10 @@ class WriterStreamedRewriteSession:
             # truthy, so it stays on the collapse path.
             if not self.generated_text:
                 self.abort_and_restore()
-                if self.last_write_error is not None:
-                    return _stream_write_warning(self.last_write_error)
-                return None
+                return _stream_write_warning(self.last_write_error)
 
             if not (self.was_recording or self.track_reviewable):
-                if self.last_write_error is not None:
-                    return _stream_write_warning(self.last_write_error)
-                return None
+                return _stream_write_warning(self.last_write_error)
 
             try:
                 with _collapse_review_context(self.doc, self.track_reviewable, self.was_recording, "streamed rewrite"):
@@ -1470,13 +1449,9 @@ class WriterStreamedAppendSession:
                     # RecordChanges get/set does not fail on a live document. The
                     # except only logged a restore that does not happen.
                     self.doc.setPropertyValue("RecordChanges", True)
-                if self.last_write_error is not None:
-                    return _stream_write_warning(self.last_write_error)
-                return None
+                return _stream_write_warning(self.last_write_error)
             if not (self.was_recording or self.track_reviewable):
-                if self.last_write_error is not None:
-                    return _stream_write_warning(self.last_write_error)
-                return None
+                return _stream_write_warning(self.last_write_error)
 
             try:
                 with _collapse_review_context(self.doc, self.track_reviewable, self.was_recording, "streamed append"):

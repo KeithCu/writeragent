@@ -99,7 +99,6 @@ def test_single_word_changed_in_long_sentence_one_surgical_edit():
     assert r.mode == "surgical"
     assert len(r.sub_edits) == 1
     e = r.sub_edits[0]
-    assert e.op == "replace"
     assert e.old_text == "fox"
     assert e.new_text == "cat"
     assert old[e.old_start:e.old_end] == "fox"
@@ -122,7 +121,6 @@ def test_two_adjacent_words_changed_agglutinated_into_one():
     assert r.mode == "surgical"
     assert len(r.sub_edits) == 1
     e = r.sub_edits[0]
-    assert e.op == "replace"
     assert e.old_text == "quick brown"
     assert e.new_text == "speedy tan"
 
@@ -134,7 +132,6 @@ def test_three_adjacent_words_changed_agglutinated_into_one():
     assert r.mode == "surgical"
     assert len(r.sub_edits) == 1, "consecutive changed words must merge into ONE sub-edit"
     e = r.sub_edits[0]
-    assert e.op == "replace"
     assert e.old_text == "alpha beta gamma"
     assert e.new_text == "X Y Z"
     assert apply_sub_edits(old, r.sub_edits) == new
@@ -148,7 +145,6 @@ def test_adjacent_replace_and_insert_merge_into_one():
     r = split_change(old, new, threshold=0.9)
     assert r.mode == "surgical"
     assert len(r.sub_edits) == 1
-    assert r.sub_edits[0].op == "replace"
     assert apply_sub_edits(old, r.sub_edits) == new
 
 
@@ -159,7 +155,8 @@ def test_pure_insertion_old_subset_of_new():
     assert r.mode == "surgical"
     assert len(r.sub_edits) == 1
     e = r.sub_edits[0]
-    assert e.op == "insert"
+    assert e.old_text == ""
+    assert e.old_start == e.old_end
     assert "brown" in e.new_text
     assert apply_sub_edits(old, r.sub_edits) == new
 
@@ -171,7 +168,7 @@ def test_pure_deletion():
     assert r.mode == "surgical"
     assert len(r.sub_edits) == 1
     e = r.sub_edits[0]
-    assert e.op == "delete"
+    assert e.old_start < e.old_end
     assert "brown" in e.old_text
     assert e.new_text == ""
     assert apply_sub_edits(old, r.sub_edits) == new
@@ -279,7 +276,6 @@ def test_single_token_replace_is_surgical_block_or_surgical_by_threshold():
     r2 = split_change("hello", "goodbye", threshold=1.0)
     assert r2.mode == "surgical"
     assert len(r2.sub_edits) == 1
-    assert r2.sub_edits[0].op == "replace"
     assert apply_sub_edits("hello", r2.sub_edits) == "goodbye"
 
 
@@ -349,7 +345,6 @@ def test_internal_multispace_change_reconstructs():
     e = r.sub_edits[0]
     assert e.old_text == "   "
     assert e.new_text == ""
-    assert e.op == "delete"
 
 # ---------------------------------------------------------------------------
 # reconstruction property: applying sub-edits to `old` yields `new` exactly
@@ -437,36 +432,28 @@ def test_sub_edit_op_types_are_consistent(old, new):
     if r.mode != "surgical":
         return
     for e in r.sub_edits:
-        if e.op == "insert":
-            assert e.old_text == ""
+        if e.old_text == "":
             assert e.old_start == e.old_end
-        elif e.op == "delete":
-            assert e.new_text == ""
+        elif e.new_text == "":
             assert e.old_start < e.old_end
         else:
-            assert e.op == "replace"
+            assert e.old_start < e.old_end
 
 
 @pytest.mark.parametrize("old,new", RECONSTRUCT_CASES)
 def test_op_shape_invariant_holds_in_both_modes(old, new):
-    # The op label must be consistent with the spans in BOTH block and surgical mode, so
-    # the format.py recording branch can branch on ``op`` uniformly without special-casing
-    # the whole-block edit.
     for thr in (0.0, 0.6, 1.0):
         r = split_change(old, new, threshold=thr)
         if r.mode == "block":
             assert r.sub_edits == []
         for e in r.sub_edits:
-            if e.op == "insert":
-                assert e.old_text == "" and e.old_start == e.old_end
-            elif e.op == "delete":
-                assert e.new_text == "" and e.old_start < e.old_end
+            if e.old_text == "":
+                assert e.new_text != "" and e.old_start == e.old_end
+            elif e.new_text == "":
+                assert e.old_text != "" and e.old_start < e.old_end
             else:
-                assert e.op == "replace"
                 assert e.old_text != "" and e.new_text != ""
-            # op never lies about emptiness
-            assert (e.op == "insert") == (e.old_text == "")
-            assert (e.op == "delete") == (e.new_text == "")
+                assert e.old_start < e.old_end
 
 
 # ---------------------------------------------------------------------------
@@ -474,9 +461,9 @@ def test_op_shape_invariant_holds_in_both_modes(old, new):
 # ---------------------------------------------------------------------------
 
 def test_subedit_equality():
-    a = SubEdit("replace", 0, 3, "fox", "cat")
-    b = SubEdit("replace", 0, 3, "fox", "cat")
-    c = SubEdit("delete", 0, 3, "fox", "")
+    a = SubEdit(0, 3, "fox", "cat")
+    b = SubEdit(0, 3, "fox", "cat")
+    c = SubEdit(0, 3, "fox", "")
     assert a == b
     assert a != c
 
@@ -584,7 +571,6 @@ def test_max_diff_words_caps_to_block_replacement(monkeypatch):
     assert r_mid_fits.mode == "surgical"
     assert len(r_mid_fits.sub_edits) == 1
     sub_mid = r_mid_fits.sub_edits[0]
-    assert sub_mid.op == "replace"
     assert sub_mid.old_text == "e"
     assert sub_mid.new_text == "Z"
     assert r_mid_fits.fraction_changed == pytest.approx(2 / 6)

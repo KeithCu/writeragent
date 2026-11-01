@@ -128,7 +128,6 @@ class SubEdit:
     """One surgical edit: replace ``old[old_start:old_end]`` with ``new_text``.
 
     Attributes:
-        op:         ``"replace"``, ``"insert"`` or ``"delete"``.
         old_start:  char offset into ``old`` where the affected span begins.
         old_end:    char offset into ``old`` where the affected span ends
                     (``old_start == old_end`` for a pure insertion).
@@ -140,15 +139,13 @@ class SubEdit:
     :func:`apply_sub_edits`.
     """
 
-    op: str
     old_start: int
     old_end: int
     old_text: str
     new_text: str
-    __slots__: ClassVar[tuple[str, ...]] = ("op", "old_start", "old_end", "old_text", "new_text")
+    __slots__: ClassVar[tuple[str, ...]] = ("old_start", "old_end", "old_text", "new_text")
 
-    def __init__(self, op: str, old_start: int, old_end: int, old_text: str, new_text: str) -> None:
-        self.op = op
+    def __init__(self, old_start: int, old_end: int, old_text: str, new_text: str) -> None:
         self.old_start = old_start
         self.old_end = old_end
         self.old_text = old_text
@@ -156,15 +153,14 @@ class SubEdit:
 
     def __repr__(self) -> str:
         # crosshair: off
-        return "SubEdit(%s old[%d:%d]=%r -> %r)" % (
-            self.op, self.old_start, self.old_end, self.old_text, self.new_text,
+        return "SubEdit(old[%d:%d]=%r -> %r)" % (
+            self.old_start, self.old_end, self.old_text, self.new_text,
         )
 
     def __eq__(self, other: Any) -> bool:
         # crosshair: off
         return (
             isinstance(other, SubEdit)
-            and self.op == other.op
             and self.old_start == other.old_start
             and self.old_end == other.old_end
             and self.old_text == other.old_text
@@ -227,14 +223,6 @@ def tokenize(s: str) -> list[Token]:
     return tokens
 
 
-def _classify_block_op(old: str, new: str) -> str:
-    if not old:
-        return "insert"
-    if not new:
-        return "delete"
-    return "replace"
-
-
 def _common_word_affix(old_words: list[Token], new_words: list[Token]) -> tuple[int, int]:
     # crosshair: off
     n = min(len(old_words), len(new_words))
@@ -273,14 +261,14 @@ def _opcodes_with_affix(
     return opcodes
 
 
-def _deal_split_change_ok_pytest(old: object, new: object, threshold: object = 0.6) -> bool:
+def _deal_split_change_ok_pytest(old: object, new: object, threshold: object = _DEFAULT_THRESHOLD) -> bool:
     # Selection text is longer than DEAL_MAX_SOURCE. The cap raised
     # PreContractError before the diff ran. The body accepts any text.
     # CrossHair keeps the short strings. Arguments are unused.
     return True
 
 
-def _deal_split_change_ok_crosshair(old: object, new: object, threshold: object = 0.6) -> bool:
+def _deal_split_change_ok_crosshair(old: object, new: object, threshold: object = _DEFAULT_THRESHOLD) -> bool:
     return (not isinstance(old, str) or str_bounded(old, DEAL_MAX_SOURCE)) and (
         not isinstance(new, str) or str_bounded(new, DEAL_MAX_SOURCE)
     )
@@ -289,7 +277,7 @@ def _deal_split_change_ok_crosshair(old: object, new: object, threshold: object 
 _deal_split_change_ok = _deal_split_change_ok_crosshair if UNDER_CROSSHAIR else _deal_split_change_ok_pytest
 
 
-@deal.pre(lambda old, new, threshold=0.6: _deal_split_change_ok(old, new, threshold))
+@deal.pre(lambda old, new, threshold=_DEFAULT_THRESHOLD: _deal_split_change_ok(old, new, threshold))
 @deal.post(lambda result: isinstance(result, SplitResult) and 0.0 <= result.fraction_changed <= 1.0)
 def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> SplitResult:
     """Decide block-vs-surgical and compute the edits to turn *old* into *new*.
@@ -351,8 +339,7 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
     # threshold <= 0 means "never split -- always land as ONE block": any actual change then goes
     # block, including a whitespace-only edit whose word-fraction is 0.0. old == new is still
     # a no-op (handled by the surgical path returning zero sub-edits below).
-    force_block = threshold <= 0.0 and old != new
-    if force_block or fraction > threshold:
+    if threshold <= 0.0 or fraction > threshold:
         return SplitResult("block", fraction, [])
 
     # --- surgical path ---------------------------------------------------------
@@ -436,7 +423,4 @@ def _emit_segment(out: list[SubEdit], old: str, new: str, old_lo: int, old_hi: i
     old_seg = old[old_lo:old_hi]
     new_seg = new[new_lo:new_hi]
 
-    if not old_seg and not new_seg:
-        return
-    op = _classify_block_op(old_seg, new_seg)
-    out.append(SubEdit(op, old_lo, old_hi, old_seg, new_seg))
+    out.append(SubEdit(old_lo, old_hi, old_seg, new_seg))
