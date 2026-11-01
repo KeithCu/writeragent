@@ -141,8 +141,7 @@ def _grow_over_edge_space(found: Any, separator: int) -> Any:
 _ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
-def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
-    """Result fields when an empty replacement removed the table, not just its text."""
+def _table_deletion_parts(names: list[str], tracked: bool) -> tuple[str, str | list[str]]:
     label = ", ".join("'%s'" % name for name in names)
     if tracked:
         message = (
@@ -154,28 +153,20 @@ def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
         message = "Table %s deleted." % label
     else:
         message = "Tables deleted: %s." % label
+    return message, names[0] if len(names) == 1 else names
+
+
+def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
+    """Result fields when an empty replacement removed the table, not just its text."""
+    message, table_deleted = _table_deletion_parts(names, tracked)
     result: dict[str, Any] = {
         "status": "ok",
         "message": message,
-        "table_deleted": names[0] if len(names) == 1 else names,
+        "table_deleted": table_deleted,
     }
     if tracked:
         result["pending_review"] = True
     return result
-
-
-def _attach_table_deletion(resp: dict[str, Any], names: list[str], tracked: bool) -> dict[str, Any]:
-    """Add a table deletion onto a response that also replaced other text."""
-    extra = _table_deletion_result(names, tracked)
-    resp["table_deleted"] = extra["table_deleted"]
-    if tracked:
-        resp["pending_review"] = True
-    resp["message"] = (resp.get("message") or "").rstrip() + " " + extra["message"]
-    return resp
-
-
-# uno_probe default for sites where None is a real UNO result.
-_FAILED: Any = object()
 
 
 def _table_from_range(found: Any) -> Any:
@@ -183,12 +174,12 @@ def _table_from_range(found: Any) -> Any:
     return uno_probe(lambda: found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable"), None)
 
 
-def range_table_name(found: Any) -> str | None:
-    """Table name for a search match, or None when the match is not in a cell."""
+def _table_and_name(found: Any) -> tuple[Any, str | None]:
+    """The TextTable and name for a search match, or (None, None) when not in a cell."""
     table = _table_from_range(found)
     if table is None:
-        return None
-    return uno_probe(lambda: str(table.getName() or ""), "") or None
+        return None, None
+    return table, uno_probe(lambda: str(table.getName() or ""), "") or None
 
 
 def _range_in_cell(found: Any, cell: Any) -> bool:
@@ -228,8 +219,8 @@ def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
         return False
 
     for cell_name in cell_names:
-        cell = uno_probe(lambda: table.getCellByName(cell_name), _FAILED)
-        if cell is _FAILED or _cell_hosted_table_names(cell):
+        cell = uno_probe(lambda: table.getCellByName(cell_name), None)
+        if cell is None or _cell_hosted_table_names(cell):
             return False
         # Raw text, pending deletions included: a cell that still holds a pending change is
         # not an empty shell, so an empty replacement must not delete the whole table.
@@ -259,10 +250,7 @@ def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tu
         return []
     grouped: dict[str, tuple[Any, list[Any]]] = {}
     for found in ranges:
-        table = _table_from_range(found)
-        if table is None:
-            continue
-        name = uno_probe(lambda: str(table.getName() or ""), "")
+        table, name = _table_and_name(found)
         if not name:
             continue
         if name not in grouped:
@@ -356,17 +344,9 @@ def build_search_replace_response(
 def _find_ranges(
     doc: Any, pattern: str, regex: bool, cs: bool, use_opts: bool, normalized: str, *, all_matches: bool
 ) -> Any:
-    if all_matches:
-        return (
-            search_mod.find_ranges_regex_case(doc, pattern, regex, cs, all_matches=True)
-            if use_opts
-            else search_mod.find_all_ranges(doc, normalized)
-        )
-    return (
-        search_mod.find_ranges_regex_case(doc, pattern, regex, cs, all_matches=False)
-        if use_opts
-        else search_mod.find_first_range(doc, normalized)
-    )
+    if use_opts:
+        return search_mod.find_ranges_regex_case(doc, pattern, regex, cs, all_matches=all_matches)  # type: ignore[call-overload]
+    return (search_mod.find_all_ranges if all_matches else search_mod.find_first_range)(doc, normalized)
 
 
 # ------------------------------------------------------------------
@@ -418,6 +398,14 @@ def _search_options(
     cs = bool(case) if case is not None else False
     rex_err = search_mod.validate_regex_pattern(old_stripped) if regex else None
     return regex, use_opts, cs, pattern, rex_err
+
+
+def _link_report_fields(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "hyperlink_url": report["hyperlink_url"],
+        "hyperlink_url_after": report["hyperlink_url_after"],
+        "hyperlink_updated": report["hyperlink_updated"],
+    }
 
 
 class ApplyDocumentContent(ToolBase):
@@ -498,6 +486,27 @@ class ApplyDocumentContent(ToolBase):
     is_mutation: bool | None = True
 
     @staticmethod
+    def _position_choice(kwargs: Any) -> tuple[str, str | None]:
+        position = str(kwargs.get("position") or "replace").strip().lower()
+        if position not in ("replace", "before", "after"):
+            return position, "position must be 'replace', 'before' or 'after'."
+        return position, None
+
+    @staticmethod
+    def _override_not_replace(override: Any, position: str) -> str | None:
+        if override and position != "replace":
+            return "hyperlink_url only applies to position='replace'."
+        return None
+
+    def _invalid_regex(self, rex_err: str) -> dict[str, Any]:
+        return self._tool_error(search_mod.invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
+
+    def _table_insert_error(self, doc: Any, has_table: bool, before: int | None) -> dict[str, Any] | None:
+        if has_table and _table_insert_failed(doc, before):
+            return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
+        return None
+
+    @staticmethod
     def _parse_occurrence(kwargs: Any, target: str) -> tuple[int | None, str | None]:
         """Validate optional 0-based search occurrence selector."""
         raw = kwargs.get("occurrence")
@@ -513,9 +522,7 @@ class ApplyDocumentContent(ToolBase):
     def _parse_hyperlink_url(kwargs: Any) -> tuple[str | None, str | None]:
         """Explicit outline-target override. None means use substitution when it applies."""
         raw = kwargs.get("hyperlink_url")
-        if raw is None:
-            return None, None
-        if not raw.strip():
+        if not raw or not raw.strip():
             return None, None
         if kwargs.get("all_matches", False):
             return None, "hyperlink_url cannot be combined with all_matches=true."
@@ -585,11 +592,7 @@ class ApplyDocumentContent(ToolBase):
         reports = public_hyperlink_reports(plans)
         if not reports:
             return {}, None
-        fields = {
-            "hyperlink_url": reports[0]["hyperlink_url"],
-            "hyperlink_url_after": reports[0]["hyperlink_url_after"],
-            "hyperlink_updated": reports[0]["hyperlink_updated"],
-        }
+        fields = _link_report_fields(reports[0])
         if len(reports) > 1:
             fields["hyperlinks"] = reports
         return fields, None
@@ -599,9 +602,7 @@ class ApplyDocumentContent(ToolBase):
             return resp
         resp["hyperlinks"] = reports
         if len(reports) == 1:
-            resp["hyperlink_url"] = reports[0]["hyperlink_url"]
-            resp["hyperlink_url_after"] = reports[0]["hyperlink_url_after"]
-            resp["hyperlink_updated"] = reports[0]["hyperlink_updated"]
+            resp.update(_link_report_fields(reports[0]))
         return resp
 
     def _outline_undo(self, doc: Any, session: EditReviewSession, run: Any) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
@@ -840,13 +841,12 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error(override_error, code="INVALID_PARAM")
         # Same position guard as execute. before/after insert beside the match and
         # leave its outline URL alone, so a preview must not say the target will change.
-        position = str(kwargs.get("position") or "replace").strip().lower()
-        if position not in ("replace", "before", "after"):
-            return self._tool_error("position must be 'replace', 'before' or 'after'.")
-        if override and position != "replace":
-            return self._tool_error(
-                "hyperlink_url only applies to position='replace'.",
-                code="INVALID_PARAM")
+        position, pos_err = self._position_choice(kwargs)
+        if pos_err:
+            return self._tool_error(pos_err)
+        override_err = self._override_not_replace(override, position)
+        if override_err:
+            return self._tool_error(override_err, code="INVALID_PARAM")
         rewrites_outline = position == "replace"
         edit_idx = 0 if occurrence is None else occurrence
         from . import format as format_support
@@ -858,7 +858,7 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error("old_content is empty after normalization.")
         regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, s)
         if rex_err:
-            return self._tool_error(search_mod.invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
+            return self._invalid_regex(rex_err)
         try:
             ranges = _find_ranges(ctx.doc, pattern, regex, cs, use_opts, s, all_matches=True)
         except ValueError as e:
@@ -1076,9 +1076,9 @@ class ApplyDocumentContent(ToolBase):
 
         # position is a search-only refinement; validate it up front (silently ignoring it on an
         # insert target would teach the model a parameter that "works" by accident).
-        position = str(kwargs.get("position") or "replace").strip().lower()
-        if position not in ("replace", "before", "after"):
-            return self._tool_error("position must be 'replace', 'before' or 'after'."), None
+        position, pos_err = self._position_choice(kwargs)
+        if pos_err:
+            return self._tool_error(pos_err), None
         if position != "replace" and target != "search":
             return self._tool_error(
                 "position='before'/'after' requires target='search' (it inserts next to an old_content match)."), None
@@ -1167,8 +1167,9 @@ class ApplyDocumentContent(ToolBase):
                     session, ctx.doc,
                     lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
                     proposed_preview=_plain_preview(content))
-            if has_table and _table_insert_failed(ctx.doc, None):
-                return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
+            err = self._table_insert_error(ctx.doc, has_table, None)
+            if err:
+                return err, session
             return {"status": "ok", "message": "Replaced entire document."}, session
         if target in ("end", "beginning"):
             session = _open_session()
@@ -1177,8 +1178,9 @@ class ApplyDocumentContent(ToolBase):
                 session.record_mutation(
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
                     proposed_preview=_plain_preview(content))
-            if has_table and _table_insert_failed(ctx.doc, tables_before):
-                return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
+            err = self._table_insert_error(ctx.doc, has_table, tables_before)
+            if err:
+                return err, session
             endpoints = {
                 "end": ("Inserted content at end.", ctx.doc.getText().getEnd),
                 "beginning": ("Inserted content at beginning.", ctx.doc.getText().getStart),
@@ -1199,8 +1201,9 @@ class ApplyDocumentContent(ToolBase):
                     session, ctx.doc,
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
                     proposed_preview=_plain_preview(content))
-            if has_table and _table_insert_failed(ctx.doc, tables_before):
-                return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
+            err = self._table_insert_error(ctx.doc, has_table, tables_before)
+            if err:
+                return err, session
             return attach_edited_context(
                 {"status": "ok", "message": "Inserted content at selection."}, anchor), session
 
@@ -1231,16 +1234,13 @@ class ApplyDocumentContent(ToolBase):
         override, override_error = self._parse_hyperlink_url(kwargs)
         if override_error:
             return self._tool_error(override_error, code="INVALID_PARAM"), None
-        if override and position != "replace":
-            return self._tool_error(
-                "hyperlink_url only applies to position='replace'.",
-                code="INVALID_PARAM"), None
+        override_err = self._override_not_replace(override, position)
+        if override_err:
+            return self._tool_error(override_err, code="INVALID_PARAM"), None
 
         regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
         if rex_err:
-            return self._tool_error(
-                search_mod.invalid_regex_tool_message(rex_err),
-                code="INVALID_REGEX", count=0), None
+            return self._invalid_regex(rex_err), None
 
         session = _open_session()
         doc = ctx.doc
@@ -1265,7 +1265,7 @@ class ApplyDocumentContent(ToolBase):
             doomed = writer_tables_emptied_by_matches(list(ranges), content)
             doomed_names = {name for _table, name in doomed}
             if doomed_names:
-                anchor_range = next((item for item in ranges if range_table_name(item) not in doomed_names), None)
+                anchor_range = next((item for item in ranges if _table_and_name(item)[1] not in doomed_names), None)
                 anchor = collapsed_anchor(anchor_range) if anchor_range is not None else None
             else:
                 anchor = collapsed_anchor(ranges[0])
@@ -1294,7 +1294,7 @@ class ApplyDocumentContent(ToolBase):
             try:
                 with session:
                     for found in reversed(ranges):
-                        if doomed_names and range_table_name(found) in doomed_names:
+                        if doomed_names and _table_and_name(found)[1] in doomed_names:
                             continue
                         found = _grow_over_edge_space(found, separator)
                         # batch=True: this loop already holds the undo context, so the
@@ -1350,7 +1350,10 @@ class ApplyDocumentContent(ToolBase):
                 if count > 1:
                     resp["message"] += " edited_context shows the first occurrence's neighborhood."
                 if doomed:
-                    _attach_table_deletion(resp, [name for _table, name in doomed], tracked_delete)
+                    del_msg, resp["table_deleted"] = _table_deletion_parts([name for _table, name in doomed], tracked_delete)
+                    if tracked_delete:
+                        resp["pending_review"] = True
+                    resp["message"] = (resp.get("message") or "").rstrip() + " " + del_msg
             self._attach_hyperlink_reports(resp, link_reports)
             return attach_edited_context(resp, anchor), session
         if occurrence is not None:
@@ -1445,7 +1448,7 @@ class ApplyDocumentContent(ToolBase):
                                 leftover.setString("")
                             else:
                                 leftover.collapseToEnd()
-                if has_table and _table_insert_failed(doc, tables_before):
+                if self._table_insert_error(doc, has_table, tables_before):
                     raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 
             anchor = collapsed_anchor(found)
@@ -1502,7 +1505,8 @@ class ApplyDocumentContent(ToolBase):
         resp = build_search_replace_response(1, use_preserve=use_preserve)
         if occurrence is not None:
             resp["occurrence"] = occurrence
-        if has_table and _table_insert_failed(doc, tables_before):
-            return self._tool_error(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED"), session
+        err = self._table_insert_error(doc, has_table, tables_before)
+        if err:
+            return err, session
         self._attach_hyperlink_reports(resp, reports or [])
         return attach_edited_context(resp, anchor), session
