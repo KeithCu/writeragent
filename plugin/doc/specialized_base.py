@@ -123,7 +123,6 @@ class DelegateToSpecializedBase(ToolBase):
         self._domains: list[str] = sorted({
             e["domain"]
             for e in _catalog_entries_from_base(
-                self._special_base_class,
                 agent_label=self._agent_label,
                 ctx=None,
                 for_discovery=False,

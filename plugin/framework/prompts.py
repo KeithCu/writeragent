@@ -575,22 +575,22 @@ CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
 )
 
 
-# Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]).
-CALC_PYTHON_DATA_SHAPE_LLM_HINT = "`data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows → TypeError int+list)."
-
 from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
 
 _COMPACT_VENV_POLICY = format_venv_import_policy_for_prompt(compact=True)
 PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = _COMPACT_VENV_POLICY + " "
-CALC_FORMULA_SYNTAX = f"""FORMULA SYNTAX: LibreOffice formulas use semicolon (;) between arguments, not comma.
+CALC_FORMULA_SYNTAX = (
+    f"""FORMULA SYNTAX: LibreOffice formulas use semicolon (;) between arguments, not comma.
 Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1), =PY("result = …"; Orders.A1:H500)
 - Wrong: =IF(A1>0,"Yes","No"), Orders!A1
 - =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
 {_COMPACT_VENV_POLICY}
 - Example: =PY("result = np.sum(data)"; Orders.A1:H500).
-- For tables with headers, use data.to_pandas() instead of pd.DataFrame(data) so row 0 becomes column headers rather than synthetic numeric columns (0..N).
-- {CALC_PYTHON_DATA_SHAPE_LLM_HINT}"""
+- For tables with headers, use data.to_pandas() instead of pd.DataFrame(data) so row 0 becomes column headers rather than synthetic numeric columns (0..N).\n"""
+    # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]).
+    "- `data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows → TypeError int+list)."
+)
 
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
 Do not explain, do the operation directly using tools. Perform as many steps as needed in one turn when possible.
@@ -670,12 +670,6 @@ PEER_OUTER_DELEGATE_HINT = (
 _PEER_WAIT_OUTCOME_MARKERS = ("waiting for a peer reply", "waiting for peer", "peer message was sent", "message sent to the peer", '"accepted": true', "'accepted': true", "accepted: true")
 
 
-def looks_like_peer_wait_outcome(text: str) -> bool:
-    """True when specialize/research text means a peer ask was accepted or is pending."""
-    blob = (text or "").lower()
-    return any(marker in blob for marker in _PEER_WAIT_OUTCOME_MARKERS)
-
-
 # Outer must keep going after a nested specialize on a Peer-work receiving turn.
 # ranges/sheets/charts/… finishing (or document_research without send_peer_result)
 # is local work only — not peer delivery.
@@ -710,7 +704,8 @@ def annotate_outer_peer_wait(payload: dict[str, Any], *, peer_send_invoked: bool
     if payload.get("status") != "ok":
         return payload
     blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer"))
-    if not (peer_send_invoked or looks_like_peer_wait_outcome(blob)):
+    blob_lower = blob.lower()
+    if not (peer_send_invoked or any(marker in blob_lower for marker in _PEER_WAIT_OUTCOME_MARKERS)):
         return payload
     if PEER_OUTER_IDLE_AFTER_SEND in blob:
         return payload
@@ -849,14 +844,10 @@ def _agent_for_model(model: Any) -> str:
     return "Writer"
 
 
-def peer_outer_delegate_tool_name(model: Any) -> str:
-    """Writer / Calc / Draw specialized gateway used for document_research peer work."""
-    return f"delegate_to_specialized_{_agent_for_model(model).lower()}_toolset"
-
-
 def format_peer_outer_delegate_hint(model: Any) -> str:
     """Outer DO+why with the matching specialized gateway name."""
-    return PEER_OUTER_DELEGATE_HINT.format(delegate=peer_outer_delegate_tool_name(model))
+    delegate = f"delegate_to_specialized_{_agent_for_model(model).lower()}_toolset"
+    return PEER_OUTER_DELEGATE_HINT.format(delegate=delegate)
 
 
 def _peer_block_on_main_thread(build: Any, fail_log: str) -> str:
@@ -921,7 +912,7 @@ def get_core_directives_for_type(doc_type: str | None) -> str:
     return WRITER_CORE_DIRECTIVES
 
 
-def _catalog_entries_from_base(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
+def _catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
 
     ``for_discovery`` skips the exclusions that only shape a chat prompt. CALC_HIDDEN_SPECIALIZED_
@@ -930,6 +921,7 @@ def _catalog_entries_from_base(base_cls: Any, *, agent_label: str | None = None,
     undiscoverable at once. The sidebar-only domains stay excluded either way: the flat tool list
     drops them too, so both modes agree without help.
     """
+    base_cls = _special_base(agent_label)
     entries: list[dict[str, str]] = []
     for cls in base_cls.__subclasses__():
         domain = getattr(cls, "specialized_domain", None)
@@ -951,7 +943,7 @@ def _catalog_entries_from_base(base_cls: Any, *, agent_label: str | None = None,
     return entries
 
 
-def _special_base(agent_label: str) -> Any:
+def _special_base(agent_label: str | None) -> Any:
     if agent_label == "Calc":
         from plugin.calc.base import ToolCalcSpecialBase
         return ToolCalcSpecialBase
@@ -977,7 +969,7 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     # for_discovery must be forwarded. python is hidden on Calc chat only.
     for label in labels:
         for entry in _catalog_entries_from_base(
-            _special_base(label), agent_label=label, ctx=ctx, for_discovery=for_discovery,
+            agent_label=label, ctx=ctx, for_discovery=for_discovery,
         ):
             dom = entry["domain"]
             desc = entry["description"]
@@ -986,10 +978,10 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 
 
-def _get_specialized_domains_str(base_cls: Any, *, agent_label: str | None = None, ctx: Any = None) -> str:
+def _get_specialized_domains_str(*, agent_label: str | None = None, ctx: Any = None) -> str:
     """Build a compact domain list for delegation hints and MCP schemas."""
     parts = []
-    for entry in sorted(_catalog_entries_from_base(base_cls, agent_label=agent_label, ctx=ctx), key=lambda e: e["domain"]):
+    for entry in sorted(_catalog_entries_from_base(agent_label=agent_label, ctx=ctx), key=lambda e: e["domain"]):
         if entry["description"]:
             parts.append(f"{entry['domain']}: {entry['description']}")
         else:
@@ -997,17 +989,9 @@ def _get_specialized_domains_str(base_cls: Any, *, agent_label: str | None = Non
     return "; ".join(parts)
 
 
-def _specialized_delegation_template_for_label(agent_label: str) -> str:
-    if agent_label == "Calc":
-        return CALC_SPECIALIZED_DELEGATION_TEMPLATE
-    if agent_label == "Draw":
-        return DRAW_SPECIALIZED_DELEGATION_TEMPLATE
-    return WRITER_SPECIALIZED_DELEGATION_TEMPLATE
-
-
-def format_specialized_domains_description(special_base_class: Any, *, agent_label: str | None = None, ctx: Any = None) -> str:
+def format_specialized_domains_description(*, agent_label: str | None = None, ctx: Any = None) -> str:
     """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
-    domains = _get_specialized_domains_str(special_base_class, agent_label=agent_label, ctx=ctx)
+    domains = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx)
     if not domains:
         return "The specialized domain to activate."
     # Compact form for the enum property description to reduce bloat in MCP schema
@@ -1015,10 +999,13 @@ def format_specialized_domains_description(special_base_class: Any, *, agent_lab
     return f"domain one of: {compact}"
 
 
-def get_specialized_delegation_tool_hint(special_base_class: Any, agent_label: str, *, ctx: Any = None) -> str:
+def get_specialized_delegation_tool_hint(agent_label: str, *, ctx: Any = None) -> str:
     """Full specialized-delegation guidance (sidebar system prompt and MCP ``tools/list``)."""
-    domains_str = _get_specialized_domains_str(special_base_class, agent_label=agent_label, ctx=ctx)
-    template = _specialized_delegation_template_for_label(agent_label)
+    domains_str = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx)
+    template = {
+        "Calc": CALC_SPECIALIZED_DELEGATION_TEMPLATE,
+        "Draw": DRAW_SPECIALIZED_DELEGATION_TEMPLATE,
+    }.get(agent_label, WRITER_SPECIALIZED_DELEGATION_TEMPLATE)
     return template.format(domains=domains_str)
 
 
@@ -1163,17 +1150,18 @@ def _append_additional_instructions(base: str, additional_instructions: str) -> 
     return base + _profile_data_block("[ADDITIONAL INSTRUCTIONS — profile data]", text)
 
 
-def _assemble_chat_prompt(label: str, delegation: str) -> str:
+def _assemble_chat_prompt(agent: str, ctx: Any = None) -> str:
     """Writer / Calc / Draw role template, delegation, and response format.
 
     Vision, peer, memory, and humanizer stay with the document caller.
     """
-    if label == "calc":
-        template, core = DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE, CALC_CORE_DIRECTIVES
-    elif label == "draw":
-        template, core = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE, DRAW_CORE_DIRECTIVES
-    else:
-        template, core = DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE, WRITER_CORE_DIRECTIVES
+    label = agent.lower()
+    template = {
+        "calc": DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE,
+        "draw": DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE,
+    }.get(label, DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE)
+    core = get_core_directives_for_type(label)
+    delegation = get_specialized_delegation_tool_hint(agent, ctx=ctx)
     base = template.replace("{specialized_delegation}", delegation).replace("{core_directives}", core)
     if label == "draw":
         base = _apply_draw_get_image_tool_line(base)
@@ -1192,8 +1180,7 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
     from plugin.doc.doc_type import agent_label_for_doc_type
 
     agent = agent_label_for_doc_type(kind) or "Writer"
-    delegation = get_specialized_delegation_tool_hint(_special_base(agent), agent, ctx=ctx)
-    base = _assemble_chat_prompt(agent.lower(), delegation)
+    base = _assemble_chat_prompt(agent, ctx=ctx)
     return _append_additional_instructions(base, additional_instructions) + tts_short_answers_prompt_suffix()
 
 
@@ -1215,8 +1202,7 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.
     Callers must pass the document that is being chatted about."""
     agent = _agent_for_model(model)
-    delegation = get_specialized_delegation_tool_hint(_special_base(agent), agent, ctx=ctx)
-    base = _assemble_chat_prompt(agent.lower(), delegation)
+    base = _assemble_chat_prompt(agent, ctx=ctx)
 
     vision_directive = get_vision_core_directive(model, ctx)
     if vision_directive:
