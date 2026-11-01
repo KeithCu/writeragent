@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import dataclasses
 from enum import Enum, StrEnum, auto
-from typing import Any, Dict, List, Optional, NamedTuple, assert_never, cast
+from typing import Any, Dict, List, Optional, NamedTuple, TypeVar, assert_never, cast
 
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
 from plugin.framework.deal_shim import deal
@@ -51,9 +51,6 @@ def pending_tool_call_args(tc: object) -> dict[str, Any]:
     # crosshair: off
     tc_dict = object_dict_or_empty(tc)
     parsed = tc_dict.get("parsed_args")
-    if parsed is None:
-        func_data = object_dict_or_empty(tc_dict.get("function"))
-        parsed = func_data.get("parsed_args")
     assert isinstance(parsed, dict), f"Pre-parsed arguments missing from pending tool call: {tc!r}"
     return parsed
 
@@ -237,6 +234,25 @@ def _transition_invariants(state: ToolLoopState, event: ToolLoopEvent, result: F
     return stopped_effects_exclude_tool_spawns(result.state, result.effects)
 
 
+_TRUNCATION_BANNERS: dict[str, str] = {
+    "length": "[Response truncated -- the model ran out of tokens...]",
+    "content_filter": "[Content filter: response was truncated.]",
+}
+
+_T = TypeVar("_T")
+
+
+def _field(data: dict[str, Any], key: str, typ: type[_T], default: _T) -> _T:
+    val = data.get(key)
+    return val if isinstance(val, typ) else default
+
+
+def _ready_transition(state: ToolLoopState, effects: List[Any]) -> FsmTransition[ToolLoopState]:
+    effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Ready"))
+    effects.append(ExitLoopEffect())
+    return FsmTransition(dataclasses.replace(state, status="Ready"), effects)
+
+
 # --- State Machine Transition ---
 @deal.pre(lambda state, event: isinstance(state.max_rounds, int) and state.max_rounds > 0 and state.round_num >= 0)
 @deal.ensure(_transition_invariants)
@@ -268,9 +284,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                     )
                 )
                 effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n"))
-            effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Ready"))
-            effects.append(ExitLoopEffect())
-            return FsmTransition(dataclasses.replace(state, status="Ready"), effects)
+            return _ready_transition(state, effects)
 
         case EventKind.ERROR:
             # The caller handles rendering the actual error message
@@ -324,14 +338,8 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                         )
                     )
                     effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n"))
-                elif finish_reason == "length":
-                    # Session must get this banner. Otherwise finalize still sees the
-                    # previous HTML assistant and pastes it over the new turn.
-                    banner = "[Response truncated -- the model ran out of tokens...]"
-                    effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n" + banner + "\n"))
-                    effects.append(AddMessageEffect(role=MessageRole.ASSISTANT, content=banner))
-                elif finish_reason == "content_filter":
-                    banner = "[Content filter: response was truncated.]"
+                elif finish_reason in _TRUNCATION_BANNERS:
+                    banner = _TRUNCATION_BANNERS[finish_reason]
                     effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="\n" + banner + "\n"))
                     effects.append(AddMessageEffect(role=MessageRole.ASSISTANT, content=banner))
                 else:
@@ -352,9 +360,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                         )
                     )
 
-                effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Ready"))
-                effects.append(ExitLoopEffect())
-                return FsmTransition(dataclasses.replace(state, status="Ready"), effects)
+                return _ready_transition(state, effects)
 
             else:
                 # Some providers send tool calls with no id. The tool reply must
@@ -448,21 +454,15 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
 
         case EventKind.TOOL_RESULT:
             # Unpack tool result fields explicitly without assuming non-None values.
-            raw_result = event_data.get("result")
-            result = raw_result if isinstance(raw_result, str) else ""
+            result = _field(event_data, "result", str, "")
             raw_func_name = event_data.get("func_name")
             func_name = raw_func_name if isinstance(raw_func_name, str) and raw_func_name.strip() else "unknown"
-            raw_func_args_str = event_data.get("func_args_str")
-            func_args_str = raw_func_args_str if isinstance(raw_func_args_str, str) else ""
-            raw_call_id = event_data.get("call_id")
-            call_id = raw_call_id if isinstance(raw_call_id, str) else ""
+            func_args_str = _field(event_data, "func_args_str", str, "")
+            call_id = _field(event_data, "call_id", str, "")
             mutates_document = bool(event_data.get("mutates_document", False))
 
-            raw_result_data = event_data.get("result_data")
-            result_data = raw_result_data if isinstance(raw_result_data, dict) else {}
-
-            raw_func_args = event_data.get("func_args")
-            func_args = raw_func_args if isinstance(raw_func_args, dict) else {}
+            result_data = _field(event_data, "result_data", dict, {})
+            func_args = _field(event_data, "func_args", dict, {})
 
             effects.append(ToolLoopUIEffect(kind=UIEffectKind.DEBUG, text=f"Tool result: {result}"))
             effects.append(

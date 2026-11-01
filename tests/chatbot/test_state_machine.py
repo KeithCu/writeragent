@@ -29,7 +29,6 @@ class TestSendHandlerStateMachine:
         new_state, effects = step.state, step.effects
 
         assert new_state.status == "starting"
-        assert new_state.query_text == "draw a cat"
         assert any(isinstance(e, SpawnDirectImageEffect) for e in effects)
         assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "status" for e in effects)
         assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "append" for e in effects)
@@ -42,7 +41,6 @@ class TestSendHandlerStateMachine:
         new_state, effects = step.state, step.effects
 
         assert new_state.status == "starting"
-        assert new_state.query_text == "search python"
         assert any(isinstance(e, SpawnWebWorkerEffect) for e in effects)
         assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "status" for e in effects)
         assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "append" for e in effects)
@@ -91,14 +89,13 @@ class TestSendHandlerStateMachine:
         assert effects[1].terminal_status == "Stopped"
 
     def test_stream_chunk(self):
-        state = SendHandlerState(handler_type="image", status="running", query_text="cat")
+        state = SendHandlerState(handler_type="image", status="running")
         event = StreamChunkEvent(chunk_text="test data")
 
         step = next_state(state, event)
         new_state, effects = step.state, step.effects
 
         assert new_state.status == "running" # Unchanged
-        assert new_state.query_text == "cat"
         assert len(effects) == 1
         assert isinstance(effects[0], SendHandlerUIEffect)
         assert effects[0].kind == "append"
@@ -106,14 +103,12 @@ class TestSendHandlerStateMachine:
 
     def test_error_event(self):
         state = SendHandlerState(handler_type="web", status="running")
-        event = ErrorEvent(error=Exception("Network failure"), error_time=123.45)
+        event = ErrorEvent(error=Exception("Network failure"))
 
         step = next_state(state, event)
         new_state, effects = step.state, step.effects
 
         assert new_state.status == "error"
-        assert new_state.last_error == "Network failure"
-        assert new_state.error_time == 123.45
         assert len(effects) == 3
         assert isinstance(effects[0], SendHandlerUIEffect)
         assert effects[0].kind == "status"
@@ -125,21 +120,14 @@ class TestSendHandlerStateMachine:
         assert isinstance(effects[2], CompleteJobEffect)
         assert effects[2].terminal_status == "Error"
 
-    def test_error_event_without_error_time_stays_none(self):
-        state = SendHandlerState(handler_type="web", status="running")
-        event = ErrorEvent(error=Exception("Network failure"))
-        step = next_state(state, event)
-        assert step.state.error_time is None
-
     def test_terminal_error_state(self):
-        state = SendHandlerState(handler_type="web", status="error", last_error="Network failure")
+        state = SendHandlerState(handler_type="web", status="error")
         event = StreamChunkEvent(chunk_text="test data")
 
         step = next_state(state, event)
         new_state, effects = step.state, step.effects
 
         assert new_state.status == "error"
-        assert new_state.last_error == "Network failure"
         assert len(effects) == 0
 
     def test_stream_done_marks_ready(self):
@@ -167,21 +155,18 @@ class TestSendHandlerStateMachine:
         state = SendHandlerState(handler_type="web", status="done")
         step = next_state(state, StopRequestedEvent())
         assert step.state.status == "done"
-        assert step.state.last_error is None
         assert step.effects == []
 
     def test_stop_after_stopped_is_noop(self):
         state = SendHandlerState(handler_type="web", status="stopped")
         step = next_state(state, StopRequestedEvent())
         assert step.state.status == "stopped"
-        assert step.state.last_error is None
         assert step.effects == []
 
     def test_error_after_done_is_noop(self):
         state = SendHandlerState(handler_type="web", status="done")
         step = next_state(state, ErrorEvent(error=Exception("late")))
         assert step.state.status == "done"
-        assert step.state.last_error is None
         assert step.effects == []
 
     def test_stream_done_unknown_handler_type_emits_ready(self):
