@@ -40,6 +40,13 @@ _SAVE_LISTENERS: dict[str, _BookmarkSaveListener] = {}
 _ACTIVE_SAVE_HOOK_KEYS: set[str] = set()
 
 
+def _read_was_modified(doc: Any) -> bool | None:
+    try:
+        return bool(doc.isModified())
+    except Exception:
+        return None
+
+
 class _PendingStrip:
     names: dict[int, str]
     was_modified: bool | None
@@ -136,11 +143,7 @@ class BookmarkService(ServiceBase):
         asked for the heading tree would see "Save changes?" and Ctrl+Z
         would undo a bookmark instead of their last edit.
         """
-        was: bool | None = None
-        try:
-            was = bool(doc.isModified())
-        except Exception:
-            was = None
+        was: bool | None = _read_was_modified(doc)
         manager = None
         try:
             manager = doc.getUndoManager()
@@ -167,24 +170,16 @@ class BookmarkService(ServiceBase):
                     log.debug("BookmarkService: setModified(%s) failed", was, exc_info=True)
 
     def _read_mcp_bookmark_map_and_names(
-        self, doc: Any, para_ranges: list[Any] | None = None, strict: bool = False
+        self, doc: Any, para_ranges: list[Any] | None = None
     ) -> tuple[dict[int, str], list[str]]:
-        """Return ({para_index: bookmark_name}, all_bookmark_names).
-
-        A failed read returns ({}, []) unless *strict*; callers reading strictly
-        abort without modifying locators.
-        """
+        """Return ({para_index: bookmark_name}, mcp_bookmark_names)."""
         result: dict[int, str] = {}
-        names_list: list[str] = []
         try:
             bookmarks = doc.getBookmarks()
             names = bookmarks.getElementNames()
-            if not names:
-                return result, names_list
-            names_list = [n for n in names if isinstance(n, str)]
-            mcp_names = [n for n in names_list if n.startswith("_mcp_")]
+            mcp_names = [n for n in names if isinstance(n, str) and n.startswith("_mcp_")] if names else []
             if not mcp_names:
-                return result, names_list
+                return result, []
             if para_ranges is None:
                 para_ranges = get_paragraph_ranges(doc)
             from plugin.doc.paragraph_search import paragraph_entries
@@ -205,11 +200,9 @@ class BookmarkService(ServiceBase):
         except Exception as exc:
             reraise_if_disposed(exc)
             log.exception("Failed to get MCP bookmark map")
-            if not strict:
-                return {}, []
             raise
 
-        return result, names_list
+        return result, mcp_names
 
     def get_mcp_bookmark_map(
         self, doc: Any, para_ranges: list[Any] | None = None
@@ -218,8 +211,12 @@ class BookmarkService(ServiceBase):
 
         A failed read returns {}.
         """
-        bm_map, _ = self._read_mcp_bookmark_map_and_names(doc, para_ranges=para_ranges, strict=False)
-        return bm_map
+        try:
+            bm_map, _ = self._read_mcp_bookmark_map_and_names(doc, para_ranges=para_ranges)
+            return bm_map
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            return {}
 
     def ensure_heading_bookmarks(
         self,
@@ -233,13 +230,14 @@ class BookmarkService(ServiceBase):
         Demoting a heading used to leave the point mark in the document forever.
         """
         key = self._doc_key(doc)
-        if key not in _ACTIVE_SAVE_HOOK_KEYS:
+        in_hook = key in _ACTIVE_SAVE_HOOK_KEYS
+        if not in_hook:
             self._restore_abandoned(doc)
         try:
             if para_ranges is None:
                 para_ranges = get_paragraph_ranges(doc)
-            existing_map, all_names = self._read_mcp_bookmark_map_and_names(
-                doc, para_ranges=para_ranges, strict=True
+            existing_map, mcp_names = self._read_mcp_bookmark_map_and_names(
+                doc, para_ranges=para_ranges
             )
         except Exception as exc:
             reraise_if_disposed(exc)
@@ -273,7 +271,7 @@ class BookmarkService(ServiceBase):
         # Names already on a current heading. New inserts are not in the
         # document yet, so they cannot appear in this stale list.
         kept = set(bookmark_map.values())
-        stale = [n for n in all_names if n.startswith("_mcp_") and n not in kept] if key not in _ACTIVE_SAVE_HOOK_KEYS else []
+        stale = [] if in_hook else [n for n in mcp_names if n not in kept]
 
         if needs_bookmark or stale:
             with self._untracked(doc):
@@ -401,11 +399,7 @@ class BookmarkService(ServiceBase):
             key = self._doc_key(doc)
             if not is_cacheable_doc_key(key):
                 return
-            was: bool | None = None
-            try:
-                was = bool(doc.isModified())
-            except Exception:
-                was = None
+            was = _read_was_modified(doc)
             try:
                 bm_map = self.get_mcp_bookmark_map(doc)
             except Exception as exc:
@@ -545,6 +539,9 @@ class BookmarkCleanup(ToolWriterBookmarkBase):
             return self._tool_error(str(exc))
 
 
+_RESERVED_MCP_NAME_ERROR = "Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them."
+
+
 def _resolve_bookmark_target(
     tool: Any, ctx: Any, kwargs: dict[str, Any], *, must_exist: bool
 ) -> tuple[Any, str, dict[str, Any] | None]:
@@ -552,13 +549,7 @@ def _resolve_bookmark_target(
     if not name:
         return None, "", tool._tool_error("Bookmark name is required.")
     if name.startswith("_mcp_"):
-        return (
-            None,
-            "",
-            tool._tool_error(
-                "Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them."
-            ),
-        )
+        return None, "", tool._tool_error(_RESERVED_MCP_NAME_ERROR)
     bookmarks = ctx.doc.getBookmarks()
     has_bm = bookmarks.hasByName(name)
     if must_exist and not has_bm:
@@ -643,7 +634,7 @@ class BookmarkRename(ToolWriterBookmarkBase):
         if not old_name or not new_name:
             return self._tool_error("Both old_name and new_name are required.")
         if old_name.startswith("_mcp_") or new_name.startswith("_mcp_"):
-            return self._tool_error("Bookmark names starting with '_mcp_' are reserved for internal heading locators. Use bookmark_cleanup to manage them.")
+            return self._tool_error(_RESERVED_MCP_NAME_ERROR)
 
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(old_name):
@@ -733,13 +724,12 @@ class BookmarkResolve(ToolWriterBookmarkBase):
         result = {"status": "ok", "bookmark": bookmark_name, "paragraph_index": para_idx}
 
         # Get heading text if available
-        if 0 <= para_idx < len(para_ranges):
-            element = para_ranges[para_idx]
-            if element.supportsService("com.sun.star.text.Paragraph"):
-                try:
-                    result["text"] = element.getString()
-                    result["outline_level"] = element.getPropertyValue("OutlineLevel")
-                except Exception:
-                    log.debug("bookmark locate: heading text or outline level unreadable", exc_info=True)
+        element = para_ranges[para_idx]
+        if element.supportsService("com.sun.star.text.Paragraph"):
+            try:
+                result["text"] = element.getString()
+                result["outline_level"] = element.getPropertyValue("OutlineLevel")
+            except Exception:
+                log.debug("bookmark locate: heading text or outline level unreadable", exc_info=True)
 
         return result

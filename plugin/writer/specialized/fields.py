@@ -15,6 +15,7 @@ from typing import Any
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_real_disposal, reraise_if_disposed
 
+from ..edit_review import next_agent_edit_undo_title
 from ..specialized_base import ToolWriterFieldBase, target_params
 from ..target_resolver import resolve_target_cursor
 
@@ -58,7 +59,7 @@ def _specific_field_service(field: Any) -> str:
     return ""
 
 
-def _iter_body_field_identity(doc: Any) -> Any:
+def _iter_body_field_identity(doc: Any, hasher: Any) -> Any:
     # Deferred: plugin.writer.search pulls the UNO document helpers in, and this module is
     # imported wherever the field tools are registered.
     from ..search import describe_match_location
@@ -83,6 +84,7 @@ def _iter_body_field_identity(doc: Any) -> Any:
         except Exception as e:
             reraise_if_disposed(e)
             location = "unknown"
+        hasher.update(f"{service}|{location}\n".encode("utf-8"))
         yield count, field, service, presentation, location
 
 
@@ -116,9 +118,7 @@ class FieldsList(ToolWriterFieldBase):
         results = []
         hasher = hashlib.sha256()
         service_props: dict[str, set[str]] = {}
-        for field_id, field, service, presentation, location in _iter_body_field_identity(doc):
-            # Hash structure (service and location), not presentation text which can shift with repagination or ticking dates.
-            hasher.update(f"{service}|{location}\n".encode("utf-8"))
+        for field_id, field, service, presentation, location in _iter_body_field_identity(doc, hasher):
             try:
                 content = field.getPresentation(True)
             except Exception as e:
@@ -188,9 +188,7 @@ class FieldsDelete(ToolWriterFieldBase):
         hasher = hashlib.sha256()
         found: dict[int, tuple[Any, str]] = {}
 
-        for field_id, field, service, _presentation, location in _iter_body_field_identity(doc):
-            # Same structural hash as FieldsList.
-            hasher.update(f"{service}|{location}\n".encode("utf-8"))
+        for field_id, field, _service, _presentation, location in _iter_body_field_identity(doc, hasher):
             if field_id in wanted:
                 found[field_id] = (field, location)
 
@@ -216,7 +214,8 @@ class FieldsDelete(ToolWriterFieldBase):
                 "missing_ids": missing_ids,
             }
 
-        targets = []
+        anchors = []
+        deleted: list[dict[str, Any]] = []
         for field, where in found.values():
             anchor = field.getAnchor()
             try:
@@ -224,18 +223,15 @@ class FieldsDelete(ToolWriterFieldBase):
             except Exception as e:
                 reraise_if_disposed(e)
                 what = ""
-            targets.append((anchor, what, where))
-
-        from ..edit_review import next_agent_edit_undo_title
+            anchors.append(anchor)
+            deleted.append({"content": what, "location": where})
 
         undo_title = next_agent_edit_undo_title()
-        deleted: list[dict[str, Any]] = []
 
         def mutate() -> dict[str, Any] | None:
-            for anchor, what, where in targets:
+            for anchor in anchors:
                 # setString("") on the anchor removes only the field (same as footnotes_delete); see test_fields_uno.py.
                 anchor.setString("")
-                deleted.append({"content": what, "location": where})
             return None
 
         err = commit_or_rollback_mutation(
@@ -250,11 +246,10 @@ class FieldsDelete(ToolWriterFieldBase):
         if err is not None:
             return err
 
-        deleted_count = len(deleted)
         return {
             "status": "ok",
-            "message": f"Successfully deleted {deleted_count} field(s).",
-            "deleted_count": deleted_count,
+            "message": f"Successfully deleted {len(deleted)} field(s).",
+            "deleted_count": len(deleted),
             "requested_count": requested_count,
             "missing_ids": missing_ids,
             "deleted": deleted,
@@ -286,7 +281,6 @@ class FieldsInsert(ToolWriterFieldBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         field_type = kwargs["field"]
-        properties = kwargs.get("properties")
         doc = ctx.doc
         if not hasattr(doc, "createInstance"):
             return self._tool_error("Document does not support creating instances.")
@@ -299,7 +293,7 @@ class FieldsInsert(ToolWriterFieldBase):
         except ValueError as ve:
             return self._tool_error(str(ve))
 
-        properties = dict(properties) if properties else {}
+        properties = dict(kwargs.get("properties") or {})
         if field_type == "PageNumber":
             # Bare UNO PageNumber is NumberingType=0/SubType=PREV: blank on page 1.
             properties.setdefault("NumberingType", 4)
@@ -325,8 +319,6 @@ class FieldsInsert(ToolWriterFieldBase):
 
         # Insert at resolved cursor
         if target == "search" and old_content:
-            from ..edit_review import next_agent_edit_undo_title
-
             undo_title = next_agent_edit_undo_title()
 
             def mutate() -> dict[str, Any] | None:
