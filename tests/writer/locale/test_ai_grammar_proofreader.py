@@ -112,6 +112,7 @@ def _ensure_grammar_debug_logging():
 
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
 from plugin.writer.locale import grammar_proofread_cache as gc
+from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
 from tests.harness.strip_bundle import is_release_build, module_source_contains
 
 
@@ -276,8 +277,8 @@ def test_rule_ids_sample_empty_and_truncated() -> None:
     assert _rule_ids_sample([]) == ""
     assert _rule_ids_sample([{"rule_identifier": "harper||SpellCheck"}]) == "harper||SpellCheck"
     many = [{"rule_identifier": f"r{i}"} for i in range(10)]
-    sample = _rule_ids_sample(many, limit=3)
-    assert sample == "r0,r1,r2,+7"
+    sample = _rule_ids_sample(many)
+    assert sample == "r0,r1,r2,r3,r4,r5,r6,r7,+2"
 
 
 @pytest.mark.skipif(
@@ -307,6 +308,8 @@ def test_obs_result_window_emits_final_counts_and_rule_ids() -> None:
             active_span_count=1,
             uncached_active_count=1,
             source="harper_fast",
+            py_start=0,
+            py_behind=20,
         )
     mock_obs.assert_called_once()
     assert mock_obs.call_args[0][0] == "do_proofreading_result_window"
@@ -343,6 +346,8 @@ def test_obs_result_window_empty_lint_omits_rule_ids() -> None:
             active_span_count=1,
             uncached_active_count=0,
             source="cache",
+            py_start=0,
+            py_behind=5,
         )
     kwargs = mock_obs.call_args.kwargs
     assert kwargs["stage"] == "final"
@@ -360,12 +365,13 @@ def test_obs_result_window_empty_lint_omits_rule_ids() -> None:
 )
 def test_apply_proofreading_end_positions_skips_space_after_sentence(value) -> None:
     from plugin.writer.locale.ai_grammar_proofreader import _apply_proofreading_end_positions
+    from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
     class Res:
         nStartOfNextSentencePosition = 0
         nBehindEndOfSentencePosition = 0
     text = value
     r = Res()
-    _apply_proofreading_end_positions(r, text, 3)
+    _apply_proofreading_end_positions(r, text, 3, Utf16OffsetMap(text))
     assert r.nStartOfNextSentencePosition == 4
     assert r.nBehindEndOfSentencePosition == 4
 
@@ -1218,7 +1224,7 @@ def test_try_harper_fast_path_emits_status_when_ready() -> None:
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
-        assert pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined) is True
+        assert pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined, checker_identity="harper") is True
     phases = [c.args[0] for c in mock_status.call_args_list]
     assert phases == ["start", "request", "done"]
     assert mock_status.call_args_list[0].kwargs.get("result") == "Harper"
@@ -1240,7 +1246,7 @@ def test_try_harper_fast_path_emits_starting_when_ensure() -> None:
         patch("plugin.writer.locale.harper.harper_try_lint", return_value=None),
         patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status") as mock_status,
     ):
-        assert pr._try_harper_fast_path("doc", "en-US", [(0, 5, "Hello.")], []) is True
+        assert pr._try_harper_fast_path("doc", "en-US", [(0, 5, "Hello.")], [], checker_identity="harper") is True
     phases = [c.args[0] for c in mock_status.call_args_list]
     assert phases == ["start", "request"]
     assert mock_status.call_args_list[-1].kwargs.get("result") == "Starting Harper…"
@@ -1495,20 +1501,21 @@ def test_harper_partial_hit_converts_uno_tuple_once(
 
 def test_get_constant_by_name_runs_once_per_conversion() -> None:
     """Markup type constant is cached at module level and looked up at most once per conversion."""
-    norms = [
-        proofreader.NormalizedProofError(0, 1, (), "", "", "r1"),
-        proofreader.NormalizedProofError(2, 3, (), "", "", "r2"),
-        proofreader.NormalizedProofError(4, 5, (), "", "", "r3"),
-    ]
+    cached = (
+        {"n_error_start": 0, "n_error_length": 1, "suggestions": (), "short_comment": "", "full_comment": "", "rule_identifier": "r1"},
+        {"n_error_start": 2, "n_error_length": 3, "suggestions": (), "short_comment": "", "full_comment": "", "rule_identifier": "r2"},
+        {"n_error_start": 4, "n_error_length": 5, "suggestions": (), "short_comment": "", "full_comment": "", "rule_identifier": "r3"},
+    )
     fake_uno = MagicMock()
     mock_get_const = fake_uno.getConstantByName
     mock_get_const.return_value = 1
+    u16_map = Utf16OffsetMap("abcdefghijklmnop")
     with patch.object(proofreader, "uno_mod", fake_uno):
         proofreader._PROOFREADING_MARKUP_TYPE = None
-        res = proofreader._errors_to_uno_tuple(norms)
+        res = proofreader._cached_errors_to_uno_tuple(cached, None, "doc-1", u16_map)
         assert len(res) == 3
         assert mock_get_const.call_count == 1
-        proofreader._errors_to_uno_tuple(norms)
+        proofreader._cached_errors_to_uno_tuple(cached, None, "doc-1", u16_map)
         assert mock_get_const.call_count == 1
 
 
@@ -1534,7 +1541,7 @@ def test_doc_ignored_rules_runs_once_for_multi_sentence_harper(
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
         patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status"),
     ):
-        assert pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined) is True
+        assert pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined, checker_identity="harper") is True
         assert mock_doc_ignored.call_count == 1
 
 
@@ -1632,7 +1639,7 @@ def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_con
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
         patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status") as mock_status,
     ):
-        assert pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined) is True
+        assert pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined, checker_identity="harper") is True
         mock_put.assert_called_once()
         cached_payload = mock_put.call_args[0][2]
         # Raw error is stored in cache despite being ignored
