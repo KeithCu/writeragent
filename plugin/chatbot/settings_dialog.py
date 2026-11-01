@@ -114,8 +114,8 @@ def _get_image_field_specs() -> list[dict[str, Any]]:
             "options": aspect_options,
         },
         {"name": "image_steps", "value": str(get_config_int("image_steps")), "type": "int"},
-        {"name": "image_auto_gallery", "value": "true" if get_config_bool("image_auto_gallery") else "false", "type": "bool"},
-        {"name": "image_insert_frame", "value": "true" if get_config_bool("image_insert_frame") else "false", "type": "bool"},
+        {"name": "image_auto_gallery", "value": str(get_config_bool("image_auto_gallery")).lower(), "type": "bool"},
+        {"name": "image_insert_frame", "value": str(get_config_bool("image_insert_frame")).lower(), "type": "bool"},
         {"name": "seed", "value": get_config_str("seed")},
     ]
 
@@ -219,12 +219,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
     field_specs_by_name = {f["name"]: f for f in field_specs}
     specs_by_save_key = {str(f.get("config_key") or f["name"].replace("__", ".")): f for f in field_specs}
     pending: dict[str, Any] = {}
-    # (value, save key) for LRU that does not itself write the field.
-    # Recorded before the batch so a value that already matches disk does
-    # not refresh the sidebar. Text and image models match set_text_model /
-    # set_image_model: no LRU when the sanitized id is already stored.
-    ordinary_lru: list[tuple[Any, str]] = []
-    model_lru: dict[str, str] = {}
+    lru_rows: list[tuple[str, Any, str, str]] = []
 
     # The key field was filled for this endpoint. A newly typed URL does not
     # rebind the field, so the compare below can tell a stale secret from a
@@ -244,18 +239,6 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
 
         spec = field_specs_by_name[key]
         save_key = str(spec.get("config_key") or key.replace("__", "."))
-
-        if save_key == "text_model":
-            # set_text_model drops placeholders and writes text_model. Doing
-            # that here would write before the rest of the batch.
-            sanitized = _sanitize_stored_model_value(val)
-            if not sanitized:
-                continue
-            previous = str(get_config("text_model") or "").strip()
-            pending["text_model"] = sanitized
-            if sanitized != previous:
-                model_lru["text_model"] = sanitized
-            continue
 
         opts = spec.get("options")
         if isinstance(opts, list):
@@ -322,25 +305,31 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
                 s_val = str(val).strip()
                 val = f"{spd:g}x" if s_val.endswith(("x", "X")) else f"{spd:g}"
 
-        if save_key in ("image_model", "audio.stt_model", "audio.tts_model"):
+        if save_key in ("text_model", "image_model", "audio.stt_model", "audio.tts_model"):
             # Skip empty and placeholder values, and persist the sanitized
             # id — the same value the LRU path already computed. Storing
             # "(Enter API Key to load models)" or "(Connection failed)" as
             # image_model / audio.stt_model / audio.tts_model wipes the
             # configured model when the catalog cannot be listed.
-            sanitized_model = _sanitize_stored_model_value(val)
-            if not sanitized_model:
+            sanitized = _sanitize_stored_model_value(val)
+            if not sanitized:
                 continue
-            val = sanitized_model
-            if save_key == "image_model":
-                previous_image = str(get_config("image_model") or "").strip()
-                if val != previous_image:
-                    model_lru["image_model"] = val
+            val = sanitized
+            if save_key in ("text_model", "image_model"):
+                if sanitized != str(get_config(save_key) or "").strip():
+                    lru_name = "model_lru" if save_key == "text_model" else "image_model_lru"
+                    lru_rows.append((save_key, sanitized, lru_name, current_endpoint))
 
         pending[save_key] = val
-        # image_model_lru is staged separately; exclude from ordinary_lru to keep one writer.
-        if val and save_key != "image_model":
-            ordinary_lru.append((val, save_key))
+        if val:
+            if save_key == "audio.stt_model":
+                lru_rows.append((save_key, val, "audio_model_lru", current_endpoint))
+            elif save_key == "audio.tts_model":
+                lru_rows.append((save_key, val, "tts_model_lru", current_endpoint))
+            elif save_key == "additional_instructions":
+                lru_rows.append((save_key, val, "prompt_lru", ""))
+            elif save_key == "image_base_size":
+                lru_rows.append((save_key, val, "image_base_size_lru", ""))
 
     if "api_key" in result:
         # One slot, not a copy of the whole map. set_configs merges that slot
@@ -370,7 +359,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
     # update_lru_history afterwards writes writeragent.json again for
     # every LRU list.
     changed = changed_config_values(pending, get_config)
-    _stage_settings_lru(changed, current_endpoint, model_lru, ordinary_lru)
+    _stage_settings_lru(changed, current_endpoint, lru_rows)
     if changed:
         set_configs(changed)
 
@@ -378,20 +367,14 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
 def _stage_settings_lru(
     changed: dict[str, Any],
     current_endpoint: str,
-    model_lru: dict[str, str],
-    ordinary_lru: list[tuple[Any, str]],
+    lru_rows: list[tuple[str, Any, str, str]],
 ) -> None:
     """Add LRU list updates for keys already in *changed*. Does not write."""
     if "endpoint" in changed and current_endpoint:
         _stage_lru(changed, current_endpoint, "endpoint_lru", "")
-    for save_key, lru_key in {"text_model": "model_lru", "image_model": "image_model_lru"}.items():
-        if save_key in model_lru and save_key in changed:
-            _stage_lru(changed, model_lru[save_key], lru_key, current_endpoint)
-    for val, save_key in ordinary_lru:
-        if save_key not in changed:
-            continue
-        for item, lru_key, endpoint in _lru_rows_for_key(save_key, val, current_endpoint):
-            _stage_lru(changed, item, lru_key, endpoint)
+    for save_key, val, lru_key, endpoint in lru_rows:
+        if save_key in changed:
+            _stage_lru(changed, val, lru_key, endpoint)
 
 
 def _stage_lru(dest: dict[str, Any], val: Any, lru_key: str, endpoint: str) -> None:
@@ -408,25 +391,5 @@ def _stage_lru(dest: dict[str, Any], val: Any, lru_key: str, endpoint: str) -> N
     updated = next_lru_list(current, val)
     if updated is not None:
         dest[scoped] = updated
-
-
-def _lru_rows_for_key(key: str, val: Any, current_endpoint: str) -> list[tuple[Any, str, str]]:
-    """``(value, lru list name, endpoint)`` for one settings field.
-
-    Empty when this field has no list.
-    """
-    if not val:
-        return []
-    lookup = {
-        "audio.stt_model": ("audio_model_lru", current_endpoint),
-        "audio.tts_model": ("tts_model_lru", current_endpoint),
-        "additional_instructions": ("prompt_lru", ""),
-        "image_base_size": ("image_base_size_lru", ""),
-    }
-    if key in lookup:
-        lru_name, ep = lookup[key]
-        item = str(val) if key == "image_base_size" else val
-        return [(item, lru_name, ep)]
-    return []
 
 
