@@ -89,10 +89,7 @@ def _format_http_error_response(status: int, reason: str, err_body: str, context
     data = safe_json_loads(err_body)
     if isinstance(data, dict):
         err = data.get("error")
-        if isinstance(err, dict):
-            detail = err.get("message") or err.get("msg") or err.get("error") or ""
-        else:
-            detail = str(err) if err else ""
+        detail = (err.get("message") or err.get("msg") or err.get("error") or "") if isinstance(err, dict) else (str(err) if err else "")
         if detail:
             return base + ". " + str(detail)
     snippet = body.replace("\n", " ")[:400]
@@ -136,11 +133,9 @@ def is_400_input_validation(err: Any) -> bool:
     # Bugfix: "400" in str(err) is true for any payload whose text happens
     # to contain those digits, including a non-400 body. The HTTP status is
     # already on details["status"] from handle_http_status via format_error_payload.
-    if not isinstance(err, dict):
-        return False
-    details = err.get("details")
+    details = err.get("details") if isinstance(err, dict) else None
     status = details.get("status") if isinstance(details, dict) else None
-    if not isinstance(status, int) or isinstance(status, bool) or status != 400:
+    if not isinstance(status, int) or status != 400:
         return False
     msg = str(err.get("message") or "").lower()
     return "input validation" in msg or "bad request" in msg
@@ -280,13 +275,11 @@ def _prompt_char_count(messages: Any) -> int:
 
 def _exit_code_from_provider_body(err_body: str) -> str | None:
     """Best-effort native exit code from an Ollama / llama-server 500 body."""
-    matched = re.search(r"0x[0-9a-fA-F]+", err_body)
-    if matched:
-        return matched.group(0)
-    matched = re.search(r"exit status ([^:\s]+)", err_body, flags=re.IGNORECASE)
-    if matched:
-        return matched.group(1)
-    return None
+    hex_code = re.search(r"0x[0-9a-fA-F]+", err_body)
+    if hex_code:
+        return hex_code.group(0)
+    status = re.search(r"exit status ([^:\s]+)", err_body, flags=re.IGNORECASE)
+    return status.group(1) if status else None
 
 
 def _log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, err_body: str = "", n_ctx: int | None = None) -> None:  # pyright: ignore[reportUnusedFunction]
