@@ -675,7 +675,6 @@ def test_prompts_outer_thin_inner_choice():
         format_peer_outer_delegate_hint,
         get_peer_inner_choice_block,
         get_peer_messaging_prompt_block,
-        peer_outer_delegate_tool_name,
     )
 
     assert "send_peer_work" not in PEER_OUTER_DELEGATE_HINT
@@ -755,9 +754,9 @@ def test_prompts_outer_thin_inner_choice():
     calc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
     draw = MagicMock()
     draw.supportsService.side_effect = lambda s: s == "com.sun.star.drawing.DrawingDocument"
-    assert peer_outer_delegate_tool_name(writer) == "delegate_to_specialized_writer_toolset"
-    assert peer_outer_delegate_tool_name(calc) == "delegate_to_specialized_calc_toolset"
-    assert peer_outer_delegate_tool_name(draw) == "delegate_to_specialized_draw_toolset"
+    assert "delegate_to_specialized_writer_toolset" in format_peer_outer_delegate_hint(writer)
+    assert "delegate_to_specialized_calc_toolset" in format_peer_outer_delegate_hint(calc)
+    assert "delegate_to_specialized_draw_toolset" in format_peer_outer_delegate_hint(draw)
 
     peers = [{"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"}]
     with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
@@ -789,16 +788,15 @@ def test_outer_hint_idle_after_send_and_conditional_reply():
         PEER_OUTER_DELEGATE_HINT,
         PEER_OUTER_IDLE_AFTER_SEND,
         annotate_outer_peer_wait,
-        looks_like_peer_wait_outcome,
     )
 
     assert PEER_OUTER_IDLE_AFTER_SEND in PEER_OUTER_DELEGATE_HINT
     assert "send_peer_work" not in PEER_OUTER_IDLE_AFTER_SEND
     assert "send_peer_result" not in PEER_OUTER_IDLE_AFTER_SEND
-    assert looks_like_peer_wait_outcome("Message sent to the peer. Waiting for reply.")
-    assert looks_like_peer_wait_outcome('{"status": "ok", "accepted": true}')
-    assert looks_like_peer_wait_outcome("waiting for a peer reply")
-    assert not looks_like_peer_wait_outcome("Q4 revenue is 12 in Sheet1.A1")
+    assert PEER_OUTER_IDLE_AFTER_SEND in annotate_outer_peer_wait({"status": "ok", "result": "Message sent to the peer. Waiting for reply."})["result"]
+    assert PEER_OUTER_IDLE_AFTER_SEND in annotate_outer_peer_wait({"status": "ok", "result": '{"status": "ok", "accepted": true}'})["result"]
+    assert PEER_OUTER_IDLE_AFTER_SEND in annotate_outer_peer_wait({"status": "ok", "result": "waiting for a peer reply"})["result"]
+    assert PEER_OUTER_IDLE_AFTER_SEND not in annotate_outer_peer_wait({"status": "ok", "result": "Q4 revenue is 12 in Sheet1.A1"})["result"]
 
     sent = annotate_outer_peer_wait(
         {"status": "ok", "message": "Specialized task (document_research) completed.", "result": "Message sent to the peer."},

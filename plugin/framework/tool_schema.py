@@ -382,7 +382,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
 
         props = input_schema.get("properties")
         if isinstance(props, dict) and "domain" in props and isinstance(props["domain"], dict):
-            props["domain"]["description"] = format_specialized_domains_description(special_base, agent_label=agent_label)
+            props["domain"]["description"] = format_specialized_domains_description(agent_label=agent_label)
 
     input_schema = _normalize_schema_for_strict_providers(input_schema)
     # MCP hosts validate args against inputSchema before tools/call. Keep string|array for

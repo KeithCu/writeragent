@@ -196,9 +196,8 @@ def test_writer_chat_prompt_includes_sidebar_vs_document_routing():
 
 def test_writer_chat_prompt_research_delegate_to_document():
     from plugin.framework.prompts import WRITER_SIDEBAR_ONLY_DOMAINS, get_specialized_delegation_tool_hint
-    from plugin.writer.specialized_base import ToolWriterSpecialBase
 
-    block = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer")
+    block = get_specialized_delegation_tool_hint("Writer")
     assert "web_research:" in block
     assert "apply_document_content" in block
     for domain in WRITER_SIDEBAR_ONLY_DOMAINS:
@@ -384,9 +383,8 @@ def test_writer_chat_prompt_delegation_routing_local_vs_web():
 
 def test_specialized_delegation_block_is_single_line():
     from plugin.framework.prompts import SPECIALIZED_TASK_RULES, get_specialized_delegation_tool_hint
-    from plugin.writer.specialized_base import ToolWriterSpecialBase
 
-    block = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer")
+    block = get_specialized_delegation_tool_hint("Writer")
     assert "SPECIALIZED WRITER" in block
     assert SPECIALIZED_TASK_RULES in block
     assert "source_image='selection'" in block
@@ -633,9 +631,8 @@ def test_python_specialized_sub_agent_hint_calc():
 
 def test_document_research_multi_file_delegation_in_prompts():
     from plugin.framework.prompts import get_specialized_delegation_tool_hint
-    from plugin.writer.specialized_base import ToolWriterSpecialBase
 
-    block = get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer")
+    block = get_specialized_delegation_tool_hint("Writer")
     assert "document_research:" in block
     assert "file(s)" in block
     for directives in (WRITER_CORE_DIRECTIVES, CALC_CORE_DIRECTIVES, DRAW_CORE_DIRECTIVES):
