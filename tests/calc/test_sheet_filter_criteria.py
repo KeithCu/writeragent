@@ -94,6 +94,18 @@ def test_criterion_strict_parsing_rejections() -> None:
     with pytest.raises(UnoObjectError, match="field"):
         parse_sheet_filter_criterion({"field": 1.5, "operator": "EQUAL", "value": "a"}, True)
 
+    # String with dot field
+    with pytest.raises(UnoObjectError, match="field"):
+        parse_sheet_filter_criterion({"field": "1.5", "operator": "EQUAL", "value": "a"}, True)
+
+    # Non-numeric string field
+    with pytest.raises(UnoObjectError, match="field"):
+        parse_sheet_filter_criterion({"field": "abc", "operator": "EQUAL", "value": "a"}, True)
+
+    # Missing value for non-force operator
+    with pytest.raises(UnoObjectError, match=r"Operator EQUAL requires 'value'\."):
+        parse_sheet_filter_criterion({"field": 0, "operator": "EQUAL", "value": None}, True)
+
     # List value
     with pytest.raises(UnoObjectError, match="value"):
         parse_sheet_filter_criterion({"field": 0, "operator": "EQUAL", "value": []}, True)
