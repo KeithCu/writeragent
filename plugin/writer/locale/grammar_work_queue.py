@@ -19,7 +19,7 @@ invariant.  (A third Layer 1 "tail-replace" existed historically — see below.)
     period (``GRAMMAR_WORKER_PAUSE_TIMEOUT_S``) reset on each keystroke, while
     complete sentences coalesce for a fixed 50ms window (``GRAMMAR_COMPLETE_COALESCE_S``)
     before dispatch. For each key only the item with the highest ``enqueue_seq``
-    is kept (same rule as the tested pure ``deduplicate_grammar_batch``).
+    is kept (same rule as the drain dict accumulator).
 
     *Blind spot*: The dict cannot detect items that were already consumed in a
     *previous* batch and whose ``inflight_key`` was re-enqueued while the
@@ -30,7 +30,7 @@ invariant.  (A third Layer 1 "tail-replace" existed historically — see below.)
     ``enqueue`` records the newest ``enqueue_seq`` per ``inflight_key`` in
     ``_latest_seq`` (under ``_lock``; pruned when the document closes via
     ``forget_document``).  Before sending a batch item to
-    the LLM, the worker calls ``_is_stale`` — if a newer enqueue has been
+    the LLM, the worker checks inflight_superseded — if a newer enqueue has been
     recorded since this item was drained, it is skipped.  After the LLM
     returns, ``inflight_superseded`` is checked again before writing to the
     sentence cache, catching items superseded during the (possibly slow)
@@ -132,33 +132,10 @@ def grammar_inflight_key(a_document_identifier: str, loc_key: str, sent_text: st
     return f"{a_document_identifier}|{loc_key}|{context}"
 
 
-def deduplicate_grammar_batch(batch: list[GrammarWorkItem]) -> list[GrammarWorkItem]:
-    """Return one queue item per ``inflight_key``, keeping the highest ``enqueue_seq``."""
-    best_by_key: dict[str, GrammarWorkItem] = {}
-    for item in batch:
-        prev = best_by_key.get(item.inflight_key)
-        if should_replace_for_key(prev, item):
-            best_by_key[item.inflight_key] = item
-        else:
-            log.debug("[grammar] queue dedup: dropped older same-key item seq=%s key=%s (newer seq=%s kept)", item.enqueue_seq, item.inflight_key, prev.enqueue_seq if prev else None)
-    return list(best_by_key.values())
-
-
-def record_enqueue_latest(prev: dict[str, int], item: GrammarWorkItem) -> tuple[dict[str, int], bool, int | None]:
-    """Return updated ``latest_seq``, whether incoming seq was out-of-order, and prior seq for logging."""
-    key = item.inflight_key
-    prev_seq = prev.get(key)
-    out_of_order = prev_seq is not None and item.enqueue_seq < prev_seq
-    new_d = dict(prev)
-    # Never lower generation on out-of-order enqueue; keeping the higher seq ensures inflight_superseded drops the late older item.
-    new_d[key] = max(prev_seq, item.enqueue_seq) if prev_seq is not None else item.enqueue_seq
-    return new_d, out_of_order, prev_seq if out_of_order else None
-
-
 def inflight_superseded(latest_seq: Mapping[str, int], inflight_key: str, enqueue_seq: int) -> bool:
     """True if ``latest_seq`` records a newer generation than ``enqueue_seq`` for ``inflight_key``.
 
-    Used for pre-execute skip (via ``GrammarWorkQueue._is_stale``) and post-LLM cache skip.
+    Used for pre-execute skip (via ``inflight_superseded``) and post-LLM cache skip.
     """
     latest = latest_seq.get(inflight_key)
     return latest is not None and enqueue_seq < latest
@@ -167,8 +144,8 @@ def inflight_superseded(latest_seq: Mapping[str, int], inflight_key: str, enqueu
 def should_replace_for_key(existing: GrammarWorkItem | None, incoming: GrammarWorkItem) -> bool:
     """True if ``incoming`` should replace ``existing`` in a per-key accumulator.
 
-    Used by the ``_drain_loop`` dict accumulator and by ``deduplicate_grammar_batch``
-    (unit tests / any external caller). A missing ``existing`` always returns True.
+    Used by the ``_drain_loop`` dict accumulator (unit tests / any external caller).
+    A missing ``existing`` always returns True.
     """
     return existing is None or incoming.enqueue_seq > existing.enqueue_seq
 
@@ -276,7 +253,7 @@ class GrammarWorkQueue:
     was evaluated and rejected — the tracker would absorb 2 fields and 3 thin methods
     but ``GrammarWorkQueue`` is already small enough that an extra indirection adds more
     cognitive load than it removes.  The pure functions (``should_replace_for_key``,
-    ``filter_stale_and_group``, ``inflight_superseded``, ``record_enqueue_latest``)
+    ``filter_stale_and_group``, ``inflight_superseded``)
     keep the logic testable without wrapping the state.
     """
 
@@ -335,10 +312,6 @@ class GrammarWorkQueue:
         elif had_cycle and last:
             emit_grammar_status("done", "batch", result="skipped")
 
-    def _is_stale(self, item: GrammarWorkItem) -> bool:
-        with self._lock:
-            return inflight_superseded(self._latest_seq, item.inflight_key, item.enqueue_seq)
-
     def inflight_superseded(self, inflight_key: str, enqueue_seq: int) -> bool:
         """True if a newer grammar enqueue has been recorded for this key (e.g. user kept typing)."""
         with self._lock:
@@ -353,8 +326,7 @@ class GrammarWorkQueue:
         newer one, so the older generation stays droppable.
         """
         with self._lock:
-            latest = self._latest_seq.get(inflight_key)
-            if latest is not None and enqueue_seq < latest:
+            if inflight_superseded(self._latest_seq, inflight_key, enqueue_seq):
                 return True
             self._latest_seq[inflight_key] = enqueue_seq
             return False
@@ -379,9 +351,16 @@ class GrammarWorkQueue:
         a fresh higher seq (``note_inflight_generation``).
         """
         with self._lock:
-            self._latest_seq, out_of_order, superseded_prev_seq = record_enqueue_latest(self._latest_seq, item)
-            if out_of_order:
-                log.error("[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable", item.inflight_key, item.enqueue_seq, superseded_prev_seq)
+            key = item.inflight_key
+            prev_seq = self._latest_seq.get(key)
+            if prev_seq is not None and item.enqueue_seq < prev_seq:
+                log.error(
+                    "[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable",
+                    key,
+                    item.enqueue_seq,
+                    prev_seq,
+                )
+            self._latest_seq[key] = max(prev_seq, item.enqueue_seq) if prev_seq is not None else item.enqueue_seq
         grammar_obs(
             "queue_enqueue",
             sentences_queued=1,
@@ -426,17 +405,14 @@ class GrammarWorkQueue:
         partial_deadlines: dict[str, float] = {}
 
         def _absorb(item: GrammarWorkItem) -> None:
-            if item.partial_sentence:
-                prev = partials.get(item.inflight_key)
-                if should_replace_for_key(prev, item):
-                    partials[item.inflight_key] = item
+            target = partials if item.partial_sentence else completes
+            prev = target.get(item.inflight_key)
+            if should_replace_for_key(prev, item):
+                target[item.inflight_key] = item
+                if item.partial_sentence:
                     partial_deadlines[item.inflight_key] = (
                         time.monotonic() + grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S
                     )
-            else:
-                prev = completes.get(item.inflight_key)
-                if should_replace_for_key(prev, item):
-                    completes[item.inflight_key] = item
 
         def _dispatch(batch: list[GrammarWorkItem]) -> None:
             if not batch:
@@ -452,7 +428,9 @@ class GrammarWorkQueue:
                 survivor_count=len(batch),
                 seqs=tuple(x.enqueue_seq for x in batch),
             )
-            groups = filter_stale_and_group(batch, self._is_stale)
+            groups = filter_stale_and_group(
+                batch, lambda it: self.inflight_superseded(it.inflight_key, it.enqueue_seq)
+            )
             for (doc_id, locale, _prov, _ident), group_items in groups.items():
                 grammar_obs(
                     "queue_execute_batch",
@@ -541,6 +519,4 @@ class GrammarWorkQueue:
                 log.exception("[grammar] drain loop error")
 
 
-_grammar_queue_singleton = GrammarWorkQueue()
-
-grammar_queue: GrammarWorkQueue = _grammar_queue_singleton
+grammar_queue = GrammarWorkQueue()

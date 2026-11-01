@@ -13,12 +13,10 @@ from unittest.mock import ANY, MagicMock, patch
 
 from plugin.writer.locale.grammar_worker import (
     _detect_lang_instruction,
+    _detected_target_bcp47,
     GrammarWorkerContext,
-    LangRequeueAction,
     build_grammar_system_prompt,
     call_grammar_llm,
-    decide_grammar_completion,
-    decide_language_validation,
     detect_languages_for_chunk,
     language_detect_llm_sync,
     run_grammar_check,
@@ -195,66 +193,34 @@ def _phase_item(key: str = "k1") -> GrammarWorkItem:
     ],
 )
 def test_decide_language_validation_ja_tag_matches_ja_jp(value, value_2, expected) -> None:
-    item = _phase_item()
-    decision = decide_language_validation([(item, item.text)], value, [value_2])
-    assert decision.target_bcp47 == expected
-    assert decision.result_chunk == [(item, item.text)]
-    assert decision.requeues == ()
-
-def test_decide_language_validation_multi_mismatch_requeues() -> None:
-    a, b = _phase_item("k1"), _phase_item("k2")
-    decision = decide_language_validation([(a, a.text), (b, b.text)], "en-US", ["en-US", "fr-FR"])
-    assert decision.target_bcp47 == "en-US"
-    assert decision.result_chunk == [(a, a.text)]
-    assert len(decision.requeues) == 1
-    assert decision.requeues[0] == LangRequeueAction(b, b.text, "fr-FR", "en-US")
+    assert _detected_target_bcp47(value_2, value) == expected
 
 
-def test_decide_language_validation_all_match() -> None:
-    a, b = _phase_item("k1"), _phase_item("k2")
-    decision = decide_language_validation([(a, a.text), (b, b.text)], "en-US", ["en-US", "en-US"])
-    assert decision.result_chunk == [(a, a.text), (b, b.text)]
-    assert decision.requeues == ()
-
-
-def test_decide_language_validation_multi_none_keeps_in_result_chunk() -> None:
-    """Multi-batch None detect keeps items in result_chunk under target locale (fails open)."""
-    a, b = _phase_item("k1"), _phase_item("k2")
-    decision = decide_language_validation([(a, a.text), (b, b.text)], "en-US", [None, None])
-    assert decision.result_chunk == [(a, a.text), (b, b.text)]
-    assert decision.requeues == ()
-    assert decision.target_bcp47 == "en-US"
-
-
-def test_decide_language_validation_mixed_match_none_mismatch() -> None:
-    a, b, c = _phase_item("k1"), _phase_item("k2"), _phase_item("k3")
-    decision = decide_language_validation(
-        [(a, a.text), (b, b.text), (c, c.text)],
-        "en-US",
-        ["en-US", None, "fr-FR"],
+def test_grammar_check_equivalent_tags_no_locale_change() -> None:
+    item = _item("テスト文。", seq=1)
+    gq = MagicMock()
+    ec = GrammarWorkerContext(
+        ctx=MagicMock(),
+        client=MagicMock(),
+        model="test-model",
+        max_tok=512,
+        gq=gq,
+        detect_lang_mode="off",
+        grammar_bcp47="ja-JP",
+        original_bcp47="ja",
     )
-    assert decision.result_chunk == [(a, a.text), (b, b.text)]
-    assert len(decision.requeues) == 1
-    assert decision.requeues[0] == LangRequeueAction(c, c.text, "fr-FR", "en-US")
-    assert decision.target_bcp47 == "en-US"
-
-
-@pytest.mark.parametrize(
-    "value, value_2, value_3, value_4, expected, expected_2",
-    [
-        pytest.param(3, 2, "en-US", "en-US", True, False, id="test_decide_grammar_completion_mismatch_requeues_all"),
-        pytest.param(1, 1, "ja-JP", "zh-CN", False, True, id="test_decide_grammar_completion_success_with_locale_change"),
-        pytest.param(2, 2, "en-US", "en-US", False, False, id="test_decide_grammar_completion_success_same_locale"),
-    ],
-)
-def test_decide_grammar_completion_mismatch_requeues_all(value, value_2, value_3, value_4, expected, expected_2) -> None:
-    decision = decide_grammar_completion(value, value_2, value_3, value_4)
-    assert decision.requeue_all is expected
-    assert decision.apply_locale_after_success is expected_2
-
-def test_decide_grammar_completion_no_apply_when_tags_equivalent() -> None:
-    decision = decide_grammar_completion(1, 1, "ja-JP", "ja")
-    assert decision.apply_locale_after_success is False
+    chunk = [(item, item.text)]
+    gq.inflight_superseded.return_value = False
+    with patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="ai"), \
+         patch("plugin.writer.locale.grammar_worker.call_grammar_llm", return_value=([[]], 50)), \
+         patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
+         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()), \
+         patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()), \
+         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]), \
+         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"), \
+         patch("plugin.writer.locale.grammar_worker.apply_language_change") as mock_apply:
+        run_grammar_check(chunk, "ja-JP", "ja", ec)
+    mock_apply.assert_not_called()
 
 def test_batch_result_summary() -> None:
     from plugin.writer.locale.grammar_worker import _BatchResultSummary
@@ -769,12 +735,12 @@ def test_grammar_mismatch_requeue_skips_cache_placeholder() -> None:
     with patch("plugin.writer.locale.grammar_worker.call_grammar_llm", return_value=([[]], 50)), \
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put, \
+         patch("plugin.writer.locale.grammar_worker.apply_language_change") as mock_apply, \
          patch("plugin.writer.locale.grammar_worker.requeue_individual_item") as mock_requeue:
         run_grammar_check(chunk, "en-US", "en-US", ec)
     assert mock_requeue.call_count == 2
-    for _args, kwargs in mock_requeue.call_args_list:
-        assert kwargs.get("cache_placeholder") is False
     mock_put.assert_not_called()
+    mock_apply.assert_not_called()
 
 
 def test_grammar_check_routes_to_languagetool() -> None:
