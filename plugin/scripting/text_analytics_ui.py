@@ -45,13 +45,13 @@ from plugin.scripting.text_analytics import (
 
 log = logging.getLogger(__name__)
 
-_COMPUTE_BUTTONS: tuple[tuple[str, str, bool], ...] = (
-    ("BtnRead", "readability", True),
-    ("BtnEntities", "entities", True),
-    ("BtnPhrases", "key_phrases", True),
-    ("BtnTopics", "topics", True),
-    ("BtnSentiment", "sentiment", True),
-    ("BtnCheck", "diagnostics", False),
+_COMPUTE_BUTTONS: tuple[tuple[str, str], ...] = (
+    ("BtnRead", "readability"),
+    ("BtnEntities", "entities"),
+    ("BtnPhrases", "key_phrases"),
+    ("BtnTopics", "topics"),
+    ("BtnSentiment", "sentiment"),
+    ("BtnCheck", "diagnostics"),
 )
 
 _BUSY_CONTROL_IDS: tuple[str, ...] = tuple(row[0] for row in _COMPUTE_BUTTONS) + ("BtnInsert",)
@@ -102,10 +102,6 @@ class TextAnalyticsDialog:
         self._source_uid = None
         self._open()
 
-    @classmethod
-    def show(cls, ctx: Any) -> None:
-        cls(ctx)
-
     def close(self, *, toolkit_teardown: bool = False) -> None:
         """Hide or dispose the dialog.
 
@@ -144,8 +140,8 @@ class TextAnalyticsDialog:
         assert self._dlg is not None
         extra = (("BtnInsert", self._insert_report), ("BtnClose", self.close))
         compute = (
-            (btn_id, partial(self._on_compute, helper, uses_scope))
-            for btn_id, helper, uses_scope in _COMPUTE_BUTTONS
+            (btn_id, partial(self._on_compute, helper))
+            for btn_id, helper in _COMPUTE_BUTTONS
         )
         buttons: tuple[tuple[str, Callable[[], None]], ...] = (*compute, *extra)
         for control_id, handler in buttons:
@@ -153,13 +149,10 @@ class TextAnalyticsDialog:
             if ctrl is not None:
                 ctrl.addActionListener(_TextAnalyticsAction(handler))
 
-    def _on_compute(self, helper: str, scoped: bool) -> None:
-        if scoped:
-            scope = self._scope_from_dialog()
-            if scope is None:
-                return
-        else:
-            scope = "whole"
+    def _on_compute(self, helper: str) -> None:
+        scope = "whole" if helper == "diagnostics" else self._scope_from_dialog()
+        if scope is None:
+            return
         self._compute(helper, scope)
 
     def _scope_from_dialog(self) -> str | None:

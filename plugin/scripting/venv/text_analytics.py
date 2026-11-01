@@ -145,39 +145,24 @@ def _get_lang_from_context(context: dict[str, Any] | None) -> str | None:
 # Core high-quality analyses
 # ---------------------------------------------------------------------------
 
-def _truncate_for_nlp(text: str) -> tuple[str, dict[str, Any] | None]:
-    """Cap text at spaCy's max_length; return (text, truncated note or None)."""
-    # What was wrong: long text raised ValueError inside nlp(text).
-    # How it happened: there was no input cap; spaCy's default nlp.max_length is 1,000,000.
-    # Why this change: cap input to bound work and report what was analyzed in the truncated note.
-    if len(text) <= _MAX_ANALYZED_CHARS:
-        return text, None
-    return text[:_MAX_ANALYZED_CHARS], {
-        "analyzed_chars": _MAX_ANALYZED_CHARS,
-        "total_chars": len(text),
-    }
-
-
-def _run_nlp_doc(
-    text: str, lang: str | None, context: dict[str, Any] | None
-) -> tuple[Any, Any, str | None, dict[str, Any] | None]:
-    """Load the model and run the spaCy pipeline once. Returns (nlp, doc, resolved_lang, truncated).
-
-    Factored out so narrow helpers (entities, key_phrases, readability) each call
-    nlp(text) exactly once without running the full analyze_text stack.
-    """
+def _nlp_result(text: str, lang: str | None, context: dict[str, Any] | None, extract: Any) -> dict[str, Any]:
+    """Run spaCy once and attach meta. Narrow helpers share this so they do not call nlp(text) themselves."""
     if lang is None:
         lang = _get_lang_from_context(context)
     nlp = _load_nlp(lang)
-    text, truncated = _truncate_for_nlp(text)
+    # What was wrong: long text raised ValueError inside nlp(text).
+    # How it happened: there was no input cap; spaCy's default nlp.max_length is 1,000,000.
+    # Why this change: cap input to bound work and report what was analyzed in the truncated note.
+    truncated: dict[str, Any] | None = None
+    if len(text) > _MAX_ANALYZED_CHARS:
+        truncated = {
+            "analyzed_chars": _MAX_ANALYZED_CHARS,
+            "total_chars": len(text),
+        }
+        text = text[:_MAX_ANALYZED_CHARS]
     doc = nlp(text)
-    return nlp, doc, lang, truncated
-
-
-def _nlp_result(text: str, lang: str | None, context: dict[str, Any] | None, extract: Any) -> dict[str, Any]:
-    nlp, doc, resolved_lang, truncated = _run_nlp_doc(text, lang, context)
     res = extract(doc)
-    res["meta"] = _extract_meta(nlp, doc, resolved_lang)
+    res["meta"] = _extract_meta(nlp, doc, lang)
     if truncated:
         res["truncated"] = truncated
     return {"status": "ok", "result": res}
@@ -498,8 +483,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
         # What was wrong: single-string sentiment included section_index in the overall dictionary.
         # How it happened: overall was assigned per_section[0] directly, which contained section_index.
         # Why this change: copy only score and label to overall so section_index is present only in per_section.
-        src = per_section[0] if per_section else {"score": 0.0, "label": "neutral"}
-        overall = {"score": src["score"], "label": src["label"]}
+        overall = {"score": per_section[0]["score"], "label": per_section[0]["label"]}
 
     res: dict[str, Any] = {"overall": overall}
     if is_multi:
@@ -653,8 +637,8 @@ def run_text_analytics(
         helper = str(spec or "full")
         params = {}
 
+    lang = params.get("lang") or (context or {}).get("lang")
     if helper in ("diagnostics", "check"):
-        lang = params.get("lang") or (context or {}).get("lang")
         return {"status": "ok", "helper": helper, "result": check_diagnostics(lang=lang)}
 
     # Preserve original list form for section-aware helpers (topics, sentiment).
@@ -664,7 +648,6 @@ def run_text_analytics(
     if not flat.strip():
         return {"status": "ok", "result": {}, "note": "no text provided"}
     section_text = text if is_list else flat
-    lang = params.get("lang") or (context or {}).get("lang")
 
     # For the minimal dialog we mainly use "full" or specific helpers.
     if helper in ("full", "analyze", "all"):
@@ -706,10 +689,7 @@ def run_text_analytics(
             "assignments": topic_data.get("assignments"),
             "meta": meta,
         }
-        if "error" in topic_data:
-            res_dict["error"] = topic_data["error"]
-        if "note" in topic_data:
-            res_dict["note"] = topic_data["note"]
+        res_dict.update({k: topic_data[k] for k in ("error", "note") if k in topic_data})
 
         return {"status": "ok", "result": res_dict}
 

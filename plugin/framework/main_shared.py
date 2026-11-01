@@ -407,6 +407,6 @@ def register_common_handlers() -> None:
     def _open_text_analytics() -> None:
         from plugin.scripting.text_analytics_ui import TextAnalyticsDialog
 
-        TextAnalyticsDialog.show(get_ctx())
+        TextAnalyticsDialog(get_ctx())
 
     register_action_handler("textanalytics", "open_dialog", _open_text_analytics)
