@@ -143,7 +143,10 @@ def test_collect_status_picks_newest_matching_jobs() -> None:
                 return {"jobs": job_list}
         raise AssertionError(f"unexpected URL {url}")
 
-    rows = collect_status(fetch, "KeithCu/writeragent")
+    # Fixture job timestamps are early Sept 2026; pin now so wall-clock age
+    # (DEFAULT_MAX_AGE_DAYS=60) cannot drop CrossHair rows after ~Nov 1 2026.
+    now = datetime(2026, 9, 4, tzinfo=timezone.utc)
+    rows = collect_status(fetch, "KeithCu/writeragent", now=now)
     by_key = {(row.suite, row.os): row for row in rows}
     assert by_key[("CrossHair check-all", "ubuntu-latest")].conclusion == "failure"
     assert by_key[("CrossHair check-all", "ubuntu-latest")].sha == "ce0da96"
@@ -291,7 +294,8 @@ def test_main_writes_index_and_never_embeds_token(tmp_path: Path, monkeypatch: p
 
     monkeypatch.setattr("scripts.generate_ci_status.make_fetcher", lambda token: fetch)
     out = tmp_path / "site"
-    assert main(["--out", str(out)]) == 0
+    # main() has no now= hook; widen max-age so Sept 2026 fixtures stay visible.
+    assert main(["--out", str(out), "--max-age-days", "3650"]) == 0
     text = (out / "index.html").read_text(encoding="utf-8")
     svg = (out / "status.svg").read_text(encoding="utf-8")
     assert "ghs_this_must_not_appear_in_html" not in text
