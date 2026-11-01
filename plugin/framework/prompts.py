@@ -259,11 +259,6 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         )
     else:
         data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
-    from plugin.scripting.import_policy import (
-        format_matplotlib_plot_hint,
-        format_units_helper_hint,
-        format_venv_import_policy_for_prompt,
-    )
     policy = format_venv_import_policy_for_prompt(compact=False)
 
     plot_hint = format_matplotlib_plot_hint(doc_type=agent_label.lower())
@@ -575,7 +570,11 @@ CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
 )
 
 
-from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
+from plugin.scripting.import_policy import (
+    format_matplotlib_plot_hint,
+    format_units_helper_hint,
+    format_venv_import_policy_for_prompt,
+)
 
 _COMPACT_VENV_POLICY = format_venv_import_policy_for_prompt(compact=True)
 PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = _COMPACT_VENV_POLICY + " "
@@ -1016,7 +1015,7 @@ def _apply_draw_get_image_tool_line(prompt: str) -> str:
     if has_native_vision(get_text_model(), get_current_endpoint()) is not False:
         return prompt
     line = DRAW_GET_IMAGE_TOOL_LINE
-    return prompt.replace(line + "\n", "").replace(line, "")
+    return prompt.replace(line + "\n", "")
 
 
 def get_vision_core_directive(model: Any, ctx: Any) -> str:
@@ -1143,11 +1142,11 @@ def format_humanizer_guidance_prompt_block() -> str:
     return ""
 
 
-def _append_additional_instructions(base: str, additional_instructions: str) -> str:
+def _finish_chat_system_prompt(base: str, additional_instructions: str) -> str:
     text = str(additional_instructions or "").strip()
-    if not text:
-        return base
-    return base + _profile_data_block("[ADDITIONAL INSTRUCTIONS — profile data]", text)
+    if text:
+        base += _profile_data_block("[ADDITIONAL INSTRUCTIONS — profile data]", text)
+    return base + tts_short_answers_prompt_suffix()
 
 
 def _assemble_chat_prompt(agent: str, ctx: Any = None) -> str:
@@ -1181,7 +1180,7 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
 
     agent = agent_label_for_doc_type(kind) or "Writer"
     base = _assemble_chat_prompt(agent, ctx=ctx)
-    return _append_additional_instructions(base, additional_instructions) + tts_short_answers_prompt_suffix()
+    return _finish_chat_system_prompt(base, additional_instructions)
 
 
 def _cap_injected_prompt_blob(text: str) -> str:
@@ -1220,5 +1219,5 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
         base += format_humanizer_guidance_prompt_block()
 
     # After custom instructions so those stay intact and the reminder is last.
-    return _append_additional_instructions(base, additional_instructions) + tts_short_answers_prompt_suffix()
+    return _finish_chat_system_prompt(base, additional_instructions)
 
