@@ -28,6 +28,7 @@ import sys
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from weakref import WeakSet
 import hashlib
+import re
 import uuid
 import uno
 import unohelper
@@ -53,7 +54,7 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
-from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled
+from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled, set_control_visible
 from plugin.framework.queue_executor import run_on_main
 from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
@@ -220,15 +221,13 @@ def _initialize_extension_paths(ctx: Any) -> None:
 class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
     """Holds the panel window; implements XToolPanel and XSidebarPanel."""
 
-    ctx: Any
     PanelWindow: Any
     Window: Any
     parent_window: Any
     resize_listener: Any
     _in_hfw: bool
 
-    def __init__(self, panel_window: Any, parent_window: Any, ctx: Any) -> None:
-        self.ctx = ctx
+    def __init__(self, panel_window: Any, parent_window: Any) -> None:
         self.PanelWindow = panel_window
         self.Window = panel_window
         self.parent_window = parent_window
@@ -296,15 +295,9 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         return _PRE_NEGOTIATION_PANEL_WIDTH
 
 
-def _is_sha256_hex(value: Any) -> bool:
+def _is_sha256_hex(value: str) -> bool:
     """True for a lowercase SHA-256 hex digest (url-derived chat session id)."""
-    if not isinstance(value, str) or len(value) != 64 or value != value.lower():
-        return False
-    try:
-        int(value, 16)
-    except ValueError:
-        return False
-    return True
+    return re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
 # NamedTuple, not @dataclass: pythonloader execs this component module without a
@@ -507,8 +500,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         # below clears it before this function returns, so the
                         # next queued create does not keep the half-built window
                         # and the caller's except cannot clear a later success.
-                        self.toolpanel = ChatToolPanel(root_window, self.xParentWindow, self.ctx)
-                        wire_chatpanel_controls(self, root_window, _initialize_extension_paths)
+                        self.toolpanel = ChatToolPanel(root_window, self.xParentWindow)
+                        wire_chatpanel_controls(self, root_window)
                         log.info("[RICH-LIFECYCLE] getRealInterface completed successfully (rich_text wiring done)")
                     except Exception:
                         with suppress_disposed("frame session release on getRealInterface fail", logger=log):
@@ -696,16 +689,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         mode_from_selector_with_flags,
                         populate_mode_selector_with_flags,
                         set_selector_mode_with_flags,
-                        sidebar_mode_flags_for_doc_type,
                     )
 
-                    model = self._get_document_model()
-                    cached = self.send_listener.cached_doc_type if self.send_listener else None
-                    from plugin.doc.doc_type import doc_type_label_for_enum, get_document_type
-
-                    dt = cached or doc_type_label_for_enum(get_document_type(model))
-
-                    flags = sidebar_mode_flags_for_doc_type(dt)
+                    flags = self._sidebar_mode_flags()
                     labels = tuple(get_mode_labels(flags))
                     # removeItems/addItems resets the combo to index 0 (Chat) and
                     # fires ChatModeListener. Capturing first, then restoring after
@@ -814,8 +800,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if set_image_val != current_image:
                 set_image_model(set_image_val, update_lru=False)
 
-    def _wire_model_selectors(self, model_selector: Any, image_model_selector: Any, effort_selector: Any = None) -> None:
+    def _wire_model_selectors(self, controls: dict[str, Any]) -> None:
         """Initializes model selectors and their sync listeners."""
+        model_selector = controls.get("model_selector")
+        image_model_selector = controls.get("image_model_selector")
+        effort_selector = controls.get("reasoning_effort_selector")
         self._populate_model_combos(model_selector, image_model_selector)
 
         if model_selector:
@@ -852,19 +841,30 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         return sidebar_mode_flags_for_doc_type(self._doc_type_label)
 
-    def _wire_chat_mode_ui(
-        self,
-        aspect_ratio_selector: Any,
-        base_size_input: Any,
-        base_size_label: Any,
-        chat_mode_selector: Any,
-        model_label: Any,
-        model_selector: Any,
-        image_model_selector: Any,
-        toggle_image_ui: Callable[[bool], None],
-    ) -> tuple[str, SidebarModeFlags]:
+    def _toggle_image_ui(self, is_image: bool) -> None:
+        root = self.m_panelRootWindow
+        set_control_visible(get_optional_control(root, "model_label"), not is_image)
+        set_control_visible(get_optional_control(root, "model_selector"), not is_image)
+        set_control_visible(get_optional_control(root, "reasoning_effort_selector"), not is_image)
+        set_control_visible(get_optional_control(root, "image_model_selector"), is_image)
+        set_control_visible(get_optional_control(root, "aspect_ratio_selector"), is_image)
+        set_control_visible(get_optional_control(root, "base_size_input"), is_image)
+        set_control_visible(get_optional_control(root, "base_size_label"), is_image)
+        tp = self.toolpanel
+        rl = tp.resize_listener if tp else None
+        if rl and root:
+            with suppress_disposed("relayout after toggling image UI", logger=log):
+                rl.invalidate_measurements()
+                rl.relayout_now(root)
+
+    def _wire_chat_mode_ui(self, controls: dict[str, Any]) -> tuple[str, SidebarModeFlags]:
         """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, mode_flags)."""
         from plugin.chatbot.chat_sidebar_mode import is_image_mode, librarian_default_mode, populate_mode_selector_with_flags, set_selector_mode_with_flags
+
+        aspect_ratio_selector = controls.get("aspect_ratio_selector")
+        base_size_input = controls.get("base_size_input")
+        base_size_label = controls.get("base_size_label")
+        chat_mode_selector = controls.get("chat_mode_selector")
 
         if aspect_ratio_selector:
             from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_LABELS, aspect_label_gettext, canonical_aspect_label
@@ -905,12 +905,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if aspect_ratio_selector:
             update_base_size_label(aspect_ratio_selector.getText())
             if hasattr(aspect_ratio_selector, "addItemListener"):
-
                 class AspectListener(BaseItemListener):
                     def on_item_state_changed(self, rEvent: Any) -> None:
                         ev = rEvent
                         idx = getattr(ev, "Selected", -1)
-                        if idx >= 0:
+                        if idx >= 0 and aspect_ratio_selector is not None:
                             update_base_size_label(aspect_ratio_selector.getItem(idx))
 
                 aspect_ratio_selector.addItemListener(AspectListener())
@@ -925,11 +924,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                 self._last_mode_labels = tuple(get_mode_labels(mode_flags))
                 set_selector_mode_with_flags(chat_mode_selector, initial_mode, mode_flags)
-                toggle_image_ui(is_image_mode(initial_mode))
+                self._toggle_image_ui(is_image_mode(initial_mode))
 
         return initial_mode, mode_flags
 
-    def _apply_sidebar_mode(self, mode: str, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, toggle_image_ui: Any) -> None:
+    def _apply_sidebar_mode(self, mode: str, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any) -> None:
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_BRAINSTORMING,
             CHAT_MODE_CHAT,
@@ -968,7 +967,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             session = self.doc_session
             if session is not None and model is not None:
                 best_effort(lambda: session.refresh_document_context(model, self.ctx), "refresh_document_context failed")
-        toggle_image_ui(is_image_mode(mode))
+        self._toggle_image_ui(is_image_mode(mode))
         greeting = greeting_for_sidebar_mode(mode, model)
         send_listener.set_session(self.session)
         if clear_listener:
@@ -976,11 +975,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if response_ctrl:
             self._render_session_history(self.session, response_ctrl, greeting)
 
-    def _wire_chat_mode_listener(self, chat_mode_selector: Any, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, toggle_image_ui: Any, mode_flags: Any) -> None:
+    def _wire_chat_mode_listener(self, chat_mode_selector: Any, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, mode_flags: Any) -> None:
         from plugin.chatbot.chat_sidebar_mode import mode_from_selector_with_flags
 
         def apply_mode(mode: str) -> None:
-            self._apply_sidebar_mode(mode, model, response_ctrl, send_listener, clear_listener, toggle_image_ui)
+            self._apply_sidebar_mode(mode, model, response_ctrl, send_listener, clear_listener)
 
         # Librarian switch_to_document_mode must apply Chat even if ComboBox
         # selectItemPos does not fire the item listener (UNO is inconsistent).
@@ -989,18 +988,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if not chat_mode_selector or not hasattr(chat_mode_selector, "addItemListener"):
             return
 
+        panel = self
+
         class ChatModeListener(BaseItemListener):
-            panel: Any
-            selector: Any
-            mode_flags: Any
-            apply_target: Any
             _in_revert: bool
 
-            def __init__(self, panel: Any, selector: Any, flags: Any, apply_target: Any) -> None:
-                self.panel = panel
-                self.selector = selector
-                self.mode_flags = flags
-                self.apply_target = apply_target
+            def __init__(self, panel: Any, selector: Any, flags: Any) -> None:
                 self._in_revert = False
 
             def on_item_state_changed(self, rEvent: Any) -> None:
@@ -1009,7 +1002,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # Settings refresh rebuilds this combo. Model/image listeners
                 # already ignore that; without the same guard, removeItems
                 # applies Chat and paint_session clears the transcript.
-                if self.panel._in_refresh_controls:
+                if panel._in_refresh_controls:
                     return
                 # A click during processEventsToIdle used to swap host.session
                 # and write [DOCUMENT CONTENT] onto the other chat. Librarian
@@ -1020,20 +1013,20 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     # re-entrancy guard. The combobox has already updated, so
                     # returning here leaves the dropdown on the new mode while
                     # self.session and the UI stay on the old one.
-                    applied_mode = getattr(self.panel, "_current_mode", None)
-                    if applied_mode and self.selector:
+                    applied_mode = panel._current_mode
+                    if applied_mode:
                         self._in_revert = True
                         try:
                             from plugin.chatbot.chat_sidebar_mode import set_selector_mode_with_flags
 
-                            set_selector_mode_with_flags(self.selector, applied_mode, self.mode_flags)
+                            set_selector_mode_with_flags(chat_mode_selector, applied_mode, mode_flags)
                         finally:
                             self._in_revert = False
                     return
-                mode = mode_from_selector_with_flags(self.selector, self.mode_flags)
-                self.apply_target(mode)
+                mode = mode_from_selector_with_flags(chat_mode_selector, mode_flags)
+                apply_mode(mode)
 
-        chat_mode_selector.addItemListener(ChatModeListener(self, chat_mode_selector, mode_flags, apply_mode))
+        chat_mode_selector.addItemListener(ChatModeListener(self, chat_mode_selector, mode_flags))
 
     def _setup_sessions(self, model: Any, extra_instructions: Any) -> None:
         """Creates the document and web research chat sessions."""
@@ -1053,17 +1046,17 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             url = raw_url if isinstance(raw_url, str) else ""
 
         plan = plan_session_id(stored_id, stored_url, url, str(uuid.uuid4()))
-        session_id = str(stored_id) if stored_id else ""
 
         if plan.fork_from is not None:
             old_session_id = plan.fork_from
             fork_to = plan.session_id
+            session_id = old_session_id
             log.info("Document URL changed from %s to %s. Regenerating session ID for copy isolation.", stored_url, url)
             try:
                 from plugin.chatbot.history_db import fork_doc_chat_history
 
-                fork_doc_chat_history(str(old_session_id), fork_to)
-                fork_doc_chat_history(str(old_session_id) + "_web", fork_to + "_web")
+                fork_doc_chat_history(old_session_id, fork_to)
+                fork_doc_chat_history(old_session_id + "_web", fork_to + "_web")
                 if model:
                     set_document_property(model, "WriterAgentSessionID", fork_to)
                 # Id write succeeded, or there is no model to stamp.
@@ -1078,15 +1071,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     set_document_property(model, "WriterAgentSessionURL", url)
             except Exception:
                 log.exception("Failed to copy chat history from %s to %s", old_session_id, fork_to)
-        elif not session_id:
+        else:
             session_id = plan.session_id
             if model:
-                set_document_property(model, "WriterAgentSessionID", session_id)
+                if not stored_id:
+                    set_document_property(model, "WriterAgentSessionID", session_id)
                 if plan.stamp_url and url:
                     set_document_property(model, "WriterAgentSessionURL", url)
-        elif plan.stamp_url:
-            if model and url:
-                set_document_property(model, "WriterAgentSessionURL", url)
 
         self.doc_session = ChatSession(system_prompt, session_id=session_id)
         self.web_session = ChatSession("Observe: Always use the web_search tool to answer questions.", session_id=session_id + "_web")
@@ -1102,7 +1093,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         )
         self.session = self.doc_session
 
-    def _wire_buttons(self, controls: dict[str, Any], model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> Any:
+    def _wire_buttons(self, controls: dict[str, Any], model: Any, initial_mode: str, mode_flags: Any) -> Any:
         """Wires up the Send, Stop, Clear, Settings, Python, LaTeX, Search, and chat mode selector."""
         from plugin.chatbot.panel import (
             ActionHandlerButtonListener,
@@ -1120,20 +1111,23 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
 
         third_kind = header_third_button_kind(model)
-        third_btn: tuple[str, Any, Any, Any, Any] | None
+        third_btn: list[tuple[str, Any, Any, Any, Any]] = []
         if third_kind == "python_cell":
-            third_btn = (
-                "btn_latex",
-                ActionHandlerButtonListener("scripting.edit_python_cell"),
-                _("Edit Python in Cell..."),
-                menu_icon_asset_rel("python_cell", ctx=self.ctx),
-                "",
-            )
+            third_btn = [
+                (
+                    "btn_latex",
+                    ActionHandlerButtonListener("scripting.edit_python_cell"),
+                    _("Edit Python in Cell..."),
+                    menu_icon_asset_rel("python_cell", ctx=self.ctx),
+                    "",
+                )
+            ]
         elif third_kind == "latex":
             # Keep √x glyph; PNG toolbar icons use the DPI resolver.
-            third_btn = ("btn_latex", ActionHandlerButtonListener("writer.insert_latex_dialog"), _("Insert LaTeX Math..."), None, "√x")
+            third_btn = [
+                ("btn_latex", ActionHandlerButtonListener("writer.insert_latex_dialog"), _("Insert LaTeX Math..."), None, "√x")
+            ]
         else:
-            third_btn = None
             latex_ctrl = controls.get("btn_latex")
             if latex_ctrl is not None and hasattr(latex_ctrl, "setVisible"):
                 latex_ctrl.setVisible(False)
@@ -1141,16 +1135,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         header_buttons: list[tuple[str, Any, Any, Any, Any]] = [
             ("btn_settings", SettingsButtonListener(), _("Settings"), menu_icon_asset_rel("gear", ctx=self.ctx), ""),
             ("btn_python", ActionHandlerButtonListener("scripting.run_python_dialog"), _("Run Python Script..."), menu_icon_asset_rel("python", ctx=self.ctx), ""),
-        ]
-        if third_btn is not None:
-            header_buttons.append(third_btn)
-        header_buttons.extend(
-            (
+            *third_btn,
             ("btn_search", ActionHandlerButtonListener("embeddings.search_dialog"), _("Search Nearby Files..."), menu_icon_asset_rel("search", ctx=self.ctx), ""),
             # Hamburger stays ☰ — no shipped hamburger PNG yet.
             ("btn_hamburger", HamburgerButtonListener(self.ctx, self.xFrame), _("More actions..."), None, None),
-            )
-        )
+        ]
         for btn_id, listener_obj, tooltip_text, icon_rel_path, label_text in header_buttons:
             btn_ctrl = controls.get(btn_id)
             if btn_ctrl:
@@ -1267,38 +1256,21 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if hasattr(chk_ctrl, "getModel") and hasattr(chk_ctrl.getModel(), "HelpText"):
                 chk_ctrl.getModel().HelpText = _("Speak responses aloud (TTS)")
 
-            class VoiceCheckboxListener(BaseItemListener):
-                panel: Any
-
-                def __init__(self, panel: Any) -> None:
-                    self.panel = panel
-
-                def on_item_state_changed(self, rEvent: Any) -> None:
-                    # Programmatic setState during _refresh_controls_from_config must not
-                    # re-enter set_config → config:changed → refresh (UNO fires listeners).
-                    if self.panel._in_refresh_controls:
-                        return
-                    # Prefer the control state: ItemEvent.Selected is not always set on
-                    # programmatic setState, which would wrongly persist False.
-                    src = getattr(rEvent, "Source", None)
-                    if src is not None and hasattr(src, "getState"):
-                        val = bool(int(src.getState()) == 1)
-                    else:
-                        val = bool(getattr(rEvent, "Selected", 0) == 1)
-                    set_config("audio.tts_enabled", val)
-                    log.info("Voice checkbox toggled: tts_enabled=%s", val)
+            def _sync_voice() -> None:
+                val = chk_ctrl.getState() == 1
+                set_config("audio.tts_enabled", val)
+                log.info("Voice checkbox toggled: tts_enabled=%s", val)
 
             if hasattr(chk_ctrl, "addItemListener"):
-                chk_ctrl.addItemListener(VoiceCheckboxListener(self))
+                chk_ctrl.addItemListener(_SelectorItemSyncListener(self, _sync_voice))
 
-        self._apply_sidebar_mode(initial_mode, model, controls["response"], send_listener, clear_listener, toggle_image_ui)
+        self._apply_sidebar_mode(initial_mode, model, controls["response"], send_listener, clear_listener)
         self._wire_chat_mode_listener(
             controls["chat_mode_selector"],
             model,
             controls["response"],
             send_listener,
             clear_listener,
-            toggle_image_ui,
             mode_flags,
         )
         return send_listener
