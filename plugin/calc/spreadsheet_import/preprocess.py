@@ -63,19 +63,12 @@ def _scan_quotes(s: str) -> str:
     return "".join(out)
 
 
-@deal.pre(lambda s: _deal_lo_formula_ok(s))
-@deal.post(lambda result: isinstance(result, bool))
-def _no_unquoted_semicolon(s: str) -> bool:
-    """True when every ``;`` in *s* is inside a text literal, a quoted sheet name, or an array constant (or none exist)."""
-    return _scan_quotes(s) == s
-
-
-# Two nested ensures (curly-quote scan + _no_unquoted_semicolon) skip
+# Two nested ensures (curly-quote scan + unquoted semicolon scan) skip
 # under CrossHair; cheap str post and the implementation loop stay.
 @deal.pre(lambda formula: _deal_lo_formula_ok(formula))
 @deal.post(lambda result: isinstance(result, str))
 @inverse_ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result)
-@inverse_ensure(lambda formula, result: _no_unquoted_semicolon(result))
+@inverse_ensure(lambda formula, result: _scan_quotes(result) == result)
 def normalize_lo_formula_for_parse(formula: str) -> str:
     """Map LO ``;`` argument separators to ``,`` for parse-only backends.
 
