@@ -44,7 +44,7 @@ def open_init_script_editor(ctx: Any) -> None:
         webview_ok, webview_detail = probe_webview_import(exe)
         if not webview_ok:
             msg = failure_message(_("Cannot import webview (pywebview) in the configured venv."), detail=webview_detail)
-            msgbox_with_report(ctx, title, msg, box_type=3, reportable=True)
+            msgbox_with_report(ctx, title, msg, reportable=True)
             return
 
     closed_message = _("The spreadsheet is no longer open. Reopen it and try again.")

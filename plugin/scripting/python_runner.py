@@ -749,7 +749,7 @@ def _report_run_python_open_failed(ctx: Any, reason: str, *, detail: str | None 
     from plugin.scripting.editor_errors import failure_message
 
     message = failure_message(reason, detail=detail, exc=exc)
-    msgbox_with_report(ctx, _("Error"), message, box_type=3, reportable=True, report_title="Run Python Script failed to open", report_extra=message if exc is None else exception_traceback(exc))
+    msgbox_with_report(ctx, _("Error"), message, reportable=True, report_title="Run Python Script failed to open", report_extra=message if exc is None else exception_traceback(exc))
 
 
 def run_python_dialog(uno_ctx: Any = None) -> None:

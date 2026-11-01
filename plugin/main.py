@@ -893,7 +893,6 @@ class DispatchHandler(ExtensionProtocolHandler):
                 self.ctx,
                 _("Dispatch Error"),
                 str(e),
-                box_type=3,
                 reportable=True,
                 report_title="Dispatch Error",
                 report_extra=str(e),

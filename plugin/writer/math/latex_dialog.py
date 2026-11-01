@@ -268,7 +268,6 @@ def insert_latex_math_dialog(ctx: Any) -> None:
             ctx,
             _("Error"),
             _("An unexpected error occurred during LaTeX insertion."),
-            box_type=3,
             reportable=True,
             report_title="LaTeX insertion failed",
         )
