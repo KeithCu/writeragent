@@ -159,10 +159,13 @@ class TestRunDeepResearch:
             calls.append((sub_query, research_goal))
             return "Sub-agent context for " + sub_query
 
+        def llm_chat(msgs, _max=None):
+            return self._llm_router(msgs)
+
         result = run_deep_research(
             "main topic",
-            llm_chat=lambda msgs, _max: self._llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -180,10 +183,13 @@ class TestRunDeepResearch:
         def run_web_agent(_sub_query, _goal, _history):
             return "should not run"
 
+        def llm_chat(msgs, _max=None):
+            return self._llm_router(msgs)
+
         result = run_deep_research(
             "topic",
-            llm_chat=lambda msgs, _max: self._llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=lambda: True,
             status_callback=None,
             breadth=1,
@@ -218,10 +224,13 @@ class TestRunDeepResearch:
                 return '{"score": 9, "stop": true, "knowledge_gaps": [], "suggested_queries": []}'
             return "Report."
 
+        def llm_chat(msgs, _max=None):
+            return llm_router(msgs)
+
         run_deep_research(
             "topic",
-            llm_chat=lambda msgs, _max: llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=3,
@@ -237,10 +246,13 @@ class TestRunDeepResearch:
         def run_web_agent(_sub_query, _goal, _history):
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "fetch failed"}
 
+        def llm_chat(msgs, _max=None):
+            return self._llm_router(msgs)
+
         result = run_deep_research(
             "topic",
-            llm_chat=lambda msgs, _max: self._llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -270,10 +282,13 @@ class TestRunDeepResearch:
                 )
             return self._llm_router(messages)
 
+        def llm_chat(msgs, _max=None):
+            return llm_router(msgs)
+
         result = run_deep_research(
             "topic",
-            llm_chat=lambda msgs, _max: llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=2,
@@ -293,10 +308,13 @@ class TestRunDeepResearch:
                 "message": "Web search stopped by user.",
             }
 
+        def llm_chat(msgs, _max=None):
+            return self._llm_router(msgs)
+
         result = run_deep_research(
             "topic",
-            llm_chat=lambda msgs, _max: self._llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -319,10 +337,13 @@ class TestRunDeepResearch:
         def run_web_agent(sub_query, research_goal, _history):
             return "Sub-agent context for " + sub_query
 
+        def llm_chat(msgs, _max=None):
+            return llm_router(msgs)
+
         result = run_deep_research(
             "main topic",
-            llm_chat=lambda msgs, _max: llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -348,10 +369,16 @@ class TestRunDeepResearch:
                 raise Exception("JSON decode error from LLM")
             return self._llm_router(messages)
 
+        def llm_chat(msgs, _max=None):
+            return llm_router(msgs)
+
+        def run_web_agent(sub_query, _goal=None, _history=None):
+            return "Extracted failure context https://source.test for " + sub_query
+
         result = run_deep_research(
             "main topic",
-            llm_chat=lambda msgs, _max: llm_router(msgs),
-            run_web_agent=lambda sub_query, _goal, _history: "Extracted failure context https://source.test for " + sub_query,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -372,10 +399,16 @@ class TestRunDeepResearch:
                 raise Exception("JSON decode error from LLM")
             return self._llm_router(messages)
 
+        def llm_chat(msgs, _max=None):
+            return llm_router(msgs)
+
+        def run_web_agent(sub_query, _goal=None, _history=None):
+            return ""
+
         result = run_deep_research(
             "main topic",
-            llm_chat=lambda msgs, _max: llm_router(msgs),
-            run_web_agent=lambda sub_query, _goal, _history: "",
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -417,10 +450,16 @@ class TestRunDeepResearch:
                 )
             return llm_router(messages)
 
+        def llm_chat(msgs, _max=None):
+            return query_router(msgs)
+
+        def run_web_agent(*_args):
+            return "sub context"
+
         result = run_deep_research(
             "topic",
-            llm_chat=lambda msgs, _max: query_router(msgs),
-            run_web_agent=lambda *_args: "sub context",
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=2,
@@ -445,10 +484,16 @@ class TestRunDeepResearch:
                 raise ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")
             return self._llm_router(messages)
 
+        def llm_chat(msgs, _max=None):
+            return llm_router(msgs)
+
+        def run_web_agent(sub_query, _goal=None, _history=None):
+            return "Sub-agent context for " + sub_query
+
         result = run_deep_research(
             "main topic",
-            llm_chat=lambda msgs, _max: llm_router(msgs),
-            run_web_agent=lambda sub_query, _goal, _history: "Sub-agent context for " + sub_query,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -482,11 +527,14 @@ class TestRunDeepResearch:
             return "Context for " + sub_query
 
         # max_rounds = 1 -> 0 assessments
+        def llm_chat(msgs, _max=None):
+            return llm_router(msgs)
+
         assess_count["n"] = 0
         run_deep_research(
             "topic",
-            llm_chat=lambda msgs, _max: llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -500,8 +548,8 @@ class TestRunDeepResearch:
         assess_count["n"] = 0
         run_deep_research(
             "topic",
-            llm_chat=lambda msgs, _max: llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -542,7 +590,6 @@ class TestRunDeepResearch:
         result = run_deep_research(
             "topic",
             llm_chat=supervisor_llm,
-            run_web_agent=lambda *a: "context",
             worker_factory=worker_factory,
             stop_checker=None,
             status_callback=None,
@@ -577,10 +624,13 @@ class TestRunDeepResearch:
             queries_planned.append(sub_query)
             return "Context for " + sub_query
 
+        def llm_chat(msgs, _max=None):
+            return llm_router(msgs)
+
         result = run_deep_research(
             "topic",
-            llm_chat=lambda msgs, _max: llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -609,10 +659,13 @@ class TestRunDeepResearch:
         def run_web_agent(_sub_query, _goal, _history):
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "all fail"}
 
+        def llm_chat(msgs, _max=None):
+            return llm_router(msgs)
+
         result = run_deep_research(
             "topic",
-            llm_chat=lambda msgs, _max: llm_router(msgs),
-            run_web_agent=run_web_agent,
+            llm_chat=llm_chat,
+            worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
             stop_checker=None,
             status_callback=None,
             breadth=1,
@@ -763,8 +816,8 @@ def test_merge_branch_results_duplicate_learnings():
     from plugin.chatbot.web_research_deep import _merge_branch_results, _ResearchAccumulator
     acc = _ResearchAccumulator()
 
-    branch1 = {"learnings": ["Alpha"], "citations": {"Alpha": ["url1"]}}
-    branch2 = {"learnings": ["Alpha"], "citations": {"Alpha": ["url2"]}}
+    branch1 = {"learnings": ["Alpha"], "citations": {"Alpha": ["url1"]}, "context": "", "sources": []}
+    branch2 = {"learnings": ["Alpha"], "citations": {"Alpha": ["url2"]}, "context": "", "sources": []}
 
     _merge_branch_results(acc, branch1)
     _merge_branch_results(acc, branch2)
@@ -1088,8 +1141,7 @@ def _run_parallel(queries, run_web_agent, stop_checker, *, concurrency, llm_chat
 
     return _run_sub_queries_parallel(
         queries,
-        run_web_agent=run_web_agent,
-        llm_chat=llm_chat,
+        worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
         stop_checker=stop_checker,
         acc=_ResearchAccumulator(),
         concurrency=concurrency,
