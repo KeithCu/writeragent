@@ -105,6 +105,8 @@ def _effective_api_key(endpoint: str, api_key_override: str | None) -> str:
     return str(get_api_key_for_endpoint(endpoint) or "").strip()
 
 
+# These getters are bound at import time, so patching get_text_model/get_stt_model/
+# get_tts_model on model_fetcher later has no effect here; patch this table instead.
 _REQ_CAP_DEFAULTS = {
     "text": ("text_model", get_text_model),
     "audio": ("stt_model", get_stt_model),
