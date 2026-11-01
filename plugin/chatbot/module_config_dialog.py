@@ -58,14 +58,6 @@ def get_module_config_field_specs(ctx: Any, module_name: str) -> list[dict[str, 
     return build_module_field_specs(module_name, ctx=ctx, control_ids="flat")
 
 
-def apply_module_config_result(ctx: Any, module_name: str, result: dict[str, Any]) -> None:
-    """Persist standalone module dialog values to writeragent.json."""
-    from plugin.chatbot.settings_fields import apply_field_specs_result
-
-    field_specs = get_module_config_field_specs(ctx, module_name)
-    apply_field_specs_result(ctx, result, field_specs)
-
-
 class ModuleConfigDialog:
     """Modeless settings dialog for one MODULES entry with config_dialog metadata."""
 
@@ -176,15 +168,14 @@ class ModuleConfigDialog:
 
     def _wire_buttons(self) -> None:
         assert self._dlg is not None
-        apply_btn = get_optional(self._dlg, "btn_apply")
-        if apply_btn:
-            apply_btn.addActionListener(_CallbackActionListener(lambda ev: self._apply(close=False)))
-        ok_btn = get_optional(self._dlg, "btn_ok")
-        if ok_btn:
-            ok_btn.addActionListener(_CallbackActionListener(lambda ev: self._apply(close=True)))
-        close_btn = get_optional(self._dlg, "btn_close")
-        if close_btn:
-            close_btn.addActionListener(_CallbackActionListener(lambda ev: self.close()))
+        for name, callback in (
+            ("btn_apply", lambda ev: self._apply(close=False)),
+            ("btn_ok", lambda ev: self._apply(close=True)),
+            ("btn_close", lambda ev: self.close()),
+        ):
+            btn = get_optional(self._dlg, name)
+            if btn:
+                btn.addActionListener(_CallbackActionListener(callback))
 
     def _populate_fields(self, field_specs: list[dict[str, Any]]) -> None:
         from plugin.chatbot.settings_fields import populate_settings_control
@@ -201,12 +192,14 @@ class ModuleConfigDialog:
                 continue
             populate_settings_control(ctrl, field)
 
-    def _extract_result(self) -> dict[str, Any]:
+    def _extract_result(self, field_specs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         from plugin.chatbot.settings_fields import read_settings_control
 
         assert self._dlg is not None
+        if field_specs is None:
+            field_specs = get_module_config_field_specs(self._ctx, self._module_name)
         result: dict[str, Any] = {}
-        for field in get_module_config_field_specs(self._ctx, self._module_name):
+        for field in field_specs:
             name = field["name"]
             ctrl = get_optional(self._dlg, name)
             if ctrl is None:
@@ -219,11 +212,13 @@ class ModuleConfigDialog:
 
     def _apply(self, *, close: bool) -> None:
         from plugin.chatbot.dialogs import msgbox
+        from plugin.chatbot.settings_fields import apply_field_specs_result
         from plugin.framework.i18n import _
 
         try:
-            result = self._extract_result()
-            apply_module_config_result(self._ctx, self._module_name, result)
+            specs = get_module_config_field_specs(self._ctx, self._module_name)
+            result = self._extract_result(specs)
+            apply_field_specs_result(self._ctx, result, specs)
         except Exception as exc:
             # A failed save stays open. Closing here dismisses the dialog
             # after the values were not stored.
@@ -234,11 +229,6 @@ class ModuleConfigDialog:
             self.close()
 
 
-def show_module_config_dialog(ctx: Any, module_name: str) -> None:
-    """Open the modeless standalone config dialog for *module_name*."""
-    ModuleConfigDialog.show(ctx, module_name)
-
-
 def show_vision_settings_dialog(ctx: Any) -> None:
     """Open Vision / OCR settings (vision module config_dialog)."""
-    show_module_config_dialog(ctx, "vision")
+    ModuleConfigDialog.show(ctx, "vision")

@@ -60,7 +60,7 @@ class EvalDashboard:
         # Same freeze as Settings: fetch_available_models before execute()
         # blocked the UI on a dead endpoint. LRU now; the worker fills the list.
         populate_combobox_with_lru(
-            self._ctx, model_ctrl, current_model, "model_lru", current_endpoint,
+            model_ctrl, current_model, "model_lru", current_endpoint,
             skip_remote_fetch=True,
         )
         self._schedule_models_fetch(current_endpoint, current_model)
@@ -76,7 +76,7 @@ class EvalDashboard:
         if ctrl is None:
             return
         populate_combobox_with_lru(
-            self._ctx, ctrl, current_model, "model_lru", endpoint,
+            ctrl, current_model, "model_lru", endpoint,
             remote_models=models if isinstance(models, list) else None,
             skip_remote_fetch=not isinstance(models, list),
         )

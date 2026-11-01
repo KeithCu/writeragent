@@ -11,11 +11,13 @@ from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.module_config_dialog import (
     ModuleConfigDialog,
-    apply_module_config_result,
     get_module_config_dialog_id,
     get_module_config_field_specs,
 )
-from plugin.chatbot.settings_fields import populate_settings_control
+from plugin.chatbot.settings_fields import (
+    apply_field_specs_result,
+    populate_settings_control,
+)
 
 
 def test_get_module_config_dialog_id_for_vision():
@@ -124,12 +126,13 @@ def test_apply_module_config_result_stores_select_option_values():
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", side_effect=lambda key: disk[key]), \
          patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
-        apply_module_config_result(ctx, "demo", {"count": "42", "mode": "Fast Mode"})
+        specs = get_module_config_field_specs(ctx, "demo")
+        apply_field_specs_result(ctx, {"count": "42", "mode": "Fast Mode"}, specs)
         mock_set_configs.assert_called_once_with({"demo.count": "42"})
 
         mock_set_configs.reset_mock()
         disk["demo.mode"] = "slow"
-        apply_module_config_result(ctx, "demo", {"count": "42", "mode": "Fast Mode"})
+        apply_field_specs_result(ctx, {"count": "42", "mode": "Fast Mode"}, specs)
         mock_set_configs.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
 
 
@@ -192,20 +195,12 @@ def test_extract_result_checkbox_bool_skips_write_when_already_true():
     # Assert changed_config_values does not write when stored value is already True
     assert changed_config_values({"demo.enabled": True}, lambda _k: True) == {}
 
-    # Verify through apply_module_config_result
-    with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
-         patch("plugin.chatbot.settings_fields.get_config", return_value=True), \
-         patch("plugin.chatbot.settings_fields.apply_field_specs_result") as mock_apply, \
-         patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
-        apply_module_config_result(MagicMock(), "demo", result)
-        mock_apply.assert_called_once()
-        assert mock_apply.call_args[0][1] == {"enabled": True}
-        assert mock_apply.call_args[0][1]["enabled"] is True
-
+    # Verify through apply_field_specs_result
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", return_value=True), \
          patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
-        apply_module_config_result(MagicMock(), "demo", result)
+        specs = get_module_config_field_specs(MagicMock(), "demo")
+        apply_field_specs_result(MagicMock(), result, specs)
         mock_set_configs.assert_not_called()
 
 

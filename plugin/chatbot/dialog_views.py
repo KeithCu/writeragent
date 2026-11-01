@@ -165,7 +165,7 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
 
         prompt_ctrl = dlg.getControl("prompt_selector")
         current_prompt = get_config_str("additional_instructions")
-        populate_combobox_with_lru(ctx, prompt_ctrl, current_prompt, "prompt_lru", "")
+        populate_combobox_with_lru(prompt_ctrl, current_prompt, "prompt_lru", "")
 
         model_selector = get_optional(dlg, "model_selector")
         if model_selector:
@@ -175,7 +175,7 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
             # thread blocks LibreOffice for the full timeout on a slow or
             # dead endpoint, and a failure is not memoized.
             populate_combobox_with_lru(
-                ctx, model_selector, current_model, "model_lru", current_endpoint,
+                model_selector, current_model, "model_lru", current_endpoint,
                 skip_remote_fetch=True,
             )
 
@@ -380,31 +380,31 @@ class SettingsDialog:
                 # a catalog fetch here freezes LibreOffice for the timeout.
                 # _schedule_initial_models_fetch loads it on the debounced worker.
                 populate_combobox_with_lru(
-                    self._ctx, ctrl, val, "model_lru", current_endpoint,
+                    ctrl, val, "model_lru", current_endpoint,
                     api_key_override=api_key_val, skip_remote_fetch=True,
                 )
             elif name == "image_model":
                 populate_image_model_selector(
-                    self._ctx, ctrl, override_endpoint=current_endpoint,
+                    ctrl, override_endpoint=current_endpoint,
                     api_key_override=api_key_val, skip_remote_fetch=True,
                 )
             elif name in ("audio__stt_model", "stt_model"):
                 populate_combobox_with_lru(
-                    self._ctx, ctrl, val, "audio_model_lru", current_endpoint,
+                    ctrl, val, "audio_model_lru", current_endpoint,
                     api_key_override=api_key_val, skip_remote_fetch=True,
                 )
             elif name in ("audio__tts_model", "tts_model"):
                 populate_combobox_with_lru(
-                    self._ctx, ctrl, val, "tts_model_lru", current_endpoint,
+                    ctrl, val, "tts_model_lru", current_endpoint,
                     api_key_override=api_key_val, skip_remote_fetch=True,
                 )
             elif name == "additional_instructions":
-                populate_combobox_with_lru(self._ctx, ctrl, val, "prompt_lru", "")
+                populate_combobox_with_lru(ctrl, val, "prompt_lru", "")
             elif name == "endpoint":
                 populate_endpoint_selector(ctrl, val)
                 self._setup_endpoint_listener(ctrl)
             elif name == "image_base_size":
-                populate_combobox_with_lru(self._ctx, ctrl, val, "image_base_size_lru", "")
+                populate_combobox_with_lru(ctrl, val, "image_base_size_lru", "")
             else:
                 populate_settings_control(ctrl, field)
 
@@ -1229,7 +1229,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 fallback=str(get_text_model() or ""),
             )
             populate_combobox_with_lru(
-                self._ctx,
                 text_ctrl,
                 current,
                 "model_lru",
@@ -1249,7 +1248,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             )
             stt_remote = self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "stt")
             populate_combobox_with_lru(
-                self._ctx,
                 stt_ctrl,
                 stt_val,
                 "audio_model_lru",
@@ -1268,7 +1266,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             )
             tts_remote = self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "tts")
             populate_combobox_with_lru(
-                self._ctx,
                 tts_ctrl,
                 tts_val,
                 "tts_model_lru",
@@ -1296,7 +1293,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 fallback=str(get_image_model() or ""),
             )
             populate_combobox_with_lru(
-                self._ctx,
                 image_ctrl,
                 image_val,
                 "image_model_lru",

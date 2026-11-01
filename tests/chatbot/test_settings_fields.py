@@ -406,7 +406,7 @@ def test_call_options_provider_skips_plugin_main_when_absent():
     fake = types.ModuleType("wa_librepy_opts")
     fake.provide = provide
     with patch.dict(sys.modules, {"plugin.main": None, "wa_librepy_opts": fake}):
-        out = call_options_provider(MagicMock(), "wa_librepy_opts:provide")
+        out = call_options_provider("wa_librepy_opts:provide")
     assert out == ["ok"]
     assert seen == [None]
 
