@@ -738,7 +738,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 if memo is not None and memo[0] == split_key:
                     paragraph_spans = memo[1]
                 else:
-                    paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
+                    paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText)
                     paragraph_spans = filter_sentence_spans_for_thresholds(paragraph_spans)
                     self._last_split = (split_key, paragraph_spans)
 

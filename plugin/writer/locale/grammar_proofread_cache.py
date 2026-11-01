@@ -100,11 +100,6 @@ def should_evict_incomplete_prefix_predecessor(*, other_complete: bool, other_ca
     return new_canon.startswith(other_canon)
 
 
-def _is_complete_sentence(canon: str) -> bool:
-    """True if the canonical normalized text ends with a sentence terminator (cache eviction)."""
-    return looks_complete_sentence(canon)
-
-
 def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len: int) -> list[dict[str, Any]]:
     """Clip or drop errors that reference positions beyond the canonical sentence length.
 
@@ -213,7 +208,7 @@ def _populate_memory_cache_only(
     fp = fingerprint_for_text(canon)
     key = f"{sentence_cache_key_prefix(locale_key, checker_identity)}{fp}"
     clipped = _clip_errors_to_canonical_length(errors, len(canon))
-    is_complete = _is_complete_sentence(canon)
+    is_complete = looks_complete_sentence(canon)
     cloned_errors = [dict(e) for e in clipped]
     entry = SentenceCacheEntry(fp, canon, is_complete, cloned_errors)
 
@@ -297,7 +292,7 @@ def cache_put_sentence(
         p = get_persistence(ctx, doc_id)
         if p:
             _align_persistence_identity(p, ident)
-            p.put(fp, locale_key, [dict(e) for e in clipped_errors])
+            p.put(fp, locale_key, clipped_errors)
         # Note: document mode skips incomplete-sentence prefix compaction logic (scans _SENTENCE_CACHE only)
         # but we still performed _populate_memory_cache_only above.
         return
