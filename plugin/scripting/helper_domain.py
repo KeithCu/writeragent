@@ -79,8 +79,6 @@ def parse_helper_script_header(
     *helper_names*: when set, unknown helpers return None.
     """
     # crosshair: off
-    if not code:
-        return None
     prefix = header_prefix(tag)
     if prefix not in code:
         return None
@@ -342,17 +340,6 @@ def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
 # --- Templates ---
 
 
-def _python_literal(val: Any) -> str:
-    """Python source for a template parameter literal (repr-based).
-
-    Strings use repr. Treating every ``"data"`` as the bare injected name
-    rewrote dict keys and parameters such as column="data". The bare ``data``
-    identifier is injected only for the data argument in
-    build_helper_script_template.
-    """
-    return repr(val)
-
-
 def build_helper_script_template(
     *,
     helper: str,
@@ -373,14 +360,14 @@ def build_helper_script_template(
         if params:
             spec_obj["params"] = params
         imported = run_name
-        call = f"{run_name}({_python_literal(spec_obj)}, {data_expr}, {context_expr})"
+        call = f"{run_name}({repr(spec_obj)}, {data_expr}, {context_expr})"
     else:
         def _format_param_val(key: str, val: Any) -> str:
             # Bare data identifier only for the injected data argument (data, value, quantity).
             # Real string values like column="data" or dict keys must remain quoted.
             if key in ("data", "value", "quantity") and data_expr != "None" and val == "data":
                 return data_expr
-            return _python_literal(val)
+            return repr(val)
 
         parts: list[str] = []
         if leading_data:
@@ -559,12 +546,12 @@ class DomainFacadeConfig:
     invoke: str = "direct"
 
     # crosshair: off
-    def _template_body(self, helper: str, params: dict[str, Any]) -> str:
+    def _template_body(self, helper: str) -> str:
         desc = self.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
         pos = self.positional_args.get(helper, ()) if self.positional_args else ()
         return build_helper_script_template(
             helper=helper,
-            params=params,
+            params=self.default_params.get(helper, {}),
             description=desc,
             import_module=self.import_module,
             run_name=self.run_name,
@@ -580,9 +567,9 @@ class DomainFacadeConfig:
     def get_templates(self) -> dict[str, str]:
         shipped = self.shipped_templates if self.shipped_templates is not None else self.helper_names
         return {
-            helper: self._template_body(helper, dict(self.default_params.get(helper, {})))
-            for helper in sorted(shipped)
-            if helper in self.helper_names
+            h: body
+            for h in sorted(shipped & self.helper_names)
+            if (body := self.template_for(h)) is not None
         }
 
     # crosshair: off
@@ -597,7 +584,7 @@ class DomainFacadeConfig:
     def template_for(self, helper: str) -> str | None:
         if helper not in self.helper_names:
             return None
-        return self._template_body(helper, dict(self.default_params.get(helper, {})))
+        return self._template_body(helper)
 
 
 def is_status_helper_result(
