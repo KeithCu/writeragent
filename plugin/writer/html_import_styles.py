@@ -137,7 +137,7 @@ def _extract_block_lo_styles(html: str) -> tuple[str, list[str | None]]:
 def _resolve_paragraph_style_token(
     fam: Any,
     token: str,
-    element_names: list[str] | tuple[str, ...] | None = None,
+    element_names: list[str] | tuple[str, ...],
 ) -> str:
     """Resolve an agent-facing compact ``data-lo-style`` token to a real UNO ParaStyleName.
 
@@ -149,8 +149,6 @@ def _resolve_paragraph_style_token(
     then ``Standard``. The ambiguity gate runs BEFORE any exact-name shortcut so a colliding
     token can never silently land on the wrong style (per docs/writer/html-style-model-plan.md)."""
     names = element_names
-    if names is None and fam is not None:
-        names = uno_read(lambda: list(fam.getElementNames()), [])
     if names:
         # dict.fromkeys keeps first-seen order and drops duplicates.
         candidates: list[str] = list(
@@ -167,14 +165,13 @@ def _resolve_paragraph_style_token(
             return "Standard"
     lower = token.lower()
     resolved = token
-    for name in names or ():
+    for name in names:
         if name.lower() == lower:
             resolved = name
             break
     if fam is None or uno_read(lambda: fam.hasByName(resolved), False):
         return resolved
     return "Standard"
-
 
 
 def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[str | None], end: Any = None) -> None:
@@ -187,7 +184,6 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
 
     fam = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles"), None)
     element_names: list[str] = uno_read(lambda: list(fam.getElementNames()), []) if fam is not None else []
-    token_cache: dict[str, str] = {}
 
     try:
         start_range = start.getStart() if hasattr(start, "getStart") else start
@@ -208,10 +204,7 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
             break
 
         if style:
-            resolved = token_cache.get(style)
-            if resolved is None:
-                resolved = _resolve_paragraph_style_token(fam, style, element_names=element_names)
-                token_cache[style] = resolved
+            resolved = _resolve_paragraph_style_token(fam, style, element_names=element_names)
             # The import already set the style; re-applying only re-reads every portion.
             current = uno_read(lambda: walk_cur.getPropertyValue("ParaStyleName"), None)
             if current != resolved:

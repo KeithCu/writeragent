@@ -207,27 +207,10 @@ def _page_number_properties(props: dict[str, str]) -> list[tuple[str, Any]]:
     from . import format as format_mod
     import uno
 
-    subtype_str = props.get("subtype", "CURRENT").strip().upper()
-    st_name = _PAGE_NUMBER_SUBTYPE_VALS.get(subtype_str)
-    if st_name is None:
-        log.warning("Unknown PageNumber SubType: %r, defaulting to CURRENT", props.get("subtype"))
-        st_name = "CURRENT"
-
-    offset_val = int(props.get("offset", "0"))
-
-    num_type_str = props.get("numbering_type", "ARABIC").strip().upper()
-    if num_type_str in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
-        nt_val = format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS[num_type_str]
-    elif num_type_str.isdigit() and int(num_type_str) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
-        nt_val = int(num_type_str)
-    else:
-        log.warning("Unknown PageNumber NumberingType: %r, defaulting to ARABIC", props.get("numbering_type"))
-        nt_val = 4
-
     return [
-        ("SubType", uno.Enum("com.sun.star.text.PageNumberType", st_name)),
-        ("Offset", offset_val),
-        ("NumberingType", nt_val),
+        ("SubType", uno.Enum("com.sun.star.text.PageNumberType", props.get("subtype", "CURRENT"))),
+        ("Offset", int(props.get("offset", "0"))),
+        ("NumberingType", format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS[props.get("numbering_type", "ARABIC")]),
     ]
 
 

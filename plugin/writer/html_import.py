@@ -32,8 +32,6 @@ from .math.html_math_segment import html_fragment_contains_mixed_math, segment_h
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 
 log = logging.getLogger("writeragent.writer")
-# uno_read default where None is a real UNO result.
-_FAILED: Any = object()
 
 
 # HTML block-level elements that define paragraphs. <br> is separate: it breaks a line but
@@ -359,9 +357,7 @@ def insert_html_at_cursor(
 
 def _uno_service_true(obj: Any, service: str) -> bool:
     """``supportsService`` is true only for sal_Bool True or integer 1."""
-    val = uno_read(lambda: obj.supportsService(service), _FAILED)
-    if val is _FAILED:
-        return False
+    val = uno_read(lambda: obj.supportsService(service), False)
     return val is True or (type(val) is int and val == 1)
 
 
@@ -382,11 +378,10 @@ def _selection_is_draw_shape(obj: Any) -> bool:
             return True
     except Exception:
         log.debug("_selection_is_draw_shape: graphic probe failed", exc_info=True)
-    if _uno_service_true(obj, "com.sun.star.drawing.Shape"):
-        return True
-    if _uno_service_true(obj, "com.sun.star.drawing.CustomShape"):
-        return True
-    return False
+    return any(
+        _uno_service_true(obj, s)
+        for s in ("com.sun.star.drawing.Shape", "com.sun.star.drawing.CustomShape")
+    )
 
 
 
@@ -469,13 +464,6 @@ def _apply_ruby_and_restore_fields(
 
 
 def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> None:
-    """Insert inline *content* at a collapsed *cursor* (data-less images kept, see
-    ``image_placeholders._keep_placeholder_images``)."""
-    with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        _insert_inline_at_cursor(model, ctx, cursor, swapped)
-
-
-def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> None:
     """Insert inline *content* at a collapsed *cursor* without splitting its paragraph.
 
     ``insert_html_at_cursor`` routes plain text through ``_ensure_html_linebreaks``, which
@@ -484,30 +472,31 @@ def _insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) ->
     Plain text goes in with ``insertString``; inline markup is imported RAW (no ``<p>``),
     the same way ``replace_single_range_with_content`` handles inline replacements.
     """
-    # No html.unescape here: apply_document_content.py already decoded complete character references on the
-    # plain path (_ENTITY_RE), and a full unescape turns "&sect 2o" into "§ 2o"; the HTML import
-    # decodes entities in markup itself.
-    if not content_has_markup(content):
-        cursor.getText().insertString(cursor, content, False)
-        return
-    inline_html, ruby_spans, nonce = _prep_field_ruby(content)
-    # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " lost
-    # its trailing space and fused with the next word. Put edge whitespace in as text.
-    core = inline_html.strip()
-    lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
-    trail = inline_html[len(inline_html.rstrip()):]
-    text = cursor.getText()
-    ruby_skip = html_ruby._ruby_skip(text, cursor, ruby_spans)
-    if lead:
-        text.insertString(cursor, lead, False)
-    if trail:
-        # The fragment import does not leave the cursor after the imported text, so the
-        # trailing whitespace goes in first and the fragment is imported just before it.
-        text.insertString(cursor, trail, False)
-        cursor.goLeft(len(trail), False)
-    if core:
-        insert_html_fragment_at_cursor(cursor, core, wrap=False, model=None)
-    _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
+    with image_placeholders._keep_placeholder_images(model, content) as swapped:
+        # No html.unescape here: apply_document_content.py already decoded complete character references on the
+        # plain path (_ENTITY_RE), and a full unescape turns "&sect 2o" into "§ 2o"; the HTML import
+        # decodes entities in markup itself.
+        if not content_has_markup(swapped):
+            cursor.getText().insertString(cursor, swapped, False)
+            return
+        inline_html, ruby_spans, nonce = _prep_field_ruby(swapped)
+        # The HTML import drops whitespace at the edges of a fragment, so "<b>muito</b> " lost
+        # its trailing space and fused with the next word. Put edge whitespace in as text.
+        core = inline_html.strip()
+        lead = inline_html[: len(inline_html) - len(inline_html.lstrip())]
+        trail = inline_html[len(inline_html.rstrip()):]
+        text = cursor.getText()
+        ruby_skip = html_ruby._ruby_skip(text, cursor, ruby_spans)
+        if lead:
+            text.insertString(cursor, lead, False)
+        if trail:
+            # The fragment import does not leave the cursor after the imported text, so the
+            # trailing whitespace goes in first and the fragment is imported just before it.
+            text.insertString(cursor, trail, False)
+            cursor.goLeft(len(trail), False)
+        if core:
+            insert_html_fragment_at_cursor(cursor, core, wrap=False, model=None)
+        _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
 
 
 # Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references with trailing semicolon.
@@ -526,84 +515,74 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        _insert_content_at_position(model, ctx, swapped, position)
+        content = _decode_complete_character_references(swapped)
 
+        text = model.getText()
+        cursor = text.createTextCursor()
 
-def _insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> None:
-    content = _decode_complete_character_references(content)
+        if position == "beginning":
+            cursor.gotoStart(False)
+        elif position == "end":
+            cursor.gotoEnd(False)
+        elif position == "selection":
+            # Prefer a real text selection (table/frame-aware). Draw shape selections (post
+            # shape.upsert) and empty selections fall back to the view text cursor, then
+            # document end — RPS Universal Sample must not require the user to select text.
+            def _doc_end_cursor() -> Any:
+                c = text.createTextCursor()
+                c.gotoEnd(False)
+                return c
 
-    text = model.getText()
-    cursor = text.createTextCursor()
+            controller = uno_read(lambda: model.getCurrentController(), None)
 
-    if position == "beginning":
-        cursor.gotoStart(False)
-    elif position == "end":
-        cursor.gotoEnd(False)
-    elif position == "selection":
-        # Prefer a real text selection (table/frame-aware). Draw shape selections (post
-        # shape.upsert) and empty selections fall back to the view text cursor, then
-        # document end — RPS Universal Sample must not require the user to select text.
-        def _doc_end_cursor() -> Any:
-            c = text.createTextCursor()
-            c.gotoEnd(False)
-            return c
+            from plugin.doc.text_helpers import selected_text_range
 
-        controller = uno_read(lambda: model.getCurrentController(), None)
+            rng = selected_text_range(controller)
 
-        from plugin.doc.text_helpers import selected_text_range
-
-        rng = selected_text_range(controller)
-
-        if rng is not None and _selection_is_draw_shape(rng):
-            log.debug(
-                "insert_content_at_position: selection is Draw/Writer shape; "
-                "falling back to view/document text cursor"
-            )
-            rng = None
-
-        if rng is None and controller is not None:
-            vc = uno_read(lambda: controller.getViewCursor(), None)
-            if vc is not None and not _selection_is_draw_shape(vc):
-                rng = vc
-
-        if rng is None:
-            cursor = _doc_end_cursor()
-        else:
-            try:
-                cursor = rng.getText().createTextCursorByRange(rng.getStart())
-                if not hasattr(cursor, "insertDocumentFromURL"):
-                    raise AttributeError("insertDocumentFromURL")
-                # Clear only real text selections (never shapes).
-                if hasattr(rng, "setString") and not _selection_is_draw_shape(rng):
-                    from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
-
-                    raise_if_range_hosts_nested_table(rng)
-                    rng.setString("")
-            except AttributeError as e:
-                # No text cursor (a shape that was not classified earlier).
-                # ToolExecutionError (nested table) and a closed document must
-                # not become an insert at the document end.
+            if rng is not None and _selection_is_draw_shape(rng):
                 log.debug(
-                    "insert_content_at_position: text selection unusable (%s); using document end",
-                    e,
+                    "insert_content_at_position: selection is Draw/Writer shape; "
+                    "falling back to view/document text cursor"
                 )
+                rng = None
+
+            if rng is None and controller is not None:
+                vc = uno_read(lambda: controller.getViewCursor(), None)
+                if vc is not None and not _selection_is_draw_shape(vc):
+                    rng = vc
+
+            if rng is None:
                 cursor = _doc_end_cursor()
-    else:
-        raise ToolExecutionError("Unknown position: %s" % position)
+            else:
+                try:
+                    cursor = rng.getText().createTextCursorByRange(rng.getStart())
+                    if not hasattr(cursor, "insertDocumentFromURL"):
+                        raise AttributeError("insertDocumentFromURL")
+                    # Clear only real text selections (never shapes).
+                    if hasattr(rng, "setString") and not _selection_is_draw_shape(rng):
+                        from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
 
-    # beginning/end: honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
-    # selection/search: still apply_styles=False — replace splits/merges into neighbor text (phase 3).
-    styled = position in ("beginning", "end")
-    if styled:
-        cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-    _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
+                        raise_if_range_hosts_nested_table(rng)
+                        rng.setString("")
+                except AttributeError as e:
+                    # No text cursor (a shape that was not classified earlier).
+                    # ToolExecutionError (nested table) and a closed document must
+                    # not become an insert at the document end.
+                    log.debug(
+                        "insert_content_at_position: text selection unusable (%s); using document end",
+                        e,
+                    )
+                    cursor = _doc_end_cursor()
+        else:
+            raise ToolExecutionError("Unknown position: %s" % position)
 
+        # beginning/end: honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
+        # selection/search: still apply_styles=False — replace splits/merges into neighbor text (phase 3).
+        styled = position in ("beginning", "end")
+        if styled:
+            cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
+        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
 
-
-def replace_full_document(model: Any, ctx: Any, content: str) -> None:
-    """Clear the document and insert *content*."""
-    with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        _replace_full_document(model, ctx, swapped)
 
 
 def _deletion_author() -> Any:
@@ -616,45 +595,47 @@ def _deletion_author() -> Any:
         return contextlib.nullcontext()
 
 
-def _replace_full_document(model: Any, ctx: Any, content: str) -> None:
-    content = _decode_complete_character_references(content)
+def replace_full_document(model: Any, ctx: Any, content: str) -> None:
+    """Clear the document and insert *content*."""
+    with image_placeholders._keep_placeholder_images(model, content) as swapped:
+        content = _decode_complete_character_references(swapped)
 
-    text = model.getText()
-    cursor = text.createTextCursor()
-    cursor.gotoStart(False)
-    cursor.gotoEnd(True)
-    with _deletion_author():  # author the deletion distinctly (split by-author coloring)
-        cursor.setString("")
-    cursor.gotoStart(False)
-    if not image_placeholders._is_recording_changes(model):
+        text = model.getText()
+        cursor = text.createTextCursor()
+        cursor.gotoStart(False)
+        cursor.gotoEnd(True)
+        with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+            cursor.setString("")
+        cursor.gotoStart(False)
+        if not image_placeholders._is_recording_changes(model):
+            _insert_mixed_or_plain_html(model, ctx, cursor, content)
+            return
+        # In review mode the deleted text stays in place, and an import at
+        # its start takes the character formatting of the first old
+        # paragraph as direct formatting -- a document opening with an 18pt
+        # bold heading comes back 18pt bold throughout (reproduced live;
+        # the data-lo-style pass then keeps it as a "hand-set" override).
+        # Import into a fresh empty paragraph opened before the deleted
+        # text, then drop that paragraph if it is left over empty (the
+        # import puts its blocks before it) -- a tracked insertion swallows
+        # the break.
+        text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
+        cursor.goLeft(1, False)
+        leftover = text.createTextCursorByRange(cursor.getStart())
         _insert_mixed_or_plain_html(model, ctx, cursor, content)
-        return
-    # In review mode the deleted text stays in place, and an import at
-    # its start takes the character formatting of the first old
-    # paragraph as direct formatting -- a document opening with an 18pt
-    # bold heading comes back 18pt bold throughout (reproduced live;
-    # the data-lo-style pass then keeps it as a "hand-set" override).
-    # Import into a fresh empty paragraph opened before the deleted
-    # text, then drop that paragraph if it is left over empty (the
-    # import puts its blocks before it) -- a tracked insertion swallows
-    # the break.
-    text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
-    cursor.goLeft(1, False)
-    leftover = text.createTextCursorByRange(cursor.getStart())
-    _insert_mixed_or_plain_html(model, ctx, cursor, content)
-    leftover.gotoEndOfParagraph(True)
-    if leftover.getString() == "":
-        leftover.collapseToStart()
-        leftover.goLeft(1, True)
-        # Tip: a tracked delete of this break joins paragraphs ('initiativeproject'); delete it untracked.
-        was_rec = bool(model.getPropertyValue("RecordChanges"))
-        if was_rec:
-            model.setPropertyValue("RecordChanges", False)
-        try:
-            leftover.setString("")
-        finally:
+        leftover.gotoEndOfParagraph(True)
+        if leftover.getString() == "":
+            leftover.collapseToStart()
+            leftover.goLeft(1, True)
+            # Tip: a tracked delete of this break joins paragraphs ('initiativeproject'); delete it untracked.
+            was_rec = bool(model.getPropertyValue("RecordChanges"))
             if was_rec:
-                model.setPropertyValue("RecordChanges", True)
+                model.setPropertyValue("RecordChanges", False)
+            try:
+                leftover.setString("")
+            finally:
+                if was_rec:
+                    model.setPropertyValue("RecordChanges", True)
 
 
 
@@ -664,79 +645,73 @@ def replace_single_range_with_content(
 ) -> None:
     """Replace the given text range with rendered *content* (HTML path)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        _replace_single_range_with_content(model, text_range, swapped, ctx)
+        prepared = _decode_complete_character_references(swapped)
+        text_obj = text_range.getText()
 
+        # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
+        # Block/rich HTML import into a cell's nested XText can raise an empty RuntimeException (see the
+        # FOLLOW-UP above); we use this to turn that opaque failure into a clear, actionable message.
+        in_table_cell = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("TextTable") is not None, False)
 
-def _replace_single_range_with_content(
-    model: Any, text_range: Any, content: str, ctx: Any
-) -> None:
-    prepared = _decode_complete_character_references(content)
-    text_obj = text_range.getText()
+        # Preserve the target paragraph style for INLINE replacements. The StarWriter
+        # HTML import resets the paragraph to a default body style, silently demoting
+        # headings (e.g. "Heading 3" -> "Text body"). For inline-only content (no
+        # block-level tags, no math), insert without jumping the cursor to the document
+        # end so we can reapply the original paragraph style across the inserted range.
+        inline_preserve = not _content_has_block_markup(prepared) and not html_fragment_contains_mixed_math(prepared)
+        saved_style = None
+        if inline_preserve:
+            saved_style = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("ParaStyleName"), None)
 
-    # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
-    # Block/rich HTML import into a cell's nested XText can raise an empty RuntimeException (see the
-    # FOLLOW-UP above); we use this to turn that opaque failure into a clear, actionable message.
-    in_table_cell = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("TextTable") is not None, False)
+        cursor = text_obj.createTextCursorByRange(text_range)
+        from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
 
-    # Preserve the target paragraph style for INLINE replacements. The StarWriter
-    # HTML import resets the paragraph to a default body style, silently demoting
-    # headings (e.g. "Heading 3" -> "Text body"). For inline-only content (no
-    # block-level tags, no math), insert without jumping the cursor to the document
-    # end so we can reapply the original paragraph style across the inserted range.
-    inline_preserve = not _content_has_block_markup(prepared) and not html_fragment_contains_mixed_math(prepared)
-    saved_style = None
-    if inline_preserve:
-        saved_style = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("ParaStyleName"), None)
+        # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
+        raise_if_range_hosts_nested_table(text_range)
+        from . import format as format_mod
+        with _deletion_author():  # author the deletion distinctly (split by-author coloring)
+            cursor.setString("")
 
-    cursor = text_obj.createTextCursorByRange(text_range)
-    from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
+        if saved_style is not None:
+            anchor = text_obj.createTextCursorByRange(cursor.getStart())
+            # Insert the inline fragment RAW (do not route through _ensure_html_linebreaks:
+            # it does not recognise <span> as HTML and would wrap it in <p>, creating an
+            # extra body paragraph). model=None leaves the cursor at the end of the
+            # INSERTED content (not the document end), so [anchor, cursor] bounds it.
+            inline_html, ruby_spans, nonce = _prep_field_ruby(prepared)
+            ruby_skip = html_ruby._ruby_skip(text_obj, anchor, ruby_spans)
+            insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, model=None)
+            _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
+            # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
+            # Skip it while Track Changes is recording: setString("") above leaves the old text in
+            # place as a tracked DELETE, and re-applying a paragraph style across [anchor, cursor]
+            # spans that struck text, converting its DELETE redline into a FORMAT redline -- so
+            # accepting the change would keep BOTH the old and new text. The inline import does not
+            # demote the style here, so skipping the restore keeps a clean Delete + Insert pair.
+            if not image_placeholders._is_recording_changes(model):
+                def restore_style() -> None:
+                    restore = text_obj.createTextCursorByRange(anchor.getStart())
+                    restore.gotoRange(cursor.getEnd(), True)
+                    format_mod.apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
 
-    # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
-    raise_if_range_hosts_nested_table(text_range)
-    from . import format as format_mod
-    with _deletion_author():  # author the deletion distinctly (split by-author coloring)
-        cursor.setString("")
-
-    if saved_style is not None:
-        anchor = text_obj.createTextCursorByRange(cursor.getStart())
-        # Insert the inline fragment RAW (do not route through _ensure_html_linebreaks:
-        # it does not recognise <span> as HTML and would wrap it in <p>, creating an
-        # extra body paragraph). model=None leaves the cursor at the end of the
-        # INSERTED content (not the document end), so [anchor, cursor] bounds it.
-        inline_html, ruby_spans, nonce = _prep_field_ruby(prepared)
-        ruby_skip = html_ruby._ruby_skip(text_obj, anchor, ruby_spans)
-        insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, model=None)
-        _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
-        # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
-        # Skip it while Track Changes is recording: setString("") above leaves the old text in
-        # place as a tracked DELETE, and re-applying a paragraph style across [anchor, cursor]
-        # spans that struck text, converting its DELETE redline into a FORMAT redline -- so
-        # accepting the change would keep BOTH the old and new text. The inline import does not
-        # demote the style here, so skipping the restore keeps a clean Delete + Insert pair.
-        if not image_placeholders._is_recording_changes(model):
-            def restore_style() -> None:
-                restore = text_obj.createTextCursorByRange(anchor.getStart())
-                restore.gotoRange(cursor.getEnd(), True)
-                format_mod.apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
-
-            best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
-    else:
-        # apply_styles=False: a search/replace splits the matched paragraph, so applying a
-        # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
-        try:
-            _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False)
-        except Exception as e:
-            reraise_if_disposed(e)
-            # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
-            # HTML import (nested-XText cursor mapping). Surface a clear, actionable message instead of
-            # the opaque error; the atomic wrapper rolls back the partial edit either way.
-            if in_table_cell and _content_has_block_markup(prepared):
-                raise RuntimeError(
-                    "Rich/block HTML can't be inserted inside a table cell yet (the LibreOffice HTML "
-                    "import mishandles nested cell text). Use plain text or inline tags only inside "
-                    "table cells, or place block/rich content outside the table."
-                ) from e
-            raise
+                best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
+        else:
+            # apply_styles=False: a search/replace splits the matched paragraph, so applying a
+            # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
+            try:
+                _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False)
+            except Exception as e:
+                reraise_if_disposed(e)
+                # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
+                # HTML import (nested-XText cursor mapping). Surface a clear, actionable message instead of
+                # the opaque error; the atomic wrapper rolls back the partial edit either way.
+                if in_table_cell and _content_has_block_markup(prepared):
+                    raise RuntimeError(
+                        "Rich/block HTML can't be inserted inside a table cell yet (the LibreOffice HTML "
+                        "import mishandles nested cell text). Use plain text or inline tags only inside "
+                        "table cells, or place block/rich content outside the table."
+                    ) from e
+                raise
 
 
 
