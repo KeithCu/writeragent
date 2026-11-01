@@ -52,7 +52,7 @@ written after assigning the same URL on the whole paragraph.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 from typing import Any, Iterator
 
@@ -106,10 +106,7 @@ class OutlineSnapshot:
     preserve_url: str = ""
     # CharColor / CharUnderline of the matched run, copied before the
     # text replace. A later snapshot already includes Internet-link chrome.
-    look: dict[str, Any] | None = None
-
-    def __post_init__(self) -> None:
-        self.look = dict(self.look) if self.look else {}
+    look: dict[str, Any] = field(default_factory=dict)
 
 
 def _prop(obj: Any, name: str) -> str:
@@ -118,21 +115,16 @@ def _prop(obj: Any, name: str) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _point_before(text: Any, left: Any, right: Any) -> bool:
-    """True when *left* starts before *right* (``compareRegionStarts`` == 1)."""
-    return uno_read(lambda: int(text.compareRegionStarts(left, right)) == 1, False)
-
-
-def _point_after(text: Any, left: Any, right: Any) -> bool:
-    """True when *left* ends after *right* (``compareRegionEnds`` == -1)."""
-    return uno_read(lambda: int(text.compareRegionEnds(left, right)) == -1, False)
-
-
 def _ranges_overlap(text: Any, portion: Any, match: Any) -> bool:
     """True when *portion* and *match* share a character (touching at an edge does not)."""
     p0, p1 = portion.getStart(), portion.getEnd()
     m0, m1 = match.getStart(), match.getEnd()
-    return _point_before(text, p0, m1) and _point_after(text, p1, m0)
+    # compareRegionStarts == 1: p0 starts before m1
+    # compareRegionEnds == -1: p1 ends after m0
+    return (
+        uno_read(lambda: int(text.compareRegionStarts(p0, m1)) == 1, False)
+        and uno_read(lambda: int(text.compareRegionEnds(p1, m0)) == -1, False)
+    )
 
 
 def substitute_if_present(value: str, matched: str, new_plain: str) -> str | None:
@@ -220,6 +212,13 @@ def _cursor_at(text: Any, pos: Any) -> Any:
     return text.createTextCursorByRange(pos)
 
 
+def _paragraph_cursor(text: Any, pos: Any) -> Any:
+    cursor = _cursor_at(text, pos)
+    cursor.gotoStartOfParagraph(False)
+    cursor.gotoEndOfParagraph(True)
+    return cursor
+
+
 def _same_point(text: Any, left: Any, right: Any) -> bool:
     return uno_read(lambda: int(text.compareRegionStarts(left, right)) == 0, False)
 
@@ -260,9 +259,7 @@ def _enum_has_more(enum: Any) -> bool:
 
 def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
     """Portions of the paragraph containing *anchor_pos*."""
-    cursor = _cursor_at(text, anchor_pos)
-    cursor.gotoStartOfParagraph(False)
-    cursor.gotoEndOfParagraph(True)
+    cursor = _paragraph_cursor(text, anchor_pos)
     para_enum = cursor.createEnumeration()
     while _enum_has_more(para_enum):
         para = para_enum.nextElement()
@@ -313,13 +310,11 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
             continue
         seen.add(url)
         links.append(OutlineLink(url, _prop(portion, _NAME), _prop(portion, _TARGET)))
-    return OutlineSnapshot(links, prefix, suffix, matched, single, preserve_url, look)
+    return OutlineSnapshot(links, prefix, suffix, matched, single, preserve_url, dict(look))
 
 
 def _paragraph_text(text: Any, anchor: Any) -> str:
-    cursor = _cursor_at(text, anchor.getStart())
-    cursor.gotoStartOfParagraph(False)
-    cursor.gotoEndOfParagraph(True)
+    cursor = _paragraph_cursor(text, anchor.getStart())
     return str(cursor.getString() or "")
 
 
@@ -395,12 +390,10 @@ def _write_char_look(cursor: Any, props: dict[str, Any]) -> None:
 
 def _write_plan_on_cursor(cursor: Any, plan: dict[str, Any],
                           look: dict[str, Any] | None = None) -> None:
-    if plan["new_url"] is not None:
-        _set_prop(cursor, _URL, plan["new_url"])
-    if plan["new_name"] is not None:
-        _set_prop(cursor, _NAME, plan["new_name"])
-    if plan["new_target"] is not None:
-        _set_prop(cursor, _TARGET, plan["new_target"])
+    for prop, key in ((_URL, "new_url"), (_NAME, "new_name"), (_TARGET, "new_target")):
+        val = plan[key]
+        if val is not None:
+            _set_prop(cursor, prop, val)
     if look:
         _write_char_look(cursor, look)
 
@@ -549,9 +542,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
             if snapshot.look and snapshot.links and snapshot.single_paragraph:
                 para = _paragraph_text(text, anchor)
                 if para == snapshot.prefix + new_plain + snapshot.suffix:
-                    cursor = _cursor_at(text, anchor.getStart())
-                    cursor.gotoStartOfParagraph(False)
-                    cursor.gotoEndOfParagraph(True)
+                    cursor = _paragraph_cursor(text, anchor.getStart())
                     _set_prop(cursor, _URL, put_back)
                     _write_char_look(cursor, snapshot.look)
                     restored = True
