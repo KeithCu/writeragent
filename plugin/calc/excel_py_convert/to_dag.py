@@ -201,11 +201,10 @@ def _normalize_excel_placeholders(src: str) -> str:
             i = end
             continue
         if ch == "#":
-            j = i
-            while j < n and src[j] != "\n":
-                j += 1
-            out.append(src[i:j])
-            i = j
+            nl = src.find("\n", i)
+            end = n if nl < 0 else nl
+            out.append(src[i:end])
+            i = end
             continue
         m = _P_BARE_RE.match(src, i)
         if m:
@@ -287,11 +286,12 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
             issues.append("placeholder token without reliable source position")
             continue
         token = src[off : off + len(name_node.id)]
+        inside = any(c.p_num is not None and c.start <= off < c.end for c in calls)
         if token.startswith(("%P", "%p")):
-            if not any(c.p_num is not None and c.start <= off < c.end for c in calls):
+            if not inside:
                 issues.append(f"placeholder {token} outside xl()")
         else:
-            if any(c.p_num is not None and c.start <= off < c.end for c in calls):
+            if inside:
                 issues.append(f"xl() argument {name_node.id} collides with the placeholder sentinel; rename it")
 
     return calls, issues
@@ -339,8 +339,7 @@ def apply_rewrite(src: str, calls: list[_XlCall], *, index_map: dict[int, int]) 
     """Rewrite binding call sites in *src* to quoted xl("%Pn%", ...) with remapped indices."""
     new_code = src
     for call in sorted(calls, key=lambda c: c.start, reverse=True):
-        if call.p_num is None or not 2 <= call.p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX:
-            continue
+        assert call.p_num is not None
         orig_idx = _placeholder_to_data_index(call.p_num)
         norm_idx = index_map.get(orig_idx, orig_idx)
         repl = _xl_binding_expr(norm_idx, call.header_mode)
@@ -359,27 +358,23 @@ def _excel_execution_order(model: ExcelWorkbookModel) -> list[ExcelPyCell]:
     return sorted(model.cells, key=lambda c: (order_map[c.sheet] if c.sheet in order_map else unknown[c.sheet], c.row or 10**9, c.col or 10**9, c.cell))
 
 
-@deal.pre(lambda current, candidate: ascii_bounded(current or "", DEAL_MAX_SOURCE) and ascii_bounded(candidate or "", DEAL_MAX_SOURCE))
+@deal.pre(lambda current, candidate: ascii_bounded(current, DEAL_MAX_SOURCE) and ascii_bounded(candidate, DEAL_MAX_SOURCE))
 def _prefer_excel_dep_token(current: str, candidate: str) -> str:
     # crosshair: off
     """When merging deps that snap to the same A1, keep the Excel-native token if any.
 
     See ``plugin.calc.excel_py_convert.models`` module doc; fidelity only, not Calc semantics.
     """
-    cand = (candidate or "").strip()
-    cur = (current or "").strip()
-    if not cand:
-        return cur
-    if "[#" in cand or "ANCHORARRAY" in cand.upper():
-        return cand
-    return cur or cand
+    if "[#" in candidate or "ANCHORARRAY" in candidate.upper():
+        return candidate
+    return current
 
 
 @deal.pre(
     lambda resolved, header_modes: (
         type(resolved) is list
         and len(resolved) <= DEAL_MAX_CMD_ARGS
-        and all(isinstance(r, ResolvedDep) and str_bounded(r.note or "", DEAL_MAX_SOURCE) and ascii_bounded(r.a1, DEAL_MAX_SOURCE) and (r.original is None or ascii_bounded(r.original, DEAL_MAX_SOURCE)) for r in resolved)
+        and all(isinstance(r, ResolvedDep) and str_bounded(r.note or "", DEAL_MAX_SOURCE) and ascii_bounded(r.a1, DEAL_MAX_SOURCE) and ascii_bounded(r.original, DEAL_MAX_SOURCE) for r in resolved)
         and type(header_modes) is dict
         and len(header_modes) <= DEAL_MAX_CMD_ARGS
         and all(type(k) is int and 0 <= k <= DEAL_MAX_CMD_ARGS and isinstance(v, str) and v in ("omit", "true", "false") for k, v in header_modes.items())
@@ -410,7 +405,7 @@ def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str
         if norm is None:
             norm = len(bindings)
             a1_to_norm[key] = norm
-            excel_deps.append((r.original or key).strip() or key)
+            excel_deps.append(r.original)
             bindings.append(BindingInfo(a1=key, header_mode=hm, role="data", original_indices=[orig_i]))
         else:
             bindings[norm].original_indices.append(orig_i)
