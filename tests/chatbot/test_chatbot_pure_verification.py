@@ -24,7 +24,6 @@ from plugin.chatbot.web_research_cache import (
     snowball_lang_from_locale_tag,
     format_research_cache_key,
     parse_research_cache_key,
-    jaccard,
     research_cache_similarity,
 )
 
@@ -94,10 +93,6 @@ def test_research_cache_key_roundtrip(lang: str, key: str) -> None:
 
 @given(stems_a=st.sets(st.text()), stems_b=st.sets(st.text()))
 def test_jaccard_and_similarity_mathematical_bounds(stems_a: set[str], stems_b: set[str]) -> None:
-    j_val = jaccard(stems_a, stems_b)
-    assert isinstance(j_val, float)
-    assert 0.0 <= j_val <= 1.0
-
     sim_val = research_cache_similarity(stems_a, stems_b)
     assert isinstance(sim_val, float)
     assert 0.0 <= sim_val <= 1.0

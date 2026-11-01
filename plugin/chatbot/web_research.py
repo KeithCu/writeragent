@@ -740,11 +740,11 @@ class WebResearchTool(ToolBase):
                     mode=cache_mode,
                 )
                 if hit is not None:
-                    event, display_key, matched_raw_key, score, cached = hit
-                    log.debug("web_cache: research %s for key: %s", event, display_key)
+                    event, matched_raw_key, score, cached = hit
+                    log.debug("web_cache: research %s for key: %s", event, unique_key)
                     cache_fields = _research_cache_result_fields(
                         event,
-                        display_key,
+                        unique_key,
                         stem_lang=stem_lang,
                         matched_key=matched_raw_key if event in ("hit_fuzzy", "hit_embedding") else None,
                         score=score if event in ("hit_fuzzy", "hit_embedding") else None,

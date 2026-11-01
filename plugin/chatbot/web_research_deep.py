@@ -201,12 +201,6 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
     }
 
 
-def count_words(text: Any) -> int:
-    if isinstance(text, list):
-        text = " ".join(str(item) for item in text)
-    return len(str(text).split())
-
-
 def _trim_evidence(
     learnings: list[str],
     context_chunks: list[str],
@@ -215,13 +209,13 @@ def _trim_evidence(
     total_words = 0
     trimmed_learnings: list[str] = []
     for item in learnings:
-        words = count_words(item)
+        words = len(str(item).split())
         if total_words + words <= max_words:
             trimmed_learnings.append(item)
             total_words += words
         else:
             if total_words < max_words:
-                text = " ".join(str(part) for part in item) if isinstance(item, list) else str(item)
+                text = str(item)
                 rem = max_words - total_words
                 trimmed_learnings.append(" ".join(text.split()[:rem]))
                 total_words += rem
@@ -229,12 +223,12 @@ def _trim_evidence(
 
     trimmed_context: list[str] = []
     for item in reversed(context_chunks):
-        words = count_words(item)
+        words = len(str(item).split())
         if total_words + words <= max_words:
             trimmed_context.insert(0, item)
             total_words += words
         elif not trimmed_context and total_words < max_words:
-            text = " ".join(str(part) for part in item) if isinstance(item, list) else str(item)
+            text = str(item)
             rem = max_words - total_words
             trimmed_context.insert(0, " ".join(text.split()[:rem]))
             break
@@ -242,6 +236,10 @@ def _trim_evidence(
             break
 
     return trimmed_learnings, trimmed_context
+
+
+def _is_user_stopped(exc: Any) -> bool:
+    return getattr(exc, "code", None) == "USER_STOPPED"
 
 
 def _user_stopped_payload() -> dict[str, Any]:
@@ -283,17 +281,8 @@ class _ResearchAccumulator:
     citations: dict[str, list[str]] = field(default_factory=dict)
     context_chunks: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
-    started_queries: int = 0
     budget_lock: threading.Lock = field(default_factory=threading.Lock)
     last_branch_error: dict[str, Any] | None = None
-
-
-def _emit_progress(
-    progress: ResearchProgress,
-    status_callback: StatusCallback,
-) -> None:
-    if status_callback:
-        status_callback(progress.status_text())
 
 
 def parse_assessment_response(response: str) -> dict[str, Any]:
@@ -374,13 +363,8 @@ def assess_research_coverage(
     return parse_assessment_response(response)
 
 
-def _local_clock_stamp() -> str:
-    """Weekday + ISO date like LlmClient's date line, plus local clock."""
-    return now_aware().strftime("%A, %Y-%m-%d %H:%M:%S")
-
-
 def generate_search_queries(llm_chat: LlmChatFn, query: str, num_queries: int) -> list[dict[str, str]]:
-    current_time = _local_clock_stamp()
+    current_time = now_aware().strftime("%A, %Y-%m-%d %H:%M:%S")
     messages = [
         {
             "role": "system",
@@ -444,9 +428,7 @@ def synthesize_deep_report(
     evidence = "\n\n".join(evidence_parts)
     source_block = ""
     if sources:
-        unique_sources = list(dict.fromkeys(s for s in sources if s))
-        if unique_sources:
-            source_block = "\n\nSources consulted:\n" + "\n".join(f"- {u}" for u in unique_sources[:50])
+        source_block = "\n\nSources consulted:\n" + "\n".join(f"- {u}" for u in sources[:50])
     messages = [
         {
             "role": "system",
@@ -479,11 +461,11 @@ def _partial_report_from_evidence(
         "",
     ]
     lines.extend(cited_learnings)
-    unique_sources = list(dict.fromkeys(s for s in (sources or []) if s))
-    if unique_sources:
+    sources_consulted = (sources or [])[:50]
+    if sources_consulted:
         lines.append("")
         lines.append(_("Sources consulted:"))
-        lines.extend(f"- {url}" for url in unique_sources[:50])
+        lines.extend(f"- {url}" for url in sources_consulted)
     return "\n".join(lines)
 
 
@@ -496,10 +478,7 @@ def _coerce_agent_result(result: str | dict[str, Any]) -> str:
                 str(result.get("message") or "Sub-query research failed."),
                 code=str(result.get("code") or "TOOL_EXECUTION_ERROR"),
             )
-        if result.get("status") == "ok":
-            val = result.get("result")
-            return str(val) if val is not None else ""
-        if "result" in result:
+        if result.get("status") == "ok" or "result" in result:
             val = result.get("result")
             return str(val) if val is not None else ""
         raise ToolExecutionError(str(result.get("message") or "Sub-query research failed."))
@@ -529,7 +508,6 @@ def _process_one_sub_query(
     llm_chat: LlmChatFn,
     stop_checker: StopChecker,
     acc: _ResearchAccumulator,
-    max_sub_queries: int,
     progress: ResearchProgress,
     status_callback: StatusCallback,
 ) -> dict[str, Any] | None:
@@ -541,20 +519,20 @@ def _process_one_sub_query(
     research_goal = serp_query.get("researchGoal") or ""
 
     with acc.budget_lock:
-        if acc.started_queries >= max_sub_queries:
+        if progress.started_queries >= progress.max_sub_queries:
             return None
-        acc.started_queries += 1
-        progress.started_queries = acc.started_queries
+        progress.started_queries += 1
         progress.current_query = sub_query
 
-    _emit_progress(progress, status_callback)
+    if status_callback:
+        status_callback(progress.status_text())
 
     try:
         raw = run_web_agent(sub_query, research_goal, None)
         sub_context = _coerce_agent_result(raw)
     except ToolExecutionError as exc:
         payload = format_error_payload(exc)
-        if getattr(exc, "code", None) == "USER_STOPPED":
+        if _is_user_stopped(exc):
             return {"error": payload}
         log.warning("deep_research: sub-query failed (%s): %s", sub_query, exc)
         acc.last_branch_error = payload
@@ -569,7 +547,7 @@ def _process_one_sub_query(
     try:
         results = process_research_results(llm_chat, sub_query, sub_context)
     except Exception as exc:
-        if getattr(exc, "code", None) == "USER_STOPPED":
+        if _is_user_stopped(exc):
             raise
         log.warning("deep_research: extraction failed for %s: %s", sub_query, exc)
         results = {}
@@ -578,11 +556,8 @@ def _process_one_sub_query(
     # parse_research_results_response stores {learning sentence: list[source url]}.
     citation_map = results.get("citations") or {}
     citation_urls = []
-    if isinstance(citation_map, dict):
-        for urls in citation_map.values():
-            citation_urls.extend(urls)
-    else:
-        citation_urls = citation_map
+    for urls in citation_map.values():
+        citation_urls.extend(urls)
 
     for url in citation_urls:
         if url and url not in sources:
@@ -590,7 +565,7 @@ def _process_one_sub_query(
 
     return {
         "learnings": results.get("learnings") or [],
-        "citations": results.get("citations") or {},
+        "citations": citation_map,
         "context": sub_context,
         "sources": sources,
         "followUpQuestions": results.get("followUpQuestions") or [],
@@ -605,7 +580,6 @@ def _run_sub_queries_parallel(
     llm_chat: LlmChatFn,
     stop_checker: StopChecker,
     acc: _ResearchAccumulator,
-    max_sub_queries: int,
     concurrency: int,
     progress: ResearchProgress,
     status_callback: StatusCallback,
@@ -647,7 +621,6 @@ def _run_sub_queries_parallel(
                         llm_chat=task_llm_chat,
                         stop_checker=stop_checker,
                         acc=acc,
-                        max_sub_queries=max_sub_queries,
                         progress=progress,
                         status_callback=status_callback,
                     )
@@ -680,7 +653,7 @@ def _run_sub_queries_parallel(
 
             completed += 1
             if isinstance(res, Exception):
-                if getattr(res, "code", None) == "USER_STOPPED":
+                if _is_user_stopped(res):
                     # process_research_results raises USER_STOPPED. Do not
                     # store it on the accumulator and continue sibling queries.
                     raise res
@@ -757,7 +730,8 @@ def _run_adaptive_research_loop(
             return {"error": stopped}
 
         progress.current_round = round_num
-        _emit_progress(progress, status_callback)
+        if status_callback:
+            status_callback(progress.status_text())
 
         if round_num == 1:
             if status_callback:
@@ -777,10 +751,10 @@ def _run_adaptive_research_loop(
             log.warning("deep_research: no search queries for round %s", round_num)
             break
 
-        remaining = max_sub_queries - acc.started_queries
+        remaining = max_sub_queries - progress.started_queries
         if remaining <= 0:
             break
-        serp_queries = serp_queries[: min(len(serp_queries), breadth, remaining)]
+        serp_queries = serp_queries[: min(breadth, remaining)]
 
         learnings_before = len(acc.learnings)
         chunks_before = len(acc.context_chunks)
@@ -791,7 +765,6 @@ def _run_adaptive_research_loop(
             llm_chat=llm_chat,
             stop_checker=stop_checker,
             acc=acc,
-            max_sub_queries=max_sub_queries,
             concurrency=concurrency,
             progress=progress,
             status_callback=status_callback,
@@ -806,7 +779,7 @@ def _run_adaptive_research_loop(
                 return {"error": acc.last_branch_error or format_error_payload(ToolExecutionError("All research sub-queries failed."))}
             break
 
-        if acc.started_queries >= max_sub_queries:
+        if progress.started_queries >= max_sub_queries:
             break
 
         if round_num < max_rounds:
@@ -819,8 +792,8 @@ def _run_adaptive_research_loop(
                 acc.citations,
                 quality_threshold=quality_threshold,
             )
-            score = assessment.get("score") or 0.0
-            gaps = assessment.get("knowledge_gaps") or []
+            score = assessment["score"]
+            gaps = assessment["knowledge_gaps"]
             next_gap_queries = assessment.get("suggested_queries") or gaps
 
             if assessment.get("stop") or score >= quality_threshold or not next_gap_queries:
@@ -834,7 +807,7 @@ def _run_adaptive_research_loop(
         "learnings": unique_learnings,
         "citations": acc.citations,
         "context": acc.context_chunks,
-        "sources": list(dict.fromkeys(acc.sources)),
+        "sources": list(acc.sources),
         "branch_error": acc.last_branch_error,
     }
 
@@ -921,7 +894,7 @@ def run_deep_research(
             # USER_STOPPED must not take that path. The notes are a plain string,
             # and execute() cached every non-error string as a finished deep
             # report, so the next identical query never retried synthesis.
-            if getattr(exc, "code", None) == "USER_STOPPED":
+            if _is_user_stopped(exc):
                 raise
             log.exception("deep_research: synthesis failed; returning collected evidence")
             return {
@@ -934,6 +907,6 @@ def run_deep_research(
         # Planning, a sub-query, or synthesis can raise USER_STOPPED.
         # execute() only caches status "ok", so the stopped payload must be
         # returned here. Letting it become a partial report string cached it.
-        if getattr(exc, "code", None) == "USER_STOPPED":
+        if _is_user_stopped(exc):
             return _user_stopped_payload()
         raise
