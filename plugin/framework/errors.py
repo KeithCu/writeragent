@@ -26,7 +26,7 @@ import contextlib
 import errno
 from functools import wraps
 import logging
-from typing import Any, Callable, TypeVar, overload
+from typing import Any, Callable, NoReturn, TypeVar, overload
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -157,18 +157,16 @@ class suppress_disposed(contextlib.ContextDecorator):
 
 def _exception_text(obj: Any) -> str:
     """Non-empty Message, else str. Either read can throw on a hostile UNO proxy."""
-    try:
-        raw = getattr(obj, "Message", None)
-        if isinstance(raw, str) and raw.strip():
-            return raw.strip()
-    except Exception as exc:
-        logging.getLogger("writeragent.errors").debug("resolve_exception_message: Message unreadable (%s)", type(exc).__name__)
-    try:
-        raw = str(obj)
-        if isinstance(raw, str) and raw.strip():
-            return raw.strip()
-    except Exception as exc:
-        logging.getLogger("writeragent.errors").debug("resolve_exception_message: str(exception) failed (%s)", type(exc).__name__)
+    for read, msg in (
+        (lambda: getattr(obj, "Message", None), "resolve_exception_message: Message unreadable (%s)"),
+        (lambda: str(obj), "resolve_exception_message: str(exception) failed (%s)"),
+    ):
+        try:
+            raw = read()
+            if isinstance(raw, str) and raw.strip():
+                return raw.strip()
+        except Exception as exc:
+            logging.getLogger("writeragent.errors").debug(msg, type(exc).__name__)
     return ""
 
 
@@ -191,21 +189,6 @@ def resolve_exception_message(e: Any) -> str:
     return msg
 
 
-def _translate_exception_message(message: Any) -> str:
-    """Translate a catalog msgid. Long runtime text skips ``_()``.
-
-    ``_()`` rejects strings longer than ``DEAL_MAX_MSGID`` with
-    ``deal.PreContractError``. A provider body or UNO text would then raise
-    that contract error instead of the exception the caller asked for.
-    Gettext only matches an extracted source string, so a message past the
-    msgid bound is not in the catalog anyway. Return it unchanged.
-    """
-    text = resolve_exception_message(message)
-    if len(text) > DEAL_MAX_MSGID:
-        return text
-    return _(text)
-
-
 class BlockingWaitStopped(Exception):
     """Raised by llm_request_lane when the captured send scope is already cancelled while waiting for the LLM lock.
 
@@ -222,8 +205,14 @@ class WriterAgentException(Exception):
 
     def __init__(self, message: Any, *, code: str | None = None, details: dict[str, Any] | None = None) -> None:
         # Runtime / interpolated strings are not in the gettext catalog; _() is a no-op
-        # unless the exact source string was extracted. Long messages skip _().
-        text = "mock" if UNDER_CROSSHAIR else _translate_exception_message(message)
+        # unless the exact source string was extracted. Long runtime text skips _()
+        # to avoid deal.PreContractError (past DEAL_MAX_MSGID, not in catalog).
+        if UNDER_CROSSHAIR:
+            text = "mock"
+        else:
+            text = resolve_exception_message(message)
+            if len(text) <= DEAL_MAX_MSGID:
+                text = _(text)
         super().__init__(text)
         self.message = text
         if code is not None:
@@ -280,14 +269,10 @@ def format_error_payload(e: BaseException) -> dict[str, Any]:
 # Wire-specific HTTP bodies and audio/image heuristics stay in client/errors.py.
 
 
-def _is_connection_refused(exc: BaseException, reason: str) -> bool:
+def _is_connection_refused(reason_obj: BaseException | None, reason: str) -> bool:
     """True for a refused TCP connect, not for the digits 111 in an unrelated message."""
-    import urllib.error
-
-    nested = getattr(exc, "reason", None) if isinstance(exc, urllib.error.URLError) else None
-    for candidate in (exc, nested):
-        if isinstance(candidate, ConnectionRefusedError) or getattr(candidate, "errno", None) == errno.ECONNREFUSED:
-            return True
+    if isinstance(reason_obj, ConnectionRefusedError) or getattr(reason_obj, "errno", None) == errno.ECONNREFUSED:
+        return True
     return "connection refused" in reason.lower()
 
 
@@ -379,7 +364,7 @@ def format_error_message(e: BaseException) -> str:
             return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
         # Errno text and unrelated messages both contain "111" (port 1111).
         # Match the errno or the words, not that substring.
-        if _is_connection_refused(e, reason):
+        if _is_connection_refused(reason_obj, reason):
             return _("Connection Refused. Is your local AI server (Ollama/LM Studio) running?")
         if "getaddrinfo failed" in rl:
             return _("DNS Error. Could not resolve the endpoint URL.")
@@ -568,6 +553,14 @@ def uno_read(fn: Callable[[], _T], default: _T, *, object_type: str = "document"
 # safe_uno_call is for probes (any failure returns default, except real disposal).
 # safe_call wraps real operations; treats only DisposedException as disposal.
 # suppress_disposed still uses the broad is_disposed_exception heuristic.
+def _raise_disposed_during(name: str, exc: BaseException) -> NoReturn:
+    raise DocumentDisposedError(
+        f"UNO object disposed during {name}",
+        object_type=name,
+        details={"original_error": resolve_exception_message(exc)},
+    ) from exc
+
+
 def safe_uno_call(default: Any = None) -> Any:
     """Decorator to safely call UNO methods with automatic error handling, returning default on failure (disposal exceptions re-raised).
 
@@ -590,7 +583,7 @@ def safe_uno_call(default: Any = None) -> Any:
                     # argument can be document text or a UNO proxy, and stringifying
                     # it during teardown is large and can touch the dead object;
                     # the message already names func.__name__.
-                    raise DocumentDisposedError(f"UNO object disposed during {func.__name__}", object_type=func.__name__, details={"original_error": resolve_exception_message(e)}) from e
+                    _raise_disposed_during(func.__name__, e)
                 logging.getLogger("writeragent.errors").debug("safe_uno_call: %s failed (%s), returning default %r", func.__name__, e, default)
                 return default
 
@@ -614,7 +607,7 @@ def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
         # disposal makes a live document look closed. Other UNO failures
         # stay UnoObjectError.
         if is_real_disposal(e):
-            raise DocumentDisposedError(f"UNO object disposed during {context_name}", object_type=context_name, details={"original_error": resolve_exception_message(e)}) from e
+            _raise_disposed_during(context_name, e)
 
         # Catch Exception; current PyUNO errors subclass Exception;
         # KeyboardInterrupt and SystemExit propagate. We immediately wrap it.
