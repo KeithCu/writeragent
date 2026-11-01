@@ -331,10 +331,7 @@ def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
         )
     skip = {"__name__", "_print_outputs", "_operations_count"}
     ns = SimpleNamespace()
-    for key, val in state.items():
-        if not isinstance(key, str) or key in skip:
-            continue
-        setattr(ns, key, val)
+    vars(ns).update({key: val for key, val in state.items() if isinstance(key, str) and key not in skip})
     return ns
 
 
@@ -402,10 +399,7 @@ class ScriptLibrary:
         timeout pool copies context, and ``self._executor`` is only for a lookup
         whose ContextVar was never set.
         """
-        current = _current_executor.get()
-        if current is not None:
-            return current
-        return self._executor
+        return _current_executor.get() or self._executor
 
     def _names(self) -> list[str]:
         executor = self._resolve_executor()
@@ -477,13 +471,9 @@ def attach_named_script_libraries(executor: Any | None = None) -> None:
     ``writeragent_namespace``. Attach there first so Run Python Script still
     sees ``wa.scripts`` / ``wa.doc``.
     """
-    mods: list[Any] = []
-    try:
-        from plugin.scripting import writeragent_namespace
+    from plugin.scripting import writeragent_namespace
 
-        mods.append(writeragent_namespace)
-    except ImportError:
-        log.debug("named_scripts: writeragent_namespace missing", exc_info=True)
+    mods: list[Any] = [writeragent_namespace]
     try:
         from plugin.scripting import writeragent_api
 
@@ -493,8 +483,6 @@ def attach_named_script_libraries(executor: Any | None = None) -> None:
     alias = sys.modules.get("writeragent")
     if alias is not None and alias not in mods:
         mods.append(alias)
-    if not mods:
-        return
     # Bind this execute's libraries onto the executor and point the alias
     # module at those objects. Do not retarget a library another run still
     # holds: one module-level ScriptLibrary meant a second document's run

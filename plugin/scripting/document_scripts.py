@@ -29,7 +29,7 @@ from typing import Any, Callable
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework import config
-from plugin.framework.errors import DocumentDisposedError
+from plugin.framework.errors import DocumentDisposedError, is_disposed_exception
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import _enumeration_should_continue, get_desktop, normalize_doc_url
 from plugin.scripting.domain_registry import (
@@ -148,12 +148,9 @@ def _load_document_script_map(doc: Any) -> tuple[dict[str, str], DocumentScriptE
     scripts_raw = parsed.get("scripts")
     if not isinstance(scripts_raw, dict):
         return _fail_unreadable("document_scripts: missing scripts map")
-    out: dict[str, str] = {}
-    for key, value in scripts_raw.items():
-        if not isinstance(key, str) or not isinstance(value, str):
-            return _fail_unreadable("document_scripts: non-string script entry")
-        out[key] = value
-    return out, None
+    if not all(isinstance(key, str) and isinstance(value, str) for key, value in scripts_raw.items()):
+        return _fail_unreadable("document_scripts: non-string script entry")
+    return dict(scripts_raw), None
 
 
 def get_document_scripts(doc: Any) -> dict[str, str]:
@@ -188,8 +185,6 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
     except Exception as exc:
         # A disposed document is not "read-only". Callers that swallow the
         # message used to keep writing as if the file were still open.
-        from plugin.framework.errors import is_disposed_exception
-
         if is_disposed_exception(exc):
             raise
         log.exception("document_scripts: failed to persist on document")
@@ -211,22 +206,15 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
 def get_calc_init_script(doc: Any, *, default: str = "") -> str:
     """Return the workbook init script on *doc*, checking INIT first then Init."""
     scripts = get_document_scripts(doc)
-    # ``scripts.get("INIT") or scripts.get("Init")`` treats an empty "INIT"
-    # as missing and falls through to a stale "Init". Check key presence so
-    # an explicit empty "INIT" is kept.
-    if "INIT" in scripts:
-        return scripts["INIT"]
-    if "Init" in scripts:
-        return scripts["Init"]
-    return default
+    # .get keeps an explicit empty "INIT". `or` would treat "" as missing and return a stale "Init".
+    return scripts.get("INIT", scripts.get("Init", default))
 
 
 def set_calc_init_script(doc: Any, code: str) -> DocumentScriptError | None:
     """Persist init script on *doc* under the name 'INIT' in document scripts."""
-    loaded, err = _load_document_script_map(doc)
+    scripts, err = _load_document_script_map(doc)
     if err:
         return err
-    scripts = dict(loaded)
     # If both 'INIT' and 'Init' exist, a write to 'Init' while reads prefer
     # 'INIT' makes saves look like no-ops. Drop both keys and store one 'INIT'.
     scripts.pop("INIT", None)
@@ -355,10 +343,9 @@ def attach_document_script(
     name_err = new_script_name_error(name, attach=True)
     if name_err is not None:
         return name_err
-    loaded, err = _load_document_script_map(doc)
+    scripts, err = _load_document_script_map(doc)
     if err:
         return err
-    scripts = dict(loaded)
     if name in scripts and not overwrite:
         return DocumentScriptError(
             _("A script named '{0}' already exists in this document.").format(name),
@@ -374,10 +361,9 @@ def delete_document_script(doc: Any, name: str) -> DocumentScriptError | None:
     # workbook init script. attach_document_script already rejects this name.
     if is_calc_init_script_name(name):
         return new_script_name_error(name, attach=True)
-    loaded, err = _load_document_script_map(doc)
+    scripts, err = _load_document_script_map(doc)
     if err:
         return err
-    scripts = dict(loaded)
     # Deleting a script that is not there must not report success or rewrite
     # document properties. Return NOT_FOUND and skip set_document_scripts.
     if name not in scripts:
