@@ -385,12 +385,7 @@ class TurnController:
         if not self.can_write(host):
             return
         assert self.session is not None
-        kwargs: dict[str, Any] = {}
-        if tool_calls is not None:
-            kwargs["tool_calls"] = tool_calls
-        if reasoning_replay is not None:
-            kwargs["reasoning_replay"] = reasoning_replay
-        self.session.add_assistant_message(content=content, **kwargs)
+        self.session.add_assistant_message(content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
 
     def take_stripper_tail(self) -> str:
         """Finish the HTML stripper and return any held fragment.
@@ -436,8 +431,7 @@ class TurnController:
         chosen = emitted or (fallback if fallback != "No response." else "")
         if chosen:
             self.persist_assistant(host, content=chosen)
-        messages = self.messages if isinstance(self.messages, list) and self.same_messages() else None
-        closed = _append_cancelled_tool_rows(messages) if messages is not None else 0
+        closed = _append_cancelled_tool_rows(self.messages) if isinstance(self.messages, list) else 0
         if not chosen and closed == 0:
             self.persist_assistant(host, content="No response.")
         self.persist_assistant(host, content=_STOP_LINE)
@@ -452,8 +446,6 @@ def note_stop_partial(turn: Any, response: Any) -> None:
     worker text on ``STOPPED`` stores ``No response.`` after the sidebar
     has already shown the tokens.
     """
-    if not isinstance(turn, TurnController):
-        return
     if isinstance(response, dict):
         calls = response.get("tool_calls")
         if isinstance(calls, list) and calls:
@@ -963,8 +955,7 @@ class ToolLoopEffectInterpreter:
             host._tool_calling._refresh_active_tools_for_session()
             host._tool_calling._spawn_llm_worker(q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], effect.round_num, query_text=turn.active_query_text)
         elif isinstance(effect, UpdateActivityStateEffect):
-            if effect.action == "tool_execute":
-                update_activity_state("tool_execute", round_num=effect.round_num, tool_name=effect.tool_name)
+            update_activity_state("tool_execute", round_num=effect.round_num, tool_name=effect.tool_name)
         elif isinstance(effect, CleanupAudioEffect):
             self._cleanup_audio()
         elif isinstance(effect, SpawnToolWorkerEffect):

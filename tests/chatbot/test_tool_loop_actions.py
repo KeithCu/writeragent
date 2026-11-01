@@ -17,6 +17,7 @@ from plugin.chatbot.tool_loop_state import (  # noqa: E402
     ToolLoopUIEffect,
     TriggerNextToolEffect,
     UIEffectKind,
+    UpdateActivityStateEffect,
     UpdateDocumentContextEffect,
 )
 from plugin.framework.stream_batch import StreamQueueKind  # noqa: E402
@@ -1875,3 +1876,12 @@ def test_tool_row_image_reaches_request_as_image_not_text():
     assert "[image: image/png, 3 KB attached]" in tool_text
     user_parts = messages[0]["content"]
     assert {"type": "image_url", "image_url": {"url": "data:image/png;base64," + _IMAGE_B64}} in user_parts
+
+
+def test_update_activity_state_effect_calls_update_activity_state():
+    host = FakeHost()
+    interpreter = ToolLoopEffectInterpreter(host)
+    with patch("plugin.chatbot.tool_loop_actions.update_activity_state") as mock_update:
+        interpreter.execute(UpdateActivityStateEffect(round_num=3, tool_name="test_tool"))
+        mock_update.assert_called_once_with("tool_execute", round_num=3, tool_name="test_tool")
+
