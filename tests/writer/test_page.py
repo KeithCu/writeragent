@@ -1291,6 +1291,11 @@ def test_replace_header_footer_rejects_bad_args():
         occurrence=1, all_matches=True,
     )
     assert both["status"] == "error" and "all_matches" in both["message"]
+    neg = tool.execute(
+        SimpleNamespace(doc=doc), region="footer", old_content="Annex", content="A",
+        occurrence=-1,
+    )
+    assert neg["status"] == "error" and "occurrence must be a non-negative integer." in neg["message"]
     empty = tool.execute(SimpleNamespace(doc=doc), region="footer", old_content="", content="A")
     assert empty["status"] == "error" and "old_content" in empty["message"]
     ok, err = tool.validate(region="nope", old_content="Annex", content="A")

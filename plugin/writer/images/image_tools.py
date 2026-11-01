@@ -325,7 +325,7 @@ def insert_image_into_header_footer(
 
     # Enable region + auto-height + embed are separate UNO steps; group them.
     with WriterCompoundUndo(model, "WriterAgent: Insert image in header/footer"):
-        style, resolved = resolve_page_style(model, style_name)
+        style = resolve_page_style(model, style_name)
         is_on_prop, text_prop = _REGION_PROPS[region]
         if not style.getPropertyValue(is_on_prop):
             style.setPropertyValue(is_on_prop, True)
@@ -348,7 +348,7 @@ def insert_image_into_header_footer(
         )
         return {
             "graphic": graphic,
-            "style_name": resolved,
+            "style_name": style_name,
             "region": region,
             "auto_height": bool(auto_height),
         }
