@@ -56,7 +56,7 @@ class VenvProbeProgressDialog:
     _parent_dlg: Any
     _dlg: Any
     _append_log: bool
-    _log_parts: list[str]
+    _log_parts: list[str] = []
     _pumping: bool
 
     def __init__(self, ctx: Any, parent_dlg: Any = None) -> None:
@@ -64,7 +64,6 @@ class VenvProbeProgressDialog:
         self._parent_dlg = parent_dlg
         self._dlg = None
         self._append_log = False
-        self._log_parts = []
         self._pumping = False
 
     def run_modal_probe(
@@ -91,11 +90,9 @@ class VenvProbeProgressDialog:
             def on_status(text: str) -> None:
                 post_to_main_thread(lambda status=text: self.set_status(status))
 
-            def post_finish(success: bool, body: str | None, *, force_body: bool) -> None:
+            def post_finish(success: bool, body: str | None) -> None:
                 def ui() -> None:
-                    if force_body:
-                        self.set_display(body or "")
-                    elif not success and body and self._dlg is not None:
+                    if not success and body and self._dlg is not None:
                         log_ctrl = self._dlg.getControl("LogArea")
                         if not get_control_text(log_ctrl).strip():
                             self.set_display(body)
@@ -106,10 +103,16 @@ class VenvProbeProgressDialog:
             def work() -> None:
                 try:
                     ok, msg = probe_fn(on_display, on_status)
-                    post_finish(ok, msg, force_body=False)
+                    post_finish(ok, msg)
                 except BaseException as exc:
                     log.exception("Scripting venv probe failed")
-                    post_finish(False, str(exc), force_body=True)
+                    err_msg = str(exc) or ""
+
+                    def fail_ui() -> None:
+                        self.set_display(err_msg)
+                        self.finish(failure_title, False)
+
+                    post_to_main_thread(fail_ui)
                     if not isinstance(exc, Exception):
                         raise
 

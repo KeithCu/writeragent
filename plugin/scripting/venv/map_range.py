@@ -83,9 +83,6 @@ def inspect_input(val: Any) -> InspectedInput:
     """
     val = _to_plain_sequence(val)
 
-    if val is None or isinstance(val, (str, bytes, int, float, bool)):
-        return _scalar(val)
-
     if isinstance(val, (list, tuple)):
         if not val:
             return InspectedInput(flat_items=[], is_scalar=False, is_python_1d=True, nrows=0, ncols=0)
@@ -185,7 +182,7 @@ def broadcast_args(
 
     def expand(insp: InspectedInput) -> list[Any]:
         if insp.is_scalar:
-            return [(insp.flat_items[0] if insp.flat_items else None)] * target_length
+            return [insp.flat_items[0]] * target_length
         return list(insp.flat_items)
 
     b_args = [expand(insp) for insp in inspected_args]
@@ -222,8 +219,6 @@ def map_over_range(
     n_items = primary.length
 
     results: list[Any] = []
-    unexpected_count = 0
-    first_unexpected: BaseException | None = None
     for i in range(n_items):
         row_args = [arg_list[i] for arg_list in b_args]
         row_kwargs = {k: kwarg_list[i] for k, kwarg_list in b_kwargs.items()}
@@ -249,32 +244,9 @@ def map_over_range(
             res = fn(*row_args, **row_kwargs)
             results.append(res)
         except Exception as exc:
-            if isinstance(exc, ZeroDivisionError):
-                # #DIV/0!, not a generic #VALUE!.
-                log.debug("map_over_range division by zero: %s", exc, exc_info=True)
-                token = "#DIV/0!"
-            elif isinstance(exc, (ValueError, TypeError, ArithmeticError)):
-                log.debug("map_over_range evaluation error: %s", exc, exc_info=True)
-                token = "#VALUE!"
-            else:
-                unexpected_count += 1
-                if first_unexpected is None:
-                    first_unexpected = exc
-                log.debug("map_over_range unexpected error: %s", exc, exc_info=True)
-                token = "#VALUE!"
-            if return_errors:
-                results.append(token)
-            else:
+            if not return_errors:
                 raise
-
-    if unexpected_count > 0:
-        fn_name = getattr(fn, "__name__", repr(fn))
-        log.warning(
-            "map_over_range unexpected error in %s: %d cell failure(s) (first: %s: %s)",
-            fn_name,
-            unexpected_count,
-            type(first_unexpected).__name__,
-            first_unexpected,
-        )
+            log.debug("map_over_range evaluation error: %s", exc, exc_info=True)
+            results.append("#DIV/0!" if isinstance(exc, ZeroDivisionError) else "#VALUE!")
 
     return rewrap_output(results, primary)
