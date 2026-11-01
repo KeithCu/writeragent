@@ -221,7 +221,7 @@ class BookmarkService(ServiceBase):
     def ensure_heading_bookmarks(
         self,
         doc: Any,
-        heading_para_indices: list[int] | None = None,
+        heading_para_indices: list[int],
         para_ranges: list[Any] | None = None,
     ) -> dict[int, str]:
         """Ensure every heading has an _mcp_ bookmark. Returns map.
@@ -232,7 +232,8 @@ class BookmarkService(ServiceBase):
         key = self._doc_key(doc)
         in_hook = key in _ACTIVE_SAVE_HOOK_KEYS
         if not in_hook:
-            self._restore_abandoned(doc)
+            # LibreOffice has no OnSaveFailed; Done never firing leaves locators missing.
+            self.restore_after_save(doc, saved=False)
         try:
             if para_ranges is None:
                 para_ranges = get_paragraph_ranges(doc)
@@ -248,21 +249,7 @@ class BookmarkService(ServiceBase):
         bookmark_map = {}
         needs_bookmark = []
 
-        if heading_para_indices is not None:
-            indices = heading_para_indices
-        else:
-            indices = []
-            for para_index, element in enumerate(para_ranges):
-                if element.supportsService("com.sun.star.text.Paragraph"):
-                    outline_level = 0
-                    try:
-                        outline_level = element.getPropertyValue("OutlineLevel")
-                    except Exception:
-                        log.debug("ensure_heading_bookmarks: OutlineLevel unreadable", exc_info=True)
-                    if outline_level > 0:
-                        indices.append(para_index)
-
-        for i in indices:
+        for i in heading_para_indices:
             if i in existing_map:
                 bookmark_map[i] = existing_map[i]
             elif 0 <= i < len(para_ranges):
@@ -384,12 +371,6 @@ class BookmarkService(ServiceBase):
                 return stored_key
         return None
 
-    def _restore_abandoned(self, doc: Any) -> None:
-        """LibreOffice has no OnSaveFailed; Done never firing leaves locators missing."""
-        if self._pending_key(doc) is None:
-            return
-        self.restore_after_save(doc, saved=False)
-
     def strip_for_save(self, doc: Any) -> None:
         """Remove ``_mcp_`` bookmarks just before the file is written."""
         if doc is None:
@@ -405,9 +386,10 @@ class BookmarkService(ServiceBase):
             except Exception as exc:
                 reraise_if_disposed(exc)
                 return
-            _PENDING_STRIPS[key] = _PendingStrip(bm_map, was, doc)
-        rec = _PENDING_STRIPS.get(key)
-        if rec is None or not rec.names:
+            rec = _PENDING_STRIPS[key] = _PendingStrip(bm_map, was, doc)
+        else:
+            rec = _PENDING_STRIPS[key]
+        if not rec.names:
             return
         with self._untracked(doc):
             self._remove_mcp_bookmarks(doc)
@@ -417,9 +399,7 @@ class BookmarkService(ServiceBase):
         key = self._pending_key(doc)
         if key is None:
             return
-        rec = _PENDING_STRIPS.get(key)
-        if rec is None:
-            return
+        rec = _PENDING_STRIPS[key]
         leftovers: dict[int, str] = {}
         try:
             with self._untracked(doc):
