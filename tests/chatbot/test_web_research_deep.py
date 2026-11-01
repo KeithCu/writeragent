@@ -698,7 +698,7 @@ class TestWebResearchExecuteDeepKwarg:
 
 
 def test_deep_change_writes_cache_under_the_edited_query(tmp_path):
-    from plugin.chatbot.web_research import WebResearchTool, _get_unique_words_key
+    from plugin.chatbot.web_research import WebResearchTool, _cache_key_inputs
 
     tool = WebResearchTool()
     ctx = MagicMock()
@@ -734,8 +734,8 @@ def test_deep_change_writes_cache_under_the_edited_query(tmp_path):
         out = tool.execute(ctx, query="paris restaurants", deep=True)
 
     assert out["result"] == "REPORT"
-    assert written["key"] == _get_unique_words_key(edited, snowball_lang="english")
-    assert written["key"] != _get_unique_words_key("paris restaurants", snowball_lang="english")
+    assert written["key"] == _cache_key_inputs(edited, snowball_lang="english")[0]
+    assert written["key"] != _cache_key_inputs("paris restaurants", snowball_lang="english")[0]
 
 
 def test_assess_research_coverage_parses_score():
@@ -852,7 +852,6 @@ def _deep_preview_params(approval_callback, *, prompt: bool):
         cache_path=None,
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_enabled=False,
         cdp_url=None,
         stop_checker=None,
         status_callback=None,
@@ -874,10 +873,7 @@ def test_deep_preview_reject_stops_the_run():
              patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
              patch("plugin.framework.config.get_config_int", return_value=1), \
              patch("plugin.framework.config.get_config_int_safe", return_value=1):
-            out = _run_deep_web_research(
-                MagicMock(), "topic", params,
-                cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
-            )
+            out = _run_deep_web_research(MagicMock(), "topic", params)
         answer, used_query = out
         assert isinstance(answer, dict)
         assert answer.get("code") == "USER_STOPPED"
@@ -910,10 +906,7 @@ def test_deep_preview_approval_uses_edited_query():
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
          patch("plugin.chatbot.web_research._run_web_agent", side_effect=_capture_agent):
         ddg.return_value.forward.return_value = "snippet text"
-        out = _run_deep_web_research(
-            MagicMock(), "topic", params,
-            cache_path=None, cache_max_mb=0, cache_max_age_days=30, plain_text_format="plain",
-        )
+        out = _run_deep_web_research(MagicMock(), "topic", params)
         run_sub, _chat, _cleanup = run_deep.call_args.kwargs["worker_factory"]()
         run_sub("q", "goal", None)
     answer, used_query = out

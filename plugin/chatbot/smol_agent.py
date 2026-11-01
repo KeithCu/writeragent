@@ -452,16 +452,13 @@ def _document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:
     status_callback = getattr(ctx, "status_callback", None)
     append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
     chat_append_callback = getattr(ctx, "chat_append_callback", None)
-    document_open_step_index = 0
 
     def tool_call_handler(step: ToolCall) -> None:
-        nonlocal document_open_step_index
         if step.name == "delegate_read_document" and chat_append_callback:
             from plugin.chatbot.web_research_chat import document_open_step_chat_text
 
             path_or_name = field_from_tool_arguments(step.arguments, "path_or_name")
-            chat_append_callback(document_open_step_chat_text(path_or_name, document_open_step_index))
-            document_open_step_index += 1
+            chat_append_callback(document_open_step_chat_text(path_or_name))
         if append_thinking_callback:
             append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
         if status_callback:

@@ -372,10 +372,8 @@ class DelegateToSpecializedBase(ToolBase):
             )
 
             examples_key = f"{self._agent_label.lower()}:{domain}"
-            document_open_step_index = 0
 
             def tool_call_handler(step: Any) -> None:
-                nonlocal document_open_step_index
                 if step.name == "create_sheet":
                     cap.create_sheet_ran = True
                 # Peer delivery is recorded in _CaptureInstructionAdapter.forward from
@@ -385,8 +383,7 @@ class DelegateToSpecializedBase(ToolBase):
 
                     val = field_from_tool_arguments(step.arguments, "path_or_name")
                     path_or_name = str(val) if val is not None else ""
-                    ctx.chat_append_callback(document_open_step_chat_text(path_or_name, document_open_step_index))
-                    document_open_step_index += 1
+                    ctx.chat_append_callback(document_open_step_chat_text(path_or_name))
                 if ctx.append_thinking_callback:
                     ctx.append_thinking_callback(f"Running specialized tool: {step.name} with {step.arguments}\n")
                 if ctx.status_callback:

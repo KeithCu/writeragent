@@ -313,10 +313,10 @@ def test_norm_research_query_collapses_whitespace_and_case():
 
 
 def test_format_research_cache_result_chat_from_payload():
-    from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+    from plugin.chatbot.web_research_chat import web_research_cache_chat_text
 
-    assert format_research_cache_result_chat({}) == ""
-    block = format_research_cache_result_chat({
+    assert web_research_cache_chat_text({}) == ""
+    block = web_research_cache_chat_text({
         "research_cache_event": "hit",
         "research_cache_key": "heights madison pizza",
     })
@@ -431,8 +431,10 @@ def test_web_search_query_from_invalid_string():
 
 
 def test_apply_override_dict_mutable():
-    step = SimpleNamespace(arguments={"query": "old", "x": 1})
-    assert _apply_web_search_query_override(step, "new") is False
+    original = {"query": "old", "x": 1}
+    step = SimpleNamespace(arguments=original)
+    _apply_web_search_query_override(step, "new")
+    assert step.arguments is original
     assert step.arguments == {"query": "new", "x": 1}
 
 
@@ -445,18 +447,18 @@ def test_apply_override_dict_mutable():
 )
 def test_apply_override_json_string(arguments, value, value_2):
     step = SimpleNamespace(arguments=arguments)
-    assert _apply_web_search_query_override(step, value) is True
+    _apply_web_search_query_override(step, value)
     assert step.arguments == {"query": value_2}
 
 
 def test_apply_override_json_string_keeps_recency():
     step = SimpleNamespace(arguments='{"query": "old", "recency": "week"}')
-    assert _apply_web_search_query_override(step, "edited") is True
+    _apply_web_search_query_override(step, "edited")
     assert step.arguments == {"query": "edited", "recency": "week"}
 
 def test_apply_override_non_dict_non_string():
     step = SimpleNamespace(arguments=["list"])
-    assert _apply_web_search_query_override(step, "fallback") is True
+    _apply_web_search_query_override(step, "fallback")
     assert step.arguments == {"query": "fallback"}
 
 
@@ -489,7 +491,6 @@ def _run_web_search_tool_call_handler(
         cache_path=None,
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_enabled=False,
         cdp_url=None,
         stop_checker=lambda: False,
         status_callback=None,
@@ -594,7 +595,6 @@ def test_visit_handler_does_not_preclaim_the_url():
         cache_path=None,
         cache_max_mb=0,
         cache_max_age_days=30,
-        cdp_enabled=False,
         cdp_url=None,
         stop_checker=lambda: False,
         status_callback=None,
@@ -997,16 +997,17 @@ def test_web_research_agent_instructions_include_minimal_tool_use_advice():
 
 
 def test_web_research_unique_words_key():
-    from plugin.chatbot.web_research import _get_embedding_words_text, _get_unique_words_key
+    from plugin.chatbot.web_research import _cache_key_inputs
 
     q = "Please find the best pizza restaurants in Madison Heights, Michigan (MI)!"
-    key = _get_unique_words_key(q)
+    key, emb = _cache_key_inputs(q)
     # Fluff words like please, find, the, best, in are stripped; content words stay sorted unique.
     assert key == "heights madison michigan pizza restaurants"
-    assert _get_embedding_words_text(q) == "pizza restaurants madison heights michigan"
+    assert emb == "pizza restaurants madison heights michigan"
     q2 = "Research a concise report on the best pizza in Madison Heights"
-    assert _get_unique_words_key(q2) == "heights madison pizza"
-    assert _get_embedding_words_text(q2) == "pizza madison heights"
+    key2, emb2 = _cache_key_inputs(q2)
+    assert key2 == "heights madison pizza"
+    assert emb2 == "pizza madison heights"
 
 
 def test_web_research_caching_logic(tmp_path):
@@ -1048,9 +1049,9 @@ def test_web_research_caching_logic(tmp_path):
         assert res["result"] == "Cached Answer Content"
         assert res.get("research_cache_event") == "hit"
         assert res.get("research_cache_key") == "caching unique"
-        from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+        from plugin.chatbot.web_research_chat import web_research_cache_chat_text
 
-        cache_chat = format_research_cache_result_chat(res)
+        cache_chat = web_research_cache_chat_text(res)
         assert "Research cache hit" in cache_chat
         assert "caching unique" in cache_chat
 
@@ -1148,9 +1149,9 @@ def test_web_research_caching_write(tmp_path):
         assert cached == "Live Searched Output"
         assert res.get("research_cache_event") == "saved"
         assert res.get("research_cache_key") == "execute"
-        from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+        from plugin.chatbot.web_research_chat import web_research_cache_chat_text
 
-        cache_chat = format_research_cache_result_chat(res)
+        cache_chat = web_research_cache_chat_text(res)
         assert "Research cache saved" in cache_chat
         assert "execute" in cache_chat
 
@@ -1195,7 +1196,7 @@ def test_web_research_empty_agent_result_is_an_error(tmp_path, agent_result):
 
 def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     """A shallow row must not satisfy deep=True, and a deep row must not satisfy ordinary research."""
-    from plugin.chatbot.web_research import WebResearchTool, _get_unique_words_key
+    from plugin.chatbot.web_research import WebResearchTool, _cache_key_inputs
     from plugin.tests.testing_utils import MockContext
     from plugin.contrib.smolagents.default_tools import _web_cache_get, _web_cache_set
 
@@ -1204,7 +1205,7 @@ def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     setattr(ctx.ctx, "getServiceManager", MagicMock())
     db_file = str(tmp_path / "writeragent_web_cache.db")
     query = "Execute a new search query"
-    word_key = _get_unique_words_key(query, snowball_lang="english")
+    word_key, _ = _cache_key_inputs(query, snowball_lang="english")
     assert word_key == "execute"
     shallow_key = "english|execute"
     deep_key = "deep|english|execute"
@@ -1645,13 +1646,14 @@ def test_web_research_tool_includes_instruction_in_result(tmp_path):
         assert "sent ONLY to you — the user has NOT seen it yet" in res["instruction"]
 
 
-def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
+@pytest.mark.parametrize("status", ["ok", "error"])
+def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path, status):
     from plugin.chatbot.web_research import WebResearchTool
     from plugin.contrib.smolagents.default_tools import _web_cache_list_keys
     from plugin.tests.testing_utils import MockContext
 
     notes = {
-        "status": "ok",
+        "status": status,
         "message": "Web research completed.",
         "result": "Research notes (automatic synthesis failed) for: topic\n\nFinding X",
         "cacheable": False,
@@ -1681,8 +1683,9 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
          patch("plugin.chatbot.web_research._run_deep_web_research", return_value=(dict(notes), "topic ratings")):
         res = WebResearchTool().execute(ctx, query="topic ratings", deep=True)
 
-    assert res["status"] == "ok"
+    assert res["status"] == status
     assert "Finding X" in res["result"]
+    # A cacheable flag must not leak to the model even on non-ok payloads.
     assert "cacheable" not in res
     db_file = str(tmp_path / "writeragent_web_cache.db")
     assert _web_cache_list_keys(db_file, "research", 30) == []
@@ -1715,9 +1718,8 @@ def test_chromium_cdp_enabled():
          mock_begin.assert_called_once_with(ctx.ctx, "chromium")
          mock_finish.assert_called_once()
 
-         # The agent parameters should have cdp_enabled=True and cdp_url="ws://mock"
+         # The agent parameters should have cdp_url="ws://mock"
          agent_params = mock_run.call_args.args[3]
-         assert agent_params.cdp_enabled is True
          assert agent_params.cdp_url == "ws://mock"
 
 def test_cdp_connection_leak_early_exception():
