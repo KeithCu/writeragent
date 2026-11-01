@@ -478,7 +478,6 @@ def _range_to_content_via_temp_doc(
 def document_to_content(
     model: Any,
     ctx: Any,
-    services: Any,
     max_chars: int | None = None,
     scope: str = "full",
     range_start: int | None = None,
@@ -492,7 +491,6 @@ def document_to_content(
     Args:
         model: UNO document model.
         ctx: UNO component context.
-        services: ServiceRegistry.
         max_chars: Truncate result to this length.
         scope: ``'full'``, ``'selection'``, or ``'range'``.
         range_start: Character offset start (for scope ``'range'``).
@@ -514,6 +512,15 @@ def document_to_content(
             len(content) if isinstance(content, str) else -1,
             (time.perf_counter() - t0) * 1000.0,
         )
+        return content
+
+    def finish(content: str, ruby_flag: bool | None, why: str) -> str:
+        content = _apply_image_export_options(content, include_images=include_images)
+        content = inject_exported_math_tex(model, ctx, content)
+        content = html_ruby._inject_ruby_from_model(model, content, ruby_flag)
+        _raise_if_empty_export(model, content, why)
+        if max_chars and len(content) > max_chars:
+            content = _truncate_html(content, max_chars)
         return content
 
     if scope == "selection":
@@ -567,12 +574,7 @@ def document_to_content(
         )
         t_phase = time.perf_counter()
         content = xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides)
-        content = _apply_image_export_options(content, include_images=include_images)
-        content = inject_exported_math_tex(model, ctx, content)
-        content = html_ruby._inject_ruby_from_model(model, content, fodt_has_ruby)
-        _raise_if_empty_export(model, content, "the XHTML export came back empty")
-        if max_chars and len(content) > max_chars:
-            content = _truncate_html(content, max_chars)
+        content = finish(content, fodt_has_ruby, "the XHTML export came back empty")
         log.debug(
             "document_to_content: phase=postprocess elapsed_ms=%.1f content_len=%d",
             (time.perf_counter() - t_phase) * 1000.0,
@@ -589,12 +591,7 @@ def document_to_content(
     try:
         t_phase = time.perf_counter()
         content = _export_starwriter_html(model)
-        content = _apply_image_export_options(content, include_images=include_images)
-        content = inject_exported_math_tex(model, ctx, content)
-        content = html_ruby._inject_ruby_from_model(model, content, None)
-        _raise_if_empty_export(model, content, "the HTML export came back empty")
-        if max_chars and len(content) > max_chars:
-            content = _truncate_html(content, max_chars)
+        content = finish(content, None, "the HTML export came back empty")
         log.debug(
             "document_to_content: phase=starwriter_fallback elapsed_ms=%.1f content_len=%d",
             (time.perf_counter() - t_phase) * 1000.0,
@@ -757,7 +754,6 @@ def xtext_to_content(
     text_obj: Any,
     model: Any,
     ctx: Any,
-    services: Any = None,
     *,
     include_images: bool = True,
     max_chars: int | None = None,
@@ -788,7 +784,6 @@ def xtext_to_content(
         content = document_to_content(
             temp_doc,
             ctx,
-            services,
             max_chars=max_chars,
             scope="full",
             include_images=include_images,

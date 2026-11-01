@@ -948,7 +948,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         content = ""
         if text_obj is not None:
             content = xtext_to_content(
-                text_obj, ctx.doc, ctx.ctx, getattr(ctx, "services", None),
+                text_obj, ctx.doc, ctx.ctx,
                 include_images=include_images,
             )
         result: dict[str, Any] = {

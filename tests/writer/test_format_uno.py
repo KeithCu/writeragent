@@ -109,7 +109,7 @@ def _read_doc_text(d):
 @native_test
 @with_native_doc("writer")
 def test_document_to_content(ctx, doc):
-    md = document_to_content(doc, ctx, None, scope="full")
+    md = document_to_content(doc, ctx, scope="full")
     assert isinstance(md, str), f"document_to_content did not return string: {type(md)}"
 
 

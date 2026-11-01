@@ -64,7 +64,7 @@ def test_read_named_styles_emit_compact_tokens_uno(ctx, doc):
     cur.setPropertyValue("CharColor", -1)
     text.insertString(cur, " end", False)
 
-    content = fmt.document_to_content(doc, ctx, None, scope="full")
+    content = fmt.document_to_content(doc, ctx, scope="full")
 
     # Named styles surfaced as COMPACT (space-free) tokens.
     assert 'data-lo-style="Heading1"' in content, content
@@ -95,7 +95,7 @@ def test_read_order_survives_table_uno(ctx, doc):
     cur.setPropertyValue("ParaStyleName", "Caption")
     text.insertString(cur, "After table", False)
 
-    content = fmt.document_to_content(doc, ctx, None, scope="full")
+    content = fmt.document_to_content(doc, ctx, scope="full")
 
     assert 'data-lo-style="Heading2"' in content, content
     assert 'data-lo-style="Caption"' in content, content
@@ -212,7 +212,7 @@ def test_read_write_round_trip_uno(ctx, doc):
     cur.setPropertyValue("ParaStyleName", "Caption")
     text.insertString(cur, "Cap", False)
 
-    content = fmt.document_to_content(doc, ctx, None, scope="full")
+    content = fmt.document_to_content(doc, ctx, scope="full")
     assert 'data-lo-style="Heading1"' in content, content  # compact token round-trips
     res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=content)
     assert res.get("status") == "ok", res
@@ -291,7 +291,7 @@ def test_write_then_read_recovers_token_via_fodt_uno(ctx, doc):
         _tool_ctx(doc, ctx), target="full_document",
         content='<p data-lo-style="Caption">just a caption</p>')
     assert res.get("status") == "ok", res
-    content = fmt.document_to_content(doc, ctx, None, scope="full")
+    content = fmt.document_to_content(doc, ctx, scope="full")
     # Before the FODT fix this dropped the token; now it round-trips.
     assert 'data-lo-style="Caption"' in content, content
     assert "paragraph-" not in content, content
