@@ -280,12 +280,13 @@ def _collect_capped(doc: Any, sd: Any) -> list[Any]:
     return out
 
 
+_DEFAULT_CASE_SENSITIVE_ORDER = (True, False)
+
+
 def find_lo_regex_ranges(
     doc: Any,
     candidate: str,
     all_matches: bool = False,
-    *,
-    case_sensitive_order: tuple[bool, ...] = (True, False),
 ) -> Any:
     """LO regex findFirst/findNext for one candidate string."""
     sd = doc.createSearchDescriptor()
@@ -293,19 +294,113 @@ def find_lo_regex_ranges(
     sd.SearchString = escape_for_lo_regex(candidate)
 
     if not all_matches:
-        for case_sens in case_sensitive_order:
+        for case_sens in _DEFAULT_CASE_SENSITIVE_ORDER:
             sd.SearchCaseSensitive = case_sens
             found = doc.findFirst(sd)
             if found is not None:
                 return found
         return None
 
-    for case_sens in case_sensitive_order:
+    for case_sens in _DEFAULT_CASE_SENSITIVE_ORDER:
         sd.SearchCaseSensitive = case_sens
         ranges = _collect_capped(doc, sd)
         if ranges:
             return ranges
     return []
+
+
+def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | None:
+    text = found.getText()
+
+    anchor_cursor = text.createTextCursorByRange(found)
+    anchor_cursor.gotoStartOfParagraph(False)
+    anchor_cursor.gotoEndOfParagraph(True)
+    anchor_para_text = get_string_without_tracked_deletions(anchor_cursor)
+
+    is_anchor_first = (anchor_idx == 0)
+    is_anchor_last = (anchor_idx == len(parts) - 1)
+
+    ok, anchor_offset_len = _paragraph_matches_part(
+        anchor_para_text,
+        parts[anchor_idx],
+        head=is_anchor_last,
+        tail=is_anchor_first
+    )
+    if not ok:
+        return None
+
+    first_start_cursor = None
+    last_end_cursor = None
+
+    anchor_start_cursor = text.createTextCursorByRange(found)
+    anchor_start_cursor.gotoStartOfParagraph(False)
+
+    if is_anchor_first:
+        first_start_cursor = text.createTextCursorByRange(anchor_start_cursor)
+        if anchor_offset_len:
+            first_start_cursor.goRight(anchor_offset_len, False)
+    if is_anchor_last:
+        last_end_cursor = text.createTextCursorByRange(anchor_start_cursor)
+        if anchor_offset_len:
+            last_end_cursor.goRight(anchor_offset_len, False)
+
+    forward_cursor = text.createTextCursorByRange(found)
+    forward_cursor.gotoRange(found.getEnd(), False)
+
+    for i in range(anchor_idx + 1, len(parts)):
+        if not forward_cursor.gotoNextParagraph(False):
+            return None
+
+        check_cursor = text.createTextCursorByRange(forward_cursor)
+        check_cursor.gotoEndOfParagraph(True)
+        para_text = get_string_without_tracked_deletions(check_cursor)
+
+        is_last = i == len(parts) - 1
+        ok, offset_len = _paragraph_matches_part(para_text, parts[i], head=is_last)
+        if not ok:
+            return None
+        if is_last:
+            last_end_cursor = text.createTextCursorByRange(forward_cursor)
+            if offset_len:
+                last_end_cursor.goRight(offset_len, False)
+
+    backward_cursor = text.createTextCursorByRange(found)
+    backward_cursor.gotoRange(found.getStart(), False)
+
+    for i in range(anchor_idx - 1, -1, -1):
+        if not backward_cursor.gotoPreviousParagraph(False):
+            return None
+
+        check_cursor = text.createTextCursorByRange(backward_cursor)
+        check_cursor.gotoEndOfParagraph(True)
+        para_text = get_string_without_tracked_deletions(check_cursor)
+
+        is_first = i == 0
+        ok, offset_len = _paragraph_matches_part(para_text, parts[i], tail=is_first)
+        if not ok:
+            return None
+        if is_first:
+            first_start_cursor = text.createTextCursorByRange(backward_cursor)
+            if offset_len:
+                first_start_cursor.goRight(offset_len, False)
+
+    start_range = first_start_cursor.getStart() if first_start_cursor else found.getStart()
+    # Use getEnd(): last_end_cursor is collapsed (goRight with expand=False), so
+    # getStart()==getEnd() here and the old code was harmless in practice, but getEnd()
+    # is semantically correct for a range endpoint and safe if it were ever non-collapsed.
+    end_range = last_end_cursor.getEnd() if last_end_cursor else found.getEnd()
+
+    # A same-text combine failure used to be logged at debug and the hit
+    # dropped. That failure is a real UNO error and must propagate.
+    # Different XText endpoints cannot be one cursor; skipping those is
+    # not a dropped same-text hit.
+    if uno_same(start_range.getText(), end_range.getText()):
+        result_range = text.createTextCursorByRange(start_range)
+        result_range.gotoRange(end_range, True)
+        return result_range
+
+    log.debug("find_chained_range: chain crosses XText; no single range")
+    return None
 
 
 def _iter_chain_matches(
@@ -324,110 +419,10 @@ def _iter_chain_matches(
         found = doc.findFirst(sd)
         matched_in_pass = False
         while found is not None:
-            text = found.getText()
-            chain_ok = True
-
-            anchor_cursor = text.createTextCursorByRange(found)
-            anchor_cursor.gotoStartOfParagraph(False)
-            anchor_cursor.gotoEndOfParagraph(True)
-            anchor_para_text = get_string_without_tracked_deletions(anchor_cursor)
-
-            is_anchor_first = (anchor_idx == 0)
-            is_anchor_last = (anchor_idx == len(parts) - 1)
-
-            ok, anchor_offset_len = _paragraph_matches_part(
-                anchor_para_text,
-                parts[anchor_idx],
-                head=is_anchor_last,
-                tail=is_anchor_first
-            )
-
-            if not ok:
-                found = find_next_after_match(doc, found, sd)
-                continue
-
-            first_start_cursor = None
-            last_end_cursor = None
-
-            anchor_start_cursor = text.createTextCursorByRange(found)
-            anchor_start_cursor.gotoStartOfParagraph(False)
-
-            if is_anchor_first:
-                first_start_cursor = text.createTextCursorByRange(anchor_start_cursor)
-                if anchor_offset_len:
-                    first_start_cursor.goRight(anchor_offset_len, False)
-            if is_anchor_last:
-                last_end_cursor = text.createTextCursorByRange(anchor_start_cursor)
-                if anchor_offset_len:
-                    last_end_cursor.goRight(anchor_offset_len, False)
-
-            forward_cursor = text.createTextCursorByRange(found)
-            forward_cursor.gotoRange(found.getEnd(), False)
-
-            for i in range(anchor_idx + 1, len(parts)):
-                if not forward_cursor.gotoNextParagraph(False):
-                    chain_ok = False
-                    break
-
-                check_cursor = text.createTextCursorByRange(forward_cursor)
-                check_cursor.gotoEndOfParagraph(True)
-                para_text = get_string_without_tracked_deletions(check_cursor)
-
-                is_last = i == len(parts) - 1
-                ok, offset_len = _paragraph_matches_part(para_text, parts[i], head=is_last)
-                if not ok:
-                    chain_ok = False
-                    break
-                if is_last:
-                    last_end_cursor = text.createTextCursorByRange(forward_cursor)
-                    if offset_len:
-                        last_end_cursor.goRight(offset_len, False)
-
-            if not chain_ok:
-                found = find_next_after_match(doc, found, sd)
-                continue
-
-            backward_cursor = text.createTextCursorByRange(found)
-            backward_cursor.gotoRange(found.getStart(), False)
-
-            for i in range(anchor_idx - 1, -1, -1):
-                if not backward_cursor.gotoPreviousParagraph(False):
-                    chain_ok = False
-                    break
-
-                check_cursor = text.createTextCursorByRange(backward_cursor)
-                check_cursor.gotoEndOfParagraph(True)
-                para_text = get_string_without_tracked_deletions(check_cursor)
-
-                is_first = i == 0
-                ok, offset_len = _paragraph_matches_part(para_text, parts[i], tail=is_first)
-                if not ok:
-                    chain_ok = False
-                    break
-                if is_first:
-                    first_start_cursor = text.createTextCursorByRange(backward_cursor)
-                    if offset_len:
-                        first_start_cursor.goRight(offset_len, False)
-
-            if chain_ok:
-                start_range = first_start_cursor.getStart() if first_start_cursor else found.getStart()
-                # Use getEnd(): last_end_cursor is collapsed (goRight with expand=False), so
-                # getStart()==getEnd() here and the old code was harmless in practice, but getEnd()
-                # is semantically correct for a range endpoint and safe if it were ever non-collapsed.
-                end_range = last_end_cursor.getEnd() if last_end_cursor else found.getEnd()
-
-                # A same-text combine failure used to be logged at debug and the hit
-                # dropped. That failure is a real UNO error and must propagate.
-                # Different XText endpoints cannot be one cursor; skipping those is
-                # not a dropped same-text hit.
-                if uno_same(start_range.getText(), end_range.getText()):
-                    result_range = text.createTextCursorByRange(start_range)
-                    result_range.gotoRange(end_range, True)
-                    matched_in_pass = True
-                    yield result_range
-                else:
-                    log.debug("find_chained_range: chain crosses XText; no single range")
-
+            match_range = _chain_hit_range(found, parts, anchor_idx)
+            if match_range is not None:
+                matched_in_pass = True
+                yield match_range
             found = find_next_after_match(doc, found, sd)
 
         if matched_in_pass:
@@ -445,8 +440,6 @@ def find_chained_range(
     doc: Any,
     search_string: str,
     all_matches: bool = False,
-    *,
-    case_sensitive_order: tuple[bool, ...] = (True, False),
 ) -> Any:
     """Find search_string via LO regex (literal + newline-collapsed retry) then paragraph chaining.
 
@@ -456,12 +449,13 @@ def find_chained_range(
     Not for whole-document replace: use apply_document_content(target='full_document') instead
     of passing the entire body as old_content.
     """
+    miss: list[Any] | None = [] if all_matches else None
     if not search_string:
-        return [] if all_matches else None
+        return miss
 
     for candidate in _search_try_strings(search_string):
         result = find_lo_regex_ranges(
-            doc, candidate, all_matches=all_matches, case_sensitive_order=case_sensitive_order
+            doc, candidate, all_matches=all_matches
         )
         if all_matches:
             if result:
@@ -471,21 +465,21 @@ def find_chained_range(
 
     parts = search_string.split('\n')
     if len(parts) <= 1:
-        return [] if all_matches else None
+        return miss
 
     anchor_idx = _anchor_index(parts)
     if anchor_idx == -1:
-        return [] if all_matches else None
+        return miss
 
     matched_ranges = []
-    for match in _iter_chain_matches(doc, parts, anchor_idx, case_sensitive_order):
+    for match in _iter_chain_matches(doc, parts, anchor_idx, _DEFAULT_CASE_SENSITIVE_ORDER):
         if not all_matches:
             return match
         matched_ranges.append(match)
         if len(matched_ranges) >= MAX_SEARCH_REPLACEMENTS:
             return matched_ranges
 
-    return matched_ranges if all_matches else None
+    return matched_ranges or miss
 
 
 def find_first_range(doc: Any, search_string: str) -> Any:
@@ -579,6 +573,37 @@ def _cell_name(cur: Any, text: Any) -> str:
     return _safe_name(_prop(cur, "Cell"))
 
 
+def _find_page_style_label(doc: Any, text_obj: Any) -> str | None:
+    try:
+        styles = doc.getStyleFamilies().getByName("PageStyles")
+        for i in range(int(styles.getCount())):
+            st = styles.getByIndex(i)
+            try:
+                if not st.isInUse():
+                    continue
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                log.debug("header/footer label: isInUse failed", exc_info=True)
+            for attr, region in (
+                ("HeaderText", "header"), ("HeaderTextLeft", "header"), ("HeaderTextRight", "header"),
+                ("HeaderTextFirst", "first-page header"),
+                ("FooterText", "footer"), ("FooterTextLeft", "footer"), ("FooterTextRight", "footer"),
+                ("FooterTextFirst", "first-page footer"),
+            ):
+                try:
+                    if uno_same(getattr(st, attr, None), text_obj):
+                        name = _safe_name(st)
+                        return "%s (page style '%s')" % (region, name) if name else region
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    log.debug("header/footer label: %s unreadable: %s", attr, exc)
+                    continue
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.debug("header/footer label: page-style walk failed", exc_info=True)
+    return None
+
+
 def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, str] | None = None) -> str | None:
     """ImplementationName == "SwXHeadFootText" is the discriminator because header/footer text
     is its own XText and there is no header/footer service to query. Body, cells, and frames use
@@ -592,36 +617,7 @@ def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, 
             return label_cache[key]
     result = None
     if doc is not None:
-        try:
-            styles = doc.getStyleFamilies().getByName("PageStyles")
-            for i in range(int(styles.getCount())):
-                st = styles.getByIndex(i)
-                try:
-                    if not st.isInUse():
-                        continue
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    log.debug("header/footer label: isInUse failed", exc_info=True)
-                for attr, region in (
-                    ("HeaderText", "header"), ("HeaderTextLeft", "header"), ("HeaderTextRight", "header"),
-                    ("HeaderTextFirst", "first-page header"),
-                    ("FooterText", "footer"), ("FooterTextLeft", "footer"), ("FooterTextRight", "footer"),
-                    ("FooterTextFirst", "first-page footer"),
-                ):
-                    try:
-                        if uno_same(getattr(st, attr, None), text_obj):
-                            name = _safe_name(st)
-                            result = "%s (page style '%s')" % (region, name) if name else region
-                            break
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        log.debug("header/footer label: %s unreadable: %s", attr, exc)
-                        continue
-                if result:
-                    break
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.debug("header/footer label: page-style walk failed", exc_info=True)
+        result = _find_page_style_label(doc, text_obj)
     if result is None:
         result = "header or footer"
     if label_cache is not None:
@@ -793,7 +789,21 @@ def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
         yield shape, text
 
 
-def comment_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[Any, str, str]]:
+def _shape_display_name(shape: Any) -> str:
+    return (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
+
+
+def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
+    for shape, shape_text in iter_floating_shape_texts(doc):
+        hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
+        if not hits:
+            continue
+        sname = uno_read(lambda: _shape_display_name(shape), "(unnamed shape)")
+        for hit in hits:
+            yield hit, "shape '%s'" % sname, shape_text.strip()
+
+
+def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
     fields = uno_read(lambda: doc.getTextFields().createEnumeration(), _FAILED)
     if fields is _FAILED:
         return
@@ -815,22 +825,7 @@ def comment_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: boo
             log.debug("comment_matches: annotation field unreadable", exc_info=True)
             continue
         for hit in shape_text_hits(content, pattern, use_regex, case_sensitive):
-            yield hit, author, content
-
-
-def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
-    for shape, shape_text in iter_floating_shape_texts(doc):
-        hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
-        if not hits:
-            continue
-        sname = uno_read(lambda: (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)", "(unnamed shape)")
-        for hit in hits:
-            yield hit, "shape '%s'" % sname, shape_text.strip()
-
-
-def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
-    for hit, author, content in comment_matches(doc, pattern, use_regex, case_sensitive):
-        yield hit, "comment by '%s'" % (author or "unknown"), content.strip()
+            yield hit, "comment by '%s'" % (author or "unknown"), content.strip()
 
 
 def _search_descriptor(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Any:
@@ -875,7 +870,7 @@ def drawing_shape_containing(doc: Any, search_string: str, *, use_regex: bool = 
         doc, search_string, use_regex=use_regex, case_sensitive=case_sensitive)
     if shape is None:
         return None
-    return (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
+    return _shape_display_name(shape)
 
 
 def _preview_matches(hits: Iterator[tuple[str, str, str]], limit: int) -> list[dict[str, Any]]:
@@ -1097,9 +1092,8 @@ def _build_page_map(doc: Any) -> dict[int, int]:
         log.exception("advanced_search: could not read the view cursor")
         return {}
 
-    page_map: dict[int, int] = {}
-
     def _walk() -> dict[int, int]:
+        page_map: dict[int, int] = {}
         try:
             text = doc.getText()
             enum = text.createEnumeration()

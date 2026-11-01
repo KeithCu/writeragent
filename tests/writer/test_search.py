@@ -705,12 +705,12 @@ def test_iter_floating_shape_texts_disposed_draw_page_propagates():
 
 def test_comment_matches_disposed_enumeration_propagates():
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.search import comment_matches
+    from plugin.writer.search import iter_comment_hits
 
     doc = MagicMock()
     doc.getTextFields.return_value.createEnumeration.side_effect = DocumentDisposedError("gone")
     with pytest.raises(DocumentDisposedError):
-        list(comment_matches(doc, "x", False, False))
+        list(iter_comment_hits(doc, "x", False, False))
 
 
 def test_header_footer_label_disposed_style_walk_propagates():

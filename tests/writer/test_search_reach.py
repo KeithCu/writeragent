@@ -7,12 +7,12 @@
 Pure control-flow tests with fakes (no LibreOffice). The UNO behavior itself (findFirst reaching
 header/footer text, comments being invisible to it) was verified live; what is testable here is
 the labeling logic of _header_footer_label / describe_match_location and the matching plus
-defensiveness of comment_matches."""
+defensiveness of iter_comment_hits."""
 import sys
 from unittest.mock import MagicMock, patch
 
 
-from plugin.writer.search import comment_matches, describe_match_location, _header_footer_label
+from plugin.writer.search import iter_comment_hits, describe_match_location, _header_footer_label
 
 
 # ---- fakes ----------------------------------------------------------------
@@ -252,34 +252,34 @@ def test_cell_name_ignores_non_string():
     assert describe_match_location(found) == "table 'Table1'"
 
 
-# ---- comment_matches --------------------------------------------------------
+# ---- iter_comment_hits ------------------------------------------------------
 
 def test_comment_match_yields_hit_author_content():
     doc = FakeDoc(fields=[FakeAnnotation("please FIX this paragraph", author="Ana")])
-    got = list(comment_matches(doc, "fix", use_regex=False, case_sensitive=False))
-    assert got == [("FIX", "Ana", "please FIX this paragraph")]
+    got = list(iter_comment_hits(doc, "fix", use_regex=False, case_sensitive=False))
+    assert got == [("FIX", "comment by 'Ana'", "please FIX this paragraph")]
 
 
 def test_comment_no_match_yields_nothing():
     doc = FakeDoc(fields=[FakeAnnotation("nothing here")])
-    assert list(comment_matches(doc, "absent", False, False)) == []
+    assert list(iter_comment_hits(doc, "absent", False, False)) == []
 
 
 def test_non_annotation_fields_are_skipped():
     doc = FakeDoc(fields=[FakeOtherField(), FakeAnnotation("target inside", author="Bo")])
-    got = list(comment_matches(doc, "target", False, False))
-    assert got == [("target", "Bo", "target inside")]
+    got = list(iter_comment_hits(doc, "target", False, False))
+    assert got == [("target", "comment by 'Bo'", "target inside")]
 
 
 def test_multiple_hits_in_one_comment():
     doc = FakeDoc(fields=[FakeAnnotation("x a x b x")])
-    got = list(comment_matches(doc, "x", False, False))
+    got = list(iter_comment_hits(doc, "x", False, False))
     assert [g[0] for g in got] == ["x", "x", "x"]
 
 
 def test_comment_regex_matching():
     doc = FakeDoc(fields=[FakeAnnotation("codes A1 and B2 here")])
-    got = list(comment_matches(doc, r"[A-Z]\d", use_regex=True, case_sensitive=True))
+    got = list(iter_comment_hits(doc, r"[A-Z]\d", use_regex=True, case_sensitive=True))
     assert [g[0] for g in got] == ["A1", "B2"]
 
 
@@ -287,4 +287,4 @@ def test_enumeration_failure_is_silent():
     class BrokenDoc:
         def getTextFields(self):
             raise RuntimeError("no fields")
-    assert list(comment_matches(BrokenDoc(), "x", False, False)) == []
+    assert list(iter_comment_hits(BrokenDoc(), "x", False, False)) == []
