@@ -250,6 +250,34 @@ def _supports_service(obj: Any, name: str) -> bool:
     return uno_read(lambda: bool(obj.supportsService(name)), False)
 
 
+def _iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
+    """Yield paragraphs under *text_obj*, descending into table cells."""
+    enum = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
+    if enum is _FAILED:
+        return
+    while enum.hasMoreElements() is True:
+        try:
+            el = enum.nextElement()
+        except Exception:
+            break
+        if _supports_service(el, "com.sun.star.text.TextTable"):
+            try:
+                names = el.getCellNames() or ()
+            except Exception as exc:
+                log.debug("_iter_xtext_paragraphs: getCellNames failed: %s", exc)
+                continue
+            for name in names:
+                try:
+                    cell = el.getCellByName(name)
+                except Exception as exc:
+                    log.debug("_iter_xtext_paragraphs: getCellByName failed: %s", exc)
+                    continue
+                yield from _iter_xtext_paragraphs(cell)
+            continue
+        if hasattr(el, "createEnumeration"):
+            yield el
+
+
 def _goto_doc_end(doc: Any) -> None:
     best_effort(lambda: doc.getCurrentController().getViewCursor().gotoEnd(False), "_goto_doc_end: view cursor unavailable")
 
@@ -257,9 +285,7 @@ def _goto_doc_end(doc: Any) -> None:
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:
     """Recreate *src_field* in *dest_doc* (used for table-cell fields)."""
     services = uno_read(lambda: [s for s in src_field.getSupportedServiceNames() if str(s).startswith("com.sun.star.text.textfield.")], _FAILED)
-    if services is _FAILED:
-        return False
-    if not services:
+    if services is _FAILED or not services:
         return False
     svc = sorted(services, key=len)[-1]
     new_field = uno_read(lambda: dest_doc.createInstance(svc), _FAILED)
@@ -280,6 +306,30 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
         return True
 
     return best_effort(insert, "_copy_field_into failed", False)
+
+
+def _copy_visible_portions(
+    portions: Any,
+    dest_doc: Any,
+    dest_text: Any,
+    cursor: Any,
+    parent_el: Any,
+    math_records: list[tuple[str, str, bool]] | None,
+    caller: str,
+) -> None:
+    for portion, kind in _iter_portions(portions):
+        if kind == "TextField":
+            field = _portion_field(portion, caller)
+            if field is None:
+                continue
+            _copy_field_into(dest_doc, dest_text, cursor, field)
+        elif kind == "Text":
+            chunk = uno_read(lambda: portion.getString(), "")
+            if not chunk:
+                continue
+            _copy_text_run(portion, dest_text, cursor, chunk)
+        else:
+            _copy_math_or_text(portion, parent_el, dest_text, cursor, math_records)
 
 
 def _copy_cell_xtext(
@@ -324,20 +374,7 @@ def _copy_cell_xtext(
         except Exception:
             _fallback_insert_para_text(dest_text, dest_cursor, para, "_copy_cell_xtext")
             continue
-        for portion, kind in _iter_portions(portions):
-            if kind == "TextField":
-                field = _portion_field(portion, "_copy_cell_xtext")
-                if field is None:
-                    continue
-                _copy_field_into(dest_doc, dest_text, dest_cursor, field)
-            # Cell copy used to insert plain text, dropping bold/colour inside table cells; same as the body walk.
-            elif kind == "Text":
-                chunk = uno_read(lambda: portion.getString(), "")
-                if not chunk:
-                    continue
-                _copy_text_run(portion, dest_text, dest_cursor, chunk)
-            else:
-                _copy_math_or_text(portion, para, dest_text, dest_cursor, math_records)
+        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, para, math_records, "_copy_cell_xtext")
 
 
 def _writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -503,19 +540,7 @@ def _copy_xtext_by_portions(
         except Exception:
             _fallback_insert_para_text(dest_text, dest_cursor, el, "_copy_xtext_by_portions")
             continue
-        for portion, kind in _iter_portions(portions):
-            if kind == "TextField":
-                field = _portion_field(portion, "_copy_xtext_by_portions")
-                if field is None:
-                    continue
-                _copy_field_into(dest_doc, dest_text, dest_cursor, field)
-            elif kind == "Text":
-                chunk = uno_read(lambda: portion.getString(), "")
-                if not chunk:
-                    continue
-                _copy_text_run(portion, dest_text, dest_cursor, chunk)
-            else:
-                _copy_math_or_text(portion, el, dest_text, dest_cursor, math_records)
+        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records, "_copy_xtext_by_portions")
         _copy_para_properties_to_end(dest_text, dest_cursor, el)
 
 
