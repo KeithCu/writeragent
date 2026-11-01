@@ -33,7 +33,7 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
 ensure_plugin_on_path(__file__, levels_up=4, also_add_lib=True)
 
-from typing import Any, Sequence, cast
+from typing import Any, Iterable, Sequence, cast
 
 import unohelper
 
@@ -239,8 +239,6 @@ def _proofreading_markup_type() -> int:
     global _PROOFREADING_MARKUP_TYPE
     if _PROOFREADING_MARKUP_TYPE is not None:
         return _PROOFREADING_MARKUP_TYPE
-    if uno_mod is None:
-        return 0
     v: Any = uno_mod.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")
     _PROOFREADING_MARKUP_TYPE = int(cast("int | float | str", v))
     return _PROOFREADING_MARKUP_TYPE
@@ -333,8 +331,6 @@ def _create_empty_result(
     u16_map: Utf16OffsetMap,
 ) -> Any:
     """Initialize ProofreadingResult (sentence bounds aligned with Lightproof)."""
-    if uno_mod is None:
-        raise RuntimeError("uno not available")
     a_res = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult"))
     a_res.aDocumentIdentifier = a_document_identifier
     a_res.aText = a_text
@@ -467,6 +463,15 @@ def _obs_result_window(
     if combined_errors:
         fields["rule_ids"] = _rule_ids_sample(combined_errors)
     grammar_obs("do_proofreading_result_window", **fields)
+
+
+def _append_shifted_errors(
+    errors: Iterable[dict[str, Any]], sent_start: int, combined_errors: list[dict[str, Any]]
+) -> None:
+    for err_item in errors:
+        adj = dict(err_item)
+        adj["n_error_start"] = sent_start + err_item.get("n_error_start", 0)
+        combined_errors.append(adj)
 
 
 class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo, XServiceName, XServiceDisplayName, XSupportedLocales, XLinguServiceEventBroadcaster):  # pyright: ignore[reportGeneralTypeIssues] — multiple UNO interface bases  # pyrefly: ignore[invalid-inheritance]
@@ -631,10 +636,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             if cached is None:
                 uncached_spans.append((sent_start, _sent_end, sent_text))
                 continue
-            for err_item in cached:
-                adj = dict(err_item)
-                adj["n_error_start"] = sent_start + err_item.get("n_error_start", 0)
-                combined_errors.append(adj)
+            _append_shifted_errors(cached, sent_start, combined_errors)
         return combined_errors, uncached_spans
 
     def _active_grammar_provider(self) -> str:
@@ -650,8 +652,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         uncached_spans: list[tuple[int, int, str]],
         combined_errors: list[dict[str, Any]],
         checker_identity: str,
-    ) -> bool:
-        """If this is Harper, lint ready process now or kick one ensure. True = do not enqueue."""
+    ) -> None:
+        """If this is Harper, lint ready process now or kick one ensure."""
         from plugin.framework.config import user_config_dir
         from dataclasses import asdict
 
@@ -685,14 +687,10 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             payload = [asdict(e) for e in norm_errors]
             issue_count += len(active_errors)
             cache_put_sentence(loc_key, sent_text, payload, ctx=self.ctx, doc_id=a_doc_id, checker_identity=checker_identity)
-            for err_item in payload:
-                adj = dict(err_item)
-                adj["n_error_start"] = sent_start + err_item.get("n_error_start", 0)
-                combined_errors.append(adj)
+            _append_shifted_errors(payload, sent_start, combined_errors)
         if last_text and not ensuring:
             iw = "issue" if issue_count == 1 else "issues"
             emit_grammar_status("done", last_text, result=f"{issue_count} {iw}")
-        return True
 
     # --- XProofreader ---
     def isSpellChecker(self) -> bool:
@@ -818,7 +816,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         cache_error_count=len(combined_errors),
                         miss_reason=miss_reason,
                     )
-                    if is_harper and self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors, checker_identity):
+                    if is_harper:
+                        self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors, checker_identity)
                         result_source = "harper_fast"
                     else:
                         enqueue_misses(grammar_queue, self.ctx, aDocumentIdentifier, loc_key, uncached_active_spans, provider, checker_identity, paragraph_text=aText)
@@ -953,15 +952,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             return
         self._pending_proofread_again = False
         n_event = 8  # com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN
-        event: Any = None
-        if uno_mod is not None:
-            event = uno_mod.createUnoStruct("com.sun.star.linguistic2.LinguServiceEvent")
-            setattr(event, "Source", self)
-            setattr(event, "nEvent", n_event)
-        if event is None:
-            from types import SimpleNamespace
-
-            event = SimpleNamespace(Source=self, nEvent=n_event)
+        event = uno_mod.createUnoStruct("com.sun.star.linguistic2.LinguServiceEvent")
+        setattr(event, "Source", self)
+        setattr(event, "nEvent", n_event)
         for listener in list(self._lingu_listeners):
             try:
                 listener.processLinguServiceEvent(event)
