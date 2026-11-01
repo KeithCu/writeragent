@@ -17,7 +17,7 @@ def _element():
 
     el = object.__new__(PythonPanelElement)
     el.ctx = MagicMock(name="element-ctx")
-    el.xFrame = MagicMock(name="frame")
+    el.Frame = MagicMock(name="frame")
     el.xParentWindow = MagicMock(name="parent")
     el.xParentWindow.getPosSize.return_value = SimpleNamespace(Width=220, Height=400)
     el.ResourceURL = "private:resource/toolpanel/PythonPanel"

@@ -338,7 +338,7 @@ def test_open_librepy_settings_retries_on_config_validation_error() -> None:
         patch("plugin.librepy.settings.populate_settings_control") as mock_populate,
         patch("plugin.librepy.settings.read_settings_control", return_value="999"),
         patch(
-            "plugin.chatbot.settings_fields.apply_field_specs_result",
+            "plugin.librepy.settings.apply_field_specs_result",
             side_effect=ConfigValidationError("out of range"),
         ) as mock_apply,
         patch("plugin.librepy.settings.msgbox") as mock_msgbox,

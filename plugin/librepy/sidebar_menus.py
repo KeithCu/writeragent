@@ -15,6 +15,7 @@ import logging
 from typing import Any, Callable
 
 from plugin.doc.doc_type import is_calc, is_writer
+from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler
 from plugin.framework.thread_guard import main_thread_only
@@ -107,13 +108,12 @@ def invoke_action_handler(handler: Callable[..., Any] | None, frame: Any = None,
     if handler is None:
         return
     try:
-        wants_frame = False
         sig = inspect.signature(handler)
-        for param in sig.parameters.values():
-            if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                if param.name == "frame" or param.default is inspect.Parameter.empty:
-                    wants_frame = True
-                    break
+        wants_frame = any(
+            param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            and (param.name == "frame" or param.default is inspect.Parameter.empty)
+            for param in sig.parameters.values()
+        )
         if wants_frame:
             handler(frame)
         else:
@@ -240,10 +240,7 @@ def show_librepy_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             if icon:
                 graphic = load_menu_graphic(ctx, icon)
                 if graphic is not None:
-                    try:
-                        popup.setItemImage(n_id, graphic, False)
-                    except Exception as e:
-                        log.debug("setItemImage failed for %s: %s", icon, e)
+                    best_effort(lambda: popup.setItemImage(n_id, graphic, False), f"setItemImage failed for {icon}")
 
         chosen_id = execute_popup_under_button(popup, button_ctrl)
         if chosen_id in item_actions:

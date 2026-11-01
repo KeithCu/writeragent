@@ -10,7 +10,7 @@ import logging
 from typing import Any, Callable
 
 from plugin.chatbot.dialogs import TabListener, get_optional, load_writeragent_dialog_detail, msgbox, set_control_text, set_control_visible
-from plugin.chatbot.settings_fields import build_module_field_specs, populate_settings_control, read_settings_control
+from plugin.chatbot.settings_fields import apply_field_specs_result, build_module_field_specs, populate_settings_control, read_settings_control
 from plugin.framework.errors import ConfigValidationError, suppress_disposed
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.i18n import N_, _
@@ -83,29 +83,22 @@ def _configure_librepy_settings_chrome(dlg: Any) -> None:
 
 def open_librepy_settings(ctx: Any) -> None:
     """Open SettingsDialog on the Python (scripting) tab only."""
-    from plugin.chatbot.settings_fields import apply_field_specs_result
-
     init_logging(ctx)
     log.debug("LibrePy settings: opening dialog")
 
-    dlg: Any = None
-    test_btn: Any = None
-    test_listener: Any = None
-    download_btn: Any = None
-    download_listener: Any = None
+    dlg, load_detail = load_writeragent_dialog_detail("SettingsDialog", ctx)
+    if dlg is None:
+        log.error("LibrePy settings: SettingsDialog failed to load (null dialog)")
+        detail = f"\n\n{load_detail}" if load_detail else ""
+        msgbox(ctx, _("Python Settings"), _("Could not open Settings.") + detail, box_type=3)
+        return
+
+    # SettingsDialog.show wraps create, populate, and execute in one
+    # try/finally that disposes. Running Step, chrome, populate, and the
+    # title before that try leaked the UNO dialog on a raise.
+    # UNO multi-page dialogs use model.Step (not Page); setPropertyValue("Page") fails on Linux.
+    attached: list[tuple[Any, Any]] = []
     try:
-        dlg, load_detail = load_writeragent_dialog_detail("SettingsDialog", ctx)
-
-        if dlg is None:
-            log.error("LibrePy settings: SettingsDialog failed to load (null dialog)")
-            detail = f"\n\n{load_detail}" if load_detail else ""
-            msgbox(ctx, _("Python Settings"), _("Could not open Settings.") + detail, box_type=3)
-            return
-
-        # SettingsDialog.show wraps create, populate, and execute in one
-        # try/finally that disposes. Running Step, chrome, populate, and the
-        # title before that try leaked the UNO dialog on a raise.
-        # UNO multi-page dialogs use model.Step (not Page); setPropertyValue("Page") fails on Linux.
         dlg.getModel().Step = _SCRIPTING_TAB_PAGE
         _configure_librepy_settings_chrome(dlg)
         dlg.getModel().Title = _("Python Settings")
@@ -113,11 +106,13 @@ def open_librepy_settings(ctx: Any) -> None:
         test_btn = get_optional(dlg, "scripting__test_venv")
         if test_btn is not None:
             test_listener = ScriptingVenvTestListener(ctx, dlg, include_vector_search=False, include_audio=False)
+            attached.append((test_btn, test_listener))
             test_btn.addActionListener(test_listener)
 
         download_btn = get_optional(dlg, "scripting__download_audio_binaries")
         if download_btn is not None:
             download_listener = _DownloadVecPackListener(ctx, dlg)
+            attached.append((download_btn, download_listener))
             download_btn.addActionListener(download_listener)
 
         field_specs = build_module_field_specs("scripting", control_ids="prefixed", skip_librepy_exclude=True)
@@ -144,12 +139,9 @@ def open_librepy_settings(ctx: Any) -> None:
             except ConfigValidationError as ve:
                 msgbox(ctx, _("Invalid Setting"), str(ve))
     finally:
-        # Do not return from finally: that would swallow a load or populate error.
-        if dlg is not None:
-            with suppress_disposed("detach LibrePy settings listeners", logger=log):
-                if test_btn is not None and test_listener is not None:
-                    test_btn.removeActionListener(test_listener)
-                if download_btn is not None and download_listener is not None:
-                    download_btn.removeActionListener(download_listener)
-            with suppress_disposed("close LibrePy settings", logger=log):
-                dlg.dispose()
+        # Do not return from finally: that would swallow a populate error.
+        with suppress_disposed("detach LibrePy settings listeners", logger=log):
+            for btn, listener in attached:
+                btn.removeActionListener(listener)
+        with suppress_disposed("close LibrePy settings", logger=log):
+            dlg.dispose()
