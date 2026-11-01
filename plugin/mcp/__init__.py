@@ -249,10 +249,9 @@ class McpModule(ModuleBase):
                 srv = HttpServer(route_registry=self._registry, port=port, host=host, use_ssl=cfg.get("use_ssl") or False, ssl_cert=cfg.get("ssl_cert") or "", ssl_key=cfg.get("ssl_key") or "")
                 try:
                     srv.start()
-                    if services.events:
-                        status = srv.get_status()
-                        services.events.emit("http:server_started", port=status["port"], host=status["host"], url=status["url"])
-                        services.events.emit("menu:update")
+                    status = srv.get_status()
+                    services.events.emit("http:server_started", port=status["port"], host=status["host"], url=status["url"])
+                    services.events.emit("menu:update")
                     _shared_http_server = srv
                 except Exception as e:
                     # Stash for Toggle/Status/Settings UI — previously only log.exception left a trail
@@ -281,9 +280,8 @@ class McpModule(ModuleBase):
                 return
             srv.stop()
             _shared_http_server = None
-        if self._services.events:
-            self._services.events.emit("http:server_stopped", reason="shutdown")
-            self._services.events.emit("menu:update")
+        self._services.events.emit("http:server_stopped", reason="shutdown")
+        self._services.events.emit("menu:update")
 
     def _sync_tunnel(self) -> None:
         """Start or stop the public tunnel to match MCP settings."""
@@ -328,9 +326,7 @@ class McpModule(ModuleBase):
 
     def shutdown(self) -> None:
         self._stop_server()
-        if self._mcp_routes_registered():
-            self._unregister_mcp_routes()
-        _remove_debug_token_file()
+        self._unregister_mcp_routes()
 
     def _register_mcp_routes(self, services: Any) -> None:
         log.info("Registering MCP routes (SSE, /mcp, /debug)...")
@@ -342,13 +338,13 @@ class McpModule(ModuleBase):
         # One lock across the whole set. GET / snapshots routes under the same
         # lock, so a toggle cannot expose a half-registered table or raise
         # RuntimeError while iterating it.
-        with self._registry.batch():
+        with self._registry.lock:
             for method, path, handler_name, raw in MCP_ROUTE_TABLE:
                 self._registry.add(method, path, getattr(p, handler_name), raw=raw)
         log.info("MCP routes registered on HTTP server")
 
     def _unregister_mcp_routes(self) -> None:
-        with self._registry.batch():
+        with self._registry.lock:
             for method, path, _handler_name, _raw in MCP_ROUTE_TABLE:
                 self._registry.remove(method, path)
         _remove_debug_token_file()
