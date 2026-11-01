@@ -131,30 +131,26 @@ def _explicit_openrouter(endpoint_url: str) -> bool:
         u2 = urllib.parse.urlsplit(endpoint_url.strip())
     except ValueError:
         return False
-    if u1.scheme.lower() != u2.scheme.lower():
-        return False
-    if (u1.hostname or "").lower() != (u2.hostname or "").lower():
-        return False
-    if u1.port != u2.port:
-        return False
-    p1 = (u1.path or "").rstrip("/")
-    p2 = (u2.path or "").rstrip("/")
-    return p1 == p2
+    return (
+        u1.scheme.lower() == u2.scheme.lower()
+        and (u1.hostname or "").lower() == (u2.hostname or "").lower()
+        and u1.port == u2.port
+        and (u1.path or "").rstrip("/") == (u2.path or "").rstrip("/")
+    )
 
 
 def _speech_headers(endpoint_url: str, api_key: str) -> dict[str, str]:
     """Build headers for TTS POST, applying provider detection and auth config."""
     headers = {"Content-Type": "application/json"}
-    mini = {
-        "endpoint": endpoint_url,
-        "api_key": api_key,
-        "is_openrouter": _explicit_openrouter(endpoint_url),
-    }
     from plugin.framework.client.auth import AuthError, build_auth_headers, resolve_auth_for_config
     from plugin.framework.errors import ConfigError
 
     try:
-        resolved = resolve_auth_for_config(mini)
+        resolved = resolve_auth_for_config({
+            "endpoint": endpoint_url,
+            "api_key": api_key,
+            "is_openrouter": _explicit_openrouter(endpoint_url),
+        })
         headers.update(build_auth_headers(resolved))
     except (AuthError, ConfigError):
         if api_key:
