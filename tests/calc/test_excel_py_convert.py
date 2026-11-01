@@ -2108,6 +2108,14 @@ def test_dedup_merge_rules_prefer_excel_dep_token():
     assert _prefer_excel_dep_token("_xlfn.ANCHORARRAY(A1)", "A1:B10") == "_xlfn.ANCHORARRAY(A1)"
 
 
+def test_prefer_excel_dep_token_blank_inputs():
+    """Blank current falls back to candidate; blank candidate keeps stripped current."""
+    assert _prefer_excel_dep_token("", "B2") == "B2"
+    assert _prefer_excel_dep_token("  ", "B2") == "B2"
+    assert _prefer_excel_dep_token("A1", "  ") == "A1"
+    assert _prefer_excel_dep_token("A1", "B2") == "A1"
+
+
 def test_skip_string_escaped_quote_in_triple_quotes():
     """_skip_string must handle backslash escapes inside triple-quoted strings."""
     src = '"""a\\"b"""'
