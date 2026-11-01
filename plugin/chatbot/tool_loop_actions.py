@@ -150,9 +150,8 @@ def _result_note(result_data: Mapping[str, Any]) -> str:
     Unknown error, status, or done.
     """
     # crosshair: off
-    if result_data.get("status") == "error":
-        return result_data.get("message") or "Unknown error"
-    return result_data.get("message") or result_data.get("status") or "done"
+    status = result_data.get("status")
+    return result_data.get("message") or ("Unknown error" if status == "error" else status or "done")
 
 
 def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
@@ -555,8 +554,7 @@ def drop_turn(host: Any) -> None:
     if turn is None:
         return
     turn.abort()
-    if current_turn(host) is turn:
-        host._turn = None
+    host._turn = None
 
 
 def begin_send_turn(host: Any, model: Any = None) -> TurnController:
@@ -610,13 +608,6 @@ def spawn_queue(turn: TurnController) -> Any:
     return turn.batcher or turn.queue
 
 
-def _tool_call_id(call: Any) -> str:
-    if not isinstance(call, dict):
-        return ""
-    call_id = call.get("id")
-    return call_id if isinstance(call_id, str) else ""
-
-
 def _append_cancelled_tool_rows(messages: list[Any]) -> int:
     """Append one cancelled tool row for each call that has none.
 
@@ -649,8 +640,8 @@ def _append_cancelled_tool_rows(messages: list[Any]) -> int:
                 answered.add(tid)
             insert_at += 1
         for call in calls:
-            call_id = _tool_call_id(call)
-            if not call_id or call_id in answered:
+            call_id = call.get("id") if isinstance(call, dict) else None
+            if not isinstance(call_id, str) or not call_id or call_id in answered:
                 continue
             messages.insert(
                 insert_at,
@@ -815,34 +806,10 @@ def build_tool_execute_fn(
 
             chat_append_cb = _sub_agent_chat_append
 
+        prompt_for_web = False
+        if needs_web_research_ui:
             try:
-                if needs_web_research_ui and get_config_bool("chatbot.prompt_for_web_research"):
-
-                    def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
-                        if not isinstance(captured_turn, TurnController) or captured_turn.queue is None:
-                            log.warning("tool_loop: web_research approval skipped (queue missing)")
-                            return (False, None)
-                        event = threading.Event()
-                        # Use setattr/getattr to avoid static attribute errors on Event.
-                        setattr(event, "approved", False)
-                        setattr(event, "query_override", None)
-                        from plugin.framework.send_cancellation import wait_for_approval
-
-                        if not put_for_turn(captured_turn, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
-                            return (False, None)
-                        # Workers pass the checker captured at spawn. Direct
-                        # callers (tests) omit it and still run on that thread.
-                        checker = stop_checker if stop_checker is not None else host.resolve_stop_checker()
-                        # event.wait() ignored Stop. Sidebar close latches the
-                        # checker and never sets the event, so this worker parked.
-                        if not wait_for_approval(event, checker):
-                            put_for_turn(captured_turn, (StreamQueueKind.STOPPED,))
-                            return (False, None)
-                        if not getattr(event, "approved", False):
-                            put_for_turn(captured_turn, (StreamQueueKind.STOPPED,))
-                        return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
-
-                    approval_cb = _web_approval
+                prompt_for_web = get_config_bool("chatbot.prompt_for_web_research")
             except Exception as ex:
                 # Fail closed. Leaving approval_cb as None after a config
                 # error skips Accept/Change/Reject: web_research prompts only
@@ -854,6 +821,29 @@ def build_tool_execute_fn(
                     code="WEB_RESEARCH_APPROVAL_UNAVAILABLE",
                 )
                 return json.dumps(format_error_payload(err), default=str)
+
+        # Workers pass the checker captured at spawn. Direct
+        # callers (tests) omit it and still run on that thread.
+        checker = stop_checker if stop_checker is not None else host.resolve_stop_checker()
+        if prompt_for_web:
+
+            def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
+                if not isinstance(captured_turn, TurnController) or captured_turn.queue is None:
+                    log.warning("tool_loop: web_research approval skipped (queue missing)")
+                    return (False, None)
+                event = threading.Event()
+                from plugin.framework.send_cancellation import wait_for_approval
+
+                if not put_for_turn(captured_turn, (StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event)):
+                    return (False, None)
+                # event.wait() ignored Stop. Sidebar close latches the
+                # checker and never sets the event, so this worker parked.
+                if not wait_for_approval(event, checker) or not getattr(event, "approved", False):
+                    put_for_turn(captured_turn, (StreamQueueKind.STOPPED,))
+                    return (False, None)
+                return (True, getattr(event, "query_override", None))
+
+            approval_cb = _web_approval
 
         active_page_idx = None
         if doc_type_str in ("draw", "impress"):
@@ -875,7 +865,7 @@ def build_tool_execute_fn(
             active_page_index=active_page_idx,
             status_callback=status_callback,
             append_thinking_callback=append_thinking_callback,
-            stop_checker=stop_checker if stop_checker is not None else host.resolve_stop_checker(),
+            stop_checker=checker,
             approval_callback=approval_cb,
             chat_append_callback=chat_append_cb,
             set_active_domain_callback=set_active_domain,
@@ -1071,10 +1061,7 @@ class ToolLoopEffectInterpreter:
 
     def _spawn_tool_worker(self, effect: SpawnToolWorkerEffect) -> bool:
         host = self.host
-        func_name = effect.func_name
-        func_args_str = effect.func_args_str
         func_args = effect.func_args
-        call_id = effect.call_id
         # The drain attached the queue and the document before this spawn.
         # A later send replaces the host's turn. This worker keeps the one
         # it captured and must not assign that turn's queue.
@@ -1104,7 +1091,7 @@ class ToolLoopEffectInterpreter:
         # unwired control left _spawn_tool_worker and the drain treated it as
         # a stream error. Only image_generate uses the override; a widget
         # failure leaves that call's arguments unchanged.
-        if func_name == "image_generate" and isinstance(func_args, dict) and host.image_model_selector:
+        if effect.func_name == "image_generate" and isinstance(func_args, dict) and host.image_model_selector:
             image_model_override = best_effort(
                 lambda: execute_on_main_thread(lambda: host.image_model_selector.getText()),
                 "image model selector unusable; image_generate keeps its arguments",
@@ -1121,9 +1108,8 @@ class ToolLoopEffectInterpreter:
 
         def run_tool() -> None:
             t0 = time.perf_counter()
-            sync = not effect.is_async
-            if sync:
-                log.debug("sync tool start name=%s", func_name)
+            if not effect.is_async:
+                log.debug("sync tool start name=%s", effect.func_name)
             try:
                 # Stop can land after spawn and before this body. Do not start
                 # the tool; the drain's on_stopped path closes the turn.
@@ -1144,20 +1130,20 @@ class ToolLoopEffectInterpreter:
                             turn.put((StreamQueueKind.TOOL_THINKING, msg))
 
                         call_kwargs["append_thinking_callback"] = tool_thinking_callback
-                res = execute_tool_fn(func_name, func_args, spawn_doc, host.ctx, **call_kwargs)
-                if sync:
-                    log.debug("sync tool done name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
-                turn.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
+                res = execute_tool_fn(effect.func_name, func_args, spawn_doc, host.ctx, **call_kwargs)
+                if not effect.is_async:
+                    log.debug("sync tool done name=%s elapsed_ms=%.1f", effect.func_name, (time.perf_counter() - t0) * 1000.0)
+                turn.put((StreamQueueKind.TOOL_DONE, effect.call_id, effect.func_name, effect.func_args_str, res))
             except Exception as e:
-                if sync:
-                    log.debug("sync tool failed name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
-                _queue_tool_failure(call_id, func_name, func_args_str, e, turn, model=spawn_doc)
+                if not effect.is_async:
+                    log.debug("sync tool failed name=%s elapsed_ms=%.1f", effect.func_name, (time.perf_counter() - t0) * 1000.0)
+                _queue_tool_failure(effect.call_id, effect.func_name, effect.func_args_str, e, turn, model=spawn_doc)
 
         # Use the same dedicated worker as async tools. Calling the tool
         # on the drain thread skips pump_ui_idle, so Stop is not delivered
         # until the tool returns and the next round can start. Sync UNO
         # still runs on the main thread: ToolRegistry.execute marshals it,
         # and the drain pumps that queue.
-        worker_name = f"tool-async-{func_name}" if effect.is_async else f"tool-sync-{func_name}"
+        worker_name = f"tool-{'async' if effect.is_async else 'sync'}-{effect.func_name}"
         run_in_background(run_tool, name=worker_name, dedicated=True)
         return False
