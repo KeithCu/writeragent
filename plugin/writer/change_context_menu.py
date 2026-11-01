@@ -83,7 +83,7 @@ def _build_menu(model: Any, event: Any, ignored: Any, continue_modified: Any) ->
         container = event.ActionTriggerContainer
         # The container implements XMultiServiceFactory; call it directly on the proxy
         # (queryInterface with an imported interface class does not work in PyUNO).
-        if container is None or not hasattr(container, "createInstance"):
+        if not hasattr(container, "createInstance"):
             return ignored
 
         separator = container.createInstance("com.sun.star.ui.ActionTriggerSeparator")
