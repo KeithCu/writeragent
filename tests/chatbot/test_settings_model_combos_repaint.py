@@ -10,11 +10,18 @@ Test Connection) compared against the *saved* provider again, reset Text model
 to the Together default and moved Image model to the catalog's first id.
 """
 from unittest.mock import MagicMock, patch
+import pytest
 
 OR = "https://openrouter.ai/api/v1"
 TG = "https://api.together.xyz/v1"
 TG_TEXT = ["MiniMaxAI/MiniMax-M3", "Qwen/Qwen3-235B-A22B-Instruct-2507-tput"]
 TG_IMAGES = ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.2-dev"]
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_patches():
+    yield
+    patch.stopall()
 
 
 class FakeCombo:
@@ -58,7 +65,7 @@ def _setup():
         "image_model": FakeCombo("google/gemini-3.1-flash-lite-image"),
     }
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), ctrls["endpoint"])
-    listener.cached_image_models = lambda ep, api_key_override=None: list(TG_IMAGES)
+    patch("plugin.chatbot.dialog_views.cached_image_models", side_effect=lambda ep, api_key_override=None: list(TG_IMAGES)).start()
     return listener, ctrls
 
 
