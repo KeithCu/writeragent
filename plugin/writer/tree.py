@@ -22,7 +22,7 @@ Ported from mcp-libre services/writer/tree.py.
 from __future__ import annotations
 
 import logging
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
@@ -50,20 +50,6 @@ def _bookmark_anchor_not_placed(bookmark_name: str) -> ToolExecutionError:
     )
 
 
-def _heading_tree_fingerprint(doc: Any) -> int | None:
-    """Cheap stale-cache check when XModifyListener misses a programmatic edit.
-
-    Windows leftover Writer reuse (GHA 35466498641) can leave a live
-    RuntimeUID listener that does not fire on ``insertString``;
-    ``CharacterCount`` still moves. ``None`` means no signal — keep
-    listener-only caching (WriterDocStub / missing property).
-    """
-    count = getattr(doc, "CharacterCount", None)
-    if count is not None:
-        return int(count)
-    return None
-
-
 def _collect_heading_indices(node: dict[str, Any]) -> list[int]:
     """Heading paragraph indices in document order (iter_heading_nodes yields them ordered)."""
     return [n["para_index"] for n in iter_heading_nodes(node) if n.get("para_index", -1) >= 0]
@@ -76,6 +62,12 @@ def _preview_text(text: str, max_chars: int = 100) -> str:
     return text
 
 
+def _iter_body_paragraphs(para_ranges: list[Any], start_idx: int, end_idx: int):
+    for idx, element in enumerate(para_ranges[start_idx:end_idx], start_idx):
+        if element.supportsService("com.sun.star.text.Paragraph"):
+            yield idx, element
+
+
 def heading_ref(
     node: dict[str, Any],
     bookmark_map: dict[Any, Any] | None = None,
@@ -84,7 +76,6 @@ def heading_ref(
     include_body: bool = False,
     include_children_count: bool = False,
     include_chapter: bool = False,
-    body_default: bool = False,
 ) -> dict[str, Any]:
     para_index = node["para_index"]
     ref: dict[str, Any] = {}
@@ -97,7 +88,7 @@ def heading_ref(
     if include_children_count:
         ref["children_count"] = len(node.get("children") or [])
     if include_body:
-        ref["body_paragraphs"] = node.get("body_paragraphs", 0) if body_default else node["body_paragraphs"]
+        ref["body_paragraphs"] = node.get("body_paragraphs", 0)
     if include_chapter and node.get("chapter_number"):
         ref["chapter_number"] = node["chapter_number"]
     return ref
@@ -123,17 +114,14 @@ class TreeService(ServiceBase):
         self._doc_svc = services.document
         self._bm_svc = services.writer_bookmarks
         events = services.events
-        self._tree_cache: dict[Any, Any] = {}  # doc_key -> root node
-        self._tree_fp: dict[Any, Any] = {}  # doc_key -> CharacterCount at cache time
+        self._tree_cache: dict[Any, tuple[int | None, dict[str, Any]]] = {}  # doc_key -> (fingerprint, root)
         events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
 
     def _drop_tree_cache(self, key: Any | None = None) -> None:
         if key is None:
             self._tree_cache.clear()
-            self._tree_fp.clear()
             return
         self._tree_cache.pop(key, None)
-        self._tree_fp.pop(key, None)
 
     def _on_cache_invalidated(self, doc: Any | None = None, key: Any | None = None, **_kw: Any) -> None:
         # Prefer the stored key so close/unload can pop without calling
@@ -160,66 +148,63 @@ class TreeService(ServiceBase):
         paint label). The key is omitted when numbering is off.
         """
         key = self._doc_svc.doc_key(doc)
-        fingerprint = _heading_tree_fingerprint(doc)
+        # Cheap stale-cache check when XModifyListener misses a programmatic edit.
+        # Windows leftover Writer reuse (GHA 35466498641) can leave a live
+        # RuntimeUID listener that does not fire on ``insertString``;
+        # ``CharacterCount`` still moves. ``None`` means no signal — keep
+        # listener-only caching (WriterDocStub / missing property).
+        count = getattr(doc, "CharacterCount", None)
+        fingerprint = int(count) if count is not None else None
         if is_cacheable_doc_key(key) and key in self._tree_cache:
-            cached_fp = self._tree_fp.get(key)
+            cached_fp, cached_root = self._tree_cache[key]
             # No fingerprint (stubs) → listener-only. Same count → still valid.
             # A moved CharacterCount means the modify listener missed the edit.
             if fingerprint is None or fingerprint == cached_fp:
-                return self._tree_cache[key]
+                return cached_root
 
         root = build_heading_tree(doc, elements=elements)
         if is_cacheable_doc_key(key):
-            self._tree_cache[key] = root
-            self._tree_fp[key] = fingerprint
+            self._tree_cache[key] = (fingerprint, root)
         return root
 
     def heading_block_body_count(self, node: dict[str, Any]) -> int:
         count = len(node.get("children", []))
         for child in node.get("children", []):
-            if "children" in child:
-                count += self.heading_block_body_count(child)
+            count += self.heading_block_body_count(child)
         return count + node.get("body_paragraphs", 0)
 
     def find_heading_by_para_index(self, node: dict[str, Any], para_index: int) -> dict[str, Any] | None:
         if node.get("para_index") == para_index:
             return node
-        for child in node.get("children", []):
-            found = self.find_heading_by_para_index(child, para_index)
-            if found is not None:
-                return found
-        return None
+        found = next((n for n in iter_heading_nodes(node) if n.get("para_index") == para_index), None)
+        return cast("dict[str, Any]", found) if found is not None else None
 
     # ── Content strategies ─────────────────────────────────────────
 
-    def _get_body_preview_from_ranges(self, para_ranges: list[Any], start_idx: int, end_idx: int, max_chars: int = 100) -> str:
+    def _get_body_preview_from_ranges(self, para_ranges: list[Any], start_idx: int, end_idx: int) -> str:
         preview_parts = []
         current_len = 0
-        for element in para_ranges[start_idx:end_idx]:
-            if not element.supportsService("com.sun.star.text.Paragraph"):
-                continue
+        for _idx, element in _iter_body_paragraphs(para_ranges, start_idx, end_idx):
             para_text = get_string_without_tracked_deletions(element).strip()
             if para_text:
                 preview_parts.append(para_text)
                 current_len += len(para_text)
-                if current_len >= max_chars:
+                if current_len >= 100:
                     break
         full_preview = " ".join(preview_parts)
-        return _preview_text(full_preview, max_chars)
+        return _preview_text(full_preview)
 
     def _get_full_body_text_from_ranges(self, para_ranges: list[Any], start_idx: int, end_idx: int) -> str:
-        parts = []
-        for element in para_ranges[start_idx:end_idx]:
-            if not element.supportsService("com.sun.star.text.Paragraph"):
-                continue
-            parts.append(get_string_without_tracked_deletions(element))
+        parts = [
+            get_string_without_tracked_deletions(element)
+            for _idx, element in _iter_body_paragraphs(para_ranges, start_idx, end_idx)
+        ]
         return "\n".join(parts)
 
     def _apply_content_strategy(
         self,
         node: dict[str, Any],
         strategy: str,
-        max_chars: int = 100,
         *,
         para_ranges: list[Any],
         next_heading_map: dict[int, int],
@@ -229,7 +214,7 @@ class TreeService(ServiceBase):
             pass
         elif strategy == "first_lines":
             next_idx = next_heading_map.get(para_idx, len(para_ranges))
-            node["body_preview"] = self._get_body_preview_from_ranges(para_ranges, para_idx + 1, next_idx, max_chars)
+            node["body_preview"] = self._get_body_preview_from_ranges(para_ranges, para_idx + 1, next_idx)
         elif strategy == "full":
             next_idx = next_heading_map.get(para_idx, len(para_ranges))
             node["body_text"] = self._get_full_body_text_from_ranges(para_ranges, para_idx + 1, next_idx)
@@ -334,10 +319,7 @@ class TreeService(ServiceBase):
         total = len(ctx.para_ranges)
         next_heading_para_index = ctx.next_heading_map.get(heading_para_index, total)
 
-        for idx in range(heading_para_index + 1, next_heading_para_index):
-            element = ctx.para_ranges[idx]
-            if not element.supportsService("com.sun.star.text.Paragraph"):
-                continue
+        for idx, element in _iter_body_paragraphs(ctx.para_ranges, heading_para_index + 1, next_heading_para_index):
             if content_strategy in ("none", "heading_only"):
                 children.append({"type": "body", "para_index": idx})
             elif content_strategy == "full":
@@ -345,7 +327,7 @@ class TreeService(ServiceBase):
                 children.append({"type": "body", "para_index": idx, "text": para_text})
             else:
                 para_text = get_string_without_tracked_deletions(element)
-                children.append({"type": "body", "para_index": idx, "preview": _preview_text(para_text, 100)})
+                children.append({"type": "body", "para_index": idx, "preview": _preview_text(para_text)})
 
         for child in target["children"]:
             node = self._serialize_tree_node(
@@ -360,6 +342,12 @@ class TreeService(ServiceBase):
 
         parent = heading_ref(target, ctx.bookmark_map, include_chapter=True)
         return {"status": "ok", "parent": parent, "content_strategy": content_strategy, "depth": depth, "children": children}
+
+    def _paragraph_at_anchor(self, doc: Any, anchor: Any) -> tuple[int | None, list[Any], Any]:
+        para_ranges = self._doc_svc.get_paragraph_ranges(doc)
+        text_obj = doc.getText()
+        para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+        return para_idx, para_ranges, text_obj
 
     # ── Locator resolution (called by document.resolve_locator) ────
 
@@ -383,9 +371,7 @@ class TreeService(ServiceBase):
                 # started in a table cell or frame on the target page. Do not add a
                 # second save/restore.
                 anchor = with_view_cursor_left_body_locked(doc, vc, _jump)
-                para_ranges = self._doc_svc.get_paragraph_ranges(doc)
-                text_obj = doc.getText()
-                para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+                para_idx, _para_ranges, _text_obj = self._paragraph_at_anchor(doc, anchor)
                 if para_idx is None:
                     raise ToolExecutionError("page start is not in a body paragraph")
                 return {"para_index": para_idx}
@@ -400,9 +386,7 @@ class TreeService(ServiceBase):
                 raise ToolExecutionError("Section '%s' not found" % loc_value)
             section = sections.getByName(loc_value)
             anchor = section.getAnchor()
-            para_ranges = self._doc_svc.get_paragraph_ranges(doc)
-            text_obj = doc.getText()
-            para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+            para_idx, _para_ranges, _text_obj = self._paragraph_at_anchor(doc, anchor)
             if para_idx is None:
                 raise ToolExecutionError("Section '%s' anchor is not in the document" % loc_value)
             return {"para_index": para_idx, "section_name": loc_value}
@@ -454,9 +438,7 @@ class TreeService(ServiceBase):
                 raise ToolExecutionError(
                     "Table '%s' anchor is not in the document" % loc_value
                 )
-            para_ranges = self._doc_svc.get_paragraph_ranges(doc)
-            text_obj = doc.getText()
-            para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+            para_idx, para_ranges, text_obj = self._paragraph_at_anchor(doc, anchor)
             # Same as bookmarks: find_paragraph_for_range returns None when the
             # place fails. confirm_paragraph_index keeps 0 only for a real hit
             # inside a paragraph. A table in enumeration slot 0 is still valid,
@@ -511,9 +493,7 @@ class TreeService(ServiceBase):
             raise _bookmark_anchor_not_placed(bookmark_name) from exc
         if anchor is None:
             raise _bookmark_anchor_not_placed(bookmark_name)
-        para_ranges = self._doc_svc.get_paragraph_ranges(doc)
-        text_obj = doc.getText()
-        para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
+        para_idx, para_ranges, text_obj = self._paragraph_at_anchor(doc, anchor)
         placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
         if placed is None:
             raise _bookmark_anchor_not_placed(bookmark_name)
@@ -521,25 +501,25 @@ class TreeService(ServiceBase):
 
     def _find_heading_by_text(self, doc: Any, search_text: str) -> dict[str, Any] | None:
         """Find heading by text (case-insensitive, fuzzy)."""
-        tree = self.build_heading_tree(doc)
-        bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc)
-        headings = self._flatten_headings(tree)
-
         search_lower = search_text.lower().strip()
         if not search_lower:
             return None
 
+        tree = self.build_heading_tree(doc)
+        bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc)
+
         best_prefix = None
         best_substring = None
+        matched = None
 
-        for h in headings:
+        for h in iter_heading_nodes(tree):
             text_lower = h["text"].lower()
             text_stripped = text_lower.strip()
 
             # Exact match - highest priority, return immediately
             if text_stripped == search_lower:
-                h["bookmark"] = bookmark_map.get(h["para_index"])
-                return h
+                matched = h
+                break
 
             # Prefix match - second priority
             if best_prefix is None and text_stripped.startswith(search_lower):
@@ -548,22 +528,18 @@ class TreeService(ServiceBase):
             # Substring match - third priority
             if best_substring is None and search_lower in text_lower:
                 best_substring = h
+        else:
+            matched = best_prefix or best_substring
 
-        if best_prefix:
-            best_prefix["bookmark"] = bookmark_map.get(best_prefix["para_index"])
-            return best_prefix
+        if matched is None:
+            return None
 
-        if best_substring:
-            best_substring["bookmark"] = bookmark_map.get(best_substring["para_index"])
-            return best_substring
-
-        return None
-
-    def _flatten_headings(self, node: dict[str, Any]) -> list[dict[str, Any]]:
-        result = []
-        for child in iter_heading_nodes(node):
-            flat = {"text": child["text"], "para_index": child["para_index"], "level": child["level"]}
-            if child.get("chapter_number"):
-                flat["chapter_number"] = child["chapter_number"]
-            result.append(flat)
+        result = {
+            "text": matched["text"],
+            "para_index": matched["para_index"],
+            "level": matched["level"],
+            "bookmark": bookmark_map.get(matched["para_index"]),
+        }
+        if matched.get("chapter_number"):
+            result["chapter_number"] = matched["chapter_number"]
         return result

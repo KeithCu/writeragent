@@ -40,7 +40,7 @@ def test_scan_page_does_not_clone_via_body_text():
     vc.getPage.return_value = 1
     vc.jumpToPage.return_value = True
 
-    result = tool._scan_page(MagicMock(), doc, vc, 1)
+    result = tool._scan_page(doc, vc, 1)
     assert result == {"images": [], "tables": [], "frames": [], "shapes": []}
     body.createTextCursorByRange.assert_not_called()
     vc.jumpToEndOfPage.assert_not_called()
@@ -85,7 +85,7 @@ def test_scan_page_includes_paragraph_anchored_shape_on_page(monkeypatch):
     vc = MagicMock()
     vc.getPage.return_value = 2
 
-    result = tool._scan_page(MagicMock(), doc, vc, 2)
+    result = tool._scan_page(doc, vc, 2)
     assert len(result["shapes"]) == 1
     assert result["shapes"][0]["name"] == "Box"
     vc.gotoRange.assert_called_once()
@@ -165,7 +165,7 @@ def test_scan_page_retries_getpage_zero_while_locked():
     vc = MagicMock()
     vc.getPage.side_effect = lambda: pages.pop(0) if pages else 1
 
-    result = tool._scan_page(MagicMock(), doc, vc, 1)
+    result = tool._scan_page(doc, vc, 1)
     assert result["tables"] == [{"name": "Table1", "rows": 2, "cols": 3}]
     doc.unlockControllers.assert_called_once()
     doc.lockControllers.assert_called_once()
@@ -202,7 +202,7 @@ def test_scan_page_skips_paragraph_shape_getpage_zero_without_unlock(monkeypatch
     vc = MagicMock()
     vc.getPage.return_value = 0
 
-    result = tool._scan_page(MagicMock(), doc, vc, 1)
+    result = tool._scan_page(doc, vc, 1)
     assert result["shapes"] == []
     vc.gotoRange.assert_called_once()
     doc.unlockControllers.assert_not_called()
@@ -247,7 +247,7 @@ def test_scan_page_at_page_shape_uses_anchor_page_no_without_view_hop(monkeypatc
     doc.getDrawPage.return_value = draw
 
     vc = MagicMock()
-    result = tool._scan_page(MagicMock(), doc, vc, 2)
+    result = tool._scan_page(doc, vc, 2)
     assert len(result["shapes"]) == 1
     assert result["shapes"][0]["name"] == "PageBox"
     vc.gotoRange.assert_not_called()
@@ -301,7 +301,7 @@ def test_scan_page_keeps_shape_when_geometry_raises(monkeypatch, caplog):
     doc.getDrawPage.return_value = draw
 
     with caplog.at_level(logging.WARNING):
-        result = GetPageObjects()._scan_page(MagicMock(), doc, MagicMock(), 2)
+        result = GetPageObjects()._scan_page(doc, MagicMock(), 2)
 
     assert [s["name"] for s in result["shapes"]] == ["Fly", "Box"]
     assert result["shapes"][0]["geometry"] is None
@@ -361,7 +361,7 @@ def test_scan_page_reraises_disposal_during_geometry(monkeypatch):
     doc.getDrawPage.return_value = draw
 
     with pytest.raises(DocumentDisposedError):
-        GetPageObjects()._scan_page(MagicMock(), doc, MagicMock(), 2)
+        GetPageObjects()._scan_page(doc, MagicMock(), 2)
 
     bad.getPosition.assert_called_once()
     good.getPosition.assert_not_called()
@@ -394,7 +394,7 @@ def test_scan_page_at_page_frame_skips_view_hop(monkeypatch):
     doc.getDrawPage.return_value = draw
 
     vc = MagicMock()
-    result = tool._scan_page(MagicMock(), doc, vc, 3)
+    result = tool._scan_page(doc, vc, 3)
     assert result["frames"] == [{"name": "PageFrame", "width_mm": 4, "height_mm": 2}]
     vc.gotoRange.assert_not_called()
 
@@ -618,7 +618,7 @@ def test_scan_page_geometry_as_char_baseline_offset(monkeypatch):
     tool = GetPageObjects()
     monkeypatch.setattr(tool, "_page_at_range", lambda *a, **k: 1)
 
-    result = tool._scan_page(MagicMock(), doc, MagicMock(), 1)
+    result = tool._scan_page(doc, MagicMock(), 1)
     assert result["shapes"][0]["geometry"] == {"x": 0, "y": -2000, "width": 3000, "height": 2000, "position_relative_to": "anchor", "anchor_type": "AS_CHARACTER"}
     shape.getPosition.assert_not_called()
 
@@ -658,5 +658,5 @@ def test_scan_page_geometry_falls_back_to_get_position(monkeypatch):
     doc.getTextFrames.return_value = _empty_named_collection()
     doc.getDrawPage.return_value = draw
 
-    result = GetPageObjects()._scan_page(MagicMock(), doc, MagicMock(), 1)
+    result = GetPageObjects()._scan_page(doc, MagicMock(), 1)
     assert result["shapes"][0]["geometry"] == {"x": 7, "y": 8, "width": 5, "height": 6, "position_relative_to": "page"}

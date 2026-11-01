@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -8,7 +7,7 @@ from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceRegistry
 from plugin.tests.testing_utils import ElementStub, WriterDocStub
 from plugin.writer.structural import _ensure_writer_tree
-from plugin.writer.tree import TreeService, _heading_tree_fingerprint
+from plugin.writer.tree import TreeService
 
 class TestTreeServiceSearch:
     def setup_method(self):
@@ -294,10 +293,25 @@ def test_ensure_writer_tree_loads_onto_bare_native_context():
 
 
 def test_heading_tree_fingerprint():
-    doc = SimpleNamespace(CharacterCount=42)
-    assert _heading_tree_fingerprint(doc) == 42
-    doc_none = SimpleNamespace()
-    assert _heading_tree_fingerprint(doc_none) is None
+    services = MagicMock()
+    doc_svc = MagicMock()
+    doc_svc.doc_key.return_value = "doc_test"
+    services.document = doc_svc
+    services.writer_bookmarks = MagicMock()
+    services.events = MagicMock()
+    tree_svc = TreeService(services)
+
+    doc_with_count = WriterDocStub([])
+    doc_with_count.CharacterCount = 42
+    tree_svc.build_heading_tree(doc_with_count)
+    assert tree_svc._tree_cache["doc_test"][0] == 42
+
+    doc_none = WriterDocStub([])
+    tree_svc._drop_tree_cache()
+    first = tree_svc.build_heading_tree(doc_none)
+    assert tree_svc._tree_cache["doc_test"][0] is None
+    second = tree_svc.build_heading_tree(doc_none)
+    assert second is first
 
 
 class _CountingEnumDoc(WriterDocStub):

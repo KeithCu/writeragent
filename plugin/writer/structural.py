@@ -152,7 +152,7 @@ class GetPageObjects(ToolBase):
 
         controller = doc.getCurrentController()
         vc = controller.getViewCursor()
-        objects = _with_left_body_locked(doc, vc, lambda: self._scan_page(ctx, doc, vc, page))
+        objects = _with_left_body_locked(doc, vc, lambda: self._scan_page(doc, vc, page))
         return {"status": "ok", "page": page, **objects}
 
     def _page_at_range(self, doc: Any, vc: Any, rng: Any, retry_if_zero: bool = False) -> int:
@@ -181,45 +181,54 @@ class GetPageObjects(ToolBase):
         finally:
             doc.lockControllers()
 
-    def _content_page(self, doc: Any, vc: Any, obj: Any, retry_if_zero: bool) -> int:
+    def _content_page(self, doc: Any, vc: Any, obj: Any) -> int:
         """Page of a graphic/frame/table: AT_PAGE via AnchorPageNo, else view hop."""
         page_no = _at_page_anchor_page(obj)
         if page_no is not None:
             return page_no
-        return self._page_at_range(doc, vc, obj.getAnchor(), retry_if_zero=retry_if_zero)
+        return self._page_at_range(doc, vc, obj.getAnchor(), retry_if_zero=True)
 
-    def _scan_page(self, ctx: ToolContext, doc: Any, vc: Any, page: Any) -> dict[str, Any]:
-        images = []
-        for name in doc.getGraphicObjects().getElementNames():
-            try:
-                g = doc.getGraphicObjects().getByName(name)
-                if self._content_page(doc, vc, g, retry_if_zero=True) == page:
-                    size = g.getPropertyValue("Size")
-                    images.append({"name": name, "width_mm": size.Width // 100, "height_mm": size.Height // 100, "title": g.getPropertyValue("Title")})
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                log.warning("Failed to scan graphic object '%s': %s", name, exc)
+    def _scan_page(self, doc: Any, vc: Any, page: Any) -> dict[str, Any]:
+        def _scan(container: Any, label: str, build: Any) -> list[dict[str, Any]]:
+            items = []
+            for name in container.getElementNames():
+                try:
+                    obj = container.getByName(name)
+                    if self._content_page(doc, vc, obj) == page:
+                        items.append(build(name, obj))
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    log.warning("Failed to scan %s '%s': %s", label, name, exc)
+            return items
 
-        tables = []
-        for name in doc.getTextTables().getElementNames():
-            try:
-                t = doc.getTextTables().getByName(name)
-                if self._content_page(doc, vc, t, retry_if_zero=True) == page:
-                    tables.append({"name": name, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()})
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                log.warning("Failed to scan text table '%s': %s", name, exc)
-
-        frames = []
-        for fname in doc.getTextFrames().getElementNames():
-            try:
-                fr = doc.getTextFrames().getByName(fname)
-                if self._content_page(doc, vc, fr, retry_if_zero=True) == page:
-                    size = fr.getPropertyValue("Size")
-                    frames.append({"name": fname, "width_mm": size.Width // 100, "height_mm": size.Height // 100})
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                log.warning("Failed to scan text frame '%s': %s", fname, exc)
+        images = _scan(
+            doc.getGraphicObjects(),
+            "graphic object",
+            lambda name, g: {
+                "name": name,
+                "width_mm": g.getPropertyValue("Size").Width // 100,
+                "height_mm": g.getPropertyValue("Size").Height // 100,
+                "title": g.getPropertyValue("Title"),
+            },
+        )
+        tables = _scan(
+            doc.getTextTables(),
+            "text table",
+            lambda name, t: {
+                "name": name,
+                "rows": t.getRows().getCount(),
+                "cols": t.getColumns().getCount(),
+            },
+        )
+        frames = _scan(
+            doc.getTextFrames(),
+            "text frame",
+            lambda fname, fr: {
+                "name": fname,
+                "width_mm": fr.getPropertyValue("Size").Width // 100,
+                "height_mm": fr.getPropertyValue("Size").Height // 100,
+            },
+        )
 
         # Do not jumpToEndOfPage + body createTextCursorByRange: end-of-page often sits in a
         # table/frame, and the body XText then raises RuntimeException ("End of content node

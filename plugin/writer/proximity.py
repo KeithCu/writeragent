@@ -235,13 +235,13 @@ class ProximityService(ServiceBase):
             if target_entry is None:
                 return {"error": "No previous sibling heading", "from": from_info}
 
+        # heading_ref already defaults missing body_paragraphs to 0 (was body_default=True).
         return {
             "heading": heading_ref(
                 target_entry["node"],
                 bookmark_map,
                 include_body=True,
                 include_children_count=True,
-                body_default=True,
             ),
             "from": from_info,
             "direction": direction,
