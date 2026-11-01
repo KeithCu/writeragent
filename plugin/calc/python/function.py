@@ -288,9 +288,7 @@ def _addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
 def coerce_index(value: Any) -> int:
     if value is None:
         return 0
-    if isinstance(value, int):
-        return int(value)
-    if isinstance(value, float):
+    if isinstance(value, (int, float)):
         return int(value)
     if isinstance(value, str) and value.strip():
         return int(float(value))
@@ -399,7 +397,7 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
         if any(isinstance(row, (list, tuple)) for row in val):
             # Normalize each row to a list of elements
             rows: list[list[Any]] = [list(row) if isinstance(row, (list, tuple)) else [row] for row in val]
-            max_cols = max(len(row) for row in rows) if rows else 0
+            max_cols = max(len(row) for row in rows)
             # Rectangularize by padding shorter rows with "" so Calc matrix receives a valid rectangular grid
             padded_rows = []
             for row in rows:
@@ -1363,9 +1361,12 @@ def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], targe
 
     spill_lifecycle = _lifecycle_key(target_doc)
     token = f"{prepared.sheet_name}:{prepared.formula_row}:{prepared.formula_col}"
-    t = _new_spill_timer(0.1, lambda: post_to_main_thread(lambda: perform_deferred_spill(prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, lifecycle_key=spill_lifecycle)))
-    _register_spill_timer(spill_lifecycle, t, token=token)
-    t.start()
+    start_deferred_sheet_timer(
+        0.1,
+        lambda: post_to_main_thread(lambda: perform_deferred_spill(prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, lifecycle_key=spill_lifecycle)),
+        lifecycle_key=spill_lifecycle,
+        token=token,
+    )
 
 
 def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any) -> None:
