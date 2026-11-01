@@ -54,7 +54,7 @@ def python_identifier_from_script_name(name: str) -> str:
 
 
 def script_body_hash(code: str) -> str:
-    return hashlib.sha256((code or "").encode("utf-8")).hexdigest()
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
 # Bodies of these nodes do not run while the library statement is loading.
@@ -371,7 +371,7 @@ def load_named_script(origin: str, name: str, executor: Any | None = None) -> An
     if not isinstance(code, str):
         raise AttributeError(f"No {origin} script named {name!r}")
     # host_get_named_python_script already rejects a body over _NAMED_SCRIPT_MAX_BYTES.
-    body_hash = str(payload.get("hash") or script_body_hash(code))
+    body_hash = payload["hash"]
     ident = python_identifier_from_script_name(name)
     ns = _eval_library(executor, code, ident)
     cache[key] = (body_hash, ns)
@@ -405,14 +405,10 @@ class ScriptLibrary:
         executor = self._resolve_executor()
         listing_cache = getattr(executor, "_named_script_listing", None) if executor is not None else None
         if listing_cache is None:
-            listing = _rpc_named(LIST_NAMED_PYTHON_SCRIPTS)
-            listing_cache = listing if isinstance(listing, dict) else {}
+            listing_cache = _rpc_named(LIST_NAMED_PYTHON_SCRIPTS)
             if executor is not None:
                 executor._named_script_listing = listing_cache
-        raw = listing_cache.get(self._origin) or []
-        if not isinstance(raw, list):
-            return []
-        return [str(n) for n in raw if isinstance(n, str)]
+        return list(listing_cache.get(self._origin) or [])
 
     def _ident_map_now(self) -> dict[str, list[str]]:
         mapping: dict[str, list[str]] = {}
@@ -453,13 +449,11 @@ class ScriptLibrary:
         return f"ScriptLibrary(origin={self._origin!r})"
 
 
-def _library_for_executor(executor: Any | None, origin: str) -> ScriptLibrary:
-    """Library cached on *executor*, or a fresh unbound library when *executor* is None."""
-    if executor is None:
-        return ScriptLibrary(origin)
+def _library_for_executor(executor: Any, origin: str) -> ScriptLibrary:
+    """Library cached on *executor*."""
     attr = "_named_scripts_library" if origin == SCRIPT_ORIGIN_USER else "_named_doc_library"
     existing = getattr(executor, attr, None)
-    if isinstance(existing, ScriptLibrary) and existing._origin == origin and existing._executor is executor:
+    if existing is not None:
         return existing
     lib = ScriptLibrary(origin)
     lib._executor = executor
@@ -467,7 +461,7 @@ def _library_for_executor(executor: Any | None, origin: str) -> ScriptLibrary:
     return lib
 
 
-def attach_named_script_libraries(executor: Any | None = None) -> None:
+def attach_named_script_libraries(executor: Any) -> None:
     """Bind ``writeragent.scripts`` / ``writeragent.doc`` on the alias module.
 
     LibrePy omits ``writeragent_api``; ``import writeragent`` is
@@ -519,11 +513,7 @@ def reset_named_scripts_executor(token: Any) -> None:
     Reset the ContextVar with the token from bind. Leaving it set leaked the
     executor to later code on the same thread.
     """
-    if token is not None:
-        try:
-            _current_executor.reset(token)
-        except Exception as e:
-            log.debug("Failed to reset named_scripts_executor ContextVar: %s", e)
+    _current_executor.reset(token)
 
 
 def host_list_named_python_scripts(*, user_scripts: dict[str, str], document_scripts: dict[str, str]) -> dict[str, list[str]]:

@@ -203,11 +203,11 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
     return None
 
 
-def get_calc_init_script(doc: Any, *, default: str = "") -> str:
+def get_calc_init_script(doc: Any) -> str:
     """Return the workbook init script on *doc*, checking INIT first then Init."""
     scripts = get_document_scripts(doc)
     # .get keeps an explicit empty "INIT". `or` would treat "" as missing and return a stale "Init".
-    return scripts.get("INIT", scripts.get("Init", default))
+    return scripts.get("INIT", scripts.get("Init", ""))
 
 
 def set_calc_init_script(doc: Any, code: str) -> DocumentScriptError | None:
@@ -301,7 +301,7 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
 
 def build_python_eval_init_kwargs(doc: Any) -> dict[str, Any]:
     """Kwargs for ``run_code_in_user_venv`` init execution (pass with separate ``session_id=``)."""
-    init_code = (get_calc_init_script(doc) or "").strip()
+    init_code = get_calc_init_script(doc).strip()
     if not init_code:
         return {}
     return {
@@ -466,7 +466,7 @@ def build_xdl_script_picker_state(
 ) -> tuple[list[str], dict[str, str], dict[str, str]]:
     """Return (dropdown_items, merged_scripts_by_display_key, origin_map)."""
     user_scripts = dict(saved_scripts) if isinstance(saved_scripts, dict) else {}
-    doc_scripts = get_document_scripts(doc) if doc is not None else {}
+    doc_scripts = get_document_scripts(doc)
     domain_entries = domain_template_entries(doc)
     return _picker_state_from_parts(user_scripts, doc_scripts, domain_entries)
 
@@ -560,7 +560,7 @@ def build_scripts_list_message(
     # That returned a '[Doc] X' selection missing from sections and wrote a
     # selection config entry against the stale doc. Pass None so selection
     # only considers user scripts and templates.
-    selection_doc = None if document_stale or doc is None else doc
+    selection_doc = None if document_stale else doc
 
     # What was wrong: sections came from one property read and one
     # domain_template_entries(doc) call, then resolve_run_script_selection
@@ -577,9 +577,8 @@ def build_scripts_list_message(
             user_scripts, {}, domain_template_entries(None)
         )
     else:
-        doc_map = loaded if load_err is None else {}
         picker_state = _picker_state_from_parts(
-            user_scripts, doc_map, domain_entries
+            user_scripts, loaded, domain_entries
         )
 
     selected_name, _selected_code, _merged_scripts = resolve_run_script_selection(
@@ -674,10 +673,7 @@ def save_selected_script(
     user_scripts = get_user_scripts()
     if display_name in user_scripts:
         return save_user_script(display_name, code)
-    if doc is not None:
-        stored, load_err = _load_document_script_map(doc)
-    else:
-        stored, load_err = {}, None
+    stored, load_err = _load_document_script_map(doc)
     if is_picker_template_name(display_name):
         if allow_builtin_skip:
             return None
