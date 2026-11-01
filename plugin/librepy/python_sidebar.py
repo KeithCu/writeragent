@@ -274,6 +274,10 @@ def _filter_from_combo(control: Any) -> DiagnosticFilter:
     return "all"
 
 
+def _code_key(code: str | None) -> str:
+    return (code or "")[:240]
+
+
 class PythonSidebarController:
     """Wires XDL controls for the LibrePy Python sidebar panel."""
 
@@ -302,14 +306,12 @@ class PythonSidebarController:
             self._hide_calc_only_controls()
         self._wire()
         self._attach_resize_listener()
-        if self._calc_panel and self.frame is not None:
-            try:
-                controller = self.frame.getController()
-                if controller is not None:
-                    self._activation_listener = _Activation(lambda: self._schedule_refresh(full=True))
-                    controller.addActivationEventListener(self._activation_listener)
-            except Exception:
-                log.debug("sidebar activation listener add failed", exc_info=True)
+        if self._calc_panel:
+            self._activation_listener = _Activation(lambda: self._schedule_refresh(full=True))
+            self._with_frame_controller(
+                lambda c: c.addActivationEventListener(self._activation_listener),
+                "sidebar activation listener add failed",
+            )
         # What was wrong: an exception during initial refresh aborted __init__, leaking activation listeners and breaking panel disposal.
         # How it happened: self.refresh() ran unprotected before controller assignment in PythonPanelElement.
         # Why this change: catch and log exceptions from initial refresh so construction completes and listeners can be cleaned up.
@@ -343,17 +345,25 @@ class PythonSidebarController:
             log.debug("sidebar diagnostics listener remove failed", exc_info=True)
         activation = self._activation_listener
         self._activation_listener = None
-        if activation is not None and self.frame is not None:
-            try:
-                controller = self.frame.getController()
-                if controller is not None:
-                    controller.removeActivationEventListener(activation)
-            except Exception:
-                log.debug("sidebar activation listener remove failed", exc_info=True)
+        if activation is not None:
+            self._with_frame_controller(
+                lambda c: c.removeActivationEventListener(activation),
+                "sidebar activation listener remove failed",
+            )
         self._controls.clear()
         on_torn_down = self._on_torn_down
         self._on_torn_down = None
         _invoke_cleared(on_torn_down, "python sidebar on_torn_down callback failed")
+
+    def _with_frame_controller(self, fn: Callable[[Any], Any], message: str) -> None:
+        if self.frame is None:
+            return
+        try:
+            controller = self.frame.getController()
+            if controller is not None:
+                fn(controller)
+        except Exception:
+            log.debug(message, exc_info=True)
 
     def _ctrl(self, name: str) -> Any:
         if name not in self._controls:
@@ -427,9 +437,7 @@ class PythonSidebarController:
             if is_full:
                 self.refresh()
             else:
-                doc = self._calc_document()
-                if doc is not None:
-                    self._refresh_diagnostics(doc)
+                self._refresh_diagnostics()
         except Exception:
             log.exception("python sidebar scheduled refresh failed")
 
@@ -458,7 +466,11 @@ class PythonSidebarController:
         for cid in _CALC_ONLY_IDS:
             set_control_visible(self._ctrl(cid), False)
 
-    def _refresh_diagnostics(self, doc: Any) -> None:
+    def _refresh_diagnostics(self, doc: Any = None) -> None:
+        if doc is None:
+            doc = self._calc_document()
+            if doc is None:
+                return
         diag_ctrl = self._ctrl("diag_list")
         prev_idx = _selected_index(diag_ctrl)
         prev_entry = self._diags[prev_idx] if 0 <= prev_idx < len(self._diags) else None
@@ -471,7 +483,7 @@ class PythonSidebarController:
         by_sheet: dict[tuple[str, str], list[str]] = {}
         by_code: dict[str, list[str]] = {}
         for cell in self._cells:
-            prefix = (cell.code or "")[:240]
+            prefix = _code_key(cell.code)
             if prefix:
                 by_code.setdefault(prefix, []).append(cell.address)
                 if cell.sheet:
@@ -479,7 +491,7 @@ class PythonSidebarController:
         enriched: list[DiagnosticEntry] = []
         for entry in self._diags:
             chosen = entry.address
-            prefix = (entry.code or "")[:240]
+            prefix = _code_key(entry.code)
             if not chosen and prefix:
                 sheet_hits = by_sheet.get((entry.sheet, prefix), []) if entry.sheet else []
                 hits = sheet_hits if len(sheet_hits) == 1 else by_code.get(prefix, [])
@@ -517,10 +529,7 @@ class PythonSidebarController:
     def _on_filter_changed(self, _event: Any = None) -> None:
         if self._disposed:
             return
-        doc = self._calc_document()
-        if doc is None:
-            return
-        self._refresh_diagnostics(doc)
+        self._refresh_diagnostics()
 
     def refresh(self) -> None:
         if self._disposed:
@@ -561,8 +570,8 @@ class PythonSidebarController:
         if doc is None:
             return
         navigate_to_cell(doc, self.ctx, cell.address)
-        cell_key = (cell.code or "")[:240]
-        shown = next((entry for entry in self._diags if (entry.code or "")[:240] == cell_key and (entry.address == cell.address or (entry.sheet and entry.sheet == cell.sheet))), None)
+        cell_key = _code_key(cell.code)
+        shown = next((entry for entry in self._diags if _code_key(entry.code) == cell_key and (entry.address == cell.address or (entry.sheet and entry.sheet == cell.sheet))), None)
         if shown is None:
             shown = self._store.latest_for_code(workbook_key_for_doc(doc), cell.code)
         if shown is not None:
