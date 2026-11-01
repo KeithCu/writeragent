@@ -239,10 +239,6 @@ class AudioRecorder:
         self._close_host_wav()
         self._silence_detector = None
 
-    def _cleanup_failed_start(self) -> None:
-        self._teardown_capture()
-        self._delete_wav()
-
     def _keep_recorded_wav_or_cleanup(
         self,
         proc: ManagedSubprocess | None,
@@ -270,9 +266,7 @@ class AudioRecorder:
             return
         log.debug("Failed to stop recording subprocess: %s", exc)
         terminate_recording_process(proc, monitor=monitor, handoff=handoff)
-        self._auto_stopped_path = None
-        self._close_host_wav()
-        self._silence_detector = None
+        self._teardown_capture()
         self._delete_wav()
 
     def _execute_effect(self, effect: object) -> None:
@@ -413,7 +407,8 @@ class AudioRecorder:
                 # after ready hits this same branch, and _cleanup_failed_start
                 # used to unlink the WAV the child had already written.
                 if not _wav_file_has_bytes(self.temp_filename):
-                    self._cleanup_failed_start()
+                    self._teardown_capture()
+                    self._delete_wav()
 
         elif isinstance(effect, ReportErrorEffect):
             raise RuntimeError(effect.error_message)

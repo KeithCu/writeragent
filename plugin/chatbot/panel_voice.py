@@ -256,20 +256,17 @@ class PanelVoiceController:
             log.debug("hands-free re-record: is_speaking failed", exc_info=True)
         if speaking:
             self._panel._sticky_restart_gen += 1
+            gen = self._panel._sticky_restart_gen
             log.debug("Hands-free record waiting for TTS")
-            self._spawn_sticky_tts_wait(self._panel._sticky_restart_gen)
+            self._sticky_waiter.wait_and_post(
+                STICKY_TTS_POLL_MS,
+                self._panel.queue_executor,
+                lambda: self._poll_sticky_rerecord(gen),
+                "sticky-rerecord",
+            )
         else:
             log.info("Hands-free record restarting")
             self._panel.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
-
-    def _spawn_sticky_tts_wait(self, gen: int) -> None:
-        """Poll ``is_speaking`` later. Do not sleep on the UNO thread."""
-        self._sticky_waiter.wait_and_post(
-            STICKY_TTS_POLL_MS,
-            self._panel.queue_executor,
-            lambda: self._poll_sticky_rerecord(gen),
-            "sticky-rerecord",
-        )
 
     def _poll_sticky_rerecord(self, gen: int) -> None:
         if self._panel_gone():

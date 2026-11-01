@@ -72,8 +72,6 @@ class RecordGesture:
     ``fired`` means this press already dispatched ``RECORD_CLICKED`` (the
     hold timer). ``action_seen`` means ActionEvent arrived while the button
     was still down, so release must not expect a second one.
-    ``suppress_action`` eats the ActionEvent that follows a mouse dispatch,
-    including when the label is already Stop Rec.
     """
 
     phase: RecordPhase = RecordPhase.IDLE
@@ -91,10 +89,6 @@ class RecordGesture:
     @property
     def fired(self) -> bool:
         return self.phase in (RecordPhase.FIRED, RecordPhase.FIRED_ACTION_SEEN)
-
-    @property
-    def suppress_action(self) -> bool:
-        return self.phase in (RecordPhase.FIRED, RecordPhase.SUPPRESS_ACTION)
 
 
 @dataclass(frozen=True)
