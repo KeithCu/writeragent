@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import math
 import operator
-from typing import Any, Callable, ClassVar, Iterator, NoReturn, cast
+from typing import Any, Callable, ClassVar, Iterator, cast
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_SHAPE_DIM,
@@ -71,20 +71,9 @@ def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
         return []
     first = grid[0]
     if isinstance(first, (list, tuple)):
-        width = 0
-        for row in grid:
-            rlen = len(row) if isinstance(row, (list, tuple)) and not isinstance(row, (str, bytes)) else 1
-            if rlen > width:
-                width = rlen
-        out: list[list[Any]] = []
-        for row in grid:
-            if not isinstance(row, (list, tuple)) or isinstance(row, (str, bytes)):
-                pad = width - 1
-                out.append([row] if pad <= 0 else [row] + [None] * pad)
-            else:
-                pad = width - len(row)
-                out.append(list(row) if pad <= 0 else list(row) + [None] * pad)
-        return out
+        rows = [list(r) if isinstance(r, (list, tuple)) else [r] for r in grid]
+        width = max(map(len, rows))
+        return [r if len(r) == width else r + [None] * (width - len(r)) for r in rows]
     # Flat sequence → single row (Calc 1D row) unless callers pass column shape.
     return [list(grid)]
 
@@ -165,11 +154,6 @@ def _whole_floats_to_int(grid: list[list[Any]]) -> list[list[Any]]:
     return [[int(c) if type(c) is float else c for c in row] for row in grid]
 
 
-def _numpy_required(exc: ImportError) -> NoReturn:
-    # Missing NumPy is ImportError. Any other to_numpy failure propagates.
-    raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
-
-
 def _blank_to_nan(val: Any, op: Any) -> Any:
     if val is None and op not in (operator.eq, operator.ne):
         return math.nan
@@ -192,7 +176,7 @@ def _arith_operand(value: Any, op: Any, *, wrap_import: bool) -> Any:
             return value.to_numpy()
         except ImportError as exc:
             if wrap_import:
-                _numpy_required(exc)
+                raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
             raise
     return _blank_to_nan(value, op)
 
@@ -371,7 +355,7 @@ class CalcRange:
         # crosshair: off
         if self.shape == (1, 1):
             return bool(self._values[0][0])
-        if self.shape == (0, 0) or not self._values:
+        if not self._values:
             return False
         raise ValueError(
             f"The truth value of a CalcRange with shape {self.shape} is ambiguous. "
@@ -482,7 +466,7 @@ def materialize_calc_range(wire: Any) -> CalcRange:
     if is_calc_range_payload(wire):
         inner = wire.get("data")
         address = wire.get("address")
-        addr = address.strip() if isinstance(address, str) and address.strip() else None
+        addr = (address.strip() or None) if isinstance(address, str) else None
         # __init__ calls _materialize_inner_grid. Unpacking here first built
         # the rectangular list, then __init__ walked every cell again.
         cr = CalcRange(inner, address=addr)
@@ -687,7 +671,7 @@ def dataframe_to_labeled_grid(
     """Build a Calc-ready grid from a dataframe envelope (starts with header row)."""
     body: list[list[Any]]
     if not isinstance(data, list) or not data:
-        body = [] if isinstance(data, list) or data is None else [[data]]
+        body = []
     elif isinstance(data[0], (list, tuple)):
         body = [list(row) for row in data]
     else:
