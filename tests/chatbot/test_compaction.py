@@ -153,17 +153,6 @@ def test_should_compact_tiered_thresholds():
     assert C.should_compact(100, None) is False
     assert C.should_compact(100, 0) is False
     assert C.should_compact(100, -1) is False
-    assert C.should_compact(5734, 8192, enabled=False) is False
-
-
-def test_compact_session_enabled_false_no_client_io():
-    client = DummyClient()
-    session = DummySession(_history_3x1000())
-    result = C.compact_session(session, client, window=4096, enabled=False)
-    assert result.reason == "disabled"
-    assert result.compacted is False
-    assert client.calls == []
-    assert session.compaction is None
 
 
 # --- 2. Fit guarantee ----------------------------------------------------------
@@ -183,7 +172,7 @@ def test_gen_reserve_and_keep_recent_pinned():
 def test_fit_guarantee_ceiling_walk_4k():
     session = DummySession(_history_3x1000())
     client = DummyClient(content=_summary_for_pair_tokens(C._summary_budget(4096)))
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.compacted is True
     view = C.messages_for_llm(session)
     after = C.prompt_tokens(view, None)
@@ -210,7 +199,7 @@ def test_exact_fill_of_window_minus_reserve_is_success():
         ]
     )
     client = DummyClient(content=summary)
-    result = C.compact_session(session, client, window=window, enabled=True)
+    result = C.compact_session(session, client, window=window)
     assert result.compacted is True
     assert result.reason == "ok"
     assert result.tokens_after == 2000 + budget + keep  # 3840
@@ -232,7 +221,7 @@ def test_after_equals_window_is_not_success(monkeypatch):
 
     monkeypatch.setattr(C, "prompt_tokens", _pt)
     prev = session.compaction
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.reason == "failed"
     assert result.compacted is False
     assert result.tokens_after == 4096
@@ -252,7 +241,7 @@ def test_applied_view_over_reserve_reverts(monkeypatch):
         return 4096 - C.gen_reserve(4096) + 1
 
     monkeypatch.setattr(C, "prompt_tokens", _pt)
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.reason == "failed"
     assert session.compaction is None
 
@@ -283,7 +272,7 @@ def test_document_content_never_in_summary_or_replaced_in_view():
         [live, _msg("user", 1000), _msg("assistant", 1000), _msg("user", 1000)]
     )
     client = DummyClient()
-    C.compact_session(session, client, window=4096, enabled=True)
+    C.compact_session(session, client, window=4096)
     assert client.calls
     user_body = client.calls[0]["messages"][1]["content"]
     assert "[DOCUMENT CONTENT]" not in user_body
@@ -293,8 +282,8 @@ def test_document_content_never_in_summary_or_replaced_in_view():
     assert "LIVE PROMPT" in view[0]["content"]
     assert "[DOCUMENT CONTENT]" in view[0]["content"]
     # Defensive strip if a caller ever passed index 0.
-    assert "secret-doc" not in C.serialize_for_summary([live])
-    assert "[DOCUMENT CONTENT]" not in C.serialize_for_summary(session.messages[1:])
+    assert "secret-doc" not in "\n".join(C._summary_lines([live]))
+    assert "[DOCUMENT CONTENT]" not in "\n".join(C._summary_lines(session.messages[1:]))
 
 
 # --- 5. Tool-pair integrity ----------------------------------------------------
@@ -476,7 +465,7 @@ def test_image_and_audio_charged_2000_not_base64_length():
     assert C.estimate_message_tokens(img) == C.estimate_tokens_rough("see") + 2000
     assert C.estimate_message_tokens(wav_small) == 2000
     assert C.estimate_message_tokens(wav_big) == 2000
-    ser = C.serialize_for_summary([img, wav_big])
+    ser = "\n".join(C._summary_lines([img, wav_big]))
     assert "image data omitted from summary input" in ser
     assert "[audio omitted]" in ser
     assert blob not in ser
@@ -491,7 +480,7 @@ def test_failure_leaves_history_intact():
     snapshot = [dict(m) for m in messages]
     session = DummySession(messages)
     client = DummyClient(error=RuntimeError("summarizer down"))
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.reason == "failed"
     assert session.compaction is None
     assert session.messages == messages
@@ -549,14 +538,14 @@ def test_should_retry_overflow_reasons_and_attempts():
     assert C.should_retry_overflow(1, "below_threshold", 1000, 1000) is True
     assert C.should_retry_overflow(2, "ok") is True
     assert C.should_retry_overflow(3, "ok") is False
-    for reason in ("nothing_to_compact", "no_window", "failed", "aborted", "disabled"):
+    for reason in ("nothing_to_compact", "no_window", "failed", "aborted"):
         assert C.should_retry_overflow(0, reason) is False
 
 
 def test_compact_session_no_window_even_with_force():
     session = DummySession(_history_3x1000())
     client = DummyClient()
-    result = C.compact_session(session, client, window=None, force=True, enabled=True)
+    result = C.compact_session(session, client, window=None, force=True)
     assert result.reason == "no_window"
     assert client.calls == []
 
@@ -567,7 +556,7 @@ def test_compact_session_no_window_even_with_force():
 def test_nothing_to_compact_system_plus_one_user():
     session = DummySession([_system_doc(2000), _msg("user", 100)])
     client = DummyClient()
-    result = C.compact_session(session, client, window=4096, force=True, enabled=True)
+    result = C.compact_session(session, client, window=4096, force=True)
     assert result.reason == "nothing_to_compact"
     assert C.find_cut_index(session.messages, 1328, start_index=1) is None
 
@@ -588,7 +577,7 @@ def test_view_does_not_mutate_session_messages():
     session = DummySession(messages)
     snapshot = [dict(m) for m in messages]
     client = DummyClient()
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.compacted is True
     assert len(session.messages) == len(snapshot)
     assert session.messages[-1]["content"] == tool_body
@@ -776,7 +765,7 @@ def test_resolve_context_window_does_not_fetch_v1_models():
 def test_compact_session_max_tokens_never_reads_chat_max_tokens():
     session = DummySession(_history_3x1000())
     client = DummyClient()
-    result = C.compact_session(session, client, window=4096, max_tokens=512, enabled=True)
+    result = C.compact_session(session, client, window=4096, max_tokens=512)
     assert result.reason in ("ok", "nothing_to_compact", "failed")
     if client.calls:
         assert client.calls[0]["max_tokens"] == 512
@@ -791,7 +780,7 @@ def test_compact_session_max_tokens_never_reads_chat_max_tokens():
 def test_update_path_slices_only_new_unsummarized_turns():
     session = DummySession(_history_3x1000())
     client = DummyClient(content="first-summary")
-    r1 = C.compact_session(session, client, window=4096, enabled=True)
+    r1 = C.compact_session(session, client, window=4096)
     assert r1.compacted is True
     k = session.compaction.first_kept_index
     first_body = client.calls[0]["messages"][1]["content"]
@@ -800,7 +789,7 @@ def test_update_path_slices_only_new_unsummarized_turns():
     session.messages.append(_msg("assistant", 900))
     session.messages.append(_msg("user", 400))
     client._content = "second-summary"
-    r2 = C.compact_session(session, client, window=4096, force=True, enabled=True)
+    r2 = C.compact_session(session, client, window=4096, force=True)
     assert r2.compacted is True
     assert session.compaction.first_kept_index > k
     update_body = client.calls[1]["messages"][1]["content"]
@@ -903,7 +892,7 @@ def test_serialize_stubs_tool_bodies_over_200_and_formats_tool_calls():
         _tool("c2", text=body_200),
     ]
     # Name for c2 has no matching assistant; generic "tool".
-    text = C.serialize_for_summary(messages)
+    text = "\n".join(C._summary_lines(messages))
     assert "[read_file] (201 chars)" in text
     assert body_201 not in text
     assert body_200 in text
@@ -917,7 +906,7 @@ def test_serialize_stubs_tool_bodies_over_200_and_formats_tool_calls():
             {"id": "z", "type": "function", "function": {"name": "read_file", "arguments": "x" * 5000}}
         ],
     }
-    ser = C.serialize_for_summary([empty_asst])
+    ser = "\n".join(C._summary_lines([empty_asst]))
     assert ser.startswith("ASSISTANT: ")
     assert ser != "ASSISTANT: "
     assert "read_file(" in ser
@@ -938,7 +927,7 @@ def test_temporal_anchoring_present(monkeypatch):
             return types.SimpleNamespace(isoformat=lambda: "2026-09-10")
 
     monkeypatch.setattr(C.datetime, "date", _Date)
-    C.compact_session(session, client, window=4096, enabled=True)
+    C.compact_session(session, client, window=4096)
     body = client.calls[0]["messages"][1]["content"]
     assert "TEMPORAL ANCHORING" in body
     assert "2026-09-10" in body
@@ -984,7 +973,7 @@ def test_tail_pressure_stub_fat_newest_tool():
     ]
     session = DummySession(messages)
     client = DummyClient()
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.compacted is True
     assert result.reason == "ok"
     assert result.tokens_after <= 4096 - C.gen_reserve(4096)
@@ -999,18 +988,6 @@ def test_tail_pressure_stub_fat_newest_tool():
     assert stubbed[0]["content"] != tool_body
     assert "chars)" in stubbed[0]["content"]
     assert session.compaction.stubbed_tool_call_ids
-
-
-# --- 24. enabled=False ---------------------------------------------------------
-
-
-def test_compact_session_enabled_false_alias():
-    session = DummySession(_history_3x1000())
-    client = DummyClient()
-    result = C.compact_session(session, client, window=4096, force=True, enabled=False)
-    assert result == C.CompactResult(False, "disabled")
-    assert client.calls == []
-    assert session.compaction is None
 
 
 # --- 25. Last-user snap then tail-pressure (#10896) ----------------------------
@@ -1036,7 +1013,7 @@ def test_last_user_snap_then_tail_pressure():
     assert C.estimate_tokens([last_user] + group) > keep
     session = DummySession(messages)
     client = DummyClient()
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.compacted is True, result
     assert result.tokens_after <= 3840
     assert session.messages[-1]["content"] == tool_body
@@ -1054,13 +1031,13 @@ def test_status_callback_only_when_summarizer_runs():
     small = DummySession([_system_doc(100), _msg("user", 10)])
     client = DummyClient()
     C.compact_session(
-        small, client, window=4096, enabled=True, status_callback=statuses.append
+        small, client, window=4096, status_callback=statuses.append
     )
     assert statuses == []
 
     session = DummySession(_history_3x1000())
     C.compact_session(
-        session, client, window=4096, enabled=True, status_callback=statuses.append
+        session, client, window=4096, status_callback=statuses.append
     )
     assert statuses[0] == "Compacting conversation..."
     assert statuses[-1] == "Thinking..."
@@ -1070,7 +1047,7 @@ def test_stop_checker_aborts_without_mutating():
     session = DummySession(_history_3x1000())
     client = DummyClient()
     result = C.compact_session(
-        session, client, window=4096, enabled=True, stop_checker=lambda: True
+        session, client, window=4096, stop_checker=lambda: True
     )
     assert result.reason == "aborted"
     assert session.compaction is None
@@ -1080,7 +1057,7 @@ def test_stop_checker_aborts_without_mutating():
 def test_below_threshold_skips_http():
     session = DummySession([_system_doc(100), _msg("user", 20), _msg("assistant", 20)])
     client = DummyClient()
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.reason == "below_threshold"
     assert client.calls == []
 
@@ -1099,14 +1076,14 @@ def test_tool_schema_tokens_in_numerator():
 def test_empty_or_whitespace_summary_fails():
     session1 = DummySession(_history_3x1000())
     client1 = DummyClient(content="")
-    result1 = C.compact_session(session1, client1, window=4096, enabled=True)
+    result1 = C.compact_session(session1, client1, window=4096)
     assert result1.reason == "failed"
     assert result1.compacted is False
     assert session1.compaction is None
 
     session2 = DummySession(_history_3x1000())
     client2 = DummyClient(content="   \n\t  ")
-    result2 = C.compact_session(session2, client2, window=4096, enabled=True)
+    result2 = C.compact_session(session2, client2, window=4096)
     assert result2.reason == "failed"
     assert result2.compacted is False
     assert session2.compaction is None
@@ -1122,7 +1099,7 @@ def test_summary_truncation_while_loop_and_cap_summary():
     # Client returns an oversized summary (~2000 tokens) exceeding _summary_budget(4096)=512
     session = DummySession(_history_3x1000())
     client = DummyClient(content="Summary paragraph.\n" + ("detail info " * 600))
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.compacted is True
     assert result.reason == "ok"
     assert session.compaction is not None
@@ -1140,7 +1117,7 @@ def test_compact_aborts_when_message_list_is_replaced():
         return {"content": "valid summary"}
 
     client.request_with_tools = _swap
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.reason == "aborted"
     assert result.compacted is False
     assert session.compaction is None
@@ -1156,7 +1133,7 @@ def test_stop_checker_after_http_returns_aborts():
         # False on first call (preflight check), True on second call (after client.request_with_tools)
         return calls["n"] > 1
 
-    result = C.compact_session(session, client, window=4096, enabled=True, stop_checker=_checker)
+    result = C.compact_session(session, client, window=4096, stop_checker=_checker)
     assert result.reason == "aborted"
     assert result.compacted is False
     assert session.compaction is None
@@ -1320,7 +1297,7 @@ def test_stale_first_kept_index_past_len_drops_compaction():
     session.compaction = C.CompactionState(
         summary="OLD CHAT",
         first_kept_index=50,
-        kept_message_id=None,
+        kept_message_id=0,
     )
     view = C.messages_for_llm(session)
     assert session.compaction is None
@@ -1346,7 +1323,7 @@ def test_stale_anchor_mismatch_drops_compaction_and_resummarizes():
 
     # Follow-up compact_session summarizes from index 1 (not mid-tail)
     client = DummyClient(content="new summary")
-    result = C.compact_session(session, client, window=4096, force=True, enabled=True)
+    result = C.compact_session(session, client, window=4096, force=True)
     assert result.compacted is True
     # The prompt body in client call should summarize slice from index 1
     prompt_body = client.calls[0]["messages"][1]["content"]
@@ -1371,7 +1348,7 @@ def test_matched_anchor_keeps_compaction():
 def test_summarizer_one_call_when_slice_fits():
     session = DummySession(_history_3x1000())
     client = DummyClient(content="test summary")
-    result = C.compact_session(session, client, window=4096, enabled=True)
+    result = C.compact_session(session, client, window=4096)
     assert result.compacted is True
     assert len(client.calls) == 1
     call = client.calls[0]
@@ -1393,7 +1370,7 @@ def test_summarizer_chunks_when_slice_exceeds_window():
     original_contents = [m["content"] for m in msgs]
     session = DummySession(msgs)
     client = DummyClient(content="compacted summary body")
-    result = C.compact_session(session, client, window=4096, force=True, enabled=True)
+    result = C.compact_session(session, client, window=4096, force=True)
 
     assert result.reason == "ok"
     assert len(client.calls) >= 2
@@ -1424,7 +1401,7 @@ def test_summarizer_truncates_one_oversized_turn():
     ]
     session = DummySession(msgs)
     client = DummyClient(content="summary of huge turn")
-    result = C.compact_session(session, client, window=4096, force=True, enabled=True)
+    result = C.compact_session(session, client, window=4096, force=True)
 
     assert result.reason == "ok"
     assert len(client.calls) >= 1
@@ -1454,7 +1431,7 @@ def test_summarizer_second_chunk_failure_does_not_publish():
     ]
     session = DummySession(msgs)
     client = FailSecondCallClient(content="test-summary")
-    result = C.compact_session(session, client, window=4096, force=True, enabled=True)
+    result = C.compact_session(session, client, window=4096, force=True)
 
     assert result.reason == "failed"
     assert session.compaction is None
@@ -1484,7 +1461,7 @@ def test_summarizer_stop_between_chunks_aborts():
     ]
     session = DummySession(msgs)
     client = CountingClient(content="test-summary")
-    result = C.compact_session(session, client, window=4096, force=True, enabled=True, stop_checker=stop_checker)
+    result = C.compact_session(session, client, window=4096, force=True, stop_checker=stop_checker)
 
     assert result.reason == "aborted"
     assert session.compaction is None

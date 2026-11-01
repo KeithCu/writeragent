@@ -493,7 +493,6 @@ def test_process_death_does_not_retry_overflow(test_instance):
         ("no_window", 1000, 1000),
         ("failed", 1000, 900),
         ("aborted", 1000, 900),
-        ("disabled", 1000, 900),
         ("ok", 1000, 950),  # exact 5% is not a shrink
         ("ok", 1000, 960),
         ("ok", 1000, 951),

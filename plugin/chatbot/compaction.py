@@ -14,7 +14,7 @@ https://github.com/NousResearch/hermes-agent/tree/v2026.9.7
 Near copies: ``estimate_tokens_rough``, ``_temporal_anchoring_rule`` (MIT
 comments at those defs). Algorithms: ``compaction_ratio``,
 ``ensure_last_user_in_tail``, ``pressure_stub_newest_tool_group``,
-``serialize_for_summary`` stubs, ``should_retry_overflow`` 5% gate.
+``_summary_lines`` stubs, ``should_retry_overflow`` 5% gate.
 Not a port of ``ContextCompressor`` (4931 LOC).
 
 OpenClaw file:line cites remain on overflow markers, keepRecent cap,
@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.framework.config import get_config_bool_safe
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +60,7 @@ AUDIO_BLOCK_TOKENS = 2000
 # Hermes ContextCompressor._PRUNE_MIN_CHARS
 # https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L661
 PRUNE_MIN_CHARS = 200
-MAX_TOOL_CALL_ARGS_CHARS = 4000  # serialize_for_summary assistant tool_calls cap
+MAX_TOOL_CALL_ARGS_CHARS = 4000  # _summary_lines / _format_tool_calls assistant tool_calls cap
 DOCUMENT_MARKERS = ("[DOCUMENT CONTENT]", "[END DOCUMENT]")
 _SUMMARY_TRUNCATION_MARKER = "\n\n[Compaction summary truncated to fit budget]"
 _SUMMARIZER_TURN_TRUNCATION_MARKER = "\n[turn truncated to fit summarizer]"
@@ -176,14 +175,14 @@ Number new completed tool actions as [tool: name] under Progress.
 class CompactionState:
     summary: str
     first_kept_index: int  # into session.messages; always >= 1
+    kept_message_id: int  # id() of session.messages[first_kept_index] at publish
     stubbed_tool_call_ids: tuple[Any, ...] = ()  # view-only tail-pressure stubs
-    kept_message_id: int | None = None  # id() of session.messages[first_kept_index] at publish
 
 
 @dataclass(frozen=True)
 class CompactResult:
     compacted: bool
-    reason: str  # below_threshold | nothing_to_compact | no_window | ok | failed | aborted | disabled
+    reason: str  # below_threshold | nothing_to_compact | no_window | ok | failed | aborted
     tokens_before: int | None = None
     tokens_after: int | None = None
 
@@ -232,8 +231,6 @@ def estimate_tokens_rough(text: Any) -> int:
 
 def flatten_content(content: Any) -> tuple[str, int, int]:
     """Return (text, image_count, audio_count). Never str() a content list."""
-    if content is None:
-        return "", 0, 0
     if isinstance(content, str):
         return content, 0, 0
     if not isinstance(content, list):
@@ -300,8 +297,8 @@ def cap_summary(summary: str, max_chars: int) -> str:
     return summary[:keep] + _SUMMARY_TRUNCATION_MARKER
 
 
-def should_compact(tokens: int, window: int | None, enabled: bool = True) -> bool:
-    if not enabled or window is None or window <= 0:
+def should_compact(tokens: int, window: int | None) -> bool:
+    if window is None or window <= 0:
         return False
     return tokens >= int(window * compaction_ratio(window))
 
@@ -508,6 +505,13 @@ def _strip_document_span(text: str) -> str:
 
 
 def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
+    """ROLE: text lines. Stub role=tool bodies > PRUNE_MIN_CHARS. Session unchanged.
+
+    Prune idea from Hermes ``_PRUNE_MIN_CHARS`` / old-tool stub
+    (``context_compressor.py:661``). Not ``_prune_old_tool_results`` or
+    SessionDB archive.
+    https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L661
+    """
     lines = []
     for i, msg in enumerate(messages):
         role = msg.get("role") or ""
@@ -525,17 +529,6 @@ def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
             text = (text + " [audio omitted]").strip()
         lines.append("%s: %s" % (role.upper(), text))
     return lines
-
-
-def serialize_for_summary(messages: list[dict[str, Any]]) -> str:
-    """ROLE: text lines. Stub role=tool bodies > PRUNE_MIN_CHARS. Session unchanged.
-
-    Prune idea from Hermes ``_PRUNE_MIN_CHARS`` / old-tool stub
-    (``context_compressor.py:661``). Not ``_prune_old_tool_results`` or
-    SessionDB archive.
-    https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L661
-    """
-    return "\n".join(_summary_lines(messages))
 
 
 def summary_pair(summary: str, *, omit_ack: bool = False) -> list[dict[str, Any]]:
@@ -643,8 +636,7 @@ def _drop_stale_compaction(session: Any, messages: list[dict[str, Any]]) -> Any:
     idx = state.first_kept_index
     anchor = state.kept_message_id
     in_range = 1 <= idx < len(messages)
-    anchored = anchor is None or (in_range and id(messages[idx]) == anchor)
-    if in_range and anchored:
+    if in_range and id(messages[idx]) == anchor:
         return state
     session.compaction = None
     return None
@@ -668,16 +660,11 @@ def messages_for_llm(session: Any) -> list[dict[str, Any]]:
     return sanitize_tool_pairs(view)
 
 
-def is_process_death_error(text: str | None) -> bool:
-    lower = (text or "").lower()
-    return any(m in lower for m in _PROCESS_DEATH_MARKERS)
-
-
 def is_context_overflow_error(text: str | None) -> bool:
     """Prompt-too-large only. Process death and 429/TPM are NOT overflow."""
-    if is_process_death_error(text):
-        return False
     lower = (text or "").lower()
+    if any(m in lower for m in _PROCESS_DEATH_MARKERS):
+        return False
     # Bugfix: "tpm" was previously a substring in _NON_OVERFLOW_MARKERS, which
     # caused false-positive matches on words like "footpm". Using \btpm\b
     # matches TPM as a whole word (e.g. "TPM", "foo-tpm-70b") without matching substrings.
@@ -697,7 +684,7 @@ def should_retry_overflow(attempts: int, compact_reason: str | None, tokens_befo
     """
     if attempts >= MAX_OVERFLOW_COMPACTION_ATTEMPTS:
         return False
-    if compact_reason in ("nothing_to_compact", "no_window", "failed", "aborted", "disabled"):
+    if compact_reason in ("nothing_to_compact", "no_window", "failed", "aborted"):
         return False
     if (
         compact_reason != "below_threshold"
@@ -764,38 +751,6 @@ def _summarizer_user_body(conversation_text: str, previous_summary: str) -> str:
     )
 
 
-def _summarizer_request_tokens(user_body: str, max_out: int) -> int:
-    return (
-        estimate_message_tokens({"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT})
-        + estimate_tokens_rough(user_body)
-        + max_out
-    )
-
-
-def _summarizer_request_fits(user_body: str, *, window: int, max_out: int) -> bool:
-    return _summarizer_request_tokens(user_body, max_out) + gen_reserve(window) <= window
-
-
-def _truncate_summary_line(
-    line: str,
-    *,
-    window: int,
-    max_out: int,
-    previous_summary: str,
-) -> str | None:
-    cur = line
-    while len(cur) > 32:
-        cur = cur[:max(32, len(cur) * 3 // 4)]
-        candidate = cur + _SUMMARIZER_TURN_TRUNCATION_MARKER
-        if _summarizer_request_fits(
-            _summarizer_user_body(candidate, previous_summary),
-            window=window,
-            max_out=max_out,
-        ):
-            return candidate
-    return None
-
-
 def _next_summary_chunk(
     lines: list[str],
     start: int,
@@ -806,37 +761,31 @@ def _next_summary_chunk(
 ) -> tuple[str, int] | None:
     if start >= len(lines):
         return None
-    if not _summarizer_request_fits(
-        _summarizer_user_body("", previous_summary),
-        window=window,
-        max_out=max_out,
-    ):
-        return None
+
+    def fits(text: str) -> bool:
+        body = _summarizer_user_body(text, previous_summary)
+        tokens = (
+            estimate_message_tokens({"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT})
+            + estimate_tokens_rough(body)
+            + max_out
+            + gen_reserve(window)
+        )
+        return tokens <= window
 
     first_line = lines[start]
-    if not _summarizer_request_fits(
-        _summarizer_user_body(first_line, previous_summary),
-        window=window,
-        max_out=max_out,
-    ):
-        truncated = _truncate_summary_line(
-            first_line,
-            window=window,
-            max_out=max_out,
-            previous_summary=previous_summary,
-        )
-        if truncated is None:
-            return None
-        return truncated, start + 1
+    if not fits(first_line):
+        cur = first_line
+        while len(cur) > 32:
+            cur = cur[:max(32, len(cur) * 3 // 4)]
+            candidate = cur + _SUMMARIZER_TURN_TRUNCATION_MARKER
+            if fits(candidate):
+                return candidate, start + 1
+        return None
 
     end = start + 1
     while end < len(lines):
         candidate_text = "\n".join(lines[start:end + 1])
-        if _summarizer_request_fits(
-            _summarizer_user_body(candidate_text, previous_summary),
-            window=window,
-            max_out=max_out,
-        ):
+        if fits(candidate_text):
             end += 1
         else:
             break
@@ -931,31 +880,25 @@ def compact_session(
     stop_checker: Callable[[], bool] | None = None,
     force: bool = False,
     status_callback: Callable[[str], None] | None = None,
-    enabled: bool | None = None,
 ) -> CompactResult:
     """May call LlmClient (blocking). Must run off the UI thread.
 
     Must already be inside ``llm_request_lane``; must not take the lane itself.
     Do not read ``client.config["chat_max_tokens"]`` — that key is not on
-    ``LlmClient.config``. ``enabled=False`` returns ``disabled`` without I/O.
+    ``LlmClient.config``.
     """
-    if enabled is None:
-        enabled = get_config_bool_safe("chat_compaction_enabled")
-    if not enabled:
-        return CompactResult(False, "disabled")
-
     messages = session.messages
     if not messages:
         return CompactResult(False, "nothing_to_compact")
 
-    state = _drop_stale_compaction(session, messages)
     view = messages_for_llm(session)
+    state = getattr(session, "compaction", None)
     before = prompt_tokens(view, tools)
     if window is None or window <= 0:
         # No denominator → no remaining-budget clamp. Skip proactive *and* force.
         return CompactResult(False, "no_window", before, before)
 
-    if not force and not should_compact(before, window, True):
+    if not force and not should_compact(before, window):
         return CompactResult(False, "below_threshold", before, before)
 
     system_tokens = estimate_message_tokens(messages[0])
