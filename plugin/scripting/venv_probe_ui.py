@@ -56,7 +56,7 @@ class VenvProbeProgressDialog:
     _parent_dlg: Any
     _dlg: Any
     _append_log: bool
-    _log_parts: list[str] = []
+    _log_parts: list[str]
     _pumping: bool
 
     def __init__(self, ctx: Any, parent_dlg: Any = None) -> None:
@@ -64,6 +64,7 @@ class VenvProbeProgressDialog:
         self._parent_dlg = parent_dlg
         self._dlg = None
         self._append_log = False
+        self._log_parts = []
         self._pumping = False
 
     def run_modal_probe(
