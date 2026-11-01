@@ -91,8 +91,12 @@ def _require_debug() -> None:
         raise RuntimeError(_HOOKS_UNAVAILABLE)
 
 
+def _tmp_state_path(name: str) -> str:
+    return os.path.join(tempfile.gettempdir(), name)
+
+
 def debug_sidebar_snapshot_path() -> str:
-    return os.path.join(tempfile.gettempdir(), _DEBUG_SNAPSHOT_NAME)
+    return _tmp_state_path(_DEBUG_SNAPSHOT_NAME)
 
 
 def _history_user_tail(sl: Any) -> str:
@@ -226,9 +230,6 @@ _FAKE_STT_PROCS: dict[int, subprocess.Popen[Any]] = {}
 _FAKE_STT_STATE: dict[str, Any] = {}
 _FAKE_STT_DELAY = 0.0
 
-def fake_stt_state_path() -> str:
-    return os.path.join(tempfile.gettempdir(), _FAKE_STT_NAME)
-
 
 def _read_json_dict(path: str, *, retry: bool = False) -> dict[str, Any]:
     attempts = 2 if retry else 1
@@ -274,21 +275,18 @@ def write_json_state(path: str, data: Any) -> None:
     _replace_state_file(tmp_path, path)
 
 
+def _remove_quiet(path: str) -> None:
+    with contextlib.suppress(OSError):
+        os.remove(path)
+
+
 def stub_recorder_control_path() -> str:
     """Cross-process Packet G control file (URP tests vs soffice OXT)."""
-    return os.path.join(tempfile.gettempdir(), "writeragent_stub_recorder.json")
+    return _tmp_state_path("writeragent_stub_recorder.json")
 
 
 def read_stub_recorder_control() -> dict[str, Any]:
-    path = stub_recorder_control_path()
-    if not os.path.isfile(path):
-        return {}
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return _read_json_dict(stub_recorder_control_path())
 
 
 def write_stub_recorder_control(**fields: Any) -> None:
@@ -302,10 +300,7 @@ def write_stub_recorder_control(**fields: Any) -> None:
 
 
 def clear_stub_recorder_control() -> None:
-    try:
-        os.remove(stub_recorder_control_path())
-    except OSError:
-        pass
+    _remove_quiet(stub_recorder_control_path())
 
 
 def _write_stub_injected_wav(recorder: Any, inject: str | None) -> None:
@@ -426,11 +421,6 @@ def get_stub_start_count(recorder: Any) -> int:
     return int(flags.get("start_count", 0)) if flags else 0
 
 
-def _remove_quiet(path: str) -> None:
-    with contextlib.suppress(OSError):
-        os.remove(path)
-
-
 def _fake_child_python() -> str:
     """Python that the fake recorder / TTS children run under.
 
@@ -443,10 +433,8 @@ def _fake_child_python() -> str:
 
 
 def read_fake_stt_state() -> dict[str, Any]:
-    return _read_json_dict(fake_stt_state_path(), retry=True)
+    return _read_json_dict(_tmp_state_path(_FAKE_STT_NAME), retry=True)
 
-def _fake_stt_refresh_locked() -> None:
-    write_json_state(fake_stt_state_path(), _FAKE_STT_STATE)
 
 def _fake_stt_note_spawn_locked(cmd: list[str], proc: subprocess.Popen[Any]) -> None:
     _FAKE_STT_STATE["spawn_count"] = _FAKE_STT_STATE.get("spawn_count", 0) + 1
@@ -462,12 +450,10 @@ def _fake_stt_note_spawn_locked(cmd: list[str], proc: subprocess.Popen[Any]) -> 
     if current_alive > _FAKE_STT_STATE.get("max_alive", 0):
         _FAKE_STT_STATE["max_alive"] = current_alive
 
-    _fake_stt_refresh_locked()
+    write_json_state(_tmp_state_path(_FAKE_STT_NAME), _FAKE_STT_STATE)
 
     # The URP test process polls this file for reaping (S5/S6), so publish
     # the exit when the child goes, not only on the next spawn.
-    from plugin.framework.worker_pool import run_in_background
-
     run_in_background(_fake_stt_watch_exit, proc, name="fake-stt-exit-watch", dedicated=True)
 
 
@@ -478,7 +464,8 @@ def _fake_stt_watch_exit(proc: subprocess.Popen[Any]) -> None:
             return
         _FAKE_STT_STATE["alive"] = [p for p, pr in _FAKE_STT_PROCS.items() if pr.poll() is None]
         _FAKE_STT_STATE.setdefault("returncodes", {})[str(proc.pid)] = returncode
-        _fake_stt_refresh_locked()
+        write_json_state(_tmp_state_path(_FAKE_STT_NAME), _FAKE_STT_STATE)
+
 
 def set_late_transcript_delay(delay: float) -> None:
     _require_debug()
@@ -489,6 +476,14 @@ def set_late_transcript_delay(delay: float) -> None:
     global _FAKE_STT_DELAY
     with _FAKE_STT_LOCK:
         _FAKE_STT_DELAY = delay
+
+
+def _restore_saved_config(saved: dict[str, Any]) -> None:
+    from plugin.framework.config import set_config
+
+    for key, value in saved.items():
+        set_config(key, value)
+
 
 def _clear_fake_stt_in_process() -> None:
     global _FAKE_STT_MODE, _FAKE_STT_SAVED, _FAKE_STT_ORIG, _FAKE_STT_PROCS, _FAKE_STT_STATE
@@ -515,12 +510,10 @@ def _clear_fake_stt_in_process() -> None:
             _FAKE_STT_ORIG = None
 
         if _FAKE_STT_SAVED is not None:
-            from plugin.framework.config import set_config
-            for k, v in _FAKE_STT_SAVED.items():
-                set_config(k, v)
+            _restore_saved_config(_FAKE_STT_SAVED)
             _FAKE_STT_SAVED = None
 
-        _remove_quiet(fake_stt_state_path())
+        _remove_quiet(_tmp_state_path(_FAKE_STT_NAME))
 
         _FAKE_STT_MODE = "off"
         _FAKE_STT_PROCS = {}
@@ -723,7 +716,7 @@ def _apply_fake_stt(mode: str) -> None:
 
             setattr(stt_service, "transcribe", fake_transcribe)
 
-        _fake_stt_refresh_locked()
+        write_json_state(_tmp_state_path(_FAKE_STT_NAME), _FAKE_STT_STATE)
 
 def install_fake_stt(mode: str) -> None:
     _require_debug()
@@ -748,10 +741,7 @@ def _clear_fake_out_of_process(op: str, read_state: Callable[[], dict[str, Any]]
                     pass
         saved = st.get("saved")
         if isinstance(saved, dict):
-            from plugin.framework.config import set_config
-
-            for k, v in saved.items():
-                set_config(k, v)
+            _restore_saved_config(saved)
         _remove_quiet(path)
 
 
@@ -759,13 +749,13 @@ def clear_fake_stt() -> None:
     _require_debug()
     sl = send_listener()
     if sl is None:
-        _clear_fake_out_of_process("FAKE_STT_OFF", read_fake_stt_state, fake_stt_state_path())
+        _clear_fake_out_of_process("FAKE_STT_OFF", read_fake_stt_state, _tmp_state_path(_FAKE_STT_NAME))
     else:
         _apply_fake_stt("off")
 
 
 def fake_tts_state_path() -> str:
-    return os.path.join(tempfile.gettempdir(), _FAKE_TTS_NAME)
+    return _tmp_state_path(_FAKE_TTS_NAME)
 
 
 def read_fake_tts_state() -> dict[str, Any]:
@@ -857,10 +847,7 @@ def _clear_fake_tts_in_process() -> None:
             _FAKE_TTS_ORIG = None
 
         if _FAKE_TTS_SAVED is not None:
-            from plugin.framework.config import set_config
-
-            for k, v in _FAKE_TTS_SAVED.items():
-                set_config(k, v)
+            _restore_saved_config(_FAKE_TTS_SAVED)
             _FAKE_TTS_SAVED = None
 
         _remove_quiet(fake_tts_state_path())
@@ -1504,17 +1491,22 @@ def _urp_record_click_took() -> bool:
     return control_enabled(_urp_target_controls(ctx).get("stop")) is True
 
 
+def _wait_for(timeout: float, pred: Callable[[], bool]) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
     sl = listener if listener is not None else send_listener()
     if sl is not None:
         sl.dispatch(SendEvent(kind))
         return
     if kind == SendEventKind.RECORD_CLICKED:
-        deadline = time.monotonic() + 1.5
-        while time.monotonic() < deadline:
-            if "record" in _send_label_lower() and "stop rec" not in _send_label_lower():
-                break
-            time.sleep(0.05)
+        _wait_for(1.5, lambda: "record" in _send_label_lower() and "stop rec" not in _send_label_lower())
         spawns_before = read_fake_stt_state().get("spawn_count", 0)
         if _try_click_send_for_kind(kind):
             # Any move off Record, or Stop enabled, means it took. Counting
@@ -1522,28 +1514,21 @@ def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
             # before a poll sees Stop Rec. The fallback op then starts a
             # second take that never stops (hidden while Stop is greyed
             # during takes, since idle = Stop off).
-            deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline:
-                # A fake recorder that crashes at once puts the label back on
-                # Record before a poll sees Stop Rec. Its spawn still shows the
-                # click took; the fallback op would start a second take (S7).
-                if _urp_record_click_took() or read_fake_stt_state().get("spawn_count", 0) > spawns_before:
-                    return
-                time.sleep(0.05)
+            # A fake recorder that crashes at once puts the label back on
+            # Record before a poll sees Stop Rec. Its spawn still shows the
+            # click took; the fallback op would start a second take (S7).
+            if _wait_for(
+                2.0,
+                lambda: _urp_record_click_took() or read_fake_stt_state().get("spawn_count", 0) > spawns_before,
+            ):
+                return
         execute_debug_sidebar_op(kind.name)
         return
     if kind == SendEventKind.STOP_REC_CLICKED:
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            if "stop rec" in _send_label_lower():
-                break
-            time.sleep(0.05)
+        _wait_for(2.0, lambda: "stop rec" in _send_label_lower())
         if _try_click_send_for_kind(kind):
-            deadline = time.monotonic() + 1.5
-            while time.monotonic() < deadline:
-                if "stop rec" not in _send_label_lower():
-                    return
-                time.sleep(0.05)
+            if _wait_for(1.5, lambda: "stop rec" not in _send_label_lower()):
+                return
         execute_debug_sidebar_op(kind.name)
         return
     if _try_click_send_for_kind(kind):
@@ -3153,17 +3138,13 @@ _FAKE_VISION_STATE: dict[str, Any] = {}
 FAKE_VISION_MODES = ("ok", "fail_second", "timeout", "slow", "export_fail", "unavailable", "off")
 
 
-def fake_vision_state_path() -> str:
-    return os.path.join(tempfile.gettempdir(), _FAKE_VISION_NAME)
-
-
 def read_fake_vision_state() -> dict[str, Any]:
     """URP side: ``{"mode", "calls": [{"image_name", "status"}...]}`` or ``{}``."""
-    return _read_json_dict(fake_vision_state_path())
+    return _read_json_dict(_tmp_state_path(_FAKE_VISION_NAME))
 
 
 def _write_fake_vision_state() -> None:
-    write_json_state(fake_vision_state_path(), _FAKE_VISION_STATE)
+    write_json_state(_tmp_state_path(_FAKE_VISION_NAME), _FAKE_VISION_STATE)
 
 
 def fake_ocr_text(image_name: str) -> str:
@@ -3187,7 +3168,7 @@ def _apply_fake_vision(mode: str) -> None:
         _FAKE_VISION_ORIG.clear()
         _FAKE_VISION_STATE.clear()
         if mode == "off":
-            _remove_quiet(fake_vision_state_path())
+            _remove_quiet(_tmp_state_path(_FAKE_VISION_NAME))
             return
         _FAKE_VISION_STATE.update({"mode": mode, "calls": []})
         _write_fake_vision_state()
@@ -3292,38 +3273,4 @@ def dispatch_undo(*, ctx: Any = None) -> None:
         uno_ctx = get_ctx()
     helper = uno_ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
     helper.executeDispatch(frame, ".uno:Undo", "", 0, ())
-
-
-def reset_hook_state() -> None:
-    """Reset hook state globals to empty defaults for unit test isolation."""
-    global _HOOK_CTX, _HOOK_DOC, _URP_SLASH_POPUP, _SAVED_REQUEST_TIMEOUT
-    global _FAKE_TTS_SAVED, _FAKE_TTS_ORIG, _FAKE_STT_SAVED, _FAKE_STT_ORIG
-    global _THREAD_VIOLATION_ORIG, _VENV_WORKER_KILLS, _FAKE_STT_DELAY
-    global _THREAD_VIOLATION_COUNT, _FAKE_TTS_MODE, _FAKE_STT_MODE, _FAKE_VISION_MODE
-
-    _HOOK_CTX = None
-    _HOOK_DOC = None
-    _URP_SLASH_POPUP = None
-    _SAVED_REQUEST_TIMEOUT = None
-    _FAKE_TTS_SAVED = None
-    _FAKE_TTS_ORIG = None
-    _FAKE_STT_SAVED = None
-    _FAKE_STT_ORIG = None
-    _THREAD_VIOLATION_ORIG = None
-
-    _VENV_WORKER_KILLS = 0
-    _FAKE_STT_DELAY = 0.0
-    _THREAD_VIOLATION_COUNT = 0
-
-    _FAKE_TTS_MODE = "off"
-    _FAKE_STT_MODE = "off"
-    _FAKE_VISION_MODE = "off"
-
-    _LIVE_SEND_LISTENERS.clear()
-    _FAKE_TTS_STATE.clear()
-    _FAKE_STT_STATE.clear()
-    _FAKE_VISION_STATE.clear()
-    _FAKE_TTS_PROCS.clear()
-    _FAKE_STT_PROCS.clear()
-    _FAKE_VISION_ORIG.clear()
 
