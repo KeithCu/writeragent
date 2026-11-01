@@ -100,7 +100,7 @@ def _setup_mock(ctx):
 
         names = []
         try:
-            names = sidebar_deck_names(ctx, current_component(ctx))
+            names = sidebar_deck_names(current_component(ctx))
         except Exception:
             names = []
         raise AssertionError(
