@@ -28,26 +28,25 @@ from plugin.writer.search import find_occurrence_range, parse_non_negative_int
 
 NOTE_TYPES: list[str] = ["footnote", "endnote"]
 
+_NOTE_METHODS: dict[tuple[str, str], str] = {
+    ("footnote", "notes"): "getFootnotes",
+    ("endnote", "notes"): "getEndnotes",
+    ("footnote", "settings"): "getFootnoteSettings",
+    ("endnote", "settings"): "getEndnoteSettings",
+}
 
-def _note_guard(doc: Any, note_type: str) -> None:
-    if note_type not in ("footnote", "endnote"):
+
+def _note_api(doc: Any, note_type: str, kind: str) -> Any:
+    method_name = _NOTE_METHODS.get((note_type, kind))
+    if method_name is None:
         raise KeyError(note_type)
     if not doc.supportsService("com.sun.star.text.GenericTextDocument"):
         raise ToolExecutionError(f"Document does not support {note_type}s.")
-
-
-def _note_supplier(doc: Any, note_type: str) -> Any:
-    _note_guard(doc, note_type)
-    return doc.getFootnotes() if note_type == "footnote" else doc.getEndnotes()
-
-
-def _note_settings(doc: Any, note_type: str) -> Any:
-    _note_guard(doc, note_type)
-    return doc.getFootnoteSettings() if note_type == "footnote" else doc.getEndnoteSettings()
+    return getattr(doc, method_name)()
 
 
 def _note_at_index(doc: Any, note_type: str, index: int) -> tuple[Any, Any, str | None]:
-    notes = _note_supplier(doc, note_type)
+    notes = _note_api(doc, note_type, "notes")
     count = notes.getCount()
     err = index_error(index, count, note_type)
     if err:
@@ -160,7 +159,7 @@ class FootnotesList(ToolWriterFootnoteBase):
         note_type = kwargs["note"]
         doc = ctx.doc
 
-        notes = _note_supplier(doc, note_type)
+        notes = _note_api(doc, note_type, "notes")
         count = notes.getCount()
 
         results = []
@@ -258,7 +257,7 @@ class FootnotesSettingsGet(ToolWriterFootnoteBase):
         note_type = kwargs["note"]
         doc = ctx.doc
 
-        settings = _note_settings(doc, note_type)
+        settings = _note_api(doc, note_type, "settings")
 
         names: tuple[str, ...] = (
             "Prefix",
@@ -295,7 +294,7 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
         props_to_update = kwargs["properties"]
         doc = ctx.doc
 
-        settings = _note_settings(doc, note_type)
+        settings = _note_api(doc, note_type, "settings")
 
         updated_props = []
         for prop_name, prop_val in props_to_update.items():
