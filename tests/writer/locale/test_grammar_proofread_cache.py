@@ -325,7 +325,7 @@ def test_l1_hit_records_session_accessed_for_doc() -> None:
     ctx = MagicMock()
     model = MagicMock()
     with patch("plugin.doc.udprops.get_document_property", return_value=None):
-        dp = DocumentPersistence(ctx, "doc-track", model=model)
+        dp = DocumentPersistence("doc-track", model=model)
 
     with patch("plugin.writer.locale.grammar_proofread_cache.get_persistence", return_value=dp):
         gc.cache_put_sentence("en-US", "Track me.", [])
@@ -341,8 +341,7 @@ def test_cache_clear_does_not_register_empty_persistence() -> None:
     """clear_all must not be followed by get_persistence, which would register a model-less instance."""
     from plugin.writer.locale.grammar_persistence import grammar_registry
 
-    ctx = MagicMock()
-    gc.cache_clear(ctx)
+    gc.cache_clear()
     assert "phantom-doc" not in grammar_registry.doc_persistence_instances
 
 
@@ -353,11 +352,11 @@ def test_dump_grammar_cache_for_recheck_clears_l1_and_active_l2_only() -> None:
     ctx = MagicMock()
     model_a = object()
     model_b = object()
-    gp.grammar_registry.clear_all(ctx)
+    gp.grammar_registry.clear_all()
     try:
         with patch("plugin.doc.udprops.get_document_property", return_value=None):
-            pa = gp.DocumentPersistence(ctx, "doc-a", model=model_a)
-            pb = gp.DocumentPersistence(ctx, "doc-b", model=model_b)
+            pa = gp.DocumentPersistence("doc-a", model=model_a)
+            pb = gp.DocumentPersistence("doc-b", model=model_b)
         gp.grammar_registry.doc_persistence_instances["doc-a"] = pa
         gp.grammar_registry.doc_persistence_instances["doc-b"] = pb
         pa.put("fp_a", "en-US", [{"n_error_start": 0, "n_error_length": 1}])
@@ -383,7 +382,7 @@ def test_dump_grammar_cache_for_recheck_clears_l1_and_active_l2_only() -> None:
         assert "fp_a" not in pa._entries
         assert "fp_b" in pb._entries
     finally:
-        gp.clear_all_document_persistence(ctx)
+        gp.grammar_registry.clear_all()
 
 
 def test_recheck_active_document_grammar_broadcasts_from_live_proofreader() -> None:
@@ -411,7 +410,7 @@ def test_l2_same_sentence_is_locale_specific() -> None:
     ctx = MagicMock()
     model = MagicMock()
     with patch("plugin.doc.udprops.get_document_property", return_value=None):
-        dp = DocumentPersistence(ctx, "doc-locales", model=model)
+        dp = DocumentPersistence("doc-locales", model=model)
     en_errors = [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "en-rule"}]
     fr_errors = [{"n_error_start": 1, "n_error_length": 2, "rule_identifier": "fr-rule"}]
     with patch("plugin.writer.locale.grammar_proofread_cache.get_persistence", return_value=dp):

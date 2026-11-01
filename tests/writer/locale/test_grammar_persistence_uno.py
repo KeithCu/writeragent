@@ -30,7 +30,7 @@ def test_apply_language_change_retags_only_matching_paragraph(ctx: Any, doc: Any
         text.insertString(cursor, para2_text, False)
 
         doc_id = "test-retag-doc"
-        gp.grammar_registry.clear_all(ctx)
+        gp.grammar_registry.clear_all()
         dp = gp.get_persistence(ctx, doc_id, model=doc)
         assert dp is not None
 
@@ -61,4 +61,4 @@ def test_apply_language_change_retags_only_matching_paragraph(ctx: Any, doc: Any
         loc1 = p1_cursor.getPropertyValue("CharLocale")
         assert not (loc1.Language == "fr" and loc1.Country == "FR")
     finally:
-        gp.grammar_registry.clear_all(ctx)
+        gp.grammar_registry.clear_all()

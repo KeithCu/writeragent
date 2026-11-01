@@ -181,10 +181,7 @@ class GrammarRegistry:
 
     def register_live_proofreader(self, proofreader: Any) -> None:
         """Keep the Linguistic-owned proofreader so Settings Recheck can fire PROOFREAD_AGAIN."""
-        try:
-            self.live_proofreaders.add(proofreader)
-        except TypeError:
-            log.debug("[grammar] live proofreader is not weak-referenceable")
+        self.live_proofreaders.add(proofreader)
 
     def record_enqueued_locale(self, doc_id: str, locale: str) -> None:
         """Record an enqueued locale tag for doc_id."""
@@ -197,19 +194,6 @@ class GrammarRegistry:
         """Return the set of enqueued locales for doc_id."""
         with self.lock:
             return set(self.doc_locales.get(doc_id, ()))
-
-    def get_persistence(self, ctx: Any, doc_id: str | None, *, model: Any = None) -> DocumentPersistence | None:
-        if ctx is None or not doc_id:
-            return None
-        with self.lock:
-            existing = self.doc_persistence_instances.get(doc_id)
-            if existing is None:
-                # No model here: binding registers UNO listeners, so it runs after the lock.
-                existing = DocumentPersistence(ctx, doc_id)
-                self.doc_persistence_instances[doc_id] = existing
-        if model is not None:
-            existing._bind_model(model)
-        return existing
 
     def remove_persistence_if(self, doc_id: str, instance: "DocumentPersistence") -> bool:
         with self.lock:
@@ -231,7 +215,7 @@ class GrammarRegistry:
         if dp:
             dp._teardown()
 
-    def clear_all(self, ctx: Any | None = None) -> None:
+    def clear_all(self) -> None:
         with self.lock:
             self.sentence_cache.clear()
             self.ignored_rules.clear()
@@ -262,21 +246,14 @@ class GrammarRegistry:
             if len(self.lang_detect_cache) > 1000:
                 self.lang_detect_cache.popitem(last=False)
 
-    def shutdown(self) -> None:
-        self.clear_all()
-
 grammar_registry = GrammarRegistry()
 
 
 
 
 
-def get_document_model_for_id(ctx: Any, doc_id: str) -> Any | None:
-    """Return the Writer model for a proofreading document id, if already bound via get_persistence.
-
-    ``ctx`` is unused; kept so callers can pass the UNO context they already hold.
-    """
-    del ctx
+def get_document_model_for_id(doc_id: str) -> Any | None:
+    """Return the Writer model for a proofreading document id, if already bound via get_persistence."""
     with grammar_registry.lock:
         p = grammar_registry.doc_persistence_instances.get(doc_id)
         if p is not None and p._model is not None:
@@ -309,13 +286,11 @@ class _GrammarDocumentEventListener(BaseDocumentEventListener):
 class DocumentPersistence:
     """In-memory grammar sentence persistence backing the unified sentence cache with ODT udprops on save."""
 
-    ctx: Any
     _lock: threading.Lock
     _doc_id: str
     _teardown_done: bool
 
-    def __init__(self, ctx: Any, doc_id: str, *, model: Any = None) -> None:
-        self.ctx = ctx
+    def __init__(self, doc_id: str, *, model: Any = None) -> None:
         self._session_accessed: set[tuple[str, str]] = set()
         self._ignored_rules: set[str] = set()
         self._lock = threading.Lock()
@@ -428,9 +403,7 @@ class DocumentPersistence:
             self._doc_id[:32] if self._doc_id else "",
         )
         with self._lock:
-            self._entries.clear()
-            self._ignored_rules.clear()
-            self._session_accessed.clear()
+            self._clear_rows_for_identity_switch_locked()
             self._blob_identity = None
 
     def _load_from_udprops(self) -> None:
@@ -498,38 +471,26 @@ class DocumentPersistence:
 
             decoded_entries: dict[str, dict[str, list[dict[str, Any]]]] = {}
             decoded_ignored: set[str] = set()
-            dropped_count = 0
 
             def _fill_decoded_from_payload(payload: dict[str, Any], loc: str) -> None:
-                nonlocal dropped_count
                 good = payload.get("good")
                 if isinstance(good, list):
                     for fp in good:
                         if isinstance(fp, str):
                             decoded_entries.setdefault(fp, {})[loc] = []
-                        else:
-                            dropped_count += 1
-                elif good is not None:
-                    dropped_count += 1
 
                 bad = payload.get("bad")
                 if isinstance(bad, dict):
                     for fp, compressed_errors in bad.items():
                         if not isinstance(fp, str) or not isinstance(compressed_errors, list):
-                            dropped_count += 1
                             continue
                         errs: list[dict[str, Any]] = []
                         for e in compressed_errors:
                             if isinstance(e, dict):
                                 errs.append(decompress_error(e))
-                            else:
-                                dropped_count += 1
                         if not errs:
-                            dropped_count += 1
                             continue
                         decoded_entries.setdefault(fp, {})[loc] = errs
-                elif bad is not None:
-                    dropped_count += 1
 
             if load_entries:
                 raw_ignored = data.get("ignored_rules")
@@ -537,10 +498,6 @@ class DocumentPersistence:
                     for r in raw_ignored:
                         if isinstance(r, str):
                             decoded_ignored.add(r)
-                        else:
-                            dropped_count += 1
-                elif raw_ignored is not None:
-                    dropped_count += 1
 
                 if locale_aware:
                     locales = data.get("locales")
@@ -559,29 +516,21 @@ class DocumentPersistence:
                         self._entries.clear()
                         self._ignored_rules.clear()
                         self._blob_identity = blob_identity
-                else:
-                    if self._session_identity is not None and self._session_identity != blob_identity:
-                        # Session identity mismatch: do not import blob rows or ignore rules.
-                        pass
-                    else:
-                        self._blob_identity = blob_identity
-                        if not self._ignored_rules:
-                            self._ignored_rules = decoded_ignored
-                        if not self._entries:
-                            self._entries = decoded_entries
-                        else:
-                            for fp, by_loc in decoded_entries.items():
-                                target_by_loc = self._entries.setdefault(fp, {})
-                                for loc, errs in by_loc.items():
-                                    if loc not in target_by_loc:
-                                        target_by_loc[loc] = errs
+                elif self._session_identity is None or self._session_identity == blob_identity:
+                    self._blob_identity = blob_identity
+                    if not self._ignored_rules:
+                        self._ignored_rules = decoded_ignored
+                    for fp, by_loc in decoded_entries.items():
+                        target_by_loc = self._entries.setdefault(fp, {})
+                        for loc, errs in by_loc.items():
+                            if loc not in target_by_loc:
+                                target_by_loc[loc] = errs
 
                 loaded_count = sum(len(by_loc) for by_loc in self._entries.values())
 
             log.debug(
-                "[grammar] DocumentPersistence: loaded %s sentences (%s dropped) from udprop (doc_id=%s, v=%s, blob=%s, current=%s)",
+                "[grammar] DocumentPersistence: loaded %s sentences from udprop (doc_id=%s, v=%s, blob=%s, current=%s)",
                 loaded_count,
-                dropped_count,
                 self._doc_id[:32] if self._doc_id else "",
                 version,
                 blob_identity,
@@ -654,10 +603,9 @@ class DocumentPersistence:
                     )
                     return
                 model_id = self._session_identity or self._blob_identity or current
-                accessed_pairs = set(self._session_accessed)
                 ignored_rules_list = list(self._ignored_rules)
-                accessed_triples: list[tuple[str, str, list[dict[str, Any]]]] = []
-                for locale, fp in accessed_pairs:
+                locales_out: dict[str, dict[str, Any]] = {}
+                for locale, fp in self._session_accessed:
                     # Legacy rows without a CharLocale are never rewritten (locale-blind bug).
                     if not locale:
                         continue
@@ -665,25 +613,18 @@ class DocumentPersistence:
                     if by_locale is None:
                         continue
                     errs = by_locale.get(locale)
-                    if errs is not None:
-                        accessed_triples.append((locale, fp, list(errs)))
+                    if errs is None:
+                        continue
+                    bucket = locales_out.setdefault(locale, {"good": [], "bad": {}})
+                    if not errs:
+                        bucket["good"].append(fp)
+                    else:
+                        bucket["bad"][fp] = list(errs)
 
-            good_by_locale: dict[str, list[str]] = {}
-            bad_by_locale: dict[str, dict[str, list[dict[str, Any]]]] = {}
-            for locale, fp, errs in accessed_triples:
-                if not errs:
-                    good_by_locale.setdefault(locale, []).append(fp)
-                else:
-                    bad_by_locale.setdefault(locale, {})[fp] = [
-                        compress_error(e) for e in errs
-                    ]
+            for bucket in locales_out.values():
+                for fp, errs in bucket["bad"].items():
+                    bucket["bad"][fp] = [compress_error(e) for e in errs]
 
-            locales_out: dict[str, dict[str, Any]] = {}
-            for locale in set(good_by_locale) | set(bad_by_locale):
-                locales_out[locale] = {
-                    "good": good_by_locale.get(locale, []),
-                    "bad": bad_by_locale.get(locale, {}),
-                }
             n_saved = sum(len(bucket["good"]) + len(bucket["bad"]) for bucket in locales_out.values())
 
             payload_dict = {
@@ -708,6 +649,13 @@ class DocumentPersistence:
         except Exception:
             log.exception("[grammar] DocumentPersistence: save user property failed")
 
+    def _reset_session_locked(self) -> None:
+        """Drop sentence rows and reset identities. Keeps ignore rules. Caller holds _lock."""
+        self._session_accessed.clear()
+        self._entries.clear()
+        self._blob_identity = None
+        self._session_identity = None
+
     def _teardown(self) -> None:
         # Two listener paths (document event + disposing) can call this at
         # the same time; the flag transition is the once-only gate.
@@ -718,10 +666,7 @@ class DocumentPersistence:
         self._load_done.set()
         self._unregister_listeners()
         with self._lock:
-            self._session_accessed.clear()
-            self._entries.clear()
-            self._blob_identity = None
-            self._session_identity = None
+            self._reset_session_locked()
         grammar_registry.remove_persistence_if(self._doc_id, self)
         self._model = None
 
@@ -786,10 +731,7 @@ class DocumentPersistence:
 
     def clear(self) -> None:
         with self._lock:
-            self._session_accessed.clear()
-            self._entries.clear()
-            self._blob_identity = None
-            self._session_identity = None
+            self._reset_session_locked()
 
     def clear_and_persist(self) -> None:
         """Drop L2 sentence rows and write an empty udprop blob (Recheck). Keep ignore rules."""
@@ -816,7 +758,17 @@ class DocumentPersistence:
 
 def get_persistence(ctx: Any, doc_id: str | None = None, *, model: Any = None) -> DocumentPersistence | None:
     """Return per-document persistence for grammar sentence cache."""
-    return grammar_registry.get_persistence(ctx, doc_id, model=model)
+    if ctx is None or not doc_id:
+        return None
+    with grammar_registry.lock:
+        existing = grammar_registry.doc_persistence_instances.get(doc_id)
+        if existing is None:
+            # No model here: binding registers UNO listeners, so it runs after the lock.
+            existing = DocumentPersistence(doc_id)
+            grammar_registry.doc_persistence_instances[doc_id] = existing
+    if model is not None:
+        existing._bind_model(model)
+    return existing
 
 
 def persistence_for_model(model: Any) -> DocumentPersistence | None:
@@ -839,10 +791,5 @@ def persistence_for_model(model: Any) -> DocumentPersistence | None:
         if other is model:
             return p
     return None
-
-
-def clear_all_document_persistence(ctx: Any) -> None:
-    """Remove every ``DocumentPersistence`` (listeners + map); for tests / reset without doc_id."""
-    grammar_registry.clear_all(ctx)
 
 

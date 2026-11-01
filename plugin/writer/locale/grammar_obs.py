@@ -90,16 +90,13 @@ def _frame_from_existing_desktop_singleton(ctx: Any) -> Any | None:
     if ctx is None or desktop_create_is_unsafe():
         return None
     try:
-        gvn = getattr(ctx, "getValueByName", None)
-        if not callable(gvn):
-            return None
-        desktop = cast("Any", gvn("/singletons/com.sun.star.frame.theDesktop"))
+        desktop = cast("Any", ctx.getValueByName("/singletons/com.sun.star.frame.theDesktop"))
         if desktop is None:
             return None
         frame = desktop.getCurrentFrame()
         if frame is not None:
             return frame
-        component = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
+        component = desktop.getCurrentComponent()
         return _frame_from_controller(component) if component is not None else None
     except Exception:
         return None
@@ -118,11 +115,17 @@ def resolve_status_bar_frame(ctx: Any) -> Any | None:
     return _frame_from_existing_desktop_singleton(ctx)
 
 
+def _open_indicator(frame: Any, msg: str) -> Any:
+    indicator = frame.createStatusIndicator()
+    if indicator is not None:
+        indicator.start(msg, 100)
+    return indicator
+
+
 def update_libreoffice_status_bar(phase: str, result: str, routine: bool) -> None:
     """Update the LibreOffice window status bar using XStatusIndicator."""
     global _last_status_indicator
     terminal = phase in _TERMINAL_STATUS_PHASES
-    assert not routine or terminal, (phase, result)
 
     msg = f"LibreHarper: {result or 'Checking...'}"
     if phase in ("done", "complete"):
@@ -150,10 +153,7 @@ def update_libreoffice_status_bar(phase: str, result: str, routine: bool) -> Non
             # Keep the failure text visible: end() in this callback would
             # hide it. The next grammar status replaces or ends it.
             if _last_status_indicator is None:
-                _last_status_indicator = frame.createStatusIndicator()
-                if _last_status_indicator is None:
-                    return
-                _last_status_indicator.start(msg, 100)
+                _last_status_indicator = _open_indicator(frame, msg)
             else:
                 _last_status_indicator.setText(msg)
                 _last_status_indicator.setValue(100)
@@ -164,12 +164,7 @@ def update_libreoffice_status_bar(phase: str, result: str, routine: bool) -> Non
                 _last_status_indicator.end()
                 _last_status_indicator = None
         elif _last_status_indicator is None:
-            try:
-                _last_status_indicator = frame.createStatusIndicator()
-                if _last_status_indicator is not None:
-                    _last_status_indicator.start(msg, 100)
-            except Exception:
-                _last_status_indicator = None
+            _last_status_indicator = _open_indicator(frame, msg)
         else:
             # What was wrong: setText/setValue on a disposed indicator was
             # swallowed, so _last_status_indicator stayed set. Later

@@ -46,8 +46,6 @@ def normalize_reason(reason: str) -> str:
     - Strips punctuation and non-alphanumeric characters (keeping all word contents).
     - Collapses spaces into a single-space separated canonical string.
     """
-    if not reason:
-        return ""
     s = reason.lower().strip()
     # Strip non-alphanumeric characters (keeping word contents)
     s = GRAMMAR_NORMALIZE_REASON_RE.sub("", s).replace("_", "")

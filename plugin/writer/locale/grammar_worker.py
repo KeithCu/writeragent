@@ -354,7 +354,7 @@ def apply_language_change(
     import uno
 
     def _do_update() -> bool:
-        model = grammar_persistence.get_document_model_for_id(ctx, doc_id)
+        model = grammar_persistence.get_document_model_for_id(doc_id)
         if not model:
             return False
 
