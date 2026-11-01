@@ -11,6 +11,7 @@
 import dataclasses
 import logging
 import sys
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, MagicMock, patch
 import pytest
@@ -2519,6 +2520,7 @@ class TestJ02Regression:
         from plugin.chatbot.send_state import UpdateUIEffect
 
         listener = _make_send_listener()
+        listener.send_control.getPosSize.return_value = SimpleNamespace(X=0, Y=0, Width=100, Height=30)
         listener._set_status = MagicMock()
         listener._record_gesture = RecordGesture(sticky=True)
 

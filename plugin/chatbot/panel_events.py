@@ -33,10 +33,9 @@ def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
     model.Label = label
     if peer is not None and label in mnemonics:
         peer.setProperty("Label", mnemonics[label])
-    width = getattr(rect, "Width", 0)
-    if rect is not None and isinstance(width, int) and width > 0:
+    if rect.Width > 0:
         cur = ctrl.getPosSize()
-        if cur is not None and (cur.X, cur.Y, cur.Width, cur.Height) != (rect.X, rect.Y, rect.Width, rect.Height):
+        if (cur.X, cur.Y, cur.Width, cur.Height) != (rect.X, rect.Y, rect.Width, rect.Height):
             ctrl.setPosSize(rect.X, rect.Y, rect.Width, rect.Height, 15)
 
 
@@ -59,6 +58,9 @@ class PanelEventsController:
     def __init__(self, panel: Any) -> None:
         self._panel = panel
 
+    def _torn_down(self) -> bool:
+        return bool(self._panel._panel_teardown or self._panel.ctx is None)
+
     @staticmethod
     def _mcp_subscribe_must_defer() -> bool:
         """True when get_tools() could need bootstrap and this is not the Python main thread."""
@@ -70,9 +72,6 @@ class PanelEventsController:
         main_mod = sys.modules.get("plugin.main")
         if main_mod is not None:
             bootstrap_state = getattr(main_mod, "_bootstrap_state", None)
-            bootstrap_enum = getattr(main_mod, "BootstrapState", None)
-            if bootstrap_enum is not None and bootstrap_state is bootstrap_enum.INITIALIZED:
-                return False
             if getattr(bootstrap_state, "name", None) == "INITIALIZED":
                 return False
         return not on_python_main_thread()
@@ -115,49 +114,35 @@ class PanelEventsController:
         if event is None:
             log.warning("begin_inline_web_approval: no event")
             return
-        if getattr(self._panel, "_approval_event", None) is not None:
+        if self._panel._approval_event is not None:
             log.warning("begin_inline_web_approval: superseding pending approval")
             self._finish_inline_web_approval(False)
         self._panel._approval_event = event
         self._panel._approval_query_for_engine = query
         self._panel._approval_ui_backup = {
-            "button_action": getattr(self._panel, "_button_action", ButtonAction.RECORD),
-            "stop_button_action": getattr(self._panel, "_stop_button_action", ButtonAction.IGNORE),
-            "clear_button_action": getattr(self._panel, "_clear_button_action", ButtonAction.IGNORE),
+            "button_action": self._panel._button_action,
+            "stop_button_action": self._panel._stop_button_action,
+            "clear_button_action": self._panel._clear_button_action,
         }
-        with suppress_disposed("begin_inline_web_approval backup", logger=log):
-            if self._panel.send_control and self._panel.send_control.getModel():
-                m = self._panel.send_control.getModel()
-                self._panel._approval_ui_backup["send_label"] = m.Label
-                self._panel._approval_ui_backup["send_enabled"] = m.Enabled
-            if self._panel.stop_control and self._panel.stop_control.getModel():
-                m = self._panel.stop_control.getModel()
-                self._panel._approval_ui_backup["stop_label"] = m.Label
-                self._panel._approval_ui_backup["stop_enabled"] = m.Enabled
-            if self._panel.clear_control and self._panel.clear_control.getModel():
-                cm = self._panel.clear_control.getModel()
-                self._panel._approval_ui_backup["clear_enabled"] = cm.Enabled
-                self._panel._approval_ui_backup["clear_label"] = cm.Label
-            if self._panel.status_control:
-                self._panel._approval_ui_backup["status_text"] = self._panel.status_control.getText()
-
         self._panel._button_action = ButtonAction.ACCEPT
         self._panel._stop_button_action = ButtonAction.CHANGE
         self._panel._clear_button_action = ButtonAction.REJECT
 
+        cache = self._panel._mnemonic_cache()
         with suppress_disposed("begin_inline_web_approval", logger=log):
-            if self._panel.send_control and self._panel.send_control.getModel():
-                m = self._panel.send_control.getModel()
-                _relabel_button(self._panel.send_control, _("Accept"), self._panel._mnemonic_cache())
-                m.Enabled = True
-            if self._panel.stop_control and self._panel.stop_control.getModel():
-                m = self._panel.stop_control.getModel()
-                _relabel_button(self._panel.stop_control, _("Change"), self._panel._mnemonic_cache())
-                m.Enabled = True
-            if self._panel.clear_control and self._panel.clear_control.getModel():
-                m = self._panel.clear_control.getModel()
-                _relabel_button(self._panel.clear_control, _("Reject"), self._panel._mnemonic_cache())
-                m.Enabled = True
+            for key, ctrl, label in (
+                ("send", self._panel.send_control, _("Accept")),
+                ("stop", self._panel.stop_control, _("Change")),
+                ("clear", self._panel.clear_control, _("Reject")),
+            ):
+                if ctrl and ctrl.getModel():
+                    m = ctrl.getModel()
+                    self._panel._approval_ui_backup[f"{key}_label"] = m.Label
+                    self._panel._approval_ui_backup[f"{key}_enabled"] = m.Enabled
+                    _relabel_button(ctrl, label, cache)
+                    m.Enabled = True
+            if self._panel.status_control:
+                self._panel._approval_ui_backup["status_text"] = self._panel.status_control.getText()
 
         # Approval is inline (Accept / Change / Reject); search preview is already in the transcript.
         self._panel._set_status(_("Waiting for approval…"))
@@ -167,7 +152,7 @@ class PanelEventsController:
         """Open edit dialog for the pending web_search query; OK continues with optional override."""
         from plugin.chatbot.dialogs import show_web_search_query_edit_dialog
 
-        initial = getattr(self._panel, "_approval_query_for_engine", None) or ""
+        initial = self._panel._approval_query_for_engine or ""
         text = show_web_search_query_edit_dialog(self._panel.ctx, self._panel.frame, initial)
         if text is None:
             return
@@ -175,7 +160,7 @@ class PanelEventsController:
         self._finish_inline_web_approval(True, query_override=text)
 
     def _finish_inline_web_approval(self, approved: bool, query_override: str | None = None) -> None:
-        ev = getattr(self._panel, "_approval_event", None)
+        ev = self._panel._approval_event
         if ev is None:
             return
         self._panel._approval_event = None
@@ -210,24 +195,22 @@ class PanelEventsController:
 
     def _post_server_status(self, text: str) -> None:
         """MCP start/stop goes to the status line; a modal box would eat typed prompts."""
-        if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+        if self._torn_down():
             return
 
         def _write() -> None:
-            if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+            if self._torn_down():
                 return
             # Tip: don't overwrite the status of a running send or approval.
-            if getattr(self._panel, "_send_busy", False) or getattr(self._panel, "_approval_event", None) is not None:
+            if self._panel._send_busy or self._panel._approval_event is not None:
                 return
             self._panel._set_status(text)
 
-        from plugin.framework.queue_executor import post_to_main_thread
-
-        post_to_main_thread(_write)
+        self._post_to_main_thread(_write)
 
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
-        if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+        if self._torn_down():
             return
 
         from plugin.chatbot.tool_loop_actions import current_turn
@@ -240,7 +223,7 @@ class PanelEventsController:
         rid = str(kwargs.get("req_id", ""))
         turn = current_turn(self._panel)
         with self._panel._mcp_turn_lock:
-            if self._panel._panel_teardown or getattr(self._panel, "ctx", None) is None:
+            if self._torn_down():
                 return
             kept = {k: v for k, v in self._panel._last_mcp_turn.items() if getattr(v, "alive", False)}
             kept[rid] = turn
@@ -256,7 +239,7 @@ class PanelEventsController:
         # The bus callback and the queued UI hop are different turns, so a
         # result posted before disposing still runs _append_response after
         # the panel is gone.
-        if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+        if self._torn_down():
             return
 
         # Each request is stored on _last_mcp_turn[rid]; one shared last id
@@ -266,14 +249,17 @@ class PanelEventsController:
         rid = str(kwargs.get("req_id", ""))
         with self._panel._mcp_turn_lock:
             last_turn = self._panel._last_mcp_turn.pop(rid, None)
-        if not isinstance(last_turn, TurnController) or current_turn(self._panel) is not last_turn or not last_turn.alive:
+
+        def _live() -> bool:
+            return isinstance(last_turn, TurnController) and current_turn(self._panel) is last_turn and last_turn.alive
+
+        if not _live():
             return
 
         def _update_ui() -> None:
-            if getattr(self._panel, "_panel_teardown", False) or getattr(self._panel, "ctx", None) is None:
+            if self._torn_down():
                 return
-            from plugin.chatbot.tool_loop_actions import TurnController, current_turn
-            if not isinstance(last_turn, TurnController) or current_turn(self._panel) is not last_turn or not last_turn.alive:
+            if not _live():
                 return
             try:
                 from plugin.framework.logging import format_tool_result_for_display
