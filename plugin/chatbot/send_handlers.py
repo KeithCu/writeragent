@@ -36,6 +36,7 @@ from plugin.framework.send_cancellation import capture_send_stop
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import (
+    SendHandlerEffect,
     SendHandlerEvent,
     SendHandlerState,
     SendHandlerUIEffect,
@@ -92,7 +93,9 @@ class _SpecializedRunnerSpec:
     error_tag: str
     default_error: str
     error_flag: str | None = None
-    finish_builder: Callable[[dict[str, Any]], tuple[str, dict[str, Any]]] | None = None
+    finish_msgid: str | None = None
+    finish_flag: str | None = None
+    copy_key: str | None = None
 
 
 _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
@@ -102,11 +105,8 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         error_tag="Librarian",
         default_error=_("Unknown librarian error."),
         error_flag="in_librarian_mode",
-        finish_builder=lambda d: (
-            # Exit librarian on the UI thread via STREAM_DONE (combobox is UNO).
-            d.get("result", _("Perfect! I'm switching you to the main assistant now.")),
-            {"librarian_switch_to_chat": True, "assistant_content": str(d.get("result", _("Perfect! I'm switching you to the main assistant now.")))},
-        ),
+        finish_msgid="Perfect! I'm switching you to the main assistant now.",
+        finish_flag="librarian_switch_to_chat",
     ),
     CHAT_MODE_BRAINSTORMING: _SpecializedRunnerSpec(
         tool_name="brainstorming_session",
@@ -114,14 +114,9 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         error_tag="Brainstorming",
         default_error=_("Unknown brainstorming error."),
         error_flag="in_brainstorming_mode",
-        finish_builder=lambda d: (
-            d.get("result", _("Brainstorming complete.")),
-            {
-                "brainstorming_finished": True,
-                "spec_saved": bool(d.get("spec_saved", False)),
-                "assistant_content": str(d.get("result", _("Brainstorming complete."))),
-            },
-        ),
+        finish_msgid="Brainstorming complete.",
+        finish_flag="brainstorming_finished",
+        copy_key="spec_saved",
     ),
     CHAT_MODE_WRITING_PLAN: _SpecializedRunnerSpec(
         tool_name="writing_plan_session",
@@ -129,10 +124,8 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         error_tag="Writing plan",
         default_error=_("Unknown writing plan error."),
         error_flag="in_writing_plan_mode",
-        finish_builder=lambda d: (
-            d.get("result", _("Writing plan complete.")),
-            {"writing_plan_finished": True, "assistant_content": str(d.get("result", _("Writing plan complete.")))},
-        ),
+        finish_msgid="Writing plan complete.",
+        finish_flag="writing_plan_finished",
     ),
     CHAT_MODE_PPT_MASTER: _SpecializedRunnerSpec(
         tool_name="ppt_master_session",
@@ -140,14 +133,9 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         error_tag="PPT-Master",
         default_error=_("Unknown PPT-Master error."),
         error_flag="in_ppt_master_mode",
-        finish_builder=lambda d: (
-            d.get("result", _("PPT-Master session complete.")),
-            {
-                "ppt_master_finished": True,
-                "exported": bool(d.get("exported", False)),
-                "assistant_content": str(d.get("result", _("PPT-Master session complete."))),
-            },
-        ),
+        finish_msgid="PPT-Master session complete.",
+        finish_flag="ppt_master_finished",
+        copy_key="exported",
     ),
     CHAT_MODE_DEEP_RESEARCH: _SpecializedRunnerSpec(
         tool_name="deep_research_session",
@@ -175,6 +163,11 @@ def _tool_result_dict(res: Any, tool_label: str = "web search", doc_type: str = 
     return format_error_payload(parsed_err)
 
 
+def _update_mode_topic(panel: Any, mode: str, query_text: str) -> None:
+    if getattr(panel, "_active_mode", "") != mode or not getattr(panel, "_mode_topic", ""):
+        panel._mode_topic = query_text
+
+
 def dispatch_sidebar_send(
     panel: Any,
     sidebar_mode: str,
@@ -182,19 +175,18 @@ def dispatch_sidebar_send(
     model: Any,
     doc_type_label: str,
 ) -> bool:
-    if sidebar_mode == CHAT_MODE_LIBRARIAN:
-        log.info("_do_send: using librarian onboarding agent")
-        panel._send_handlers._run_specialized(query_text, model, mode=CHAT_MODE_LIBRARIAN)
-        return True
-
-    if sidebar_mode == CHAT_MODE_WEB_RESEARCH:
-        log.info("_do_send: using web research sub-agent — skip chat model and direct image")
-        panel._send_handlers._run_specialized(query_text, model, mode=CHAT_MODE_WEB_RESEARCH)
-        return True
-
-    if sidebar_mode == CHAT_MODE_DEEP_RESEARCH:
-        log.info("_do_send: using deep web research sub-agent — skip chat model and direct image")
-        panel._send_handlers._run_specialized(query_text, model, mode=CHAT_MODE_DEEP_RESEARCH)
+    if sidebar_mode in (CHAT_MODE_LIBRARIAN, CHAT_MODE_WEB_RESEARCH, CHAT_MODE_DEEP_RESEARCH):
+        msg = (
+            "_do_send: using librarian onboarding agent"
+            if sidebar_mode == CHAT_MODE_LIBRARIAN
+            else (
+                "_do_send: using web research sub-agent — skip chat model and direct image"
+                if sidebar_mode == CHAT_MODE_WEB_RESEARCH
+                else "_do_send: using deep web research sub-agent — skip chat model and direct image"
+            )
+        )
+        log.info(msg)
+        panel._send_handlers._run_specialized(query_text, model, mode=sidebar_mode)
         return True
 
     if sidebar_mode == CHAT_MODE_IMAGE:
@@ -203,8 +195,7 @@ def dispatch_sidebar_send(
         return True
 
     if sidebar_mode == CHAT_MODE_BRAINSTORMING and doc_type_label == "writer":
-        if getattr(panel, "_active_mode", "") != CHAT_MODE_BRAINSTORMING or not getattr(panel, "_mode_topic", ""):
-            panel._mode_topic = query_text
+        _update_mode_topic(panel, CHAT_MODE_BRAINSTORMING, query_text)
         log.info("_do_send: using brainstorming sub-agent")
         panel._send_handlers._run_specialized(query_text, model, mode=CHAT_MODE_BRAINSTORMING)
         return True
@@ -217,8 +208,7 @@ def dispatch_sidebar_send(
         return True
 
     if sidebar_mode == CHAT_MODE_PPT_MASTER and doc_type_label in ("draw", "impress"):
-        if getattr(panel, "_active_mode", "") != CHAT_MODE_PPT_MASTER or not getattr(panel, "_mode_topic", ""):
-            panel._mode_topic = query_text
+        _update_mode_topic(panel, CHAT_MODE_PPT_MASTER, query_text)
         log.info("_do_send: using PPT-Master sub-agent")
         panel._send_handlers._run_specialized(query_text, model, mode=CHAT_MODE_PPT_MASTER)
         return True
@@ -243,6 +233,17 @@ def _send_worker_queues(host: Any) -> tuple[StreamQueue, Any]:
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
+
+
+def _step_and_interpret(
+    state: SendHandlerState,
+    event: SendHandlerEvent,
+    interpreter: EffectInterpreter,
+) -> tuple[SendHandlerState, list[SendHandlerEffect]]:
+    step = next_state(state, event)
+    for eff in step.effects:
+        interpreter.interpret(eff, step.state)
+    return step.state, step.effects
 
 
 class SendHandlersMixin:
@@ -279,14 +280,8 @@ class SendHandlersMixin:
 
         def dispatch_event(event: SendHandlerEvent) -> list[str]:
             nonlocal current_state
-            step = next_state(current_state, event)
-            current_state = step.state
-            appends: list[str] = []
-            for eff in step.effects:
-                if isinstance(eff, SendHandlerUIEffect) and eff.kind == "append":
-                    appends.append(eff.text)
-                interpreter.interpret(eff, current_state)
-            return appends
+            current_state, effects = _step_and_interpret(current_state, event, interpreter)
+            return [eff.text for eff in effects if isinstance(eff, SendHandlerUIEffect) and eff.kind == "append"]
 
         agent_parts: list[str] = []
 
@@ -354,7 +349,7 @@ class SendHandlersMixin:
                 text = "".join(agent_parts).strip()
                 if text:
                     persist_assistant_on_turn(self._panel, content=text)
-            dispatch_event(StreamDoneEvent(payload))
+            dispatch_event(StreamDoneEvent())
 
         def on_stopped() -> None:
             # The turn commits the open row and writes the stop line.
@@ -421,15 +416,12 @@ class SendHandlersMixin:
         handler_type: str,
         query_text: str,
         model: Any,
-        doc_type_str: str,
+        doc_type_str: str = "",
         mode: str = "",
     ) -> None:
         interpreter = EffectInterpreter(self._panel)
         current_state = SendHandlerState(handler_type=handler_type, status="ready")
-        step = next_state(current_state, StartEvent(query_text, model, doc_type_str, mode=mode))
-        current_state = step.state
-        for effect in step.effects:
-            interpreter.interpret(effect, current_state)
+        _step_and_interpret(current_state, StartEvent(query_text, model, doc_type_str, mode=mode), interpreter)
 
     def _do_send_direct_image(self, query_text: str, model: Any) -> None:
         turn_session = turn_session_or_stop(self._panel)
@@ -441,7 +433,7 @@ class SendHandlersMixin:
         if turn_session is None:
             return
         turn_session.add_user_message(query_text)
-        self._start_send_handler("image", query_text, model, "image")
+        self._start_send_handler("image", query_text, model)
 
     def _execute_direct_image_effect(self, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
         turn_session = turn_session_or_stop(self._panel)
@@ -541,13 +533,13 @@ class SendHandlersMixin:
                 from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
 
                 finalize_sidebar_assistant_response(self._panel, allow_rerender=False)
-            # Stop already stored "Stopped" via CompleteJobEffect. Forcing Ready
-            # here made image Stop look like a normal finish. The agent path
-            # below keeps both Error and Stopped.
-            if self._panel._terminal_status not in ("Error", "Stopped"):
-                self._panel._terminal_status = "Ready"
+            self._finalize_terminal_ready()
 
         self._run_unified_worker_drain_loop(drain_q, run_direct_image, current_state, interpreter, on_finished=_image_ready)
+
+    def _finalize_terminal_ready(self) -> None:
+        if self._panel._terminal_status not in ("Error", "Stopped"):
+            self._panel._terminal_status = "Ready"
 
     def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None:
         """Send via external agent backend. No fallback to built-in on failure."""
@@ -590,16 +582,8 @@ class SendHandlersMixin:
 
         def _handle_early_error(exception_instance: Exception) -> None:
             nonlocal current_state
-            self._panel._terminal_status = "Error"
-            self._panel._set_status(_("Error"))
-
-            # Step 1: dispatch ErrorEvent to current state machine (this will persist the banner)
-            step = next_state(current_state, ErrorEvent(exception_instance))
-            current_state = step.state
-            for eff in step.effects:
-                interpreter.interpret(eff, current_state)
-
-            # Step 2: Ensure turn is closed out properly, just as _do_send_direct_image does
+            current_state, _ = _step_and_interpret(current_state, ErrorEvent(exception_instance), interpreter)
+            # Ensure turn is closed out properly, just as _do_send_direct_image does
             defer_until_drain_done(lambda: abort_turn(self._panel))
 
         try:
@@ -710,19 +694,10 @@ class SendHandlersMixin:
             if request_id is not None and hasattr(adapter, "submit_approval"):
                 best_effort(lambda: adapter.submit_approval(request_id, approved), "submitting agent backend approval")
 
-        def _agent_ready() -> None:
-            if self._panel._terminal_status not in ("Error", "Stopped"):
-                self._panel._terminal_status = "Ready"
-
-        self._run_unified_worker_drain_loop(drain_q, run_agent, current_state, interpreter, on_approval_callback=on_approval_required, on_finished=_agent_ready)
+        self._run_unified_worker_drain_loop(drain_q, run_agent, current_state, interpreter, on_approval_callback=on_approval_required, on_finished=self._finalize_terminal_ready)
 
     def _run_specialized(self, query_text: str, model: Any, mode: str = "") -> None:
         """Run a specialized mode (or web research) and stream its result into the response area."""
-        from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_LIBRARIAN,
-            CHAT_MODE_WEB_RESEARCH,
-        )
-
         if mode == CHAT_MODE_LIBRARIAN:
             if not getattr(self._panel, "_librarian_suggested_user_name_fetched", False):
                 from plugin.chatbot.librarian import get_suggested_user_name
@@ -740,7 +715,7 @@ class SendHandlersMixin:
 
         turn_session.add_user_message(query_text)
 
-        self._start_send_handler("web", query_text, model, "web", mode=mode)
+        self._start_send_handler("web", query_text, model, mode=mode)
 
     def _execute_web_research_effect(self, query_text: str, model: Any, current_state: "SendHandlerState", interpreter: "EffectInterpreter", mode: str = "") -> None:
         from plugin.main import get_tools
@@ -827,11 +802,18 @@ class SendHandlersMixin:
                         answer = cache_block + answer
                     turn.put((StreamQueueKind.CHUNK, answer + "\n"))
                     turn.put((StreamQueueKind.STREAM_DONE, {"assistant_content": answer}))
-                elif spec.finish_builder is not None and data.get("status") in ("finished", "switch_mode"):
-                    answer, done_payload = spec.finish_builder(data)
-                    if not isinstance(answer, str):
-                        answer = str(answer)
-                    turn.put((StreamQueueKind.CHUNK, answer + "\n"))
+                elif spec.finish_flag is not None and data.get("status") in ("finished", "switch_mode"):
+                    assert spec.finish_msgid is not None
+                    raw = data.get("result", _(spec.finish_msgid))
+                    if not isinstance(raw, str):
+                        raw = str(raw)
+                    done_payload: dict[str, Any] = {
+                        spec.finish_flag: True,
+                        "assistant_content": raw,
+                    }
+                    if spec.copy_key:
+                        done_payload[spec.copy_key] = bool(data.get(spec.copy_key, False))
+                    turn.put((StreamQueueKind.CHUNK, raw + "\n"))
                     turn.put((StreamQueueKind.STREAM_DONE, done_payload))
                 else:
                     msg = data.get("message") or data.get("result") or spec.default_error

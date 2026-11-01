@@ -182,7 +182,7 @@ def _return_idle(
     effects: list[SendEffects] = []
     if release_capture:
         effects.append(CancelRecordingEffect())
-    effects.append(_idle_ui_effect(new_state, status_text, stop_enabled=False))
+    effects.append(_idle_ui_effect(new_state, status_text))
     return FsmTransition(new_state, effects)
 
 
@@ -299,18 +299,17 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
 
             # Keep BUSY until SEND_COMPLETED or ERROR_OCCURRED; the guard above
             # means there is no recording flag to clear.
-            new_state = state
             effects = [
                 StopSendEffect(),
                 UpdateUIEffect(
                     send_enabled=False,
                     stop_enabled=True,
-                    send_label=_get_send_label(new_state),
+                    send_label=_get_send_label(state),
                     status_text="Stopping...",
                     action=ButtonAction.IGNORE,
                 ),
             ]
-            return FsmTransition(new_state, effects)
+            return FsmTransition(state, effects)
 
         case SendEventKind.CANCEL_REC_CLICKED:
             # Stop on a one-shot take (the second Stop on a locked one). ERROR_OCCURRED

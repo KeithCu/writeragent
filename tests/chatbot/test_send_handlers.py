@@ -2181,7 +2181,7 @@ def test_execute_agent_backend_effect_errors():
     mock_turn.refresh_document_context.side_effect = Exception("Doc ctx error")
     with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=mock_turn), \
          patch("plugin.chatbot.send_handlers.defer_until_drain_done") as mock_defer:
-        interpreter = MagicMock()
+        interpreter = EffectInterpreter(panel)
         current_state = SendHandlerState(handler_type="agent", status="ready")
         panel._execute_agent_backend_effect("query", MagicMock(), "writer", current_state, interpreter)
     assert panel._terminal_status == "Error"

@@ -132,7 +132,7 @@ class TestSendHandlerStateMachine:
 
     def test_stream_done_marks_ready(self):
         state = SendHandlerState(handler_type="agent", status="running")
-        step = next_state(state, StreamDoneEvent(response={}))
+        step = next_state(state, StreamDoneEvent())
         assert step.state.status == "done"
         assert any(isinstance(e, CompleteJobEffect) and e.terminal_status == "Ready" for e in step.effects)
         assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "status" and e.text == "Ready" for e in step.effects)
@@ -171,7 +171,7 @@ class TestSendHandlerStateMachine:
 
     def test_stream_done_unknown_handler_type_emits_ready(self):
         state = SendHandlerState(handler_type="other", status="running")
-        step = next_state(state, StreamDoneEvent(response={}))
+        step = next_state(state, StreamDoneEvent())
         assert step.state.status == "done"
         assert any(isinstance(e, CompleteJobEffect) and e.terminal_status == "Ready" for e in step.effects)
         assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "status" and e.text == "Ready" for e in step.effects)
@@ -198,8 +198,7 @@ class TestSendHandlerHelpers:
         ],
     )
     def test_ui_lines_web(self, value, value_2):
-        status, append = ui_lines_for_handler_error(value, "boom")
-        assert status == "Error"
+        append = ui_lines_for_handler_error(value, "boom")
         assert value_2 in append
 
 
