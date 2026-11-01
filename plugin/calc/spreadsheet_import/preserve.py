@@ -6,12 +6,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from plugin.calc.address_utils import parse_address
-
-if TYPE_CHECKING:
-    from plugin.calc.spreadsheet_import.models import OutputSheetModel, SheetModel
+from plugin.calc.spreadsheet_import.models import OutputSheetModel, SheetModel, output_cell_from_record
 
 
 def enrich_number_formats(sheet: Any, model: SheetModel) -> None:
@@ -23,6 +21,12 @@ def enrich_number_formats(sheet: Any, model: SheetModel) -> None:
         value = sheet.getCellByPosition(col, row).getPropertyValue("NumberFormat")
         if value is not None:
             record.number_format = int(value)
+
+
+def build_output_model(model: SheetModel) -> OutputSheetModel:
+    """Build a preserve output grid: constants unchanged, PY normalized, other formulas pass-through."""
+    cells = {addr: output_cell_from_record(record) for addr, record in model.cells.items()}
+    return OutputSheetModel(sheet_name=model.sheet_name, used_range=model.used_range, cells=cells)
 
 
 def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
