@@ -133,9 +133,6 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
     A checker that raises used to look like "not stopped" when the caller
     ignored the exception. Fail closed so a broken latch still aborts the send.
     """
-    if scope is None and fallback is None:
-        return lambda: False
-
     def _cancelled() -> bool:
         try:
             return (scope is not None and scope.is_cancelled()) or (fallback is not None and fallback())
