@@ -57,6 +57,18 @@ def clean_provider_name(provider_or_label: str) -> str:
     return "system"
 
 
+def _normalize_voice_family(family: str) -> str:
+    """Canonical family key, or a provider label via clean_provider_name.
+
+    Callers pass either a key ('kokoro') or a UI label ('Kokoro (Local Neural, ONNX CPU)');
+    the label form must keep working, so do not compare raw family strings.
+    """
+    fam = (family or "").strip().lower()
+    if fam in ("kokoro", "piper", "openai", "openrouter", "together", "system"):
+        return fam
+    return clean_provider_name(family)
+
+
 def _locale_language_stem(locale: str | None) -> str:
     """Language prefix (``en_US`` / ``en-US`` → ``en``). None is the active UI locale."""
     if locale is None:
@@ -226,27 +238,29 @@ def _kokoro_default_for_stem(stem: str) -> str:
 
 
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
-    """Return default voice for a family and UI locale."""
+    """Return default voice for a family (canonical key or provider label) and UI locale."""
+    fam = _normalize_voice_family(family)
     stem = _locale_language_stem(locale)
-    if family == "piper":
+    if fam == "piper":
         return _piper_default_for_stem(stem)
-    if family == "kokoro":
+    if fam == "kokoro":
         return _kokoro_default_for_stem(stem)
-    if family == "openai":
+    if fam in ("openai", "endpoint"):
         return DEFAULT_VOICE_FOR_FAMILY["openai"]
-    if family in ("openrouter", "together"):
+    if fam in ("openrouter", "together"):
         return ""
     return DEFAULT_VOICE_FOR_FAMILY["system"]
 
 
 def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, str]]:
-    """Return ordered voice options for a family, prioritizing locale."""
-    if family not in ("piper", "kokoro"):
-        return VOICE_CATALOGS.get(family, [])
+    """Return ordered voice options for a family (canonical key or provider label), prioritizing locale."""
+    fam = _normalize_voice_family(family)
+    if fam not in ("piper", "kokoro"):
+        return VOICE_CATALOGS.get(fam, [])
 
     stem = _locale_language_stem(locale)
 
-    if family == "kokoro":
+    if fam == "kokoro":
         return _buckets(
             _KOKORO_CATALOG_ITEMS,
             is_locale=lambda opt: stem != "en" and opt.get("lang") == stem,
@@ -302,17 +316,18 @@ def canonical_voice_id(family: str, voice: str) -> str:
     if _looks_like_path(clean_v):
         return clean_v
 
-    if family == "kokoro":
+    fam = _normalize_voice_family(family)
+    if fam == "kokoro":
         alias_target = match_voice_id(clean_v, _KOKORO_OPENAI_ALIASES)
         if alias_target is not None:
             clean_v = _KOKORO_OPENAI_ALIASES[alias_target]
 
-    if family in ("kokoro", "piper", "openai", "system"):
-        catalog_values = [opt["value"] for opt in get_voice_catalog(family)]
+    if fam in ("kokoro", "piper", "openai", "system"):
+        catalog_values = [opt["value"] for opt in get_voice_catalog(fam)]
         matched = match_voice_id(clean_v, catalog_values)
         if matched is not None:
             return matched
-        if family == "kokoro" and is_kokoro_voice_id(clean_v):
+        if fam == "kokoro" and is_kokoro_voice_id(clean_v):
             return clean_v.lower()
 
     return clean_v
@@ -327,7 +342,8 @@ def _preferred_harvested_voice(model: str | None, voices: Sequence[str]) -> str:
         matched = match_voice_id("Aoede", voices)
         if matched is not None:
             return matched
-    return voices[0]
+    # Casefold sort keeps the pick independent of the order the provider advertises voices in.
+    return min(voices, key=str.casefold)
 
 
 def _voice_belongs_to_other_family(voice: str) -> bool:
@@ -425,14 +441,14 @@ def voice_choice_to_id(choice: str, options: Sequence[dict[str, str]] | None = N
     if not text:
         return ""
     rows = options or []
-    values = [opt["value"] for opt in rows]
+    values = [str(opt.get("value") or "") for opt in rows if "value" in opt]
     matched_val = match_voice_id(text, values)
     if matched_val is not None:
         return matched_val
     for opt in rows:
-        label = opt["label"]
+        label = str(opt.get("label") or "")
         if text == label or (label and text == i18n._(label)):
-            return opt["value"]
+            return str(opt.get("value") or "")
     return clean_voice_name(text)
 
 
@@ -449,7 +465,7 @@ def pick_voice_id(
     if not options:
         return current_id or stored_id
 
-    values = [opt["value"] for opt in options]
+    values = [str(opt.get("value") or "") for opt in options if "value" in opt]
     for cand in (current_id, stored_id):
         matched = match_voice_id(cand, values)
         if matched is not None:
@@ -461,7 +477,7 @@ def pick_voice_id(
     matched = match_voice_id(def_voice, values)
     if matched is not None:
         return matched
-    return options[0]["value"]
+    return str(options[0].get("value") or "")
 
 
 def get_scoped_tts_voice(
@@ -482,7 +498,11 @@ def get_scoped_tts_voice(
     context = resolve_voice_context(prov_clean, model, endpoint=endpoint, locale=locale)
     family = context.family
     scoped_key = f"audio.tts_voice_{family}"
-    cands = tuple(clean_voice_name(str(config.get_config(k) or "")) for k in (scoped_key, "audio.tts_voice"))
+    # Non-string config values (e.g. a stray number/list) must read as "", not "123"/"[...]".
+    cands = tuple(
+        clean_voice_name(v) if isinstance(v, str) else ""
+        for v in (config.get_config(k) for k in (scoped_key, "audio.tts_voice"))
+    )
 
     if context.source == "harvested":
         harvested_values = [opt["value"] for opt in context.rows]

@@ -456,6 +456,9 @@ def test_preferred_harvested_voice_prefers_aoede_for_gemini():
     advertised = ["Zephyr", "Achernar", "Aoede"]
     assert _preferred_harvested_voice(gemini, advertised) == "Aoede"
     assert _preferred_harvested_voice("Google/GEMINI-2.5-flash-preview-tts", ["Zephyr", "aoede"]) == "aoede"
+    assert _preferred_harvested_voice(gemini, ["Zephyr", "Puck", "Kore"]) == "Kore"
+    assert _preferred_harvested_voice(grok, advertised) == "Achernar"
+    assert _preferred_harvested_voice("canopylabs/orpheus-3b-0.1-ft", ["tara", "leah"]) == "leah"
 
     cfg._tts_supported_voices.pop(gemini, None)
     cfg._tts_supported_voices.pop(grok, None)
@@ -588,7 +591,7 @@ def test_pick_voice_id_direct():
     assert pick_voice_id(family="kokoro", model=None, options=kokoro_rows, current_id="", stored_id="", locale="en_US") == "af_sky"
 
     # remote harvested order
-    harvested = [{"value": "Achernar", "label": "Achernar"}, {"value": "Aoede", "label": "Aoede"}, {"value": "Zephyr", "label": "Zephyr"}]
+    harvested = [{"value": "Zephyr", "label": "Zephyr"}, {"value": "Aoede", "label": "Aoede"}, {"value": "Achernar", "label": "Achernar"}]
     assert pick_voice_id(family="openrouter", model="google/gemini-2.5", options=harvested) == "Aoede"
     assert pick_voice_id(family="together", model="other", options=harvested) == "Achernar"
 
@@ -639,6 +642,9 @@ def test_canonical_voice_id_and_match_voice_id():
 
 
 def test_provider_labels_and_split_display_label():
+    assert get_default_voice_for_locale("Kokoro (Local Neural, ONNX CPU)", "en_US") == "af_sky"
+    assert get_voice_catalog("Piper (Local Fast Neural, CPU)") == get_voice_catalog("piper")
+
     # split_display_label behavior for ordinary labels is unchanged
     head, inside = split_display_label("en_US-lessac-medium (US English Female - Lessac)")
     assert head == "en_US-lessac-medium"
@@ -646,3 +652,9 @@ def test_provider_labels_and_split_display_label():
     head, inside = split_display_label("plain_voice")
     assert head == "plain_voice"
     assert inside is None
+
+
+def test_voice_helpers_tolerate_rows_missing_keys():
+    # Rows from harvested/user data may lack "label" or "value"; must not KeyError.
+    assert voice_choice_to_id("x", [{"label": "no value"}, {"value": "x"}]) == "x"
+    assert pick_voice_id(family="kokoro", model=None, options=[{"label": "bad"}], current_id="", stored_id="") is not None
