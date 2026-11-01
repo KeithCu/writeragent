@@ -438,13 +438,25 @@ def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
         # _coerce_column_types. Mixed offsets return object and .dt raises; when the result
         # is not datetime64, the fallback calls pd.to_datetime without format to keep one
         # offset and NaT for the rest without raising AttributeError.
-        # Mixed offsets make pandas emit a FutureWarning; the fallback result is intended
-        # (one offset, NaT for the rest), so silence just that warning.
+        # Mixed offsets make pandas 2 emit a FutureWarning; the fallback result is intended
+        # (one offset, NaT for the rest), so silence just that warning. pandas 3 raises
+        # ValueError ("Mixed timezones detected") instead; take the same fallback.
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=".*mixed time zones.*", category=FutureWarning)
-            parsed_str: Any = pd.to_datetime(str_slice, errors="coerce", format="mixed")
-            if not pd.api.types.is_datetime64_any_dtype(parsed_str):
-                parsed_str = pd.to_datetime(str_slice, errors="coerce")
+            try:
+                parsed_str: Any = pd.to_datetime(str_slice, errors="coerce", format="mixed")
+            except ValueError:
+                parsed_str = None
+            if parsed_str is None or not pd.api.types.is_datetime64_any_dtype(parsed_str):
+                try:
+                    parsed_str = pd.to_datetime(str_slice, errors="coerce")
+                except ValueError:
+                    parsed_str = None
+            # Only offset-aware strings with different offsets ("+01:00" and "+05:00"):
+            # the plain fallback returns object on pandas 2 (.dt raised AttributeError)
+            # and raises ValueError on pandas 3. Convert every cell to UTC instead.
+            if parsed_str is None or not pd.api.types.is_datetime64_any_dtype(parsed_str):
+                parsed_str = pd.to_datetime(str_slice, errors="coerce", format="mixed", utc=True)
         if getattr(parsed_str.dt, "tz", None) is not None:
             parsed_str = parsed_str.dt.tz_localize(None)
         result.loc[not_num] = parsed_str.astype("datetime64[ns]")

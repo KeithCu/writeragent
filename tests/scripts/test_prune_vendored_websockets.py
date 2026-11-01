@@ -35,6 +35,7 @@ def test_prune_websockets_removes_dead_paths(pruned_websockets):
     root = pruned_websockets
     assert not (root / "legacy").is_dir()
     assert not (root / "sync").is_dir()
+    assert not (root / "trio").is_dir()
     assert not (root / "asyncio" / "server.py").is_file()
     assert not (root / "server.py").is_file()
     assert not (root / "cli.py").is_file()
@@ -69,6 +70,7 @@ def test_pruned_websockets_import_closure(pruned_websockets):
         assert "websockets.asyncio.client" in loaded
         assert not any(k.startswith("websockets.legacy") for k in loaded)
         assert not any(k.startswith("websockets.sync") for k in loaded)
+        assert not any(k.startswith("websockets.trio") for k in loaded)
     finally:
         sys.path = old_path
         for key in list(sys.modules):

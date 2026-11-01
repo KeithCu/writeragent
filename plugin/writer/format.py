@@ -24,7 +24,7 @@ import os
 import re
 import sys
 import tempfile
-from typing import Any, Iterable, Iterator, Literal, TypedDict
+from typing import Any, Iterable, Generator, Literal, TypedDict
 
 import uno
 from plugin.framework.errors import best_effort, reraise_if_disposed
@@ -104,7 +104,7 @@ TEMP_DIR = _resolve_temp_dir()
 
 
 @contextlib.contextmanager
-def _with_temp_buffer(content: Any = None, ext: str | None = None) -> Iterator[tuple[str, str]]:
+def _with_temp_buffer(content: Any = None, ext: str | None = None) -> Generator[tuple[str, str], None, None]:
     """Context manager that yields ``(path, file_url)`` for a temp file
     with the correct format extension.
 

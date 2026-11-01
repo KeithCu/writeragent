@@ -3,5 +3,5 @@ json-repair
 latex2mathml
 mathml-to-latex==1.0.0
 isodate
-websockets>=13.0,<16
+websockets>=17.4,<18
 defusedxml

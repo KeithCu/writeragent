@@ -27,7 +27,7 @@ from contextlib import contextmanager
 import logging
 import threading
 from types import SimpleNamespace
-from typing import Any, Iterator
+from typing import Any, Generator
 
 from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.uno_listeners import BaseModifyListener
@@ -44,7 +44,7 @@ _MODIFY_DELAY_SEC = 0.1
 
 
 @contextmanager
-def sheet_modify_scope() -> Iterator[None]:
+def sheet_modify_scope() -> Generator[None, None, None]:
     """Track sheet modify re-entrancy depth across operations."""
     global _DISPATCH_DEPTH
     _DISPATCH_DEPTH += 1

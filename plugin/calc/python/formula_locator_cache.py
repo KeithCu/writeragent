@@ -9,7 +9,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import contextvars
 import re
-from typing import Any, Iterator
+from typing import Any, Generator, Iterator
 
 from plugin.calc.python.formula_edit import parse_python_formula, py_formula_has_unquoted_code_ref
 from plugin.framework.errors import uno_probe
@@ -24,7 +24,7 @@ _LOCATE_MEMO: contextvars.ContextVar[_LocateMemo | None] = contextvars.ContextVa
 
 
 @contextmanager
-def bind_formula_locate_memo() -> Iterator[None]:
+def bind_formula_locate_memo() -> Generator[None, None, None]:
     """Bind a fresh per-call formula location memo dictionary."""
     token = _LOCATE_MEMO.set({})
     try:

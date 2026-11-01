@@ -26,6 +26,7 @@ import sys
 _PRUNE_DIRS = (
     "legacy",
     "sync",
+    "trio",
 )
 
 # Files safe to drop (paths relative to the websockets package root).

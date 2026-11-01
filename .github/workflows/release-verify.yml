@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install LibreOffice and system tools (Ubuntu)
         if: runner.os == 'Linux'
@@ -86,13 +86,13 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: "latest"
           enable-cache: true
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -142,7 +142,7 @@ jobs:
 
       - name: Upload soffice crash dumps (Windows)
         if: ${{ failure() && runner.os == 'Windows' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: soffice-dumps-${{ github.run_id }}
           path: ${{ runner.temp }}/dumps/

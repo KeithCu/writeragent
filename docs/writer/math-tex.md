@@ -783,7 +783,7 @@ Everything here is **outside** WriterAgent’s tree unless noted. Use for **Math
 
 | Risk | Mitigation |
 |------|------------|
-| Extension Python baseline (e.g. 3.10) | Any new dependency must support that baseline; no stdlib features from 3.11+ without guards. |
+| Extension Python baseline (>= 3.11) | Any new dependency must support that baseline; no stdlib features from 3.12+ without guards. |
 | Dependency weight | Prefer stdlib + LO; second choice small pure-Python; avoid bundling Saxon/lxml stacks unless offline evaluation proves need. |
 | Ambiguous StarMath → TeX | Document known non-invertible cases; tests with tolerance; never claim full LaTeX equivalence. |
 | Security / prompt injection | Serialized math is still user/attacker-controlled text; treat like any document excerpt (length caps, redaction policy consistent with chat context). |

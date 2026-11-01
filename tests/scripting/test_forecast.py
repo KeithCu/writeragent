@@ -194,7 +194,7 @@ def test_weekday_forecast_skips_weekends():
     assert result["metrics"]["freq"] == "B"
     assert not any("irregular" in flag.lower() for flag in result["flags"])
     for row in result["tables"][0]["rows"]:
-        assert pd.Timestamp(row[0]).dayofweek < 5
+        assert pd.Timestamp(row[0]).day_of_week < 5
 
 
 def test_forecast_periods_are_capped():

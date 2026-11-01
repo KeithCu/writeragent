@@ -28,7 +28,7 @@ from collections import Counter
 import contextlib
 from enum import Enum, auto
 import logging
-from typing import Any, Iterator, NamedTuple
+from typing import Any, Generator, NamedTuple
 
 from plugin.framework.errors import is_real_disposal
 from plugin.framework.i18n import _
@@ -837,7 +837,7 @@ def resolve_agent_change(
 
 
 @contextlib.contextmanager
-def _grouped_resolve_undo(model: Any) -> Iterator[None]:
+def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
     """Group dispatches into one undo step; keeps landed edits on failure."""
     um = None
     entered = False
