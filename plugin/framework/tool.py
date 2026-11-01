@@ -339,18 +339,19 @@ class ToolBase(_ToolErrorMixin, ABC):
         # _execute_impl drops them unless caller == "script" before this method runs;
         # empty properties {} is a closed schema, not "accept any kwargs".
         props_dict = call_properties(schema)
-        for key in kwargs:
-            if props_dict is not None and key not in props_dict and key not in extra_ok:
-                return False, f"Unknown parameter: {key}"
-        for key, value in kwargs.items():
-            prop = props_dict.get(key) if props_dict is not None else None
-            if not isinstance(prop, dict) or key in extra_ok:
-                continue
-            enum = prop.get("enum")
-            if isinstance(enum, list) and enum and value not in enum:
-                return False, f"Invalid value for {key}: {value!r}. Valid options: {', '.join(str(v) for v in enum)}"
-            if not _tool_arg_matches_type(value, prop.get("type")):
-                return False, f"Invalid type for {key}: expected {prop.get('type')}, got {type(value).__name__}"
+        if props_dict is not None:
+            for key in kwargs:
+                if key not in props_dict and key not in extra_ok:
+                    return False, f"Unknown parameter: {key}"
+            for key, value in kwargs.items():
+                prop = props_dict.get(key)
+                if not isinstance(prop, dict) or key in extra_ok:
+                    continue
+                enum = prop.get("enum")
+                if isinstance(enum, list) and enum and value not in enum:
+                    return False, f"Invalid value for {key}: {value!r}. Valid options: {', '.join(str(v) for v in enum)}"
+                if not _tool_arg_matches_type(value, prop.get("type")):
+                    return False, f"Invalid type for {key}: expected {prop.get('type')}, got {type(value).__name__}"
         return True, None
 
     @abstractmethod
@@ -492,8 +493,6 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
 
 # Hidden from default chat/MCP tool lists; exposed via delegate_to_specialized_writer_toolset.
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"})
-# Sync tools that declare timeout= cannot enforce it. Warn once per name.
-_sync_timeout_warned: set[str] = set()
 
 def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
     """Return True when *tool* is allowed on a document with the cached type/services."""
@@ -1018,18 +1017,7 @@ class ToolRegistry:
             if bypass_thread_guard or tool.is_async():
                 result = self._execute_with_timeout(_run_tool, timeout, tool_name)
             else:
-                def _run_sync() -> Any:
-                    if timeout > 0 and tool_name not in _sync_timeout_warned:
-                        _sync_timeout_warned.add(tool_name)
-                        log.warning(
-                            "Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. "
-                            "Set is_async() to True to enable timeout enforcement.",
-                            tool_name,
-                            timeout,
-                        )
-                    return _run_tool()
-
-                result = execute_on_main_thread(_run_sync)
+                result = execute_on_main_thread(_run_tool)
 
             # Ensure any returned dict with status='error' includes full context details
             if isinstance(result, dict) and result.get("status") == "error":
