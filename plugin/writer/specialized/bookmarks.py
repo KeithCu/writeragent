@@ -21,7 +21,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import uuid
-from typing import Any, ClassVar, Iterator
+from typing import Any, ClassVar, Generator
 
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import confirm_paragraph_index, find_paragraph_for_range, get_paragraph_ranges
@@ -53,7 +53,7 @@ class _PendingStrip:
 
 
 @contextlib.contextmanager
-def _in_save_hook(doc_key: str) -> Iterator[None]:
+def _in_save_hook(doc_key: str) -> Generator[None, None, None]:
     _ACTIVE_SAVE_HOOK_KEYS.add(doc_key)
     try:
         yield
@@ -128,7 +128,7 @@ class BookmarkService(ServiceBase):
         return contextlib.nullcontext()
 
     @contextlib.contextmanager
-    def _untracked(self, doc: Any) -> Iterator[None]:
+    def _untracked(self, doc: Any) -> Generator[None, None, None]:
         """Lock undo, ignore cache invalidation, restore isModified.
 
         insertTextContent / removeTextContent mark the document modified and

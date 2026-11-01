@@ -17,7 +17,7 @@ import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Generator
 
 from plugin.framework.worker_pool import get_subprocess_creationflags
 from plugin.scripting.sandbox import wrap_command_for_sandbox
@@ -140,7 +140,7 @@ def convert_legacy_to_odf(source_path: str, *, timeout_sec: int = 120) -> Path |
 
 
 @contextmanager
-def temporary_converted_odf(source_path: str, *, timeout_sec: int = 120) -> Iterator[Path | None]:
+def temporary_converted_odf(source_path: str, *, timeout_sec: int = 120) -> Generator[Path | None, None, None]:
     """Yield a temp ODF path for legacy sources; delete on exit."""
     converted = convert_legacy_to_odf(source_path, timeout_sec=timeout_sec)
     try:

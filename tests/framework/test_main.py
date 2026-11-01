@@ -781,19 +781,17 @@ def test_update_menu_icons_impl_uses_get_ctx_not_get_component_context(monkeypat
 
     sentinel_ctx = MagicMock()
     monkeypatch.setattr(main, "get_ctx", lambda: sentinel_ctx)
-    monkeypatch.setattr(
-        uno,
-        "getComponentContext",
-        MagicMock(side_effect=AssertionError("uno.getComponentContext must not be called")),
-    )
     monkeypatch.setattr("plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", lambda doc: 16)
     monkeypatch.setattr("plugin.framework.appearance.get_style_window", lambda ctx=None: None)
     monkeypatch.setattr(main, "_collect_icon_commands", lambda: {})
     main._services = None
 
-    # _update_menu_icons_impl should retrieve sentinel_ctx from get_ctx() and not call uno.getComponentContext()
-    main._update_menu_icons_impl()
-    uno.getComponentContext.assert_not_called()
+    # patch.object, not monkeypatch: pytest 9.2's undo deletes an auto-created
+    # MagicMock attribute, which leaves the shared uno mock without it.
+    with patch.object(uno, "getComponentContext", MagicMock(side_effect=AssertionError("uno.getComponentContext must not be called"))):
+        # _update_menu_icons_impl should retrieve sentinel_ctx from get_ctx() and not call uno.getComponentContext()
+        main._update_menu_icons_impl()
+        uno.getComponentContext.assert_not_called()
 
 
 def test_load_icon_graphic_uses_service_manager_attribute():
