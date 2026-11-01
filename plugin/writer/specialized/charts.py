@@ -30,11 +30,8 @@ from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 
 # Union services: same name as Calc/Draw ``manage_charts``; last registration wins, so include
 # all chart-capable document services (cf. ``plugin.writer.specialized.shapes``).
-_ALL_CHART_DOCS = list(ALL_DOCUMENT_SERVICES)
-
-
 class ManageCharts(CalcManageCharts, ToolWriterChartBase):  # type: ignore[misc]
-    uno_services: list[str] | None = _ALL_CHART_DOCS  # type: ignore[assignment]
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
     # Calc's ManageCharts is the first base, so MRO would find
     # ToolCalcSpecialBase.required_core_tools (sheet readers) and hide
     # Writer's document readers. A class-body assignment wins.
