@@ -147,7 +147,56 @@ class SubAgentSessionToolBase(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if self.runner is None:
             raise NotImplementedError("Subagent session tool must define runner")
-        return run_subagent_tool(self.agent_label, self.runner, ctx, **kwargs)
+        query = kwargs.get("query")
+        try:
+            return self.runner(ctx, **kwargs)
+        except Exception as e:
+            # This except is the boundary for subagent runners. log.exception
+            # records the traceback; the payload keeps the exception text only.
+            log.exception("%s execution failed", self.agent_label)
+            doc = getattr(ctx, "doc", None)
+            if is_real_disposal(e) or (doc is not None and is_tool_document_disposed(e, doc)):
+                raise
+
+            msg = resolve_exception_message(e)
+            if isinstance(e, WriterAgentException):
+                payload = format_error_payload(e)
+                payload["details"] = {**(e.details or {}), "query": query}
+                payload["message"] = msg
+                return payload
+
+            err = ToolExecutionError(f"{self.agent_label} failed: {msg}", details={"query": query})
+            return format_error_payload(err)
+
+
+def _domain_sub_agent_runner(  # pyright: ignore[reportUnusedFunction]
+    activity_label: str,
+    domain: str,
+    base_instructions: str,
+    reply_spec: Any,
+    topic_header: str,
+) -> Callable[..., dict[str, Any]]:
+    def _runner(
+        ctx: ToolContext,
+        *,
+        query: str = "",
+        history_text: str | None = None,
+        topic: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        return run_domain_sub_agent(
+            ctx,
+            activity_label=activity_label,
+            domain=domain,
+            base_instructions=base_instructions,
+            reply_spec=reply_spec,
+            topic_header=topic_header,
+            query=query,
+            history_text=history_text,
+            topic=topic,
+        )
+
+    return _runner
 
 
 def _session_tool_parameters(topic_description: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
@@ -217,13 +266,11 @@ def collect_sub_agent_tools(
 def run_domain_sub_agent(
     ctx: ToolContext,
     *,
+    activity_label: str,
     domain: str,
     base_instructions: str,
     reply_spec: Any,
     topic_header: str,
-    status_message: str,
-    stop_message: str,
-    error_prefix: str,
     query: str = "",
     history_text: str | None = None,
     topic: str | None = None,
@@ -244,49 +291,7 @@ def run_domain_sub_agent(
         examples_key=domain,
         reply_spec=reply_spec,
         tool_call_handler=_document_open_tool_handler(ctx),
-        status_message=status_message,
-        stop_message=stop_message,
-        error_prefix=error_prefix,
+        status_message=f"{activity_label}...",
+        stop_message=f"{activity_label} stopped by user.",
+        error_prefix=f"{activity_label} failed",
     )
-
-
-def run_subagent_tool(
-    agent_label: str,
-    runner: Callable[..., dict[str, Any]],
-    ctx: ToolContext,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    """Execute a specialized subagent runner with standard error handling.
-
-    Failures are logged with ``log.exception`` so the traceback stays in the
-    log. The payload shown to the model and UI is the exception text only.
-
-    Args:
-        agent_label: Human-readable label for logging and errors (e.g. 'Writing plan', 'PPT-Master').
-        runner: Callable that executes the subagent turn (takes ctx and keyword arguments).
-        ctx: ToolContext for the tool execution.
-        **kwargs: Arguments passed to the tool (query, history_text, topic, etc.).
-
-    Returns:
-        Result dictionary from runner or formatted ToolExecutionError payload.
-    """
-    query = kwargs.get("query")
-    try:
-        return runner(ctx, **kwargs)
-    except Exception as e:
-        # This except is the boundary for subagent runners. log.exception
-        # records the traceback; the payload keeps the exception text only.
-        log.exception("%s execution failed", agent_label)
-        doc = getattr(ctx, "doc", None)
-        if is_real_disposal(e) or (doc is not None and is_tool_document_disposed(e, doc)):
-            raise
-
-        msg = resolve_exception_message(e)
-        if isinstance(e, WriterAgentException):
-            payload = format_error_payload(e)
-            payload["details"] = {**(e.details or {}), "query": query}
-            payload["message"] = msg
-            return payload
-
-        err = ToolExecutionError(f"{agent_label} failed: {msg}", details={"query": query})
-        return format_error_payload(err)

@@ -10,20 +10,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, ClassVar, TYPE_CHECKING
+from typing import Any, ClassVar
 
+from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
 from plugin.chatbot.sub_agent_tools import (
     HtmlContentToolBase,
     SUB_AGENT_DOC_CORE_TOOLS,
     SubAgentResearchWebBase,
     SubAgentSessionToolBase,
+    _domain_sub_agent_runner,
     _session_tool_parameters,
-    run_domain_sub_agent,
 )
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
-if TYPE_CHECKING:
-    from plugin.framework.tool import ToolContext
 
 BRAINSTORMING_SUB_AGENT_INSTRUCTIONS = """BRAINSTORMING MODE:
 You help turn ideas into fully formed designs through collaborative dialogue before any implementation.
@@ -94,32 +93,21 @@ class SaveDesignSpec(HtmlContentToolBase):
     )
 
 
-def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, topic: str | None = None) -> dict[str, Any]:
-    """Run one turn of the brainstorming smol sub-agent."""
-    from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
-
-    return run_domain_sub_agent(
-        ctx,
-        domain="brainstorming",
-        base_instructions=BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
-        reply_spec=BRAINSTORMING_REPLY_SPEC,
-        topic_header="BRAINSTORMING TOPIC",
-        status_message="Brainstorming...",
-        stop_message="Brainstorming stopped by user.",
-        error_prefix="Brainstorming failed",
-        query=query,
-        history_text=history_text,
-        topic=topic,
-    )
-
-
 class BrainstormingSessionTool(SubAgentSessionToolBase):
     """Orchestrator for one turn of the brainstorming sub-agent (sidebar session)."""
 
     name: str | None = "brainstorming_session"
     description: str = "Brainstorming design exploration sub-agent."
     agent_label: str = "Brainstorming"
-    runner: Callable[..., dict[str, Any]] | None = staticmethod(_run_brainstorming_agent)
+    runner: Any = staticmethod(
+        _domain_sub_agent_runner(
+            "Brainstorming",
+            "brainstorming",
+            BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
+            BRAINSTORMING_REPLY_SPEC,
+            "BRAINSTORMING TOPIC",
+        )
+    )
     doc_types: list[str] | None = ["writer"]
     parameters: dict[str, Any] | None = _session_tool_parameters(
         "Original brainstorming topic from delegate task."

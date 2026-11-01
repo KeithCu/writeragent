@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,7 +20,6 @@ from plugin.chatbot.sub_agent_tools import (
     SubAgentSessionToolBase,
     collect_sub_agent_tools,
     get_sub_agent_instructions,
-    run_subagent_tool,
 )
 from plugin.chatbot.writing import WritingPlanSessionTool
 from plugin.framework.errors import (
@@ -29,12 +29,19 @@ from plugin.framework.errors import (
 from plugin.framework.tool import ToolBase, ToolContext
 
 
+class _StubSessionTool(SubAgentSessionToolBase):
+    def __init__(self, agent_label: str, runner: Any) -> None:
+        self.agent_label = agent_label
+        self.runner = runner
+
+
 class TestRunSubagentTool:
     def test_run_subagent_tool_success(self):
         ctx = MagicMock()
         runner = MagicMock(return_value={"status": "ok", "result": "done"})
+        tool = _StubSessionTool("Writing plan", runner)
 
-        result = run_subagent_tool("Writing plan", runner, ctx, query="Draft essay", history_text="hi", topic="AI")
+        result = tool.execute(ctx, query="Draft essay", history_text="hi", topic="AI")
 
         assert result == {"status": "ok", "result": "done"}
         runner.assert_called_once_with(ctx, query="Draft essay", history_text="hi", topic="AI")
@@ -45,8 +52,9 @@ class TestRunSubagentTool:
         def failing_runner(c, **kwargs):
             raise RuntimeError("API timeout")
 
+        tool = _StubSessionTool("Brainstorming", failing_runner)
         with caplog.at_level("ERROR", logger="writeragent.sub_agent_tools"):
-            result = run_subagent_tool("Brainstorming", failing_runner, ctx, query="Brainstorm ideas")
+            result = tool.execute(ctx, query="Brainstorm ideas")
 
         assert result.get("status") == "error"
         message = result.get("message", "")
@@ -62,7 +70,8 @@ class TestRunSubagentTool:
         def failing_runner(c, **kwargs):
             raise ValueError("bad input")
 
-        result = run_subagent_tool("Deep research", failing_runner, ctx)
+        tool = _StubSessionTool("Deep research", failing_runner)
+        result = tool.execute(ctx)
 
         assert result.get("status") == "error"
         assert "Deep research failed: bad input" in result.get("message", "")
@@ -74,7 +83,8 @@ class TestRunSubagentTool:
         def stopped_runner(c, **kwargs):
             raise WriterAgentException("Operation aborted by user", code="USER_STOPPED")
 
-        result = run_subagent_tool("Writing plan", stopped_runner, ctx, query="Draft essay")
+        tool = _StubSessionTool("Writing plan", stopped_runner)
+        result = tool.execute(ctx, query="Draft essay")
         assert result.get("status") == "error"
         assert result.get("code") == "USER_STOPPED"
         assert result.get("details") == {"query": "Draft essay"}
@@ -86,8 +96,9 @@ class TestRunSubagentTool:
         def disposed_runner(c, **kwargs):
             raise DocumentDisposedError("Document was disposed")
 
+        tool = _StubSessionTool("Writing plan", disposed_runner)
         with pytest.raises(DocumentDisposedError):
-            run_subagent_tool("Writing plan", disposed_runner, ctx, query="Draft essay")
+            tool.execute(ctx, query="Draft essay")
 
     def test_empty_str_with_message_attr_still_produces_message(self):
         ctx = MagicMock()
@@ -102,7 +113,8 @@ class TestRunSubagentTool:
         def uno_runner(c, **kwargs):
             raise UnoStyleError("com.sun.star.uno.RuntimeException: document failed")
 
-        result = run_subagent_tool("Writing plan", uno_runner, ctx, query="Draft")
+        tool = _StubSessionTool("Writing plan", uno_runner)
+        result = tool.execute(ctx, query="Draft")
         assert result.get("status") == "error"
         assert "document failed" in result.get("message", "")
 
@@ -244,11 +256,11 @@ class TestSessionToolMetadata:
         assert isinstance(tool, SubAgentSessionToolBase)
 
         ctx = MagicMock()
-        with patch("plugin.chatbot.sub_agent_tools.run_subagent_tool") as mock_run:
-            mock_run.return_value = {"status": "ok"}
-            res = tool.execute(ctx, query="test query")
-            assert res == {"status": "ok"}
-            mock_run.assert_called_once_with(tool.agent_label, tool.runner, ctx, query="test query")
+        mock_runner = MagicMock(return_value={"status": "ok"})
+        tool.runner = mock_runner
+        res = tool.execute(ctx, query="test query")
+        assert res == {"status": "ok"}
+        mock_runner.assert_called_once_with(ctx, query="test query")
 
 
 class TestPromptToolMatching:

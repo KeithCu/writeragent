@@ -31,11 +31,9 @@ _GENERIC_NAMES = frozenset(
 )
 
 
-def _normalize_suggested_name(raw: str | None) -> str | None:
-    if raw is None:
-        return None
+def _normalize_suggested_name(raw: str) -> str | None:
     # Strip control characters
-    cleaned = "".join(ch for ch in str(raw) if ch.isprintable() or ch.isspace())
+    cleaned = "".join(ch for ch in raw if ch.isprintable() or ch.isspace())
     # Collapse whitespace
     name = " ".join(cleaned.split()).strip()
     if not name:

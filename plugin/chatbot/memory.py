@@ -55,9 +55,6 @@ class MemoryStore:
 
         Returns a status dict: {"status": "ok", "message": ...} or {"status": "error", "message": ...}.
         """
-        if not isinstance(key, str) or not key.strip():
-            return {"status": "error", "message": "Key is required."}
-
         with _MEMORY_WRITE_LOCK:
             try:
                 current = self.read()
@@ -143,15 +140,6 @@ def user_profile_exists() -> bool:
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
-def _deal_memory_args_ok_pytest(arguments: object) -> bool:
-    # Pytest stays total on this LLM/ingest boundary: smolagents can hand
-    # the tool a non-dict, and isinstance(arguments, (str, dict)) raises
-    # PreContractError on a list. The body already returns None unless the
-    # value is a dict or a JSON object string. CrossHair keeps the short
-    # domain. ``arguments`` is unused.
-    return True
-
-
 def _deal_memory_args_ok_crosshair(arguments: object) -> bool:
     return (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE)) or (
         isinstance(arguments, dict)
@@ -161,7 +149,12 @@ def _deal_memory_args_ok_crosshair(arguments: object) -> bool:
     )
 
 
-_deal_memory_args_ok = _profile(_deal_memory_args_ok_crosshair, _deal_memory_args_ok_pytest)
+# Pytest stays total on this LLM/ingest boundary: smolagents can hand
+# the tool a non-dict, and isinstance(arguments, (str, dict)) raises
+# PreContractError on a list. The body already returns None unless the
+# value is a dict or a JSON object string. CrossHair keeps the short
+# domain.
+_deal_memory_args_ok = _profile(_deal_memory_args_ok_crosshair)
 
 
 @deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
@@ -179,10 +172,6 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     return None
 
 
-def _deal_memory_chat_line_ok_pytest(arguments: object) -> bool:
-    return True
-
-
 def _deal_memory_chat_line_ok_crosshair(arguments: object) -> bool:
     if isinstance(arguments, str):
         return str_bounded(arguments, DEAL_MAX_SOURCE)
@@ -196,7 +185,7 @@ def _deal_memory_chat_line_ok_crosshair(arguments: object) -> bool:
     )
 
 
-_deal_memory_chat_line_ok = _profile(_deal_memory_chat_line_ok_crosshair, _deal_memory_chat_line_ok_pytest)
+_deal_memory_chat_line_ok = _profile(_deal_memory_chat_line_ok_crosshair)
 
 
 @deal.pre(lambda arguments: _deal_memory_chat_line_ok(arguments))
