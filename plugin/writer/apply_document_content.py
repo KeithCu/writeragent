@@ -1422,7 +1422,7 @@ class ApplyDocumentContent(ToolBase):
             if use_preserve:
                 is_block = "\n" in content
             else:
-                is_block = format_support.content_has_block_markup(str(content)) or "\n" in str(content)
+                is_block = format_support._content_has_block_markup(str(content)) or "\n" in str(content)
             text_obj = found.getText()
             # execute_safe reports a failed cursor. This catch hid a closed document
             # as "Could not anchor".

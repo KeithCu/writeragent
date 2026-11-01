@@ -162,7 +162,11 @@ def do_selection_action_for_document(ctx: Any, model: Any, input_box_fn: Any, is
     if doc_type == DocumentType.WRITER:
         from plugin.writer.editselection import do_edit_selection, do_extend_selection
 
-        (do_edit_selection if is_edit else do_extend_selection)(ctx, model, input_box_fn)
+        # Extend no longer takes input_box_fn (168-wr_format); Edit still does.
+        if is_edit:
+            do_edit_selection(ctx, model, input_box_fn)
+        else:
+            do_extend_selection(ctx, model)
         return
 
     if doc_type == DocumentType.CALC:
