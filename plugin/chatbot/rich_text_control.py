@@ -55,19 +55,6 @@ RICH_CONTROL_EDGE_INSET = 8
 # Very noisy live scroll tracing. Keep available for sidebar scroll investigations,
 # but do not emit it by default even when log_level is DEBUG.
 RICH_SCROLL_VERBOSE_DEBUG = os.environ.get("WRITERAGENT_RICH_SCROLL_DEBUG") == "1"
-_RICH_CONTROL_FIELD_FLAGS = (
-    ("RichText", True),
-    ("ReadOnly", True),
-    ("Tabstop", False),
-    ("MultiLine", True),
-    ("VScroll", True),
-    ("HScroll", False),
-    ("AutoHScroll", False),
-    ("HardLineBreaks", False),
-    # If a 1-char tail selection is left (collapse missed), hide it when
-    # Ask/instruct has focus (exp 16). Harmless if selection is collapsed.
-    ("HideInactiveSelection", True),
-)
 
 
 _RICH_SCROLL_SEQ = 0
@@ -284,7 +271,7 @@ class RichTextChatWidget:
         """True when *items* still start with the formatted rows the control shows."""
         shown = self._shown
         k = self._formatted_rows
-        return shown is not None and self._formatted_len is not None and len(items) >= k and items[:k] == shown[:k]
+        return shown is not None and len(items) >= k and items[:k] == shown[:k]
 
     def _repaint_prefix_then_plain_tail(self, items: list[tuple[str, str]]) -> None:
         """Full paint up to the last user row; this turn's later rows as plain text.
@@ -364,10 +351,10 @@ class RichTextChatWidget:
             self._formatted_rows = k
             self._formatted_len = length
             new_tail = items[k:]
-        messages = getattr(session, "messages", None)
+        last = session.messages[-1] if session.messages else None
         open_content = (
-            messages[-1].get("content")
-            if isinstance(messages, list) and messages and isinstance(messages[-1], dict) and messages[-1].get(OPEN_TRANSCRIPT)
+            last.get("content")
+            if last and last.get(OPEN_TRANSCRIPT)
             else None
         )
         if not self._append_to_plain_tail(old_tail, new_tail, open_content=open_content):
@@ -541,20 +528,6 @@ def _rich_control_needs_bounds(rich_control: Any, bx: int, by: int, bw: int, bh:
     )
 
 
-def _reinsert_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None) -> Any | None:
-    """Remove and recreate dialog-embedded RichTextControl at new bounds (insert-time sizing only)."""
-    try:
-        dlg_model = root_window.getModel()
-        if dlg_model is None or not hasattr(dlg_model, "hasByName"):
-            return None
-        if dlg_model.hasByName(RICH_CONTROL_NAME):
-            dlg_model.removeByName(RICH_CONTROL_NAME)
-    except Exception as e:
-        log.debug("_reinsert_dialog_embedded_rich_control remove: %s", e)
-        return None
-    return _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
-
-
 def _invalidate_peer(control: Any) -> None:
     peer = control.getPeer() if hasattr(control, "getPeer") else None
     if peer is not None and hasattr(peer, "invalidate"):
@@ -573,6 +546,7 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
             placeholder_ctrl, placeholder_rect=placeholder_rect,
         )
         bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh)
+        text: str | None = None
         if bounds_changed:
             log_rich_scroll("sync_bounds", control=rich_control, rect=f"{bx},{by},{bw},{bh}")
             # Stock layoutWindow() SetVisArea(Point()) — every setPosSize jumps
@@ -582,12 +556,14 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
             if text:
                 _invalidate_peer(rich_control)
                 _scroll_rich_to_tail(rich_control, restore_focus=restore_focus)
-        if _rich_control_needs_bounds(rich_control, bx, by, bw, bh):
+        needs_bounds = _rich_control_needs_bounds(rich_control, bx, by, bw, bh)
+        if needs_bounds:
             # Dialog-embedded: model resize after insert fails (-1); reinsert when transcript empty.
-            model = rich_control.getModel()
-            text = getattr(model, "Text", "") or "" if model is not None else ""
+            if text is None:
+                model = rich_control.getModel()
+                text = getattr(model, "Text", "") or "" if model is not None else ""
             if not text:
-                new_ctrl = _reinsert_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
+                new_ctrl = _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
                 if new_ctrl is not None:
                     rich_control = new_ctrl
                     if control_out is not None:
@@ -600,10 +576,11 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                         bx,
                         by,
                     )
+                    needs_bounds = _rich_control_needs_bounds(rich_control, bx, by, bw, bh)
             else:
                 log.warning(
                     "[RICH-CONTROL] bounds mismatch but transcript non-empty (h=%s want=%s); peer path preferred",
-                    rich_control.getPosSize().Height if hasattr(rich_control, "getPosSize") else "?",
+                    rich_control.getPosSize().Height,
                     bh,
                 )
         if placeholder_rect is not None and (bounds_changed or RICH_SCROLL_VERBOSE_DEBUG):
@@ -616,7 +593,7 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                 int(cur.X),
                 int(cur.Y),
             )
-        return not _rich_control_needs_bounds(rich_control, bx, by, bw, bh)
+        return not needs_bounds
     except Exception as e:
         log.debug("sync_rich_control_bounds failed: %s", e)
         return False
@@ -671,7 +648,17 @@ def _apply_rich_control_style_defaults_on_model(model: Any, style_window: Any = 
         ("BackgroundColor", theme.bg_color),
         ("CharBackColor", theme.bg_color),
         ("PaintTransparent", False),
-        *_RICH_CONTROL_FIELD_FLAGS,
+        ("RichText", True),
+        ("ReadOnly", True),
+        ("Tabstop", False),
+        ("MultiLine", True),
+        ("VScroll", True),
+        ("HScroll", False),
+        ("AutoHScroll", False),
+        ("HardLineBreaks", False),
+        # If a 1-char tail selection is left (collapse missed), hide it when
+        # Ask/instruct has focus (exp 16). Harmless if selection is collapsed.
+        ("HideInactiveSelection", True),
     ):
         _set_model_property(model, name, val)
     import uno
@@ -1114,39 +1101,6 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
         return None
 
 
-def _apply_char_color_to_cursor_range(model: Any, start: Any, end: Any, char_color: Any) -> None:
-    if _is_automatic_char_color(char_color):
-        return
-
-    def _apply() -> None:
-        sel = model.createTextCursor()
-        sel.gotoRange(start, False)
-        sel.gotoRange(end, True)
-        sel.CharColor = char_color
-
-    best_effort(_apply, "_apply_char_color_to_cursor_range")
-
-
-def _apply_char_emphasis_to_cursor_range(model: Any, start: Any, end: Any, *, bold: bool | None = None, underline: bool | None = None) -> None:
-    if end is None:
-        return
-
-    def _apply() -> None:
-        sel = model.createTextCursor()
-        sel.gotoRange(start, False)
-        sel.gotoRange(end, True)
-        if bold is True:
-            sel.CharWeight = 150.0
-        elif bold is False:
-            sel.CharWeight = CHAT_FONT_WEIGHT
-        if underline is True:
-            sel.CharUnderline = 1
-        elif underline is False:
-            sel.CharUnderline = 0
-
-    best_effort(_apply, "_apply_char_emphasis_to_cursor_range")
-
-
 def _insert_string_at_rich_cursor(
     model: Any, cursor: Any, text: str, char_color: Any = None, *, bold: bool | None = None, underline: bool | None = None
 ) -> None:
@@ -1188,11 +1142,26 @@ def _insert_string_at_rich_cursor(
         raise RuntimeError("RichTextControl model has no insertString")
 
     # Post-insert pass: RichTextControl often ignores pre-insert cursor Char* props.
-    if start is not None:
+    if start is not None and (not _is_automatic_char_color(char_color) or bold is not None or underline is not None):
         end = cursor.getStart()
-        _apply_char_color_to_cursor_range(model, start, end, char_color)
-        if bold is not None or underline is not None:
-            _apply_char_emphasis_to_cursor_range(model, start, end, bold=bold, underline=underline)
+
+        def _apply() -> None:
+            sel = model.createTextCursor()
+            sel.gotoRange(start, False)
+            sel.gotoRange(end, True)
+            if not _is_automatic_char_color(char_color):
+                sel.CharColor = char_color
+            if end is not None:
+                if bold is True:
+                    sel.CharWeight = 150.0
+                elif bold is False:
+                    sel.CharWeight = CHAT_FONT_WEIGHT
+                if underline is True:
+                    sel.CharUnderline = 1
+                elif underline is False:
+                    sel.CharUnderline = 0
+
+        best_effort(_apply, "_insert_string_at_rich_cursor")
     if bold is not None or underline is not None:
         cursor.CharWeight = CHAT_FONT_WEIGHT
         cursor.CharUnderline = 0
@@ -1323,29 +1292,6 @@ def get_control_text_length(control: Any) -> int | None:
         return None
 
 
-def truncate_control_from(control: Any, start_len: int | None) -> None:
-    """Remove trailing plain text from *start_len* onward without resetting earlier formatting.
-
-    Assigning ``model.Text`` would flatten the whole control to unformatted plain text
-    (e.g. user message color lost). Delete only the tail via a text cursor.
-    """
-    if control is None or start_len is None:
-        return
-    try:
-        text_len = get_control_text_length(control)
-        if text_len is None or start_len >= text_len:
-            return
-        model = control.getModel()
-        cursor = model.createTextCursor()
-        cursor.gotoStart(False)
-        go_right(cursor, int(start_len), False)
-        cursor.gotoEnd(True)
-        cursor.setString("")
-        log.debug("truncate_control_from: removed tail from offset %d (len now %d)", start_len, len(model.Text or ""))
-    except Exception:
-        log.exception("truncate_control_from failed")
-
-
 def rollback_rich_insert(control: Any, before: int | None) -> None:
     """Undo a separator or partial copy that did not finish as a full insert.
 
@@ -1356,11 +1302,21 @@ def rollback_rich_insert(control: Any, before: int | None) -> None:
     treats 0 as "delete from the start", so an unknown length must not roll
     back.
     """
-    if before is None:
+    if control is None or before is None:
         return
+    try:
+        text_len = get_control_text_length(control)
+        if text_len is not None and before < text_len:
+            model = control.getModel()
+            cursor = model.createTextCursor()
+            cursor.gotoStart(False)
+            go_right(cursor, int(before), False)
+            cursor.gotoEnd(True)
+            cursor.setString("")
+    except Exception:
+        log.exception("rollback_rich_insert failed")
     from plugin.calc.navigation import drop_cell_link_spans_from
 
-    truncate_control_from(control, before)
     drop_cell_link_spans_from(control, before)
 
 
