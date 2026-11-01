@@ -7,13 +7,9 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
-import tempfile
 from dataclasses import dataclass
 from typing import Any, Iterator
-
-import uno
 
 from plugin.framework.uno_context import get_desktop
 
@@ -63,11 +59,6 @@ def _exception_message(exc: Exception) -> str:
     raw = getattr(exc, "Message", None) or str(exc)
     text = raw.strip() if isinstance(raw, str) else ""
     return f"{name}: {text}" if text else name
-
-
-def file_url(path: str) -> str:
-    return uno.systemPathToFileUrl(os.path.abspath(path))
-
 
 
 def collapse_starmath_newline_tokens_for_writer_embed(starmath: str) -> str:
@@ -128,43 +119,38 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
     if not root:
         return MathConversionResult(False, None, "not_math_root")
 
-    fd, path = tempfile.mkstemp(suffix=".mml", prefix="writeragent-math-", text=False)
-    os.close(fd)
+    payload = '<?xml version="1.0" encoding="UTF-8"?>\n' + root
     try:
-        payload = '<?xml version="1.0" encoding="UTF-8"?>\n' + root
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(payload)
+        from plugin.writer.format import _with_temp_buffer, create_property_value
 
-        from plugin.writer.format import create_property_value
-        desktop = get_desktop(ctx)
-        hidden = (create_property_value("Hidden", True),)
-        url = file_url(path)
-        doc = desktop.loadComponentFromURL(url, "_blank", 0, hidden)
-        if doc is None:
-            return MathConversionResult(False, None, "load_returned_none")
-        try:
-            formula = doc.getPropertyValue("Formula")
-            assert isinstance(formula, str)
-            if not formula.strip():
-                return MathConversionResult(False, None, "empty_formula_property: LibreOffice Math opened the file but returned no formula text (unsupported or invalid MathML for this build).")
-            return MathConversionResult(
-                True,
-                collapse_starmath_newline_tokens_for_writer_embed(formula.strip()),
-                None,
-            )
-        finally:
+        with _with_temp_buffer(content=payload, ext=".mml") as (_path, url):
+            desktop = get_desktop(ctx)
+            hidden = (create_property_value("Hidden", True),)
+            doc = desktop.loadComponentFromURL(url, "_blank", 0, hidden)
+            if doc is None:
+                return MathConversionResult(False, None, "load_returned_none")
             try:
-                doc.close(True)
-            except Exception as exc:
-                log.debug("math doc close: %s", exc)
+                formula = doc.getPropertyValue("Formula")
+                assert isinstance(formula, str)
+                if not formula.strip():
+                    return MathConversionResult(
+                        False,
+                        None,
+                        "empty_formula_property: LibreOffice Math opened the file but returned no formula text (unsupported or invalid MathML for this build).",
+                    )
+                return MathConversionResult(
+                    True,
+                    collapse_starmath_newline_tokens_for_writer_embed(formula.strip()),
+                    None,
+                )
+            finally:
+                try:
+                    doc.close(True)
+                except Exception as exc:
+                    log.debug("math doc close: %s", exc)
     except Exception as exc:
         log.debug("convert_mathml_to_starmath failed: %s", exc, exc_info=True)
         return MathConversionResult(False, None, _exception_message(exc))
-    finally:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
 
 
 
@@ -204,16 +190,21 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
         cursor.setPropertyValue("ParaAdjust", para_adjust)
 
 
+def _math_inner(embed: Any) -> Any:
+    return embed.getEmbeddedObject() if hasattr(embed, "getEmbeddedObject") else embed
+
+
 def replace_writer_math_formula(embed: Any, starmath: str) -> None:
     """Set StarMath on an existing Writer formula object.
 
     Must not insert a second embed or paragraph breaks: doing that while the
     OLE is selected is a native LibreOffice crash (no Python traceback).
     """
-    if not starmath.strip():
+    clean = starmath.strip()
+    if not clean:
         raise ValueError("empty_starmath")
-    inner = embed.getEmbeddedObject() if hasattr(embed, "getEmbeddedObject") else embed
+    inner = _math_inner(embed)
     if inner is None or not hasattr(inner, "Formula"):
         raise ValueError("not_a_formula_object")
-    inner.Formula = starmath.strip()
+    inner.Formula = clean
 
