@@ -189,20 +189,10 @@ class FrameSetProperties(ToolWriterTextFramesBase):
 
         for param_name, val in (("width_mm", width_mm), ("height_mm", height_mm)):
             if val is not None:
-                if type(val) is bool:
-                    return self._tool_error(
-                        f"{param_name} must be a positive finite number.",
-                        code="INVALID_PARAMETER",
-                        parameter=param_name,
-                    )
                 try:
                     fval = float(val)
-                    if not (math.isfinite(fval) and fval > 0):
-                        return self._tool_error(
-                            f"{param_name} must be a positive finite number.",
-                            code="INVALID_PARAMETER",
-                            parameter=param_name,
-                        )
+                    if type(val) is bool or not (math.isfinite(fval) and fval > 0):
+                        raise ValueError
                 except (TypeError, ValueError):
                     return self._tool_error(
                         f"{param_name} must be a positive finite number.",
@@ -218,21 +208,15 @@ class FrameSetProperties(ToolWriterTextFramesBase):
                     parameter="anchor_type",
                 )
 
-        if hori_orient is not None and type(hori_orient) is not int:
-            return self._tool_error(
-                "hori_orient must be an integer.",
-                code="INVALID_PARAMETER",
-                parameter="hori_orient",
-            )
+        for param_name, val in (("hori_orient", hori_orient), ("vert_orient", vert_orient)):
+            if val is not None and type(val) is not int:
+                return self._tool_error(
+                    f"{param_name} must be an integer.",
+                    code="INVALID_PARAMETER",
+                    parameter=param_name,
+                )
 
-        if vert_orient is not None and type(vert_orient) is not int:
-            return self._tool_error(
-                "vert_orient must be an integer.",
-                code="INVALID_PARAMETER",
-                parameter="vert_orient",
-            )
-
-        new_size = None
+        pending: list[tuple[str, str, Any]] = []
         if width_mm is not None or height_mm is not None:
             from com.sun.star.awt import Size
 
@@ -240,24 +224,18 @@ class FrameSetProperties(ToolWriterTextFramesBase):
             new_size = Size()
             new_size.Width = mm_to_unit(width_mm) if width_mm is not None else current.Width
             new_size.Height = mm_to_unit(height_mm) if height_mm is not None else current.Height
+            pending.append(("size", "Size", new_size))
 
-        anchor_val = text_content_anchor(anchor_type) if anchor_type is not None else None
-
-        updated: list[str] = []
+        if anchor_type is not None:
+            pending.append(("anchor_type", "AnchorType", text_content_anchor(anchor_type)))
+        if hori_orient is not None:
+            pending.append(("hori_orient", "HoriOrient", hori_orient))
+        if vert_orient is not None:
+            pending.append(("vert_orient", "VertOrient", vert_orient))
 
         def _apply() -> None:
-            if new_size is not None:
-                frame.setPropertyValue("Size", new_size)
-                updated.append("size")
-            if anchor_val is not None:
-                frame.setPropertyValue("AnchorType", anchor_val)
-                updated.append("anchor_type")
-            if hori_orient is not None:
-                frame.setPropertyValue("HoriOrient", hori_orient)
-                updated.append("hori_orient")
-            if vert_orient is not None:
-                frame.setPropertyValue("VertOrient", vert_orient)
-                updated.append("vert_orient")
+            for _, prop, val in pending:
+                frame.setPropertyValue(prop, val)
 
         err = commit_or_rollback_mutation(
             self,
@@ -271,4 +249,4 @@ class FrameSetProperties(ToolWriterTextFramesBase):
         if err is not None:
             return err
 
-        return {"status": "ok", "frame_name": frame_name, "updated": updated}
+        return {"status": "ok", "frame_name": frame_name, "updated": [label for label, _, _ in pending]}

@@ -45,11 +45,9 @@ def _to_file_url(path_or_url: str) -> str:
     if path_or_url.startswith("file:"):
         return normalize_file_url(path_or_url)
     try:
-        # import uno is unconditional; ty treats `if uno` as always-true once UNO is linked.
-        if hasattr(uno, "systemPathToFileUrl"):
-            res = uno.systemPathToFileUrl(os.path.abspath(path_or_url))
-            if isinstance(res, str):
-                return res
+        res = uno.systemPathToFileUrl(os.path.abspath(path_or_url))
+        if isinstance(res, str):
+            return res
     except Exception:
         log.debug("systemPathToFileUrl failed", exc_info=True)
     return Path(os.path.abspath(path_or_url)).as_uri()
@@ -63,8 +61,7 @@ def _to_system_path(path_or_url: str) -> str:
         return path_or_url
     url = normalize_file_url(path_or_url)
     try:
-        if hasattr(uno, "fileUrlToSystemPath"):
-            return str(uno.fileUrlToSystemPath(url))
+        return str(uno.fileUrlToSystemPath(url))
     except Exception:
         log.debug("fileUrlToSystemPath failed", exc_info=True)
     return unquote(urlparse(url).path)
@@ -124,7 +121,7 @@ class ListDataSources(ToolWriterMailMergeBase):
         target_ds_name = kwargs.get("data_source_name")
 
         db_ctx = _get_database_context(ctx)
-        if not db_ctx or not hasattr(db_ctx, "getElementNames"):
+        if not db_ctx:
             return self._tool_error("Failed to access LibreOffice DatabaseContext.")
 
         available_names = list(db_ctx.getElementNames())
@@ -170,8 +167,7 @@ class ListDataSources(ToolWriterMailMergeBase):
                         source_entry["tables"] = tables_info
                     finally:
                         try:
-                            if hasattr(conn, "close"):
-                                conn.close()
+                            conn.close()
                         except Exception as exc:
                             reraise_if_disposed(exc)
                             log.debug("mail merge: closing data-source connection failed", exc_info=True)
@@ -229,11 +225,7 @@ class RegisterDataSource(ToolWriterMailMergeBase):
         # XDatabaseRegistrations methods registerDatabaseLocation / changeDatabaseLocation
         # manage named database locations by URL.
         db_ctx = _get_database_context(ctx)
-        if (
-            not db_ctx
-            or not hasattr(db_ctx, "registerDatabaseLocation")
-            or not hasattr(db_ctx, "changeDatabaseLocation")
-        ):
+        if not db_ctx:
             return self._tool_error("Failed to access LibreOffice DatabaseContext.")
 
         if action == "unregister":
@@ -360,7 +352,7 @@ class InsertField(ToolWriterMailMergeBase):
         master_id = f"com.sun.star.text.fieldmaster.Database.{data_source_name}.{table_name}.{column_name}"
 
         masters = doc.getTextFieldMasters()
-        if hasattr(masters, "hasByName") and masters.hasByName(master_id):
+        if masters.hasByName(master_id):
             try:
                 master = masters.getByName(master_id)
             except Exception as exc:
@@ -371,18 +363,16 @@ class InsertField(ToolWriterMailMergeBase):
             master = doc.createInstance(master_service_name)
             if not master:
                 return self._tool_error("Failed to create database field master service.")
-            if hasattr(master, "setPropertyValue"):
-                master.setPropertyValue("DataBaseName", data_source_name)
-                master.setPropertyValue("DataTableName", table_name)
-                master.setPropertyValue("DataColumnName", column_name)
-                master.setPropertyValue("DataCommandType", cmd_type_val)
+            master.setPropertyValue("DataBaseName", data_source_name)
+            master.setPropertyValue("DataTableName", table_name)
+            master.setPropertyValue("DataColumnName", column_name)
+            master.setPropertyValue("DataCommandType", cmd_type_val)
 
         # 2. Create TextField.Database instance
         field = doc.createInstance("com.sun.star.text.textfield.Database")
         if not field:
             return self._tool_error("Failed to create database textfield service.")
-        if hasattr(field, "attachTextFieldMaster"):
-            field.attachTextFieldMaster(master)
+        field.attachTextFieldMaster(master)
 
         if target == "search" and old_content:
             from ..edit_review import next_agent_edit_undo_title
@@ -440,9 +430,6 @@ class ListFields(ToolWriterMailMergeBase):
             return self._tool_error("Document does not support text fields.")
 
         fields_container = doc.getTextFields()
-        if not hasattr(fields_container, "createEnumeration"):
-            return self._tool_error("Cannot enumerate text fields in document.")
-
         enum = fields_container.createEnumeration()
         merge_fields = []
         field_idx = 0
@@ -453,30 +440,28 @@ class ListFields(ToolWriterMailMergeBase):
 
             # Check if this is a Database text field
             is_db_field = False
-            if hasattr(field, "supportsService"):
-                try:
-                    is_db_field = field.supportsService("com.sun.star.text.textfield.Database")
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    is_db_field = False
+            try:
+                is_db_field = field.supportsService("com.sun.star.text.textfield.Database")
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                is_db_field = False
 
             db_name = ""
             tbl_name = ""
             col_name = ""
 
-            if hasattr(field, "getPropertySetInfo"):
-                try:
-                    info = field.getPropertySetInfo()
-                    if info.hasPropertyByName("DataColumnName"):
-                        is_db_field = True
-                        col_name = field.getPropertyValue("DataColumnName") or ""
-                    if info.hasPropertyByName("DataBaseName"):
-                        db_name = field.getPropertyValue("DataBaseName") or ""
-                    if info.hasPropertyByName("DataTableName"):
-                        tbl_name = field.getPropertyValue("DataTableName") or ""
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    log.debug("mail merge: database field properties unreadable", exc_info=True)
+            try:
+                info = field.getPropertySetInfo()
+                if info.hasPropertyByName("DataColumnName"):
+                    is_db_field = True
+                    col_name = field.getPropertyValue("DataColumnName") or ""
+                if info.hasPropertyByName("DataBaseName"):
+                    db_name = field.getPropertyValue("DataBaseName") or ""
+                if info.hasPropertyByName("DataTableName"):
+                    tbl_name = field.getPropertyValue("DataTableName") or ""
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                log.debug("mail merge: database field properties unreadable", exc_info=True)
 
             if is_db_field:
                 presentation = ""
