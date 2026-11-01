@@ -189,9 +189,9 @@ def locate_formula_cell_in_doc(doc: Any, code_str: str) -> _Location | None:
         return None
 
     memo = _LOCATE_MEMO.get()
-    cache_key = (id(doc), code_str) if memo is not None else None
-    if memo is not None and cache_key in memo:
-        return memo[cache_key]
+    key = (id(doc), code_str)
+    if memo is not None and key in memo:
+        return memo[key]
 
     collected: list[_Location] = []
     sheets = doc.getSheets() if hasattr(doc, "getSheets") else None
@@ -205,6 +205,6 @@ def locate_formula_cell_in_doc(doc: Any, code_str: str) -> _Location | None:
                 break
 
     res = collected[0] if len(collected) == 1 else None
-    if memo is not None and cache_key is not None:
-        memo[cache_key] = res
+    if memo is not None:
+        memo[key] = res
     return res
