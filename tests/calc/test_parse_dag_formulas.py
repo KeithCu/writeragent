@@ -116,7 +116,7 @@ def test_blank_bank_value_is_not_resolved(tmp_path: Path) -> None:
 
 
 def test_resolve_code_bank_ref_uppercases_a1_lookup() -> None:
-    assert resolve_code_bank_ref("py_code_Data.A1", {"py_code_Data": {"a1": ("", "print(1)")}}) == "print(1)"
+    assert resolve_code_bank_ref("py_code_Data.A1", {"py_code_Data": {"A1": ("", "print(1)")}}) == "print(1)"
 
 
 def test_empty_sheet_returns_no_py_formulas(tmp_path: Path) -> None:

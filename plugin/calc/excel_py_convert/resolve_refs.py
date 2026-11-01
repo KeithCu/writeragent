@@ -74,7 +74,7 @@ def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "")
             if val is not None:
                 return val
 
-    if not sheet_hint or len(getattr(model, "sheets", ()) or ()) <= 1:
+    if not sheet_hint or len(model.sheets) <= 1:
         return lookup(addr)
     return None
 

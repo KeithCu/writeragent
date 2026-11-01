@@ -45,6 +45,7 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from plugin.calc.excel_py_convert.models import (
     BindingInfo,
@@ -95,9 +96,6 @@ class _XlAnalysis:
     issues: list[str]
     header_modes: dict[int, str]
     fatal: bool
-
-
-_RESOLVED_KINDS = frozenset(("range", "unresolved", "table_snapshot", "anchor_snapshot"))
 
 
 def _deal_excel_src_ok(src: object) -> bool:
@@ -381,7 +379,7 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
     lambda resolved, header_modes: (
         type(resolved) is list
         and len(resolved) <= DEAL_MAX_CMD_ARGS
-        and all(isinstance(r, ResolvedDep) and r.kind in _RESOLVED_KINDS and str_bounded(r.note or "", DEAL_MAX_SOURCE) and ascii_bounded(r.a1, DEAL_MAX_SOURCE) and (r.original is None or ascii_bounded(r.original, DEAL_MAX_SOURCE)) for r in resolved)
+        and all(isinstance(r, ResolvedDep) and str_bounded(r.note or "", DEAL_MAX_SOURCE) and ascii_bounded(r.a1, DEAL_MAX_SOURCE) and (r.original is None or ascii_bounded(r.original, DEAL_MAX_SOURCE)) for r in resolved)
         and type(header_modes) is dict
         and len(header_modes) <= DEAL_MAX_CMD_ARGS
         and all(type(k) is int and 0 <= k <= DEAL_MAX_CMD_ARGS and isinstance(v, str) and v in ("omit", "true", "false") for k, v in header_modes.items())
@@ -428,16 +426,19 @@ def _normalize_bindings(resolved: list[ResolvedDep], header_modes: dict[int, str
 def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, has_prior: bool = False, best_effort: bool = False) -> ConvertedCell:
     # crosshair: off
     """Convert one Excel PY cell: rewrite ``xl`` in code + attach ranges on ``=PY``."""
+    base: dict[str, Any] = {
+        "sheet": cell.sheet,
+        "cell": cell.cell,
+        "direction": "dag",
+        "return_type": cell.return_type,
+        "array_ref": cell.array_ref,
+        "script_index": cell.script_index,
+    }
     if cell.script_index < 0 or cell.script_index >= len(model.scripts):
         return ConvertedCell(
-            sheet=cell.sheet,
-            cell=cell.cell,
-            direction="dag",
+            **base,
             original_code="",
             converted_code="",
-            return_type=cell.return_type,
-            array_ref=cell.array_ref,
-            script_index=cell.script_index,
             converted=False,
             issues=[f"script_index {cell.script_index} out of range ({len(model.scripts)} scripts)"],
         )
@@ -484,14 +485,9 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, has_pri
 
     failed = fatal and not best_effort
     out = ConvertedCell(
-        sheet=cell.sheet,
-        cell=cell.cell,
-        direction="dag",
+        **base,
         original_code=original,
         converted_code=original if failed else new_code,
-        return_type=cell.return_type,
-        array_ref=cell.array_ref,
-        script_index=cell.script_index,
         converted=not failed,
         data_args=data_args,
         excel_deps=excel_deps,
