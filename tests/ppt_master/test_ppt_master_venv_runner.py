@@ -193,6 +193,7 @@ def test_ppt_master_session_delegates_to_venv():
     ):
         out = tool.execute(ctx, query="Build a deck")
         mock_run.assert_called_once()
+        assert mock_run.call_args.kwargs["model"] is None
         assert mock_run.call_args.kwargs["cancellation_scope"] is ctx.send_cancellation
         assert out["status"] == "ok"
         assert "done" in out["result"]

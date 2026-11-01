@@ -27,33 +27,27 @@ _MEMORY_WRITE_LOCK = threading.Lock()
 
 
 class MemoryStore:
-    memory_dir: str
+    path: str
 
     def __init__(self) -> None:
         # crosshair: off
         config_dir = user_config_dir()
         if config_dir is None:
             raise ConfigError("UNO context is required to resolve memory store path")
-        self.memory_dir = os.path.join(config_dir, "memories")
-        os.makedirs(self.memory_dir, exist_ok=True)
-
-    @deal.post(lambda result: isinstance(result, str) and result.endswith("USER.md"))
-    def _get_path(self) -> str:
-        # crosshair: off
-        return os.path.join(self.memory_dir, "USER.md")
+        self.path = os.path.join(config_dir, "memories", "USER.md")
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
 
     def read(self) -> str:
         # crosshair: off
-        path = self._get_path()
-        if not os.path.exists(path):
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
             return ""
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
 
     def write(self, content: str) -> None:
         # crosshair: off
-        path = self._get_path()
-        atomic_write_text(path, content, prefix=".memory-", fsync=True)
+        atomic_write_text(self.path, content, prefix=".memory-", fsync=True)
 
     def upsert(self, key: str, content: Any) -> dict[str, Any]:
         # crosshair: off
@@ -133,11 +127,16 @@ class MemoryStore:
                 return {"status": "error", "message": f"Failed to write memory: {e}"}
 
 
-def user_profile_exists(ctx: Any = None) -> bool:
+def user_memory_is_blank(val: Any) -> bool:
+    """True when user memory text is empty, whitespace, or '{}'."""
+    text = str(val or "").strip()
+    return not text or text == "{}"
+
+
+def user_profile_exists() -> bool:
     """True when USER.md has non-empty content. Missing store or I/O → False (start Librarian)."""
     val = best_effort(lambda: MemoryStore().read(), "user_profile_exists: treating profile as missing")
-    text = str(val or "").strip()
-    return bool(text) and text != "{}"
+    return not user_memory_is_blank(val)
 
 
 # Chat preview when upsert_memory runs (sidebar / librarian); value truncated for huge strings.

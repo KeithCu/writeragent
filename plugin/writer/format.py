@@ -31,14 +31,8 @@ from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.uno_context import create_property_value as create_property_value
 from plugin.framework.url_utils import path_to_file_url
 from .math.html_math_segment import html_fragment_contains_mixed_math  # noqa: F401  # pyright: ignore[reportUnusedImport]
-from . import xhtml_style_postprocess as xhtml_post  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 log = logging.getLogger("writeragent.writer")
-
-__all__ = [
-    "_with_temp_buffer",
-    "_strip_html_boilerplate",
-]
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +40,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 HTML_FILTER = "HTML (StarWriter)"
-HTML_EXTENSION = ".html"
 
 # Read-path export filter. The XHTML filter preserves the paragraph style model as CSS
 # classes + a <style> block (vs HTML (StarWriter), which flattens everything to inline
@@ -100,11 +93,8 @@ def _resolve_temp_dir() -> str:
     return tempfile.gettempdir()
 
 
-TEMP_DIR = _resolve_temp_dir()
-
-
 @contextlib.contextmanager
-def _with_temp_buffer(content: Any = None, ext: str | None = None) -> Generator[tuple[str, str], None, None]:
+def _with_temp_buffer(content: Any = None, ext: str | None = None) -> Generator[tuple[str, str], None, None]:  # pyright: ignore[reportUnusedFunction]
     """Context manager that yields ``(path, file_url)`` for a temp file
     with the correct format extension.
 
@@ -113,8 +103,8 @@ def _with_temp_buffer(content: Any = None, ext: str | None = None) -> Generator[
     The file is deleted on exit.
     """
     if ext is None:
-        ext = HTML_EXTENSION
-    fd, path = tempfile.mkstemp(suffix=ext, dir=TEMP_DIR)
+        ext = ".html"
+    fd, path = tempfile.mkstemp(suffix=ext, dir=_resolve_temp_dir())
     try:
         if content is not None:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -131,7 +121,7 @@ def _with_temp_buffer(content: Any = None, ext: str | None = None) -> Generator[
 # ---------------------------------------------------------------------------
 
 
-def _strip_html_boilerplate(html_string: str) -> str:
+def _strip_html_boilerplate(html_string: str) -> str:  # pyright: ignore[reportUnusedFunction]
     """Extract content between ``<body>`` tags if present."""
     if not html_string or not isinstance(html_string, str):
         return html_string
@@ -186,13 +176,6 @@ _CAPTURE_PARA_LIMIT = 200000
 _CAPTURE_PORTION_LIMIT = 50000
 
 
-def enum_hit_walk_cap(seen: int, limit: int, enum: Any) -> bool:
-    """True when a walk stopped because of *limit*, not because *enum* was exhausted."""
-    if seen < limit or enum is None:
-        return False
-    return enum.hasMoreElements() is True
-
-
 def walk_cap_warning(kind: str, seen: int, limit: int) -> str:
     """Agent-facing note when a text walk stopped at a hard cap.
 
@@ -209,7 +192,7 @@ def walk_cap_warning(kind: str, seen: int, limit: int) -> str:
 
 def record_walk_cap(enum: Any, seen: int, limit: int, kind: str, dest: list[str] | None = None) -> bool:
     """Log (and optionally collect) a walk-cap warning. Returns True when the cap was hit."""
-    if not enum_hit_walk_cap(seen, limit, enum):
+    if seen < limit or enum is None or enum.hasMoreElements() is not True:
         return False
     msg = walk_cap_warning(kind, seen, limit)
     log.warning("%s", msg)
@@ -492,14 +475,8 @@ def apply_paragraph_style_preserving_direct_char(
         reraise_if_disposed(exc)
         raise
 
-    if clear_direct == "all":
-        skip = None  # restore nothing
-    elif clear_direct == "style_props":
-        skip = set(STYLE_GOVERNED_CHAR_PROPERTIES)
-    else:
-        skip = set()  # historical behaviour: restore everything
-
-    if skip is not None:
+    skip = STYLE_GOVERNED_CHAR_PROPERTIES if clear_direct == "style_props" else ()
+    if clear_direct != "all":
         for pc, props in overrides:
             for name, val in props.items():
                 if name in skip:
@@ -522,7 +499,7 @@ def apply_paragraph_style_preserving_direct_char(
     else:
         # Only what was really dropped — under "style_props" bold and italic were restored, and
         # listing them as removed would send the caller chasing a change that never happened.
-        removed = found if skip is None else {k: v for k, v in found.items() if k in skip}
+        removed = {k: v for k, v in found.items() if clear_direct == "all" or k in skip}
         if removed:
             report["removed_char_overrides"] = removed
         # Clear Char* explicitly: the ParaStyleName side effect leaves direct overrides on portions.
@@ -564,7 +541,7 @@ def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) 
     except ImportError:
         apply_fn()
         return
-    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled(ctx))
+    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled())
     try:
         with review:
             review.record_mutation(apply_fn)
@@ -603,7 +580,5 @@ from .html_import import (
 from .field_restore import (
     rewrite_exported_field_spans as rewrite_exported_field_spans,
 )
-
-content_has_block_markup = _content_has_block_markup
 
 

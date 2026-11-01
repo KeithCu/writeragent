@@ -118,22 +118,17 @@ class EvalRunListener(BaseActionListener):
     ctx: Any
     dialog: Any
     is_running: bool
-    _job: Any
-    _owner: EvalDashboard | None
+    _owner: EvalDashboard
 
-    def __init__(self, ctx: Any, dialog: Any, owner: EvalDashboard | None = None) -> None:
+    def __init__(self, ctx: Any, dialog: Any, owner: EvalDashboard) -> None:
         self.ctx = ctx
         self.dialog = dialog
         self._owner = owner
         self.is_running = False
-        self._job = None
 
     def _dialog_closed(self) -> bool:
         """True after show() disposes the dialog, or when the dialog is gone."""
-        owner = self._owner
-        if owner is not None and owner._closed:
-            return True
-        return self.dialog is None
+        return self._owner._closed
 
     def on_action_performed(self, rEvent: Any) -> None:
         if self.is_running:
@@ -141,7 +136,7 @@ class EvalRunListener(BaseActionListener):
         self.is_running = True
         self.run_suite()
 
-    def run_suite(self) -> None:
+    def run_suite(self) -> Any:
         # TYPE_CHECKING is true for Pyright: do not follow tests.eval_runner → plugin.main.
         # Runtime TYPE_CHECKING is false: import stays lazy until Run.
         if TYPE_CHECKING:
@@ -195,7 +190,7 @@ class EvalRunListener(BaseActionListener):
             post_to_main_thread(self._show_summary, model_name, summary)
 
         # dedicated: a full suite holds the worker for minutes and must not take a pool slot.
-        self._job = run_in_background(_job, name="eval-benchmark", dedicated=True)
+        return run_in_background(_job, name="eval-benchmark", dedicated=True)
 
     def _after_test(self, result: dict[str, Any]) -> None:
         """Posted once per test so the dialog paints without waiting for the suite."""

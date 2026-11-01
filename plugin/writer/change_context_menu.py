@@ -33,7 +33,7 @@ import unohelper
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.errors import is_real_disposal
-from plugin.framework.uno_listeners import install_view_doc_listener
+from plugin.framework.uno_listeners import _controller_alive, install_view_doc_listener
 
 log = logging.getLogger(__name__)
 
@@ -130,13 +130,6 @@ def _make_interceptor(model: Any) -> Any:
     return _interceptor_cls(model)
 
 
-def _controller_alive(controller: Any) -> bool:
-    try:
-        return controller.getModel() is not None
-    except Exception:
-        return False
-
-
 def _cleanup_disposed_controllers() -> None:
     """Passively remove any disposed controllers/interceptors from our tracking lists."""
     try:
@@ -187,9 +180,6 @@ def _register_controller(controller: Any) -> None:
     try:
         from plugin.framework.uno_context import uno_same
 
-        with _lock:
-            if any(uno_same(controller, pair[0]) for pair in _registered):
-                return
         model = controller.getModel()
         if not _is_writer(model):
             return

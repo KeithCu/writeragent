@@ -65,7 +65,6 @@ class SetSelection(ToolBase):
         search_text = kwargs.get("search_text")
         char_start = kwargs.get("char_start")
         char_end = kwargs.get("char_end")
-        occurrence: int = 0
 
         has_search = search_text is not None and search_text != ""
         has_char = char_start is not None or char_end is not None
@@ -105,7 +104,7 @@ class SetSelection(ToolBase):
 
             try:
                 target_range = find_occurrence_range(
-                    doc, search_str, occurrence=occurrence, case_sensitive=case_sensitive
+                    doc, search_str, occurrence=occurrence, case_sensitive=case_sensitive  # pyright: ignore[reportPossiblyUnboundVariable]
                 )
             except IndexError as e:
                 return self._tool_error(str(e))
@@ -118,7 +117,7 @@ class SetSelection(ToolBase):
                     )
                 return self._tool_error(
                     "No match for search_text '%s'%s."
-                    % (search_str, (" at occurrence %d" % occurrence) if occurrence else "")
+                    % (search_str, (" at occurrence %d" % occurrence) if occurrence else "")  # pyright: ignore[reportPossiblyUnboundVariable]
                 )
 
             controller.select(target_range)
@@ -142,12 +141,11 @@ class SetSelection(ToolBase):
         controller.select(target_range)
 
         result: dict[str, Any] = {"status": "ok", **fields}
+        result["char_start"] = char_start
         if not fully_reached:
-            result["char_start"] = char_start
             truncation = "Character range was truncated at the document end."
             result["warning"] = (truncation + " " + result["warning"]) if "warning" in result else truncation
         else:
-            result["char_start"] = char_start
             result["char_end"] = char_end
 
         return result

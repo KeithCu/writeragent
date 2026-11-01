@@ -86,7 +86,7 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         return self.Window
 
     def getHeightForWidth(self, nWidth: int) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
-        if not self.parent_window or not self.Window or nWidth <= 0:
+        if nWidth <= 0:
             return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
         from plugin.framework.sidebar_column import apply_sidebar_height_for_width
 
@@ -126,14 +126,12 @@ class PythonPanelElement(unohelper.Base, XUIElement):
 
     def getRealInterface(self) -> XInterface:  # pyright: ignore[reportIncompatibleMethodOverride]
         if not self.toolpanel:
-            new_controller = None
             try:
                 # Dummy-N URP getRealInterface: hop path init + window create
                 # (get_extension_url is @main_thread_only) onto the VCL thread.
                 # Off-main AWT creation is a UNO thread violation and leaves
                 # black menus.
                 def _create_panel() -> None:
-                    nonlocal new_controller
                     if self.toolpanel is not None:
                         return
                     _ensure_paths(self.ctx)
@@ -145,15 +143,15 @@ class PythonPanelElement(unohelper.Base, XUIElement):
                         self.toolpanel = None
                         self.controller = None
 
-                    new_controller = PythonSidebarController(
+                    controller = PythonSidebarController(
                         self.ctx,
                         root_window,
                         self.Frame,
                         on_torn_down=_on_torn_down,
                     )
-                    panel.resize_listener = getattr(new_controller, "resize_listener", None)
+                    panel.resize_listener = controller.resize_listener
                     log.debug("[LIBREPY FIRST LAYOUT] (initial size on app start / sidebar show)")
-                    self.controller = new_controller
+                    self.controller = controller
                     self.toolpanel = panel
 
                 run_on_main(_create_panel)
@@ -162,11 +160,6 @@ class PythonPanelElement(unohelper.Base, XUIElement):
                 # failure before that leaves nothing latched, so the next
                 # getRealInterface retries instead of returning a half-built panel.
                 log.exception("PythonPanel getRealInterface failed")
-                if new_controller is not None:
-                    try:
-                        new_controller.disposing(from_window=False)
-                    except Exception:
-                        log.debug("LibrePy sidebar cleanup after failed create", exc_info=True)
                 raise UnoObjectError("Failed to create LibrePy Python sidebar panel", details={"resource": self.ResourceURL}) from e
         # Panel is a Python UNO component; stubs do not overlap XInterface.
         return cast("XInterface", cast("object", self.toolpanel))

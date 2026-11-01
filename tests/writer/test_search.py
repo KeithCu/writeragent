@@ -225,13 +225,13 @@ def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
 
     for bad_limit in (0, -3, "1", True):
         model = MagicMock()
-        res = find_text_ranges(model, MagicMock(), "foo", limit=bad_limit)
+        res = find_text_ranges(model, "foo", limit=bad_limit)
         assert res == []
         model.createSearchDescriptor.assert_not_called()
 
     model = MagicMock()
     model.findNext.return_value = None
-    res = find_text_ranges(model, MagicMock(), "foo", limit=None)
+    res = find_text_ranges(model, "foo", limit=None)
     model.createSearchDescriptor.assert_called_once()
 
 
@@ -266,30 +266,17 @@ def test_find_text_ranges_body_only_skips_other_xtext():
 
     # body_only=True -> only body hit
     model.findNext.side_effect = [hit_body, hit_nested, None]
-    res_body_only = find_text_ranges(model, MagicMock(), "hit", body_only=True)
+    res_body_only = find_text_ranges(model, "hit", body_only=True)
     assert len(res_body_only) == 1
     assert res_body_only[0]["text"] == "hit1"
 
     # body_only=False -> both
     model.findNext.side_effect = [hit_body, hit_nested, None]
-    res_all = find_text_ranges(model, MagicMock(), "hit", body_only=False)
+    res_all = find_text_ranges(model, "hit", body_only=False)
     assert len(res_all) == 2
     assert res_all[0]["text"] == "hit1"
     assert res_all[1]["text"] == "hit2"
     assert res_all[1]["start"] == len("nested_pre")
-
-
-def test_find_text_ranges_start_stops_when_go_right_is_false():
-    from plugin.writer.search import find_text_ranges
-
-    model = MagicMock()
-    cursor = model.getText.return_value.createTextCursor.return_value
-    cursor.goRight.return_value = False
-    model.findNext.return_value = None
-
-    find_text_ranges(model, MagicMock(), "foo", start=100000)
-    cursor.goRight.assert_called_once_with(8192, False)
-    model.findNext.assert_called_once()
 
 
 def test_build_page_map_rebuilds_and_unlocks(caplog):
@@ -396,7 +383,7 @@ def test_find_text_ranges_does_not_report_failure_as_no_hits():
     model = MagicMock()
     model.createSearchDescriptor.side_effect = RuntimeError("search dead")
     with pytest.raises(RuntimeError, match="search dead"):
-        find_text_ranges(model, MagicMock(), "foo")
+        find_text_ranges(model, "foo")
 
 
 def test_return_offsets_does_not_report_failure_as_zero_hits():

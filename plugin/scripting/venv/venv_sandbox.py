@@ -66,7 +66,6 @@ from plugin.scripting.sandbox import (
     parse_extra_modules,
     policy_allowlist,
     policy_blocked_imports,
-    policy_digest,
     policy_relaxed_roots,
 )
 
@@ -1015,20 +1014,19 @@ def _get_or_create_session_executor(
     timeout_sec: int,
     *,
     policy: SandboxPolicy | None = None,
-    digest: str | None = None,
 ) -> tuple[LocalPythonExecutor, bool]:
     with _SESSION_LOCK:
         executor = _SESSION_EXECUTORS.get(session_id)
-        if executor is not None and digest is not None:
-            if getattr(executor, "_sandbox_policy_digest", None) != digest:
+        if executor is not None and policy is not None:
+            if getattr(executor, "_sandbox_policy", None) != policy:
                 _drop_session_unlocked(session_id)
                 executor = None
 
         created = False
         if executor is None:
             executor = _new_executor(timeout_sec, policy=policy)
-            if digest is not None:
-                executor._sandbox_policy_digest = digest
+            if policy is not None:
+                executor._sandbox_policy = policy
             _SESSION_EXECUTORS[session_id] = executor
             created = True
         else:
@@ -1228,7 +1226,6 @@ def _ensure_init_executed(
     deadline: float,
     init_script_hash: str | None = None,
     policy: SandboxPolicy | None = None,
-    digest: str | None = None,
 ) -> dict[str, Any] | None:
     """Run *init_script* once in the persistent init session. Returns error dict or None."""
     script = (init_script or "").strip()
@@ -1243,8 +1240,8 @@ def _ensure_init_executed(
             (prior is not None and prior != script_digest)
             or (
                 cached_exec is not None
-                and digest is not None
-                and getattr(cached_exec, "_sandbox_policy_digest", None) != digest
+                and policy is not None
+                and getattr(cached_exec, "_sandbox_policy", None) != policy
             )
         ):
             _clear_init_session_unlocked(init_session_id)
@@ -1254,7 +1251,7 @@ def _ensure_init_executed(
             return None
 
     init_executor, _ = _get_or_create_session_executor(
-        init_session_id, timeout_sec, policy=policy, digest=digest
+        init_session_id, timeout_sec, policy=policy
     )
     # Init and the cell used to each get a fresh alarm for the full budget, so
     # a slow init plus a slow cell outlived the single host read and killed
@@ -1664,8 +1661,6 @@ def run_sandboxed_code(
     except ValueError as e:
         return _error_result(str(e))
 
-    policy_digest_val = policy_digest(policy)
-
     # Force non-interactive backend so plt.show() doesn't block in the subprocess.
     # Before matplotlib is loaded, MPLBACKEND makes any later import (plt binding,
     # pandas .plot, seaborn) start on Agg without paying the import here.
@@ -1701,7 +1696,7 @@ def run_sandboxed_code(
         if session_id:
             with _SESSION_LOCK:
                 cached = _SESSION_EXECUTORS.get(session_id)
-                if cached is not None and getattr(cached, "_sandbox_policy_digest", None) != policy_digest_val:
+                if cached is not None and getattr(cached, "_sandbox_policy", None) != policy:
                     _drop_session_unlocked(session_id)
 
         if init_sid and (init_script or "").strip():
@@ -1712,14 +1707,13 @@ def run_sandboxed_code(
                 deadline=deadline,
                 init_script_hash=init_digest,
                 policy=policy,
-                digest=policy_digest_val,
             )
             if init_err is not None:
                 return init_err
 
         if session_id:
             executor, created = _get_or_create_session_executor(
-                session_id, timeout_sec, policy=policy, digest=policy_digest_val
+                session_id, timeout_sec, policy=policy
             )
             if init_sid:
                 _seed_shared_executor_once(executor, session_id, init_sid, init_digest)

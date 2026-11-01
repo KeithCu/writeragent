@@ -45,7 +45,7 @@ _MATH_ROOT_RE = re.compile(r"(?is)<math[\s>][\s\S]*?</math>")
 
 def math_root(fragment: str) -> str | None:
     """Extract a <math>...</math> root element from MathML markup."""
-    if not fragment or not isinstance(fragment, str):
+    if not fragment:
         return None
     text = fragment.strip()
     m = _MATH_ROOT_RE.search(text)
@@ -54,7 +54,7 @@ def math_root(fragment: str) -> str | None:
 
 def iter_math_roots(html: str) -> Iterator[re.Match[str]]:
     """Yield every <math>...</math> root element match from MathML markup."""
-    if not html or not isinstance(html, str):
+    if not html:
         return
     yield from _MATH_ROOT_RE.finditer(html)
 
@@ -98,8 +98,6 @@ def collapse_starmath_newline_tokens_for_writer_embed(starmath: str) -> str:
 def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = False) -> MathConversionResult:
     """Convert LaTeX to StarMath via ``latex2mathml`` then :func:`convert_mathml_to_starmath`."""
     assert isinstance(latex, str), type(latex)
-    if not latex:
-        return MathConversionResult(False, None, "empty_latex")
     trimmed = latex.strip()
     if not trimmed:
         return MathConversionResult(False, None, "empty_latex")
@@ -114,9 +112,10 @@ def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = Fal
         log.debug("latex2mathml convert failed: %s", exc, exc_info=True)
         return MathConversionResult(False, None, _exception_message(exc))
     assert isinstance(mathml, str)
-    if not mathml.strip():
+    mathml_stripped = mathml.strip()
+    if not mathml_stripped:
         return MathConversionResult(False, None, "latex2mathml_empty_output")
-    return convert_mathml_to_starmath(ctx, mathml.strip())
+    return convert_mathml_to_starmath(ctx, mathml_stripped)
 
 
 def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversionResult:
@@ -150,11 +149,11 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
             assert isinstance(formula, str)
             if not formula.strip():
                 return MathConversionResult(False, None, "empty_formula_property: LibreOffice Math opened the file but returned no formula text (unsupported or invalid MathML for this build).")
-            _formula_stripped = formula.strip()
-            _for_writer = collapse_starmath_newline_tokens_for_writer_embed(_formula_stripped)
-            if _for_writer != _formula_stripped:
-                log.debug("convert_mathml_to_starmath: collapsed newline operators for Writer embed (len %d -> %d)", len(_formula_stripped), len(_for_writer))
-            return MathConversionResult(True, _for_writer, None)
+            return MathConversionResult(
+                True,
+                collapse_starmath_newline_tokens_for_writer_embed(formula.strip()),
+                None,
+            )
         finally:
             try:
                 doc.close(True)

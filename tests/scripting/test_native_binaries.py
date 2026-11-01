@@ -539,6 +539,7 @@ def test_run_audio_download_selects_cffi_and_portaudio(
     def fake_download(url, dest_path, on_status, **kwargs):
         dl_calls.append((url, dest_path, kwargs))
 
+    displayed: list[str] = []
     with (
         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
         patch("sysconfig.get_config_var", return_value=ext_suffix),
@@ -546,9 +547,9 @@ def test_run_audio_download_selects_cffi_and_portaudio(
         patch("platform.machine", return_value=machine),
         patch("zipfile.ZipFile", _MockZip),
         patch("plugin.scripting.native_binaries._download_url_to_file", side_effect=fake_download),
-        patch("plugin.scripting.native_binaries.run_vec_pack_download", return_value=True) as mock_vec,
+        patch("plugin.scripting.native_binaries._download_vec_pack") as mock_vec,
     ):
-        result = run_audio_download(lambda _t: None, lambda _s: None)
+        result = run_audio_download(displayed.append, lambda _s: None)
 
     assert result is True
 
@@ -570,7 +571,9 @@ def test_run_audio_download_selects_cffi_and_portaudio(
     assert extracted_targets == [native_dir]
 
     mock_vec.assert_called_once()
-    assert mock_vec.call_args.kwargs == {"include_header": False}
+    full_display = "".join(displayed)
+    assert full_display.count("Target directory:") == 1
+    assert "Cython accelerator binary installed successfully." not in full_display
 
     placeholder_file = tmp_path / "audio_binaries" / "_sounddevice_data" / "__init__.py"
     assert placeholder_file.read_text() == "# Placeholder\n"
@@ -601,7 +604,7 @@ def test_run_audio_download_invalidates_import_caches(tmp_path):
         patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
         patch("plugin.scripting.native_binaries._download_url_to_file"),
         patch("zipfile.ZipFile", _MockZip),
-        patch("plugin.scripting.native_binaries.run_vec_pack_download", return_value=True),
+        patch("plugin.scripting.native_binaries._download_vec_pack"),
     ):
         ok = run_audio_download(lambda _t: None, lambda _s: None)
     assert ok is True
@@ -639,7 +642,7 @@ def test_run_audio_download_stops_before_vec_pack_when_cffi_download_fails(tmp_p
         patch("platform.machine", return_value="x86_64"),
         patch("zipfile.ZipFile", _MockZip),
         patch("plugin.scripting.native_binaries._download_url_to_file", side_effect=download_side_effect),
-        patch("plugin.scripting.native_binaries.run_vec_pack_download") as mock_vec,
+        patch("plugin.scripting.native_binaries._download_vec_pack") as mock_vec,
     ):
         with pytest.raises(RuntimeError, match="cffi failed"):
             run_audio_download(lambda _t: None, lambda _s: None)

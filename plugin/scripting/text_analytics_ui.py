@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from collections import Counter
 from functools import partial
-import json
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -466,7 +465,7 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
 
         return "\n".join(lines)
 
-    if helper in ("readability", "entities", "key_phrases", "chunks"):
+    if helper in ("readability", "entities", "key_phrases"):
         if result.get("status") != "ok":
             return _text_analytics_error_line(result)
 
@@ -544,7 +543,7 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
             err_str = str(err)
             if "MISSING_PACKAGE" in err_str:
                 msg = "Sentiment: MISSING_PACKAGE (the transformers package or its dependencies could not be imported)"
-            elif "MODEL_LOAD_FAILED" in err_str or "LOAD_FAILED" in err_str:
+            elif "LOAD_FAILED" in err_str:
                 msg = "Sentiment: model load failed (package is present, but loading the model/tokenizer failed)"
             else:
                 msg = f"Sentiment error: {err}"
@@ -569,7 +568,4 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
     if result.get("status") != "ok":
         return _text_analytics_error_line(result)
 
-    try:
-        return json.dumps(data, indent=2, ensure_ascii=False)[:2000]
-    except (TypeError, ValueError):
-        return "Error: Text analytics failed."
+    return "Error: Text analytics failed."

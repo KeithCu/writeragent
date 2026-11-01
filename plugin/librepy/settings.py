@@ -103,17 +103,19 @@ def open_librepy_settings(ctx: Any) -> None:
         _configure_librepy_settings_chrome(dlg)
         dlg.getModel().Title = _("Python Settings")
 
-        test_btn = get_optional(dlg, "scripting__test_venv")
-        if test_btn is not None:
-            test_listener = ScriptingVenvTestListener(ctx, dlg, include_vector_search=False, include_audio=False)
-            attached.append((test_btn, test_listener))
-            test_btn.addActionListener(test_listener)
-
-        download_btn = get_optional(dlg, "scripting__download_audio_binaries")
-        if download_btn is not None:
-            download_listener = _DownloadVecPackListener(ctx, dlg)
-            attached.append((download_btn, download_listener))
-            download_btn.addActionListener(download_listener)
+        button_listeners = [
+            (
+                "scripting__test_venv",
+                lambda: ScriptingVenvTestListener(ctx, dlg, include_vector_search=False, include_audio=False),
+            ),
+            ("scripting__download_audio_binaries", lambda: _DownloadVecPackListener(ctx, dlg)),
+        ]
+        for ctrl_id, factory in button_listeners:
+            btn = get_optional(dlg, ctrl_id)
+            if btn is not None:
+                listener = factory()
+                attached.append((btn, listener))
+                btn.addActionListener(listener)
 
         field_specs = build_module_field_specs("scripting", control_ids="prefixed", skip_librepy_exclude=True)
         populated: list[tuple[Any, dict[str, Any]]] = []

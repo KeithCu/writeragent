@@ -123,34 +123,43 @@ def _aspect_size(aspect: tuple[int, int] | None) -> Any:
     w, h = aspect
     major = max(w, h)
     minor = min(w, h)
-    short_side = max(1000, round(10000 * minor / major))
+    short_side = max(1000, round(DEFAULT_CHART_SIZE_WIDTH * minor / major))
     if w >= h:
-        return Size(10000, short_side)
+        return Size(DEFAULT_CHART_SIZE_WIDTH, short_side)
     else:
-        return Size(short_side, 10000)
+        return Size(short_side, DEFAULT_CHART_SIZE_WIDTH)
 
 
-def _drop_extra_plot_slots(draw_page: Any, target_cell: Any, image_count: int) -> None:
-    """Remove existing plot shapes on target_cell with slot index >= image_count."""
+def _anchored_plot_slots(draw_page: Any, target_cell: Any) -> list[tuple[Any, int]]:
+    """Return (shape, slot_index) for all plot shapes anchored to target_cell."""
     try:
-        to_remove = []
+        slots: list[tuple[Any, int]] = []
         for index in range(draw_page.getCount()):
             shape = draw_page.getByIndex(index)
             if not _supports_service(shape, _DRAW_GRAPHIC_SERVICE):
                 continue
+            name = shape.getPropertyValue("Name")
+            slot_idx = _plot_slot_index(name if isinstance(name, str) else "")
+            if slot_idx is None:
+                continue
             if not _shape_anchor_matches_cell(shape, target_cell):
                 continue
-            slot_idx = _plot_slot_index(_shape_name(shape))
-            if slot_idx is not None and slot_idx >= image_count:
-                to_remove.append(shape)
-        for s in to_remove:
-            best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
+            slots.append((shape, slot_idx))
+        return slots
     except Exception:
-        log.debug("_drop_extra_plot_slots scan failed", exc_info=True)
+        log.debug("_anchored_plot_slots scan failed", exc_info=True)
+        return []
+
+
+def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_count: int) -> None:
+    """Remove existing plot shapes on target_cell with slot index >= image_count."""
+    for s, slot_idx in slots:
+        if slot_idx >= image_count:
+            best_effort(partial(draw_page.remove, s), "_drop_extra_plot_slots: remove shape")
 
 
 def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> bytes | None:
-    if tmp_path and os.path.isfile(tmp_path):
+    if tmp_path:
         try:
             with open(tmp_path, "rb") as f:
                 return f.read(8192)
@@ -211,18 +220,17 @@ def _clear_image_cell_annotation(doc: Any, code: str | None) -> None:
     sheet, cell, (row, col) = located
     try:
         ann = cell.getAnnotation()
-        if ann is not None:
-            val = ann.getString() or ""
-            if val.startswith(_IMAGE_ANNOTATION_PREFIX):
-                annotations = sheet.getAnnotations()
-                for i in range(annotations.getCount()):
-                    item = annotations.getByIndex(i)
-                    pos = item.getPosition() if hasattr(item, "getPosition") else None
-                    if pos is not None and getattr(pos, "Column", None) == col and getattr(pos, "Row", None) == row:
-                        annotations.removeByIndex(i)
-                        break
-                else:
-                    ann.setString("")
+        val = ann.getString() or ""
+        if val.startswith(_IMAGE_ANNOTATION_PREFIX):
+            annotations = sheet.getAnnotations()
+            for i in range(annotations.getCount()):
+                item = annotations.getByIndex(i)
+                pos = item.getPosition() if hasattr(item, "getPosition") else None
+                if pos is not None and getattr(pos, "Column", None) == col and getattr(pos, "Row", None) == row:
+                    annotations.removeByIndex(i)
+                    break
+            else:
+                ann.setString("")
     except Exception:
         log.debug("_clear_image_cell_annotation failed", exc_info=True)
 
@@ -276,26 +284,7 @@ def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
     return left is not None and left == right
 
 
-def _shape_name(shape: Any) -> str:
-    value = shape.getPropertyValue("Name")
-    return value if isinstance(value, str) else ""
-
-
-def _is_reusable_plot_shape(shape: Any, target_cell: Any, slot_name: str) -> bool:
-    """Graphic we previously inserted at *target_cell* in *slot_name*, not a user image or other shape.
-
-    Require GraphicObjectShape plus matching the specific slot name. An
-    anchor match alone replaces GraphicURL on a rectangle or a photo the
-    user placed on the formula cell. Other WriterAgentPlot* shapes stay put.
-    """
-    if not _supports_service(shape, _DRAW_GRAPHIC_SERVICE):
-        return False
-    if _shape_name(shape) != slot_name:
-        return False
-    return _shape_anchor_matches_cell(shape, target_cell)
-
-
-def _unlink_temp_image(path: str | None) -> None:
+def _unlink_temp_image(path: str) -> None:
     """Best-effort delete of the PNG/SVG written for GraphicURL.
 
     The GraphicURL setter reads the file before it returns and stores the
@@ -305,8 +294,6 @@ def _unlink_temp_image(path: str | None) -> None:
     A build that kept only the URL would show a broken picture; that is not
     what the desktop setter does.
     """
-    if not path:
-        return
     try:
         os.unlink(path)
     except OSError:
@@ -398,8 +385,7 @@ def _insert_image_result_on_sheet_impl(
     # Raise ImageEgressError when the document, sheet, or draw page is
     # missing, or when UNO throws. Logging and returning made =PY(), the
     # venv, and plot_data report the picture as inserted.
-    tmp_path: str | None = None
-    we_created_temp = False
+    created_path: str | None = None
     try:
         from plugin.calc.calc_utils import get_cell_geometry
 
@@ -413,12 +399,9 @@ def _insert_image_result_on_sheet_impl(
 
         if code:
             located = _located_image_cell(doc, code)
-            if located is not None:
-                sheet, target_cell = located[0], located[1]
-            if sheet is None or target_cell is None:
-                message = "could not locate formula cell for formula code; image was not inserted"
-                log.warning("insert_image_result_on_sheet: %s", message)
-                raise ImageEgressError(message)
+            if located is None:
+                _egress_fail("could not locate formula cell for formula code; image was not inserted")
+            sheet, target_cell, _unused = located
 
         ctrl = doc.getCurrentController()
 
@@ -434,12 +417,10 @@ def _insert_image_result_on_sheet_impl(
         if draw_page is None:
             _egress_fail("target sheet has no DrawPage; image was not inserted")
 
-        if target_cell is None and ctrl is not None and hasattr(ctrl, "getSelection"):
+        if target_cell is None and ctrl is not None:
             try:
-                selection = ctrl.getSelection()
-                if selection is not None and hasattr(selection, "getRangeAddress"):
-                    addr = selection.getRangeAddress()
-                    target_cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
+                addr = ctrl.getSelection().getRangeAddress()
+                target_cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
             except Exception:
                 log.debug("insert_image_result_on_sheet: selection fallback failed", exc_info=True)
 
@@ -448,25 +429,16 @@ def _insert_image_result_on_sheet_impl(
         elif payload.get("image_path"):
             tmp_path = str(payload["image_path"])
         else:
-            tmp_path = write_image_payload_to_temp(payload)
-            we_created_temp = True
+            created_path = write_image_payload_to_temp(payload)
+            tmp_path = created_path
         file_url = uno.systemPathToFileUrl(os.path.abspath(tmp_path))
 
         data_bytes = _read_image_bytes(payload, tmp_path)
         aspect = _intrinsic_aspect(data_bytes) if data_bytes else None
         aspect_size = _aspect_size(aspect)
 
-        slot_name = _plot_slot_name(image_index)
-        shape = None
-        if target_cell is not None:
-            try:
-                for index in range(draw_page.getCount()):
-                    candidate = draw_page.getByIndex(index)
-                    if _is_reusable_plot_shape(candidate, target_cell, slot_name=slot_name):
-                        shape = candidate
-                        break
-            except Exception:
-                shape = None
+        slots = _anchored_plot_slots(draw_page, target_cell) if target_cell is not None else []
+        shape = next((s for s, slot_idx in slots if slot_idx == image_index), None)
 
         created_shape = False
         if shape is None:
@@ -474,7 +446,7 @@ def _insert_image_result_on_sheet_impl(
             shape.setSize(aspect_size)
             draw_page.add(shape)
             created_shape = True
-            shape.setPropertyValue("Name", slot_name)
+            shape.setPropertyValue("Name", _plot_slot_name(image_index))
 
         try:
             # Setter loads the file into the shape's Graphic before returning.
@@ -525,13 +497,13 @@ def _insert_image_result_on_sheet_impl(
         # must not remove sibling WriterAgentPlot_N shapes; they may belong to a
         # formula on the selected cell.
         if image_count is not None and image_index == 0 and target_cell is not None:
-            _drop_extra_plot_slots(draw_page, target_cell, image_count)
+            _drop_extra_plot_slots(draw_page, slots, image_count)
     except ImageEgressError:
         raise
     except Exception as exc:
         log.exception("insert_image_result_on_sheet failed to insert graphic shape")
         raise ImageEgressError("insert_image_result_on_sheet failed to insert graphic shape") from exc
     finally:
-        if we_created_temp:
-            _unlink_temp_image(tmp_path)
+        if created_path is not None:
+            _unlink_temp_image(created_path)
 

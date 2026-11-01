@@ -148,16 +148,11 @@ def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
     if isinstance(raw_field, bool):
         raise UnoObjectError(f"Invalid filter 'field' (need 0-based column index): {raw_field!r}")
     try:
-        if isinstance(raw_field, float):
-            if not raw_field.is_integer():
-                raise UnoObjectError(f"Invalid filter 'field' (need integer column index): {raw_field!r}")
-            field = int(raw_field)
-        elif isinstance(raw_field, str):
-            if "." in raw_field:
-                raise UnoObjectError(f"Invalid filter 'field' (need integer column index): {raw_field!r}")
-            field = int(raw_field)
-        else:
-            field = int(raw_field)
+        if (isinstance(raw_field, float) and not raw_field.is_integer()) or (
+            isinstance(raw_field, str) and "." in raw_field
+        ):
+            raise UnoObjectError(f"Invalid filter 'field' (need integer column index): {raw_field!r}")
+        field = int(raw_field)
     except (TypeError, ValueError) as e:
         raise UnoObjectError(f"Invalid filter 'field' (need 0-based column index): {raw_field!r}") from e
 
@@ -180,28 +175,31 @@ def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
     if isinstance(v, (list, dict)):
         raise UnoObjectError(f"Invalid filter 'value': {v!r}")
 
-    if op_label in _OPS_FORCE_NUMERIC:
+    force = op_label in _OPS_FORCE_NUMERIC
+    if force:
         if v is None or str(v).strip() == "" or isinstance(v, bool):
             raise UnoObjectError(f"Operator {op_label} requires numeric 'value'.")
-        try:
-            fv = float(v)
-        except (TypeError, ValueError) as e:
-            raise UnoObjectError(f"Operator {op_label} requires a valid numeric 'value', got {v!r}.") from e
-        if math.isnan(fv) or math.isinf(fv):
-            raise UnoObjectError(f"Operator {op_label} requires a finite numeric 'value', got {v!r}.")
-        return FilterCriterion(field, op_code, conn, True, fv, "")
-
-    if v is None:
+    elif v is None:
         raise UnoObjectError(f"Operator {op_label} requires 'value'.")
 
     is_num = raw.get("is_numeric")
-    if is_num is True or (is_num is None and isinstance(v, (int, float)) and not isinstance(v, bool)):
+    if force or is_num is True or (is_num is None and isinstance(v, (int, float)) and not isinstance(v, bool)):
         try:
             fv = float(v)
         except (TypeError, ValueError) as e:
-            raise UnoObjectError(f"Requires a valid numeric 'value', got {v!r}.") from e
-        if math.isnan(fv) or math.isinf(fv):
-            raise UnoObjectError(f"Numeric 'value' cannot be NaN or infinity, got {v!r}.")
+            msg = (
+                f"Operator {op_label} requires a valid numeric 'value', got {v!r}."
+                if force
+                else f"Requires a valid numeric 'value', got {v!r}."
+            )
+            raise UnoObjectError(msg) from e
+        if not math.isfinite(fv):
+            msg = (
+                f"Operator {op_label} requires a finite numeric 'value', got {v!r}."
+                if force
+                else f"Numeric 'value' cannot be NaN or infinity, got {v!r}."
+            )
+            raise UnoObjectError(msg)
         return FilterCriterion(field, op_code, conn, True, fv, "")
 
     return FilterCriterion(field, op_code, conn, False, 0.0, str(v))

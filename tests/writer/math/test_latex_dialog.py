@@ -66,12 +66,13 @@ def test_selection_latex_prefill_failed_export_returns_empty() -> None:
          patch("plugin.writer.math.math_mml_export.resolve_math_embed_name", return_value="Object1"), \
          patch("plugin.writer.math.math_mml_export.convert_starmath_to_latex", return_value=MathExportResult(False, None, None, "err")), \
          patch("plugin.writer.math.latex_dialog.msgbox") as mock_msgbox:
-        name, latex, display, abort = _selection_latex_prefill(ctx, doc, "last_latex_value", True)
+        res = _selection_latex_prefill(ctx, doc, "last_latex_value", True)
 
+    assert isinstance(res, tuple)
+    name, latex, display = res
     assert name == "Object1"
     assert latex == ""
     assert display is True
-    assert abort is False
     mock_msgbox.assert_called_once()
 
 
@@ -87,12 +88,13 @@ def test_selection_latex_prefill_unreadable_formula_reports() -> None:
     with patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[embed]), \
          patch("plugin.writer.math.math_mml_export.resolve_math_embed_name", return_value="Object1"), \
          patch("plugin.writer.math.latex_dialog.msgbox") as mock_msgbox:
-        name, latex, display, abort = _selection_latex_prefill(ctx, doc, "last_latex_value", True)
+        res = _selection_latex_prefill(ctx, doc, "last_latex_value", True)
 
+    assert isinstance(res, tuple)
+    name, latex, display = res
     assert name == "Object1"
     assert latex == ""
     assert display is True
-    assert abort is False
     mock_msgbox.assert_called_once()
 
 

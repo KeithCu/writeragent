@@ -61,9 +61,9 @@ def _connection_name(cv: Any) -> str:
     if val in ("OR", "AND"):
         return str(val)
     s = str(cv)
-    if s.endswith(".OR") or s == "1":
+    if s.endswith(".OR"):
         return "OR"
-    if s.endswith(".AND") or s == "0":
+    if s.endswith(".AND"):
         return "AND"
     try:
         return "OR" if int(cv) == 1 else "AND"
@@ -94,11 +94,11 @@ def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     return out
 
 
-def _build_filter_fields2(uno_obj: Any, criteria: list[dict[str, Any]], range_width: int | None = None) -> tuple[Any, ...]:
+def _build_filter_fields2(uno_obj: Any, criteria: list[dict[str, Any]], range_width: int) -> tuple[Any, ...]:
     fields: list[Any] = []
     for i, c_raw in enumerate(criteria):
         c = parse_sheet_filter_criterion(c_raw, i == 0)
-        if range_width is not None and c.field >= range_width:
+        if c.field >= range_width:
             raise UnoObjectError(
                 f"Filter criterion field index {c.field} is out of bounds (range has {range_width} columns)."
             )
@@ -146,7 +146,7 @@ def _run_filter(
     ctx: ToolContext,
     kwargs: dict[str, Any],
     criteria: list[dict[str, Any]],
-) -> tuple[str, int]:
+) -> str:
     range_name = _first_range_name(kwargs)
     has_header = bool(kwargs.get("has_header", True))
     cell_range = CalcBridge(ctx.doc).resolve_range_or_address(range_name)
@@ -161,7 +161,7 @@ def _run_filter(
     fields = _build_filter_fields2(uno, criteria, range_width=range_width)
     fd2.setFilterFields2(fields)
     xf.filter(fd)
-    return range_name, len(fields)
+    return range_name
 
 
 _CRITERIA_ARRAY_DESCRIPTION = (
@@ -207,7 +207,8 @@ class ApplySheetFilter(ToolCalcSheetBase):
         if not isinstance(criteria, list) or not criteria:
             raise UnoObjectError("criteria must be a non-empty list of filter conditions.")
 
-        range_name, count = _run_filter(ctx, kwargs, criteria=criteria)
+        range_name = _run_filter(ctx, kwargs, criteria=criteria)
+        count = len(criteria)
         log.info("Sheet filter applied on %s (%d conditions).", range_name.upper(), count)
         return {"status": "ok", "range": range_name, "criteria_count": count}
 
@@ -228,7 +229,7 @@ class ClearSheetFilter(ToolCalcSheetBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_name, _count = _run_filter(ctx, kwargs, [])
+        range_name = _run_filter(ctx, kwargs, [])
         log.info("Sheet filter cleared on %s.", range_name.upper())
         return {"status": "ok", "range": range_name, "cleared": True}
 

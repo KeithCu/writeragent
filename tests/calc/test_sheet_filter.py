@@ -166,6 +166,8 @@ def test_connection_name_decoding():
     assert _connection_name("com.sun.star.sheet.FilterConnection.AND") == "AND"
     assert _connection_name(1) == "OR"
     assert _connection_name(0) == "AND"
+    assert _connection_name("1") == "OR"
+    assert _connection_name("0") == "AND"
     assert _connection_name(None) == "AND"
 
 
@@ -268,3 +270,46 @@ def test_build_filter_fields2_and_readback():
     assert d1["operator"] == "GREATER"
     assert d1["connection"] == "OR"
     assert d1["value"] == 10.0
+
+
+def test_apply_and_clear_sheet_filter_success():
+    ctx = SimpleNamespace(doc=MagicMock())
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=3)
+    xf = MagicMock()
+    fd = MagicMock()
+    fd2 = MagicMock()
+    xf.createFilterDescriptor.return_value = fd
+
+    with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
+         patch("plugin.calc.sheet_filter._query_interface") as qi_mock, \
+         patch("plugin.calc.sheet_filter.uno") as uno_mock:
+        bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
+        uno_mock.createUnoStruct.side_effect = lambda name: SimpleNamespace()
+
+        def fake_qi(obj, iface):
+            if iface == "com.sun.star.sheet.XSheetFilterable":
+                return xf
+            if iface == "com.sun.star.beans.XPropertySet":
+                return MagicMock()
+            if iface == "com.sun.star.sheet.XSheetFilterDescriptor2":
+                return fd2
+            return None
+        qi_mock.side_effect = fake_qi
+
+        apply_tool = ApplySheetFilter()
+        res_apply = apply_tool.execute(
+            ctx,
+            range=["A1:D10"],
+            criteria=[
+                {"field": 0, "operator": "EQUAL", "value": "x"},
+                {"field": 1, "operator": "GREATER", "value": 5, "connection": "OR"},
+            ],
+        )
+        assert res_apply == {"status": "ok", "range": "A1:D10", "criteria_count": 2}
+        assert fd2.setFilterFields2.called
+        assert xf.filter.called
+
+        clear_tool = ClearSheetFilter()
+        res_clear = clear_tool.execute(ctx, range=["A1:D10"])
+        assert res_clear == {"status": "ok", "range": "A1:D10", "cleared": True}

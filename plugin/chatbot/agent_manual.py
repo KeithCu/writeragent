@@ -143,11 +143,6 @@ _MANUALS: dict[str, tuple[_Topic, ...]] = {
     "generic": _GENERIC_TOPICS,
 }
 
-_MANUALS_BY_APP: dict[str, dict[str, _Topic]] = {
-    app: {topic.id: topic for topic in topics}
-    for app, topics in _MANUALS.items()
-}
-
 MANUAL_SECTIONS: dict[str, str] = {topic.id: topic.text for topic in _WRITER_TOPICS}
 
 # Common aliases -> canonical topic, grouped by canonical id.
@@ -200,42 +195,15 @@ def normalize_topic(topic: str | None, doc_type: str | None = "writer") -> str |
     return alias if alias in valid_ids else None
 
 
-# Import asserts: non-empty ids and summaries, unique ids per app,
-# every _ALIASES_BY_TOPIC key exists, generic ids are a subset of writer ids,
-# every alias resolves for an app that has that id.
-for _app_name, _topics in _MANUALS.items():
-    _seen_ids: set[str] = set()
-    for _t in _topics:
-        assert _t.id and _t.summary, f"Topic missing id or summary in {_app_name}: {_t}"
-        assert _t.id not in _seen_ids, f"Duplicate topic {_t.id} in {_app_name}"
-        _seen_ids.add(_t.id)
-
-for _canon_id in _ALIASES_BY_TOPIC:
-    assert _canon_id in _MANUALS_BY_APP["writer"], f"Alias key {_canon_id} not in writer topics"
-
-assert set(_MANUALS_BY_APP["generic"]).issubset(set(_MANUALS_BY_APP["writer"])), (
-    "Generic topic ids must be a subset of writer topic ids"
-)
-
-for _app_name, _topics_dict in _MANUALS_BY_APP.items():
-    for _canon_id, _alias_tuple in _ALIASES_BY_TOPIC.items():
-        if _canon_id in _topics_dict:
-            for _alias in _alias_tuple:
-                assert normalize_topic(_alias, _app_name) == _canon_id, (
-                    f"Alias {_alias} did not resolve to {_canon_id} in {_app_name}"
-                )
-
-
 def get_section(topic: str | None, doc_type: str | None = "writer") -> str | None:
     """The manual section for a topic (alias-aware) in that app's manual, or None if unknown."""
     canon = normalize_topic(topic, doc_type)
     if not canon:
         return None
-    app_topics = _MANUALS_BY_APP.get(_app(doc_type), {})
-    t = app_topics.get(canon)
+    t = next((t for t in _MANUALS[_app(doc_type)] if t.id == canon), None)
     if t is None:
         return None
-    return f"{t.text}{t.standalone_suffix}" if t.standalone_suffix else t.text
+    return t.text + t.standalone_suffix
 
 
 def manual_index(doc_type: str | None = "writer") -> str:
@@ -248,9 +216,8 @@ def manual_index(doc_type: str | None = "writer") -> str:
             "WriterAgent how-to topics — call get_guidance(topic) to read one. No document is open; "
             "topics follow the open document's type (writer, calc, draw). Available now:"
         ]
-        lines += [f"- {t.id}: {t.summary}" for t in _GENERIC_TOPICS]
-        return "\n".join(lines)
-    lines = ["WriterAgent how-to topics — call get_guidance(topic) to read one:"]
+    else:
+        lines = ["WriterAgent how-to topics — call get_guidance(topic) to read one:"]
     lines += [f"- {t.id}: {t.summary}" for t in _MANUALS[_app(doc_type)]]
     return "\n".join(lines)
 

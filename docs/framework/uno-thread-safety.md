@@ -262,7 +262,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
   5. The runtime guard's `_notify_thread_violation()` attempted a blocking `execute_on_main_thread(_show_popup, timeout=5.0)`, freezing the thread.
   6. When 30s elapsed, `_format_error_for_display()` mapped the timeout to a misleading `"Error: Python timed out. Open Settings → Python..."` message.
 - **The Fix Applied**:
-  - **Config-first mode check**: `workbook_session_id()` checks `python_session_mode(ctx)` before touching threads or marshalling.
+  - **Config-first mode check**: `workbook_session_id()` checks `python_session_mode()` before touching threads or marshalling.
   - **Off-main guard on all add-in UNO lookups**: `session_key()`, `get_python_init_kwargs()`, and `diagnostics_workbook_key()` check `on_main_thread()` and return safe no-UNO defaults off-main.
   - **Yellow context refusal**: `sync_host_dispatch()` context manager marks Yellow thread state; `QueueExecutor.execute` immediately refuses blocking calls off-main.
   - **Non-blocking guard notifications**: `_notify_thread_violation()` uses non-blocking `post_to_main_thread()` only when `AsyncCallback` is ready, and never blocks the worker thread.

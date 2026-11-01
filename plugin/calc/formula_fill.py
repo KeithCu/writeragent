@@ -59,7 +59,7 @@ def expand_single_formula(formula: str, num_rows: int, num_cols: int) -> list[st
     ]
 
 
-def _ref_crosses_axis(ref: _Ref, axis: str) -> bool:
+def _ref_crosses_axis(ref: _Ref, axis: str | None) -> bool:
     """True when *ref* spans the fill axis and must stay verbatim.
 
     ``_try_match_ref`` only builds a lone cell (no end), a cell range, a
@@ -87,12 +87,7 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
 
     is_py = py_call_open_end(formula, require_equals=True) is not None
     if is_py and axis is None:
-        if dcol != 0 and drow == 0:
-            axis = "cols"
-        elif drow != 0 and dcol == 0:
-            axis = "rows"
-        elif dcol != 0 and drow != 0:
-            axis = "both"
+        axis = "both" if dcol and drow else "cols" if dcol else "rows"
 
     out: list[str] = []
     i = 0
@@ -106,7 +101,7 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
         matched = _try_match_ref(formula, i)
         if matched is not None:
             end, ref = matched
-            if is_py and axis and _ref_crosses_axis(ref, axis):
+            if is_py and _ref_crosses_axis(ref, axis):
                 out.append(formula[i:end])
             else:
                 out.append(_format_shifted_ref(ref, dcol, drow))
@@ -229,10 +224,9 @@ def _try_part(s: str, i: int) -> tuple[_Part, int] | None:
         if row is not None:
             return _Part(col_idx, row[1], col_abs, row_abs), row[0]
         return _Part(col_idx, None, col_abs, False), j
-    j, row_abs = _read_dollar(s, i)
     row = _read_row(s, j)
     if row is not None:
-        return _Part(None, row[1], False, row_abs), row[0]
+        return _Part(None, row[1], False, col_abs), row[0]
     return None
 
 
@@ -274,33 +268,25 @@ def _try_match_ref(s: str, i: int) -> tuple[int, _Ref] | None:
     return None
 
 
-def _shift_part(part: _Part, dcol: int, drow: int) -> _Part | None:
+def _shift_part_str(part: _Part, dcol: int, drow: int) -> str:
     col, row = part.col, part.row
     if col is not None and not part.col_abs:
         col += dcol
     if row is not None and not part.row_abs:
         row += drow
-    if col is not None and not 0 <= col <= MAX_COL:
-        return None
-    if row is not None and not 0 <= row <= MAX_ROW:
-        return None
-    return _Part(col, row, part.col_abs, part.row_abs)
-
-
-def _format_part(part: _Part) -> str:
+    if (col is not None and not 0 <= col <= MAX_COL) or (row is not None and not 0 <= row <= MAX_ROW):
+        return "#REF!"
     out = ""
-    if part.col is not None:
-        out += ("$" if part.col_abs else "") + index_to_column(part.col)
-    if part.row is not None:
-        out += ("$" if part.row_abs else "") + str(part.row + 1)
+    if col is not None:
+        out += ("$" if part.col_abs else "") + index_to_column(col)
+    if row is not None:
+        out += ("$" if part.row_abs else "") + str(row + 1)
     return out
 
 
 def _format_shifted_ref(ref: _Ref, dcol: int, drow: int) -> str:
-    left = _shift_part(ref.start, dcol, drow)
-    left_str = _format_part(left) if left is not None else "#REF!"
+    left_str = _shift_part_str(ref.start, dcol, drow)
     if ref.end is None:
         return f"{ref.sheet1}{left_str}"
-    right = _shift_part(ref.end, dcol, drow)
-    right_str = _format_part(right) if right is not None else "#REF!"
+    right_str = _shift_part_str(ref.end, dcol, drow)
     return f"{ref.sheet1}{left_str}:{ref.sheet2}{right_str}"

@@ -17,11 +17,14 @@ from plugin.doc.document_research import (
 )
 from plugin.framework.errors import ToolExecutionError, format_error_payload
 from plugin.framework.tool import ToolBase
+from plugin.writer.specialized_base import ToolWriterSpecialBase
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.sub_agent_tools")
+
+HTML_CONTENT_TARGETS: tuple[str, ...] = ("beginning", "end", "full_document")
 
 HTML_CONTENT_PARAMETERS: dict[str, Any] = {
     "type": "object",
@@ -33,7 +36,7 @@ HTML_CONTENT_PARAMETERS: dict[str, Any] = {
         },
         "target": {
             "type": "string",
-            "enum": ["beginning", "end", "full_document"],
+            "enum": list(HTML_CONTENT_TARGETS),
             "description": "Where to insert. Default end. Use full_document only when the doc is empty.",
         },
     },
@@ -72,7 +75,7 @@ def apply_html_content(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> dict[
         )
 
     target = kwargs.get("target") or "end"
-    if target not in ("beginning", "end", "full_document"):
+    if target not in HTML_CONTENT_TARGETS:
         target = "end"
 
     registry = ctx.services.get("tools") if ctx.services else None
@@ -81,6 +84,24 @@ def apply_html_content(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> dict[
         return tool._tool_error("apply_document_content is not available.", code="TOOL_NOT_FOUND")
 
     return apply_tool.execute_safe(ctx, content=content, target=target)
+
+
+SUB_AGENT_DOC_CORE_TOOLS = frozenset(["get_document_content", "get_document_tree", "search_in_document"])
+
+
+class HtmlContentToolBase(ToolWriterSpecialBase):
+    """Base class for sub-agent HTML content insertion tools."""
+
+    is_mutation: bool | None = True
+    long_running: bool = True
+    timeout: float = 300.0
+    parameters: dict[str, Any] | None = HTML_CONTENT_PARAMETERS
+
+    def is_async(self) -> bool:
+        return True
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        return apply_html_content(self, ctx, **kwargs)
 
 
 class SubAgentResearchWebBase(ToolBase):
@@ -105,9 +126,7 @@ class SubAgentResearchWebBase(ToolBase):
         from plugin.chatbot.web_research import WebResearchTool
 
         query = kwargs["query"]
-        if self.deep_research:
-            return WebResearchTool().execute(ctx, query=query, deep=True)
-        return WebResearchTool().execute(ctx, query=query)
+        return WebResearchTool().execute(ctx, query=query, deep=self.deep_research)
 
 
 class SubAgentSessionToolBase(ToolBase):
@@ -179,6 +198,43 @@ def collect_sub_agent_tools(
             if t.name in allow and t.name not in by_name:
                 by_name[t.name] = t
     return list(by_name.values())
+
+
+def run_domain_sub_agent(
+    ctx: ToolContext,
+    *,
+    domain: str,
+    base_instructions: str,
+    reply_spec: Any,
+    topic_header: str,
+    status_message: str,
+    stop_message: str,
+    error_prefix: str,
+    query: str = "",
+    history_text: str | None = None,
+    topic: str | None = None,
+    examples_key: str | None = None,
+) -> dict[str, Any]:
+    from plugin.chatbot.smol_agent import run_smol_side_turn
+
+    tools = collect_sub_agent_tools(ctx, domain)
+    tool_names = [t.name for t in tools if t.name]
+    instructions = get_sub_agent_instructions(base_instructions, tool_names=tool_names)
+    if topic and topic.strip():
+        instructions += f"\n\n[{topic_header}]\n{topic.strip()}\n"
+    return run_smol_side_turn(
+        ctx,
+        query=query,
+        history_text=history_text,
+        collector=lambda c: tools,
+        instructions=instructions,
+        examples_key=examples_key or domain,
+        reply_spec=reply_spec,
+        report_document_opens=True,
+        status_message=status_message,
+        stop_message=stop_message,
+        error_prefix=error_prefix,
+    )
 
 
 def run_subagent_tool(

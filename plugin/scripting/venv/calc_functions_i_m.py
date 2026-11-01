@@ -106,21 +106,21 @@ __all__ = [
 ]
 
 
-def iferror(f: Callable[[], Any], alt: Any) -> Any:
-    # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
+def _if_caught(f: Callable[[], Any], alt: Any, pred: Callable[[Any], bool]) -> Any:
     try:
         val = f()
-        return alt if _is_calc_error(val) else val
+        return alt if pred(val) else val
     except Exception:
         return alt
+
+
+def iferror(f: Callable[[], Any], alt: Any) -> Any:
+    # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
+    return _if_caught(f, alt, _is_calc_error)
 
 
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
-    try:
-        val = f()
-        return alt if isna(val) else val
-    except Exception:
-        return alt
+    return _if_caught(f, alt, isna)
 
 
 def _parse_complex(val: Any) -> tuple[complex, str]:
@@ -135,9 +135,7 @@ def _parse_complex(val: Any) -> tuple[complex, str]:
     A bool is a number. It is an ``int`` subclass, and ``str(True)`` is not
     a complex literal.
     """
-    if isinstance(val, (bool, np.bool_)):
-        return complex(float(val)), ""
-    if isinstance(val, (int, float, complex)):
+    if isinstance(val, (bool, np.bool_, int, float, complex)):
         return complex(val), ""
     text = str(val).replace(" ", "")
     suffix = ""
@@ -415,9 +413,8 @@ def _parity(val: Any) -> int | None:
     NaN is not even and not odd.
     """
     try:
-        number = float(val)
         # int(nan) raises ValueError, which the handler below already turns into not-even / not-odd
-        return int(number)
+        return int(float(val))
     except (ValueError, TypeError, OverflowError):
         return None
 
@@ -542,6 +539,16 @@ def large(r: Any, k: Any) -> float:
     return float(np.partition(arr, -ki)[-ki])
 
 
+def _numeric_only(arg: Any) -> np.ndarray:
+    raw = np.asarray(arg, dtype=object).ravel()
+    if any(isinstance(v, str) for v in raw):
+        raise ValueError
+    arr = np.asarray(arg, dtype=float)
+    if np.any(np.isnan(arr)):
+        raise ValueError
+    return arr
+
+
 def _regression_inputs(
     args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> tuple[np.ndarray, np.ndarray, bool]:
@@ -554,23 +561,15 @@ def _regression_inputs(
     ignored. ``CalculateRGPRKP`` builds a 5-row statistics matrix this
     helper does not port.
     """
-    raw_y = np.asarray(args[0], dtype=object).ravel()
-    if any(isinstance(v, str) for v in raw_y):
-        raise ValueError
-    data_y = np.asarray(args[0], dtype=float).ravel()
-    if data_y.size == 0 or np.any(np.isnan(data_y)):
+    data_y = _numeric_only(args[0]).ravel()
+    if data_y.size == 0:
         raise ValueError
     if len(args) <= 1:
         data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
     elif args[1] is None:
         raise ValueError
     else:
-        raw_x = np.asarray(args[1], dtype=object).ravel()
-        if any(isinstance(v, str) for v in raw_x):
-            raise ValueError
-        data_x = np.asarray(args[1], dtype=float)
-        if np.any(np.isnan(data_x)):
-            raise ValueError
+        data_x = _numeric_only(args[1])
         if data_x.ndim == 1:
             data_x = data_x[:, np.newaxis]
         elif data_x.ndim == 2 and data_x.shape[0] != len(data_y) and data_x.shape[1] == len(data_y):
@@ -590,13 +589,16 @@ def _fit_line(data_y: np.ndarray, data_x: np.ndarray, const: bool) -> list[float
     return [float(v) for v in coeffs[:n_slopes][::-1]] + [intercept_b]
 
 
+_REGRESSION_ERRORS = (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError)
+
+
 def linest(*args: Any, **kwargs: Any) -> Any:
     # Excel order is [mk, …, m1, b]. const=False forces b = 0. A row-oriented
     # known_x is transposed so it lines up with known_y.
     try:
         data_y, data_x, const = _regression_inputs(args, kwargs)
         return _fit_line(data_y, data_x, const)
-    except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
+    except _REGRESSION_ERRORS:
         return "#VALUE!"
 
 
@@ -609,7 +611,7 @@ def logest(*args: Any, **kwargs: Any) -> Any:
             return "#VALUE!"
         fitted = _fit_line(np.log(data_y), data_x, const)
         return [float(np.exp(v)) for v in fitted]
-    except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
+    except _REGRESSION_ERRORS:
         return "#VALUE!"
 
 

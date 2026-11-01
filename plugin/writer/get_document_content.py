@@ -56,7 +56,7 @@ def _append_warning(result: dict[str, Any], note: str) -> None:
 
 
 def _summarize_redlines(
-    doc: Any, max_changes: int | None = None
+    doc: Any,
 ) -> tuple[list[dict[str, str]], int, int, bool, bool]:
     """Insert/Delete redlines as insertion/deletion entries, from getRedlines().
 
@@ -66,7 +66,7 @@ def _summarize_redlines(
     """
     from plugin.writer.tracking import _describe_redline
 
-    limit = _MAX_TRACKED_CHANGES if max_changes is None else max_changes
+    limit = _MAX_TRACKED_CHANGES
     changes: list[dict[str, str]] = []
     found = 0
     truncated = False

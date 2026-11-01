@@ -75,12 +75,10 @@ _SESSION_PREFIXES = ("calc", "rps", "notebook", "ppt_master")
 _INIT_SUFFIX = ":init"
 
 
-def python_session_mode(ctx: Any) -> str:
+def python_session_mode() -> str:
     """Return ``isolated`` or ``shared`` from config (default ``isolated``)."""
-    mode = (get_config_str(_SESSION_MODE_KEY) or "isolated").strip().lower()
-    if mode != "shared":
-        mode = "isolated"
-    return mode
+    raw = (get_config_str(_SESSION_MODE_KEY) or "isolated").strip().lower()
+    return "shared" if raw == "shared" else "isolated"
 
 
 def _doc_url(raw_doc: Any) -> str:
@@ -266,7 +264,7 @@ def workbook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
     *doc* is the caller's document (for ``=PY()``, the add-in caller argument).
     With no doc there is no session: never guess from the front window.
     """
-    if python_session_mode(ctx) != "shared" or doc is None:
+    if python_session_mode() != "shared" or doc is None:
         return None
 
     try:
@@ -288,7 +286,7 @@ def rps_session_id(ctx: Any, doc: Any | None = None) -> str | None:
     the same UDProp so two Writer files do not share a namespace. Isolated mode
     returns ``None`` (in-run library cache only).
     """
-    if python_session_mode(ctx) != "shared" or doc is None:
+    if python_session_mode() != "shared" or doc is None:
         return None
     if is_calc(doc):
         return workbook_session_id(ctx, doc)
@@ -419,15 +417,13 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     from plugin.calc.python.function import clear_python_addin_cache
 
     clear_python_addin_cache()
-    if _msgbox_reset_failure(ctx, res, _("Could not reset Python session.")):
-        return
-
     # What was wrong: only the base res was tested, so a failed :init reset still
     # reseeded and showed "Python session reset" / the isolated-mode text.
     # How: the :init call's return value was discarded.
     # Why: init state lives in the :init session, and a non-ok reset means that
     # state is still there, so the dialog must be the error and the reseed must not run.
-    if _msgbox_reset_failure(ctx, res_init, _("Could not reset Python session.")):
+    failed = next((r for r in (res, res_init) if r.get("status") != "ok"), None)
+    if failed is not None and _msgbox_reset_failure(ctx, failed, _("Could not reset Python session.")):
         return
 
     # Re-seed init script immediately after reset (C2.2.3) so helper functions (e.g. def double(x): ...)
@@ -436,12 +432,12 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     if init_kwargs:
         from plugin.scripting.venv_worker import run_code_in_user_venv
 
-        seed = run_code_in_user_venv(ctx, "None", session_id=session_id if python_session_mode(ctx) == "shared" else None, **init_kwargs)
+        seed = run_code_in_user_venv(ctx, "None", session_id=session_id if python_session_mode() == "shared" else None, **init_kwargs)
         if _msgbox_reset_failure(ctx, seed, _("Could not restore the initialization script.")):
             return
 
     has_init = bool((get_calc_init_script(target) or "").strip())
-    if python_session_mode(ctx) == "shared":
+    if python_session_mode() == "shared":
         _msgbox(ctx, _("Python session reset for this workbook."))
     elif has_init:
         _msgbox(ctx, _("Initialization script and any in-memory init state were reset for this workbook. Cell variables were already isolated per cell."))

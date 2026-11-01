@@ -1079,7 +1079,7 @@ def test_document_to_content_full_timing_path_with_mocks():
     with (
         patch.object(html_export, "_export_xhtml", return_value=xhtml) as export_xhtml,
         patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)) as autostyle,
-        patch.object(fmt.xhtml_post, "xhtml_to_semantic_html", return_value="<p>hello</p>") as post,
+        patch("plugin.writer.xhtml_style_postprocess.xhtml_to_semantic_html", return_value="<p>hello</p>") as post,
     ):
         out = fmt.document_to_content(object(), object(), None, scope="full")
 
@@ -1227,9 +1227,9 @@ def test_enum_hit_walk_cap_and_warning_are_honest():
     done = MagicMock()
     done.hasMoreElements.return_value = False
 
-    assert fmt.enum_hit_walk_cap(50, 50, more) is True
-    assert fmt.enum_hit_walk_cap(49, 50, more) is False
-    assert fmt.enum_hit_walk_cap(50, 50, done) is False
+    assert fmt.record_walk_cap(more, 50, 50, "text portions") is True
+    assert fmt.record_walk_cap(more, 49, 50, "text portions") is False
+    assert fmt.record_walk_cap(done, 50, 50, "text portions") is False
     dest = []
     assert fmt.record_walk_cap(more, 50, 50, "text portions", dest) is True
     assert dest and "cap 50" in dest[0]

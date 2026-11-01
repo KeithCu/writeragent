@@ -938,17 +938,17 @@ def test_parse_extra_modules_validation() -> None:
 
 
 def test_sandbox_policy_digest() -> None:
-    from plugin.scripting.sandbox import build_sandbox_policy, policy_digest
+    from plugin.scripting.sandbox import build_sandbox_policy
 
     p1 = build_sandbox_policy(network=True, files=True, extra=("requests",))
     p2 = build_sandbox_policy(network=True, files=True, extra=("requests",))
-    assert policy_digest(p1) == policy_digest(p2)
+    assert p1 == p2
 
-    d0 = policy_digest(build_sandbox_policy())
-    d_net = policy_digest(build_sandbox_policy(network=True))
-    d_files = policy_digest(build_sandbox_policy(files=True))
-    d_os = policy_digest(build_sandbox_policy(os_=True))
-    d_extra = policy_digest(build_sandbox_policy(extra=("foo",)))
+    d0 = build_sandbox_policy()
+    d_net = build_sandbox_policy(network=True)
+    d_files = build_sandbox_policy(files=True)
+    d_os = build_sandbox_policy(os_=True)
+    d_extra = build_sandbox_policy(extra=("foo",))
     assert len({d0, d_net, d_files, d_os, d_extra}) == 5
 
 

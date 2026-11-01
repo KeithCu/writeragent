@@ -19,10 +19,10 @@ Settings live on the **Doc** tab in WriterAgent Settings ([`plugin/doc/module.ya
 > The two original boolean configuration flags (`writer.track_changes_reviewable` and `writer.require_edit_review`) have been consolidated into the single dropdown setting `doc.agent_edit_review_mode`.
 > The timeout setting `doc.edit_review_timeout` is now an internal-only configuration value and is hidden from the Settings UI dialog.
 
-`review_recording_enabled(ctx)` returns true when mode is **record** or **wait**.
-`edit_review_wait_seconds(ctx)` returns the timeout when mode is **wait**, else `0`.
+`review_recording_enabled()` returns true when mode is **record** or **wait**.
+`edit_review_wait_seconds()` returns the timeout when mode is **wait**, else `0`.
 
-Use `get_agent_edit_review_mode(ctx)` for the raw mode string (`off` / `record` / `wait`).
+Use `get_agent_edit_review_mode()` for the raw mode string (`off` / `record` / `wait`).
 
 ## Current scope
 

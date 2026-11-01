@@ -13,7 +13,7 @@ import pytest
 
 def _annotate(mode, result):
     with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode):
-        return annotate_review_status(object(), result)
+        return annotate_review_status(result)
 
 
 def test_off_mode_leaves_result_unchanged():

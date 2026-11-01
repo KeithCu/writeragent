@@ -13,7 +13,13 @@ import logging
 from collections import Counter
 from typing import Any
 
-from plugin.doc.text_helpers import iter_heading_nodes
+from plugin.doc.doc_type import is_writer
+from plugin.doc.text_helpers import (
+    build_heading_tree,
+    get_string_without_tracked_deletions,
+    iter_heading_nodes,
+    selected_text_range,
+)
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import DomainFacadeConfig
@@ -94,9 +100,6 @@ def _get_writer_selection_text(doc: Any) -> str:
     if nothing is selected or extraction fails, never falling back to doc.getText().
     """
     try:
-        from plugin.doc.doc_type import is_writer
-        from plugin.doc.text_helpers import get_string_without_tracked_deletions, selected_text_range
-
         if not is_writer(doc):
             return ""
         controller = doc.getCurrentController()
@@ -116,9 +119,6 @@ def _get_writer_selection_text(doc: Any) -> str:
 def _get_writer_text(doc: Any) -> str:
     """Best-effort extraction of document text for analysis (no tracked deletions)."""
     try:
-        from plugin.doc.doc_type import is_writer
-        from plugin.doc.text_helpers import get_string_without_tracked_deletions  # local import only
-
         if not is_writer(doc):
             return ""
         text = doc.getText()
@@ -140,17 +140,18 @@ def _get_writer_sections(doc: Any) -> list[str]:
     Uses heading tree + paragraph walk for topic modeling "by section".
     Falls back to single full-text element when headings are absent.
     """
+    def _fallback() -> list[str]:
+        full = _get_writer_text(doc)
+        return [full] if full.strip() else []
+
     try:
-        from plugin.doc.doc_type import is_writer
-        from plugin.doc.text_helpers import build_heading_tree, get_string_without_tracked_deletions  # local import only
         if not is_writer(doc):
             return []
 
         tree = build_heading_tree(doc)
         # If no real headings, just return the whole doc as one "section".
         if not tree.get("children"):
-            full = _get_writer_text(doc)
-            return [full] if full.strip() else []
+            return _fallback()
 
         # Walk the document paragraphs once, associating body with the active heading.
         text_obj = doc.getText()
@@ -181,7 +182,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
             try:
                 if el.supportsService("com.sun.star.text.Paragraph"):
                     ptext = get_string_without_tracked_deletions(el) or ""
-                    if para_index in heading_levels and heading_levels[para_index]:
+                    if para_index in heading_levels:
                         # Flush previous section
                         _flush()
                         current_title = ptext.strip() or heading_levels[para_index]
@@ -202,8 +203,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
         sections = [s.strip() for s in sections if len(s.strip()) > 20]
         if sections:
             return sections
-        fallback = _get_writer_text(doc)
-        return [fallback] if fallback.strip() else []
+        return _fallback()
     except Exception as exc:
         # What was wrong: outer section extraction caught DisposedException and fell back to _get_writer_text.
         # How it happened: generic except Exception caught DisposedException.
@@ -211,8 +211,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
         reraise_if_disposed(exc)
         log.debug("text analytics: section extraction failed", exc_info=True)
         # Safe fallback to flat text
-        full = _get_writer_text(doc)
-        return [full] if full.strip() else []
+        return _fallback()
 
 
 def _lang_of(obj: Any, where: str) -> str | None:
@@ -363,7 +362,6 @@ def text_analytics_payload_error(data: Any) -> str | None:
 
 def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a compact HTML report for the text analytics result (Writer)."""
-    from plugin.doc.doc_type import is_writer
     from plugin.writer.format import insert_content_at_position
 
     if not is_writer(doc):
@@ -386,8 +384,6 @@ def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, 
 
     # Position after selection/caret
     try:
-        from plugin.doc.text_helpers import selected_text_range
-
         controller = doc.getCurrentController()
         vc = controller.getViewCursor()
         rng = selected_text_range(controller)

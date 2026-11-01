@@ -185,7 +185,7 @@ def _sentence_count(doc: Any) -> int:
     # fallback called list(doc.sents) inside the except, so the fallback crashed too.
     # Why this change: inspect doc.has_annotation("SENT_START") first, returning 0
     # when sentence annotations are absent without catching broad exceptions.
-    if callable(getattr(doc, "has_annotation", None)) and doc.has_annotation("SENT_START"):
+    if doc.has_annotation("SENT_START"):
         return len(list(doc.sents))
     return 0
 
@@ -231,7 +231,7 @@ def _extract_key_phrases(doc: Any) -> list[dict[str, Any]]:
     # How it happened: xx_ent_wiki_sm is NER-only and lacks a parser/DEP annotation.
     # Why this change: guard with has_annotation("DEP") and handle NotImplementedError
     # or ValueError on noun_chunks iteration without catching Exception.
-    if not callable(getattr(doc, "has_annotation", None)) or not doc.has_annotation("DEP"):
+    if not doc.has_annotation("DEP"):
         return []
     try:
         chunks = list(doc.noun_chunks)
@@ -251,7 +251,7 @@ def _extract_key_phrases(doc: Any) -> list[dict[str, Any]]:
 
 def _as_sections(text: str | list[str]) -> tuple[list[str], bool]:
     """Normalize a string or list of section texts to (non-empty sections, is_multi)."""
-    if isinstance(text, (list, tuple)):
+    if isinstance(text, list):
         return [str(t).strip() for t in text if str(t).strip()], True
     return ([str(text).strip()] if str(text or "").strip() else []), False
 
@@ -557,13 +557,13 @@ def check_diagnostics(lang: Any = None) -> dict[str, Any]:
     """
     # Always capture the python the worker is actually using.
     import sys
-    python_exe = getattr(sys, "executable", "unknown")
+    python_exe = sys.executable
 
     # What was wrong: non-string lang raised AttributeError on .lower() before the try block, returning a raw worker crash instead of diagnostics.
     # How it happened: check_diagnostics assumed lang was always a string or None.
     # Why this change: _lang_prefix treats non-string lang as None.
     lang = _lang_prefix(lang)
-    recommended_model = _LANG_MODELS[lang][0] if lang and lang in _LANG_MODELS else "xx_sent_ud_sm"
+    recommended_model = _LANG_MODELS.get(lang, ("xx_sent_ud_sm",))[0]
 
     # Full command needed for everything the dialog supports.
     text_analytics_install = (
@@ -588,7 +588,7 @@ def check_diagnostics(lang: Any = None) -> dict[str, Any]:
         return {
             "status": "ok",
             "python_used_by_worker": python_exe,
-            "spacy_version": getattr(spacy, "__version__", "unknown"),
+            "spacy_version": spacy.__version__,
             "has_textdescriptives": has_td,
             "models": models,
             "has_transformers": has_transformers,
@@ -647,7 +647,6 @@ def run_text_analytics(
     flat = "\n\n".join(str(t) for t in text if t) if is_list else str(text or "")
     if not flat.strip():
         return {"status": "ok", "result": {}, "note": "no text provided"}
-    section_text = text if is_list else flat
 
     # For the minimal dialog we mainly use "full" or specific helpers.
     if helper in ("full", "analyze", "all"):
@@ -669,7 +668,7 @@ def run_text_analytics(
 
     if helper in ("topics", "topic", "topic_model"):
         # Use preserved original (may still be list) for per-section support.
-        topic_data = _extract_topics(section_text, n_topics=params.get("n_topics", 4))
+        topic_data = _extract_topics(text, n_topics=params.get("n_topics", 4))
         # Normalize into the same result envelope the rest of the system expects.
         if topic_data.get("error") == "MISSING_PACKAGE":
             return _text_analytics_error(helper, "install scikit-learn for topics", topic_data)
@@ -695,7 +694,7 @@ def run_text_analytics(
 
     if helper in ("sentiment", "polarity"):
         # Pass params so model can be overridden via JSON config (see WriterAgentConfig).
-        sent_data = _extract_sentiment(section_text, params=params)
+        sent_data = _extract_sentiment(text, params=params)
         if sent_data.get("error"):
             # A missing model used to be status ok, so the runner reported success.
             return _text_analytics_error(helper, str(sent_data.get("error")), sent_data)

@@ -160,14 +160,13 @@ def do_selection_action_for_document(ctx: Any, model: Any, input_box_fn: Any, is
     """Dispatch Extend/Edit Selection to the document-specific implementation."""
     doc_type = get_document_type(model)
     if doc_type == DocumentType.WRITER:
-        if is_edit:
-            from plugin.writer.editselection import do_edit_selection
+        from plugin.writer.editselection import do_edit_selection, do_extend_selection
 
+        # Extend no longer takes input_box_fn (168-wr_format); Edit still does.
+        if is_edit:
             do_edit_selection(ctx, model, input_box_fn)
         else:
-            from plugin.writer.editselection import do_extend_selection
-
-            do_extend_selection(ctx, model, input_box_fn)
+            do_extend_selection(ctx, model)
         return
 
     if doc_type == DocumentType.CALC:

@@ -39,23 +39,20 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("writeragent.calc")
 
-_OPERATORS: tuple[tuple[str, int], ...] = (
-    ("NONE", 0),
-    ("EQUAL", 1),
-    ("NOT_EQUAL", 2),
-    ("GREATER", 3),
-    ("GREATER_EQUAL", 4),
-    ("LESS", 5),
-    ("LESS_EQUAL", 6),
-    ("BETWEEN", 7),
-    ("NOT_BETWEEN", 8),
-    ("FORMULA", 9),
-    ("DUPLICATE", 10),
-    ("NOT_DUPLICATE", 11),
-)
-_CODE_TO_NAME: dict[int, str] = {code: name for name, code in _OPERATORS}
-_NAME_TO_CODE: dict[str, int] = {name: code for name, code in _OPERATORS}
-_SCHEMA_OPERATORS: list[str] = [name for name, _ in _OPERATORS if name != "NONE"]
+_OPS: list[str] = [
+    "NONE",
+    "EQUAL",
+    "NOT_EQUAL",
+    "GREATER",
+    "GREATER_EQUAL",
+    "LESS",
+    "LESS_EQUAL",
+    "BETWEEN",
+    "NOT_BETWEEN",
+    "FORMULA",
+    "DUPLICATE",
+    "NOT_DUPLICATE",
+]
 
 
 def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
@@ -64,13 +61,12 @@ def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
     xc2 = _query_interface(entry, "com.sun.star.sheet.XSheetCondition2")
     if xc2 is not None:
         op_code = int(xc2.getConditionOperator())
-        op_name = _CODE_TO_NAME.get(op_code, str(op_code))
+        op_name = _OPS[op_code] if 0 <= op_code < len(_OPS) else str(op_code)
         result["operator_code"] = op_code
     else:
         op = entry.getOperator()
         op_name = str(op.value) if hasattr(op, "value") else str(op)
-    if op_name:
-        result["operator"] = op_name
+    result["operator"] = op_name
     f1 = entry.getFormula1()
     if f1:
         result["formula1"] = f1
@@ -152,7 +148,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range to apply the rule to (e.g. ["A1:D10"]).'},
-            "operator": {"type": "string", "enum": _SCHEMA_OPERATORS, "description": "Condition operator."},
+            "operator": {"type": "string", "enum": _OPS[1:], "description": "Condition operator."},
             "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
             "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
             "style": {"type": "string", "description": ("Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.")},
@@ -175,8 +171,8 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 
         try:
             op_upper = operator.upper()
-            op_code = _NAME_TO_CODE.get(op_upper)
-            if op_code is None or op_upper == "NONE":
+            idx = _OPS.index(op_upper) if op_upper in _OPS else None
+            if idx is None or idx < 1:
                 return self._tool_error(f"Unknown condition operator: {operator}", code="INVALID_OPERATOR")
 
             if op_upper in ("BETWEEN", "NOT_BETWEEN") and not formula2.strip():
@@ -199,7 +195,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             addr.Row = ra.StartRow
 
             props = [
-                create_property_value("Operator", op_code),
+                create_property_value("Operator", idx),
                 create_property_value("Formula1", formula1),
                 create_property_value("SourcePosition", addr),
             ]

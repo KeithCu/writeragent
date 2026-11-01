@@ -156,17 +156,12 @@ def _fingerprint(names: tuple[str, ...]) -> str:
     return "\n".join(sorted(set(names)))
 
 
-def _args_ok(code: object, authorized_imports: object, blocked_imports: object = None) -> bool:
-    return _deal_sandbox_policy_ok(authorized_imports, blocked_imports) and _deal_sandbox_code_ok(code)
-
-
 def _cache_key(
     code: str,
     authorized_imports: Sequence[str],
-    blocked_imports: Sequence[str] | None = None,
 ) -> str:
     # crosshair: off
-    blocked = active_blocked_imports() if blocked_imports is None else blocked_imports
+    blocked = active_blocked_imports()
     material = (
         code
         + "\0"
@@ -197,7 +192,6 @@ def _format_syntax_error(exc: SyntaxError) -> str:
 def _build_entry(
     code: str,
     authorized_imports: Sequence[str],
-    blocked_imports: Sequence[str] | None = None,
 ) -> HotEntry:
     # A long 1+1+... chain makes ast.parse or validate_sandbox_ast raise
     # RecursionError (an Exception). execute_with_return logged it with
@@ -221,9 +215,7 @@ def _build_entry(
                 error=f"Code parsing failed due to: {type(exc).__name__}: {exc}",
             )
         compile(module, "<sandbox>", "exec", dont_inherit=True)
-        validation_error = validate_sandbox_ast(
-            module, authorized_imports, blocked_imports=blocked_imports
-        )
+        validation_error = validate_sandbox_ast(module, authorized_imports)
         return HotEntry(module=module, error=validation_error)
     except SyntaxError as exc:
         return HotEntry(module=None, error=_format_syntax_error(exc))
@@ -231,22 +223,21 @@ def _build_entry(
         return HotEntry(module=None, error="Code parsing failed: expression is too deeply nested")
 
 
-@deal.pre(_args_ok)
+@deal.pre(lambda code, authorized_imports: _deal_sandbox_policy_ok(authorized_imports) and _deal_sandbox_code_ok(code))
 def get_hot_entry(
     code: str,
     authorized_imports: Sequence[str],
-    blocked_imports: Sequence[str] | None = None,
 ) -> HotEntry:
     """Return cached or freshly built parse + static validation for *code*."""
     # crosshair: off
     if len(code) > _MAX_CACHED_SOURCE_CHARS:
-        return _build_entry(code, authorized_imports, blocked_imports=blocked_imports)
-    key = _cache_key(code, authorized_imports, blocked_imports=blocked_imports)
+        return _build_entry(code, authorized_imports)
+    key = _cache_key(code, authorized_imports)
     with _lock:
         if key in _cache:
             _cache.move_to_end(key)
             return _cache[key]
-    entry = _build_entry(code, authorized_imports, blocked_imports=blocked_imports)
+    entry = _build_entry(code, authorized_imports)
     with _lock:
         _cache[key] = entry
         if len(_cache) > _DEFAULT_MAX_ENTRIES:

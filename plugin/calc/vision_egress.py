@@ -14,7 +14,7 @@ from plugin.calc.manipulator import CellManipulator
 from plugin.calc.rich_html import insert_cell_html_rich
 from plugin.calc.tabular_egress import _append_blank, _append_table_rows, _append_truncation_note, pad_grid
 from plugin.doc.visual_helpers import get_graphic_object_by_name, selected_graphic_object
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
 
 
@@ -120,16 +120,8 @@ def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) 
         if obj is None:
             raise ToolExecutionError(_("Select an embedded image, then Run again."), code="NO_IMAGE_SELECTED")
 
-    anchor = uno_read(
-        lambda: obj.getPropertyValue("Anchor"),
-        None,
-        object_type="calc",
-    )
-
-    if anchor is None:
-        raise ToolExecutionError(_("Anchor the image to a cell, select it, then Run again."), code="NO_OUTPUT_ANCHOR")
-
     try:
+        anchor = obj.getPropertyValue("Anchor")
         addr = anchor.getCellAddress()
         col = int(addr.Column)
         row = int(addr.Row)

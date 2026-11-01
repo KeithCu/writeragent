@@ -176,6 +176,13 @@ def _plain_text(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _enclosing_paragraph(text: Any, at: Any) -> Any:
+    cur = text.createTextCursorByRange(at)
+    cur.gotoStartOfParagraph(False)
+    cur.gotoEndOfParagraph(True)
+    return cur
+
+
 def _paragraph_string(cursor: Any) -> str:
     """Text of the paragraph containing *cursor*.
 
@@ -190,9 +197,7 @@ def _paragraph_string(cursor: Any) -> str:
     selected = _plain_text(cursor.getString() or "")
     if selected.strip():
         return selected
-    probe = cursor.getText().createTextCursorByRange(cursor)
-    probe.gotoStartOfParagraph(False)
-    probe.gotoEndOfParagraph(True)
+    probe = _enclosing_paragraph(cursor.getText(), cursor)
     return _plain_text(probe.getString() or "")
 
 
@@ -236,10 +241,7 @@ def _paragraph_has_frame(cursor: Any) -> bool:
     portion scan under that ``return`` never ran. Expand to the enclosing
     paragraph, take that paragraph, then enumerate its portions.
     """
-    text = cursor.getText()
-    para_rng = text.createTextCursorByRange(cursor)
-    para_rng.gotoStartOfParagraph(False)
-    para_rng.gotoEndOfParagraph(True)
+    para_rng = _enclosing_paragraph(cursor.getText(), cursor)
     paras = para_rng.createEnumeration()
     if not form_lookup._enum_has_more(paras):
         return False
@@ -307,18 +309,12 @@ def _code_field_paragraph_end(doc: Any, cell: NotebookCodeCell) -> Any | None:
     return best_effort(_get, f"notebook run: code field anchor unusable for {cell.code_field_name}")
 
 
-def _is_this_cell_field_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any) -> bool:
-    end = _code_field_paragraph_end(doc, cell)
-    if end is None:
-        return False
-    return _same_paragraph(cursor, end)
-
-
 def _is_foreign_control_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any) -> bool:
     """True when *cursor* is in another cell's ▶ gutter or code-field paragraph."""
     if not _paragraph_has_frame(cursor):
         return False
-    return not _is_this_cell_field_paragraph(doc, cell, cursor)
+    end = _code_field_paragraph_end(doc, cell)
+    return end is None or not _same_paragraph(cursor, end)
 
 
 def _is_output_bookmark_home(cursor: Any, doc: Any, cell: NotebookCodeCell) -> bool:
@@ -331,28 +327,13 @@ def _is_output_bookmark_home(cursor: Any, doc: Any, cell: NotebookCodeCell) -> b
     content = _paragraph_string(cursor).strip()
     if content == "Output":
         return True
-    if _is_this_cell_field_paragraph(doc, cell, cursor):
+    end = _code_field_paragraph_end(doc, cell)
+    if end is not None and _same_paragraph(cursor, end):
         return True
     # No code field (UNO tests that only insert a bookmark): In [n]: is home.
-    if _IN_PROMPT_RE.match(content) and _code_field_paragraph_end(doc, cell) is None:
+    if end is None and _IN_PROMPT_RE.match(content):
         return True
     return False
-
-
-def _find_cell_output_heading_end(doc: Any, cell: NotebookCodeCell) -> Any | None:
-    """Cursor at this cell's output bookmark (end of the ▶+field paragraph).
-
-    Named for the old Heading 4 ``Output`` scan. Chrome is gone; the invisible
-    ``nb_out_*`` bookmark is the source of truth. Fallback: end of the code-field
-    paragraph so re-anchor can restore a deleted bookmark.
-    """
-    cur = _cursor_after_bookmark(doc, cell.output_start_bookmark)
-    if cur is not None and _is_output_bookmark_home(cur, doc, cell):
-        return cur
-    field_end = _code_field_paragraph_end(doc, cell)
-    if field_end is not None:
-        return field_end
-    return cur
 
 
 def _is_next_cell_boundary(para_style: str, content: str, notebook_in_resolved: str | None) -> bool:
@@ -366,14 +347,10 @@ def _is_next_cell_boundary(para_style: str, content: str, notebook_in_resolved: 
         return True
     if _OUT_PROMPT_RE.match(stripped) or _style_is_preformatted(para_style):
         return False
-    if _style_is_heading12(para_style) and stripped:
-        return True
     # Treat following markdown blockquote/list (and other non-output notebook body
     # that belongs to the next cell / markdown cell) as a stop boundary so clearing
     # outputs never deletes them.
-    if stripped and _style_compact(para_style):
-        return True
-    return False
+    return bool(stripped and _style_compact(para_style))
 
 
 def _selection_start_range(doc: Any) -> Any | None:
@@ -488,12 +465,8 @@ def _collapse_leading_empty_paragraphs(doc: Any, cell: NotebookCodeCell, noteboo
         # Bookmark at the paragraph break reports as the *next* para (often a
         # leftover blank). Snap to the ▶+field bookmark paragraph so we delete
         # that blank instead of treating it as the bookmark's home.
-        at_home = _is_output_bookmark_home(start, doc, cell)
-        if not at_home:
-            heading = _find_cell_output_heading_end(doc, cell)
-            if heading is None:
-                return
-            start = heading
+        if not _is_output_bookmark_home(start, doc, cell):
+            start = _code_field_paragraph_end(doc, cell) or start
         nxt = doc.getText().createTextCursorByRange(start)
         if not nxt.gotoNextParagraph(False):
             return
@@ -787,10 +760,10 @@ def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *
             return
         img_cursor = _cell_end_range(doc, cell)
         text = doc.getText()
+        if img_cursor is None:
+            log.warning("notebook run: image bookmark missing for cell %d; not appending at document end", cell.index)
+            return
         for img in images:
-            if img_cursor is None:
-                log.warning("notebook run: image bookmark missing for cell %d; not appending at document end", cell.index)
-                break
             if _paragraph_has_frame(img_cursor) or _paragraph_string(img_cursor).strip():
                 text.insertControlCharacter(img_cursor, _PARAGRAPH_BREAK, False)
                 _enter_paragraph_after_break(img_cursor)
@@ -876,9 +849,7 @@ def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | No
             cell.index,
         )
         return
-    para = text.createTextCursorByRange(cursor)
-    para.gotoStartOfParagraph(False)
-    para.gotoEndOfParagraph(True)
+    para = _enclosing_paragraph(text, cursor)
     try:
         cursor = _gutter_text_cursor(text, para)
         if cursor is None:

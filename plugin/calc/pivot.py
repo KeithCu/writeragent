@@ -19,7 +19,7 @@ names are unique in the document, and refresh materializes the output.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 
 try:
     from com.sun.star.sheet.GeneralFunction import (
@@ -140,11 +140,6 @@ def _set_field_orientations(
             raise ToolExecutionError(f"Unknown data function '{func_name}'. Allowed functions: {allowed}")
         fn_by_field[fld_name] = _DATA_FUNCTIONS[key]
 
-    if page_filters:
-        for fld_name in page_filters:
-            if fld_name not in page_fields:
-                raise ToolExecutionError(f"Field '{fld_name}' in page_filters must be in page_fields.")
-
     for nm, (_idx, fld) in by_name.items():
         orient = layout.get(nm, HIDDEN)
         fld.setPropertyValue("Orientation", orient)
@@ -156,6 +151,8 @@ def _set_field_orientations(
 
         filter_fields = []
         for pf_name, pf_val in page_filters.items():
+            if pf_name not in page_fields:
+                raise ToolExecutionError(f"Field '{pf_name}' in page_filters must be in page_fields.")
             f_idx, _fld = by_name[pf_name]
             tff = uno.createUnoStruct("com.sun.star.sheet.TableFilterField")
             setattr(tff, "Field", f_idx)
@@ -176,24 +173,23 @@ def _find_pivot(doc: Any, name: str, sheet_name: str | None = None) -> tuple[Any
 
     Returns (table, sheet) on success, or an error message string on failure.
     """
+    sheets: Iterable[Any]
     if sheet_name:
-        bridge = CalcBridge(doc)
         try:
-            sheet = bridge.get_sheet(sheet_name)
+            sheets = [CalcBridge(doc).get_sheet(sheet_name)]
         except Exception as exc:
             return str(exc)
-        dp_tables = _get_dp_tables(sheet)
-        if not dp_tables.hasByName(name):
-            return f"Pivot table '{name}' not found on sheet '{sheet_name}'."
-        return dp_tables.getByName(name), sheet
+    else:
+        doc_sheets = doc.getSheets()
+        sheets = (doc_sheets.getByName(n) for n in doc_sheets.getElementNames())
 
-    sheets = doc.getSheets()
-    for sname in sheets.getElementNames():
-        sheet = sheets.getByName(sname)
+    for sheet in sheets:
         dp_tables = _get_dp_tables(sheet)
         if dp_tables.hasByName(name):
             return dp_tables.getByName(name), sheet
 
+    if sheet_name:
+        return f"Pivot table '{name}' not found on sheet '{sheet_name}'."
     return f"Pivot table '{name}' not found."
 
 

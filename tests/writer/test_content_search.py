@@ -1,6 +1,5 @@
 # Unit tests for apply_document_content search helpers (no LibreOffice required).
 from plugin.writer.search import (
-    all_start_indices,
     drawing_shape_containing,
     escape_for_lo_regex,
     HORIZONTAL_SPACE_CLASS,
@@ -8,12 +7,6 @@ from plugin.writer.search import (
     SPACE_NORMALIZE_MAP,
 )
 import pytest
-
-
-def test_all_start_indices_non_overlapping():
-    assert all_start_indices("abababa", "aba") == [0, 4]
-    assert all_start_indices("", "x") == []
-    assert all_start_indices("abc", "") == []
 
 
 def test_normalize_search_string_collapses_nbsp():

@@ -61,7 +61,7 @@ class _SkillTestBase:
 
 class TestHumanizerSkillStore(_SkillTestBase):
     def test_default_guidance_when_no_file(self):
-        store = SkillStore(self.ctx)
+        store = SkillStore()
         guidance = store.get_humanizer_guidance()
         self._track_skill_path(store)
         assert ("HUMANIZER GUIDANCE") in (guidance)
@@ -70,7 +70,7 @@ class TestHumanizerSkillStore(_SkillTestBase):
         assert (os.path.exists(store.get_humanizer_skill_path()))
 
     def test_user_override_wins(self):
-        store = SkillStore(self.ctx)
+        store = SkillStore()
         custom = "Custom rule: never use the word 'pivotal'."
         store.write_humanizer_guidance(custom)
         self._track_skill_path(store)
@@ -78,7 +78,7 @@ class TestHumanizerSkillStore(_SkillTestBase):
         assert (got) == (custom)
 
     def test_front_matter_is_stripped(self):
-        store = SkillStore(self.ctx)
+        store = SkillStore()
         content = """---
 name: humanizer
 ---
@@ -91,7 +91,7 @@ Vary your sentences.
         assert ("name: humanizer") not in (got)
 
     def test_write_replaces_atomically_and_cleans_temp(self):
-        store = SkillStore(self.ctx)
+        store = SkillStore()
         assert store.write_humanizer_guidance("hello") is True
         self._track_skill_path(store)
         path = store.get_humanizer_skill_path()
@@ -101,7 +101,7 @@ Vary your sentences.
         assert leftovers == []
 
     def test_write_oserror_returns_false_and_keeps_previous(self):
-        store = SkillStore(self.ctx)
+        store = SkillStore()
         assert store.write_humanizer_guidance("keep") is True
         self._track_skill_path(store)
         path = store.get_humanizer_skill_path()
@@ -113,14 +113,14 @@ Vary your sentences.
         assert leftovers == []
 
     def test_write_makedirs_oserror_returns_false(self):
-        store = SkillStore(self.ctx)
-        with patch.object(store, "_humanizer_path", side_effect=OSError("nope")):
+        store = SkillStore()
+        with patch.object(store, "get_humanizer_skill_path", side_effect=OSError("nope")):
             assert store.write_humanizer_guidance("x") is False
 
     def test_front_matter_only_falls_back_to_default(self):
         from plugin.chatbot.skills import HUMANIZER_GUIDANCE
 
-        store = SkillStore(self.ctx)
+        store = SkillStore()
         store.write_humanizer_guidance("---\nname: humanizer\n---\n")
         self._track_skill_path(store)
         got = store.get_humanizer_guidance()

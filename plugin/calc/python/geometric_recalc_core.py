@@ -19,6 +19,7 @@ from typing import Literal, Mapping
 
 from plugin.calc.address_utils import format_address, parse_address, parse_range_string, split_sheet_prefix
 from plugin.calc.python.formula_edit import (
+    PythonFormulaParts,
     assemble_python_formula,
     escape_code_for_formula,
     format_data_binding_display,
@@ -96,19 +97,12 @@ def same_cell_ref(left: str, right: str) -> bool:
     return bool(left) and bool(right) and local_a1(left) == local_a1(right)
 
 
-def _local_ref_on_sheet(token: str, sheet_name: str | None) -> str | None:
-    sheet, _rest = split_sheet_prefix(token or "")
-    local = local_a1(token)
-    if not local:
-        return None
-    if sheet and (sheet_name is None or sheet.casefold() != sheet_name.casefold()):
-        return None
-    return local
-
-
 def _arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None) -> bool:
     """True when a data-arg token (cell or range) includes *target_a1*."""
-    local = _local_ref_on_sheet(arg, sheet_name)
+    sheet, _rest = split_sheet_prefix(arg or "")
+    if sheet and (sheet_name is None or sheet.casefold() != sheet_name.casefold()):
+        return False
+    local = local_a1(arg)
     if not local or not target_a1:
         return False
     try:
@@ -121,12 +115,16 @@ def _arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None)
     return c_lo <= tcol <= c_hi and r_lo <= trow <= r_hi
 
 
+def _args_of(parts: PythonFormulaParts) -> list[str]:
+    return parse_data_binding_text(format_data_binding_display(parts.data_suffix))
+
+
 def formula_data_args(formula: str) -> list[str] | None:
     """Trailing ``=PY`` data args, or None if the formula does not parse."""
     parts = parse_python_formula(formula)
     if parts is None:
         return None
-    return parse_data_binding_text(format_data_binding_display(parts.data_suffix))
+    return _args_of(parts)
 
 
 def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | None:
@@ -138,7 +136,7 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
     parts = parse_python_formula(formula)
     if parts is None:
         return None
-    old_args = parse_data_binding_text(format_data_binding_display(parts.data_suffix))
+    old_args = _args_of(parts)
     # Join existing user args verbatim; format only a new/replaced last pred.
     # ``build_data_suffix`` / ``_format_py_data_range_body`` strip ``$`` from
     # every token. Keep the parsed original spelling; only the appended/replaced
@@ -168,9 +166,7 @@ def _last_cell_ref(args: list[str]) -> str | None:
     return last if py_code_arg_is_cell_ref(last) else None
 
 
-def _last_matches(args: list[str], ref: str | None) -> bool:
-    if ref is None:
-        return False
+def _last_matches(args: list[str], ref: str) -> bool:
     last = _last_cell_ref(args)
     return last is not None and same_cell_ref(last, ref)
 
@@ -211,18 +207,12 @@ def _plan_cell(
     data_args: list[str],
     record: GeometricRecord | None,
     cycle: bool,
-    key: str,
 ) -> tuple[Literal["append", "replace", "remove", "noop", "skip"], list[str]]:
     """Determine action and arguments for a cell, guarding against Err:522 cycles."""
     if desired is not None and cycle:
         # Predecessor already reaches successor → attaching ;desired onto cell is Err:522.
         if record is not None and _last_matches(data_args, record.predecessor):
             return "remove", data_args[:-1]
-        log.debug(
-            "geometric_recalc: skip attach %s onto %s (predecessor already refs successor; Err:522)",
-            desired,
-            key,
-        )
         return "skip", data_args
 
     if desired is None:
@@ -406,9 +396,13 @@ def compute_sheet_repair(
             data_args=data_args,
             record=working.get(key),
             cycle=would_cycle,
-            key=key,
         )
         if action == "skip":
+            log.debug(
+                "geometric_recalc: skip attach %s onto %s (predecessor already refs successor; Err:522)",
+                desired,
+                key,
+            )
             continue
         if action == "noop":
             _rehome_or_keep_record(
