@@ -65,19 +65,10 @@ from plugin.chatbot.dialogs import get_optional as get_optional_control, set_con
 from plugin.framework.queue_executor import run_on_main
 from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
+from plugin.chatbot.rich_text_control import _debug_env_active
 
 # debug-only: omitted in release (thread_guard stub has no _designated_main_thread).
 _LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
-_IS_TESTING_ENV: bool | None = None
-
-
-def _is_testing_env_active() -> bool:
-    global _IS_TESTING_ENV
-    if _IS_TESTING_ENV is None:
-        from plugin.chatbot.rich_text_control import _debug_env_active
-
-        _IS_TESTING_ENV = _debug_env_active("WRITERAGENT_TESTING")
-    return _IS_TESTING_ENV
 
 
 def register_debug_live_panel(element: Any) -> None:
@@ -106,11 +97,10 @@ def _bind_close_hook(session: Any, panel: Any, send_listener: Any, query_control
     # Kept on the panel so FrameSession.release_panel can drop it (no leaked
     # closures holding old panels across sidebar rebuilds).
     old_hook = getattr(panel, "_frame_close_hook", None)
-    if old_hook is not None and hasattr(session, "remove_close_hook"):
+    if old_hook is not None:
         session.remove_close_hook(old_hook)
     panel._frame_close_hook = on_frame_close
-    if hasattr(session, "add_close_hook"):
-        session.add_close_hook(on_frame_close)
+    session.add_close_hook(on_frame_close)
 
 
 def unregister_debug_live_panel(element: Any) -> None:
@@ -153,7 +143,7 @@ def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
 
 def iter_debug_live_chat_panels() -> list[Any]:
     """debug-only: omitted in release."""
-    if not _is_testing_env_active():
+    if not _debug_env_active("WRITERAGENT_TESTING"):
         return []
     return list(_LIVE_CHAT_PANELS)
 
@@ -305,7 +295,7 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
             with suppress_disposed("getHeightForWidth relayout_now", logger=log):
                 from plugin.chatbot.rich_text_control import log_rich_scroll
 
-                rich = rl.get_control("response_rich") if hasattr(rl, "get_control") else None
+                rich = rl.get_control("response_rich")
                 log_rich_scroll("getHeightForWidth_before", control=rich, eff_w=eff_w)
                 rl.relayout_now(self.PanelWindow, viewport_w=eff_w)
                 log_rich_scroll("getHeightForWidth_after", control=rich, eff_w=eff_w)
@@ -425,13 +415,13 @@ class _SelectorTextSyncListener(BaseTextListener):
 def _wire_selector_sync_listeners(
     panel: Any,
     selector: Any,
-    on_item_sync: Any,
-    on_text_sync: Any,
+    on_sync: Any,
+    on_text_sync: Any = None,
 ) -> None:
     if hasattr(selector, "addItemListener"):
-        selector.addItemListener(_SelectorItemSyncListener(panel, on_item_sync))
+        selector.addItemListener(_SelectorItemSyncListener(panel, on_sync))
     if hasattr(selector, "addTextListener"):
-        selector.addTextListener(_SelectorTextSyncListener(panel, on_text_sync))
+        selector.addTextListener(_SelectorTextSyncListener(panel, on_text_sync if on_text_sync is not None else on_sync))
 
 
 class ChatPanelElement(unohelper.Base, XUIElement):
@@ -459,6 +449,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     _panel_resize_listener: Any
     _rich_control_listener: Any
     _last_mode_labels: tuple[str, ...] | None
+    _doc_type_label: str
+    _doc_type_title: str
+    _doc_uno_services: frozenset[str]
 
     def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str, frame_session: Any = None) -> None:
         self.ctx = ctx
@@ -481,6 +474,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self._released = False
         self._current_mode = ""
         self._in_refresh_controls = False
+        self._doc_type_label = "unknown"
+        self._doc_type_title = "Unknown"
+        self._doc_uno_services = frozenset()
         # Document id from the frame session, not from whichever component is current.
         self.frame_session = frame_session
         self._live_panel_uid = ""
@@ -526,7 +522,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         # next queued create does not keep the half-built window
                         # and the caller's except cannot clear a later success.
                         self.toolpanel = ChatToolPanel(root_window, self.xParentWindow, self.ctx)
-                        wire_chatpanel_controls(self, root_window, HAS_RECORDING, _initialize_extension_paths)
+                        wire_chatpanel_controls(self, root_window, _initialize_extension_paths)
                         log.info("[RICH-LIFECYCLE] getRealInterface completed successfully (rich_text wiring done)")
                     except Exception:
                         with suppress_disposed("frame session release on getRealInterface fail", logger=log):
@@ -787,17 +783,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         ctrl.setVisible(False)
 
             # Enable/disable the LLM model selector based on the agent backend
-            model_selector = get_optional_control(root, "model_selector")
-            if model_selector and hasattr(model_selector, "getModel"):
-                set_control_enabled(model_selector, not is_external)
-
-            effort_selector = get_optional_control(root, "reasoning_effort_selector")
-            if effort_selector and hasattr(effort_selector, "getModel"):
-                set_control_enabled(effort_selector, not is_external)
-
-            chat_mode_selector = get_optional_control(root, "chat_mode_selector")
-            if chat_mode_selector and hasattr(chat_mode_selector, "getModel"):
-                set_control_enabled(chat_mode_selector, not is_external)
+            for name in ("model_selector", "reasoning_effort_selector", "chat_mode_selector"):
+                sel = get_optional_control(root, name)
+                if sel and hasattr(sel, "getModel"):
+                    set_control_enabled(sel, not is_external)
 
         except Exception:
             log.exception("_update_backend_indicator failed")
@@ -858,7 +847,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 self,
                 model_selector,
                 lambda: sync_sidebar_text_model(self.ctx, model_selector),
-                lambda: sync_sidebar_text_model(self.ctx, model_selector),
             )
 
         if image_model_selector:
@@ -879,18 +867,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 self,
                 effort_selector,
                 lambda: sync_sidebar_reasoning_effort(effort_selector),
-                lambda: sync_sidebar_reasoning_effort(effort_selector),
             )
 
     def _sidebar_mode_flags(self, model: Any) -> SidebarModeFlags:
         from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type
 
-        label = getattr(self, "_doc_type_label", None)
-        if label is None:
-            from plugin.doc.doc_type import doc_type_label_for_enum, get_document_type
-
-            label = doc_type_label_for_enum(get_document_type(model))
-        return sidebar_mode_flags_for_doc_type(label)
+        return sidebar_mode_flags_for_doc_type(self._doc_type_label)
 
     def _wire_chat_mode_ui(
         self,
@@ -903,8 +885,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         image_model_selector: Any,
         model: Any,
         toggle_image_ui: Callable[[bool], None],
-    ) -> tuple[str, SidebarModeFlags, Callable[[bool], None]]:
-        """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, include_brainstorming, toggle_image_ui)."""
+    ) -> tuple[str, SidebarModeFlags]:
+        """Initializes sidebar mode dropdown and image-related controls; returns (initial_mode, mode_flags)."""
         from plugin.chatbot.chat_sidebar_mode import is_image_mode, librarian_default_mode, populate_mode_selector_with_flags, set_selector_mode_with_flags
 
         if aspect_ratio_selector:
@@ -968,9 +950,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_selector_mode_with_flags(chat_mode_selector, initial_mode, mode_flags)
                 toggle_image_ui(is_image_mode(initial_mode))
 
-        return initial_mode, mode_flags, toggle_image_ui
+        return initial_mode, mode_flags
 
-    def _apply_sidebar_mode(self, mode: str, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, toggle_image_ui: Any) -> str:
+    def _apply_sidebar_mode(self, mode: str, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, toggle_image_ui: Any) -> None:
         from plugin.chatbot.chat_sidebar_mode import (
             CHAT_MODE_BRAINSTORMING,
             CHAT_MODE_CHAT,
@@ -1018,9 +1000,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             clear_listener.set_session(self.session, greeting=greeting)
         if response_ctrl:
             self._render_session_history(self.session, response_ctrl, model, greeting)
-        return greeting
 
-    def _wire_chat_mode_listener(self, chat_mode_selector: Any, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, toggle_image_ui: Any, mode_flags: Any) -> Callable[[str], None]:
+    def _wire_chat_mode_listener(self, chat_mode_selector: Any, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any, toggle_image_ui: Any, mode_flags: Any) -> None:
         from plugin.chatbot.chat_sidebar_mode import mode_from_selector_with_flags
 
         def apply_mode(mode: str) -> None:
@@ -1032,7 +1013,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             send_listener._apply_sidebar_mode_fn = apply_mode
 
         if not chat_mode_selector or not hasattr(chat_mode_selector, "addItemListener"):
-            return apply_mode
+            return
 
         class ChatModeListener(BaseItemListener):
             panel: Any
@@ -1082,7 +1063,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 self.apply_target(mode)
 
         chat_mode_selector.addItemListener(ChatModeListener(self, self.ctx, chat_mode_selector, mode_flags, apply_mode))
-        return apply_mode
 
     def _setup_sessions(self, model: Any, extra_instructions: Any) -> None:
         """Creates the document and web research chat sessions."""
@@ -1154,13 +1134,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _wire_buttons(self, controls: dict[str, Any], model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> Any:
         """Wires up the Send, Stop, Clear, Settings, Python, LaTeX, Search, and chat mode selector."""
-        if mode_flags is None:
-            from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
-
-            # The default object is what the mode listener and
-            # send_listener.sidebar_mode_flags get when the caller passed None.
-            log.warning("mode_flags missing; wiring Send/Stop with default sidebar mode flags")
-            mode_flags = SidebarModeFlags()
         from plugin.chatbot.panel import (
             ActionHandlerButtonListener,
             ClearButtonListener,
@@ -1248,43 +1221,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # Save it to the instance so panel_wiring can use it for QueryTextListener
             self.send_listener = send_listener
 
-            # Document-type snapshot (Item 4: reuse self snapshot or probe fallback)
-            label = getattr(self, "_doc_type_label", None)
-            title = getattr(self, "_doc_type_title", None)
-            services = getattr(self, "_doc_uno_services", None)
-            if label is None or title is None or services is None:
-                try:
-                    from plugin.doc.doc_type import (
-                        doc_type_label_for_enum,
-                        doc_type_title_for_label,
-                        get_document_type,
-                        get_document_uno_services,
-                    )
-
-                    doc_type = get_document_type(model)
-                    label = doc_type_label_for_enum(doc_type)
-                    title = doc_type_title_for_label(label)
-                    services = get_document_uno_services(model)
-                except Exception as e:
-                    # Isolate the document-service query so Send and Stop
-                    # listeners are still attached. An exception here used to
-                    # abort the try that also called addActionListener.
-                    log.exception("Failed to query document type / UNO services for Send listener: %s", e)
-                    services = frozenset()
-                    # Bugfix: a failed probe used to store "writer" / "Writer".
-                    # When cached_uno_services is empty, tool_supports_document
-                    # refills services based on the doc_type label, which caused
-                    # Calc/Draw documents to be misfiltered as Writer.
-                    # Using "unknown" matches the label get_document_type returns
-                    # for DocumentType.UNKNOWN on the non-raising path, and
-                    # _get_document_model rejects it cleanly.
-                    if not label:
-                        label = "unknown"
-                        title = "Unknown"
-
-            send_listener.cached_doc_type = label
-            send_listener.initial_doc_type = title
-            send_listener.cached_uno_services = services
+            send_listener.cached_doc_type = self._doc_type_label
+            send_listener.initial_doc_type = self._doc_type_title
+            send_listener.cached_uno_services = self._doc_uno_services
             send_listener.sidebar_mode_flags = mode_flags
 
             if controls.get("send"):

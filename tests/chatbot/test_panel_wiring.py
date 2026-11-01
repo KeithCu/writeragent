@@ -16,7 +16,6 @@ def test_wire_controls_annotates_self() -> None:
     hints = get_type_hints(_wireControls)
     assert hints["self"] is Any
     assert hints["root_window"] is Any
-    assert hints["has_recording"] is bool
 
 
 def test_install_thread_violation_propagates() -> None:
@@ -25,7 +24,7 @@ def test_install_thread_violation_propagates() -> None:
     session.install.side_effect = RuntimeError("UNO thread violation: addFocusListener")
     query = object()
     with pytest.raises(RuntimeError, match="UNO thread violation"):
-        _install_frame_session_listeners(session, object(), query, ())
+        _install_frame_session_listeners(session, query, ())
     session.set_focus_pin.assert_called_once_with(query)
 
 
@@ -39,7 +38,7 @@ def test_install_other_errors_stay_a_debug_log(caplog: pytest.LogCaptureFixture)
     session = MagicMock()
     session.install.side_effect = RuntimeError("focus attach failed")
     with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.panel_wiring"):
-        _install_frame_session_listeners(session, object(), object(), ())
+        _install_frame_session_listeners(session, object(), ())
     assert any("frame session focus install" in record.message for record in caplog.records)
 
 
@@ -94,7 +93,7 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
         def _wire_model_selectors(self, *_args: object) -> None:
             return None
 
-        def _wire_chat_mode_ui(self, *_args: object) -> tuple[str, SidebarModeFlags, object]:
+        def _wire_chat_mode_ui(self, *_args: object) -> tuple[str, SidebarModeFlags]:
             raise RuntimeError("mode ui failed")
 
         def _setup_sessions(self, *_args: object) -> None:
@@ -141,7 +140,7 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
         patch("plugin.framework.config.get_config_bool_safe", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
-        _wireControls(host, root, False, lambda _ctx: None)
+        _wireControls(host, root, lambda _ctx: None)
 
     _controls, _model, initial_mode, mode_flags, toggle = host.captured
     assert initial_mode == "chat"
@@ -163,7 +162,6 @@ def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
     custom_flags = SidebarModeFlags(include_brainstorming=True)
-    custom_toggle = MagicMock()
     mode_ui_called = False
 
     class _Host:
@@ -182,10 +180,11 @@ def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
         def _wire_model_selectors(self, *_args: object) -> None:
             raise RuntimeError("model selector failed")
 
-        def _wire_chat_mode_ui(self, *_args: object, **_kwargs: object) -> tuple[str, SidebarModeFlags, object]:
+        def _wire_chat_mode_ui(self, *_args: object, **kwargs: object) -> tuple[str, SidebarModeFlags]:
             nonlocal mode_ui_called
             mode_ui_called = True
-            return ("web", custom_flags, custom_toggle)
+            self.mode_ui_toggle = kwargs.get("toggle_image_ui")
+            return ("web", custom_flags)
 
         def _setup_sessions(self, *_args: object) -> None:
             return None
@@ -231,13 +230,13 @@ def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
         patch("plugin.framework.config.get_config_bool_safe", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
-        _wireControls(host, root, False, lambda _ctx: None)
+        _wireControls(host, root, lambda _ctx: None)
 
     assert mode_ui_called is True
     _controls, _model, initial_mode, mode_flags, toggle = host.captured
     assert initial_mode == "web"
     assert mode_flags is custom_flags
-    assert toggle is custom_toggle
+    assert toggle is host.mode_ui_toggle
 
 
 def test_make_toggle_image_ui_swaps_visibility_and_relayouts() -> None:
@@ -301,8 +300,8 @@ def test_wire_controls_installs_frame_session_when_rich_text_disabled() -> None:
         def _get_document_model(self) -> MagicMock:
             return MagicMock()
 
-        def _wire_chat_mode_ui(self, *args, **kwargs) -> tuple[str, MagicMock, MagicMock]:
-            return ("chat", MagicMock(), MagicMock())
+        def _wire_chat_mode_ui(self, *args, **kwargs) -> tuple[str, MagicMock]:
+            return ("chat", MagicMock())
 
         def _wire_model_selectors(self, *args, **kwargs) -> None:
             pass
@@ -350,7 +349,7 @@ def test_wire_controls_installs_frame_session_when_rich_text_disabled() -> None:
         patch("plugin.framework.config.get_config_bool_safe", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
-        _wireControls(host, root, False, lambda _ctx: None)
+        _wireControls(host, root, lambda _ctx: None)
 
     host.frame_session.set_focus_pin.assert_called_once()
     host.frame_session.install.assert_called_once()

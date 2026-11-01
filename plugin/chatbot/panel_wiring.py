@@ -40,9 +40,26 @@ def _measure_button_max_width(ctrl: Any, labels: list[str]) -> int | None:
     return None
 
 
+_LEAVE_QUERY_CONTROL_NAMES: tuple[str, ...] = (
+    "stop",
+    "clear",
+    "send",
+    "btn_settings",
+    "btn_python",
+    "btn_latex",
+    "btn_search",
+    "btn_hamburger",
+    "chat_mode_selector",
+    "model_selector",
+)
+
+
+def _leave_query_controls(controls: dict[str, Any]) -> tuple[Any, ...]:
+    return tuple(controls.get(name) for name in _LEAVE_QUERY_CONTROL_NAMES)
+
+
 def _install_frame_session_listeners(
     session: Any,
-    ctx: Any,
     query: Any,
     leave_query_controls: Any,
 ) -> None:
@@ -82,8 +99,7 @@ def make_toggle_image_ui(panel: Any, controls: dict[str, Any]) -> Callable[[bool
         rl = getattr(tp, "resize_listener", None) if tp else None
         if rl and root:
             with suppress_disposed("relayout after toggling image UI", logger=log):
-                if hasattr(rl, "invalidate_measurements"):
-                    rl.invalidate_measurements()
+                rl.invalidate_measurements()
                 rl.relayout_now(root)
 
     return toggle_image_ui
@@ -118,20 +134,8 @@ def setup_rich_control_ready(
     if session is not None:
         _install_frame_session_listeners(
             session,
-            panel.ctx,
             controls.get("query"),
-            (
-                controls.get("stop"),
-                controls.get("clear"),
-                controls.get("send"),
-                controls.get("btn_settings"),
-                controls.get("btn_python"),
-                controls.get("btn_latex"),
-                controls.get("btn_search"),
-                controls.get("btn_hamburger"),
-                controls.get("chat_mode_selector"),
-                controls.get("model_selector"),
-            ),
+            _leave_query_controls(controls),
         )
     controls["response_rich"] = rich_control
     if panel._panel_resize_listener:
@@ -141,28 +145,26 @@ def setup_rich_control_ready(
 
     def _calc_doc_from_panel() -> Any | None:
         sl = panel.send_listener
-        if sl is None or not hasattr(sl, "_get_document_model"):
+        if sl is None:
             return None
         doc = sl._get_document_model()
         if doc is not None and hasattr(doc, "getSheets"):
             return doc
         return None
 
-    try:
-        from plugin.calc.navigation import attach_calc_cell_link_listener
-
-        attach_calc_cell_link_listener(panel.ctx, rich_control, _calc_doc_from_panel)
-    except Exception as e:
-        log.debug("calc cell link listener attach failed: %s", e)
-
-    def _on_control_replaced(new_ctrl: Any) -> None:
-        widget.replace_control(new_ctrl)
+    def _attach_calc_cell_link(ctrl: Any, fail_msg: str) -> None:
         try:
             from plugin.calc.navigation import attach_calc_cell_link_listener
 
-            attach_calc_cell_link_listener(panel.ctx, new_ctrl, _calc_doc_from_panel)
+            attach_calc_cell_link_listener(panel.ctx, ctrl, _calc_doc_from_panel)
         except Exception as e:
-            log.debug("calc cell link listener re-attach failed: %s", e)
+            log.debug(fail_msg, e)
+
+    _attach_calc_cell_link(rich_control, "calc cell link listener attach failed: %s")
+
+    def _on_control_replaced(new_ctrl: Any) -> None:
+        widget.replace_control(new_ctrl)
+        _attach_calc_cell_link(new_ctrl, "calc cell link listener re-attach failed: %s")
 
     if panel._rich_control_listener:
         panel._rich_control_listener.on_replaced = _on_control_replaced
@@ -199,7 +201,7 @@ def setup_rich_control_ready(
     best_effort(lambda: widget.reveal_caret(reason="on_ready"), "on_rich_control_ready reveal caret")
 
 
-def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_extension_on_path: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
+def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
     """Main entry point to wire all controls for the panel."""
     log.debug("_wireControls entered")
     if not hasattr(root_window, "getControl"):
@@ -300,7 +302,7 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
         log.exception("Model selectors wiring failed")
 
     try:
-        initial_mode, mode_flags, toggle_image_ui = self._wire_chat_mode_ui(
+        initial_mode, mode_flags = self._wire_chat_mode_ui(
             controls["aspect_ratio_selector"],
             controls["base_size_input"],
             controls["base_size_label"],
@@ -327,61 +329,39 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     query_text_listener = None
     if controls.get("query") and controls.get("send"):
         try:
-            from plugin.chatbot.panel import QueryTextListener
+            from plugin.chatbot.panel import QueryKeyListener, QueryTextListener
 
-            # Pass the send_listener returned from _wire_buttons instead of reading self.send_listener
-            if send_listener:
-                query_ctrl = controls["query"]
-                if query_ctrl is None:
-                    log.warning("Query control missing; cannot attach text/key listeners")
-                else:
-                    query_text_listener = QueryTextListener(send_listener)
-                    query_ctrl.addTextListener(query_text_listener)
+            query_ctrl = controls["query"]
+            query_text_listener = QueryTextListener(send_listener)
+            query_ctrl.addTextListener(query_text_listener)
+            query_ctrl.addKeyListener(QueryKeyListener(send_listener))
 
-                    from plugin.chatbot.panel import QueryKeyListener
+            slash_ctrl = controls.get("slash_popup")
+            if slash_ctrl is not None:
+                from plugin.chatbot.slash_popup import SlashPopupController
 
-                    query_ctrl.addKeyListener(QueryKeyListener(send_listener))
+                send_listener.slash_popup = SlashPopupController(
+                    slash_ctrl,
+                    send_listener,
+                    query_ctrl,
+                    overlay_parent=root_window,
+                )
+                log.info("slash popup attached to Ask field")
 
-                    slash_ctrl = controls.get("slash_popup")
-                    if slash_ctrl is not None:
-                        from plugin.chatbot.slash_popup import SlashPopupController
+            # The label update logic is now handled correctly by the state machine
+            # so we can just trigger a fake text update event to sync the state
+            has_text = bool(get_control_text(query_ctrl).strip())
+            from plugin.chatbot.send_state import SendEvent, SendEventKind
 
-                        send_listener.slash_popup = SlashPopupController(
-                            slash_ctrl,
-                            send_listener,
-                            query_ctrl,
-                            overlay_parent=root_window,
-                        )
-                        log.info("slash popup attached to Ask field")
-
-                    # The label update logic is now handled correctly by the state machine
-                    # so we can just trigger a fake text update event to sync the state
-                    has_text = bool(get_control_text(query_ctrl).strip())
-                    from plugin.chatbot.send_state import SendEvent, SendEventKind
-
-                    send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=has_text))
-            else:
-                log.warning("No send_listener available for QueryTextListener setup")
+            send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=has_text))
         except Exception:
             log.exception("QueryTextListener setup failed")
 
     if self.frame_session is not None:
         _install_frame_session_listeners(
             self.frame_session,
-            self.ctx,
             controls.get("query"),
-            (
-                controls.get("stop"),
-                controls.get("clear"),
-                controls.get("send"),
-                controls.get("btn_settings"),
-                controls.get("btn_python"),
-                controls.get("btn_latex"),
-                controls.get("btn_search"),
-                controls.get("btn_hamburger"),
-                controls.get("chat_mode_selector"),
-                controls.get("model_selector"),
-            ),
+            _leave_query_controls(controls),
         )
 
     if controls["status"] and hasattr(controls["status"], "setText"):
@@ -392,7 +372,9 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     # Measure before first relayout so snapshot preserves stabilized button widths.
     if controls["send"]:
         with suppress_disposed("send button width stabilize", logger=log):
-            send_labels = ["Send", "Record", "Stop Rec", "Accept"] if has_recording else ["Send", "Accept"]
+            from plugin.chatbot.panel import HAS_RECORDING
+
+            send_labels = ["Send", "Record", "Stop Rec", "Accept"] if HAS_RECORDING else ["Send", "Accept"]
             fw = _measure_button_max_width(controls["send"], send_labels)
             if fw:
                 # No width is pinned on the listener any more: the layout shares
