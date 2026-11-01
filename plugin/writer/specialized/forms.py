@@ -131,34 +131,10 @@ def _resolve_form_page_and_control(
         return None, None, None, format_error_payload(exc)
     if dp is None:
         return None, None, None, _no_form_draw_page_payload()
-    lookup_name = None if "index" in kwargs else kwargs.get("name")
-    idx, shape, err = _find_control_shape(dp, index=kwargs.get("index"), name=lookup_name)
-    if err or shape is None:
-        return dp, None, None, err or format_error_payload(ToolExecutionError("Form control not found."))
+    idx, shape, err = _find_control_shape(dp, index=kwargs.get("index"), name=kwargs.get("name"))
+    if err:
+        return dp, None, None, err
     return dp, idx, shape, None
-
-
-def _delete_form_control(tool: Any, doc: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    dp, idx, shape, err = _resolve_form_page_and_control(doc, kwargs)
-    if err or dp is None or shape is None:
-        return err or format_error_payload(ToolExecutionError("Form control not found."))
-
-    def mutate() -> None:
-        dp.remove(shape)
-
-    from plugin.doc.undo import commit_or_rollback_mutation
-
-    batch_err = commit_or_rollback_mutation(
-        tool,
-        doc,
-        "WriterAgent: Delete form control",
-        mutate,
-        "Cannot delete form control atomically (no usable undo context).",
-        "Could not delete form control",
-    )
-    if batch_err is not None:
-        return batch_err
-    return {"status": "ok", "message": f"Deleted form control at index {idx}", "index": idx}
 
 
 def _coerce_items(raw: Any) -> list[str] | None:
@@ -194,10 +170,18 @@ def _items_or_error(kwargs: dict[str, Any]) -> tuple[list[str] | None, dict[str,
     return None, None
 
 
+_STACK_MARGIN_X = 5000
+_STACK_GAP = 400
+
+
+def _preferred_control_name(shape: Any) -> str:
+    shape_name = getattr(shape, "Name", "") or ""
+    model_name = getattr(getattr(shape, "Control", None), "Name", "") or ""
+    return shape_name or model_name
+
+
 class _StackedDrawPageCursor:
     def __init__(self, dp: Any) -> None:
-        self.margin_x: int = 5000
-        self.gap: int = 400
         self.control_names: set[str] = set()
         bottom = 800
         for i in range(dp.getCount()):
@@ -207,17 +191,17 @@ class _StackedDrawPageCursor:
             bottom = max(bottom, pos.Y + sz.Height)
             try:
                 if s.getShapeType() == "com.sun.star.drawing.ControlShape":
-                    ctrl_name = getattr(s, "Name", "") or getattr(getattr(s, "Control", None), "Name", "") or ""
+                    ctrl_name = _preferred_control_name(s)
                     if ctrl_name:
                         self.control_names.add(ctrl_name)
             except Exception as exc:
                 log.debug("Failed to inspect shape for existing control name: %s", exc)
-        self.next_y: int = bottom + self.gap
+        self.next_y: int = bottom + _STACK_GAP
 
     def next_position(self, height: int) -> Point:
         y = self.next_y
-        self.next_y = y + height + self.gap
-        return Point(self.margin_x, y)
+        self.next_y = y + height + _STACK_GAP
+        return Point(_STACK_MARGIN_X, y)
 
 
 # One cursor per draw page. The active-page cursor supplied every field's Y, then the shape was added to field page=.
@@ -261,7 +245,6 @@ def _commit_form_batch(
 
 # XCell.getType() members that can take setString without dropping a number or formula.
 _CALC_APPENDABLE_KINDS = frozenset({"EMPTY", "TEXT"})
-_CALC_CELL_KINDS = _CALC_APPENDABLE_KINDS | frozenset({"VALUE", "FORMULA"})
 
 
 def _calc_cell_content_kind(cell: Any) -> str:
@@ -272,19 +255,8 @@ def _calc_cell_content_kind(cell: Any) -> str:
     double can stub the same check. Anything else is unknown: callers must not
     guess, because ``setString`` would replace whatever is really in the cell.
     """
-    content_type = cell.getType()
-    if content_type is None:
-        return ""
-    raw = getattr(content_type, "value", None)
-    if not isinstance(raw, str) or not raw.strip():
-        if isinstance(content_type, str):
-            raw = content_type
-        else:
-            return ""
-    name = raw.strip().upper()
-    if name in _CALC_CELL_KINDS:
-        return name
-    return ""
+    raw = getattr(cell.getType(), "value", cell.getType())
+    return raw.strip().upper() if isinstance(raw, str) else ""
 
 
 def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
@@ -323,7 +295,7 @@ def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
     cell.setString(prev + (text or ""))
 
 
-def _field_failure_result(tool: Any, results: list[Any], *, action: str, names: list[Any]) -> dict[str, Any] | None:
+def _field_failure_result(tool: Any, results: list[Any], *, action: str, names: list[str]) -> dict[str, Any] | None:
     """Return an error payload when any form field failed, else None.
 
     ``form_create`` and ``form_generate`` must not return status ok
@@ -332,15 +304,10 @@ def _field_failure_result(tool: Any, results: list[Any], *, action: str, names: 
     names the failures.
     """
     bits: list[str] = []
-    for index, res in enumerate(results):
-        if not isinstance(res, dict) or res.get("status") != "error":
+    for res, name in zip(results, names):
+        if res.get("status") != "error":
             continue
         msg = str(res.get("message") or res.get("code") or "field failed")
-        name = ""
-        if index < len(names):
-            item = names[index]
-            if isinstance(item, dict):
-                name = str(item.get("name") or "")
         bits.append(f"{name}: {msg}" if name else msg)
     if not bits:
         return None
@@ -358,6 +325,9 @@ def _plain_text_for_calc_html_fragment(html: str) -> str:
     return t
 
 
+_PAGE_PROPERTY = {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."}
+_PAGE_ONLY_PARAMETERS = {"type": "object", "properties": {"page": _PAGE_PROPERTY}, "required": []}
+
 _CONTROL_PROPERTIES: dict[str, Any] = {
     "control": enum_param(list(CONTROL_TYPE_MAP), "The type of form control to create."),
     "label": {"type": "string", "description": "Label text for the control (e.g. 'I agree')."},
@@ -368,11 +338,8 @@ _CONTROL_PROPERTIES: dict[str, Any] = {
     "default_value": {"type": "string", "description": "Initial value for text or date fields."},
     "width": {"type": "integer", "description": "Width in 100ths of mm (default varies by type)."},
     "height": {"type": "integer", "description": "Height in 100ths of mm (default varies by type)."},
+    "page": _PAGE_PROPERTY,
 }
-
-
-_PAGE_PROPERTY = {"type": "integer", "description": "Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc."}
-_PAGE_ONLY_PARAMETERS = {"type": "object", "properties": {"page": _PAGE_PROPERTY}, "required": []}
 
 
 class FormCreateControl(ToolWriterFormBase):
@@ -390,7 +357,6 @@ class FormCreateControl(ToolWriterFormBase):
         "type": "object",
         "properties": {
             **_CONTROL_PROPERTIES,
-            "page": _PAGE_PROPERTY,
         },
         "required": ["control", "name"],
     }
@@ -435,10 +401,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
             shape_i = dp.getByIndex(i)
             try:
                 if shape_i.getShapeType() == "com.sun.star.drawing.ControlShape":
-                    s_name = getattr(shape_i, "Name", "") or ""
-                    m_name = getattr(getattr(shape_i, "Control", None), "Name", "") or ""
-                    ctrl_name = s_name if s_name else m_name
-                    if ctrl_name == name:
+                    if _preferred_control_name(shape_i) == name:
                         return format_error_payload(ToolExecutionError(f"A form control named '{name}' already exists on this page."))
             except Exception as exc:
                 log.debug("Failed to inspect shape for name collision: %s", exc)
@@ -497,18 +460,17 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         # Radios group by model Name; shape Name stays caller's name
         if control_type == "radio" and kwargs.get("group_name"):
             model.Name = kwargs["group_name"]
-            shape.Name = name
             group_name = kwargs["group_name"]
         else:
             model.Name = name
-            shape.Name = name
             group_name = getattr(model, "Name", "") or ""
+        shape.Name = name
 
         if is_calc(doc) or is_draw(doc):
             if dp is None:
                 return _no_form_draw_page_payload()
-            if page_cursors is not None:
-                pos = page_cursors.for_page(dp).next_position(h)
+            if cursor is not None:
+                pos = cursor.next_position(h)
             else:
                 # Place new controls below existing shapes on a draw page (1/100 mm).
                 pos = _StackedDrawPageCursor(dp).next_position(h)
@@ -560,7 +522,6 @@ class FormCreate(ToolWriterFormBase):
                     "type": "object",
                     "properties": {
                         **_CONTROL_PROPERTIES,
-                        "page": _PAGE_PROPERTY,
                     },
                     "required": ["control", "name"],
                 },
@@ -574,20 +535,19 @@ class FormCreate(ToolWriterFormBase):
         assert isinstance(fields, list)
         doc = ctx.doc
         results: list[Any] = []
+        names: list[str] = []
         page_cursors = _form_page_cursors(doc)
 
         def mutate() -> dict[str, Any] | None:
             for field in fields:
                 res = _create_control(ctx, page_cursors=page_cursors, **field)
                 results.append(res)
+                names.append(str(field.get("name") or ""))
                 # Call _insert_space only when that field's result is not status="error"
-                if isinstance(res, dict) and res.get("status") != "error":
+                if res.get("status") != "error":
                     self._insert_space(ctx)
 
-            failure = _field_failure_result(self, results, action="form_create", names=fields)
-            if failure is not None:
-                return failure
-            return None
+            return _field_failure_result(self, results, action="form_create", names=names)
 
         batch_err = _commit_form_batch(
             self,
@@ -683,7 +643,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         parts = re.split(r"(\{FIELD:[^\}]+\})", content)
 
         field_results: list[Any] = []
-        field_names: list[Any] = []
+        field_names: list[str] = []
         batch_names: set[str] = set()
 
         page_cursors = _form_page_cursors(doc)
@@ -697,28 +657,23 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
                         if fname and fname in batch_names:
                             err = format_error_payload(ToolExecutionError(f"Duplicate control name '{fname}' in batch."))
                             field_results.append(err)
-                            field_names.append(params)
+                            field_names.append(str(fname))
                             continue
                         if fname:
                             batch_names.add(fname)
                         res = _create_control(ctx, page_cursors=page_cursors, **params)
-                        if not isinstance(res, dict):
-                            res = format_error_payload(ToolExecutionError("Form field returned no result."))
                         field_results.append(res)
-                        field_names.append(params)
+                        field_names.append(str(params.get("name") or ""))
                     else:
                         snippet = part if len(part) <= 80 else part[:77] + "..."
                         field_results.append(format_error_payload(ToolExecutionError(f"Could not parse form field tag: {snippet}")))
-                        field_names.append({})
+                        field_names.append("")
                 else:
                     if part:
                         # A TypeError after a partial insert was inserting the text again and hiding the error.
                         self._insert_text(ctx, part, page_cursors=page_cursors)
 
-            failure = _field_failure_result(self, field_results, action="form_generate", names=field_names)
-            if failure is not None:
-                return failure
-            return None
+            return _field_failure_result(self, field_results, action="form_generate", names=field_names)
 
         batch_err = _commit_form_batch(
             self,
@@ -734,20 +689,18 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
 
     def _insert_text(self, ctx: Any, text: str, page_cursors: Any = None) -> None:
         doc = ctx.doc
-        if is_calc(doc):
+        if is_calc(doc) or is_draw(doc):
             plain = _plain_text_for_calc_html_fragment(text)
-            if plain:
+            if not plain:
+                return
+            if is_calc(doc):
                 _append_text_to_calc_active_area(doc, plain + " ")
-            return
-        if is_draw(doc):
+                return
             from plugin.draw.bridge import DrawBridge
             from plugin.draw.shapes import DrawShapes
 
             bridge = DrawBridge(doc)
             dp = bridge.get_active_page()
-            plain = _plain_text_for_calc_html_fragment(text)
-            if not plain:
-                return
             # Create a text shape for the label/text
             w, h = 8000, 1000  # Default size for text labels
             pos = page_cursors.for_page(dp).next_position(h)
@@ -874,8 +827,8 @@ class FormEditControl(ToolWriterFormBase):
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         _unused_dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)
-        if err or shape is None:
-            return err or format_error_payload(ToolExecutionError("Form control not found."))
+        if err:
+            return err
 
         model = shape.Control
         ctrl_type = readable_control_type(model)
@@ -917,13 +870,13 @@ class FormEditControl(ToolWriterFormBase):
             if is_radio and "group_name" in kwargs:
                 model.Name = kwargs["group_name"]
 
-            if "label" in kwargs and hasattr(model, "Label"):
+            if "label" in kwargs:
                 model.Label = kwargs["label"]
-            if "text" in kwargs and hasattr(model, "Text"):
+            if "text" in kwargs:
                 model.Text = kwargs["text"]
             if coerced_state is not None:
                 model.State = coerced_state
-            if coerced_items is not None and hasattr(model, "StringItemList"):
+            if coerced_items is not None:
                 model.StringItemList = tuple(coerced_items)
 
             # Update Shape Geometry
@@ -983,4 +936,26 @@ class FormDeleteControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return run_on_main(_delete_form_control, self, ctx.doc, kwargs)
+        return run_on_main(self._execute_main, ctx, **kwargs)
+
+    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)
+        if err:
+            return err
+
+        def mutate() -> None:
+            dp.remove(shape)
+
+        from plugin.doc.undo import commit_or_rollback_mutation
+
+        batch_err = commit_or_rollback_mutation(
+            self,
+            ctx.doc,
+            "WriterAgent: Delete form control",
+            mutate,
+            "Cannot delete form control atomically (no usable undo context).",
+            "Could not delete form control",
+        )
+        if batch_err is not None:
+            return batch_err
+        return {"status": "ok", "message": f"Deleted form control at index {idx}", "index": idx}
