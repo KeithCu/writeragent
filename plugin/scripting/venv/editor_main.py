@@ -174,6 +174,16 @@ def _remember_session(msg: dict[str, Any]) -> None:
             _current_target = new_target
 
 
+def _js_str(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    return "" if value is None else str(value)
+
+
+def _remember_js_session(session_id: str, mode: str, target: Any) -> None:
+    _remember_session({"session_id": session_id, "mode": mode, "target": target or {}})
+
+
 def _note_load(msg: dict[str, Any]) -> None:
     """The reader publishes identity as soon as the load frame arrives; poll_messages applies the same helper again on the GUI thread immediately before show."""
     _remember_session(msg)
@@ -315,23 +325,15 @@ class MonacoEditorApi:
                         title = msg.get("title")
                         if title:
                             _window.title = title
-                        if hasattr(_window, "restore"):
-                            try:
-                                _window.restore()
-                            except Exception:
-                                log.debug("editor_main: window.restore failed", exc_info=True)
+                        with contextlib.suppress(Exception):
+                            _window.restore()
                         _window.show()
                         if hasattr(_window, "on_top"):
-                            try:
+                            with contextlib.suppress(Exception):
                                 _window.on_top = True
                                 _window.on_top = False
-                            except Exception:
-                                log.debug("editor_main: window on_top toggle failed", exc_info=True)
-                        if hasattr(_window, "focus"):
-                            try:
-                                _window.focus()
-                            except Exception:
-                                log.debug("editor_main: window.focus failed", exc_info=True)
+                        with contextlib.suppress(Exception):
+                            _window.focus()
                 except Exception:
                     log.exception("editor_main: failed to show window on load")
         return batch
@@ -409,7 +411,7 @@ class MonacoEditorApi:
         return outcome
 
     def notify_dirty(self, dirty: bool = True, session_id: str = "", mode: str = "", target: Any = None) -> None:
-        _remember_session({"session_id": session_id, "mode": mode, "target": target or {}})
+        _remember_js_session(session_id, mode, target)
         _write_parent({"type": "dirty", "dirty": bool(dirty)})
 
     def notify_save(
@@ -422,19 +424,15 @@ class MonacoEditorApi:
         mode: str = "",
         target: Any = None,
     ) -> None:
-        if not isinstance(code, str):
-            code = str(code) if code is not None else ""
-        if not isinstance(data_binding, str):
-            data_binding = str(data_binding) if data_binding is not None else ""
         payload: dict[str, Any] = {
             "type": "save",
-            "code": code,
+            "code": _js_str(code),
             "save_as_plain": bool(save_as_plain),
-            "data_binding": data_binding,
+            "data_binding": _js_str(data_binding),
         }
         if action and action != "cell_save":
             payload["action"] = action
-        _remember_session({"session_id": session_id, "mode": mode, "target": target or {}})
+        _remember_js_session(session_id, mode, target)
         _write_parent(payload)
 
     def notify_run(self, code: str, session_id: str = "", mode: str = "", target: Any = None) -> None:
@@ -453,10 +451,10 @@ class MonacoEditorApi:
         _write_parent({"type": "delete_script", "name": name, "origin": origin})
 
     def select_script(self, name: str) -> None:
-        _write_parent({"type": "select_script", "name": str(name) if name is not None else ""})
+        _write_parent({"type": "select_script", "name": _js_str(name)})
 
     def ask_unsaved(self, name: str) -> None:
-        _write_parent({"type": "ask_unsaved", "name": str(name) if name is not None else ""})
+        _write_parent({"type": "ask_unsaved", "name": _js_str(name)})
 
     def notify_cancel(self) -> None:
         log.info("editor_main: notify_cancel called; hiding window")
