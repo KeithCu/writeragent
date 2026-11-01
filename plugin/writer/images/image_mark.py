@@ -137,8 +137,7 @@ def mark_rectangles(marks: list[tuple[Box, str, int]], region: Box, stroke: int)
         if style == "box":
             # The stroke is centred on the rectangle edge: move the edge out by the stroke plus a
             # small gap so the whole stroke lands outside the box.
-            pad = stroke
-            out.append(((x - pad, y - pad, w + 2 * pad, h + 2 * pad), style, rgb))
+            out.append(((x - stroke, y - stroke, w + 2 * stroke, h + 2 * stroke), style, rgb))
         elif style == "underline":
             out.append(((x, y + h, w, stroke), style, rgb))
         else:

@@ -49,7 +49,7 @@ def _with_page_png(page: int, export: Any) -> tuple[bytes | None, str | None]:
         export(tmp_path)
         with open(tmp_path, "rb") as f:
             png = f.read()
-        if not png or png[:8] != _PNG_MAGIC:
+        if png[:8] != _PNG_MAGIC:
             return None, "could not render page %d: the PNG export produced no valid image." % page
         return png, None
     except Exception as e:
