@@ -28,27 +28,31 @@ from plugin.writer.search import find_occurrence_range, parse_non_negative_int
 
 NOTE_TYPES: list[str] = ["footnote", "endnote"]
 
-_NOTE_TABLE: dict[str, tuple[str, str, str]] = {
-    "footnote": ("getFootnotes", "getFootnoteSettings", "footnotes"),
-    "endnote": ("getEndnotes", "getEndnoteSettings", "endnotes"),
-}
 
-
-def _note_access(doc: Any, note_type: str, kind: str) -> Any:
-    cfg = _NOTE_TABLE[note_type]
+def _note_guard(doc: Any, note_type: str) -> None:
+    if note_type not in ("footnote", "endnote"):
+        raise KeyError(note_type)
     if not doc.supportsService("com.sun.star.text.GenericTextDocument"):
-        raise ToolExecutionError(f"Document does not support {cfg[2]}.")
-    getter = cfg[0] if kind == "supplier" else cfg[1]
-    return getattr(doc, getter)()
+        raise ToolExecutionError(f"Document does not support {note_type}s.")
 
 
-def _note_at_index(tool: Any, doc: Any, note_type: str, index: int) -> tuple[Any, Any, int] | dict[str, Any]:
-    notes = _note_access(doc, note_type, "supplier")
+def _note_supplier(doc: Any, note_type: str) -> Any:
+    _note_guard(doc, note_type)
+    return doc.getFootnotes() if note_type == "footnote" else doc.getEndnotes()
+
+
+def _note_settings(doc: Any, note_type: str) -> Any:
+    _note_guard(doc, note_type)
+    return doc.getFootnoteSettings() if note_type == "footnote" else doc.getEndnoteSettings()
+
+
+def _note_at_index(doc: Any, note_type: str, index: int) -> tuple[Any, Any, str | None]:
+    notes = _note_supplier(doc, note_type)
     count = notes.getCount()
     err = index_error(index, count, note_type)
     if err:
-        return tool._tool_error(err)
-    return notes, notes.getByIndex(index), index
+        return None, None, err
+    return notes, notes.getByIndex(index), None
 
 
 class FootnotesInsert(ToolWriterFootnoteBase):
@@ -88,17 +92,10 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         text = str(kwargs["text"])
         label = kwargs.get("label", "")
 
-        raw_anchor = kwargs.get("insert_after")
-        if raw_anchor is None:
-            insert_after = ""
-            use_anchor = False
-        else:
-            insert_after = str(raw_anchor)
-            use_anchor = bool(insert_after.strip())
-
+        insert_after = str(kwargs.get("insert_after") or "")
         doc = ctx.doc
 
-        if use_anchor:
+        if insert_after.strip():
             occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
             if occ_err:
                 return self._tool_error(occ_err)
@@ -116,8 +113,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
                     "(not enough occurrences).")
             if found is None:
                 return self._tool_error("No match for insert_after_text in the document.")
-            t_cursor = found.getText().createTextCursorByRange(found)
-            t_cursor.collapseToEnd()
+            rng = found
         else:
             # View cursor: active insertion point in the UI.
             ctrl = doc.getCurrentController()
@@ -128,8 +124,10 @@ class FootnotesInsert(ToolWriterFootnoteBase):
             if not v_cursor:
                 return self._tool_error("Cannot access view cursor.")
 
-            t_cursor = v_cursor.getText().createTextCursorByRange(v_cursor)
-            t_cursor.collapseToEnd()
+            rng = v_cursor
+
+        t_cursor = rng.getText().createTextCursorByRange(rng)
+        t_cursor.collapseToEnd()
 
         # Create the note instance
         service_name = "com.sun.star.text.Footnote" if note_type == "footnote" else "com.sun.star.text.Endnote"
@@ -163,7 +161,7 @@ class FootnotesList(ToolWriterFootnoteBase):
         note_type = kwargs["note"]
         doc = ctx.doc
 
-        notes = _note_access(doc, note_type, "supplier")
+        notes = _note_supplier(doc, note_type)
         count = notes.getCount()
 
         results = []
@@ -196,10 +194,9 @@ class FootnotesEdit(ToolWriterFootnoteBase):
             return self._tool_error("Provide text and/or label.")
         note_type = kwargs["note"]
         index = kwargs["index"]
-        res = _note_at_index(self, ctx.doc, note_type, index)
-        if isinstance(res, dict):
-            return res
-        _notes, note, index = res
+        _notes, note, err = _note_at_index(ctx.doc, note_type, index)
+        if err:
+            return self._tool_error(err)
 
         if "text" in kwargs:
             note.setString(kwargs["text"])
@@ -226,27 +223,26 @@ class FootnotesDelete(ToolWriterFootnoteBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         note_type = kwargs["note"]
         index = kwargs["index"]
-        res = _note_at_index(self, ctx.doc, note_type, index)
-        if isinstance(res, dict):
-            return res
-        notes, note, idx = res
+        notes, note, err = _note_at_index(ctx.doc, note_type, index)
+        if err:
+            return self._tool_error(err)
         before = notes.getCount()
         note.getAnchor().setString("")
         after = notes.getCount()
         if after < before:
-            return {"status": "ok", "message": f"Successfully deleted {note_type} at index {idx}."}
+            return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
         # With change tracking on, anchor clearing records a tracked deletion instead of removing the note immediately.
         if uno_read(lambda: bool(ctx.doc.getPropertyValue("RecordChanges")), False):
             return {
                 "status": "ok",
                 "tracked": True,
                 "message": (
-                    f"{note_type} at index {idx} is marked for deletion by tracked changes; "
+                    f"{note_type} at index {index} is marked for deletion by tracked changes; "
                     "accept or reject it in LibreOffice (Edit > Track Changes)."
                 ),
             }
         return self._tool_error(
-            f"Could not delete {note_type} at index {idx}: it is still in the document.")
+            f"Could not delete {note_type} at index {index}: it is still in the document.")
 
 
 class FootnotesSettingsGet(ToolWriterFootnoteBase):
@@ -263,26 +259,21 @@ class FootnotesSettingsGet(ToolWriterFootnoteBase):
         note_type = kwargs["note"]
         doc = ctx.doc
 
-        settings = _note_access(doc, note_type, "settings")
+        settings = _note_settings(doc, note_type)
 
-        # Common properties
-        props = {
-            "Prefix": settings.getPropertyValue("Prefix"),
-            "Suffix": settings.getPropertyValue("Suffix"),
-            "StartAt": settings.getPropertyValue("StartAt"),
-            "NumberingType": settings.getPropertyValue("NumberingType"),
-            "CharStyleName": settings.getPropertyValue("CharStyleName"),
-            "AnchorCharStyleName": settings.getPropertyValue("AnchorCharStyleName"),
-            "PageStyleName": settings.getPropertyValue("PageStyleName"),
-            "ParaStyleName": settings.getPropertyValue("ParaStyleName"),
-        }
-
-        # Footnote-specific properties
+        names: tuple[str, ...] = (
+            "Prefix",
+            "Suffix",
+            "StartAt",
+            "NumberingType",
+            "CharStyleName",
+            "AnchorCharStyleName",
+            "PageStyleName",
+            "ParaStyleName",
+        )
         if note_type == "footnote":
-            props["BeginNotice"] = settings.getPropertyValue("BeginNotice")
-            props["EndNotice"] = settings.getPropertyValue("EndNotice")
-            props["PositionEndOfDoc"] = settings.getPropertyValue("PositionEndOfDoc")
-            props["FootnoteCounting"] = settings.getPropertyValue("FootnoteCounting")
+            names += ("BeginNotice", "EndNotice", "PositionEndOfDoc", "FootnoteCounting")
+        props = {name: settings.getPropertyValue(name) for name in names}
 
         return {"status": "ok", "settings": props}
 
@@ -305,7 +296,7 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
         props_to_update = kwargs["properties"]
         doc = ctx.doc
 
-        settings = _note_access(doc, note_type, "settings")
+        settings = _note_settings(doc, note_type)
 
         updated_props = []
         for prop_name, prop_val in props_to_update.items():

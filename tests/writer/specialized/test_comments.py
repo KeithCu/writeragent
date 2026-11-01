@@ -94,12 +94,11 @@ def test_specialized_writer_tools_mutation_and_uno_services_contract():
 
 def test_workflow_task_prefixes_shared():
     from plugin.framework.constants import WORKFLOW_TASK_PREFIXES
-    from plugin.writer.specialized.comments import CommentScanTasks, _WORKFLOW_TASK_PREFIXES
+    from plugin.writer.specialized.comments import CommentScanTasks
     from plugin.scripting import writeragent_api
 
     expected = ("TODO-AI", "FIX", "QUESTION", "VALIDATION", "NOTE")
     assert WORKFLOW_TASK_PREFIXES == expected
-    assert _WORKFLOW_TASK_PREFIXES == WORKFLOW_TASK_PREFIXES
     assert writeragent_api.WORKFLOW_TASK_PREFIXES == WORKFLOW_TASK_PREFIXES
 
     # Schema consistency
@@ -110,7 +109,7 @@ def test_workflow_task_prefixes_shared():
 
 
 def test_comment_scan_tasks_with_prefixes():
-    from plugin.writer.specialized.comments import _comment_scan_tasks
+    from plugin.writer.specialized.comments import CommentScanTasks
 
     def make_field(content: str, resolved: bool = False):
         f = MagicMock()
@@ -151,14 +150,14 @@ def test_comment_scan_tasks_with_prefixes():
     ctx.services.document.find_paragraph_for_range.return_value = None
 
     # Unresolved only (default)
-    res = _comment_scan_tasks(ctx, {})
+    res = CommentScanTasks().execute(ctx)
     assert res["status"] == "ok"
     assert res["count"] == 2
     assert [t["prefix"] for t in res["tasks"]] == ["TODO-AI", "NOTE"]
 
     # Filter by specific prefix
     fields.createEnumeration.side_effect = lambda: FakeEnum([f1, f2, f3, f4])
-    res_filtered = _comment_scan_tasks(ctx, {"prefix_filter": "NOTE"})
+    res_filtered = CommentScanTasks().execute(ctx, prefix_filter="NOTE")
     assert res_filtered["status"] == "ok"
     assert res_filtered["count"] == 1
     assert res_filtered["tasks"][0]["prefix"] == "NOTE"
@@ -682,7 +681,7 @@ def test_comment_resolve_failed_reply_insert_does_not_set_resolved():
 
 
 def test_comments_none_author_and_content_do_not_raise():
-    from plugin.writer.specialized.comments import CommentList, _comment_scan_tasks, _comment_check_stop
+    from plugin.writer.specialized.comments import CommentList, CommentScanTasks, CommentCheckStop
 
     field = MagicMock()
     field.supportsService.return_value = True
@@ -713,12 +712,12 @@ def test_comments_none_author_and_content_do_not_raise():
     assert list_res["comments"] == []
 
     # 2. _comment_scan_tasks
-    scan_res = _comment_scan_tasks(ctx, {})
+    scan_res = CommentScanTasks().execute(ctx)
     assert scan_res["status"] == "ok"
     assert scan_res["count"] == 0
 
     # 3. _comment_check_stop
-    stop_res = _comment_check_stop(ctx)
+    stop_res = CommentCheckStop().execute(ctx)
     assert stop_res["status"] == "ok"
     assert stop_res["should_stop"] is False
 
@@ -733,7 +732,7 @@ def test_comment_list_disposal_is_document_disposed():
 
 
 def test_comment_check_stop_whole_value():
-    from plugin.writer.specialized.comments import _comment_check_stop
+    from plugin.writer.specialized.comments import CommentCheckStop
 
     def make_field(author: str, content: str, resolved: bool = False):
         f = MagicMock()
@@ -759,7 +758,7 @@ def test_comment_check_stop_whole_value():
         make_field("MCP-WORKFLOW", "Status: nonstop\nTask: Stop logging"),
     ])
     ctx = MagicMock(doc=doc)
-    res = _comment_check_stop(ctx)
+    res = CommentCheckStop().execute(ctx)
     assert res["should_stop"] is False
     assert res["workflow_stop"] is False
 
@@ -767,7 +766,7 @@ def test_comment_check_stop_whole_value():
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
         make_field("MCP-WORKFLOW", "Status: pause"),
     ])
-    res = _comment_check_stop(ctx)
+    res = CommentCheckStop().execute(ctx)
     assert res["should_stop"] is True
     assert res["workflow_stop"] is True
 
@@ -775,7 +774,7 @@ def test_comment_check_stop_whole_value():
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
         make_field("MCP-WORKFLOW", "step: 1\nstop"),
     ])
-    res = _comment_check_stop(ctx)
+    res = CommentCheckStop().execute(ctx)
     assert res["should_stop"] is True
     assert res["workflow_stop"] is True
 
@@ -783,7 +782,7 @@ def test_comment_check_stop_whole_value():
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: FakeEnum([
         make_field("Reviewer", "STOP now please", resolved=False),
     ])
-    res = _comment_check_stop(ctx)
+    res = CommentCheckStop().execute(ctx)
     assert res["should_stop"] is True
     assert res["workflow_stop"] is False
     assert len(res["stop_signals"]) == 1
@@ -1142,7 +1141,7 @@ def test_comment_list_author_filter_skips_location_helper_on_mismatch():
 def test_comment_scan_tasks_reraises_disposal():
     import pytest
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.specialized.comments import _comment_scan_tasks
+    from plugin.writer.specialized.comments import CommentScanTasks
 
     doc = MagicMock()
     field = MagicMock()
@@ -1156,7 +1155,7 @@ def test_comment_scan_tasks_reraises_disposal():
     ctx.services.document = doc_svc
 
     with pytest.raises(DocumentDisposedError):
-        _comment_scan_tasks(ctx, {})
+        CommentScanTasks().execute(ctx)
 
     # Disposed on Resolved property
     field2 = MagicMock()
@@ -1173,7 +1172,7 @@ def test_comment_scan_tasks_reraises_disposal():
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field2])
 
     with pytest.raises(DocumentDisposedError):
-        _comment_scan_tasks(ctx, {"unresolved_only": True})
+        CommentScanTasks().execute(ctx, unresolved_only=True)
 
 
 def test_comment_list_without_annotations_skips_paragraph_scan():
@@ -1188,12 +1187,12 @@ def test_comment_list_without_annotations_skips_paragraph_scan():
 
 
 def test_comment_scan_tasks_without_annotations_skips_paragraph_scan():
-    from plugin.writer.specialized.comments import _comment_scan_tasks
+    from plugin.writer.specialized.comments import CommentScanTasks
 
     doc = MagicMock()
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
     ctx = MagicMock(doc=doc)
-    assert _comment_scan_tasks(ctx, {}) == {"status": "ok", "tasks": [], "count": 0}
+    assert CommentScanTasks().execute(ctx) == {"status": "ok", "tasks": [], "count": 0}
     ctx.services.document.get_paragraph_ranges.assert_not_called()
 
 
