@@ -371,13 +371,18 @@ def _coerce_uno_field(struct: Any, field: str, value: Any) -> Any:
     """
     if not isinstance(value, str):
         return value
+    # Function-local import with getattr guards: tests swap sys.modules["uno"] (often for a
+    # mock without Enum/Char), so the module-level binding can be stale or lack these types.
+    import uno
 
     current: Any = getattr(struct, field, None)
+    enum_cls = getattr(uno, "Enum", None)
+    char_cls = getattr(uno, "Char", None)
     try:
-        if isinstance(current, uno.Enum):
-            return uno.Enum(cast("Any", current).typeName, value.strip().upper())
-        if isinstance(current, uno.Char):
-            return uno.Char(value[:1] or " ")
+        if isinstance(enum_cls, type) and isinstance(current, enum_cls):
+            return enum_cls(cast("Any", current).typeName, value.strip().upper())
+        if isinstance(char_cls, type) and isinstance(current, char_cls):
+            return char_cls(value[:1] or " ")
     except Exception:
         return value
     return value
@@ -409,6 +414,7 @@ def _dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> tuple[A
             "%s takes an object of fields, e.g. {\"Mode\": \"prop\", \"Height\": 150}, got %r"
             % (prop_name, value)
         )
+    import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
 
     try:
         struct = cast("Any", uno.createUnoStruct(struct_name))
@@ -444,6 +450,8 @@ def _set_style_property(style: Any, prop_name: str, value: Any) -> None:
     """
     struct_name = _STRUCT_SEQUENCE_PROPERTIES.get(prop_name)
     if struct_name and isinstance(value, tuple):
+        import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
+
         # uno.Any / uno.invoke are runtime PyUNO helpers the type stubs do not declare.
         uno_rt = cast("Any", uno)
         uno_rt.invoke(style, "setPropertyValue", (prop_name, uno_rt.Any("[]" + struct_name, value)))
@@ -1330,7 +1338,7 @@ class StyleCreate(ToolWriterStyleBase):
             if cond_err:
                 return self._tool_error(cond_err)
 
-        service = "com.sun.star.style.ConditionalParagraphStyle" if conditional_rules else _CLONE_TEXT_SERVICES[family]
+        service = "com.sun.star.style.ConditionalParagraphStyle" if conditional_rules else _CLONE_TEXT_SERVICES.get(family, "com.sun.star.style.ParagraphStyle")
 
         actual_parent = str(parent_style).strip() if parent_style is not None else ""
         if not actual_parent and conditional_rules:
