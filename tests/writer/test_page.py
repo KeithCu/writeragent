@@ -1637,12 +1637,6 @@ def test_anchor_point_on_first_character_blocks():
     assert _anchor_point_in_match(text, anchor, cursor) is False
 
 
-def test_lower_keeps_length_name():
-    import plugin.writer.page as page_mod
-    assert hasattr(page_mod, "_lower_keeps_length")
-    assert not hasattr(page_mod, "_casefold_keeps_length")
-
-
 def test_page_break_in_table_cell_errors():
     from plugin.writer.page import PageInsertBreak
 
