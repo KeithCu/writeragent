@@ -390,7 +390,8 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     )
     if parsed is None:
         return float("nan")
-    s, m, f, b, (_iss, _fc, r, y, red) = parsed
+    s, m, f, b, extra = parsed
+    r, y, red = extra[-3:]
     # basic PV approximation
     years = yearfrac(s, m, b)
     n = years * f
@@ -429,7 +430,8 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     )
     if parsed is None:
         return float("nan")
-    s, m, _f, b, (_iss, _fc, r, price, red) = parsed
+    s, m, b, extra = parsed[0], parsed[1], parsed[3], parsed[4]
+    r, price, red = extra[-3:]
 
     years = yearfrac(s, m, b)
     if years <= 0 or not math.isfinite(years):
@@ -457,7 +459,8 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
     )
     if parsed is None:
         return float("nan")
-    s, m, _f, b, (li, r, y, red) = parsed
+    s, m, b, extra = parsed[0], parsed[1], parsed[3], parsed[4]
+    li, r, y, red = extra
     # GetOddlprice (analysishelper.cxx). The old power of (1 + y/f) used
     # 365.25 or 360 for every other basis, so basis 3 was Actual/360.
     # A negative base raised to that fraction was a Python complex.
@@ -635,6 +638,8 @@ def quartile(r: Any, q: Any) -> float | str:
 
 def rank(val: Any, r: Any, order: int | float = 0) -> float | str:
     # Numbers only. Text, bools, and NaN are ignored; one text cell must not abort the call.
+    # Narrow try on purpose: a blanket @_nan_on_error would also turn late errors from the
+    # array/compare work below into NaN instead of letting them surface.
     try:
         target = float(val)
         # Keep this. Not-found below is "#N/A", and list.index(nan) raises
@@ -820,6 +825,7 @@ def slope(data_y: Any, data_x: Any) -> float:
 
 def small(r: Any, k: Any) -> float:
     # Numbers only. Text, bools, and NaN are not part of the ranking.
+    # Only the k conversion is guarded; see rank() for why not a blanket decorator.
     try:
         ki = int(float(k))
     except (ValueError, TypeError, OverflowError):

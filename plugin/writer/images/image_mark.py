@@ -146,6 +146,8 @@ def mark_rectangles(marks: list[tuple[Box, str, int]], region: Box, stroke: int)
     return out
 
 
+# uno / PropertyValue imports in this module stay function-local (lazy) so tests that swap
+# sys.modules["uno"] / the LibrePy import graph are not left with a stale module-level binding.
 def _pv(name: str, value: Any) -> Any:
     from com.sun.star.beans import PropertyValue
 

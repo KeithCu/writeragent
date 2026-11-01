@@ -132,17 +132,15 @@ class ToolLoopHost(Protocol):
         ...
 
     # Mixin methods called on self
+    def _bind_spawn(self, client: "LlmClient") -> tuple[Any, Any, Callable[[], bool], Callable[[Any], None], Callable[[], bool]]: ...
     def _start_tool_calling_async(self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int, query_text: str | None = None) -> None: ...
     def _spawn_llm_worker(self, q: "queue.Queue[Any] | BatchingStreamQueue", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None, force_compact: bool = False) -> None: ...
-    def _spawn_final_stream(self, q: "queue.Queue[Any] | BatchingStreamQueue", client: "LlmClient", max_tokens: int) -> None: ...
     def _create_event_from_stream_item(self, item: Any) -> ToolLoopEvent | None: ...
     def _handle_stream_completion(self, item: Any) -> bool: ...
     def _handle_stream_stopped(self) -> None: ...
     def _handle_stream_error(self, e: Any) -> bool | None: ...
     def _on_tool_loop_approval_required(self, item: Any) -> None: ...
-    def _execute_effect(self, effect: Any) -> bool: ...
     def _apply(self, event: ToolLoopEvent) -> bool: ...
-    def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
     def _refresh_active_tools_for_session(self) -> None: ...
 
 
@@ -194,10 +192,37 @@ def _live_text(turn: Any, callback: Callable[[str], None]) -> Callable[[str], No
     return wrapped
 
 
+def _chunk_callbacks(
+    turn: Any,
+    batched: BatchingStreamQueue | None,
+    emit: Callable[[Any], None],
+    resume_status: str,
+) -> tuple[Callable[[str], None], Callable[[str], None], Callable[[str], None]]:
+    retry_shown = False
+
+    def status_cb(t: str) -> None:
+        nonlocal retry_shown
+        retry_shown = True
+        emit((StreamQueueKind.STATUS, t))
+
+    raw_chunk = batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))
+
+    def on_chunk(t: str) -> None:
+        nonlocal retry_shown
+        if retry_shown:
+            retry_shown = False
+            emit((StreamQueueKind.STATUS, resume_status))
+        raw_chunk(t)
+
+    content_cb = _live_text(turn, on_chunk)
+    thinking_cb = _live_text(turn, batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t)))
+    return status_cb, content_cb, thinking_cb
+
+
 def _compact_bound_session(
     session: Any,
     client: Any,
-    turn: Any,
+    turn: TurnController | None,
     *,
     tools: Any,
     max_tokens: int | None,
@@ -222,6 +247,8 @@ def _compact_bound_session(
         status_callback=status_cb,
         enabled=True,
     )
+    # bind_spawn's current_turn can be None (no live turn); only a real
+    # TurnController carries the _last_compact_* fields.
     if isinstance(turn, TurnController):
         turn._last_compact_reason = result.reason
         turn._last_compact_tokens_before = result.tokens_before
@@ -382,9 +409,6 @@ class ToolCallingMixin:
         # another turn here: that rebind wrote this reply onto the other chat.
         if running_turn(self._panel) is None:
             return
-        live = current_turn(self._panel)
-        if isinstance(live, TurnController) and live.model is None:
-            live.model = model
         try:
             log.debug("_do_send: importing core modules...")
             from plugin.main import get_tools
@@ -483,6 +507,8 @@ class ToolCallingMixin:
         self._panel._set_status("Reading document...")
         started = running_turn(self._panel)
         if isinstance(started, TurnController):
+            # Capture the model/endpoint the audio is sent to, so a model
+            # switch mid-send does not mark the wrong model as audio-capable.
             started.text_model = str(api_config.get("model") or "") or None
             started.endpoint = client._endpoint()
         turn_session = started.session if started is not None else None
@@ -559,12 +585,6 @@ class ToolCallingMixin:
                     audio_content = []
                     if append_wav_as_input_audio(audio_content, self._panel.audio_wav_path):
                         attachments.append("Audio")
-                        # Capture the model/endpoint the audio is sent to, so a model
-                        # switch mid-send does not mark the wrong model as audio-capable.
-                        audio_turn = current_turn(self._panel)
-                        if isinstance(audio_turn, TurnController):
-                            audio_turn.text_model = str(api_config.get("model") or "") or None
-                            audio_turn.endpoint = client._endpoint()
                     else:
                         self._panel.audio_wav_path = None
 
@@ -638,19 +658,9 @@ class ToolCallingMixin:
         except Exception as e:
             log.warning("Failed to refresh active tools: %s", e)
 
-    def _spawn_llm_worker(self: ToolLoopHost, q: "queue.Queue[Any] | BatchingStreamQueue", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None, force_compact: bool = False) -> None:
-        """Spawn a background thread that streams the LLM response into q (or the batcher's raw queue)."""
-        batched = q if isinstance(q, BatchingStreamQueue) else None
-
-        update_activity_state("tool_loop", round_num=round_num)
-        log.debug("Tool loop round %d: sending %d messages to API..." % (round_num, len(self._panel.session.messages)))
-        resume_status = "Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1)
-        # Overflow retry already set "Compacting conversation..." on the drain
-        # thread. Host Thinking here would flash over that ack before the
-        # worker's status_callback can post Compacting again.
-        if not force_compact:
-            self._panel._set_status(resume_status)
-
+    def _bind_spawn(
+        self: ToolLoopHost, client: LlmClient
+    ) -> tuple[Any, Any, Callable[[], bool], Callable[[Any], None], Callable[[], bool]]:
         turn = current_turn(self._panel)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if isinstance(turn, TurnController) else None
@@ -664,6 +674,23 @@ class ToolCallingMixin:
         def stopped_for_this_send() -> bool:
             return send_stopped(bound_scope, stop_checker, client)
 
+        return turn, bound_session, stop_checker, emit, stopped_for_this_send
+
+    def _spawn_llm_worker(self: ToolLoopHost, q: "queue.Queue[Any] | BatchingStreamQueue", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None, force_compact: bool = False) -> None:
+        """Spawn a background thread that streams the LLM response into q (or the batcher's raw queue)."""
+        batched = q if isinstance(q, BatchingStreamQueue) else None
+
+        update_activity_state("tool_loop", round_num=round_num)
+        log.debug("Tool loop round %d: sending %d messages to API..." % (round_num, len(self._panel.session.messages)))
+        resume_status = "Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1)
+        # Overflow retry already set "Compacting conversation..." on the drain
+        # thread. Host Thinking here would flash over that ack before the
+        # worker's status_callback can post Compacting again.
+        if not force_compact:
+            self._panel._set_status(resume_status)
+
+        turn, bound_session, stop_checker, emit, stopped_for_this_send = self._bind_spawn(client)
+
         def run() -> None:
             session = bound_session
             if not isinstance(turn, TurnController) or not turn.alive or session is None:
@@ -676,22 +703,7 @@ class ToolCallingMixin:
                 if stopped_for_this_send():
                     emit((StreamQueueKind.STOPPED,))
                     return
-                # Status via queue only — never self._set_status from this worker (UNO).
-                retry_shown = False
-
-                def status_cb(t: str) -> None:
-                    nonlocal retry_shown
-                    retry_shown = True
-                    emit((StreamQueueKind.STATUS, t))
-
-                raw_chunk = batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))
-
-                def on_chunk(t: str) -> None:
-                    nonlocal retry_shown
-                    if retry_shown:
-                        retry_shown = False
-                        emit((StreamQueueKind.STATUS, resume_status))
-                    raw_chunk(t)
+                status_cb, content_cb, thinking_cb = _chunk_callbacks(turn, batched, emit, resume_status)
 
                 # The send attached the selection unless the UI-thread answer
                 # was False. Resolve here, off the UI thread, so the first
@@ -721,8 +733,8 @@ class ToolCallingMixin:
                     payload = messages_for_llm(session)
                     response = client.stream_request_with_tools(
                         payload, max_tokens, tools=tools,
-                        append_callback=_live_text(turn, on_chunk),
-                        append_thinking_callback=_live_text(turn, batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t))),
+                        append_callback=content_cb,
+                        append_thinking_callback=thinking_cb,
                         stop_checker=stop_checker,
                         status_callback=status_cb,
                     )
@@ -752,17 +764,7 @@ class ToolCallingMixin:
         self._panel._set_status("Finishing...")
         self._panel._append_response("\nAI: ")
 
-        turn = current_turn(self._panel)
-        bound_session = turn.session if isinstance(turn, TurnController) else None
-        # Same spawn-time capture as _spawn_llm_worker. The final-stream body
-        # must not resolve the panel field when it later starts.
-        bound_scope, stop_checker = capture_send_stop(self._panel)
-
-        def emit(item: Any) -> None:
-            put_for_turn(turn, item)
-
-        def stopped_for_this_send() -> bool:
-            return send_stopped(bound_scope, stop_checker, client)
+        turn, bound_session, stop_checker, emit, stopped_for_this_send = self._bind_spawn(client)
 
         def run_final() -> None:
             session = bound_session
@@ -771,25 +773,7 @@ class ToolCallingMixin:
                 return
             last_streamed: list[str] = []
             try:
-                # Status via queue only — never self._set_status from this worker (UNO).
-                retry_shown = False
-
-                def status_cb(t: str) -> None:
-                    nonlocal retry_shown
-                    retry_shown = True
-                    emit((StreamQueueKind.STATUS, t))
-
-                raw_chunk = batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))
-
-                def on_chunk(c: str) -> None:
-                    nonlocal retry_shown
-                    if retry_shown:
-                        retry_shown = False
-                        emit((StreamQueueKind.STATUS, "Finishing..."))
-                    raw_chunk(c)
-
-                content_cb = _live_text(turn, on_chunk)
-                thinking_cb = _live_text(turn, batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t)))
+                status_cb, content_cb, thinking_cb = _chunk_callbacks(turn, batched, emit, "Finishing...")
 
                 def append_c(c: str) -> None:
                     content_cb(c)
@@ -891,16 +875,12 @@ class ToolCallingMixin:
             return ToolLoopEvent(kind=EventKind.ERROR, data={"error": data})
         return None
 
-    def _execute_effect(self: ToolLoopHost, effect: Any) -> bool:
-        """Execute a single pure effect returned by the state machine."""
-        return self._panel._tool_loop_interpreter.execute(effect)
-
     def _apply(self: ToolLoopHost, event: ToolLoopEvent) -> bool:
         tr = next_state(self._sm_state, event)
         self._sm_state = tr.state
         exit_loop = False
         for effect in tr.effects:
-            if self._execute_effect(effect):
+            if self._panel._tool_loop_interpreter.execute(effect):
                 exit_loop = True
         return exit_loop
 
@@ -909,15 +889,14 @@ class ToolCallingMixin:
         live = current_turn(self._panel)
         if isinstance(live, TurnController) and not live.alive:
             return True
-        raw_kind = item[0] if isinstance(item, (tuple, list)) else item
-        kind = raw_kind if isinstance(raw_kind, StreamQueueKind) else None
-        if kind == StreamQueueKind.NEXT_TOOL and self._panel.stop_requested and not self._sm_state.is_stopped:
-            # Synchronize stop state into the state machine
-            self._sm_state = dataclasses.replace(self._sm_state, is_stopped=True)
 
         event = self._create_event_from_stream_item(item)
         if not event:
             return False
+
+        if event.kind == EventKind.NEXT_TOOL and self._panel.stop_requested and not self._sm_state.is_stopped:
+            # Synchronize stop state into the state machine
+            self._sm_state = dataclasses.replace(self._sm_state, is_stopped=True)
 
         return self._apply(event)
 
@@ -966,9 +945,8 @@ class ToolCallingMixin:
         from plugin.framework.client.errors import is_image_unsupported_error
 
         if is_image_unsupported_error(crash_blob):
-            turn = current_turn(self._panel)
-            turn_model = getattr(turn, "text_model", None)
-            turn_endpoint = getattr(turn, "endpoint", None)
+            turn_model = getattr(live, "text_model", None)
+            turn_endpoint = getattr(live, "endpoint", None)
             if not turn_model:
                 from plugin.framework.client.model_fetcher import get_text_model
                 turn_model = get_text_model()
@@ -985,8 +963,8 @@ class ToolCallingMixin:
             turn_session = session_for_turn(self._panel)
             image_msg = _last_user_message_with_image(turn_session)
             if image_msg is not None:
-                turn = current_turn(self._panel)
-                _strip_user_image(turn_session, image_msg, (turn.active_query_text if turn else "") or "")
+                # Old code tolerated a missing live turn; keep that.
+                _strip_user_image(turn_session, image_msg, getattr(live, "active_query_text", "") or "")
 
         # Prompt-too-large: respawn the worker with force_compact. Never call
         # compact_session on this drain / UI thread (UNO + lane). Process death
@@ -1050,9 +1028,9 @@ class ToolCallingMixin:
 
     def _on_tool_loop_approval_required(self: ToolLoopHost, item: Any) -> None:
         """Main-thread handler: show inline Accept/Reject and unblock the tool worker."""
-        query_for_engine = item[1] if len(item) > 1 else ""
-        tool_name = item[2] if len(item) > 2 else ""
-        event_obj = item[3] if len(item) > 3 else None
+        query_for_engine = item[1]
+        tool_name = item[2]
+        event_obj = item[3]
         if event_obj is not None:
             self._panel._events.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
         log.info("tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
@@ -1075,7 +1053,7 @@ class ToolCallingMixin:
             return frozenset(
                 tool.name
                 for tool in registry.get_tools(filter_doc_type=False, exclude_tiers=())
-                if tool.name is not None and getattr(tool, "is_async", lambda: False)()
+                if tool.name is not None and tool.is_async()
             )
 
         async_tool_default = frozenset({"web_research", "image_generate"})

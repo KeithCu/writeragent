@@ -46,6 +46,8 @@ class TestEndpointImageProvider:
             include_meta=True,
             timeout=get_config_int("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
+            stop_checker=None,
+            status_callback=None,
         )
         os.unlink(paths[0])
 
@@ -107,6 +109,8 @@ class TestEndpointImageProvider:
             include_meta=True,
             timeout=get_config_int("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
+            stop_checker=None,
+            status_callback=None,
         )
         os.unlink(paths[0])
 
@@ -335,13 +339,12 @@ class TestEndpointImageProvider:
         png_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
         png_result = HttpResult(200, png_data, "image/png")
         with patch("plugin.writer.images.image_utils.sync_request", return_value=png_result):
-            paths = provider._save_url("https://example.com/real.png")
-            assert len(paths) == 1
-            assert paths[0].endswith(".png")
-            assert os.path.isfile(paths[0])
-            with open(paths[0], "rb") as f:
+            path = provider._save_url("https://example.com/real.png")
+            assert path.endswith(".png")
+            assert os.path.isfile(path)
+            with open(path, "rb") as f:
                 assert f.read() == png_data
-            os.unlink(paths[0])
+            os.unlink(path)
 
         # image/png plus b"not-an-image" raises
         bad_result = HttpResult(200, b"not-an-image", "image/png")
@@ -598,7 +601,7 @@ class TestImageService:
         provider = EndpointImageProvider(api, mock_ctx)
         captured = {}
 
-        def fake_image_completion(prompt, model=None, width=512, height=512, steps=None, source_image=None):
+        def fake_image_completion(prompt, model=None, width=512, height=512, steps=None, source_image=None, **kwargs):
             captured["prompt"] = prompt
             captured["model"] = model
             captured["width"] = width
@@ -806,7 +809,7 @@ def test_write_temp_image_and_suffix():
     assert suffix_for_image_bytes(b"<!DOCTYPE html><html><svg></svg></html>") == ".img"
     assert suffix_for_image_bytes(b"random-bytes") == ".img"
 
-    path = write_temp_image(b"\x89PNG\r\n\x1a\nfake-png")
+    path = write_temp_image(b"\x89PNG\r\n\x1a\nfake-png", suffix=".png")
     try:
         assert os.path.basename(path).startswith("wa-img-")
         assert path.endswith(".png")
@@ -876,15 +879,13 @@ def test_save_b64_rejects_non_image_bytes():
 
     # valid PNG prefix still succeeds and ends in .png
     b64_png = base64.b64encode(b"\x89PNG\r\n\x1a\nvalid-png-content").decode()
-    paths = provider._save_b64(b64_png)
+    path = provider._save_b64(b64_png)
     try:
-        assert len(paths) == 1
-        assert paths[0].endswith(".png")
-        assert os.path.isfile(paths[0])
+        assert path.endswith(".png")
+        assert os.path.isfile(path)
     finally:
-        for p in paths:
-            if os.path.exists(p):
-                os.unlink(p)
+        if os.path.exists(path):
+            os.unlink(path)
 
 
 

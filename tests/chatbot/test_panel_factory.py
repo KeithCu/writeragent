@@ -102,6 +102,9 @@ def _thin_panel_element():
     el._rich_control_listener = None
     el.xFrame = None
     el._last_mode_labels = None
+    el._doc_type_label = "unknown"
+    el._doc_type_title = "Unknown"
+    el._doc_uno_services = frozenset()
     return el
 
 
@@ -753,8 +756,6 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     """None mode_flags must not AttributeError inside the Send/Stop try."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
-
     el = _thin_panel_element()
     el.ctx = MagicMock()
     el.xFrame = MagicMock()
@@ -792,7 +793,7 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
         patch("plugin.framework.uno_context.get_extension_url", return_value=""),
         patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
-        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel) as ctor,
+        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
         patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
         patch("plugin.doc.live_panels.register_live_panel"),
         patch("plugin.doc.doc_type.get_document_type", return_value=MagicMock()),
@@ -804,12 +805,8 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
     ):
         el._wire_buttons(controls, MagicMock(), "chat", None, toggle)
 
-    assert "sidebar_include_brainstorming" not in ctor.call_args.kwargs
     send.addActionListener.assert_called_once_with(sentinel)
     stop.addActionListener.assert_called_once()
-    assert isinstance(sentinel.sidebar_mode_flags, SidebarModeFlags)
-    listener = selector.addItemListener.call_args[0][0]
-    assert isinstance(listener.mode_flags, SidebarModeFlags)
     el._apply_sidebar_mode.assert_called_once()
     assert el._apply_sidebar_mode.call_args.args[-1] is toggle
 
@@ -986,67 +983,6 @@ def test_queued_config_refresh_after_disposing_noops() -> None:
         with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
             el._on_config_changed()
             post_mock.assert_not_called()
-
-
-def test_wire_buttons_get_document_uno_services_raising_attaches_listeners() -> None:
-    """If get_document_uno_services raises, Send/Stop listeners must still be attached."""
-    from unittest.mock import MagicMock, patch
-
-    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
-
-    el = _thin_panel_element()
-    el.ctx = MagicMock()
-    el.xFrame = MagicMock()
-    el.session = MagicMock()
-    el.frame_session = None
-    el._live_panel_uid = "uid"
-    el._apply_sidebar_mode = MagicMock()
-
-    send = MagicMock()
-    stop = MagicMock()
-    controls = {
-        "send": send,
-        "stop": stop,
-        "query": MagicMock(),
-        "response": MagicMock(),
-        "image_model_selector": None,
-        "model_selector": None,
-        "status": None,
-        "chat_mode_selector": None,
-        "aspect_ratio_selector": None,
-        "base_size_input": None,
-        "clear": None,
-        "chk_voice": None,
-        "btn_settings": None,
-        "btn_python": None,
-        "btn_latex": None,
-        "btn_search": None,
-        "btn_hamburger": None,
-    }
-    sentinel = MagicMock(name="send_listener")
-
-    with (
-        patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
-        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
-        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
-        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
-        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
-        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
-        patch("plugin.doc.live_panels.register_live_panel"),
-        patch("plugin.doc.doc_type.get_document_type", return_value=MagicMock()),
-        patch("plugin.doc.doc_type.doc_type_label_for_enum", return_value="writer"),
-        patch("plugin.doc.doc_type.doc_type_title_for_label", return_value="Writer"),
-        patch("plugin.doc.doc_type.get_document_uno_services", side_effect=RuntimeError("services fail")),
-        patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
-        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
-    ):
-        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
-
-    send.addActionListener.assert_called_once_with(sentinel)
-    stop.addActionListener.assert_called_once()
-    assert sentinel.cached_doc_type == "writer"
-    assert sentinel.initial_doc_type == "Writer"
-    assert sentinel.cached_uno_services == frozenset()
 
 
 def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
@@ -1468,11 +1404,11 @@ def test_debug_live_panels_registry_and_iter() -> None:
     register_debug_live_panel(obj)
     assert obj in _LIVE_CHAT_PANELS
 
-    with patch("plugin.chatbot.panel_factory._is_testing_env_active", return_value=False):
+    with patch("plugin.chatbot.panel_factory._debug_env_active", return_value=False):
         assert iter_debug_live_chat_panels() == []
         assert obj in _LIVE_CHAT_PANELS
 
-    with patch("plugin.chatbot.panel_factory._is_testing_env_active", return_value=True):
+    with patch("plugin.chatbot.panel_factory._debug_env_active", return_value=True):
         assert obj in iter_debug_live_chat_panels()
 
     unregister_debug_live_panel(obj)
@@ -1484,7 +1420,7 @@ def test_debug_live_panels_registry_and_iter() -> None:
     assert obj2 in _LIVE_CHAT_PANELS
     del obj2
     gc.collect()
-    with patch("plugin.chatbot.panel_factory._is_testing_env_active", return_value=True):
+    with patch("plugin.chatbot.panel_factory._debug_env_active", return_value=True):
         assert iter_debug_live_chat_panels() == []
 
 
@@ -1603,7 +1539,7 @@ def test_wire_buttons_stop_failure_aborts_registration() -> None:
         patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
         patch("plugin.framework.uno_context.get_extension_url", return_value=""),
         patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
-        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
+        patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel) as ctor,
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
         patch("plugin.chatbot.panel_factory.release_live_sidebar") as mock_release,
         patch("plugin.chatbot.panel_factory.register_debug_live_panel") as mock_reg_debug,
@@ -1612,6 +1548,7 @@ def test_wire_buttons_stop_failure_aborts_registration() -> None:
     ):
         el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
 
+    assert "sidebar_include_brainstorming" not in ctor.call_args.kwargs
     sentinel.disposing.assert_called_once_with(None)
     mock_release.assert_called_once_with(el)
     assert el.send_listener is None

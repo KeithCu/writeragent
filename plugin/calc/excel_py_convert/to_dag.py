@@ -201,11 +201,10 @@ def _normalize_excel_placeholders(src: str) -> str:
             i = end
             continue
         if ch == "#":
-            j = i
-            while j < n and src[j] != "\n":
-                j += 1
-            out.append(src[i:j])
-            i = j
+            nl = src.find("\n", i)
+            end = n if nl < 0 else nl
+            out.append(src[i:end])
+            i = end
             continue
         m = _P_BARE_RE.match(src, i)
         if m:
@@ -287,11 +286,12 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
             issues.append("placeholder token without reliable source position")
             continue
         token = src[off : off + len(name_node.id)]
+        inside = any(c.p_num is not None and c.start <= off < c.end for c in calls)
         if token.startswith(("%P", "%p")):
-            if not any(c.p_num is not None and c.start <= off < c.end for c in calls):
+            if not inside:
                 issues.append(f"placeholder {token} outside xl()")
         else:
-            if any(c.p_num is not None and c.start <= off < c.end for c in calls):
+            if inside:
                 issues.append(f"xl() argument {name_node.id} collides with the placeholder sentinel; rename it")
 
     return calls, issues
@@ -339,6 +339,8 @@ def apply_rewrite(src: str, calls: list[_XlCall], *, index_map: dict[int, int]) 
     """Rewrite binding call sites in *src* to quoted xl("%Pn%", ...) with remapped indices."""
     new_code = src
     for call in sorted(calls, key=lambda c: c.start, reverse=True):
+        # Skip calls whose placeholder index is missing or outside the supported range
+        # (an assert would crash conversion on odd user code instead of leaving it untouched).
         if call.p_num is None or not 2 <= call.p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX:
             continue
         orig_idx = _placeholder_to_data_index(call.p_num)
@@ -366,6 +368,8 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
 
     See ``plugin.calc.excel_py_convert.models`` module doc; fidelity only, not Calc semantics.
     """
+    # Blank/None values occur when a dep had no original text; strip so whitespace-only
+    # counts as empty and the other side wins.
     cand = (candidate or "").strip()
     cur = (current or "").strip()
     if not cand:

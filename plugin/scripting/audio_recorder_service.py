@@ -261,9 +261,6 @@ def stop_recording_process(
         exited = proc.poll() is not None
         try:
             if exited:
-                known = handoff.snapshot_path()
-                if known:
-                    return known
                 return handoff.wait_for_path(min(timeout_sec, 1.0))
             if proc.stdin is None:
                 raise RuntimeError("Recording subprocess stdin is not available.")

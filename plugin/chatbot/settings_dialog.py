@@ -28,9 +28,11 @@ from plugin.framework.client.model_fetcher import get_image_model, get_text_mode
 from plugin.framework.i18n import N_, _
 from plugin.framework.url_utils import normalize_endpoint_url
 
-from typing import Any
-
+from typing import Any, cast
 import logging
+
+from plugin.chatbot.settings_fields import build_module_field_specs
+from plugin.chatbot.settings_tab_order import iter_settings_field_modules
 
 log = logging.getLogger(__name__)
 
@@ -119,23 +121,19 @@ def _get_image_field_specs() -> list[dict[str, Any]]:
 
 
 def _get_module_field_specs(ctx: Any) -> list[dict[str, Any]]:
-    field_specs = []
     try:
         from plugin._manifest import MODULES
-        from plugin.chatbot.settings_fields import build_module_field_specs
-        from typing import cast
-
-        from plugin.chatbot.settings_tab_order import iter_settings_field_modules
-
-        # core is excluded by iter_settings_field_modules so future public core fields
-        # cannot be saved without an explicit Settings control.
-        for m in iter_settings_field_modules(cast("list[dict[str, Any]]", MODULES)):
-            m_name = str(m.get("name", ""))
-            field_specs.extend(
-                build_module_field_specs(m_name, ctx=ctx, control_ids="prefixed")
-            )
     except ImportError:
-        pass
+        return []
+
+    field_specs = []
+    # core is excluded by iter_settings_field_modules so future public core fields
+    # cannot be saved without an explicit Settings control.
+    for m in iter_settings_field_modules(cast("list[dict[str, Any]]", MODULES)):
+        m_name = str(m.get("name", ""))
+        field_specs.extend(
+            build_module_field_specs(m_name, ctx=ctx, control_ids="prefixed")
+        )
     return field_specs
 
 
@@ -167,8 +165,6 @@ def effective_api_key(
         return typed
 
     if user_edited_key is False:
-        if typed == str(target_key or ""):
-            return typed
         return str(target_key or "")
 
     if typed == str(saved_key or ""):
@@ -228,8 +224,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
     # not refresh the sidebar. Text and image models match set_text_model /
     # set_image_model: no LRU when the sanitized id is already stored.
     ordinary_lru: list[tuple[Any, str]] = []
-    text_model_lru: str | None = None
-    image_model_lru: str | None = None
+    model_lru: dict[str, str] = {}
 
     # The key field was filled for this endpoint. A newly typed URL does not
     # rebind the field, so the compare below can tell a stale secret from a
@@ -259,7 +254,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             previous = str(get_config("text_model") or "").strip()
             pending["text_model"] = sanitized
             if sanitized != previous:
-                text_model_lru = sanitized
+                model_lru["text_model"] = sanitized
             continue
 
         opts = spec.get("options")
@@ -340,7 +335,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             if save_key == "image_model":
                 previous_image = str(get_config("image_model") or "").strip()
                 if val != previous_image:
-                    image_model_lru = val
+                    model_lru["image_model"] = val
 
         pending[save_key] = val
         # image_model_lru is staged separately; exclude from ordinary_lru to keep one writer.
@@ -375,7 +370,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
     # update_lru_history afterwards writes writeragent.json again for
     # every LRU list.
     changed = changed_config_values(pending, get_config)
-    _stage_settings_lru(changed, current_endpoint, text_model_lru, image_model_lru, ordinary_lru)
+    _stage_settings_lru(changed, current_endpoint, model_lru, ordinary_lru)
     if changed:
         set_configs(changed)
 
@@ -383,17 +378,15 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
 def _stage_settings_lru(
     changed: dict[str, Any],
     current_endpoint: str,
-    text_model_lru: str | None,
-    image_model_lru: str | None,
+    model_lru: dict[str, str],
     ordinary_lru: list[tuple[Any, str]],
 ) -> None:
     """Add LRU list updates for keys already in *changed*. Does not write."""
     if "endpoint" in changed and current_endpoint:
         _stage_lru(changed, current_endpoint, "endpoint_lru", "")
-    if text_model_lru and "text_model" in changed:
-        _stage_lru(changed, text_model_lru, "model_lru", current_endpoint)
-    if image_model_lru and "image_model" in changed:
-        _stage_lru(changed, image_model_lru, "image_model_lru", current_endpoint)
+    for save_key, lru_key in {"text_model": "model_lru", "image_model": "image_model_lru"}.items():
+        if save_key in model_lru and save_key in changed:
+            _stage_lru(changed, model_lru[save_key], lru_key, current_endpoint)
     for val, save_key in ordinary_lru:
         if save_key not in changed:
             continue
@@ -424,14 +417,16 @@ def _lru_rows_for_key(key: str, val: Any, current_endpoint: str) -> list[tuple[A
     """
     if not val:
         return []
-    if key == "audio.stt_model":
-        return [(val, "audio_model_lru", current_endpoint)]
-    if key == "audio.tts_model":
-        return [(val, "tts_model_lru", current_endpoint)]
-    if key == "additional_instructions":
-        return [(val, "prompt_lru", "")]
-    if key == "image_base_size":
-        return [(str(val), "image_base_size_lru", "")]
+    lookup = {
+        "audio.stt_model": ("audio_model_lru", current_endpoint),
+        "audio.tts_model": ("tts_model_lru", current_endpoint),
+        "additional_instructions": ("prompt_lru", ""),
+        "image_base_size": ("image_base_size_lru", ""),
+    }
+    if key in lookup:
+        lru_name, ep = lookup[key]
+        item = str(val) if key == "image_base_size" else val
+        return [(item, lru_name, ep)]
     return []
 
 

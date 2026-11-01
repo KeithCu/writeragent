@@ -95,21 +95,6 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
     return out
 
 
-def resolve_code_bank_ref(code: str, sheet_cells: dict[str, dict[str, tuple[str, str]]]) -> str | None:
-    """If *code* is ``py_code_Sheet.A1``, return that cell's string; else None."""
-    by_lower = {k.lower(): v for k, v in sheet_cells.items()}
-
-    def _lookup(sheet: str, a1: str) -> str | None:
-        cell_map = sheet_cells.get(sheet) or by_lower.get(sheet.lower())
-        if not cell_map:
-            return None
-        _formula, value = cell_map.get(a1, ("", ""))
-        stripped = value.strip()
-        return stripped or None
-
-    return resolve_bank_cell_reference(code, _lookup)
-
-
 def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
     """Return ``(sheet_title, cell, formula)`` for PY/PYTHON cells in an ``.xlsx``.
 
@@ -131,6 +116,16 @@ def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
                 continue
             sheet_cells[sh.title] = _sheet_cell_map(ws_root, shared)
 
+        by_lower = {k.lower(): v for k, v in sheet_cells.items()}
+
+        def _lookup(sheet: str, a1: str) -> str | None:
+            cell_map = sheet_cells.get(sheet) or by_lower.get(sheet.lower())
+            if not cell_map:
+                return None
+            _formula, value = cell_map.get(a1, ("", ""))
+            stripped = value.strip()
+            return stripped or None
+
         for sh in sheets:
             # Skip Calc script-bank sheets as formula hosts (they hold source text only).
             if sh.title.lower().startswith(CODE_SHEET_PREFIX):
@@ -144,7 +139,7 @@ def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
                     continue
                 # A quoted code string that looks like a bank ref is literal Python, not a reference.
                 resolved = (
-                    resolve_code_bank_ref(parts.code, sheet_cells)
+                    resolve_bank_cell_reference(parts.code, _lookup)
                     if py_formula_has_unquoted_code_ref(formula)
                     else None
                 )

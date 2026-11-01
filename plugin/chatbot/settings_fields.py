@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
@@ -32,15 +32,13 @@ def find_module_manifest(module_name: str) -> dict[str, Any] | None:
         from plugin._manifest import MODULES
     except ImportError:
         return None
-    for m in MODULES:
-        if not isinstance(m, dict):
-            continue
+    for m in cast("list[dict[str, Any]]", MODULES):
         if str(m.get("name", "")) == module_name:
             return m
     return None
 
 
-def call_options_provider(ctx: Any, provider_path: str) -> Any:
+def call_options_provider(provider_path: str) -> Any:
     """Import a module and call a function to get options (``module:func`` path)."""
     log.debug("call_options_provider: %s", provider_path)
     try:
@@ -86,7 +84,7 @@ def _resolve_field_options(schema: dict[str, Any], config_key: str, ctx: Any | N
     provider_path = schema.get("options_provider")
     if provider_path and isinstance(provider_path, str) and ctx is not None:
         try:
-            provided = call_options_provider(ctx, provider_path)
+            provided = call_options_provider(provider_path)
             if isinstance(provided, list) and provided:
                 return provided
         except Exception:
@@ -342,7 +340,7 @@ def _config_assignment_matches(
         # and must still import when that helper is absent.
         try:
             from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
-        except (ImportError, ModuleNotFoundError):
+        except ImportError:
             return str(proposed or "").strip() == str(current or "").strip()
         return endpoint_from_selector_text(str(proposed or "")) == endpoint_from_selector_text(str(current or ""))
     if isinstance(proposed, dict) or isinstance(current, dict):

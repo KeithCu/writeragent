@@ -1313,3 +1313,41 @@ def test_retry_status_restored_on_first_chunk_final_stream():
     assert items[1] == (StreamQueueKind.STATUS, "Finishing...")
     assert items[2] == (StreamQueueKind.CHUNK, "World")
 
+
+
+def test_bind_spawn_without_live_turn_has_no_session():
+    # current_turn can be None; _bind_spawn must still return usable callbacks.
+    host = Mock()
+    host._panel = Mock(_turn=None)
+    with patch("plugin.chatbot.tool_loop.capture_send_stop", return_value=(Mock(is_cancelled=lambda: True), lambda: False)):
+        turn, session, stop_checker, emit, stopped_cb = ToolCallingMixin._bind_spawn(host, Mock())
+    assert turn is None and session is None
+    assert stop_checker() is False
+    emit("x")  # no live turn: put_for_turn drops the item instead of raising
+    assert stopped_cb() is True
+
+
+def test_chunk_callbacks_post_resume_status_after_retry():
+    from plugin.chatbot.tool_loop import _chunk_callbacks
+
+    emitted = []
+    status_cb, content_cb, _thinking_cb = _chunk_callbacks(None, None, emitted.append, "Thinking...")
+    status_cb("Retrying...")
+    content_cb("hi")
+    content_cb("there")
+    assert emitted == [
+        (StreamQueueKind.STATUS, "Retrying..."),
+        (StreamQueueKind.STATUS, "Thinking..."),
+        (StreamQueueKind.CHUNK, "hi"),
+        (StreamQueueKind.CHUNK, "there"),
+    ]
+
+
+def test_compact_bound_session_tolerates_missing_turn():
+    from plugin.chatbot.tool_loop import _compact_bound_session
+
+    result = Mock(reason="ok", tokens_before=1, tokens_after=1)
+    with patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=True), \
+         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=1000), \
+         patch("plugin.chatbot.tool_loop.compact_session", return_value=result):
+        assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, stop_checker=None, force=False, status_cb=Mock()) is True

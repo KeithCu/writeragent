@@ -33,7 +33,7 @@ from plugin.chatbot.tool_loop_state import (
     UpdateActivityStateEffect,
     UpdateDocumentContextEffect,
 )
-from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+from plugin.chatbot.web_research_chat import web_research_cache_chat_text
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.client.model_fetcher import has_native_vision, set_native_audio_support
 from plugin.framework.html_stripper import StreamingHTMLStripper
@@ -163,7 +163,7 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
         return f"[delegate ({domain}) failed: {_result_note(result_data)}]\n"
     if result_data.get("status") == "incomplete":
         return f"[delegate ({domain}) incomplete: {_result_note(result_data)}]\n"
-    cache_block = format_research_cache_result_chat(result_data) if domain == "web_research" else ""
+    cache_block = web_research_cache_chat_text(result_data) if domain == "web_research" else ""
     return cache_block + f"[delegate ({domain}): done]\n"
 
 
@@ -200,7 +200,7 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
     if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
         return format_delegate_result_chat_line(func_args, result_data)
     if func_name == "web_research":
-        cache_block = format_research_cache_result_chat(result_data)
+        cache_block = web_research_cache_chat_text(result_data)
         return cache_block + f"[{func_name}: {note}]\n"
     return f"[{func_name}: {note}]\n"
 

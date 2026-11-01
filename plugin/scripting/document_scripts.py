@@ -552,7 +552,7 @@ def build_scripts_list_message(
     for domain, display_scripts in domain_entries:
         sections.append({
             "id": domain.origin,
-            "title": domain.title_fn(),
+            "title": _(domain.title),
             "scripts": display_scripts,
         })
 

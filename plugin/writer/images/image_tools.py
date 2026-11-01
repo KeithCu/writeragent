@@ -43,13 +43,6 @@ GALLERY_IMAGE_DIR = GALLERY_NAME
 # Shared with images.py download cache — paths under this dir are embedded, not linked.
 IMAGE_CACHE_DIR_NAME = "writeragent_images"
 
-_WRITER_GRAPHIC_SERVICE = visual_helpers.WRITER_GRAPHIC_SERVICE
-_DRAW_GRAPHIC_SERVICE = visual_helpers.DRAW_GRAPHIC_SERVICE
-
-
-def get_type_doc(doc: Any) -> str:
-    return visual_helpers.get_visual_doc_type(doc)
-
 
 def _image_cache_dir() -> str:
     return os.path.join(tempfile.gettempdir(), IMAGE_CACHE_DIR_NAME)
@@ -81,32 +74,19 @@ def _file_url_for_path(img_path: str) -> str:
 def _apply_graphic_properties(graphic: Any, *, width: int | None = None, height: int | None = None, title: str, description: str, anchor_type: Any = AS_CHARACTER, inside: str = "writer") -> None:
     # Never use hasattr(graphic, "PropName") — PyUNO raises UnknownPropertyException.
     if anchor_type is not None and inside in ("writer", "web"):
-        _safe_set_property(graphic, "AnchorType", anchor_type)
+        visual_helpers.safe_set_property(graphic, "AnchorType", anchor_type)
     if width is not None and height is not None:
         size = Size(width, height)
-        if _has_uno_property(graphic, "Width") and _has_uno_property(graphic, "Height"):
-            _safe_set_property(graphic, "Width", width)
-            _safe_set_property(graphic, "Height", height)
-        elif not _safe_set_property(graphic, "Size", size):
+        if visual_helpers.has_uno_property(graphic, "Width") and visual_helpers.has_uno_property(graphic, "Height"):
+            visual_helpers.safe_set_property(graphic, "Width", width)
+            visual_helpers.safe_set_property(graphic, "Height", height)
+        elif not visual_helpers.safe_set_property(graphic, "Size", size):
             if not visual_helpers.safe_try_method(graphic, "setSize", size):
                 log.debug("_apply_graphic_properties: could not set size %dx%d", width, height)
     if title:
-        _safe_set_property(graphic, "Title", title)
+        visual_helpers.safe_set_property(graphic, "Title", title)
     if description:
-        _safe_set_property(graphic, "Description", description)
-
-
-def _selection_graphic_object(model: Any) -> Any | None:
-    return visual_helpers.selected_graphic_object(model)
-
-
-def _has_uno_property(obj: Any, name: str) -> bool:
-    """True if *name* exists on the UNO PropertySet (never use hasattr on UNO attrs)."""
-    return visual_helpers.has_uno_property(obj, name)
-
-
-def _safe_set_property(obj: Any, name: str, value: Any) -> bool:
-    return visual_helpers.safe_set_property(obj, name, value)
+        visual_helpers.safe_set_property(graphic, "Description", description)
 
 
 def _graphic_from_provider(ctx: Any, file_url: str) -> Any | None:
@@ -158,7 +138,7 @@ def _dispatch_insert_linked_graphic(ctx: Any, model: Any, file_url: str) -> Any 
     Setting GraphicURL directly embeds bytes; AsLink keeps the ODT small.
     """
     try:
-        before = _selection_graphic_object(model)
+        before = visual_helpers.selected_graphic_object(model)
         smgr = ctx.ServiceManager
         dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
         frame = model.getCurrentController().getFrame()
@@ -167,7 +147,7 @@ def _dispatch_insert_linked_graphic(ctx: Any, model: Any, file_url: str) -> Any 
             PropertyValue(Name="AsLink", Value=True),
         )
         dispatcher.executeDispatch(frame, ".uno:InsertGraphic", "", 0, props)
-        after = _selection_graphic_object(model)
+        after = visual_helpers.selected_graphic_object(model)
         if after is not None and not _is_same_graphic(before, after):
             return after
         log.debug("_dispatch_insert_linked_graphic: selection unchanged")
@@ -177,17 +157,24 @@ def _dispatch_insert_linked_graphic(ctx: Any, model: Any, file_url: str) -> Any 
         return None
 
 
+def _assign_graphic_source(graphic: Any, file_url: str, ctx: Any | None = None) -> bool:
+    if visual_helpers.safe_set_property(graphic, "GraphicURL", file_url):
+        return True
+    if ctx is not None:
+        xgraphic = _graphic_from_provider(ctx, file_url)
+        if xgraphic is not None and visual_helpers.safe_set_property(graphic, "Graphic", xgraphic):
+            return True
+    return False
+
+
 def _create_embedded_graphic(model: Any, inside: str, file_url: str, ctx: Any | None = None) -> Any:
     if inside in ("writer", "web"):
-        graphic = model.createInstance(_WRITER_GRAPHIC_SERVICE)
+        graphic = model.createInstance(visual_helpers.WRITER_GRAPHIC_SERVICE)
     else:
-        graphic = model.createInstance(_DRAW_GRAPHIC_SERVICE)
+        graphic = model.createInstance(visual_helpers.DRAW_GRAPHIC_SERVICE)
     if graphic is None:
         raise RuntimeError(f"Failed to create graphic instance for {inside}")
-    if _safe_set_property(graphic, "GraphicURL", file_url):
-        return graphic
-    xgraphic = _graphic_from_provider(ctx, file_url) if ctx is not None else None
-    if xgraphic is not None and _safe_set_property(graphic, "Graphic", xgraphic):
+    if _assign_graphic_source(graphic, file_url, ctx=ctx):
         return graphic
     raise RuntimeError("Could not assign GraphicURL or Graphic to embedded graphic")
 
@@ -220,7 +207,7 @@ def insert_image(
     """
     from plugin.doc.compound_undo import WriterCompoundUndo
 
-    inside = get_type_doc(model)
+    inside = visual_helpers.get_visual_doc_type(model)
 
     if size_units is not None:
         width_units, height_units = size_units
@@ -230,7 +217,10 @@ def insert_image(
     # Gallery is filesystem-only; keep it outside the document undo group.
     with WriterCompoundUndo(model, "WriterAgent: Insert image"):
         if inside in ["writer", "web"]:
-            _insert_image_to_writer(ctx, model, img_path, width_units, height_units, title, description, add_frame)
+            if add_frame:
+                _insert_frame(ctx, model, img_path, width_units, height_units, title, description)
+            else:
+                _insert_writer_graphic(ctx, model, img_path, width_units, height_units, title, description)
         else:
             if add_frame:
                 log.debug("insert_image: add_frame is Writer/Web only; ignoring on %s", inside)
@@ -252,7 +242,7 @@ def insert_image_at_locator(ctx: Any, model: Any, img_path: str, width_mm: int |
     """
     from plugin.doc.compound_undo import WriterCompoundUndo
 
-    inside = get_type_doc(model)
+    inside = visual_helpers.get_visual_doc_type(model)
     width_units, height_units = visual_helpers.mm_to_units(width_mm, height_mm)
 
     with WriterCompoundUndo(model, "WriterAgent: Insert image"):
@@ -479,13 +469,6 @@ def _insert_writer_graphic(
     )
 
 
-def _insert_image_to_writer(ctx: Any, model: Any, img_path: str, width: int, height: int, title: str, description: str, add_frame: bool) -> None:
-    if add_frame:
-        _insert_frame(ctx, model, img_path, width, height, title, description)
-        return
-    _insert_writer_graphic(ctx, model, img_path, width, height, title, description)
-
-
 _FRAME_TITLE_HEIGHT_UNITS = 500
 
 
@@ -552,25 +535,29 @@ def _insert_image_to_drawpage(
     # When page_index is specified, do not dispatch .uno:InsertGraphic because
     # dispatch inserts on the currently active view page, then setPosition would
     # run against a different page's coordinates. Embed directly onto draw_page instead.
+    image = None
+    is_embedded = True
     if page_index is None and _should_link_image_path(img_path):
         file_url = _file_url_for_path(img_path)
-        graphic = _dispatch_insert_linked_graphic(ctx, model, file_url)
-        if graphic is not None:
-            _apply_graphic_properties(graphic, width=width, height=height, title=title, description=description, inside=inside)
-            if inside != "calc":
-                pos = visual_helpers.position_on_draw_page(draw_page, width, height, x_mm, y_mm)
-                if not visual_helpers.safe_try_method(graphic, "setPosition", pos):
-                    log.debug("_insert_image_to_drawpage: setPosition failed on linked graphic")
-            return graphic
-        log.debug("_insert_image_to_drawpage: linked dispatch failed, embedding fallback")
+        image = _dispatch_insert_linked_graphic(ctx, model, file_url)
+        if image is not None:
+            is_embedded = False
+        else:
+            log.debug("_insert_image_to_drawpage: linked dispatch failed, embedding fallback")
 
-    image = _create_embedded_graphic(model, inside, _file_url_for_path(img_path), ctx=ctx)
+    if image is None:
+        image = _create_embedded_graphic(model, inside, _file_url_for_path(img_path), ctx=ctx)
+
     _apply_graphic_properties(image, width=width, height=height, title=title, description=description, inside=inside)
-    draw_page.add(image)
+    if is_embedded:
+        draw_page.add(image)
     if inside != "calc":
         pos = visual_helpers.position_on_draw_page(draw_page, width, height, x_mm, y_mm)
         if not visual_helpers.safe_try_method(image, "setPosition", pos):
-            log.debug("_insert_image_to_drawpage: setPosition failed on embedded graphic")
+            log.debug(
+                "_insert_image_to_drawpage: setPosition failed on %s graphic",
+                "embedded" if is_embedded else "linked",
+            )
     return image
 
 
@@ -600,16 +587,11 @@ def replace_graphic_source(
     """
     from plugin.doc.compound_undo import WriterCompoundUndo
 
-    inside = get_type_doc(model)
+    inside = visual_helpers.get_visual_doc_type(model)
 
     with WriterCompoundUndo(model, "WriterAgent: Replace image"):
         file_url = _file_url_for_path(img_path)
-        placed = _safe_set_property(graphic, "GraphicURL", file_url)
-        if not placed and ctx is not None:
-            xgraphic = _graphic_from_provider(ctx, file_url)
-            if xgraphic is not None:
-                placed = _safe_set_property(graphic, "Graphic", xgraphic)
-        if not placed:
+        if not _assign_graphic_source(graphic, file_url, ctx=ctx):
             return False
 
         _apply_graphic_properties(
@@ -623,18 +605,13 @@ def replace_graphic_source(
         )
 
         # Clear stale crop: old crop belongs to the old picture.
-        if _has_uno_property(graphic, "GraphicCrop"):
+        if visual_helpers.has_uno_property(graphic, "GraphicCrop"):
             crop = visual_helpers.safe_get_property(graphic, "GraphicCrop")
             if crop is not None and (crop.Top or crop.Bottom or crop.Left or crop.Right):
                 crop.Top = crop.Bottom = crop.Left = crop.Right = 0
-                _safe_set_property(graphic, "GraphicCrop", crop)
+                visual_helpers.safe_set_property(graphic, "GraphicCrop", crop)
 
         return True
-
-
-def _graphic_from_object(obj: Any) -> Any | None:
-    """Return the UNO Graphic for a text graphic or draw GraphicObjectShape."""
-    return visual_helpers.graphic_from_object(obj)
 
 
 # Bugfix: getattr(ctx, "getServiceManager", lambda: None)() evaluated the default
@@ -676,7 +653,7 @@ def export_graphic_to_bytes(ctx: Any, graphic: Any) -> bytes:
 
 def export_graphic_object_to_bytes(ctx: Any, obj: Any) -> bytes | None:
     """Export a graphic-bearing UNO object (GraphicObject or GraphicObjectShape) to PNG bytes."""
-    graphic = _graphic_from_object(obj)
+    graphic = visual_helpers.graphic_from_object(obj)
     if graphic is None:
         return None
     return export_graphic_to_bytes(ctx, graphic)
@@ -691,9 +668,9 @@ def get_selected_image_base64(model: Any, ctx: Any = None) -> str | None:
     """
     import base64
 
-    # Use _selection_graphic_object which handles pyuno TextGraphicObject
+    # Use visual_helpers.selected_graphic_object which handles pyuno TextGraphicObject
     # correctly via supportsService / GraphicURL checks.
-    obj = _selection_graphic_object(model)
+    obj = visual_helpers.selected_graphic_object(model)
     if obj is None:
         log.debug("get_selected_image_base64: no graphic in selection")
         return None

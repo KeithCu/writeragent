@@ -617,7 +617,6 @@ def test_xdl_all_ids_classified():
     from plugin.chatbot.panel_resize import (
         _BOTTOM_CLUSTER,
         _BUTTON_ROW,
-        _HEADER_CONTROLS,
         _INDICATOR_CONTROLS,
         _OVERLAY_CONTROLS,
         _STRETCH_CONTROLS,
@@ -632,7 +631,13 @@ def test_xdl_all_ids_classified():
         | _OVERLAY_CONTROLS
         | _BOTTOM_CLUSTER
         | set(_BUTTON_ROW)
-        | _HEADER_CONTROLS
+        | {
+            "btn_settings",
+            "btn_python",
+            "btn_latex",
+            "btn_search",
+            "btn_hamburger",
+        }
         | _INDICATOR_CONTROLS
     )
 

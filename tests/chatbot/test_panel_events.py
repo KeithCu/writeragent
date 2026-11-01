@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.panel_events import PanelEventsController, _relabel_button
+from plugin.chatbot.send_state import ButtonAction
 from plugin.chatbot.tool_loop_actions import TurnController
 
 
@@ -74,6 +75,9 @@ class DummyEventsPanel:
         self.stop_control = _MockButton("Stop", False)
         self.clear_control = _MockButton("Clear", True)
         self.status_control = _MockStatusControl("Ready")
+        self._button_action = ButtonAction.RECORD
+        self._stop_button_action = ButtonAction.IGNORE
+        self._clear_button_action = ButtonAction.IGNORE
         self._button_mnemonics: dict[str, str] = {}
 
         self._set_status_calls: list[str] = []
