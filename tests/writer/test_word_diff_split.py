@@ -11,10 +11,20 @@ import pytest
 
 from plugin.writer.word_diff_split import (
     SubEdit,
-    apply_sub_edits,
     split_change,
     tokenize,
 )
+
+
+def apply_sub_edits(old: str, sub_edits: list[SubEdit]) -> str:
+    out = []
+    cursor = 0
+    for e in sub_edits:
+        out.append(old[cursor:e.old_start])
+        out.append(e.new_text)
+        cursor = e.old_end
+    out.append(old[cursor:])
+    return "".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -52,11 +62,6 @@ def test_tokenize_empty():
     assert tokenize("") == []
 
 
-def test_tokenize_non_str_is_empty():
-    assert tokenize(0) == []
-    assert tokenize(None) == []
-
-
 def test_tokenize_word_vs_separator_classification():
     toks = tokenize(" a  b ")
     kinds = [(t.text, t.is_word) for t in toks]
@@ -86,25 +91,6 @@ def test_identical_strings_no_sub_edits(value, value_2):
     assert r.sub_edits == []
     assert r.fraction_changed == 0.0
 
-
-def test_split_change_non_str_new_and_bad_threshold():
-    r = split_change("hi", 0, threshold="")
-    assert r.mode in ("surgical", "block")
-    assert 0.0 <= r.fraction_changed <= 1.0
-
-
-def test_split_change_nan_and_inf_threshold_fallback():
-    old = "the quick brown fox jumps over the lazy dog today"
-    new = "the quick brown cat jumps over the lazy dog today"
-    # 1 word changed out of 10 -> fraction 0.2 <= 0.6 -> surgical under default
-    r_nan = split_change(old, new, threshold=float("nan"))
-    assert r_nan.mode == "surgical"
-
-    r_inf = split_change(old, new, threshold=float("inf"))
-    assert r_inf.mode == "surgical"
-
-    r_neginf = split_change(old, new, threshold=float("-inf"))
-    assert r_neginf.mode == "surgical"
 
 def test_single_word_changed_in_long_sentence_one_surgical_edit():
     old = "the quick brown fox jumps over the lazy dog today"
@@ -193,29 +179,12 @@ def test_pure_deletion():
 
 def test_empty_old_is_pure_insertion():
     r = split_change("", "hello world")
-    # 100% changed -> block by the > threshold rule
-    assert r.mode == "block"
-    # block op must be classified like surgical ops: empty old -> insert (not "replace").
-    assert len(r.sub_edits) == 1
-    e = r.sub_edits[0]
-    assert e.op == "insert"
-    assert e.old_text == ""
-    assert e.old_start == e.old_end == 0
-    assert e.new_text == "hello world"
-    assert apply_sub_edits("", r.sub_edits) == "hello world"
+    assert r.mode == "block" and r.sub_edits == []
 
 
 def test_empty_new_is_pure_deletion():
     r = split_change("hello world", "")
-    assert r.mode == "block"
-    assert len(r.sub_edits) == 1
-    e = r.sub_edits[0]
-    assert e.op == "delete"
-    assert e.new_text == ""
-    assert e.old_start == 0
-    assert e.old_end == len("hello world")
-    assert e.old_text == "hello world"
-    assert apply_sub_edits("hello world", r.sub_edits) == ""
+    assert r.mode == "block" and r.sub_edits == []
 
 
 # ---------------------------------------------------------------------------
@@ -251,11 +220,7 @@ def test_just_above_threshold_is_block():
     r = split_change(old, new, threshold=0.6)
     assert r.fraction_changed > 0.6
     assert r.mode == "block"
-    assert len(r.sub_edits) == 1
-    assert r.sub_edits[0].op == "replace"
-    assert r.sub_edits[0].old_start == 0
-    assert r.sub_edits[0].old_end == len(old)
-    assert r.sub_edits[0].new_text == new
+    assert r.sub_edits == []
 
 
 def test_custom_threshold_one_keeps_everything_surgical():
@@ -309,7 +274,7 @@ def test_single_token_replace_is_surgical_block_or_surgical_by_threshold():
     r = split_change("hello", "goodbye")
     assert r.fraction_changed == 1.0
     assert r.mode == "block"
-    assert apply_sub_edits("hello", r.sub_edits) == "goodbye"
+    assert r.sub_edits == []
     # ... but with threshold 1.0 it stays surgical (1.0 is not > 1.0).
     r2 = split_change("hello", "goodbye", threshold=1.0)
     assert r2.mode == "surgical"
@@ -323,9 +288,7 @@ def test_block_op_is_replace_when_both_sides_nonempty():
     new = "totally other stuff appears instead"
     r = split_change(old, new, threshold=0.6)
     assert r.mode == "block"
-    assert r.sub_edits[0].op == "replace"
-    assert r.sub_edits[0].old_text == old
-    assert r.sub_edits[0].new_text == new
+    assert r.sub_edits == []
 
 
 # ---------------------------------------------------------------------------
@@ -446,9 +409,12 @@ RECONSTRUCT_CASES = [
 def test_apply_sub_edits_reconstructs_new_exactly(old, new):
     for thr in (0.0, 0.3, 0.6, 0.9, 1.0):
         r = split_change(old, new, threshold=thr)
-        assert apply_sub_edits(old, r.sub_edits) == new, (
-            "reconstruction failed for thr=%s mode=%s" % (thr, r.mode)
-        )
+        if r.mode == "block":
+            assert r.sub_edits == []
+        else:
+            assert apply_sub_edits(old, r.sub_edits) == new, (
+                "reconstruction failed for thr=%s mode=%s" % (thr, r.mode)
+            )
 
 
 @pytest.mark.parametrize("old,new", RECONSTRUCT_CASES)
@@ -488,6 +454,8 @@ def test_op_shape_invariant_holds_in_both_modes(old, new):
     # the whole-block edit.
     for thr in (0.0, 0.6, 1.0):
         r = split_change(old, new, threshold=thr)
+        if r.mode == "block":
+            assert r.sub_edits == []
         for e in r.sub_edits:
             if e.op == "insert":
                 assert e.old_text == "" and e.old_start == e.old_end
@@ -544,14 +512,17 @@ def test_randomized_reconstruction_and_invariants():
         old, new = rnd_text(), rnd_text()
         for thr in (0.0, 0.3, 0.6, 1.0):
             r = split_change(old, new, threshold=thr)
-            # losslessness
-            assert apply_sub_edits(old, r.sub_edits) == new, (old, new, thr, r.mode)
-            # non-overlap, sorted, spans match recorded old_text
-            prev_end = -1
-            for e in sorted(r.sub_edits, key=lambda x: (x.old_start, x.old_end)):
-                assert e.old_start >= prev_end
-                assert old[e.old_start:e.old_end] == e.old_text
-                prev_end = e.old_end
+            if r.mode == "block":
+                assert r.sub_edits == []
+            else:
+                # losslessness
+                assert apply_sub_edits(old, r.sub_edits) == new, (old, new, thr, r.mode)
+                # non-overlap, sorted, spans match recorded old_text
+                prev_end = -1
+                for e in r.sub_edits:
+                    assert e.old_start >= prev_end
+                    assert old[e.old_start:e.old_end] == e.old_text
+                    prev_end = e.old_end
 
 
 # --------------------------------------------------------------------------- threshold <= 0
@@ -560,12 +531,12 @@ def test_threshold_zero_forces_block_on_whitespace_only_change():
     # A whitespace-only change has a 0.0 word-fraction; at threshold 0 it must STILL land as one
     # block ("never split"), not a surgical separator redline.
     r = split_change("a b c", "a  b c", 0.0)
-    assert r.is_block and len(r.sub_edits) == 1
+    assert r.mode == "block" and r.sub_edits == []
 
 
 def test_threshold_zero_forces_block_on_word_change():
     r = split_change("a b c", "a X c", 0.0)
-    assert r.is_block
+    assert r.mode == "block" and r.sub_edits == []
 
 
 def test_split_change_long_text_does_not_precontract():
@@ -598,20 +569,13 @@ def test_max_diff_words_caps_to_block_replacement(monkeypatch):
     assert r_identical.fraction_changed == 0.0
     assert r_identical.sub_edits == []
 
-    # No shared words over the cap: "aa bb cc" / "xx yy zz" is mode="block", fraction 1.0, one replace of the whole old string.
+    # No shared words over the cap: "aa bb cc" / "xx yy zz" is mode="block", fraction 1.0
     old_no_shared = "aa bb cc"
     new_no_shared = "xx yy zz"
     r_no_shared = split_change(old_no_shared, new_no_shared)
     assert r_no_shared.mode == "block"
     assert r_no_shared.fraction_changed == 1.0
-    assert len(r_no_shared.sub_edits) == 1
-    sub_no_shared = r_no_shared.sub_edits[0]
-    assert sub_no_shared.op == "replace"
-    assert sub_no_shared.old_start == 0
-    assert sub_no_shared.old_end == len(old_no_shared)
-    assert sub_no_shared.old_text == old_no_shared
-    assert sub_no_shared.new_text == new_no_shared
-    assert apply_sub_edits(old_no_shared, r_no_shared.sub_edits) == new_no_shared
+    assert r_no_shared.sub_edits == []
 
     # Over the cap but the middle fits: "a b c d e" / "a b c d Z" is surgical, one replace, old_text == "e", new_text == "Z", fraction 2/6, and apply_sub_edits equals the new string.
     old_mid_fits = "a b c d e"
@@ -632,11 +596,7 @@ def test_max_diff_words_caps_to_block_replacement(monkeypatch):
     r_mid_over = split_change(old_mid_over, new_mid_over)
     assert r_mid_over.mode == "block"
     assert r_mid_over.fraction_changed == pytest.approx(6 / 9)
-    assert len(r_mid_over.sub_edits) == 1
-    sub_mid_over = r_mid_over.sub_edits[0]
-    assert sub_mid_over.old_start == 0
-    assert sub_mid_over.old_end == len(old_mid_over)
-    assert sub_mid_over.new_text == new_mid_over
+    assert r_mid_over.sub_edits == []
 
     # Whitespace-only over the cap: "one two  three four five" / "one two three four five" is surgical and apply_sub_edits reconstructs the new string.
     old_ws = "one two  three four five"

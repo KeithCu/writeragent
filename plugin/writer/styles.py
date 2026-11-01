@@ -1132,7 +1132,7 @@ class ApplyStyle(FrameworkToolBase):
             result = {"status": "ok", "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, len(reports)),
                       "style_name": style_name, "family": family, "target": "search", "applied": True, "matched": True, "applied_count": len(reports)}
             result.update(self._merge_reports(reports))
-            flag_style_unreviewed(ctx.ctx, result)
+            flag_style_unreviewed(result)
             return result
 
         try:
@@ -1154,7 +1154,7 @@ class ApplyStyle(FrameworkToolBase):
         result.update(self._merge_reports([report]))
         if target == "search":
             result["matched"] = True  # a search miss would have errored earlier in resolve_target_cursor
-        flag_style_unreviewed(ctx.ctx, result)
+        flag_style_unreviewed(result)
         return result
 
 
@@ -1273,7 +1273,7 @@ class StyleUpdate(ToolWriterStyleBase):
             if warning:
                 result["warning"] = warning
 
-        flag_style_unreviewed(ctx.ctx, result)
+        flag_style_unreviewed(result)
         return result
 
 
@@ -1401,7 +1401,7 @@ class StyleCreate(ToolWriterStyleBase):
             warning = _font_not_installed_warning(ctx, applied["CharFontName"])
             if warning:
                 result["warning"] = warning
-        flag_style_unreviewed(ctx.ctx, result)
+        flag_style_unreviewed(result)
         return result
 
 
@@ -1484,7 +1484,7 @@ class StyleClone(ToolWriterStyleBase):
             "shapes_copied": stats["shapes_copied"],
             "skipped_shapes": stats["skipped_shapes"],
         }
-        flag_style_unreviewed(ctx.ctx, result)
+        flag_style_unreviewed(result)
         return result
 
 
@@ -1542,5 +1542,5 @@ class StyleImport(ToolWriterStyleBase):
         ctx.doc.loadStylesFromURL(url, opts)
 
         result = {"status": "ok", "file_path": file_path, "overwrite": overwrite}
-        flag_style_unreviewed(ctx.ctx, result)
+        flag_style_unreviewed(result)
         return result

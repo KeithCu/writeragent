@@ -912,7 +912,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
                     }
 
         result = {"status": "ok", "style_name": style_name, "updated": updated}
-        flag_style_unreviewed(getattr(ctx, "ctx", None), result)
+        flag_style_unreviewed(result)
         return result
 
 
@@ -1119,7 +1119,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             }
             if auto_height is not None:
                 result["auto_height"] = bool(auto_height)
-            flag_style_unreviewed(getattr(ctx, "ctx", None), result)
+            flag_style_unreviewed(result)
             return result
         except Exception as e:
             if is_disposed_exception(e):
@@ -1553,7 +1553,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         }
         if notes:
             result["warning"] = notes[0]
-        flag_style_unreviewed(getattr(ctx, "ctx", None), result)
+        flag_style_unreviewed(result)
         return result
 
 
@@ -1649,7 +1649,7 @@ class PageSetColumns(ToolWriterPageBase):
             "column_count": column_count,
             "spacing_mm": spacing_raw,
         }
-        flag_style_unreviewed(getattr(ctx, "ctx", None), result)
+        flag_style_unreviewed(result)
         return result
 
 

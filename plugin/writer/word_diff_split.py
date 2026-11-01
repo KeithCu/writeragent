@@ -70,7 +70,6 @@ divided by total affix and middle words) and is always mode="block".
 """
 
 import difflib
-import math
 from typing import Any, ClassVar
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, str_bounded, deal
@@ -84,7 +83,6 @@ __all__ = [
     "SplitResult",
     "tokenize",
     "split_change",
-    "apply_sub_edits",
 ]
 
 
@@ -180,12 +178,9 @@ class SplitResult:
     Attributes:
         mode:              ``"block"`` or ``"surgical"``.
         fraction_changed:  the word-count fraction described in the module docstring.
-        sub_edits:         list of :class:`SubEdit`. For ``mode == "block"`` this is a
-                           single whole-range edit covering all of ``old`` (its ``op`` is
-                           classified the same way surgical ops are: ``insert`` if ``old``
-                           is empty, ``delete`` if ``new`` is empty, else ``replace``). For
-                           ``mode == "surgical"`` it is zero or more surgical sub-edits
-                           (empty when ``old == new``).
+        sub_edits:         list of :class:`SubEdit`. For ``mode == "block"`` this is
+                           empty. For ``mode == "surgical"`` it is zero or more surgical
+                           sub-edits (empty when ``old == new``).
     """
 
     mode: str
@@ -197,11 +192,6 @@ class SplitResult:
         self.mode = mode
         self.fraction_changed = fraction_changed
         self.sub_edits = sub_edits
-
-    @property
-    def is_block(self) -> bool:
-        # crosshair: off
-        return self.mode == "block"
 
     @property
     def is_surgical(self) -> bool:
@@ -224,8 +214,6 @@ def tokenize(s: str) -> list[Token]:
     token's ``[start:end]`` indexes back into *s*. An empty string yields ``[]``.
     """
     # crosshair: off
-    if not isinstance(s, str):
-        s = ""
     tokens = []
     n = len(s)
     i = 0
@@ -245,11 +233,6 @@ def _classify_block_op(old: str, new: str) -> str:
     if not new:
         return "delete"
     return "replace"
-
-
-def _whole_block(old: str, new: str, fraction: float) -> SplitResult:
-    op = _classify_block_op(old, new)
-    return SplitResult("block", fraction, [SubEdit(op, 0, len(old), old, new)])
 
 
 def _common_word_affix(old_words: list[Token], new_words: list[Token]) -> tuple[int, int]:
@@ -323,15 +306,6 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
         definition and boundary semantics.
     """
     # crosshair: off
-    old = old if isinstance(old, str) else ""
-    new = new if isinstance(new, str) else ""
-    try:
-        threshold = float(threshold)
-    except (TypeError, ValueError):
-        threshold = _DEFAULT_THRESHOLD
-    if not math.isfinite(threshold):
-        threshold = _DEFAULT_THRESHOLD
-
     # What was wrong: identical strings over the word cap fell back to a whole-block redline.
     # How it happened: _MAX_DIFF_WORDS cap was evaluated before checking if old == new.
     # Why this change fixes it: return early with zero sub-edits when old == new before word capping.
@@ -353,7 +327,7 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
             # Why this change fixes it: strip matching affixes and compute upper-bound fraction on the middle words.
             denom = prefix + suffix + mid_old_len + mid_new_len
             fraction = (mid_old_len + mid_new_len) / denom if denom else 0.0
-            return _whole_block(old, new, fraction)
+            return SplitResult("block", fraction, [])
         opcodes = _opcodes_with_affix(old_words, new_words, prefix, suffix)
     else:
         # difflib anchors on equal words. When a word repeats, it may match a different occurrence
@@ -379,7 +353,7 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
     # a no-op (handled by the surgical path returning zero sub-edits below).
     force_block = threshold <= 0.0 and old != new
     if force_block or fraction > threshold:
-        return _whole_block(old, new, fraction)
+        return SplitResult("block", fraction, [])
 
     # --- surgical path ---------------------------------------------------------
     sub_edits = _build_surgical_edits(old, new, old_words, new_words, opcodes)
@@ -415,33 +389,23 @@ def _build_surgical_edits(old: str, new: str, old_words: list[Token], new_words:
     Returns sub-edits sorted by ``old_start`` (non-overlapping by construction).
     """
     # crosshair: off
-    # Pair up matched words: list of (old_word_index, new_word_index) for every equal
-    # word, in order. These are the anchors.
-    anchors = []
-    for tag, i1, i2, j1, _j2 in opcodes:
-        if tag == "equal":
-            for d in range(i2 - i1):
-                anchors.append((i1 + d, j1 + d))
-
-    # Build cut boundaries. A "segment" is the char span between one anchor's end (or
-    # string start) and the next anchor's start (or string end), on each side.
     sub_edits: list[SubEdit] = []
 
     prev_old = 0          # char offset in old where the current segment begins
     prev_new = 0          # char offset in new where the current segment begins
-    for oi, nj in anchors:
-        ow = old_words[oi]
-        nw = new_words[nj]
-        # Segment between previous anchor and this matched word.
-        _emit_segment(sub_edits, old, new, prev_old, ow.start, prev_new, nw.start)
-        # The matched word itself is identical -> skip it (advance past it).
-        prev_old = ow.end
-        prev_new = nw.end
+    for tag, i1, i2, j1, _j2 in opcodes:
+        if tag == "equal":
+            for d in range(i2 - i1):
+                ow = old_words[i1 + d]
+                nw = new_words[j1 + d]
+                # Segment between previous anchor and this matched word.
+                _emit_segment(sub_edits, old, new, prev_old, ow.start, prev_new, nw.start)
+                # The matched word itself is identical -> skip it (advance past it).
+                prev_old = ow.end
+                prev_new = nw.end
 
     # Trailing segment after the last anchor (or the whole string if no anchors).
     _emit_segment(sub_edits, old, new, prev_old, len(old), prev_new, len(new))
-
-    sub_edits.sort(key=lambda e: (e.old_start, e.old_end))
     return sub_edits
 
 
@@ -476,21 +440,3 @@ def _emit_segment(out: list[SubEdit], old: str, new: str, old_lo: int, old_hi: i
         return
     op = _classify_block_op(old_seg, new_seg)
     out.append(SubEdit(op, old_lo, old_hi, old_seg, new_seg))
-
-
-def apply_sub_edits(old: str, sub_edits: list[SubEdit]) -> str:
-    """Apply *sub_edits* (from a :class:`SplitResult`) to *old*, returning the result.
-
-    The sub-edits are assumed non-overlapping and sorted by ``old_start`` (which is how
-    :func:`split_change` emits them). This mirrors what ``record_preserve_replace`` does --
-    splice each surgical span -- and is the property used by the reconstruction tests.
-    """
-    # crosshair: off
-    out = []
-    cursor = 0
-    for e in sorted(sub_edits, key=lambda x: (x.old_start, x.old_end)):
-        out.append(old[cursor:e.old_start])
-        out.append(e.new_text)
-        cursor = e.old_end
-    out.append(old[cursor:])
-    return "".join(out)
