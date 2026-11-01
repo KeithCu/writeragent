@@ -78,31 +78,24 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
         msgbox(ctx, title, _("Select one or more non-empty cells."))
         return
 
-    col_range = range(start_col, end_col + 1)
-    row_range = range(start_row, end_row + 1)
-
     cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
     formula_array = cell_range.getFormulaArray()
 
-    for row_idx, row in enumerate(row_range):
-        for col_idx, col in enumerate(col_range):
+    for r_i, row_vals in enumerate(formula_array):
+        for c_i, raw_val in enumerate(row_vals):
             if len(tasks) >= _MAX_CELLS:
                 break
-            raw_val = formula_array[row_idx][col_idx]
-
             # Use the formula array, not getString(), so formulas are not
             # replaced by their evaluated display text.
             cell_text = "" if raw_val is None else str(raw_val)
-
             if not cell_text:
                 continue
-
             tasks.append(
                 StreamCompletionTask(
                     _build_calc_edit_prompt(cell_text, user_input) if is_edit else cell_text,
                     edit_sys if is_edit else extend_sys,
                     len(cell_text) + edit_max if is_edit else extend_max,
-                    (col, row, cell_text if is_edit else None),
+                    (start_col + c_i, start_row + r_i, cell_text if is_edit else None),
                 )
             )
         if len(tasks) >= _MAX_CELLS:
