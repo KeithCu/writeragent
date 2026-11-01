@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 _FAILED: Any = object()
 
 WRITER_GRAPHIC_SERVICE = "com.sun.star.text.TextGraphicObject"
-TEXT_GRAPHIC_SERVICE = "com.sun.star.text.GraphicObject"
+_TEXT_GRAPHIC_SERVICE = "com.sun.star.text.GraphicObject"
 DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
 
 SHAPE_TOOL_UNO_SERVICES = list(DOCUMENT_SERVICES)
@@ -354,7 +354,7 @@ def is_graphic_object(obj: Any) -> bool:
 
     # Service probe first: Draw/Impress shapes used to pay a failing Graphic read here.
     try:
-        if obj.supportsService(WRITER_GRAPHIC_SERVICE) or obj.supportsService(TEXT_GRAPHIC_SERVICE) or obj.supportsService(DRAW_GRAPHIC_SERVICE):
+        if obj.supportsService(WRITER_GRAPHIC_SERVICE) or obj.supportsService(_TEXT_GRAPHIC_SERVICE) or obj.supportsService(DRAW_GRAPHIC_SERVICE):
             return True
     except Exception as exc:
         log.debug("is_graphic_object service probe failed (%s)", type(exc).__name__)
@@ -602,6 +602,11 @@ class AmbiguousGraphicNameError(ValueError):
         self.sheet_indices: list[int] = sheet_indices or []
 
 
+def _sheet_draw_page(sheet: Any) -> Any:
+    dp = getattr(sheet, "getDrawPage", None)
+    return dp() if callable(dp) else getattr(sheet, "DrawPage", None)
+
+
 def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[str, Any]]:
     """Return ``(name, object)`` pairs for document-level graphic objects."""
     inside = doc_type or get_visual_doc_type(doc)
@@ -613,8 +618,7 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
             count = sheets.getCount()
             for sheet_idx in range(count):
                 sheet = sheets.getByIndex(sheet_idx)
-                dp = getattr(sheet, "getDrawPage", None)
-                draw_page: Any = dp() if callable(dp) else getattr(sheet, "DrawPage", None)
+                draw_page: Any = _sheet_draw_page(sheet)
                 if draw_page is None:
                     continue
                 sheet_name = getattr(sheet, "Name", None)
@@ -701,8 +705,7 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
             sheets: Any = doc.getSheets()
             for i in range(sheets.getCount()):
                 sheet = sheets.getByIndex(i)
-                dp = getattr(sheet, "getDrawPage", None)
-                p: Any = dp() if callable(dp) else getattr(sheet, "DrawPage", None)
+                p: Any = _sheet_draw_page(sheet)
                 if p is not None:
                     pages_list.append(p)
         except Exception as exc:
