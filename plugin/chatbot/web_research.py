@@ -68,7 +68,6 @@ class WebAgentRunParams:
     cache_path: str | None
     cache_max_mb: int
     cache_max_age_days: int
-    cdp_enabled: bool
     cdp_url: str | None
     stop_checker: Callable[[], bool] | None
     status_callback: Callable[[str], None] | None
@@ -79,8 +78,6 @@ class WebAgentRunParams:
     outer_query: str
     visited_urls: set[str] | None = None
     visited_urls_lock: threading.Lock | None = None
-    max_steps_override: int | None = None
-    deep_sub_agent: bool = False
     # Pool workers do not see the send thread's cancellation thread-local.
     # LlmClient only auto-registers get_current_send_cancellation() on the
     # constructing thread, so each worker must be handed this scope explicitly.
@@ -117,28 +114,22 @@ class WebResearchToolCallingAgent(ToolCallingAgent):
             elif last_msg.content is None:
                 last_msg.content = []
 
-            if isinstance(last_msg.content, list):
-                last_msg.content.insert(0, {"type": "text", "text": budget_msg})
+            last_msg.content.insert(0, {"type": "text", "text": budget_msg})
         else:
             # Use list-of-dicts format to satisfy smolagents' merge-assertion
             messages.append(ChatMessage(role=MessageRole.USER, content=[{"type": "text", "text": budget_msg}]))
         return messages
 
 
-def _get_unique_words_key(query: str, *, snowball_lang: str = "english") -> str:
-    """Normalize query, filter locale-aware fluff, sort unique words and return space-separated key."""
-    return " ".join(sorted(ordered_unique_query_words(query, snowball_lang=snowball_lang)))
-
-
-def _get_embedding_words_text(query: str, *, snowball_lang: str = "english") -> str:
-    """Normalize query terms for embeddings while preserving original word order."""
-    return " ".join(ordered_unique_query_words(query, snowball_lang=snowball_lang))
+def _cache_key_inputs(query: str, snowball_lang: str = "english") -> tuple[str, str]:
+    """Normalize query terms and return (sorted_unique_key, embedding_text_preserving_order)."""
+    words = ordered_unique_query_words(query, snowball_lang=snowball_lang)
+    return " ".join(sorted(words)), " ".join(words)
 
 
 def _research_cache_result_fields(
     event: str,
     cache_key: str,
-    cache_path: str | None,
     *,
     stem_lang: str | None = None,
     matched_key: str | None = None,
@@ -180,7 +171,7 @@ def _write_research_cache(
     if embedding_text:
         enqueue_research_cache_embedding_for_row(getattr(ctx, "ctx", ctx), cache_path, storage_key, embedding_text)
     enqueue_research_cache_embedding_backfill(getattr(ctx, "ctx", ctx), cache_path, max_age_days)
-    return _research_cache_result_fields("saved", unique_key, cache_path, stem_lang=stem_lang)
+    return _research_cache_result_fields("saved", unique_key, stem_lang=stem_lang)
 
 
 from plugin.contrib.smolagents.tools import Tool
@@ -190,12 +181,6 @@ def _normalize_visit_url(url: str) -> str:
     return str(url or "").strip().rstrip("/")
 
 
-def _visit_result_is_error(text: Any) -> bool:
-    """True when visit_webpage reported a fetch failure instead of page text."""
-    body = str(text or "").lstrip()
-    return body.startswith("Error") or body.startswith("Failed")
-
-
 def _visit_result_has_page_text(text: Any) -> bool:
     """True when the fetch returned text worth treating as already read.
 
@@ -203,9 +188,10 @@ def _visit_result_has_page_text(text: Any) -> bool:
     whitespace-only innerText is not an error prefix, so it used to be stored
     as visited and the next sub-query was told the URL was already read.
     """
-    if _visit_result_is_error(text):
+    body = str(text or "").lstrip()
+    if body.startswith("Error") or body.startswith("Failed"):
         return False
-    return bool(str(text or "").strip())
+    return bool(body.strip())
 
 
 class _VisitWebpageDedupTool(Tool):
@@ -216,10 +202,10 @@ class _VisitWebpageDedupTool(Tool):
     inputs: dict[str, dict[str, str | type[Any] | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type: str = "string"
     _inner: Tool
-    _visited_urls: set[str] | None
-    _visited_urls_lock: threading.Lock | None
+    _visited_urls: set[str]
+    _visited_urls_lock: threading.Lock
 
-    def __init__(self, inner: Tool, visited_urls: set[str] | None, visited_urls_lock: threading.Lock | None) -> None:
+    def __init__(self, inner: Tool, visited_urls: set[str], visited_urls_lock: threading.Lock) -> None:
         super().__init__()
         self._inner = inner
         self._visited_urls = visited_urls
@@ -227,13 +213,10 @@ class _VisitWebpageDedupTool(Tool):
 
     def forward(self, url: str) -> str:
         key = _normalize_visit_url(url)
-        visited = self._visited_urls
-        if not key or visited is None:
+        if not key:
             return self._inner.forward(url)
-        lock = self._visited_urls_lock
-        assert lock is not None, "visited set supplied without its lock"
-        with lock:
-            if key in visited:
+        with self._visited_urls_lock:
+            if key in self._visited_urls:
                 return f"(Already visited in this research run: {key})"
         text = self._inner.forward(url)
         # Record the URL only after non-empty, non-error text, under the
@@ -241,8 +224,8 @@ class _VisitWebpageDedupTool(Tool):
         # keeps a CDP/HTTP error or a blank page in the set, and later
         # sub-queries get "Already visited" instead of a retry.
         if _visit_result_has_page_text(text):
-            with lock:
-                visited.add(key)
+            with self._visited_urls_lock:
+                self._visited_urls.add(key)
         return text
 
 
@@ -342,13 +325,11 @@ class VisitWebpageCdpTool(Tool):
     inputs: dict[str, dict[str, str | type[Any] | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
     output_type: str = "string"
     cdp_url: str
-    max_output_length: int
     stop_checker: Callable[[], bool] | None
 
-    def __init__(self, cdp_url: str, max_output_length: int = 40000, *, stop_checker: Callable[[], bool] | None = None, **kwargs: Any) -> None:
+    def __init__(self, cdp_url: str, *, stop_checker: Callable[[], bool] | None = None) -> None:
         super().__init__()
         self.cdp_url = cdp_url
-        self.max_output_length = max_output_length
         self.stop_checker = stop_checker
 
     def forward(self, url: str) -> str:
@@ -396,8 +377,8 @@ class VisitWebpageCdpTool(Tool):
             if not text:
                 text = eval_data.get("result", {}).get("result", {}).get("description") or ""
 
-            if len(text) > self.max_output_length:
-                return text[:self.max_output_length] + f"\n..._This content has been truncated to stay below {self.max_output_length} characters_...\n"
+            if len(text) > 40000:
+                return text[:40000] + "\n..._This content has been truncated to stay below 40000 characters_...\n"
             return text
         except Exception as e:
             return f"Error visiting webpage via CDP: {e}"
@@ -432,7 +413,7 @@ def _run_web_agent(
     from plugin.chatbot.smol_examples import get_examples_block
     from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
 
-    max_steps = params.max_steps_override if params.max_steps_override else params.max_steps
+    max_steps = params.max_steps
     base_intro = (
         "You are a research assistant. "
         "Use the conversation context provided below to resolve any ambiguity in the user's query. "
@@ -440,7 +421,7 @@ def _run_web_agent(
         "For fast-changing topics (news, prices, model releases), prefer recent sources and pass "
         "recency='day' or recency='week' to web_search so results are not stale."
     )
-    if params.deep_sub_agent and research_goal:
+    if research_goal:
         base_intro += f"\n\nResearch goal for this sub-task: {research_goal.strip()}"
     tool_steps_budget = max_steps - 1
     budget_text = (
@@ -464,10 +445,14 @@ def _run_web_agent(
 
     visit_inner = (
         VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=params.stop_checker)
-        if (params.cdp_enabled and params.cdp_url)
+        if params.cdp_url
         else VisitWebpageTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days)
     )
-    visit_tool = _VisitWebpageDedupTool(visit_inner, params.visited_urls, params.visited_urls_lock)
+    visit_tool = (
+        _VisitWebpageDedupTool(visit_inner, params.visited_urls, params.visited_urls_lock)
+        if params.visited_urls is not None and params.visited_urls_lock is not None
+        else visit_inner
+    )
     agent = WebResearchToolCallingAgent(
         tools=[
             DuckDuckGoSearchTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days),
@@ -495,14 +480,9 @@ def _run_web_agent(
 
             prompt_and_approve = params.prompt_for_web_research and params.approval_callback
 
-            def _append_search_preview(query_for_engine: str, *, skip_dedup: bool) -> None:
+            def _append_search_preview(query_for_engine: str) -> None:
                 if not params.chat_append_callback:
                     return
-                if not skip_dedup:
-                    q_norm = _norm_research_query(query_for_engine)
-                    query_norm = _norm_research_query(params.outer_query)
-                    if web_search_step_index == 0 and q_norm == query_norm:
-                        return
                 from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
 
                 params.chat_append_callback(web_search_engine_step_chat_text(query_for_engine))
@@ -510,7 +490,7 @@ def _run_web_agent(
             if prompt_and_approve:
                 # Show the engine query before blocking on Accept/Change/Reject so the sidebar
                 # transcript matches what the user is approving (skip outer-query dedup).
-                _append_search_preview(q, skip_dedup=True)
+                _append_search_preview(q)
                 approval_result = params.approval_callback(q, "web_search", step.arguments)
                 proceed, query_override = _unpack_approval(approval_result)
 
@@ -519,9 +499,12 @@ def _run_web_agent(
                 if query_override is not None:
                     _apply_web_search_query_override(step, query_override)
                     q = query_override
-                    _append_search_preview(q, skip_dedup=True)
+                    _append_search_preview(q)
             else:
-                _append_search_preview(q, skip_dedup=False)
+                q_norm = _norm_research_query(q)
+                query_norm = _norm_research_query(params.outer_query)
+                if not (web_search_step_index == 0 and q_norm == query_norm):
+                    _append_search_preview(q)
 
             web_search_step_index += 1
             status_msg = f"Search: {q[:25]}"
@@ -552,11 +535,6 @@ def _run_deep_web_research(
     ctx: Any,
     query_str: str,
     agent_params: WebAgentRunParams,
-    *,
-    cache_path: str | None,
-    cache_max_mb: int,
-    cache_max_age_days: int,
-    plain_text_format: str,
 ) -> tuple[str | dict[str, Any], str]:
     """Breadth/depth research loop; each sub-query reuses the shallow ReAct sub-agent.
 
@@ -571,19 +549,31 @@ def _run_deep_web_research(
 
     parent_client = agent_params.smol_model.api
 
-    def llm_chat(messages: list[dict[str, str]], max_tok: int) -> str:
+    def _chat_via(client: Any) -> Callable[[list[dict[str, str]], int], str]:
         # Planning and synthesis stay on this thread, outside the sub-query pool.
         # chat_completion_sync raises USER_STOPPED when the checker fires; an
         # empty string used to look like a finished plan and was cached.
-        return parent_client.chat_completion_sync(
-            messages,
-            max_tokens=max_tok,
-            prepend_dev_build_system_prefix=False,
-            stop_checker=agent_params.stop_checker,
-        )
+        def chat(messages: list[dict[str, str]], max_tok: int) -> str:
+            return client.chat_completion_sync(
+                messages,
+                max_tokens=max_tok,
+                prepend_dev_build_system_prefix=False,
+                stop_checker=agent_params.stop_checker,
+            )
+
+        return chat
+
+    llm_chat = _chat_via(parent_client)
 
     visited_urls: set[str] = set()
     visited_lock = threading.Lock()
+    sub_steps = get_config_int_safe("chatbot.deep_research_sub_agent_steps")
+    if sub_steps > 0:
+        run_max_steps = sub_steps
+    elif agent_params.max_steps > 0:
+        run_max_steps = max(agent_params.max_steps + 1, int(agent_params.max_steps * 1.5))
+    else:
+        run_max_steps = agent_params.max_steps
     # replace keeps the shared visited set/lock (and cancellation scope) by
     # reference. A fresh WebAgentRunParams would copy the field list and drop
     # any new field the next time one is added.
@@ -591,13 +581,8 @@ def _run_deep_web_research(
         agent_params,
         visited_urls=visited_urls,
         visited_urls_lock=visited_lock,
-        deep_sub_agent=True,
+        max_steps=run_max_steps,
     )
-    sub_steps = get_config_int_safe("chatbot.deep_research_sub_agent_steps")
-    if sub_steps > 0:
-        deep_params.max_steps_override = sub_steps
-    elif agent_params.max_steps > 0:
-        deep_params.max_steps_override = max(agent_params.max_steps + 1, int(agent_params.max_steps * 1.5))
 
     def worker_factory() -> tuple[Any, Any, Any]:
         # One LlmClient owns one HTTP connection and is not safe on two threads.
@@ -623,15 +608,7 @@ def _run_deep_web_research(
         def run_sub_agent(sub_query: str, research_goal: str, sub_history: str | None) -> str | dict[str, Any]:
             return _run_web_agent(ctx, sub_query, sub_history, worker_params, research_goal=research_goal or None)
 
-        def worker_llm_chat(messages: list[dict[str, str]], max_tok: int) -> str:
-            return worker_client.chat_completion_sync(
-                messages,
-                max_tokens=max_tok,
-                prepend_dev_build_system_prefix=False,
-                stop_checker=agent_params.stop_checker,
-            )
-
-        return run_sub_agent, worker_llm_chat, worker_client.stop
+        return run_sub_agent, _chat_via(worker_client), worker_client.stop
 
     def _parent_runner_not_for_pool(sub_query: str, research_goal: str, sub_history: str | None) -> str:
         del sub_query, research_goal, sub_history
@@ -663,7 +640,7 @@ def _run_deep_web_research(
 
     initial_snippet = ""
     try:
-        preview = DuckDuckGoSearchTool(cache_path=cache_path, cache_max_mb=cache_max_mb, cache_max_age_days=cache_max_age_days)
+        preview = DuckDuckGoSearchTool(cache_path=agent_params.cache_path, cache_max_mb=agent_params.cache_max_mb, cache_max_age_days=agent_params.cache_max_age_days)
         initial_snippet = str(preview.forward(query_str))[:4000]
     except Exception as preview_exc:
         log.debug("deep_research preview search skipped: %s", preview_exc)
@@ -685,7 +662,7 @@ def _run_deep_web_research(
         concurrency=get_config_int("chatbot.deep_research_concurrency"),
         max_sub_queries=get_config_int("chatbot.deep_research_max_sub_queries"),
         quality_threshold=get_config_int("chatbot.deep_research_quality_threshold"),
-        plain_text_format=plain_text_format,
+        plain_text_format=WEB_RESEARCH_PLAIN_TEXT_FORMAT,
         initial_search_snippet=initial_snippet,
     )
     return researched, query_str
@@ -716,8 +693,7 @@ class WebResearchTool(ToolBase):
         from plugin.chatbot.web_research_cache import resolve_research_locale
 
         _lo_locale, stem_lang = resolve_research_locale(ctx.ctx, getattr(ctx, "doc", None))
-        unique_key = _get_unique_words_key(query_str, snowball_lang=stem_lang)
-        embedding_text = _get_embedding_words_text(query_str, snowball_lang=stem_lang)
+        unique_key, embedding_text = _cache_key_inputs(query_str, stem_lang)
 
         from plugin.framework.config import get_config_bool_safe, get_config_int, user_config_dir
         cache_enabled = get_config_bool_safe("web_research_cache_enabled")
@@ -769,7 +745,6 @@ class WebResearchTool(ToolBase):
                     cache_fields = _research_cache_result_fields(
                         event,
                         display_key,
-                        cache_path,
                         stem_lang=stem_lang,
                         matched_key=matched_raw_key if event in ("hit_fuzzy", "hit_embedding") else None,
                         score=score if event in ("hit_fuzzy", "hit_embedding") else None,
@@ -797,12 +772,8 @@ class WebResearchTool(ToolBase):
         from plugin.framework.config import get_config
         from plugin.framework.config_schema import as_bool
 
-        browser_type = "off"
-        val = get_config("chatbot.web_research_browser")
-        if isinstance(val, str):
-            browser_type = val
-
-        cdp_enabled = (browser_type in ["chrome", "firefox", "chromium"])
+        browser_type = get_config("chatbot.web_research_browser")
+        cdp_enabled = browser_type in ("chrome", "firefox", "chromium")
         cdp_url = None
         cdp_held = False
 
@@ -820,7 +791,6 @@ class WebResearchTool(ToolBase):
                     log.info("CDP web research enabled (%s). Local debug WS URL: %s", browser_type, cdp_url)
                 except Exception as e:
                     log.warning("Failed to launch or connect to local %s via CDP: %s. Falling back to static HTTP.", browser_type, e)
-                    cdp_enabled = False
 
             agent_params = WebAgentRunParams(
                 smol_model=smol_model,
@@ -828,7 +798,6 @@ class WebResearchTool(ToolBase):
                 cache_path=cache_path,
                 cache_max_mb=cache_max_mb,
                 cache_max_age_days=cache_max_age_days,
-                cdp_enabled=cdp_enabled,
                 cdp_url=cdp_url,
                 stop_checker=stop_checker,
                 status_callback=status_callback,
@@ -844,87 +813,71 @@ class WebResearchTool(ToolBase):
                     ctx,
                     query_str,
                     agent_params,
-                    cache_path=cache_path,
-                    cache_max_mb=cache_max_mb,
-                    cache_max_age_days=cache_max_age_days,
-                    plain_text_format=WEB_RESEARCH_PLAIN_TEXT_FORMAT,
                 )
                 if researched_query != query_str:
                     # Change edits the query after the original cache lookup.
                     # Store under the query that was actually researched.
-                    unique_key = _get_unique_words_key(researched_query, snowball_lang=stem_lang)
-                    embedding_text = _get_embedding_words_text(researched_query, snowball_lang=stem_lang)
+                    unique_key, embedding_text = _cache_key_inputs(researched_query, stem_lang)
             else:
                 final_ans = _run_web_agent(ctx, query_str, history_text, agent_params)
 
-            cache_fields = {}
+            cacheable = False
             if isinstance(final_ans, dict) and "status" in final_ans:
                 # Synthesis notes set cacheable False. A missing flag still
-                # caches a normal ok payload. Pop it so the model does not see it.
+                # caches a normal ok payload. Pop it before the status check so
+                # a stray flag on a non-ok payload never reaches the model.
                 cacheable = final_ans.pop("cacheable", True)
                 if final_ans.get("status") == "ok":
                     final_ans.setdefault("instruction", instruction)
-                if final_ans.get("status") == "ok" and cacheable and cache_enabled and cache_path and unique_key:
-                    result_text = str(final_ans.get("result", ""))
-                    if result_text.strip():
-                        try:
-                            cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_text, cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text, mode=cache_mode)
-                        except Exception as e:
-                            log.warning("Failed to write to web research cache: %s", e)
-                if cache_fields:
-                    return {**final_ans, **cache_fields}
-                return final_ans
+            else:
+                # Sub-agent execution can return None or empty string when it finishes
+                # without a final answer. Previously str(final_ans) became literal "None",
+                # returning status: ok and caching a blank result.
+                result_str = str(final_ans or "")
+                if not result_str.strip():
+                    return format_error_payload(
+                        ToolExecutionError("Web research finished without a result.", code="WEB_RESEARCH_EMPTY_RESULT")
+                    )
+                from plugin.framework.i18n import _
 
-            # Sub-agent execution can return None or empty string when it finishes
-            # without a final answer. Previously str(final_ans) became literal "None",
-            # returning status: ok and caching a blank result.
-            result_str = str(final_ans or "")
-            if not result_str.strip():
-                return format_error_payload(
-                    ToolExecutionError("Web research finished without a result.", code="WEB_RESEARCH_EMPTY_RESULT")
-                )
-            if cache_enabled and cache_path and unique_key and result_str.strip():
-                try:
-                    cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_str, cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text, mode=cache_mode)
-                except Exception as e:
-                    log.warning("Failed to write to web research cache: %s", e)
+                final_ans = {"status": "ok", "message": _("Web research completed."), "result": result_str, "instruction": instruction}
+                cacheable = True
 
-            from plugin.framework.i18n import _
-
-            out: dict[str, Any] = {"status": "ok", "message": _("Web research completed."), "result": result_str, "instruction": instruction}
+            if final_ans.get("status") == "ok" and cacheable and cache_enabled and cache_path and unique_key:
+                result_text = str(final_ans.get("result", ""))
+                if result_text.strip():
+                    try:
+                        cache_fields = _write_research_cache(ctx, cache_path, unique_key, result_text, cache_max_mb, cache_max_age_days, stem_lang, embedding_text=embedding_text, mode=cache_mode)
+                    except Exception as e:
+                        log.warning("Failed to write to web research cache: %s", e)
             if cache_fields:
-                out.update(cache_fields)
-            return out
+                return {**final_ans, **cache_fields}
+            return final_ans
         finally:
             if cdp_held:
                 _finish_cdp_browser()
             best_effort(smol_model.api.stop, "Error stopping smol_model api")
 
 
-def _web_search_query_from_arguments(arguments: Any) -> str:
-    if arguments is None:
-        return ""
+def _coerce_args_dict(arguments: Any) -> dict[str, Any]:
     if isinstance(arguments, dict):
-        return str(arguments.get("query", ""))
+        return arguments
     if isinstance(arguments, str):
         data = safe_json_loads(arguments)
         if isinstance(data, dict):
-            return str(data.get("query", ""))
-    return ""
+            return data
+    return {}
 
 
-def _apply_web_search_query_override(step: Any, query_override: str) -> bool:
-    if isinstance(step.arguments, dict):
-        step.arguments["query"] = query_override
-        return False
-    if isinstance(step.arguments, str):
-        data = safe_json_loads(step.arguments)
-        if isinstance(data, dict):
-            data["query"] = query_override
-            step.arguments = data
-            return True
-    step.arguments = {"query": query_override}
-    return True
+def _web_search_query_from_arguments(arguments: Any) -> str:
+    return str(_coerce_args_dict(arguments).get("query", ""))
+
+
+def _apply_web_search_query_override(step: Any, query_override: str) -> None:
+    args = _coerce_args_dict(step.arguments)
+    args["query"] = query_override
+    if step.arguments is not args:
+        step.arguments = args
 
 
 def _norm_research_query(q: str) -> str:

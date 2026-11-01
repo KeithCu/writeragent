@@ -69,10 +69,8 @@ def validated_image_suffix(data: bytes) -> str:
     return suffix
 
 
-def write_temp_image(data: bytes, suffix: str | None = None) -> str:
+def write_temp_image(data: bytes, suffix: str) -> str:
     """Write image bytes to a temporary file prefixed with 'wa-img-'. Unlink on failure."""
-    if suffix is None:
-        suffix = suffix_for_image_bytes(data)
     fd, path = tempfile.mkstemp(prefix="wa-img-", suffix=suffix)
     try:
         with os.fdopen(fd, "wb") as f:
@@ -97,7 +95,8 @@ def _unlink_temp_paths(paths: list[str]) -> None:
             pass
 
 
-def _reraise_if_stopped(stop_checker: Any, exc: Exception) -> None:
+def _abandon_image_paths(paths: list[str], stop_checker: Any, exc: Exception, log_message: str) -> tuple[list[str], str]:
+    _unlink_temp_paths(paths)
     is_stopped = False
     if isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED":
         is_stopped = True
@@ -106,11 +105,6 @@ def _reraise_if_stopped(stop_checker: Any, exc: Exception) -> None:
     if is_stopped:
         log.debug("Image generation cancelled by Stop: %s", exc)
         raise ToolExecutionError("Image generation stopped by user.", code="USER_STOPPED") from exc
-
-
-def _abandon_image_paths(paths: list[str], stop_checker: Any, exc: Exception, log_message: str) -> tuple[list[str], str]:
-    _unlink_temp_paths(paths)
-    _reraise_if_stopped(stop_checker, exc)
     message = resolve_exception_message(exc)
     if isinstance(exc, (NetworkError, ToolExecutionError)):
         log.warning("%s: %s", log_message, message)
@@ -136,33 +130,29 @@ class EndpointImageProvider:
         self.client = LlmClient(api_config, ctx)
         self.model = str(api_config.get("model") or get_image_model() or "").strip()
 
-    def _save_b64(self, b64_data: str) -> list[str]:
+    def _save_b64(self, b64_data: str) -> str:
         if len(b64_data) > (IMAGE_DOWNLOAD_MAX_BYTES * 4) // 3 + 4:
             raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
         raw_bytes = base64.b64decode(b64_data)
         suffix = validated_image_suffix(raw_bytes)
-        return [write_temp_image(raw_bytes, suffix=suffix)]
+        return write_temp_image(raw_bytes, suffix=suffix)
 
-    def _save_url(self, url: str, *, stop_checker: Any = None, status_callback: Any = None) -> list[str]:
-        extra: dict[str, Any] = {}
-        if stop_checker is not None:
-            extra["stop_checker"] = stop_checker
-        if status_callback is not None:
-            extra["status_callback"] = status_callback
+    def _save_url(self, url: str, *, stop_checker: Any = None, status_callback: Any = None) -> str:
         resp = sync_request(
             url,
             parse_json=False,
             include_meta=True,
             timeout=get_config_int("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
-            **extra,
+            stop_checker=stop_checker,
+            status_callback=status_callback,
         )
         body = getattr(resp, "body", resp)
         content_type = (getattr(resp, "content_type", "") or "").split(";")[0].strip().lower()
         if content_type in IMAGE_CONTENT_TYPE_DENYLIST:
             raise RuntimeError("Invalid Content-Type '%s' for image download" % content_type)
         suffix = validated_image_suffix(body)
-        return [write_temp_image(body, suffix=suffix)]
+        return write_temp_image(body, suffix=suffix)
 
     def _run_image_completion(
         self,
@@ -172,18 +162,25 @@ class EndpointImageProvider:
         height: int,
         steps: int | None,
         source_image: str | None,
-        wire: dict[str, Any],
         stop_checker: Any,
+        status_callback: Any,
         log_message: str,
     ) -> tuple[list[str], str]:
         valid_steps = steps if (steps is not None and steps > 0) else None
         paths: list[str] = []
         try:
             b64_list = self.client.image_completion(
-                prompt, model=model, width=width, height=height, steps=valid_steps, source_image=source_image, **wire
+                prompt,
+                model=model,
+                width=width,
+                height=height,
+                steps=valid_steps,
+                source_image=source_image,
+                stop_checker=stop_checker,
+                status_callback=status_callback,
             )
             for b64 in b64_list:
-                paths.extend(self._save_b64(b64))
+                paths.append(self._save_b64(b64))
             if paths:
                 return paths, ""
             return [], "No image data returned from provider"
@@ -195,11 +192,6 @@ class EndpointImageProvider:
         try:
             status_callback = kwargs.pop("status_callback", None)
             stop_checker = kwargs.pop("stop_checker", None)
-            wire: dict[str, Any] = {}
-            if status_callback is not None:
-                wire["status_callback"] = status_callback
-            if stop_checker is not None:
-                wire["stop_checker"] = stop_checker
             override = kwargs.pop("image_model", None)
             if isinstance(override, str) and override.strip():
                 model = override.strip()
@@ -220,14 +212,10 @@ class EndpointImageProvider:
             fallback_content = ""
 
             if self.client.config.get("is_openrouter"):
-                use_dedicated = False
                 from plugin.framework.client.model_fetcher import is_image_only_model
                 if is_image_only_model(self.client._endpoint(), model):
-                    use_dedicated = True
-
-                if use_dedicated:
                     return self._run_image_completion(
-                        prompt, model, width, height, steps, source_image, wire, stop_checker,
+                        prompt, model, width, height, steps, source_image, stop_checker, status_callback,
                         "OpenRouter dedicated image generation failed",
                     )
 
@@ -258,7 +246,13 @@ class EndpointImageProvider:
 
                 paths = []
                 try:
-                    chat_resp = self.client.request_with_tools(messages, body_override=json.dumps(body_dict), model=model, **wire)
+                    chat_resp = self.client.request_with_tools(
+                        messages,
+                        body_override=json.dumps(body_dict),
+                        model=model,
+                        stop_checker=stop_checker,
+                        status_callback=status_callback,
+                    )
                     raw_content = chat_resp.get("content")
                     fallback_content = raw_content if isinstance(raw_content, str) else ""
 
@@ -277,9 +271,9 @@ class EndpointImageProvider:
                         if "data:image" in url:
                             b64 = _extract_b64(url)
                             if b64:
-                                paths.extend(self._save_b64(b64))
+                                paths.append(self._save_b64(b64))
                         elif url.startswith("http"):
-                            paths.extend(self._save_url(url, stop_checker=stop_checker, status_callback=status_callback))
+                            paths.append(self._save_url(url, stop_checker=stop_checker, status_callback=status_callback))
                 except Exception as e:
                     return _abandon_image_paths(paths, stop_checker, e, "OpenRouter image processing failed")
 
@@ -288,7 +282,7 @@ class EndpointImageProvider:
             else:
                 # Use the unified image_completion method (handles Google, Ollama, OpenAI, etc. via shims)
                 return self._run_image_completion(
-                    prompt, model, width, height, steps, source_image, wire, stop_checker,
+                    prompt, model, width, height, steps, source_image, stop_checker, status_callback,
                     "Image generation failed",
                 )
 
@@ -299,10 +293,10 @@ class EndpointImageProvider:
                     if "data:image" in fallback_content:
                         b64 = _extract_b64(fallback_content)
                         if b64:
-                            paths.extend(self._save_b64(b64))
+                            paths.append(self._save_b64(b64))
                     stripped = fallback_content.strip()
                     if not paths and stripped.startswith("http"):
-                        paths.extend(self._save_url(stripped, stop_checker=stop_checker, status_callback=status_callback))
+                        paths.append(self._save_url(stripped, stop_checker=stop_checker, status_callback=status_callback))
                     if paths:
                         return paths, ""
                 except Exception as e:

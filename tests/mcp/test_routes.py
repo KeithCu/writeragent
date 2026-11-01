@@ -54,7 +54,7 @@ def test_list_routes_waits_for_the_whole_register_batch() -> None:
 
     worker = threading.Thread(target=reader)
     try:
-        with registry.batch():
+        with registry.lock:
             registry.add("GET", "/health", _handler)
             worker.start()
             assert started.wait(2)
@@ -100,10 +100,10 @@ def test_concurrent_get_during_toggle_does_not_raise() -> None:
     worker.start()
     try:
         for _unused in range(40):
-            with registry.batch():
+            with registry.lock:
                 for method, path in _MCP_ROUTES:
                     registry.add(method, path, _handler)
-            with registry.batch():
+            with registry.lock:
                 for method, path in _MCP_ROUTES:
                     registry.remove(method, path)
     finally:

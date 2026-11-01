@@ -235,3 +235,16 @@ def test_convert_cell_to_dag_script_index_oor_fail_closed() -> None:
     converted_neg = convert_cell_to_dag(model, cell_neg)
     assert converted_neg.converted is False
     assert "out of range" in (converted_neg.issues or [""])[0]
+
+
+def test_normalize_bindings_blank_original_falls_back_to_a1_key() -> None:
+    """A blank/whitespace/None original must not become an empty Excel dep token."""
+    from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep
+
+    resolved = [
+        ResolvedDep(original="", a1="B2", kind="cell", note=""),
+        ResolvedDep(original="  ", a1="C3", kind="cell", note=""),
+        ResolvedDep(original=None, a1="D4", kind="cell", note=""),  # type: ignore[arg-type]
+    ]
+    _bindings, _idx, excel_deps, _issues = _normalize_bindings(resolved, {})
+    assert excel_deps == ["B2", "C3", "D4"]

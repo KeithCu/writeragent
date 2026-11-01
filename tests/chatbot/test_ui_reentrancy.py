@@ -69,7 +69,7 @@ class FiringCombo:
             listener.itemStateChanged(None)
 
 
-def _fake_populate(ctx, ctrl, current_val, lru_key, endpoint, **kwargs):
+def _fake_populate(ctrl, current_val, lru_key, endpoint, **kwargs):
     value = str(current_val or _MODEL)
     ctrl.removeItems(0, ctrl.getItemCount())
     ctrl.addItems((value,), 0)

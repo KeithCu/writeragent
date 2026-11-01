@@ -169,9 +169,9 @@ class SilenceDetector:
         # fired. A STEADY_NOISE_MS window of similar sub-loud RMS is ambient:
         # not speech, and the floor snaps to that window's minimum. A shorter
         # dip stays speech because the window still holds the louder audio.
-        steady, ambient_low = self._window_ambient()
-        is_speech = self._is_speech(rms, peak, steady)
-        self._adapt_floor(rms, is_speech, sample_count, steady, ambient_low)
+        ambient_low = self._window_ambient()
+        is_speech = self._is_speech(rms, peak, ambient_low)
+        self._adapt_floor(rms, is_speech, sample_count, ambient_low)
 
         if is_speech:
             self._run_samples += sample_count
@@ -214,7 +214,7 @@ class SilenceDetector:
 
     def should_emit_silence_progress(self, result: SilenceDetectorResult) -> bool:
         """Throttle IPC/UI updates to meaningful silence milestones."""
-        if not self._config.enabled or result.is_speech:
+        if result.is_speech:
             return False
         if result.silence_ms < 100:
             return False
@@ -231,18 +231,18 @@ class SilenceDetector:
         while len(self._level_window) > 1 and self._level_samples - self._level_window[0][0] >= limit:
             self._level_samples -= self._level_window.popleft()[0]
 
-    def _window_ambient(self) -> tuple[bool, float]:
+    def _window_ambient(self) -> float | None:
         limit = STEADY_NOISE_MS * self._sample_rate // 1000
         if self._level_samples < limit:
-            return False, 0.0
+            return None
         low = min(level for _count, level in self._level_window)
         high = max(level for _count, level in self._level_window)
         if high >= LOUD_ONSET_RMS:
-            return False, low
-        return high <= low * NOISE_FLOOR_MULTIPLIER, low
+            return None
+        return low if high <= low * NOISE_FLOOR_MULTIPLIER else None
 
-    def _adapt_floor(self, rms: float, is_speech: bool, sample_count: int, steady: bool, ambient_low: float) -> None:
-        if steady:
+    def _adapt_floor(self, rms: float, is_speech: bool, sample_count: int, ambient_low: float | None) -> None:
+        if ambient_low is not None:
             self._noise_ema = ambient_low
             return
         if is_speech:
@@ -254,10 +254,10 @@ class SilenceDetector:
         alpha = 1.0 - math.exp(-dt / NOISE_EMA_TAU_SEC)
         self._noise_ema = (1.0 - alpha) * self._noise_ema + alpha * rms
 
-    def _is_speech(self, rms: float, peak: float, steady: bool) -> bool:
+    def _is_speech(self, rms: float, peak: float, ambient_low: float | None) -> bool:
         if rms >= LOUD_ONSET_RMS:
             return True
-        if steady or self._noise_ema is None:
+        if ambient_low is not None or self._noise_ema is None:
             return False
         if rms >= self._speech_threshold:
             return True

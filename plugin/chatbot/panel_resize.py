@@ -31,15 +31,6 @@ _STRETCH_CONTROLS = frozenset({
 # Completion menu overlays the transcript; do not park it in the bottom band.
 _OVERLAY_CONTROLS = frozenset({"slash_popup", "response_rich"})
 
-# Header buttons keep origin X and width, then clamp to column.
-_HEADER_CONTROLS = frozenset({
-    "btn_settings",
-    "btn_python",
-    "btn_latex",
-    "btn_search",
-    "btn_hamburger",
-})
-
 _INDICATOR_CONTROLS = frozenset({"backend_indicator"})
 _INDICATOR_GAP = 4
 
@@ -84,15 +75,15 @@ class ControlRect:
     height: int
 
 
-def _cluster_metrics(snapshot: dict[str, tuple[int, int, int, int]]) -> tuple[int, int, int]:
-    """Return (bottom_top_y, cluster_height, response_top_y) from the XDL snapshot."""
+def _cluster_metrics(snapshot: dict[str, tuple[int, int, int, int]]) -> tuple[int, int]:
+    """Return (bottom_top_y, cluster_height) from the XDL snapshot."""
     bottoms = [snapshot[n] for n in _BOTTOM_CLUSTER if n in snapshot]
     if not bottoms or "response" not in snapshot:
         response_y = snapshot.get("response", (0, 16, 0, 0))[1]
-        return response_y + 112, 0, response_y
+        return response_y + 112, 0
     bottom_top = min(rect[1] for rect in bottoms)
     bottom_bottom = max(rect[1] + rect[3] for rect in bottoms)
-    return bottom_top, bottom_bottom - bottom_top, snapshot["response"][1]
+    return bottom_top, bottom_bottom - bottom_top
 
 
 def column_right_margin(snapshot: dict[str, tuple[int, int, int, int]], right_margin: int = _RIGHT_MARGIN) -> int:
@@ -113,9 +104,6 @@ def compute_chat_panel_layout(
     height: int,
     snapshot: dict[str, tuple[int, int, int, int]],
     *,
-    bottom_margin: int = _BOTTOM_MARGIN,
-    response_gap: int = _XDL_GAP_BELOW_RESPONSE,
-    min_response_height: int = _MIN_RESPONSE_HEIGHT,
     right_margin: int | None = None,
     preferred: dict[str, tuple[int, int]] | None = None,
 ) -> dict[str, ControlRect]:
@@ -130,21 +118,16 @@ def compute_chat_panel_layout(
     if right_margin is None:
         right_margin = column_right_margin(snapshot)
 
-    bottom_top_initial, cluster_height, response_y = _cluster_metrics(snapshot)
-    response_x, _oy, _ow, _oh = snapshot["response"]
-    bottom_top_new = height - bottom_margin - cluster_height
+    bottom_top_initial, cluster_height = _cluster_metrics(snapshot)
+    response_y = snapshot["response"][1]
+    bottom_top_new = height - _BOTTOM_MARGIN - cluster_height
     cluster_delta = bottom_top_new - bottom_top_initial
-    response_h = max(min_response_height, bottom_top_new - response_gap - response_y)
-    response_w = max(20, width - response_x - right_margin)
-    response_x, response_w = _clamp_to_column(response_x, response_w, width, right_margin)
+    response_h = max(_MIN_RESPONSE_HEIGHT, bottom_top_new - _XDL_GAP_BELOW_RESPONSE - response_y)
 
     # Fill the column. Shrinking width-only left HiDPI Clear/indicator X past
     # the viewport (deck H-bar). Move X too so nothing extends past the column.
     layouts: dict[str, ControlRect] = {}
     for name, (ox, oy, ow, oh) in snapshot.items():
-        if name == "response":
-            continue
-
         if name in _OVERLAY_CONTROLS or name in _INDICATOR_CONTROLS:
             continue
 
@@ -155,9 +138,9 @@ def compute_chat_panel_layout(
 
         ox, new_w = _clamp_to_column(ox, new_w, width, right_margin)
         new_y = oy + cluster_delta if name in _BOTTOM_CLUSTER else oy
-        layouts[name] = ControlRect(ox, new_y, new_w, oh)
+        new_h = response_h if name == "response" else oh
+        layouts[name] = ControlRect(ox, new_y, new_w, new_h)
 
-    layouts["response"] = ControlRect(response_x, response_y, response_w, response_h)
     if "backend_indicator" in snapshot:
         _ix, iy, _iw, ih = snapshot["backend_indicator"]
         hamb = layouts.get("btn_hamburger")
@@ -236,7 +219,7 @@ def _fit_base_size_row(
         return
     base = layouts.get("base_size_input")
     aspect = layouts.get("aspect_ratio_selector")
-    if base is None or aspect is None or "base_size_input" not in snapshot or "aspect_ratio_selector" not in snapshot:
+    if base is None or aspect is None:
         return
     bx, _by, bw, _bh = snapshot["base_size_input"]
     gap = max(1, snapshot["aspect_ratio_selector"][0] - (bx + bw))
@@ -260,16 +243,15 @@ def _fit_model_selector_row(
     if ms is None or re is None:
         return
     re_name = "reasoning_effort_selector"
-    re_w = snapshot.get(re_name, (0, 0, re.width, 0))[2]
+    re_w = snapshot[re_name][2]
     col_right = width - right_margin
     gap = 3
-    if re_name in snapshot and "model_selector" in snapshot:
-        snap_re_x = snapshot[re_name][0]
-        snap_ms_x = snapshot["model_selector"][0]
-        snap_ms_w = snapshot["model_selector"][2]
-        calc_gap = snap_re_x - (snap_ms_x + snap_ms_w)
-        if calc_gap > 0:
-            gap = calc_gap
+    snap_re_x = snapshot[re_name][0]
+    snap_ms_x = snapshot["model_selector"][0]
+    snap_ms_w = snapshot["model_selector"][2]
+    calc_gap = snap_re_x - (snap_ms_x + snap_ms_w)
+    if calc_gap > 0:
+        gap = calc_gap
     re_x = col_right - re_w
     if re_x < ms.x + 20:
         re_x = ms.x + 20
@@ -391,7 +373,7 @@ def _clamp_to_column(x: int, w: int, width: int, right_margin: int) -> tuple[int
 
 def _measure(ctrl: Any, method: str) -> tuple[int, int] | None:
     """(width, height) from XLayoutConstrains on a control, or None."""
-    fn = getattr(ctrl, method, None) if ctrl is not None else None
+    fn = getattr(ctrl, method, None)
     if not callable(fn):
         return None
     size: Any = uno_probe(fn, None)
@@ -482,10 +464,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             self._in_relayout = True
             self._relayout(win)
             if self._pending_win is not None:
-                pending = self._pending_win
-                self._pending_win = None
-                self._relayout(pending)
-                self._pending_win = None
+                self._relayout(self._pending_win)
         except Exception:
             log.exception("relayout_now failed")
         finally:
@@ -525,7 +504,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             if size is not None:
                 self._preferred[name] = size
         self._snapshot = fit_snapshot_min_heights(snapshot, min_heights)
-        bottom_top, cluster_h, _response_y = _cluster_metrics(snapshot)
+        bottom_top, cluster_h = _cluster_metrics(snapshot)
         _resize_debug(
             "_capture_snapshot: bottom_top=%d cluster_h=%d controls=%d",
             bottom_top,
@@ -579,53 +558,47 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             return
 
         layouts = compute_chat_panel_layout(w, h, snapshot, preferred=self._preferred)
-        if not layouts:
-            return
 
         for name, rect in layouts.items():
             ctrl = self._c.get(name)
             if ctrl is not None:
                 self._apply_rect(ctrl, rect)
 
-        response = layouts.get("response")
-        if response is not None:
-            self._last_response_rect = (response.x, response.y, response.width, response.height)
-            max_right = 0
-            for rect in layouts.values():
-                max_right = max(max_right, rect.x + rect.width)
-            _resize_debug(
-                "[LAYOUT] response_rect x=%d y=%d w=%d h=%d root=%dx%d max_child_right=%d overflow=%s",
-                response.x,
-                response.y,
-                response.width,
-                response.height,
-                w,
-                h,
-                max_right,
-                "YES" if max_right > w - 2 else "no",
-            )
-            rich = self._c.get("response_rich")
-            if rich is not None:
-                def _sync_rich() -> None:
-                    nonlocal rich
-                    from plugin.chatbot.rich_text_control import log_rich_scroll, sync_rich_control_bounds
+        response = layouts["response"]
+        self._last_response_rect = (response.x, response.y, response.width, response.height)
+        max_right = 0
+        for rect in layouts.values():
+            max_right = max(max_right, rect.x + rect.width)
+        _resize_debug(
+            "[LAYOUT] response_rect x=%d y=%d w=%d h=%d root=%dx%d max_child_right=%d overflow=%s",
+            response.x,
+            response.y,
+            response.width,
+            response.height,
+            w,
+            h,
+            max_right,
+            "YES" if max_right > w - 2 else "no",
+        )
+        rich = self._c.get("response_rich")
+        if rich is not None:
+            def _sync_rich() -> None:
+                from plugin.chatbot.rich_text_control import log_rich_scroll, sync_rich_control_bounds
 
-                    log_rich_scroll("relayout", control=rich, root_w=w, root_h=h)
-                    rich_out = [rich]
-                    sync_rich_control_bounds(
-                        rich,
-                        win,
-                        self._c.get("response"),
-                        placeholder_rect=self._last_response_rect,
-                        control_out=rich_out,
-                        restore_focus=self._restore_focus,
-                    )
-                    new_rich = rich_out[0]
-                    if new_rich is not rich:
-                        self.set_control("response_rich", new_rich)
-                        cb = getattr(self, "on_control_replaced", None)
-                        if callable(cb):
-                            cb("response_rich", new_rich)
-                        rich = new_rich
+                log_rich_scroll("relayout", control=rich, root_w=w, root_h=h)
+                rich_out = [rich]
+                sync_rich_control_bounds(
+                    rich,
+                    win,
+                    self._c.get("response"),
+                    placeholder_rect=self._last_response_rect,
+                    control_out=rich_out,
+                    restore_focus=self._restore_focus,
+                )
+                new_rich = rich_out[0]
+                if new_rich is not rich:
+                    self.set_control("response_rich", new_rich)
+                    if self.on_control_replaced is not None:
+                        self.on_control_replaced(new_rich)
 
-                best_effort(_sync_rich, "response_rich sync after relayout")
+            best_effort(_sync_rich, "response_rich sync after relayout")

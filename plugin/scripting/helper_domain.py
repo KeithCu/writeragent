@@ -566,11 +566,7 @@ class DomainFacadeConfig:
     # crosshair: off
     def get_templates(self) -> dict[str, str]:
         shipped = self.shipped_templates if self.shipped_templates is not None else self.helper_names
-        return {
-            h: body
-            for h in sorted(shipped & self.helper_names)
-            if (body := self.template_for(h)) is not None
-        }
+        return {h: self._template_body(h) for h in sorted(shipped & self.helper_names)}
 
     # crosshair: off
     def parse_header(self, code: str) -> HelperScriptMeta | None:

@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 import threading
+import time
 
 # Minimal stdlib-only bootstrap (must run before the "from plugin..." import below)
 # because unopkg writeRegistryInfo loads this file before the OXT root is on sys.path.
@@ -77,7 +78,6 @@ from plugin.writer.locale.grammar_proofread_locale import (
     uno_locales_for_tags,
 )
 from plugin.writer.locale.grammar_proofread_text import (
-    NormalizedProofError,
     Utf16OffsetMap,
     calculate_covered_span_end,
     candidate_sentence_spans_for_proofreading,
@@ -169,7 +169,7 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
     return None
 
 
-def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> Any | None:
+def _ensure_persistence_bound(ctx: Any, doc_id: str) -> Any | None:
     """Bind ``DocumentPersistence`` to the Writer model being proofread.
 
     ``get_document_model_for_id`` only returns ``p._model`` when a
@@ -184,8 +184,6 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> Any | None:
     reload udprops over live edits. No model → return without
     raising. Returns the resolved model or None.
     """
-    if not doc_id:
-        return None
     from plugin.writer.locale.grammar_persistence import get_document_model_for_id, get_persistence
 
     model = get_document_model_for_id(ctx, doc_id)
@@ -202,12 +200,16 @@ def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> Any | None:
         return None
 
 
-def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> None:
+def _persistence_for_doc(ctx: Any, doc_id: str) -> Any | None:
     _ensure_persistence_bound(ctx, doc_id)
-    ignore_rule_add(str(rule_identifier))
     from plugin.writer.locale.grammar_persistence import get_persistence
 
-    p = get_persistence(ctx, doc_id) if doc_id else None
+    return get_persistence(ctx, doc_id)
+
+
+def _ignore_rule_on_main(ctx: Any, doc_id: str, rule_identifier: str) -> None:
+    ignore_rule_add(str(rule_identifier))
+    p = _persistence_for_doc(ctx, doc_id)
     if not p:
         return
     from .grammar_ignore_rules import canonical_rule_key
@@ -220,12 +222,9 @@ def _ignore_rule_on_main(ctx: Any, doc_id: str | None, rule_identifier: str) -> 
     log.debug("[grammar] ignoreRule added: '%s' (stored: '%s') to doc_id=%s", rule_identifier, stored, doc_id)
 
 
-def _reset_ignore_rules_on_main(ctx: Any, doc_id: str | None) -> None:
-    _ensure_persistence_bound(ctx, doc_id)
+def _reset_ignore_rules_on_main(ctx: Any, doc_id: str) -> None:
     ignore_rules_clear()
-    from plugin.writer.locale.grammar_persistence import get_persistence
-
-    p = get_persistence(ctx, doc_id) if doc_id else None
+    p = _persistence_for_doc(ctx, doc_id)
     if not p:
         return
     p.clear_ignored_rules()
@@ -251,48 +250,33 @@ def _cached_errors_to_uno_tuple(
     cached: tuple[dict[str, Any], ...],
     ctx: Any,
     doc_id: str,
-    u16_map: Utf16OffsetMap | None = None,
+    u16_map: Utf16OffsetMap,
 ) -> tuple[Any, ...]:
     from plugin.writer.locale.grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
     from plugin.writer.locale.grammar_proofread_cache import ignored_rules_snapshot
 
     doc_ignored = doc_ignored_rules(ctx, doc_id)
     global_ignored = ignored_rules_snapshot()
+    markup_type = _proofreading_markup_type()
 
-    norms = []
+    out: list[Any] = []
     for d in cached:
         rule_ident = str(d.get("rule_identifier", ""))
         if is_rule_ignored(rule_ident, doc_ignored, global_ignored):
             continue
 
-        norms.append(
-            NormalizedProofError(
-                n_error_start=int(d["n_error_start"]),
-                n_error_length=int(d["n_error_length"]),
-                suggestions=tuple(d.get("suggestions") or ()),
-                short_comment=str(d.get("short_comment", "")),
-                full_comment=str(d.get("full_comment", "")),
-                rule_identifier=rule_ident,
-            )
-        )
-    return _errors_to_uno_tuple(norms, u16_map=u16_map)
-
-
-def _locale_key(loc: Any) -> str:
-    return f"{loc.Language}_{loc.Country}_{loc.Variant}"
-
-
-def _locale_tuple() -> tuple[Any, ...]:
-    """Locales returned by ``getLocales`` — must match ``LinguisticWriterAgentGrammar.xcu`` ``Locales``.
-
-    The XCU uses hyphenated BCP47-like tags in one ``oor:string-list`` value; UNO uses
-    ``com.sun.star.lang.Locale`` in the same order as ``GRAMMAR_REGISTRY_LOCALE_TAGS``.
-
-    LibreOffice merges the registry list with ``XSupportedLocales``; an extra locale here that is
-    not listed under GrammarCheckers in the XCU has been observed to trigger a UNO RuntimeException
-    when opening Tools → Options → Language Settings (Writing aids).
-    """
-    return uno_locales_for_tags(GRAMMAR_REGISTRY_LOCALE_TAGS)
+        u16_start, u16_len = u16_map.utf16_span(int(d["n_error_start"]), int(d["n_error_length"]))
+        a_err = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError"))
+        a_err.nErrorStart = u16_start
+        a_err.nErrorLength = u16_len
+        a_err.nErrorType = markup_type
+        a_err.aRuleIdentifier = rule_ident
+        a_err.aSuggestions = tuple(d.get("suggestions") or ())
+        a_err.aShortComment = str(d.get("short_comment", ""))
+        a_err.aFullComment = str(d.get("full_comment", ""))
+        a_err.aProperties = ()
+        out.append(a_err)
+    return tuple(out)
 
 
 def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
@@ -333,6 +317,12 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     log.info("[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the active grammar checker under Tools → Options → Language Settings → Writing aids for the document language (same locales as the extension’s UI translation set).")
 
 
+def _set_proofreading_end_positions(a_res: Any, py_pos: int, u16_map: Utf16OffsetMap) -> None:
+    u16_next = u16_map.py_to_utf16(py_pos)
+    a_res.nStartOfNextSentencePosition = u16_next
+    a_res.nBehindEndOfSentencePosition = u16_next
+
+
 def _create_empty_result(
     proofreader: Any,
     a_document_identifier: Any,
@@ -340,13 +330,11 @@ def _create_empty_result(
     a_locale: Any,
     n_start_of_sentence_position: int,
     n_suggested_behind_end_of_sentence_position: int,
-    u16_map: Utf16OffsetMap | None = None,
+    u16_map: Utf16OffsetMap,
 ) -> Any:
     """Initialize ProofreadingResult (sentence bounds aligned with Lightproof)."""
     if uno_mod is None:
         raise RuntimeError("uno not available")
-    if u16_map is None:
-        u16_map = Utf16OffsetMap(a_text)
     a_res = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.ProofreadingResult"))
     a_res.aDocumentIdentifier = a_document_identifier
     a_res.aText = a_text
@@ -365,27 +353,20 @@ def _create_empty_result(
         ch = a_text[py_next : py_next + 1] if py_next < len(a_text) else ""
         if py_next == before and ch != "":
             py_next = py_suggested + 1
-    # nStartOfNextSentencePosition and nBehindEndOfSentencePosition are both the whitespace-advanced end.
-    u16_next = u16_map.py_to_utf16(py_next)
-    a_res.nStartOfNextSentencePosition = u16_next
-    a_res.nBehindEndOfSentencePosition = u16_next
+    _set_proofreading_end_positions(a_res, py_next, u16_map)
     return a_res
 
 
 def _apply_proofreading_end_positions(
-    a_res: Any, a_text: str, covered_end: int, u16_map: Utf16OffsetMap | None = None
+    a_res: Any, a_text: str, covered_end: int, u16_map: Utf16OffsetMap
 ) -> None:
     """Set traversal positions from the one-past-end of the span we actually checked (sentence-sized).
 
     Skips spaces after ``covered_end`` so Writer advances past inter-sentence whitespace.
     """
-    if u16_map is None:
-        u16_map = Utf16OffsetMap(a_text)
     n_next = min(max(0, covered_end), len(a_text))
     n_next = _advance_past_leading_whitespace(a_text, n_next)
-    u16_next = u16_map.py_to_utf16(n_next)
-    a_res.nStartOfNextSentencePosition = u16_next
-    a_res.nBehindEndOfSentencePosition = u16_next
+    _set_proofreading_end_positions(a_res, n_next, u16_map)
 
 
 # Cap rule-id sample so one result-window line stays greppable on long paragraphs.
@@ -428,12 +409,12 @@ def classify_errors_against_window(
     }
 
 
-def _rule_ids_sample(errors: Sequence[dict[str, Any]], *, limit: int = _RULE_ID_SAMPLE_MAX) -> str:
-    """CSV of rule ids (first ``limit``) for one-line result-window obs."""
+def _rule_ids_sample(errors: Sequence[dict[str, Any]]) -> str:
+    """CSV of rule ids (first ``_RULE_ID_SAMPLE_MAX``) for one-line result-window obs."""
     if not errors:
         return ""
-    ids = [str(e.get("rule_identifier") or "") for e in errors[:limit]]
-    extra = len(errors) - limit
+    ids = [str(e.get("rule_identifier") or "") for e in errors[:_RULE_ID_SAMPLE_MAX]]
+    extra = len(errors) - _RULE_ID_SAMPLE_MAX
     if extra > 0:
         return ",".join(ids) + f",+{extra}"
     return ",".join(ids)
@@ -449,9 +430,9 @@ def _obs_result_window(
     active_span_count: int,
     uncached_active_count: int,
     source: str,
+    py_start: int,
+    py_behind: int,
     skip: str = "",
-    py_start: int | None = None,
-    py_behind: int | None = None,
 ) -> None:
     """Emit final ``do_proofreading_result_window`` after cache / Harper / enqueue.
 
@@ -464,9 +445,7 @@ def _obs_result_window(
     n_start = int(getattr(a_res, "nStartOfSentencePosition", 0) or 0)
     n_behind = int(getattr(a_res, "nBehindEndOfSentencePosition", 0) or 0)
     n_next = int(getattr(a_res, "nStartOfNextSentencePosition", 0) or 0)
-    cls_start = py_start if py_start is not None else n_start
-    cls_behind = py_behind if py_behind is not None else n_behind
-    cls = classify_errors_against_window(combined_errors, cls_start, cls_behind)
+    cls = classify_errors_against_window(combined_errors, py_start, py_behind)
     a_errors = getattr(a_res, "aErrors", ()) or ()
     fields: dict[str, Any] = {
         "doc_id": doc_id,
@@ -490,40 +469,14 @@ def _obs_result_window(
     grammar_obs("do_proofreading_result_window", **fields)
 
 
-def _errors_to_uno_tuple(
-    norms: Sequence[NormalizedProofError], u16_map: Utf16OffsetMap | None = None
-) -> tuple[Any, ...]:
-    if uno_mod is None:
-        return ()
-    out: list[Any] = []
-    markup_type = _proofreading_markup_type()
-    for e in norms:
-        a_err = cast("Any", uno_mod.createUnoStruct("com.sun.star.linguistic2.SingleProofreadingError"))
-        if u16_map is not None:
-            u16_start, u16_len = u16_map.utf16_span(e.n_error_start, e.n_error_length)
-            a_err.nErrorStart = u16_start
-            a_err.nErrorLength = u16_len
-        else:
-            a_err.nErrorStart = e.n_error_start
-            a_err.nErrorLength = e.n_error_length
-        a_err.nErrorType = markup_type
-        a_err.aRuleIdentifier = e.rule_identifier
-        a_err.aSuggestions = tuple(e.suggestions)
-        a_err.aShortComment = e.short_comment
-        a_err.aFullComment = e.full_comment
-        a_err.aProperties = ()
-        out.append(a_err)
-    return tuple(out)
-
-
 class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo, XServiceName, XServiceDisplayName, XSupportedLocales, XLinguServiceEventBroadcaster):  # pyright: ignore[reportGeneralTypeIssues] — multiple UNO interface bases  # pyrefly: ignore[invalid-inheritance]
     """Grammar checker registered under Linguistic / GrammarCheckers (cf. Lightproof)."""
 
     ctx: Any
     _pending_proofread_again: bool
     _first_listener_proofread_again_done: bool
-    _implementation_name: str
-    _supported_service_names: tuple[str, ...]
+    _implementation_name: str = IMPLEMENTATION_NAME
+    _supported_service_names: tuple[str, ...] = (SERVICE_NAME,)
     _locales: tuple[Any, ...]
     _provider: str = ""
     _checker_identity: str = ""
@@ -552,21 +505,26 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
         init_logging(ctx)
         grammar_registry.register_live_proofreader(self)
-        self._implementation_name = IMPLEMENTATION_NAME
-        self._supported_service_names = (SERVICE_NAME,)
-        self._locales = _locale_tuple()
+        # Locales returned by getLocales — must match LinguisticWriterAgentGrammar.xcu Locales.
+        # The XCU uses hyphenated BCP47-like tags in one oor:string-list value; UNO uses
+        # com.sun.star.lang.Locale in the same order as GRAMMAR_REGISTRY_LOCALE_TAGS.
+        # LibreOffice merges the registry list with XSupportedLocales; an extra locale here that is
+        # not listed under GrammarCheckers in the XCU has been observed to trigger a UNO RuntimeException
+        # when opening Tools → Options → Language Settings (Writing aids).
+        self._locales = uno_locales_for_tags(GRAMMAR_REGISTRY_LOCALE_TAGS)
+
+    def _is_document_bound(self, doc_id: str) -> bool:
+        return doc_id in self._doc_id_for_ignore.values() or doc_id in self._bound_empty_uid_docs
 
     def _ensure_document_bound_on_main(self, doc_id: str) -> None:
         # Writer's ignoreRule gets the doc id; Draw's gets only the locale. Map the model's
         # RuntimeUID to the doc id so ignore can find it without guessing the focused doc.
         # get_runtime_uid is main-thread-only, so this runs via run_on_main.
         with self._bind_lock:
-            if doc_id in self._doc_id_for_ignore.values() or doc_id in self._bound_empty_uid_docs:
+            if self._is_document_bound(doc_id):
                 return
             model = _ensure_persistence_bound(self.ctx, doc_id)
             if model is None:
-                import time
-
                 self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
                 return
             self._failed_bind_deadlines.pop(doc_id, None)
@@ -585,26 +543,21 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def _ensure_document_bound(self, doc_id: str) -> None:
         if not doc_id:
             return
-        import time
 
-        should_hop = False
         with self._bind_lock:
-            if doc_id in self._doc_id_for_ignore.values() or doc_id in self._bound_empty_uid_docs:
-                should_hop = False
-            else:
-                deadline = self._failed_bind_deadlines.get(doc_id)
-                if deadline is not None and time.monotonic() < deadline:
-                    should_hop = False
-                else:
-                    should_hop = True
-        if should_hop:
-            try:
-                # A busy VCL thread must not stall a Linguistic worker for the 30 s default;
-                # a failed hop is already backed off by _failed_bind_deadlines.
-                run_on_main(self._ensure_document_bound_on_main, doc_id, timeout=BIND_RETRY_SEC)
-            except TimeoutError:
-                with self._bind_lock:
-                    self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
+            if self._is_document_bound(doc_id):
+                return
+            deadline = self._failed_bind_deadlines.get(doc_id)
+            if deadline is not None and time.monotonic() < deadline:
+                return
+
+        try:
+            # A busy VCL thread must not stall a Linguistic worker for the 30 s default;
+            # a failed hop is already backed off by _failed_bind_deadlines.
+            run_on_main(self._ensure_document_bound_on_main, doc_id, timeout=BIND_RETRY_SEC)
+        except TimeoutError:
+            with self._bind_lock:
+                self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
 
     # --- XServiceName / XServiceInfo ---
     def getServiceName(self) -> str:
@@ -637,7 +590,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         from plugin.writer.locale.grammar_worker import is_grammar_enabled
 
         enabled = self._always_enabled or is_grammar_enabled()
-        loc_raw = (getattr(a_locale, "Language", "") or "") if self._always_enabled else _locale_key(a_locale)
+        loc_raw = (getattr(a_locale, "Language", "") or "") if self._always_enabled else f"{a_locale.Language}_{a_locale.Country}_{a_locale.Variant}"
         grammar_bcp47 = self._normalize_locale(a_locale)
 
         if not enabled:
@@ -660,24 +613,20 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         a_doc_id: str,
         loc_key: str,
         work_spans: list[tuple[int, int, str]],
-        checker_identity: str = "",
+        checker_identity: str,
     ) -> tuple[list[dict[str, Any]], list[tuple[int, int, str]]]:
         """Check cache for spans; return (combined_errors, uncached_spans)."""
         combined_errors: list[dict[str, Any]] = []
         uncached_spans: list[tuple[int, int, str]] = []
-        checker_ident = checker_identity or self._checker_identity
-        is_llm = checker_ident.startswith("llm:")
+        is_llm = checker_identity.startswith("llm:")
         max_chars = grammar_proofread_locale.grammar_max_chars(self.ctx) if is_llm else 0
         for sent_start, _sent_end, sent_text in work_spans:
-            get_kwargs: dict[str, Any] = {"ctx": self.ctx, "doc_id": a_doc_id}
-            if checker_ident:
-                get_kwargs["checker_identity"] = checker_ident
             lookup_text = (
                 grammar_proofread_locale.checked_grammar_text(sent_text, max_chars)
                 if is_llm
                 else sent_text
             )
-            cached = cache_get_sentence(loc_key, lookup_text, **get_kwargs)
+            cached = cache_get_sentence(loc_key, lookup_text, ctx=self.ctx, doc_id=a_doc_id, checker_identity=checker_identity)
             grammar_obs("do_proofreading_sentence_cache", doc_id=a_doc_id, sent_start=sent_start, sent_len=len(sent_text), cache_hit=cached is not None, sent_preview=slice_preview_debug(sent_text, 48))
             if cached is None:
                 uncached_spans.append((sent_start, _sent_end, sent_text))
@@ -700,16 +649,10 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         loc_key: str,
         uncached_spans: list[tuple[int, int, str]],
         combined_errors: list[dict[str, Any]],
-        provider: str = "",
-        checker_identity: str = "",
+        checker_identity: str,
     ) -> bool:
         """If this is Harper, lint ready process now or kick one ensure. True = do not enqueue."""
         from plugin.framework.config import user_config_dir
-
-        prov = provider or self._active_grammar_provider()
-        if prov != "harper":
-            return False
-
         from dataclasses import asdict
 
         from plugin.writer.locale.grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
@@ -718,7 +661,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         from plugin.writer.locale.harper import harper_try_lint
 
         cfg_dir = user_config_dir() or ""
-        ident = checker_identity or self._checker_identity or "harper"
         first_text = uncached_spans[0][2] if uncached_spans else ""
         if first_text:
             emit_grammar_status("start", first_text, result="Harper")
@@ -742,7 +684,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
             payload = [asdict(e) for e in norm_errors]
             issue_count += len(active_errors)
-            cache_put_sentence(loc_key, sent_text, payload, ctx=self.ctx, doc_id=a_doc_id, checker_identity=ident)
+            cache_put_sentence(loc_key, sent_text, payload, ctx=self.ctx, doc_id=a_doc_id, checker_identity=checker_identity)
             for err_item in payload:
                 adj = dict(err_item)
                 adj["n_error_start"] = sent_start + err_item.get("n_error_start", 0)
@@ -781,7 +723,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
                 provider = self._active_grammar_provider()
                 pinned_ident = self._checker_identity
-                if isinstance(pinned_ident, str) and pinned_ident:
+                if pinned_ident:
                     checker_identity = pinned_ident
                 elif provider in ("harper", "languagetool", "vale"):
                     checker_identity = provider
@@ -876,7 +818,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         cache_error_count=len(combined_errors),
                         miss_reason=miss_reason,
                     )
-                    if is_harper and self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors, provider, checker_identity):
+                    if is_harper and self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors, checker_identity):
                         result_source = "harper_fast"
                     else:
                         enqueue_misses(grammar_queue, self.ctx, aDocumentIdentifier, loc_key, uncached_active_spans, provider, checker_identity, paragraph_text=aText)
@@ -884,7 +826,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                         result_source = "enqueue"
 
                 if combined_errors:
-                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier, u16_map=u16_map)
+                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier, u16_map)
 
                 _obs_result_window(
                     aDocumentIdentifier,
@@ -924,29 +866,31 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             log.debug("[grammar] resolve_doc_id_for_ignore failed", exc_info=True)
         return None
 
-    def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
+    def _run_doc_op(self, op: str, cannot: str, action: Any) -> None:
         try:
-            del aLocale
             doc_id = run_on_main(self._resolve_doc_id_for_ignore)
             if not doc_id:
-                log.warning("[grammar] ignoreRule: failed to resolve doc_id; cannot ignore rule")
-                raise RuntimeError("ignoreRule failed: no active document found")
-            run_on_main(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier)
+                log.warning(f"[grammar] {op}: failed to resolve doc_id; cannot {cannot}")
+                raise RuntimeError(f"{op} failed: no active document found")
+            action(doc_id)
         except Exception as e:
-            log.warning("[grammar] ignoreRule: %s", e, exc_info=True)
+            log.warning(f"[grammar] {op}: %s", e, exc_info=True)
             raise
 
+    def ignoreRule(self, aRuleIdentifier: str, aLocale: Any) -> None:
+        del aLocale
+        self._run_doc_op(
+            "ignoreRule",
+            "ignore rule",
+            lambda doc_id: run_on_main(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier),
+        )
+
     def resetIgnoreRules(self) -> None:
-        try:
-            doc_id = run_on_main(self._resolve_doc_id_for_ignore)
-            if not doc_id:
-                log.warning("[grammar] resetIgnoreRules: failed to resolve doc_id; cannot reset")
-                raise RuntimeError("resetIgnoreRules failed: no active document found")
+        def _action(doc_id: str) -> None:
             run_on_main(_reset_ignore_rules_on_main, self.ctx, doc_id)
             self.broadcast_proofread_again()
-        except Exception as e:
-            log.warning("[grammar] resetIgnoreRules: %s", e, exc_info=True)
-            raise
+
+        self._run_doc_op("resetIgnoreRules", "reset", _action)
 
     def addLinguServiceEventListener(self, xLstnr: Any) -> bool:
         if xLstnr is None:

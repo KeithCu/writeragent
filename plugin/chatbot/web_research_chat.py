@@ -89,13 +89,6 @@ def format_sub_agent_conversation_history(session: Any, *, current_query: str | 
     return "\n\n".join(parts)
 
 
-def search_engine_preview_line(query_for_engine: str) -> str:
-    """Sentence used for the search-engine step (DDG query), approval and info."""
-    from plugin.framework.i18n import _
-
-    return _("This search query '%s' will be sent to the search engine.") % (query_for_engine or "",)
-
-
 def web_search_engine_step_chat_text(query_for_engine: str) -> str:
     """Chat history for each internal web_search step (Tool: web_search + search-engine preview).
 
@@ -106,24 +99,18 @@ def web_search_engine_step_chat_text(query_for_engine: str) -> str:
     from plugin.framework.i18n import _
 
     block = "\n" + _("Tool: %s") % "web_search" + "\n"
-    block += search_engine_preview_line(query_for_engine) + "\n\n"
+    block += _("This search query '%s' will be sent to the search engine.") % (query_for_engine or "",) + "\n\n"
     return block
-
-
-def format_research_cache_result_chat(result_data: Mapping[str, Any]) -> str:
-    """Sidebar block from web_research result payload (delegate or direct tool)."""
-    cache_key = result_data.get("research_cache_key")
-    if not cache_key:
-        return ""
-    return web_research_cache_chat_text(result_data)
 
 
 def web_research_cache_chat_text(fields: Mapping[str, Any]) -> str:
     """Sidebar notice when a web research report is served from or written to the research cache."""
+    cache_key = str(fields.get("research_cache_key") or "")
+    if not cache_key:
+        return ""
     from plugin.framework.i18n import _
 
     event = str(fields.get("research_cache_event") or "saved")
-    cache_key = str(fields.get("research_cache_key") or "")
 
     # One body for both score events; the two msgids stay separate so existing .po translations still match.
     if event in ("hit_fuzzy", "hit_embedding"):
@@ -166,19 +153,11 @@ def display_name_for_path_or_name(path_or_name: str) -> str:
     return raw
 
 
-def document_open_preview_line(path_or_name: str) -> str:
-    """Sentence shown before a read-only sibling document open."""
-    from plugin.framework.i18n import _
-
-    label = display_name_for_path_or_name(path_or_name)
-    return _("Opening '%s' for read-only access.") % (label,)
-
-
-def document_open_step_chat_text(path_or_name: str, step_index: int) -> str:
+def document_open_step_chat_text(path_or_name: str) -> str:
     """Chat text for each delegate_read_document step (tool name + open preview only)."""
     from plugin.framework.i18n import _
 
-    del step_index  # callers pass index; format is the same for every step
+    label = display_name_for_path_or_name(path_or_name)
     block = "\n" + _("Tool: %s") % "delegate_read_document" + "\n"
-    block += document_open_preview_line(path_or_name) + "\n\n"
+    block += _("Opening '%s' for read-only access.") % (label,) + "\n\n"
     return block

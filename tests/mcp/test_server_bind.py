@@ -26,7 +26,8 @@ def _free_port() -> int:
 
 
 class _EmptyRoutes:
-    route_count = 0
+    def list_routes(self) -> list[tuple[str, str]]:
+        return []
 
 
 def test_start_binds_on_free_port():

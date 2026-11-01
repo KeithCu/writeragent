@@ -821,9 +821,9 @@ class SendHandlersMixin:
                     if not isinstance(answer, str):
                         answer = str(answer)
                     if spec.tool_name == "web_research":
-                        from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+                        from plugin.chatbot.web_research_chat import web_research_cache_chat_text
 
-                        cache_block = format_research_cache_result_chat(data)
+                        cache_block = web_research_cache_chat_text(data)
                         answer = cache_block + answer
                     self._panel._record_assistant_start = True
                     turn.put((StreamQueueKind.CHUNK, answer + "\n"))

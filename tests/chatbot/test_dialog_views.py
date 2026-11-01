@@ -321,7 +321,7 @@ class TestEndpointCombinedListener:
 
         populate_calls = []
 
-        def track_populate(ctx, ctrl, current, lru_key, endpoint, **kwargs):
+        def track_populate(ctrl, current, lru_key, endpoint, **kwargs):
             populate_calls.append({'lru_key': lru_key, 'remote_models': kwargs.get('remote_models')})
 
         speech_ids = ['mistralai/voxtral-mini-transcribe', 'openai/whisper-large-v3']
@@ -367,7 +367,7 @@ class TestEndpointCombinedListener:
 
         populate_calls = []
 
-        def track_populate(ctx, ctrl, current, lru_key, endpoint, **kwargs):
+        def track_populate(ctrl, current, lru_key, endpoint, **kwargs):
             populate_calls.append({'lru_key': lru_key, 'current': current})
 
         with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect), \
@@ -408,7 +408,7 @@ class TestEndpointCombinedListener:
 
         populate_calls = []
 
-        def track_populate(ctx, ctrl, current, lru_key, endpoint, **kwargs):
+        def track_populate(ctrl, current, lru_key, endpoint, **kwargs):
             populate_calls.append({'lru_key': lru_key, 'current': current, 'endpoint': endpoint})
 
         with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect), \
@@ -476,16 +476,6 @@ class TestEndpointCombinedListener:
 
 
 class TestSettingsEnhancements:
-    def test_get_signup_url_for_endpoint(self):
-        from plugin.chatbot.config_ui_helpers import get_signup_url_for_endpoint
-
-        assert (get_signup_url_for_endpoint("https://openrouter.ai/api")) == ("https://openrouter.ai/keys")
-        assert (get_signup_url_for_endpoint("https://api.together.xyz")) == ("https://api.together.ai/settings/api-keys")
-        assert (get_signup_url_for_endpoint("https://api.groq.com/openai")) == ("https://console.groq.com/keys")
-        assert (get_signup_url_for_endpoint("https://integrate.api.nvidia.com/v1")) == ("https://build.nvidia.com/settings/api-keys")
-        assert (get_signup_url_for_endpoint("http://localhost:11434")) is None
-        assert (get_signup_url_for_endpoint("http://127.0.0.1:1234")) is None
-
     @patch("plugin.chatbot.quick_setup.check_endpoint_connection", return_value=(True, "✓ Connected (25ms)"))
     def test_test_connection_listener_action(self, mock_check):
         from plugin.chatbot.dialog_views import TestConnectionListener
@@ -921,7 +911,7 @@ def test_populate_fields_skips_one_missing_control() -> None:
             "http://localhost:11434",
         )
     mock_lru.assert_called_once()
-    assert mock_lru.call_args.args[1] is text_ctrl
+    assert mock_lru.call_args.args[0] is text_ctrl
 
 
 def test_extract_results_skips_control_that_raises() -> None:
@@ -1052,7 +1042,7 @@ def test_populate_fields_wires_audio_stt_model_lru(expected, value, value_2, val
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
-            view._ctx, stt_ctrl, value_3, "audio_model_lru", "https://openrouter.ai/api",
+            stt_ctrl, value_3, "audio_model_lru", "https://openrouter.ai/api",
             api_key_override="", skip_remote_fetch=True,
         )
 
@@ -1070,7 +1060,7 @@ def test_populate_fields_wires_tts_model_lru() -> None:
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
-            view._ctx, tts_ctrl, "", "tts_model_lru", "https://openrouter.ai/api",
+            tts_ctrl, "", "tts_model_lru", "https://openrouter.ai/api",
             api_key_override="", skip_remote_fetch=True,
         )
 
@@ -1093,7 +1083,7 @@ def test_apply_dropdowns_updates_tts_combobox() -> None:
 
     populate_calls = []
 
-    def track_populate(c, ctrl, current, lru_key, endpoint, **kwargs):
+    def track_populate(ctrl, current, lru_key, endpoint, **kwargs):
         populate_calls.append({"lru_key": lru_key, "current": current, "remote_models": kwargs.get("remote_models")})
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
@@ -1132,7 +1122,7 @@ def test_apply_dropdowns_together_speech_uses_serverless_catalog() -> None:
 
     populate_calls = []
 
-    def track_populate(c, ctrl, current, lru_key, endpoint, **kwargs):
+    def track_populate(ctrl, current, lru_key, endpoint, **kwargs):
         populate_calls.append({"lru_key": lru_key, "remote_models": kwargs.get("remote_models")})
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \

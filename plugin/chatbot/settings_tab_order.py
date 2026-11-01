@@ -62,9 +62,7 @@ def _is_settings_tab_module(
 
     config = m.get("config", {})
     children = inline_map.get(name)
-    if not config and not children:
-        return False
-    return True
+    return bool(config or children)
 
 
 def iter_settings_tab_modules(modules: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
@@ -92,14 +90,7 @@ def iter_settings_tab_modules(modules: list[dict[str, Any]]) -> Iterator[dict[st
 def iter_settings_field_modules(modules: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
     """Yield modules providing Settings fields (tab modules and their inline children)."""
     _, inline_map = _build_inline_maps(modules)
-    yielded: set[str] = set()
     for m in iter_settings_tab_modules(modules):
-        name = m["name"]
-        if name not in yielded:
-            yielded.add(name)
-            yield m
-        for child_m, _ in inline_map.get(name, []):
-            child_name = child_m["name"]
-            if child_name not in yielded:
-                yielded.add(child_name)
-                yield child_m
+        yield m
+        for child_m, _ in inline_map.get(m["name"], []):
+            yield child_m

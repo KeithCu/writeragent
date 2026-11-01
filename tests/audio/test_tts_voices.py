@@ -652,3 +652,9 @@ def test_provider_labels_and_split_display_label():
     head, inside = split_display_label("plain_voice")
     assert head == "plain_voice"
     assert inside is None
+
+
+def test_voice_helpers_tolerate_rows_missing_keys():
+    # Rows from harvested/user data may lack "label" or "value"; must not KeyError.
+    assert voice_choice_to_id("x", [{"label": "no value"}, {"value": "x"}]) == "x"
+    assert pick_voice_id(family="kokoro", model=None, options=[{"label": "bad"}], current_id="", stored_id="") is not None
