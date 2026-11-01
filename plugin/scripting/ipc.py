@@ -525,16 +525,11 @@ _PICKLE_LOAD_ERRORS = (
 
 
 def pack_pickle_frame(
-    message: Any, *, max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES
+    message: Any, *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
 ) -> bytes:
-    """Return one Pickle5 message framed with a 4-byte big-endian length prefix.
-
-    The default used to be None, so an omitted write was uncapped while the
-    matching read is capped and leaves extra bytes on the pipe. Pass None only
-    to opt out.
-    """
+    """Return one Pickle5 message framed with a 4-byte big-endian length prefix."""
     payload = pickle.dumps(message, protocol=PICKLE_PROTOCOL)
-    if max_payload_bytes is not None and len(payload) > max_payload_bytes:
+    if len(payload) > max_payload_bytes:
         raise IpcPayloadSizeError(f"Pickle frame exceeds maximum payload size: {len(payload)}")
     return struct.pack("!I", len(payload)) + payload
 
@@ -563,11 +558,11 @@ def _write_all(stream: IO[Any], data: bytes | str) -> None:
 
 
 def write_pickle_frame(
-    stream: IO[bytes], message: Any, *, max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES
+    stream: IO[bytes], message: Any, *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
 ) -> None:
     """Write one Pickle5 length-prefixed message to a binary pipe.
 
-    The cap lives on ``pack_pickle_frame``. Pass None only to opt out.
+    The cap lives on ``pack_pickle_frame``.
     """
     _write_all(stream, pack_pickle_frame(message, max_payload_bytes=max_payload_bytes))
 
@@ -870,7 +865,7 @@ def read_frame_payload(
     stream: IO[bytes],
     timeout_sec: float | None = None,
     *,
-    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
+    max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
     frame_label: str = "IPC frame",
     is_alive: Callable[[], bool] | None = None,
     stop_checker: Callable[[], bool] | None = None,
@@ -982,7 +977,7 @@ def read_frame_payload(
             f"{frame_label}: truncated header (expected {FRAME_HEADER_SIZE} bytes, got {len(header)})"
         )
     size = struct.unpack("!I", header)[0]
-    if size <= 0 or (max_payload_bytes is not None and size > max_payload_bytes):
+    if size <= 0 or size > max_payload_bytes:
         header = struct.pack("!I", size & 0xFFFFFFFF)
         rest = _unread_pipe_bytes(stream)
         msg = f"Invalid {frame_label} size: {size} (header={header!r}) stdout_rest={rest!r}"
@@ -1020,7 +1015,7 @@ def read_pickle_frame(
     stream: IO[bytes],
     timeout_sec: float | None = None,
     *,
-    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
+    max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
     frame_label: str = "IPC frame",
     require_dict: bool = False,
     is_alive: Callable[[], bool] | None = None,
@@ -1053,7 +1048,7 @@ def write_child_ipc_frame(
     stream: IO[bytes],
     message: Any,
     *,
-    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
+    max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
 ) -> None:
     """Write one Pickle5 length-prefixed frame to child stdout holding _tool_call_lock."""
     with _tool_call_lock:

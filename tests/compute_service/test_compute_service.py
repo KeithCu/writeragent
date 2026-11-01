@@ -2918,7 +2918,6 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
     import plugin.scripting.payload_codec as payload_codec
 
     monkeypatch.setattr(payload_codec, "load_cython_accelerator", lambda: None)
-    monkeypatch.setattr(payload_codec, "get_cython_status_info", lambda: (False, None, "off"))
 
     def boom(*_args, **_kwargs):
         raise OSError(98, "Address already in use")

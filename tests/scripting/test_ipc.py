@@ -141,8 +141,6 @@ def test_pack_pickle_frame_defaults_to_max_payload():
     from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
     with pytest.raises(IpcFrameError, match="maximum payload"):
         pack_pickle_frame({"text": "x" * (DEFAULT_MAX_PAYLOAD_BYTES + 10)})
-    frame = pack_pickle_frame({"ok": True}, max_payload_bytes=None)
-    assert frame
 
 
 def test_ipc_error_subclasses():
