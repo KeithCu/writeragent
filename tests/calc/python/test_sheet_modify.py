@@ -214,7 +214,7 @@ def test_rename_without_identity_does_not_touch_other_workbooks():
 
 
 def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
-    """While perform_deferred_spill runs, is_sheet_modify_dispatching() is true so no modify pass is scheduled."""
+    """While perform_deferred_spill runs, sheet-modify dispatch depth is non-zero, so no modify pass is scheduled."""
     doc = CalcDocStub(url="file:///spill_dispatch.ods", props={"RuntimeUID": "uid-spill-dispatch"})
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getParent = lambda: doc

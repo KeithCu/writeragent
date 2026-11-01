@@ -64,11 +64,6 @@ def reset_sheet_modify_runtime_for_tests() -> None:
     _DISPATCH_DEPTH = 0
 
 
-def is_sheet_modify_dispatching() -> bool:
-    """True while a debounced pass or spill write is applying UNO writes."""
-    return _DISPATCH_DEPTH > 0
-
-
 def _doc_identity(doc: Any) -> str:
     """Stable per-document id. URL collides for unsaved books and moves on Save-As."""
     if doc is None:
@@ -277,7 +272,7 @@ def _skip_sheet_modify() -> bool:
     from plugin.calc.python.geometric_recalc import is_geometric_repairing
     from plugin.framework.thread_guard import on_main_thread
 
-    return (not on_main_thread()) or is_sheet_modify_dispatching() or is_geometric_repairing()
+    return (not on_main_thread()) or _DISPATCH_DEPTH > 0 or is_geometric_repairing()
 
 
 def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
@@ -404,9 +399,8 @@ class SheetModifyDispatcher(BaseModifyListener):
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
         from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
 
-        for k, v in list(SHEET_MODIFY_LISTENERS.items()):
-            if v is self:
-                SHEET_MODIFY_LISTENERS.pop(k, None)
-                _cancel_pending(k)
         # Unload may already have popped this entry. Cancel is idempotent.
-        _cancel_pending((self.doc_identity, self.sheet_name))
+        key = (self.doc_identity, self.sheet_name)
+        if SHEET_MODIFY_LISTENERS.get(key) is self:
+            SHEET_MODIFY_LISTENERS.pop(key, None)
+        _cancel_pending(key)
