@@ -186,7 +186,7 @@ def _round_sig(x: float, sig: int) -> float:
     decimals = sig - 1 - exponent
     try:
         return float(_round_half_up(x, decimals))
-    except (ValueError, TypeError, OverflowError):
+    except ValueError:
         return float("nan")
 
 
