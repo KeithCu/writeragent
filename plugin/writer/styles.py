@@ -1465,10 +1465,7 @@ class StyleClone(ToolWriterStyleBase):
                 # Local import: page.copy_page_style imports this module at call time.
                 from .page import copy_page_style
 
-                stats = copy_page_style(
-                    doc, style_name, new_name,
-                    uno_ctx=ctx.ctx, services=getattr(ctx, "services", None),
-                )
+                stats = copy_page_style(doc, style_name, new_name)
             else:
                 stats = _clone_text_style(
                     doc, family, style_family.getByName(style_name), new_name, style_family,
