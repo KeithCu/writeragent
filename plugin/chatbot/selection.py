@@ -167,7 +167,7 @@ def do_selection_action_for_document(ctx: Any, model: Any, input_box_fn: Any, is
         else:
             from plugin.writer.editselection import do_extend_selection
 
-            do_extend_selection(ctx, model, input_box_fn)
+            do_extend_selection(ctx, model)
         return
 
     if doc_type == DocumentType.CALC:

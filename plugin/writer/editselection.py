@@ -102,7 +102,7 @@ def _stream_into_session(
     stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
 
 
-def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
+def do_extend_selection(ctx: Any, model: Any) -> None:
     title = _("WriterAgent: Extend Selection")
     target = _selection_target(ctx, model, title)
     if target is None:
@@ -114,7 +114,6 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         return
 
     update_lru_history(get_text_model(), "model_lru", get_current_endpoint())
-    prompt = original_text
     system_prompt = get_config_str("extend_selection_system_prompt")
     max_tokens = get_config_int("extend_selection_max_tokens")
 
@@ -122,7 +121,7 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         model, text_range, original_text,
         track_reviewable=review_recording_enabled(ctx),
     )
-    _stream_into_session(ctx, title, client, prompt, system_prompt, max_tokens, session)
+    _stream_into_session(ctx, title, client, original_text, system_prompt, max_tokens, session)
 
 
 def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:

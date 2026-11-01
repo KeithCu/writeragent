@@ -776,7 +776,7 @@ def test_do_extend_selection_refuses_deletion_only_without_writing(monkeypatch):
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
     monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
 
-    editselection.do_extend_selection(object(), doc, object())
+    editselection.do_extend_selection(object(), doc)
 
     assert streams == []
     assert len(messages) == 1
@@ -832,7 +832,7 @@ def test_do_extend_selection_clean_range_still_streams(monkeypatch):
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda ctx: False)
     monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
 
-    editselection.do_extend_selection(object(), doc, object())
+    editselection.do_extend_selection(object(), doc)
 
     assert messages == []
     assert len(streams) == 1
@@ -893,7 +893,7 @@ def test_do_extend_selection_observes_stop_checker(monkeypatch):
 
     monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
 
-    editselection.do_extend_selection(_Ctx(), doc, object())
+    editselection.do_extend_selection(_Ctx(), doc)
 
     assert len(streams) == 1
     assert text_range.getString() == "Hellomore"
@@ -975,7 +975,7 @@ def test_do_extend_selection_failure_visible(monkeypatch):
 
     monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
 
-    editselection.do_extend_selection(object(), doc, object())
+    editselection.do_extend_selection(object(), doc)
 
     assert len(messages) == 1
     assert "simulated stream failure" in messages[0][2]
