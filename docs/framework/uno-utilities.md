@@ -258,7 +258,7 @@ There is **no** single shared converter. Live implementations:
 | Helper | Module | Direction | Mechanism |
 |--------|--------|-----------|-----------|
 | `path_to_file_url` | `url_utils` (filesystem / document `file:` section) | path → URL | `Path(abspath).as_uri()` (forces `file:///` on POSIX). **Landed.** UNO-free; used by `document_research`, `embeddings_fs`, and `format`. |
-| `_to_file_url` | `writer/specialized/mail_merge.py` | path or URL → URL | Prefer `uno.systemPathToFileUrl`; fallback `Path.as_uri()`. |
+| `_to_file_url` | `writer/specialized/mail_merge.py` | path or URL → URL | Prefer `uno.systemPathToFileUrl`; fallback `path_to_file_url()`. |
 | `_file_url_for_path` | `writer/images/image_tools.py` | path → URL | `uno.systemPathToFileUrl(abspath)`. |
 | `_file_url` | `writer/math/math_mml_convert.py` | path → URL | `uno.systemPathToFileUrl(abspath)`. |
 | (inline) | `styles.py`, `get_image.py`, `duckdb_tools.py`, `calc/python/image_egress.py`, `librepy/sidebar_menus.py` | path → URL | Raw `uno.systemPathToFileUrl`. |

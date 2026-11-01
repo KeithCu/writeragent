@@ -49,7 +49,7 @@ def _frame_text(frame: Any, limit: int | None = None) -> str:
     return full_text
 
 
-def _frame_or_error(tool: Any, ctx: Any, name: str) -> Any:
+def _frame_or_error(tool: Any, ctx: Any, name: str | None) -> Any:
     if not name:
         return tool._tool_error("name is required.")
     return tool.get_item(
@@ -168,7 +168,7 @@ class FrameSetProperties(ToolWriterTextFramesBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         frame_name = kwargs.get("name")
-        frame = _frame_or_error(self, ctx, frame_name or "")
+        frame = _frame_or_error(self, ctx, frame_name)
         if isinstance(frame, dict):
             return frame
 
