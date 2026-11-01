@@ -1443,3 +1443,29 @@ def test_probe_venv_path_messages_are_translated(tmp_path, monkeypatch):
     assert msg.startswith("L:Not a Python executable: ")
 
 
+
+
+@pytest.mark.parametrize(
+    ("name", "expected_timeout_attr"),
+    [("vision", "VISION_PROBE_TIMEOUT_SEC"), ("vector_search", "VECTOR_SEARCH_PROBE_TIMEOUT_SEC")],
+)
+def test_named_probe_uses_group_specific_timeout(name, expected_timeout_attr):
+    """Vision and vector-search probes import heavy stacks; they run with their own timeouts."""
+    import plugin.scripting.config_limits as limits
+    import plugin.scripting.venv_diagnostics as diag
+
+    expected = getattr(limits, expected_timeout_attr)
+    assert diag._JSON_PROBE_SPECS[name].timeout_sec == expected
+    with patch("plugin.scripting.venv_diagnostics._run_json_probe", return_value=({}, None)) as mock_probe:
+        diag._run_named_json_probe("/x/python", name)
+    assert mock_probe.call_args.args[2] == expected
+
+    # The spec value (not a shared default) is what reaches the subprocess probe.
+    sentinel = 987.0
+    patched_specs = {**diag._JSON_PROBE_SPECS, name: diag._JSON_PROBE_SPECS[name]._replace(timeout_sec=sentinel)}
+    with (
+        patch.object(diag, "_JSON_PROBE_SPECS", patched_specs),
+        patch("plugin.scripting.venv_diagnostics._run_json_probe", return_value=({}, None)) as mock_probe,
+    ):
+        diag._run_named_json_probe("/x/python", name)
+    assert mock_probe.call_args.args[2] == sentinel

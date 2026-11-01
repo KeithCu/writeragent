@@ -97,6 +97,12 @@ class TestErrorHandling:
         msg_generic_venv = format_error_message(RuntimeError("venv not found at /tmp/x"))
         assert ("Python venv not found") in (msg_generic_venv)
 
+        msg_spill = format_error_message(RuntimeError("#SPILL!"))
+        assert "Formula spill collision" in msg_spill
+        assert "Formula spill collision" in format_error_message(RuntimeError("  #SPILL!  "))
+        # Only the exact error string maps; a message that merely mentions it is passed through.
+        assert format_error_message(RuntimeError("cell shows #SPILL! now")) == "cell shows #SPILL! now"
+
     def test_format_error_message_http_exception(self):
         import http.client
         from plugin.framework.errors import format_error_message

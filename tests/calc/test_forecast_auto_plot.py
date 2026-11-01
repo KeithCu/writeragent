@@ -301,3 +301,73 @@ def test_auto_plot_merge_failure_returns_reason():
     assert result is not None
     assert result["status"] == "error"
     assert result["message"] == "Could not merge forecast history with the forecast table"
+
+
+@pytest.mark.parametrize(
+    ("helper", "auto_plot", "task_hint"),
+    [
+        # Only forecast_time_series has a band-plot mapping; decompose must not plot
+        # even when asked to.
+        ("decompose_time_series", True, "plot the decomposition"),
+        # forecast_time_series without auto_plot and without a plot hint stays table-only.
+        ("forecast_time_series", False, "monthly forecast"),
+        ("forecast_time_series", False, None),
+    ],
+)
+@patch("plugin.scripting.viz.insert_viz_result_into_doc")
+@patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast")
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.scripting.forecast.run_trusted_forecast")
+def test_forecast_data_auto_plot_gating_negatives(
+    mock_run_trusted,
+    mock_main_thread,
+    mock_auto_plot,
+    mock_insert,
+    calc_ctx,
+    helper,
+    auto_plot,
+    task_hint,
+):
+    mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    mock_run_trusted.return_value = {
+        "status": "ok",
+        "helper": helper,
+        "tables": [{"name": "forecast", "columns": ["date", "forecast"], "rows": [["2025-01-01", 120.0]]}],
+    }
+
+    kwargs = {"helper": helper, "data_range": "Sheet1.A1:B37", "auto_plot": auto_plot}
+    if task_hint is not None:
+        kwargs["task_hint"] = task_hint
+    result = ForecastDataTool().execute(calc_ctx, **kwargs)
+
+    assert result["status"] == "ok"
+    mock_auto_plot.assert_not_called()
+    mock_insert.assert_not_called()
+    assert "plot" not in result
+    assert not result.get("image_inserted")
+
+
+@patch("plugin.scripting.viz.insert_viz_result_into_doc")
+@patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast")
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.scripting.forecast.run_trusted_forecast")
+def test_forecast_data_auto_plot_task_hint_alone_triggers(
+    mock_run_trusted, mock_main_thread, mock_auto_plot, mock_insert, calc_ctx
+):
+    mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    mock_run_trusted.return_value = {
+        "status": "ok",
+        "helper": "forecast_time_series",
+        "tables": [{"name": "forecast", "columns": ["date", "forecast"], "rows": [["2025-01-01", 120.0]]}],
+    }
+    mock_auto_plot.return_value = None
+
+    ForecastDataTool().execute(
+        calc_ctx,
+        helper="forecast_time_series",
+        data_range="Sheet1.A1:B37",
+        task_hint="plot forecast with bands",
+    )
+
+    mock_auto_plot.assert_called_once()
+    assert mock_auto_plot.call_args.kwargs["forecast_helper"] == "forecast_time_series"

@@ -542,3 +542,28 @@ def test_reap_skips_monitor_join_on_the_monitor_thread() -> None:
 
 
 
+
+
+def test_stop_recording_process_child_already_exited_returns_known_path():
+    """Child exited before Stop: return the WAV path the monitor already saw, no stop line."""
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff
+
+    proc = MagicMock()
+    proc.poll.return_value = 0
+    proc.stdout = StringIO("")
+    handoff = RecordingStopHandoff()
+    handoff.note_ok("/tmp/already-done.wav")
+    assert stop_recording_process(_recording_child(proc), handoff=handoff, timeout_sec=0.05) == "/tmp/already-done.wav"
+    proc.stdin.write.assert_not_called()
+
+
+def test_stop_recording_process_child_already_exited_without_path_raises():
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff
+
+    proc = MagicMock()
+    proc.poll.return_value = 0
+    proc.stdout = StringIO("")
+    handoff = RecordingStopHandoff()
+    with pytest.raises(RuntimeError, match="already exited without a WAV path"):
+        stop_recording_process(_recording_child(proc), handoff=handoff, timeout_sec=0.05)
+    proc.stdin.write.assert_not_called()

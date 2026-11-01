@@ -1222,3 +1222,33 @@ def test_open_sse_stream_releases_reservation_on_unexpected_header_error():
     mock_forget.assert_called_once_with(handler.server, handler.connection)
 
 
+
+
+@pytest.mark.parametrize("lock", [True, False])
+def test_prepare_mcp_execution_passes_arguments_to_requires_document_lock(lock):
+    """needs_gate comes from requires_document_lock(arguments) with the call's own arguments."""
+    from plugin.mcp.mcp_protocol import _PreparedMcpCall
+
+    seen: list[Any] = []
+
+    class _LockProbeTool(ToolBase):
+        name = "lock_probe"
+        requires_document = False
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        def requires_document_lock(self, arguments: Any = None) -> bool:
+            seen.append(arguments)
+            return lock
+
+    registry = ToolRegistry(MagicMock())
+    registry._tools["lock_probe"] = _LockProbeTool()
+    handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
+    handler.tool_registry = registry
+    args = {"domain": "shapes", "note": 1}
+    prepared = handler._prepare_mcp_execution("lock_probe", args, None, send_cancellation=None)
+    assert isinstance(prepared, _PreparedMcpCall)
+    assert seen == [args]
+    assert seen[0] is args
+    assert prepared.needs_gate is lock
