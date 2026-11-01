@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import hashlib
 import os
 import sys
 from contextvars import ContextVar
@@ -511,11 +510,6 @@ def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:
     return frozenset(roots)
 
 
-def policy_digest(policy: SandboxPolicy) -> str:
-    payload = f"{int(policy.network)}:{int(policy.files)}:{int(policy.os)}:{','.join(policy.extra)}"
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
-
-
 # --- Subprocess environment ---
 
 _BLOCKED_ENV_TOKENS = frozenset(
@@ -790,16 +784,6 @@ def wrap_command_for_sandbox(
 # --- Interpreter resolution ---
 
 
-@deal.pre(lambda path: _deal_path_ok(path))
-def _strip_surrounding_quotes(path: str) -> str:
-    """Strip one layer of matching quotes (Windows Explorer \"Copy as path\")."""
-    # crosshair: off
-    s = path.strip()
-    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
-        return s[1:-1].strip()
-    return s
-
-
 def _path_from_file_url(raw: str) -> str | None:
     """Convert a ``file://`` / ``file:/`` URL to a filesystem path (stdlib only)."""
     # crosshair: off
@@ -842,7 +826,11 @@ def _path_from_file_url(raw: str) -> str | None:
 def _normalize_venv_path_input(venv_dir: str) -> str:
     """Strip quotes, convert file URLs, then expand ``~`` and env vars."""
     # crosshair: off
-    cleaned = _strip_surrounding_quotes(venv_dir.strip())
+    s = venv_dir.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        cleaned = s[1:-1].strip()
+    else:
+        cleaned = s
     from_url = _path_from_file_url(cleaned)
     if from_url:
         cleaned = from_url
