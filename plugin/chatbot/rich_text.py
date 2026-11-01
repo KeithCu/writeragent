@@ -57,8 +57,7 @@ _LEADING_MARKER_P_RE = re.compile(r"^\s*<p\b[^>]*>\s*(?:\d{1,3}[.)]|[\u2022*-])\
 
 def _body_starts_with_list(html: str) -> bool:
     """True when the body opens with ``<ol>``/``<ul>`` or a ``<p>`` that starts with a list marker."""
-    text = html or ""
-    return bool(_LEADING_LIST_RE.match(text) or _LEADING_MARKER_P_RE.match(text))
+    return bool(_LEADING_LIST_RE.match(html) or _LEADING_MARKER_P_RE.match(html))
 
 
 def _drop_list_sentinel(text_obj: Any, body_anchor: Any) -> None:
@@ -100,7 +99,7 @@ _SERIF_FONT_MARKERS = ("serif", "times", "roman", "courier", "mono")
 
 def normalize_portion_font(portion: Any) -> None:
     """Clamp hidden-doc portions to sidebar sans 10pt (HTML import often uses serif headings)."""
-    font = getattr(portion, "CharFontName", "") or ""
+    font = getattr(portion, "CharFontName", "")
     if not font or any(marker in font.lower() for marker in _SERIF_FONT_MARKERS):
         portion.CharFontName = CHAT_FONT_NAME
         portion.CharFontNameAsian = CHAT_FONT_NAME
@@ -369,11 +368,11 @@ def _append_rich_text_with_span(
         body_anchor = text_obj.createTextCursorByRange(cursor.getStart())
         body_anchor.goLeft(1, False)
 
+        looks_html = False
         if text and text.strip():
             looks_html = contains_html_tag(text)
             log.debug("append_rich_text: looks_html=%s len=%d snippet=%r", looks_html, len(text), text[:120])
 
-            used_html_import = False
             if looks_html:
                 try:
                     body_html = _sidebar_import_html(text)
@@ -387,7 +386,6 @@ def _append_rich_text_with_span(
                     _insert_html_at_cursor(cursor, body_html)
                     if leading_list:
                         _drop_list_sentinel(text_obj, body_anchor)
-                    used_html_import = True
                 except Exception:
                     # Restore the body from before this call. The filter
                     # can insert tags and then raise; return False only skips
@@ -399,14 +397,15 @@ def _append_rich_text_with_span(
             else:
                 text_obj.insertString(cursor, text, False)
 
-            if parked_anchor is not None:
-                added_cur = text_obj.createTextCursorByRange(parked_anchor.getStart())
-                added_cur.goRight(1, False)
-                added_cur.gotoEnd(True)
-                added = added_cur.getString() or ""
-            else:
-                added = text_obj.getString() or ""
+        if parked_anchor is not None:
+            added_cur = text_obj.createTextCursorByRange(parked_anchor.getStart())
+            added_cur.goRight(1, False)
+            added_cur.gotoEnd(True)
+            added = added_cur.getString() or ""
+        else:
+            added = text_obj.getString() or ""
 
+        if text and text.strip():
             if contains_html_tag(added):
                 # The filter returned without raising and left the tags as text.
                 log.warning("HTML import left tags in the hidden doc role=%s", role)
@@ -423,17 +422,9 @@ def _append_rich_text_with_span(
             body_range.gotoEnd(True)
             # Plain text gets the role tint; successful HTML import keeps
             # per-span CharColor from the filter (red/blue runs, etc.).
-            if not used_html_import:
+            if not looks_html:
                 body_range.CharColor = theme.user_color if role == "user" else theme.assistant_color
             _tighten_list_indent(body_range)
-        else:
-            if parked_anchor is not None:
-                added_cur = text_obj.createTextCursorByRange(parked_anchor.getStart())
-                added_cur.goRight(1, False)
-                added_cur.gotoEnd(True)
-                added = added_cur.getString() or ""
-            else:
-                added = text_obj.getString() or ""
 
         return True, previous, added
 

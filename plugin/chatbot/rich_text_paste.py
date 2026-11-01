@@ -178,12 +178,11 @@ def _text_table_cell_rows(table: Any) -> list[list[str]]:
     n_rows = int(table.getRows().getCount())
     n_cols = int(table.getColumns().getCount())
     rows: list[list[str]] = []
-
-    def _cell(c: int, r: int) -> str:
-        return uno_probe(lambda: table.getCellByPosition(c, r).getString() or "", "")
-
     for row_idx in range(n_rows):
-        cells: list[str] = [_cell(col_idx, row_idx) for col_idx in range(n_cols)]
+        cells: list[str] = [
+            uno_probe(lambda: table.getCellByPosition(col_idx, row_idx).getString() or "", "")
+            for col_idx in range(n_cols)
+        ]
         rows.append(cells)
     return rows
 
@@ -271,9 +270,6 @@ _TABLE_V_PAD_MM100 = int(round(_TABLE_V_PAD_EM * CHAT_FONT_HEIGHT * _MM100_PER_P
 
 
 def _apply_table_row_vpad(cursor: Any, *, top: int = 0, bottom: int = 0) -> None:
-    if cursor is None:
-        return
-
     def _apply() -> None:
         cursor.ParaTopMargin = int(top)
         cursor.ParaBottomMargin = int(bottom)
@@ -282,7 +278,7 @@ def _apply_table_row_vpad(cursor: Any, *, top: int = 0, bottom: int = 0) -> None
 
 
 def _apply_table_tab_stops(cursor: Any, positions_twips: Any) -> None:
-    if cursor is None or not positions_twips:
+    if not positions_twips:
         return
 
     def _apply() -> None:
@@ -316,16 +312,12 @@ def _role_from_portion_text(text: str) -> str | None:
     return None
 
 
-def _role_color_for_text(text: str, user_color: int, assistant_color: int, default_role: str = "assistant") -> int:
-    role = _role_from_portion_text(text) or default_role
-    return user_color if role == "user" else assistant_color
-
-
 def _resolve_portion_char_color(src_portion: Any, txt: str, user_color: int, assistant_color: int, default_role: str = "assistant") -> int:
     raw = getattr(src_portion, "CharColor", None)
     if isinstance(raw, int) and not _is_automatic_char_color(raw):
         return raw
-    return _role_color_for_text(txt, user_color, assistant_color, default_role)
+    role = _role_from_portion_text(txt) or default_role
+    return user_color if role == "user" else assistant_color
 
 
 def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str:
@@ -669,7 +661,7 @@ def paint_message_items(
             restore=restore,
             restore_focus=restore_focus,
         )
-        ok, copy_reason = res if isinstance(res, tuple) else (bool(res), None)
+        ok, copy_reason = res
         if ok:
             if rows[-1][0] == "user":
                 with focus_preserved(ctx, restore, restore_focus=restore_focus):
@@ -716,13 +708,9 @@ def _copy_formatted_from_hidden_doc_to_control(
     if model is None or not hasattr(model, "createTextCursor"):
         return False, "model_no_createTextCursor"
 
-    inserted = False
-    copy_failed_with_exception = False
-    element_skipped = False
-
-    def _do_copy() -> None:
-        nonlocal inserted, copy_failed_with_exception, element_skipped
+    def _do_copy() -> str | None:
         try:
+            inserted = False
             theme = ChatTheme.resolve(style_window=style_window)
             current_role = role
             default_color = theme.user_color if current_role == "user" else theme.assistant_color
@@ -861,12 +849,11 @@ def _copy_formatted_from_hidden_doc_to_control(
                     if element_inserted:
                         # A partly copied element means the formatted copy is not
                         # complete; reporting success would make rerender drop the plain tail.
-                        element_skipped = True
                         log.exception(
                             "_copy_formatted_from_hidden_doc_to_control: skip element role=%s",
                             role,
                         )
-                        break
+                        return "element_skipped"
                     else:
                         log.warning(
                             "_copy_formatted_from_hidden_doc_to_control: element failed before insert, trying visible text role=%s: %s",
@@ -887,33 +874,31 @@ def _copy_formatted_from_hidden_doc_to_control(
                                 inserted = True
                         except Exception:
                             control_len = get_control_text_length(control)
-                            element_skipped = True
                             log.exception(
                                 "_copy_formatted_from_hidden_doc_to_control: fallback element string failed role=%s",
                                 role,
                             )
-                            break
+                            return "element_skipped"
 
-            if inserted and not element_skipped:
-                log_rich_scroll("copy_done", control=control, role=role)
-                log.info(
-                    "_copy_formatted_from_hidden_doc_to_control: ok role=%s",
-                    role,
-                )
+            if not inserted:
+                return "no_content_inserted"
+            log_rich_scroll("copy_done", control=control, role=role)
+            log.info(
+                "_copy_formatted_from_hidden_doc_to_control: ok role=%s",
+                role,
+            )
+            return None
         except Exception:
             log.exception("_copy_formatted_from_hidden_doc_to_control failed role=%s", role)
-            copy_failed_with_exception = True
+            return "exception"
 
     if ctx is not None:
         with focus_preserved(ctx, restore, restore_focus=restore_focus):
-            _do_copy()
+            reason = _do_copy()
     else:
-        _do_copy()
-    if inserted and not element_skipped and not copy_failed_with_exception:
+        reason = _do_copy()
+    if reason is None:
         return True, None
-    reason = "element_skipped" if element_skipped else (
-        "exception" if copy_failed_with_exception else "no_content_inserted"
-    )
     return False, reason
 
 
@@ -983,6 +968,21 @@ def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any
     return wrote
 
 
+def _rollback_then_plain(
+    control: Any,
+    rows: list[tuple[str, str]],
+    before: int,
+    ctx: Any,
+    style_window: Any,
+    restore_focus: Any,
+) -> None:
+    rollback_rich_insert(control, before)
+    if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
+        if rows[-1][0] == "user":
+            _ensure_trailing_line_break(control)
+        _scroll_rich_to_tail(control, restore_focus=restore_focus)
+
+
 def append_formatted_rows(
     ctx: Any,
     control: Any,
@@ -1020,11 +1020,7 @@ def append_formatted_rows(
         if doc is None:
             # Tip: write this batch as plain text; dropping it would lose that history.
             log.warning("append_formatted_rows: hidden Writer unavailable")
-            rollback_rich_insert(control, before)
-            if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
-                if rows[-1][0] == "user":
-                    _ensure_trailing_line_break(control)
-                _scroll_rich_to_tail(control, restore_focus=restore_focus)
+            _rollback_then_plain(control, rows, before, ctx, style_window, restore_focus)
             return
         configure_hidden_writer_for_chat(doc)
         batch_links = cell_links_for_rows(rows)
@@ -1038,11 +1034,7 @@ def append_formatted_rows(
         doc_text = doc.getText().getString() or ""
         if contains_html_tag(doc_text):
             log.warning("append_formatted_rows: hidden doc still has tags; plain append")
-            rollback_rich_insert(control, before)
-            if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
-                if rows[-1][0] == "user":
-                    _ensure_trailing_line_break(control)
-                _scroll_rich_to_tail(control, restore_focus=restore_focus)
+            _rollback_then_plain(control, rows, before, ctx, style_window, restore_focus)
             return
 
         res = _copy_formatted_from_hidden_doc_to_control(
@@ -1055,7 +1047,7 @@ def append_formatted_rows(
             restore=restore,
             restore_focus=restore_focus,
         )
-        ok, copy_reason = res if isinstance(res, tuple) else (bool(res), None)
+        ok, copy_reason = res
         if ok:
             inserted = True
             if rows[-1][0] == "user":
@@ -1068,19 +1060,11 @@ def append_formatted_rows(
                 len(rows),
                 copy_reason,
             )
-            rollback_rich_insert(control, before)
-            if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
-                if rows[-1][0] == "user":
-                    _ensure_trailing_line_break(control)
-                _scroll_rich_to_tail(control, restore_focus=restore_focus)
+            _rollback_then_plain(control, rows, before, ctx, style_window, restore_focus)
     except Exception:
         log.exception("append_formatted_rows failed")
         if not inserted:
-            rollback_rich_insert(control, before)
-            if _plain_append_messages(control, rows, ctx, style_window, restore_focus=restore_focus):
-                if rows[-1][0] == "user":
-                    _ensure_trailing_line_break(control)
-                _scroll_rich_to_tail(control, restore_focus=restore_focus)
+            _rollback_then_plain(control, rows, before, ctx, style_window, restore_focus)
     finally:
         _close_hidden_doc(doc, "append_formatted_rows")
 
@@ -1132,7 +1116,6 @@ def append_formatted_row(
     role: str = "assistant",
     style_window: Any = None,
     auto_scroll: bool = True,
-    on_after_insert: Any = None,
     *,
     restore: Any = None,
     restore_focus: Any = None,
@@ -1160,11 +1143,6 @@ def append_formatted_row(
                 _ensure_trailing_line_break(control)
             if auto_scroll:
                 _scroll_rich_to_tail(control, restore_focus=restore_focus)
-            if callable(on_after_insert):
-                try:
-                    on_after_insert(get_control_text_length(control))
-                except Exception:
-                    log.exception("append_formatted_row: on_after_insert failed")
             log_rich_scroll("user_append_done", control=control, role=role)
         elif auto_scroll:
             _scroll_rich_to_tail(control, restore_focus=restore_focus)
@@ -1245,16 +1223,10 @@ def append_formatted_row(
                 # covering the whole control (user-message flash). Agent stream
                 # never reveal_caret, so it does not flash.
                 _scroll_rich_to_tail(control, restore_focus=restore_focus)
-            if callable(on_after_insert):
-                try:
-                    on_after_insert(get_control_text_length(control))
-                except Exception:
-                    log.exception("append_formatted_row: on_after_insert failed")
             log_rich_scroll("user_append_done", control=control, role=role)
         elif inserted and auto_scroll:
             _scroll_rich_to_tail(control, restore_focus=restore_focus)
-        if inserted:
-            return True
+        return inserted
     except Exception:
         log.exception("append_formatted_row failed")
         if not inserted:
