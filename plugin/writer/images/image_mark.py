@@ -234,11 +234,10 @@ def bake(ctx: Any, graphic: Any, region: Box, marks: list[tuple[Box, str, int]],
             result = _paint_highlights(provider, result, highlights, tmp_path)
         return result
     finally:
-        if draw is not None:
-            try:
-                draw.close(True)
-            except Exception as close_ex:
-                log.debug("Failed to close scratch Draw document: %s", close_ex)
+        try:
+            draw.close(True)
+        except Exception as close_ex:
+            log.debug("Failed to close scratch Draw document: %s", close_ex)
         if tmp_path:
             for path in (tmp_path, tmp_path + ".bmp"):
                 try:
