@@ -31,7 +31,7 @@ from ..target_resolver import resolve_target_cursor
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_real_disposal, reraise_if_disposed
 from plugin.framework.uno_context import get_service_manager, resolve_uno_context
-from plugin.framework.url_utils import normalize_file_url
+from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
 import uno
 
@@ -50,7 +50,7 @@ def _to_file_url(path_or_url: str) -> str:
             return res
     except Exception:
         log.debug("systemPathToFileUrl failed", exc_info=True)
-    return Path(os.path.abspath(path_or_url)).as_uri()
+    return path_to_file_url(path_or_url)
 
 
 def _to_system_path(path_or_url: str) -> str:
@@ -72,15 +72,7 @@ _OUTPUT_TYPES = {"printer": 1, "file": 2}      # default 2
 
 
 def _create_global_service(ctx: Any, service_name: str) -> Any:
-    comp_ctx = resolve_uno_context(ctx)
-    smgr = get_service_manager(comp_ctx)
-    if smgr:
-        return smgr.createInstanceWithContext(service_name, comp_ctx)
-    return None
-
-
-def _get_database_context(ctx: Any) -> Any:
-    """Obtain ``com.sun.star.sdb.DatabaseContext`` from the global service manager.
+    """Obtain a service from the global service manager.
 
     A document ``createInstance("com.sun.star.sdb.DatabaseContext")``
     cannot create this service. It is the global single-instance
@@ -89,7 +81,11 @@ def _get_database_context(ctx: Any) -> Any:
     ``ServiceNotRegisteredException: unknown service``. Only
     ``getServiceManager().createInstanceWithContext`` creates it.
     """
-    return _create_global_service(ctx, "com.sun.star.sdb.DatabaseContext")
+    comp_ctx = resolve_uno_context(ctx)
+    smgr = get_service_manager(comp_ctx)
+    if smgr:
+        return smgr.createInstanceWithContext(service_name, comp_ctx)
+    return None
 
 
 class ListDataSources(ToolWriterMailMergeBase):
@@ -120,7 +116,7 @@ class ListDataSources(ToolWriterMailMergeBase):
         include_tables = kwargs.get("include_tables", False)
         target_ds_name = kwargs.get("data_source_name")
 
-        db_ctx = _get_database_context(ctx)
+        db_ctx = _create_global_service(ctx, "com.sun.star.sdb.DatabaseContext")
         if not db_ctx:
             return self._tool_error("Failed to access LibreOffice DatabaseContext.")
 
@@ -224,7 +220,7 @@ class RegisterDataSource(ToolWriterMailMergeBase):
 
         # XDatabaseRegistrations methods registerDatabaseLocation / changeDatabaseLocation
         # manage named database locations by URL.
-        db_ctx = _get_database_context(ctx)
+        db_ctx = _create_global_service(ctx, "com.sun.star.sdb.DatabaseContext")
         if not db_ctx:
             return self._tool_error("Failed to access LibreOffice DatabaseContext.")
 
@@ -357,7 +353,6 @@ class InsertField(ToolWriterMailMergeBase):
                 master = masters.getByName(master_id)
             except Exception as exc:
                 reraise_if_disposed(exc)
-                master = None
 
         if master is None:
             master = doc.createInstance(master_service_name)
@@ -444,7 +439,6 @@ class ListFields(ToolWriterMailMergeBase):
                 is_db_field = field.supportsService("com.sun.star.text.textfield.Database")
             except Exception as exc:
                 reraise_if_disposed(exc)
-                is_db_field = False
 
             db_name = ""
             tbl_name = ""
@@ -464,7 +458,6 @@ class ListFields(ToolWriterMailMergeBase):
                 log.debug("mail merge: database field properties unreadable", exc_info=True)
 
             if is_db_field:
-                presentation = ""
                 content = ""
                 try:
                     presentation = field.getPresentation(False)
@@ -476,7 +469,6 @@ class ListFields(ToolWriterMailMergeBase):
                     content = field.getPresentation(True)
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    content = ""
 
                 merge_fields.append({
                     "id": field_idx,
