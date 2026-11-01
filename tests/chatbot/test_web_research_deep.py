@@ -126,8 +126,7 @@ class TestDeepResearchParsers:
             llm_chat=llm_chat,
             stop_checker=lambda: False,
             acc=_ResearchAccumulator(),
-            max_sub_queries=3,
-            progress=ResearchProgress(),
+            progress=ResearchProgress(max_sub_queries=3),
             status_callback=None,
         )
         assert branch is not None
@@ -1092,9 +1091,8 @@ def _run_parallel(queries, run_web_agent, stop_checker, *, concurrency, llm_chat
         llm_chat=llm_chat,
         stop_checker=stop_checker,
         acc=_ResearchAccumulator(),
-        max_sub_queries=5,
         concurrency=concurrency,
-        progress=ResearchProgress(),
+        progress=ResearchProgress(max_sub_queries=5),
         status_callback=None,
     )
 

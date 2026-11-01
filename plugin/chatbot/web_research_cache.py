@@ -29,6 +29,7 @@ _MIN_TOKEN_LEN = 3
 # (gettext LO locale, snowball_lang) -> assembled fluff + stop words
 _FLUFF_WORDS_CACHE: dict[tuple[str, str], frozenset[str]] = {}
 _RESEARCH_CACHE_KIND = "research"
+_DEEP_PREFIX = "deep|"
 _EMBEDDING_BACKFILL_BATCH_SIZE = 32
 _EMBEDDING_BACKFILL_IN_FLIGHT: set[tuple[str, str]] = set()
 _EMBEDDING_BACKFILL_LOCK = threading.Lock()
@@ -143,12 +144,6 @@ def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
     return "en_US", "english"
 
 
-def tokenize_query_words(query: str) -> list[str]:
-    from plugin.writer.locale.linguistic_index import _raw_tokens
-
-    return _raw_tokens(query)
-
-
 def clear_research_fluff_words_cache() -> None:
     """Clear cached fluff sets (tests or after locale catalog reload)."""
     _FLUFF_WORDS_CACHE.clear()
@@ -184,10 +179,12 @@ def ordered_unique_query_words(query: str, *, snowball_lang: str) -> list[str]: 
     """Fluff-filtered tokens, first-seen order. Storage keys sort a copy of this list."""
     if not query:
         return []
+    from plugin.writer.locale.linguistic_index import _raw_tokens
+
     fluff = get_research_fluff_words(snowball_lang=snowball_lang)
     seen: set[str] = set()
     ordered: list[str] = []
-    for token in tokenize_query_words(query):
+    for token in _raw_tokens(query):
         if token in fluff or len(token) < _MIN_TOKEN_LEN or token in seen:
             continue
         seen.add(token)
@@ -195,19 +192,13 @@ def ordered_unique_query_words(query: str, *, snowball_lang: str) -> list[str]: 
     return ordered
 
 
-def research_cache_key_mode(raw_key: str) -> str:
-    """``deep`` when the row is a deep-research report; shallow rows are ``""``."""
-    if str(raw_key or "").startswith("deep|"):
-        return "deep"
-    return ""
-
-
 def _same_mode_and_lang(raw_key: str, *, mode: str, snowball_lang: str) -> str | None:
     """Word key when raw_key is the same mode and Snowball language, else None.
     Mode is checked before language. parse strips ``deep|``, so a deep row and
     a shallow row for the same words share a language.
     """
-    if research_cache_key_mode(raw_key) != mode:
+    key_mode = "deep" if str(raw_key or "").startswith(_DEEP_PREFIX) else ""
+    if key_mode != mode:
         return None
     key_lang, word_key = parse_research_cache_key(raw_key)
     if key_lang != snowball_lang:
@@ -221,11 +212,11 @@ def parse_research_cache_key(raw_key: str) -> tuple[str, str]:
 
     Deep rows are stored as ``deep|{lang}|{words}``. Strip that leading
     segment here so this stays a 2-tuple (deal post and hypothesis unpack it).
-    Mode is ``research_cache_key_mode``, not a third element.
+    Mode is checked via ``_DEEP_PREFIX``, not a third element.
     """
     # A shallow key never starts with deep|; stripping only that prefix keeps
     # legacy ``english|words`` and bare keys on the old parse path.
-    key = raw_key[len("deep|"):] if raw_key.startswith("deep|") else raw_key
+    key = raw_key[len(_DEEP_PREFIX):] if raw_key.startswith(_DEEP_PREFIX) else raw_key
     if "|" in key:
         lang, _unused, word_key = key.partition("|")
         if lang in _SNOWBALL_LANGS:
@@ -245,7 +236,7 @@ def format_research_cache_key(snowball_lang: str, word_key: str, *, mode: str = 
     lang = snowball_lang if snowball_lang in _SNOWBALL_LANGS else "english"
     body = f"{lang}|{word_key}"
     if mode == "deep":
-        return f"deep|{body}"
+        return f"{_DEEP_PREFIX}{body}"
     return body
 
 
@@ -258,16 +249,6 @@ def stem_set_from_word_key(word_key: str, snowball_lang: str) -> set[str]:
         if stem:
             stems.add(stem)
     return stems
-
-
-@deal.post(lambda result: isinstance(result, float) and 0.0 <= result <= 1.0)
-def jaccard(a: set[str], b: set[str]) -> float:
-    if not a and not b:
-        return 0.0
-    union = a | b
-    if not union:
-        return 0.0
-    return len(a & b) / len(union)
 
 
 @deal.post(lambda result: isinstance(result, float) and 0.0 <= result <= 1.0)
@@ -300,14 +281,15 @@ def _research_cache_embedding_configured() -> bool:
         return False
 
 
-def _embedding_text_from_raw_key(raw_key: str) -> str:
-    """Embed the normalized word key, not the report body, so legacy rows can be backfilled."""
-    _key_lang, word_key = parse_research_cache_key(raw_key)
-    return word_key.strip()
-
-
 def _embedding_text_hash(text: str) -> str:
     return hashlib.sha256(str(text or "").strip().encode("utf-8")).hexdigest()
+
+
+def _first_vector(batch: Any) -> list[float] | None:
+    for batch_index, vector in zip(batch.indices, batch.vectors):
+        if batch_index == 0 and vector:
+            return vector
+    return None
 
 
 def _vector_from_json(raw: str, dim: int) -> list[float] | None:
@@ -347,47 +329,34 @@ def store_research_cache_embeddings(
     """Store vectors for research cache keys. Additive table keeps old cache rows valid."""
     if not cache_path or not rows or not embedding_model:
         return
-    from plugin.contrib.smolagents.default_tools import HAS_SQLITE, _web_cache_with_connection
-
-    if not HAS_SQLITE:
-        return
+    from plugin.contrib.smolagents.default_tools import _web_cache_with_connection
 
     def do_store(conn: Any) -> None:
         now = time.time()
-        payload = []
+        attempted = False
         for raw_key, text, vector in rows:
             if not raw_key or not text or not vector:
                 continue
             floats = [float(v) for v in vector]
-            payload.append((
-                _RESEARCH_CACHE_KIND,
-                raw_key,
-                embedding_model,
-                text,
-                _embedding_text_hash(text),
-                len(floats),
-                json.dumps(floats, separators=(",", ":")),
-                now,
-            ))
-        if payload:
-            # Backfill drops the cache lock, embeds, then writes. Eviction can
-            # delete the parent web_cache row in that window. Inserting anyway
-            # left orphans that the size cap never counts (it sums web_cache.size).
-            kept = []
-            for row in payload:
-                kind, raw_key = row[0], row[1]
-                parent = conn.execute(
-                    "SELECT 1 FROM web_cache WHERE kind = ? AND key = ?",
-                    (kind, raw_key),
-                ).fetchone()
-                if parent is not None:
-                    kept.append(row)
-            if kept:
-                conn.executemany(
-                    "INSERT OR REPLACE INTO web_cache_embeddings "
-                    "(kind, key, embedding_model, embedding_text, text_hash, dim, vector_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    kept,
-                )
+            conn.execute(
+                "INSERT OR REPLACE INTO web_cache_embeddings "
+                "(kind, key, embedding_model, embedding_text, text_hash, dim, vector_json, created_at) "
+                "SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM web_cache WHERE kind = ? AND key = ?)",
+                (
+                    _RESEARCH_CACHE_KIND,
+                    raw_key,
+                    embedding_model,
+                    text,
+                    _embedding_text_hash(text),
+                    len(floats),
+                    json.dumps(floats, separators=(",", ":")),
+                    now,
+                    _RESEARCH_CACHE_KIND,
+                    raw_key,
+                ),
+            )
+            attempted = True
+        if attempted:
             conn.commit()
 
     _web_cache_with_connection(cache_path, do_store)
@@ -399,7 +368,7 @@ def _query_web_cache_rows(cache_path: str, sql: str, params: tuple[Any, ...]) ->
     if not HAS_SQLITE:
         return []
     raw = _web_cache_with_connection(cache_path, lambda conn: conn.execute(sql, params).fetchall())
-    return raw if isinstance(raw, list) else []
+    return raw or []
 
 
 def _research_cache_embedding_rows(
@@ -410,8 +379,6 @@ def _research_cache_embedding_rows(
     snowball_lang: str,
     mode: str = "",
 ) -> list[tuple[str, list[float]]]:
-    if not cache_path or not embedding_model:
-        return []
     cutoff = time.time() - (max_age_days * 86400)
     raw_rows = _query_web_cache_rows(
         cache_path,
@@ -442,8 +409,6 @@ def _research_cache_missing_embedding_rows(
     max_age_days: int,
     limit: int,
 ) -> list[tuple[str, str]]:
-    if not cache_path or not embedding_model:
-        return []
     cutoff = time.time() - (max_age_days * 86400)
     raw_rows = _query_web_cache_rows(
         cache_path,
@@ -457,7 +422,7 @@ def _research_cache_missing_embedding_rows(
     missing: list[tuple[str, str]] = []
     for raw_key, embedding_text, stored_hash in raw_rows:
         stored_text = str(embedding_text or "").strip()
-        text = stored_text or _embedding_text_from_raw_key(str(raw_key))
+        text = stored_text or parse_research_cache_key(str(raw_key))[1].strip()
         if not text:
             continue
         if stored_hash == _embedding_text_hash(text):
@@ -488,13 +453,12 @@ def find_embedding_research_match(
     max_age_days: int,
     similarity_min: float,
     embedding_text: str | None = None,
-    embedding_model: str | None = None,
     mode: str = "",
 ) -> tuple[str, float] | None:
     """Pick best stored-vector match. Caller falls back to Jaccard on any miss/error."""
-    if not ctx or not cache_path or not word_key or not _research_cache_embedding_configured():
+    if not cache_path or not word_key or not _research_cache_embedding_configured():
         return None
-    model = (embedding_model or _get_embedding_model_or_none() or "").strip()
+    model = (_get_embedding_model_or_none() or "").strip()
     if not model:
         return None
     stored = _research_cache_embedding_rows(cache_path, embedding_model=model, max_age_days=max_age_days, snowball_lang=snowball_lang, mode=mode)
@@ -506,11 +470,7 @@ def find_embedding_research_match(
     query_text = str(embedding_text or "").strip() or word_key
     # Omit timeout_sec so embed_texts uses embeddings_worker_timeout_sec (long trusted budget).
     batch = embed_texts(ctx, [query_text], model=model)
-    query_vector: list[float] | None = None
-    for batch_index, vector in zip(batch.indices, batch.vectors):
-        if batch_index == 0:
-            query_vector = vector
-            break
+    query_vector = _first_vector(batch)
     if not query_vector:
         return None
 
@@ -591,10 +551,10 @@ def _research_cache_embedding_row_worker(ctx: Any, cache_path: str, raw_key: str
         if not text:
             return
         batch = embed_texts(ctx, [text], model=embedding_model)
-        for batch_index, vector in zip(batch.indices, batch.vectors):
-            if batch_index == 0 and vector:
-                store_research_cache_embeddings(cache_path, [(raw_key, text, vector)], embedding_model=embedding_model)
-                return
+        vector = _first_vector(batch)
+        if vector:
+            store_research_cache_embeddings(cache_path, [(raw_key, text, vector)], embedding_model=embedding_model)
+            return
     except Exception as e:
         log.debug("research cache embedding row skipped: %s", e)
 
@@ -668,8 +628,8 @@ def lookup_research_cache(
     embedding_percent: int | None = None,
     embedding_text: str | None = None,
     mode: str = "",
-) -> tuple[str, str, str | None, float, str] | None:
-    """Return (event, display_key, matched_raw_key, score, cached_value) or None on miss.
+) -> tuple[str, str | None, float, str] | None:
+    """Return (event, matched_raw_key, score, cached_value) or None on miss.
 
     English shallow lookup tries the bare word key, then the language-prefixed key.
     Other languages try only the prefixed key, so a legacy English row is not a hit.
@@ -697,7 +657,7 @@ def lookup_research_cache(
         cached = _web_cache_get(cache_path, "research", storage_key, max_age_days=max_age_days)
         if cached is not None:
             matched = storage_key if storage_key != word_key else None
-            return ("hit", word_key, matched, 1.0, cached)
+            return ("hit", matched, 1.0, cached)
 
     jaccard_min = max(0.0, min(1.0, jaccard_percent / 100.0))
     embedding_min = max(0.0, min(1.0, (embedding_percent if embedding_percent is not None else jaccard_percent) / 100.0))
@@ -717,7 +677,7 @@ def lookup_research_cache(
                 matched_raw_key, score = embedding
                 cached = _web_cache_get(cache_path, "research", matched_raw_key, max_age_days=max_age_days)
                 if cached is not None:
-                    return ("hit_embedding", word_key, matched_raw_key, score, cached)
+                    return ("hit_embedding", matched_raw_key, score, cached)
         except Exception as e:
             # Embeddings are opportunistic: cold/missing venv, model download, or worker errors must not slow or break web research.
             log.debug("research cache embeddings lookup skipped: %s", e)
@@ -742,4 +702,4 @@ def lookup_research_cache(
     cached = _web_cache_get(cache_path, "research", matched_raw_key, max_age_days=max_age_days)
     if cached is None:
         return None
-    return ("hit_fuzzy", word_key, matched_raw_key, score, cached)
+    return ("hit_fuzzy", matched_raw_key, score, cached)

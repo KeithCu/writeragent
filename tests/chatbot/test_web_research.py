@@ -1081,7 +1081,7 @@ def test_web_research_cache_lookup_uses_embedding_threshold(tmp_path):
     def fake_lookup(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return ("hit_embedding", "caching unique", "english|cached similar", 0.78, "Cached Answer Content")
+        return ("hit_embedding", "english|cached similar", 0.78, "Cached Answer Content")
 
     with patch("plugin.framework.config.get_config", return_value="off"), \
          patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
