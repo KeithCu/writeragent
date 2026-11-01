@@ -38,12 +38,8 @@ from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 log = logging.getLogger(__name__)
 
 
-def _debug_env_active() -> bool:
-    """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1``).
-
-    Release OXTs stub ``thread_guard`` (no ``_designated_main_thread``), so the
-    paint/stream counters read by the mock-sidebar SNAPSHOT hook stay off there.
-    """
+def _debug_env_active() -> bool:  # pyright: ignore[reportUnusedFunction]
+    """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1``)."""
     from plugin.framework import thread_guard as tg
 
     if hasattr(tg, "_designated_main_thread"):
@@ -173,7 +169,6 @@ class RichTextChatWidget:
         self.model = control.getModel() if control else None
         # Debug-only: Packet M (mock sidebar) reads these through the SNAPSHOT
         # hook to prove streaming appends instead of repainting.
-        self._debug_counts: bool = _debug_env_active()
         self._debug_paint_session_count: int = 0
         self._debug_stream_session_count: int = 0
         # What the control shows, so a stream update can append only the new
@@ -211,20 +206,28 @@ class RichTextChatWidget:
         clear_control(self.control)
         self._set_formatted_state([])
 
-    def _set_formatted_state(self, items: list[tuple[str, str]] | None) -> None:
+    def _set_formatted_state(self, items: list[tuple[str, str]]) -> None:
         """Record that the control shows *items*, all formatted.
 
-        None, or a control length that cannot be read, records "unknown".
+        A control length that cannot be read records "unknown".
         Without that offset there is nowhere to cut the plain tail, so the
         next update falls back to a full repaint.
         """
-        length = get_control_text_length(self.control) if items is not None else None
-        if items is None or length is None:
+        length = get_control_text_length(self.control)
+        if length is None:
             self._shown, self._formatted_rows, self._formatted_len = None, 0, None
             return
         self._shown = list(items)
         self._formatted_rows = len(items)
         self._formatted_len = length
+
+    def _append_plain(self, rows: list[tuple[str, str]]) -> None:
+        from plugin.chatbot.rich_text_paste import _plain_append_messages
+
+        _plain_append_messages(
+            self.control, rows, self.ctx, self.style_window,
+            auto_scroll=True, restore_focus=self.restore_focus,
+        )
 
     def reveal_caret(self, reason: str = "widget") -> None:
         """Ask EditView to show its caret (AUTOSCROLL); does not move the caret."""
@@ -253,8 +256,7 @@ class RichTextChatWidget:
         Full repaint: load/switch, Stop, Clear, and an unknown control state.
         Streaming goes through ``stream_session`` instead.
         """
-        if self._debug_counts:
-            self._debug_paint_session_count += 1
+        self._debug_paint_session_count += 1
         from plugin.chatbot.rich_text_paste import session_history_items
 
         if greeting is not None:
@@ -293,8 +295,6 @@ class RichTextChatWidget:
         The open assistant row lands in the plain tail, so the next chunks
         take the append path again.
         """
-        from plugin.chatbot.rich_text_paste import _plain_append_messages
-
         k = 0
         for idx, (role, _content) in enumerate(items):
             if role == "user":
@@ -311,10 +311,7 @@ class RichTextChatWidget:
                 self._paint_items(items)
             return
         if tail:
-            _plain_append_messages(
-                self.control, tail, self.ctx, self.style_window,
-                auto_scroll=True, restore_focus=self.restore_focus,
-            )
+            self._append_plain(tail)
         self._shown = list(items)
 
     def stream_session(self, session: Any) -> None:
@@ -333,11 +330,9 @@ class RichTextChatWidget:
         text. Only a change inside the prefix, or an unknown control, repaints
         everything. ``rerender_last_assistant_if_html`` formats the tail at Ready.
         """
-        if self._debug_counts:
-            self._debug_stream_session_count += 1
+        self._debug_stream_session_count += 1
         from plugin.chatbot.rich_text_paste import (
             OPEN_TRANSCRIPT,
-            _plain_append_messages,
             append_formatted_row,
             session_history_items,
         )
@@ -379,10 +374,7 @@ class RichTextChatWidget:
             # Not an append: cut the plain tail at the end of the prefix and
             # write it again. The prefix is not cleared.
             rollback_rich_insert(self.control, self._formatted_len)
-            _plain_append_messages(
-                self.control, new_tail, self.ctx, self.style_window,
-                auto_scroll=True, restore_focus=self.restore_focus,
-            )
+            self._append_plain(new_tail)
         self._shown = list(items)
 
     def _append_to_plain_tail(
@@ -396,7 +388,7 @@ class RichTextChatWidget:
         False, with nothing written, when *new_tail* is not *old_tail* plus
         appended text and rows.
         """
-        from plugin.chatbot.rich_text_paste import _plain_append_messages, _plain_fallback_text
+        from plugin.chatbot.rich_text_paste import _plain_fallback_text
 
         m = len(old_tail)
         if m:
@@ -417,10 +409,7 @@ class RichTextChatWidget:
             if not old_s.strip():
                 # _plain_append_messages skips an empty row, so this one was
                 # never written. Write it whole now.
-                _plain_append_messages(
-                    self.control, [(new_role, new_content)], self.ctx, self.style_window,
-                    auto_scroll=True, restore_focus=self.restore_focus,
-                )
+                self._append_plain([(new_role, new_content)])
             elif len(new_s) > len(old_s):
                 theme = ChatTheme.resolve(style_window=self.style_window)
                 append_text_chunk(
@@ -430,10 +419,7 @@ class RichTextChatWidget:
                     restore_focus=self.restore_focus,
                 )
         if len(new_tail) > m:
-            _plain_append_messages(
-                self.control, new_tail[m:], self.ctx, self.style_window,
-                auto_scroll=True, restore_focus=self.restore_focus,
-            )
+            self._append_plain(new_tail[m:])
         return True
 
     def rerender_last_assistant_if_html(self, session: Any) -> bool:
@@ -454,20 +440,14 @@ class RichTextChatWidget:
             session_history_items,
         )
 
-        final_msg = None
-        for msg in reversed(session.messages):
-            if msg.get("role") == "assistant" and msg.get("content"):
-                final_msg = msg
-                break
-        log.debug(
-            "rerender_last_assistant_if_html: final_msg=%s",
-            bool(final_msg),
+        final_msg = next(
+            (msg for msg in reversed(session.messages) if msg.get("role") == "assistant" and msg.get("content")),
+            None,
         )
         if not final_msg:
             log.debug("rerender_last_assistant_if_html: no final assistant message — skip")
             return False
-        content = final_msg.get("content", "")
-        if not content or not str(content).strip():
+        if not str(final_msg.get("content")).strip():
             return False
         items = session_history_items(session, self._greeting)
         if not self._formatted_prefix_ok(items):
@@ -514,11 +494,6 @@ def _is_automatic_char_color(color: Any) -> bool:
     return color < 0 or color == 0xFFFFFFFF
 
 
-def _rich_inner_width(pw: int, inset: int) -> int:
-    """Inner width of the visible RichTextControl: fill the placeholder."""
-    return max(20, pw - 2 * inset)
-
-
 def _content_bounds_for_rich_control(placeholder_ctrl: Any, placeholder_rect: Any = None) -> tuple[int, int, int, int]:
     """Return (x, y, width, height) for the rich control inside the response area."""
     inset = RICH_CONTROL_EDGE_INSET
@@ -532,7 +507,7 @@ def _content_bounds_for_rich_control(placeholder_ctrl: Any, placeholder_rect: An
     return (
         px + inset,
         py + inset,
-        _rich_inner_width(pw, inset),
+        max(20, pw - 2 * inset),
         max(20, ph - 2 * inset),
     )
 
@@ -580,6 +555,12 @@ def _reinsert_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: A
     return _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
 
 
+def _invalidate_peer(control: Any) -> None:
+    peer = control.getPeer() if hasattr(control, "getPeer") else None
+    if peer is not None and hasattr(peer, "invalidate"):
+        peer.invalidate(0)
+
+
 def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None, control_out: Any = None, restore_focus: Any = None) -> bool:
     """Position the rich control over the response area without exceeding the button row width.
 
@@ -599,9 +580,7 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
             model = rich_control.getModel()
             text = getattr(model, "Text", "") or "" if model is not None else ""
             if text:
-                peer = rich_control.getPeer() if hasattr(rich_control, "getPeer") else None
-                if peer is not None and hasattr(peer, "invalidate"):
-                    peer.invalidate(0)
+                _invalidate_peer(rich_control)
                 _scroll_rich_to_tail(rich_control, restore_focus=restore_focus)
         if _rich_control_needs_bounds(rich_control, bx, by, bw, bh):
             # Dialog-embedded: model resize after insert fails (-1); reinsert when transcript empty.
@@ -651,9 +630,7 @@ def refresh_rich_control_peer_layout(ctx: Any, rich_control: Any) -> None:
     process_events_to_idle(ctx, rounds=2, force=True)
     cur = rich_control.getPosSize()
     rich_control.setPosSize(int(cur.X), int(cur.Y), int(cur.Width), int(cur.Height), 15)
-    peer = rich_control.getPeer() if hasattr(rich_control, "getPeer") else None
-    if peer is not None and hasattr(peer, "invalidate"):
-        peer.invalidate(0)
+    _invalidate_peer(rich_control)
 
 
 def force_rich_full_reformat(control: Any) -> None:
@@ -683,9 +660,6 @@ def _apply_rich_control_style_defaults_on_model(model: Any, style_window: Any = 
     Do not set model TextColor/CharColor here — control-level text color homogenizes every
     run and hides per-message user/assistant CharColor applied at insert time.
     """
-    if model is None:
-        return
-
     theme = ChatTheme.resolve(style_window=style_window)
     for name, val in (
         ("CharFontName", CHAT_FONT_NAME),
@@ -694,15 +668,11 @@ def _apply_rich_control_style_defaults_on_model(model: Any, style_window: Any = 
         ("CharHeight", CHAT_FONT_HEIGHT),
         ("CharWeight", CHAT_FONT_WEIGHT),
         ("CharPosture", 0),
-    ):
-        _set_model_property(model, name, val)
-    for name, val in (
         ("BackgroundColor", theme.bg_color),
         ("CharBackColor", theme.bg_color),
         ("PaintTransparent", False),
+        *_RICH_CONTROL_FIELD_FLAGS,
     ):
-        _set_model_property(model, name, val)
-    for name, val in _RICH_CONTROL_FIELD_FLAGS:
         _set_model_property(model, name, val)
     import uno
 
@@ -715,7 +685,7 @@ def _apply_rich_control_style_defaults_on_model(model: Any, style_window: Any = 
 
 def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -> None:
     """Set sidebar chat typography on the RichText control at creation (before any content)."""
-    model = control.getModel() if control is not None else None
+    model = control.getModel()
     if model is None:
         return
     _apply_rich_control_style_defaults_on_model(model, style_window=style_window)
@@ -726,7 +696,6 @@ def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -
         def _apply_cursor() -> None:
             import uno
 
-            assert control is not None
             cursor = model.createTextCursor()
             cursor.gotoStart(False)
             text_len = len(model.Text or "")
@@ -813,9 +782,9 @@ def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: An
         parent_peer = parent_window.getPeer()
 
     peer_attempts: list[tuple[str, tuple[Any, Any]]] = []
-    if toolkit is not None and parent_peer is not None:
+    if parent_peer is not None:
         peer_attempts.append(("toolkit+peer", (toolkit, parent_peer)))
-    if toolkit is not None and parent_window is not None:
+    if parent_window is not None:
         peer_attempts.append(("toolkit+window", (toolkit, parent_window)))
 
     for service in (
@@ -828,11 +797,10 @@ def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: An
             if control is None:
                 continue
             control.setModel(field_model)
-            last_err = None
             for label, args in peer_attempts:
                 try:
                     control.createPeer(args[0], args[1])
-                    if parent_window is not None and hasattr(parent_window, "addControl"):
+                    if parent_window is not None:
                         try:
                             parent_window.addControl(RICH_CONTROL_NAME, control)
                         except Exception as add_err:
@@ -841,9 +809,8 @@ def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: An
                     _disable_rich_hscroll(control)
                     return control
                 except Exception as e:
-                    last_err = e
                     log.debug("create_sidebar_rich_text_control: %s %s failed: %s", service, label, e)
-            if last_err is not None:
+            if peer_attempts:
                 log.debug("create_sidebar_rich_text_control: %s all peer attempts failed", service)
         except Exception as e:
             log.debug("create_sidebar_rich_text_control: %s setup failed: %s", service, e)
@@ -1148,7 +1115,7 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
 
 
 def _apply_char_color_to_cursor_range(model: Any, start: Any, end: Any, char_color: Any) -> None:
-    if char_color is None or _is_automatic_char_color(char_color):
+    if _is_automatic_char_color(char_color):
         return
 
     def _apply() -> None:
@@ -1161,7 +1128,7 @@ def _apply_char_color_to_cursor_range(model: Any, start: Any, end: Any, char_col
 
 
 def _apply_char_emphasis_to_cursor_range(model: Any, start: Any, end: Any, *, bold: bool | None = None, underline: bool | None = None) -> None:
-    if start is None or end is None or (bold is None and underline is None):
+    if end is None:
         return
 
     def _apply() -> None:
@@ -1294,7 +1261,7 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
         return
     log_rich_scroll("append_chunk", control=control, chunk_len=len(text), auto_scroll=int(auto_scroll))
 
-    def _do_append() -> None:
+    try:
         theme = ChatTheme.resolve(style_window=style_window)
         model = control.getModel()
         if model is None or not hasattr(model, "createTextCursor"):
@@ -1315,9 +1282,6 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
             # Restore goes through *restore_focus*, which closes over the frame session.
             _scroll_rich_to_tail(control, restore_focus=restore_focus)
             process_events_to_idle(ctx, force=True)
-
-    try:
-        _do_append()
     except Exception:
         log.exception("append_text_chunk (rich control) failed")
 
