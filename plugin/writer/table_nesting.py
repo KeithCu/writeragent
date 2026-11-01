@@ -119,13 +119,8 @@ def _cell_hosted_table_names(cell: Any) -> list[str]:
     return names
 
 
-def range_hosted_nested_tables(text_range: Any) -> list[str]:
-    """Nested table names that setString on *text_range* would destroy.
-
-    Only when the range lives inside a table cell (cursor ``TextTable`` is
-    set). Body XText tables are top-level — a body search-replace must not
-    be treated as a host-cell wipe.
-    """
+def raise_if_range_hosts_nested_table(text_range: Any) -> None:
+    """Refuse a rewrite that would setString a host cell (wipes nested tables)."""
 
     def host_text() -> Any:
         text_obj = text_range.getText()
@@ -133,12 +128,7 @@ def range_hosted_nested_tables(text_range: Any) -> list[str]:
         return _FAILED if cur.getPropertyValue("TextTable") is None else text_obj
 
     text_obj = uno_probe(host_text, _FAILED)
-    return [] if text_obj is _FAILED else _cell_hosted_table_names(text_obj)
-
-
-def raise_if_range_hosts_nested_table(text_range: Any) -> None:
-    """Refuse a rewrite that would setString a host cell (wipes nested tables)."""
-    hosted = range_hosted_nested_tables(text_range)
+    hosted = [] if text_obj is _FAILED else _cell_hosted_table_names(text_obj)
     if not hosted:
         return
 

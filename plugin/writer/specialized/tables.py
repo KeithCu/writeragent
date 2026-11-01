@@ -17,6 +17,7 @@ from ..range_copy import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
 from ..table_helpers import edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
+    _FAILED,
     _cell_hosted_table_names,
     cell_plain_siblings,
     set_host_paragraphs,
@@ -27,9 +28,6 @@ log = logging.getLogger("writeragent.writer.specialized.tables")
 
 # The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
 _EMPTY_ROW_ANCHOR = "\u200d"
-
-# uno_probe default for sites where None is a real UNO result.
-_FAILED: Any = object()
 
 
 def _is_draw_doc(doc: Any) -> bool:
@@ -59,19 +57,32 @@ def _get_table(doc: Any, name: str) -> Any:
     return tables.getByName(name)
 
 
+def _writer_table_or_error(tool: Any, doc: Any, name: str) -> Any:
+    if not name:
+        return tool._tool_error("name is required.")
+    return _get_table(doc, name)
+
+
+def _draw_ok(entry: dict[str, Any], name: str, **extra: Any) -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "table_name": entry.get("name") or name,
+        "page": entry.get("page"),
+        "index": entry.get("index"),
+        **extra,
+    }
+
+
 def _resolve_cell_name(raw: str, names: list[str]) -> str | None:
     """Match a user-supplied cell address against the table's REAL cell names.
 
     Exact match first, then the uppercased form — NEVER a blind upper rewrite: on a >26-column
     table 'a1' (Writer's real name for column 27) and 'A1' are DIFFERENT cells, and upping the
     input would silently write the wrong one."""
-    name_set = set(names)
-    if raw in name_set:
+    if raw in names:
         return raw
     up = raw.upper()
-    if up in name_set:
-        return up
-    return None
+    return up if up in names else None
 
 
 def _writer_named_cells(table: Any) -> list[str]:
@@ -84,20 +95,17 @@ def _writer_named_cells(table: Any) -> list[str]:
     return list(uno_probe(lambda: table.getCellNames(), []) or ())
 
 
-def _cells_sample(names: list[str]) -> str:
-    """Short listing for the shared 'Its cells are: …' error (set/insert/get)."""
-    if not names:
-        return "none"
-    if len(names) <= 8:
-        return ", ".join(names)
-    return "%s, …, %s" % (", ".join(names[:8]), names[-1])
-
-
 def _unknown_cell_message(cell_raw: str, table_name: str, names: list[str]) -> str:
+    if not names:
+        sample = "none"
+    elif len(names) <= 8:
+        sample = ", ".join(names)
+    else:
+        sample = "%s, …, %s" % (", ".join(names[:8]), names[-1])
     return "Cell '%s' not in table '%s'. Its cells are: %s." % (
         cell_raw,
         table_name,
-        _cells_sample(names),
+        sample,
     )
 
 
@@ -331,20 +339,12 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
         if pos is None:
             continue
         col_idx, row_idx = pos
-        if axis_arg == "row":
-            if row_idx != idx:
-                continue
-        elif col_idx != idx:
+        if (row_idx if axis_arg == "row" else col_idx) != idx:
             continue
         cell = uno_probe(lambda: table.getCellByName(cell_name), _FAILED)
         if cell is not _FAILED:
             hosted.extend(_cell_hosted_table_names(cell))
-    # Preserve first-seen order (a band can host more than one nested table).
-    seen: list[str] = []
-    for name in hosted:
-        if name not in seen:
-            seen.append(name)
-    return seen
+    return list(dict.fromkeys(hosted))
 
 
 class TableList(ToolWriterTableBase):
@@ -433,14 +433,7 @@ class TableGetCells(ToolWriterTableBase):
                 from plugin.draw.tables import get_draw_cell, get_draw_cells, resolve_draw_table
 
                 entry = resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
-                payload = {
-                    "status": "ok",
-                    "table_name": entry.get("name") or name,
-                    "page": entry.get("page"),
-                    "index": entry.get("index"),
-                    "rows": entry.get("rows"),
-                    "cols": entry.get("cols"),
-                }
+                payload = _draw_ok(entry, name, rows=entry.get("rows"), cols=entry.get("cols"))
                 if cell_raw:
                     text = get_draw_cell(entry, cell_raw)
                     payload["cell"] = cell_raw
@@ -448,9 +441,9 @@ class TableGetCells(ToolWriterTableBase):
                 else:
                     payload["matrix"] = get_draw_cells(entry)
                 return payload
-            if not name:
-                return self._tool_error("name is required.")
-            table = _get_table(ctx.doc, name)
+            table = _writer_table_or_error(self, ctx.doc, name)
+            if isinstance(table, dict):
+                return table
             rows, cols = table_dims(table)
             # getColumns() is the first row's box count (SwXTableColumns::getCount),
             # so range(cols) skipped D2 after A1:D1 merge. getCellNames() is the list.
@@ -482,7 +475,7 @@ class TableGetCells(ToolWriterTableBase):
                         raise
                     log.warning("table_get_cells: could not read cell '%s' in table '%s': %s", cell_name, name, exc)
                     continue
-            if cell_raw and (not cell_names or cell_names[0] not in cells):
+            if resolved and resolved not in cells:
                 return self._tool_error(
                     "Could not read cell '%s' in table '%s'." % (cell_raw, name)
                 )
@@ -496,7 +489,7 @@ class TableGetCells(ToolWriterTableBase):
                 "nesting": _nesting_for(ctx.doc, table, name),
                 "nested_in_cells": nested_in_cells,
             }
-            if cell_raw:
+            if resolved:
                 payload["cell"] = resolved
             return payload
         except ValueError as ve:
@@ -536,18 +529,16 @@ class TableSetCell(ToolWriterTableBase):
 
                 entry = resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
                 old, new = set_draw_cell(entry, cell_raw, str(text))
-                return {
-                    "status": "ok",
-                    "table_name": entry.get("name") or name,
-                    "page": entry.get("page"),
-                    "index": entry.get("index"),
-                    "cell": cell_raw,
-                    "old_text": old,
-                    "new_text": new,
-                }
-            if not name:
-                return self._tool_error("name is required.")
-            table = _get_table(ctx.doc, name)
+                return _draw_ok(
+                    entry,
+                    name,
+                    cell=cell_raw,
+                    old_text=old,
+                    new_text=new,
+                )
+            table = _writer_table_or_error(self, ctx.doc, name)
+            if isinstance(table, dict):
+                return table
             names = _writer_named_cells(table)
             cell_name = _resolve_cell_name(cell_raw, names)
             if cell_name is None:
@@ -616,7 +607,6 @@ class ManageTableStructure(ToolWriterTableBase):
         assert isinstance(idx, int) and not isinstance(idx, bool)
         if idx < 0:
             return self._tool_error("index must be non-negative.")
-        axis = "rows" if axis_arg == "row" else "columns"
         insert = action == "insert"
         try:
             if _is_draw_doc(ctx.doc):
@@ -629,18 +619,11 @@ class ManageTableStructure(ToolWriterTableBase):
                     index=kwargs.get("shape_index"),
                 )
                 rows, cols = manage_draw_structure(entry, action, axis_arg, idx)
-                return {
-                    "status": "ok",
-                    "table_name": entry.get("name") or name,
-                    "page": entry.get("page"),
-                    "index": entry.get("index"),
-                    "rows": rows,
-                    "cols": cols,
-                }
-            if not name:
-                return self._tool_error("name is required.")
-            table = _get_table(ctx.doc, name)
-            band = table.getRows() if axis == "rows" else table.getColumns()
+                return _draw_ok(entry, name, rows=rows, cols=cols)
+            table = _writer_table_or_error(self, ctx.doc, name)
+            if isinstance(table, dict):
+                return table
+            band = table.getRows() if axis_arg == "row" else table.getColumns()
             count = band.getCount()
             if not insert and idx < count and count > 1:
                 nested = _hosted_in_band(table, axis_arg, idx)
@@ -650,7 +633,7 @@ class ManageTableStructure(ToolWriterTableBase):
                         "Edit those tables by name first."
                         % (axis_arg, ", ".join(nested))
                     )
-            edit_table_band(band, str(action), idx, axis)
+            edit_table_band(band, action, idx, axis_arg)
             rows, cols = table_dims(table)
             return {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
         except ValueError as ve:
@@ -829,9 +812,9 @@ class TableDelete(ToolWriterTableBase):
                         code=str(result.get("code") or "TOOL_EXECUTION_ERROR"),
                     )
                 return result
-            if not name:
-                return self._tool_error("name is required.")
-            table = _get_table(ctx.doc, name)
+            table = _writer_table_or_error(self, ctx.doc, name)
+            if isinstance(table, dict):
+                return table
             nesting = _nesting_for(ctx.doc, table, name)
             tracked: list[bool] = []
             uno_ctx = resolve_uno_context(ctx)
