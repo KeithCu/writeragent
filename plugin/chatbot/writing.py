@@ -13,12 +13,11 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, TYPE_CHECKING
 
 from plugin.chatbot.sub_agent_tools import (
-    HTML_CONTENT_PARAMETERS,
+    HtmlContentToolBase,
+    SUB_AGENT_DOC_CORE_TOOLS,
     SubAgentResearchWebBase,
     SubAgentSessionToolBase,
-    apply_html_content,
-    collect_sub_agent_tools,
-    get_sub_agent_instructions,
+    run_domain_sub_agent,
 )
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
@@ -49,59 +48,41 @@ COMPLETION TOOLS:
 - write_document_section: write content for a section to the document.
 - writing_research_web: search the public web for context or information."""
 
-_WRITING_PLAN_CORE_TOOLS = frozenset(["get_document_content", "get_document_tree", "search_in_document"])
-
 
 class WritingResearchWeb(ToolWriterSpecialBase, SubAgentResearchWebBase):
     """Web research for writing plans (public topics); returns plain text for the sub-agent to format as HTML."""
 
     specialized_domain: ClassVar[str | None] = "writing_plan"
-    required_core_tools: ClassVar[frozenset[str] | None] = _WRITING_PLAN_CORE_TOOLS
+    required_core_tools: ClassVar[frozenset[str] | None] = SUB_AGENT_DOC_CORE_TOOLS
     name: str | None = "writing_research_web"
     description: str = "Search the public web for context during document writing. Reformats findings as HTML in reply_to_user."
 
 
-class WriteDocumentSection(ToolWriterSpecialBase):
+class WriteDocumentSection(HtmlContentToolBase):
     """Write a specific section of the document."""
 
     specialized_domain: ClassVar[str | None] = "writing_plan"
-    required_core_tools: ClassVar[frozenset[str] | None] = _WRITING_PLAN_CORE_TOOLS
+    required_core_tools: ClassVar[frozenset[str] | None] = SUB_AGENT_DOC_CORE_TOOLS
     name: str | None = "write_document_section"
     description: str = "Insert or replace a section of document content with formatted HTML."
-    is_mutation: bool | None = True
-    long_running: bool = True
-    timeout: float = 300.0
-    parameters: dict[str, Any] | None = HTML_CONTENT_PARAMETERS
-
-    def is_async(self) -> bool:
-        return True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return apply_html_content(self, ctx, **kwargs)
 
 
 def _run_writing_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, topic: str | None = None, **kwargs: Any) -> dict[str, Any]:
     """Run one turn of the writing plan smol sub-agent."""
-    from plugin.chatbot.smol_agent import run_smol_side_turn
     from plugin.chatbot.sticky_reply import WRITING_PLAN_REPLY_SPEC
 
-    tools = collect_sub_agent_tools(ctx, "writing_plan")
-    tool_names = [t.name for t in tools if t.name]
-    instructions = get_sub_agent_instructions(WRITING_SUB_AGENT_INSTRUCTIONS, tool_names=tool_names)
-    if topic and topic.strip():
-        instructions += f"\n\n[WRITING TASK / CONTEXT]\n{topic.strip()}\n"
-    return run_smol_side_turn(
+    return run_domain_sub_agent(
         ctx,
-        query=query,
-        history_text=history_text,
-        collector=lambda c: tools,
-        instructions=instructions,
-        examples_key="writing_plan",
+        domain="writing_plan",
+        base_instructions=WRITING_SUB_AGENT_INSTRUCTIONS,
         reply_spec=WRITING_PLAN_REPLY_SPEC,
-        report_document_opens=True,
+        topic_header="WRITING TASK / CONTEXT",
         status_message="Writing...",
         stop_message="Writing stopped by user.",
         error_prefix="Writing failed",
+        query=query,
+        history_text=history_text,
+        topic=topic,
     )
 
 

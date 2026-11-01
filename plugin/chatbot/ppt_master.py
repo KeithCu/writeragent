@@ -17,26 +17,12 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def _selected_chat_model(ctx: ToolContext) -> str | None:
-    """Return a model id only when ctx.doc is not a UNO document.
-
-    On the live path ctx.doc is the document model (it has getURL). A leftover
-    string id is the only case that is not a document.
-    """
-    doc = ctx.doc
-    if doc is None or hasattr(doc, "getURL"):
-        return None
-    text = str(doc).strip()
-    return text or None
-
-
 def _run_ppt_master_venv_agent(
     ctx: ToolContext,
     *,
     query: str = "",
     history_text: str | None = None,
     topic: str | None = None,
-    model: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     from plugin.framework.errors import ToolExecutionError, format_error_payload
@@ -54,19 +40,17 @@ def _run_ppt_master_venv_agent(
     from plugin.framework.thread_guard import on_main_thread
     from plugin.framework.queue_executor import execute_on_main_thread
 
-    # The tool runs on a background thread (is_async=True). ctx.doc,
-    # get_active_document(), and getURL() (including via _selected_chat_model)
-    # are main-thread-only; execute_on_main_thread keeps that access on VCL.
-    def _resolve_session_and_model() -> tuple[str, str | None]:
+    # The tool runs on a background thread (is_async=True). ctx.doc and
+    # get_active_document() are main-thread-only; execute_on_main_thread keeps
+    # that access on VCL.
+    def _resolve_session() -> str:
         uno_doc = ctx.doc if hasattr(ctx.doc, "getURL") else get_active_document(get_ctx())
-        sess_id = ppt_master_session_id(uno_doc)
-        selected_model = _selected_chat_model(ctx)
-        return sess_id, selected_model
+        return ppt_master_session_id(uno_doc)
 
     if on_main_thread():
-        session_id, resolved_model = _resolve_session_and_model()
+        session_id = _resolve_session()
     else:
-        session_id, resolved_model = execute_on_main_thread(_resolve_session_and_model)
+        session_id = execute_on_main_thread(_resolve_session)
 
     def on_worker_event(event: dict[str, Any]) -> None:
         kind = event.get("kind")
@@ -89,7 +73,7 @@ def _run_ppt_master_venv_agent(
         query=query,
         history_text=history_text,
         topic=topic,
-        model=model or resolved_model,
+        model=None,
         session_id=session_id,
         on_worker_event=on_worker_event,
         stop_checker=stop_checker,
@@ -108,7 +92,6 @@ class PptMasterSessionTool(SubAgentSessionToolBase):
             "query": {"type": "string", "description": "User message."},
             "history_text": {"type": "string", "description": "Prior conversation."},
             "topic": {"type": "string", "description": "Original deck topic."},
-            "model": {"type": "string", "description": "Sidebar model id (optional)."},
         },
         "required": ["query"],
     }

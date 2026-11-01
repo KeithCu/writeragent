@@ -13,12 +13,11 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, TYPE_CHECKING
 
 from plugin.chatbot.sub_agent_tools import (
-    HTML_CONTENT_PARAMETERS,
+    HtmlContentToolBase,
+    SUB_AGENT_DOC_CORE_TOOLS,
     SubAgentResearchWebBase,
     SubAgentSessionToolBase,
-    apply_html_content,
-    collect_sub_agent_tools,
-    get_sub_agent_instructions,
+    run_domain_sub_agent,
 )
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
@@ -72,62 +71,44 @@ COMPLETION TOOLS:
 - reply_to_user with brainstorming_finished=true: END the session after the spec is saved and the user has reviewed it in the document.
 - save_design_spec: the ONLY way to write to the document (never call apply_document_content)."""
 
-_BRAINSTORMING_CORE_TOOLS = frozenset(["get_document_content", "get_document_tree", "search_in_document"])
-
 
 class BrainstormResearchWeb(ToolWriterSpecialBase, SubAgentResearchWebBase):
     """Web research for brainstorming (public topics); returns plain text for the sub-agent to format as HTML."""
 
     specialized_domain: ClassVar[str | None] = "brainstorming"
-    required_core_tools: ClassVar[frozenset[str] | None] = _BRAINSTORMING_CORE_TOOLS
+    required_core_tools: ClassVar[frozenset[str] | None] = SUB_AGENT_DOC_CORE_TOOLS
     name: str | None = "brainstorm_research_web"
     description: str = "Search the public web for context during brainstorming. Reformats findings as HTML in reply_to_user."
 
 
-class SaveDesignSpec(ToolWriterSpecialBase):
+class SaveDesignSpec(HtmlContentToolBase):
     """Write the approved design spec into the active Writer document (HTML array only)."""
 
     specialized_domain: ClassVar[str | None] = "brainstorming"
-    required_core_tools: ClassVar[frozenset[str] | None] = _BRAINSTORMING_CORE_TOOLS
+    required_core_tools: ClassVar[frozenset[str] | None] = SUB_AGENT_DOC_CORE_TOOLS
     name: str | None = "save_design_spec"
     description: str = (
         "Save the approved design spec to the active Writer document. "
         "content must be a JSON array of HTML strings (one fragment per block). No Markdown."
     )
-    is_mutation: bool | None = True
-    long_running: bool = True
-    timeout: float = 300.0
-    parameters: dict[str, Any] | None = HTML_CONTENT_PARAMETERS
-
-    def is_async(self) -> bool:
-        return True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return apply_html_content(self, ctx, **kwargs)
 
 
 def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, topic: str | None = None, **kwargs: Any) -> dict[str, Any]:
     """Run one turn of the brainstorming smol sub-agent."""
-    from plugin.chatbot.smol_agent import run_smol_side_turn
     from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
 
-    tools = collect_sub_agent_tools(ctx, "brainstorming")
-    tool_names = [t.name for t in tools if t.name]
-    instructions = get_sub_agent_instructions(BRAINSTORMING_SUB_AGENT_INSTRUCTIONS, tool_names=tool_names)
-    if topic and topic.strip():
-        instructions += f"\n\n[BRAINSTORMING TOPIC]\n{topic.strip()}\n"
-    return run_smol_side_turn(
+    return run_domain_sub_agent(
         ctx,
-        query=query,
-        history_text=history_text,
-        collector=lambda c: tools,
-        instructions=instructions,
-        examples_key="brainstorming",
+        domain="brainstorming",
+        base_instructions=BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
         reply_spec=BRAINSTORMING_REPLY_SPEC,
-        report_document_opens=True,
+        topic_header="BRAINSTORMING TOPIC",
         status_message="Brainstorming...",
         stop_message="Brainstorming stopped by user.",
         error_prefix="Brainstorming failed",
+        query=query,
+        history_text=history_text,
+        topic=topic,
     )
 
 

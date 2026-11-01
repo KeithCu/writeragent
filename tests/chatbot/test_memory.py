@@ -41,29 +41,29 @@ class TestMemory:
 
     def test_user_profile_exists_false_when_empty(self):
         with patch("plugin.chatbot.memory.user_config_dir", return_value=self.tmp_dir):
-            assert user_profile_exists(self.ctx) is False
+            assert user_profile_exists() is False
             MemoryStore().write("   ")
-            assert user_profile_exists(self.ctx) is False
+            assert user_profile_exists() is False
             MemoryStore().write("{}")
-            assert user_profile_exists(self.ctx) is False
+            assert user_profile_exists() is False
             MemoryStore().write("  {}\n")
-            assert user_profile_exists(self.ctx) is False
+            assert user_profile_exists() is False
             MemoryStore().write('{"name": "Keith"}')
-            assert user_profile_exists(self.ctx) is True
+            assert user_profile_exists() is True
 
     def test_delete_last_key_clears_file_and_profile_not_exists(self):
         with patch("plugin.chatbot.memory.user_config_dir", return_value=self.tmp_dir):
             store = MemoryStore()
             store.write('{"name": "A"}')
-            assert user_profile_exists(self.ctx) is True
+            assert user_profile_exists() is True
             res = MemoryTool().execute(self.ctx, key="name", content="")
             assert res["status"] == "ok"
             assert store.read() == ""
-            assert user_profile_exists(self.ctx) is False
+            assert user_profile_exists() is False
 
     def test_user_profile_exists_false_on_store_error(self):
         with patch("plugin.chatbot.memory.MemoryStore", side_effect=RuntimeError("no config")):
-            assert user_profile_exists(object()) is False
+            assert user_profile_exists() is False
 
     def test_memory_tool_execute_with_tool_context_like(self):
         inner_ctx = object()
@@ -247,7 +247,7 @@ def test_upsert_invalid_utf8_returns_tool_error(tmp_path):
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
         store = MemoryStore()
-        path = store._get_path()
+        path = store.path
         payload = b"\xff\xfe not utf-8"
         with open(path, "wb") as handle:
             handle.write(payload)
