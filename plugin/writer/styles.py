@@ -82,12 +82,9 @@ _STYLE_FAMILIES = ["ParagraphStyles", "CharacterStyles", "PageStyles"]
 
 _CONDITIONAL_CONTEXTS = [
     "TableHeader", "Table", "Frame", "Section", "Footnote", "Endnote",
-    "Header", "Footer", "OutlineLevel1", "OutlineLevel2", "OutlineLevel3",
-    "OutlineLevel4", "OutlineLevel5", "OutlineLevel6", "OutlineLevel7",
-    "OutlineLevel8", "OutlineLevel9", "OutlineLevel10",
-    "NumberingLevel1", "NumberingLevel2", "NumberingLevel3", "NumberingLevel4",
-    "NumberingLevel5", "NumberingLevel6", "NumberingLevel7", "NumberingLevel8",
-    "NumberingLevel9", "NumberingLevel10"
+    "Header", "Footer",
+    *[f"OutlineLevel{i}" for i in range(1, 11)],
+    *[f"NumberingLevel{i}" for i in range(1, 11)],
 ]
 
 _KNOWN_CHARACTER_PROPERTIES = {
@@ -152,15 +149,6 @@ _PARA_ADJUST_FROM_ENUM = {
     "LEFT": "left", "RIGHT": "right", "BLOCK": "justify",
     "CENTER": "center", "STRETCH": "justify",
 }
-
-
-def _get_bool_prop(obj: Any, prop_name: str, default: bool = False) -> bool:
-    """Safely get a boolean property from a UNO object."""
-    try:
-        return bool(obj.getPropertyValue(prop_name))
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return default
 
 
 def _close_style_names(wanted: str, names: list[str]) -> list[str]:
@@ -257,13 +245,13 @@ def _font_slant_to_int(raw: Any) -> Any:
     return raw
 
 
-def _get_style_prop(style: Any, prop_name: str) -> Any:
+def _get_style_prop(style: Any, prop_name: str, default: Any = None) -> Any:
     try:
         return style.getPropertyValue(prop_name)
     except Exception as exc:
         # A property this style does not have is None. A closed document is not.
         reraise_if_disposed(exc)
-        return None
+        return default
 
 
 def _schema_prop_value(prop_name: str, raw: Any) -> Any:
@@ -330,12 +318,6 @@ _STRUCT_FIELDS = {
     "com.sun.star.style.TabStop": ("Position", "Alignment", "DecimalChar", "FillChar"),
 }
 _LINE_SPACING_MODE_WORDS = {0: "prop", 1: "minimum", 2: "leading", 3: "fix"}
-
-# Fields a fresh createUnoStruct leaves unusable. A TabStop's FillChar starts as NUL;
-# Writer's own tab stops use a space.
-_STRUCT_DEFAULTS = {
-    "com.sun.star.style.TabStop": {"FillChar": " "},
-}
 
 
 def _uno_scalar_to_json(value: Any) -> Any:
@@ -420,7 +402,8 @@ def _dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> tuple[A
         struct = cast("Any", uno.createUnoStruct(struct_name))
     except Exception as e:
         return None, "Could not build %s for %s: %s" % (struct_name, prop_name, e)
-    fields = dict(_STRUCT_DEFAULTS.get(struct_name, {}))
+    # A TabStop's FillChar starts as NUL; Writer's own tab stops use a space.
+    fields = {"FillChar": " "} if struct_name == "com.sun.star.style.TabStop" else {}
     fields.update(value)
     for field, raw in fields.items():
         if not hasattr(struct, str(field)):
@@ -503,9 +486,9 @@ def _validate_conditional_rules(rules: Any, style_family: Any) -> str | None:
             return f"conditional_rule {idx} must be an object."
         context = rule.get("context")
         target_style = rule.get("target_style")
-        if not context or not isinstance(context, str) or not context.strip():
+        if not isinstance(context, str) or not context.strip():
             return f"conditional_rule {idx} missing context."
-        if not target_style or not isinstance(target_style, str) or not target_style.strip():
+        if not isinstance(target_style, str) or not target_style.strip():
             return f"conditional_rule {idx} missing target_style."
         if context not in _CONDITIONAL_CONTEXTS:
             return f"conditional_rule {idx}: unknown context '{context}'."
@@ -757,9 +740,6 @@ class StyleList(ToolWriterStyleBase):
         family = str(family).strip()
         style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):
-            # To match old behavior returning available_families instead of available
-            if "available" in style_family:
-                style_family["available_families"] = style_family.pop("available")
             return style_family
 
         # Always use "auto" filter logic to show used, custom, and common built-in styles.
@@ -773,8 +753,8 @@ class StyleList(ToolWriterStyleBase):
             in_use = style.isInUse()
             user_defined = style.isUserDefined()
             custom = in_use or user_defined
-            is_physical = _get_bool_prop(style, "IsPhysical", True)
-            is_hidden = _get_bool_prop(style, "Hidden", False)
+            is_physical = bool(_get_style_prop(style, "IsPhysical", True))
+            is_hidden = bool(_get_style_prop(style, "Hidden", False))
 
             # Filter logic (auto)
             if is_hidden:
@@ -783,54 +763,35 @@ class StyleList(ToolWriterStyleBase):
             # Core visibility logic:
             show = custom or is_physical
 
-            # 1. Core structural fallback:
-            if not show:
-                if family == "ParagraphStyles":
-                    # Always show Heading 1-5 (CHAPTER category).
-                    try:
-                        cat = style.getPropertyValue("Category")
-                        if cat == 1:  # CHAPTER
-                            show = True
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        log.debug("style list: Category unreadable for %r", name, exc_info=True)
-                elif family == "CharacterStyles":
-                    # Always show core character styles.
-                    core_char_styles = ("Default Style", "Source Text")
-                    if name in core_char_styles:
-                        show = True
-
-            # 2. Strict "Essential" pruning for the 'auto' list:
-            if show and family == "ParagraphStyles":
+            if family == "ParagraphStyles":
                 try:
                     cat = style.getPropertyValue("Category")
-
-                    # BLOCK List, Index, Extra, and HTML categories unless used/custom.
-                    if cat in (2, 3, 4, 5) and not custom:
-                        show = False
-
-                    # BLOCK abstract 'Heading' parent and the 'Standard' base style.
-                    elif name in ("Heading", "Standard", "Default Paragraph Style"):
-                        show = False
-
-                    # BLOCK deep headings (> 5) unless used/custom.
-                    elif cat == 1 and not custom:
-                        try:
-                            level = int(name[len("Heading ") :])
-                            if level > 5:
-                                show = False
-                        except (ValueError, TypeError):
-                            pass
-
-                    # For Category 0 (TEXT), only show "Core" styles if not used/custom.
-                    # This prunes Salutation, Appendix, Marginalia, etc.
-                    elif cat == 0 and not custom:
-                        core_text_styles = ("Text body", "Title", "Subtitle")
-                        if name not in core_text_styles:
-                            show = False
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    log.debug("style list: category filter failed for %r", name, exc_info=True)
+                    log.debug("style list: Category unreadable for %r", name, exc_info=True)
+                else:
+                    if not show and cat == 1:
+                        show = True
+                    if show:
+                        if cat in (2, 3, 4, 5) and not custom:
+                            show = False
+                        elif name in ("Heading", "Standard", "Default Paragraph Style"):
+                            show = False
+                        elif cat == 1 and not custom:
+                            try:
+                                level = int(name[len("Heading ") :])
+                                if level > 5:
+                                    show = False
+                            except (ValueError, TypeError):
+                                pass
+                        elif cat == 0 and not custom:
+                            core_text_styles = ("Text body", "Title", "Subtitle")
+                            if name not in core_text_styles:
+                                show = False
+            elif family == "CharacterStyles" and not show:
+                core_char_styles = ("Default Style", "Source Text")
+                if name in core_char_styles:
+                    show = True
 
             if not show:
                 continue
@@ -1036,6 +997,13 @@ class ApplyStyle(FrameworkToolBase):
                     "flatten emphasis across the whole document. Style each range separately "
                     "(target='search') instead, or omit clear_direct to use style_props.")
 
+        def _finish_success(res: dict[str, Any], rep_list: list[Any]) -> dict[str, Any]:
+            res.update(self._merge_reports(rep_list))
+            if target == "search" and "matched" not in res:
+                res["matched"] = True
+            flag_style_unreviewed(res)
+            return res
+
         # Multi-occurrence styling (target='search' only). resolve_target_cursor styles only the
         # first match; all_matches / occurrence let a defined term or repeated quote lead be
         # styled everywhere. Each match gets a cursor in its OWN text object (cell/frame safe).
@@ -1081,7 +1049,6 @@ class ApplyStyle(FrameworkToolBase):
                 mgr.enterUndoContext(title)
 
             error: Exception | None = None
-            exc_to_reraise: Exception | None = None
             for found in ranges:
                 try:
                     c = cursor_spanning_range(found)
@@ -1089,8 +1056,6 @@ class ApplyStyle(FrameworkToolBase):
                 except Exception as e:
                     if mgr is None:
                         raise
-                    if is_disposed_exception(e):
-                        exc_to_reraise = e
                     error = e
                     break
 
@@ -1114,8 +1079,8 @@ class ApplyStyle(FrameworkToolBase):
                 if error is not None:
                     if left:
                         undone = _rollback_undo_action(mgr, title, "apply_style rollback failed")
-                    if exc_to_reraise is not None:
-                        raise exc_to_reraise
+                    if error is not None and is_disposed_exception(error):
+                        raise error
                     if undone:
                         return self._tool_error("Nothing was changed: %s" % (error,))
                     return self._tool_error(
@@ -1129,11 +1094,16 @@ class ApplyStyle(FrameworkToolBase):
                         % (style_name, len(reports), leave_error)
                     )
 
-            result = {"status": "ok", "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, len(reports)),
-                      "style_name": style_name, "family": family, "target": "search", "applied": True, "matched": True, "applied_count": len(reports)}
-            result.update(self._merge_reports(reports))
-            flag_style_unreviewed(result)
-            return result
+            return _finish_success({
+                "status": "ok",
+                "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, len(reports)),
+                "style_name": style_name,
+                "family": family,
+                "target": "search",
+                "applied": True,
+                "matched": True,
+                "applied_count": len(reports),
+            }, reports)
 
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
@@ -1149,13 +1119,14 @@ class ApplyStyle(FrameworkToolBase):
         # execute_safe reports a failed apply. This catch hid a closed document
         # as "Could not apply style".
         report = self._apply_one(ctx, family, uno_value, cursor, clear_direct)
-        result = {"status": "ok", "message": "Applied style '%s' (%s) to %s." % (style_name, family, target),
-                  "style_name": style_name, "family": family, "target": target, "applied": True}
-        result.update(self._merge_reports([report]))
-        if target == "search":
-            result["matched"] = True  # a search miss would have errored earlier in resolve_target_cursor
-        flag_style_unreviewed(result)
-        return result
+        return _finish_success({
+            "status": "ok",
+            "message": "Applied style '%s' (%s) to %s." % (style_name, family, target),
+            "style_name": style_name,
+            "family": family,
+            "target": target,
+            "applied": True,
+        }, [report])
 
 
 class StyleUpdate(ToolWriterStyleBase):

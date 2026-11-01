@@ -1479,17 +1479,17 @@ def test_style_list_reraises_disposed_on_category_and_parent():
 
 def test_read_helpers_reraise_disposed():
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.styles import _get_bool_prop, _missing_style_error, _struct_to_json
+    from plugin.writer.styles import _get_style_prop, _missing_style_error, _struct_to_json
 
     DisposedEx = type("DisposedException", (Exception,), {})
 
     obj = MagicMock()
     obj.getPropertyValue.side_effect = DisposedEx("gone")
     with pytest.raises(DocumentDisposedError):
-        _get_bool_prop(obj, "Hidden")
+        _get_style_prop(obj, "Hidden")
 
     obj.getPropertyValue.side_effect = RuntimeError("no such property")
-    assert _get_bool_prop(obj, "Hidden", True) is True
+    assert _get_style_prop(obj, "Hidden", True) is True
 
     fam = MagicMock()
     fam.getElementNames.side_effect = DisposedEx("gone")
