@@ -351,7 +351,7 @@ class _JsonProbeSpec(NamedTuple):
     log_label: str
     timeout_msgid: str
     fail_msgid: str
-    keys: tuple[str, ...] | None = None
+    keys: tuple[str, ...]
 
 
 _JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
@@ -405,6 +405,7 @@ _JSON_PROBE_SPECS: dict[str, _JsonProbeSpec] = {
         log_label="DuckDB",
         timeout_msgid=N_("DuckDB probe timed out."),
         fail_msgid=N_("DuckDB probe failed (see writeragent_debug.log)."),
+        keys=("duckdb",),
     ),
 }
 
@@ -424,43 +425,23 @@ def _run_named_json_probe(
     )
 
 
-def _merge_duckdb_probe(python_exe: str, data: dict[str, Any]) -> None:
-    """Set data['p']['duckdb'] from the subprocess probe. Never fails the self-check.
-
-    Appends duckdb to data['data_eng'] when the sandbox group no longer lists it,
-    so the Settings install line still renders.
-    """
-    probes, failure = _run_named_json_probe(python_exe, "duckdb")
-    packages = data["p"]
-    if failure:
-        packages["duckdb"] = None
-    else:
-        value = probes.get("duckdb")
-        packages["duckdb"] = value if value == "present" else None
-    data_eng = data["data_eng"]
-    if "duckdb" not in data_eng:
-        data_eng.append("duckdb")
-
-
-_SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Scientific Libraries", ("numpy", "pandas", "scipy", "sklearn", "matplotlib", "sympy")),
-    ("Data Analysis / EDA Libraries", ("data_profiling", "statsmodels", "pandas_montecarlo")),
-    ("UI / Monaco Libraries", _UI_PACKAGE_KEYS),
-    ("Visualization Libraries", ("matplotlib", "seaborn")),
-    ("Computer Algebra", ("sympy",)),
-    ("Quantitative Finance Libraries", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),
-    ("Data Engineering Libraries", ("pint",)),
+_SANDBOX_SELF_CHECK_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("Scientific Libraries", "sci", ("numpy", "pandas", "scipy", "sklearn", "matplotlib", "sympy")),
+    ("Data Analysis / EDA Libraries", "eda", ("data_profiling", "statsmodels", "pandas_montecarlo")),
+    ("UI / Monaco Libraries", "ui", _UI_PACKAGE_KEYS),
+    ("Visualization Libraries", "viz", ("matplotlib", "seaborn")),
+    ("Computer Algebra", "cas", ("sympy",)),
+    ("Quantitative Finance Libraries", "quant", ("yfinance", "pandas_ta", "quantstats", "pypfopt")),
+    ("Data Engineering Libraries", "data_eng", ("pint",)),
 )
 
-_SANDBOX_DATA_KEYS = ("sci", "eda", "ui", "viz", "cas", "quant", "data_eng")
-assert len(_SANDBOX_DATA_KEYS) == len(_SANDBOX_SELF_CHECK_GROUPS)
-_SANDBOX_PACKAGES_BY_KEY = dict(zip(_SANDBOX_DATA_KEYS, (pkgs for _, pkgs in _SANDBOX_SELF_CHECK_GROUPS)))
+_SANDBOX_GROUP_KEYS = tuple(key for _title, key, _pkgs in _SANDBOX_SELF_CHECK_GROUPS)
 
 # Display order includes NLP (probed via subprocess, not the sandbox worker loop).
 _SELF_CHECK_DISPLAY_GROUP_COUNT = len(_SANDBOX_SELF_CHECK_GROUPS) + 1  # + Text / NLP
 
 _ALLOWED_PROBE_MODULES = frozenset(
-    pkg for _title, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs if pkg not in _UI_PACKAGE_KEYS
+    pkg for _title, _key, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs if pkg not in _UI_PACKAGE_KEYS
 )
 
 _VERSION_PROBE_SCRIPT = """
@@ -494,8 +475,8 @@ def _docling_ocr_ready(probe: dict[str, Any]) -> bool:
     return probe.get("docling") == "present" and probe.get("rapidocr") == "present"
 
 
-def _ocr_backend_ready(probe: dict[str, Any]) -> bool:
-    """True when Docling+RapidOCR or PaddleOCR+Paddle imported.
+def vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
+    """True when an OCR backend and css-inline are present (Settings Test / diagnostics).
 
     css-inline is not part of this check; vision_ocr_stack_ready adds it.
     What was wrong: docling alone returned True, so docling + css-inline
@@ -506,14 +487,10 @@ def _ocr_backend_ready(probe: dict[str, Any]) -> bool:
     raises OcrBackendError when that backend cannot be built.
     Why: the Docling pair now requires rapidocr. PaddleOCR+Paddle is unchanged.
     """
-    return _docling_ocr_ready(probe) or (
+    ocr_backend = _docling_ocr_ready(probe) or (
         probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
     )
-
-
-def vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
-    """True when an OCR backend and css-inline are present (Settings Test / diagnostics)."""
-    return _ocr_backend_ready(probe) and probe.get("css_inline") == "present"
+    return ocr_backend and probe.get("css_inline") == "present"
 
 
 def _probe_key_to_pip(key: str) -> str | None:
@@ -581,29 +558,18 @@ def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], pa
     return lines
 
 
-def _self_check_group_specs(data: dict[str, Any]) -> list[tuple[str, tuple[str, ...]]]:
-    return [
-        (_("Audio Recording & Speech"), tuple(data.get("audio", ()))),
-        (_("Scientific Libraries"), tuple(data.get("sci", ()))),
-        (_("Data Analysis / EDA Libraries"), tuple(data.get("eda", ()))),
-        (_("UI / Monaco Libraries"), tuple(data.get("ui", ()))),
-        (_("Visualization Libraries"), tuple(data.get("viz", ()))),
-        (_("Computer Algebra"), tuple(data.get("cas", ()))),
-        (_("Quantitative Finance Libraries"), tuple(data.get("quant", ()))),
-        (_("Data Engineering Libraries"), tuple(data.get("data_eng", ()))),
-        (_("Text / NLP Libraries"), tuple(data.get("nlp", ()))),
-        (_("Vision Libraries"), tuple(data.get("vision", ()))),
-        (_("Vector Search Libraries"), tuple(data.get("vector_search", ()))),
+def _self_check_group_specs(data: dict[str, Any]) -> list[tuple[str, str, tuple[str, ...]]]:
+    specs: list[tuple[str, str, tuple[str, ...]]] = [
+        ("audio", _("Audio Recording & Speech"), tuple(data.get("audio", ()))),
     ]
-
-
-def _sandbox_display_titles() -> list[str]:
-    """Translated sandbox titles, in `_SANDBOX_SELF_CHECK_GROUPS` order.
-
-    Call-time _(): module-level _() would freeze the catalog from import,
-    before init_i18n(ctx). completed_groups is an index into this list.
-    """
-    return [_(title) for title, _pkgs in _SANDBOX_SELF_CHECK_GROUPS]
+    for title, key, _pkgs in _SANDBOX_SELF_CHECK_GROUPS:
+        specs.append((key, _(title), tuple(data.get(key, ()))))
+    specs.extend([
+        ("nlp", _("Text / NLP Libraries"), tuple(data.get("nlp", ()))),
+        ("vision", _("Vision Libraries"), tuple(data.get("vision", ()))),
+        ("vector_search", _("Vector Search Libraries"), tuple(data.get("vector_search", ()))),
+    ])
+    return specs
 
 
 def _collect_missing_probe_keys_for_display(
@@ -611,12 +577,10 @@ def _collect_missing_probe_keys_for_display(
     *,
     completed_groups: int,
     partial_group_keys: tuple[str, ...] | None,
-    partial_group_title: str | None,
+    partial_group_key: str | None,
 ) -> list[str]:
     """Probe keys that appear under Missing in the rendered Test body (stable group order)."""
     packages = data.get("p", {})
-    if not isinstance(packages, dict):
-        packages = {}
     missing: list[str] = []
     seen: set[str] = set()
 
@@ -628,25 +592,24 @@ def _collect_missing_probe_keys_for_display(
             missing.append(key)
 
     specs = _self_check_group_specs(data)
-    sandbox_titles = _sandbox_display_titles()
-    for title, keys in specs:
+    for key, _title, keys in specs:
         if not keys:
             continue
-        if title in sandbox_titles:
-            s_idx = sandbox_titles.index(title)
+        if key in _SANDBOX_GROUP_KEYS:
+            s_idx = _SANDBOX_GROUP_KEYS.index(key)
             if s_idx < completed_groups:
                 _add(_missing_keys(keys, packages))
-            elif s_idx == completed_groups and partial_group_keys and partial_group_title == title:
+            elif s_idx == completed_groups and partial_group_keys and partial_group_key == key:
                 _add(_missing_keys(partial_group_keys, packages))
-        elif title == _("Text / NLP Libraries"):
+        elif key == "nlp":
             if completed_groups >= _SELF_CHECK_DISPLAY_GROUP_COUNT:
                 _add(_missing_keys([k for k in keys if k not in _NLP_OPTIONAL_KEYS], packages))
-        elif title == _("Vision Libraries"):
+        elif key == "vision":
             if not vision_ocr_stack_ready(packages):
                 _add([key for key in _VISION_OCR_PRIMARY_KEYS if packages.get(key) != "present"])
-        elif title == _("Vector Search Libraries"):
+        elif key == "vector_search":
             _add(_missing_keys(keys, packages))
-        elif title == _("Audio Recording & Speech"):
+        elif key == "audio":
             _add(_missing_keys([k for k in keys if k not in _AUDIO_OPTIONAL_KEYS], packages))
     return missing
 
@@ -695,7 +658,7 @@ def _build_probe_display(
     *,
     completed_groups: int,
     partial_group_keys: tuple[str, ...] | None = None,
-    partial_group_title: str | None = None,
+    partial_group_key: str | None = None,
     extra_lines_after_header: tuple[str, ...] | None = None,
     include_install_footer: bool = False,
 ) -> str:
@@ -703,8 +666,6 @@ def _build_probe_display(
     version = data.get("v", "unknown")
     arch = data.get("arch", "")
     packages = data.get("p", {})
-    if not isinstance(packages, dict):
-        packages = {}
     header = f"Python {version} ({arch})" if arch else f"Python {version}"
     first_line = f"{header} responds OK."
     if extra_lines_after_header:
@@ -714,33 +675,32 @@ def _build_probe_display(
     msg_lines = [first_line]
 
     specs = _self_check_group_specs(data)
-    sandbox_titles = _sandbox_display_titles()
-    for _idx, (title, keys) in enumerate(specs):
+    for key, title, keys in specs:
         if not keys:
             continue
-        if title in sandbox_titles:
-            s_idx = sandbox_titles.index(title)
+        if key in _SANDBOX_GROUP_KEYS:
+            s_idx = _SANDBOX_GROUP_KEYS.index(key)
             if s_idx < completed_groups:
                 msg_lines.extend(_format_group_lines(title, keys, packages))
-            elif s_idx == completed_groups and partial_group_keys and partial_group_title == title:
+            elif s_idx == completed_groups and partial_group_keys and partial_group_key == key:
                 msg_lines.extend(_format_group_lines(title, partial_group_keys, packages))
-        elif title == _("Text / NLP Libraries"):
+        elif key == "nlp":
             if completed_groups >= _SELF_CHECK_DISPLAY_GROUP_COUNT:
                 msg_lines.extend(_format_group_lines(title, keys, packages, optional_keys=_NLP_OPTIONAL_KEYS))
                 nlp_failure = data.get("nlp_probe_failure")
                 if nlp_failure:
                     msg_lines.append(f"  {nlp_failure}")
-        elif title == _("Vision Libraries"):
+        elif key == "vision":
             msg_lines.extend(_format_vision_group_lines(title, keys, packages))
             vision_failure = data.get("vision_probe_failure")
             if vision_failure:
                 msg_lines.append(f"  {vision_failure}")
-        elif title == _("Vector Search Libraries"):
+        elif key == "vector_search":
             msg_lines.extend(_format_group_lines(title, keys, packages))
             vector_search_failure = data.get("vector_search_probe_failure")
             if vector_search_failure:
                 msg_lines.append(f"  {vector_search_failure}")
-        elif title == _("Audio Recording & Speech"):
+        elif key == "audio":
             msg_lines.extend(_format_group_lines(title, keys, packages, optional_keys=_AUDIO_OPTIONAL_KEYS))
             audio_failure = data.get("audio_probe_failure")
             if audio_failure:
@@ -771,25 +731,11 @@ def _build_probe_display(
             data,
             completed_groups=completed_groups,
             partial_group_keys=partial_group_keys,
-            partial_group_title=partial_group_title,
+            partial_group_key=partial_group_key,
         )
         msg_lines.extend(_format_install_footer(missing_keys))
 
     return "\n".join(msg_lines)
-
-
-def _format_self_check_success(data: dict[str, Any]) -> str:  # pyright: ignore[reportUnusedFunction]
-    data = dict(data)
-    data.setdefault("vector_search", list(_VECTOR_SEARCH_PACKAGE_KEYS))
-    data.setdefault("vision", list(_VISION_PACKAGE_KEYS))
-    data.setdefault("audio", list(_AUDIO_PACKAGE_KEYS))
-    data.setdefault("nlp", list(_NLP_PACKAGE_KEYS))
-    data.setdefault("data_eng", list(_SANDBOX_PACKAGES_BY_KEY["data_eng"]))
-    return _build_probe_display(
-        data,
-        completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
-        include_install_footer=True,
-    )
 
 
 def _attach_external_probes(
@@ -797,16 +743,19 @@ def _attach_external_probes(
     data: dict[str, Any],
     group: str,
 ) -> None:
-    """Audio, UI, NLP, vision, or vector probe. Not the warm =PY() worker."""
+    """Audio, UI, NLP, vision, vector search, or duckdb probe. Not the warm =PY() worker."""
     spec = _JSON_PROBE_SPECS[group]
-    assert spec.keys is not None
     probes, failure = _run_named_json_probe(python_exe, group)
     packages = data.setdefault("p", {})
-    if isinstance(packages, dict) and probes:
+    if probes:
         packages.update(probes)
     data[group] = list(spec.keys)
     if failure:
         data[f"{group}_probe_failure"] = failure
+
+
+def _normalize_on_status(on_status: Callable[[str], None] | None) -> Callable[[str], None]:
+    return on_status if on_status is not None else lambda text: None
 
 
 def run_venv_self_check_with_progress(
@@ -832,13 +781,11 @@ def run_venv_self_check_with_progress(
     # scripting.python_exec_timeout is the user-script budget. These probes
     # always use SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC, VISION_PROBE_TIMEOUT_SEC,
     # and VECTOR_SEARCH_PROBE_TIMEOUT_SEC. There is no caller timeout argument.
-    per_pkg_timeout = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC
-
-    shown: list[str] = []
+    last: str | None = None
 
     def _show(text: str) -> None:
-        shown.clear()
-        shown.append(text)
+        nonlocal last
+        last = text
         on_display(text)
 
     def _fail(msg: str) -> tuple[bool, str]:
@@ -851,25 +798,25 @@ def run_venv_self_check_with_progress(
         # not this path: execute() returns a status dict, and the
         # status != "ok" branch records a warning and continues.
         # The returned message stays msg.
-        body = (shown[-1] + "\n\n" + msg) if shown else msg
+        body = (last + "\n\n" + msg) if last is not None else msg
         _show(body)
         return False, msg
 
-    report_status = on_status if on_status is not None else lambda text: None
+    report_status = _normalize_on_status(on_status)
 
     def _refresh(
         data: dict[str, Any],
         *,
         completed_groups: int = 0,
         partial_group_keys: tuple[str, ...] | None = None,
-        partial_group_title: str | None = None,
+        partial_group_key: str | None = None,
     ) -> None:
         _show(
             _build_probe_display(
                 data,
                 completed_groups=completed_groups,
                 partial_group_keys=partial_group_keys,
-                partial_group_title=partial_group_title,
+                partial_group_key=partial_group_key,
                 extra_lines_after_header=extra_lines_after_header,
             )
         )
@@ -884,7 +831,7 @@ def run_venv_self_check_with_progress(
     )
 
     report_status(_("Reading Python version..."))
-    response = manager.execute(_VERSION_PROBE_SCRIPT, timeout_sec=per_pkg_timeout)
+    response = manager.execute(_VERSION_PROBE_SCRIPT, timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC)
 
     if response.get("status") != "ok":
         msg = str(response.get("message", "Unknown error"))
@@ -900,17 +847,16 @@ def run_venv_self_check_with_progress(
         "v": version_data.get("v", "unknown"),
         "arch": version_data.get("arch", ""),
         "p": {},
-        "nlp": list(_NLP_PACKAGE_KEYS),
     }
-    for key in _SANDBOX_DATA_KEYS:
-        data[key] = list(_SANDBOX_PACKAGES_BY_KEY[key])
+    for _title, key, pkgs in _SANDBOX_SELF_CHECK_GROUPS:
+        data[key] = list(pkgs)
 
     if include_audio:
         report_status(_("Audio & Speech: checking sounddevice, TTS, and local Whisper..."))
         _attach_external_probes(python_exe, data, "audio")
         _refresh(data)
 
-    for group_index, (group_title, packages) in enumerate(_SANDBOX_SELF_CHECK_GROUPS):
+    for group_index, (group_title, group_key, packages) in enumerate(_SANDBOX_SELF_CHECK_GROUPS):
         if group_title == "UI / Monaco Libraries":
             # Qt/WebEngine in the warm worker would stay loaded for later =PY() cells.
             report_status(_("UI / Monaco Libraries: checking outside the script worker..."))
@@ -923,7 +869,7 @@ def run_venv_self_check_with_progress(
             report_status(f"{group_title}: {pkg}")
             # sympy and matplotlib are listed in more than one group.
             if pkg not in packages_seen:
-                pkg_resp = manager.execute(_package_probe_script(pkg), timeout_sec=per_pkg_timeout)
+                pkg_resp = manager.execute(_package_probe_script(pkg), timeout_sec=SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC)
                 if pkg_resp.get("status") != "ok":
                     msg = str(pkg_resp.get("message", "Unknown error"))
                     log.warning("Package probe failed for %s: %s", pkg, msg)
@@ -939,10 +885,11 @@ def run_venv_self_check_with_progress(
                 data,
                 completed_groups=group_index,
                 partial_group_keys=tuple(checked),
-                partial_group_title=_(group_title),
+                partial_group_key=group_key,
             )
-        if group_title == "Data Engineering Libraries":
-            _merge_duckdb_probe(python_exe, data)
+        if group_key == "data_eng":
+            _attach_external_probes(python_exe, data, "duckdb")
+            data["data_eng"].append("duckdb")
         _refresh(data, completed_groups=group_index + 1)
 
     report_status(_("Text / NLP Libraries: loading (first run may take a while)..."))
@@ -984,7 +931,7 @@ def probe_venv_path_with_progress(
     include_audio: bool = True,
 ) -> tuple[bool, str]:
     """Resolve *venv_dir* and run a self-check, refreshing the legacy grouped view."""
-    report_status = on_status if on_status is not None else lambda text: None
+    report_status = _normalize_on_status(on_status)
 
     is_blank = not venv_dir or not str(venv_dir).strip()
     if is_blank:

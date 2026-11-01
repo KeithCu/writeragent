@@ -250,16 +250,6 @@ def _is_date_like_column_name(name: str) -> bool:
     return any(tok in _DATE_NAME_TOKENS for tok in tokens)
 
 
-def _date_cols_items(date_cols: Any) -> list[Any] | None:
-    if date_cols is True:
-        return None
-    if isinstance(date_cols, (int, str)) and not isinstance(date_cols, bool):
-        return [date_cols]
-    if isinstance(date_cols, (list, tuple, set)):
-        return list(date_cols)
-    return []
-
-
 def _coerce_column_types(
     df: Any,
     *,
@@ -268,7 +258,14 @@ def _coerce_column_types(
     date_origin: str = "1899-12-30",
 ) -> Any:
     """Optional string→numeric/datetime inference and explicit date_cols conversion."""
-    items = _date_cols_items(date_cols)
+    if date_cols is True:
+        items = None
+    elif isinstance(date_cols, (int, str)) and not isinstance(date_cols, bool):
+        items = [date_cols]
+    elif isinstance(date_cols, (list, tuple, set)):
+        items = list(date_cols)
+    else:
+        items = []
     if not parse_strings and items == []:
         return df
     import numpy as np
@@ -504,12 +501,13 @@ def _parse_numeric_date_series(series: Any, *, date_origin: str = "1899-12-30") 
         return pd.to_datetime(serials, unit="D", origin=date_origin, errors="coerce").astype("datetime64[ns]")
 
 
-def _optional_numpy() -> Any:
+def _num_types() -> tuple[tuple[type, ...], tuple[type, ...]]:
     try:
         import numpy as np
-        return np
+
+        return (int, np.integer), (float, np.floating)
     except ImportError:
-        return None
+        return (int,), (float,)
 
 
 def _whole_number(value: Any) -> int | None:
@@ -522,12 +520,10 @@ def coerce_int(value: Any, name: str = "value") -> int:
     """Coerce *value* to int or raise ValueError."""
     if isinstance(value, bool):
         raise ValueError(f"{name} must be an integer, got {value!r}")
-    np = _optional_numpy()
-    int_types = (int, np.integer) if np is not None else (int,)
-    float_types = (float, np.floating) if np is not None else (float,)
+    int_types, float_types = _num_types()
 
     if isinstance(value, int_types):
-        return int(value)
+        return int(cast("Any", value))
     if isinstance(value, float_types):
         whole = _whole_number(value)
         if whole is not None:
@@ -552,10 +548,9 @@ def _coerce_number(value: Any) -> float | None:
     """Coerce value to float or return None."""
     if isinstance(value, bool):
         return None
-    np = _optional_numpy()
-    num_types = (int, float, np.integer, np.floating) if np is not None else (int, float)
-    if isinstance(value, num_types):
-        f = float(value)
+    int_types, float_types = _num_types()
+    if isinstance(value, int_types + float_types):
+        f = float(cast("Any", value))
         return f if math.isfinite(f) else None
     if isinstance(value, str):
         parsed = _parse_numeric_string(value)
@@ -589,8 +584,9 @@ def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bo
         return default
     if isinstance(value, bool):
         return value
-    np = _optional_numpy()
-    if np is not None:
+    try:
+        import numpy as np
+
         # What was wrong: coerce_bool(np.bool_(True)) raised ValueError.
         # How: np.bool_ is not a subclass of bool or of np.integer. islogical
         # already treats it as logical.
@@ -598,30 +594,23 @@ def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bo
         # the 0/1 integer checks.
         if isinstance(value, np.bool_):
             return bool(value)
+    except ImportError:
+        pass
 
-    int_types = (int, np.integer) if np is not None else (int,)
-    float_types = (float, np.floating) if np is not None else (float,)
-
-    if isinstance(value, int_types):
-        if value == 1:
-            return True
-        if value == 0:
-            return False
-        raise ValueError(f"{name} must be a boolean, got {value!r}")
-    if isinstance(value, float_types):
+    int_types, float_types = _num_types()
+    if isinstance(value, int_types + float_types):
         whole = _whole_number(value)
         if whole == 1:
             return True
         if whole == 0:
             return False
-        raise ValueError(f"{name} must be a boolean, got {value!r}")
-    if isinstance(value, str):
+    elif isinstance(value, str):
         stripped = value.strip().lower()
         if stripped in ("1", "true", "yes", "y"):
             return True
         if stripped in ("0", "false", "no", "n"):
             return False
-        raise ValueError(f"{name} must be a boolean, got {value!r}")
+
     raise ValueError(f"{name} must be a boolean, got {value!r}")
 
 
@@ -696,14 +685,15 @@ def auto_numeric(
     kept: list[Any] = []
     for col in cols:
         name = str(col)
+        reason: str | None = None
         if _is_date_like_column_name(name):
-            if flags is not None:
-                flags.append(f"Skipped column {name} (looks like a date); pass the column list explicitly to include it.")
+            reason = f"Skipped column {name} (looks like a date); pass the column list explicitly to include it."
         elif _id_like(df[col]):
-            if flags is not None:
-                flags.append(f"Skipped column {name} (looks like an id); pass the column list explicitly to include it.")
+            reason = f"Skipped column {name} (looks like an id); pass the column list explicitly to include it."
         else:
             kept.append(col)
+        if reason is not None and flags is not None:
+            flags.append(reason)
     return kept
 
 
@@ -767,50 +757,41 @@ def grid_to_dataframe(
 
     if isinstance(data, pd.DataFrame):
         df = data.copy()
-        df = _coerce_column_types(
-            df,
-            parse_strings=parse_strings,
-            date_cols=date_cols,
-            date_origin=date_origin,
-        )
-        df = _apply_index_col(df, index_col)
-        return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=0))
-
-    grid = _normalize_input_grid(data)
-    dropped_rows = 0
-
-    if not grid:
-        empty = pd.DataFrame()
-        return CoerceResult(df=empty, metadata=_build_metadata(empty, sheet_hint=sheet_hint, dropped_rows=0))
-
-    if header_row is not None:
-        header_idx = int(header_row)
-        if header_idx < 0 or header_idx >= len(grid):
-            raise ValueError(f"header_row {header_idx} is outside the grid (0..{len(grid) - 1})")
-        # Labels, not values. parse_strings on this row turned "00123" into the
-        # column name "123.0" and str(2024.0) into "2024.0".
-        raw_headers = [_coerce_cell(cell, parse=False) for cell in grid[header_idx]]
-        col_names = _dedupe_column_names([header_label(h) for h in raw_headers])
-        body = grid[header_idx + 1 :]
+        dropped_rows = 0
     else:
-        width = max((len(row) for row in grid), default=0)
-        col_names = [f"col_{i}" for i in range(width)]
-        body = grid
+        grid = _normalize_input_grid(data)
+        if not grid:
+            empty = pd.DataFrame()
+            return CoerceResult(df=empty, metadata=_build_metadata(empty, sheet_hint=sheet_hint, dropped_rows=0))
 
-    rows: list[list[Any]] = []
-    for row in body:
-        padded = list(row) + [None] * (len(col_names) - len(row))
-        coerced_row = [_coerce_cell(cell, parse=parse_strings) for cell in padded[: len(col_names)]]
-        if all(cell is None for cell in coerced_row):
-            dropped_rows += 1
-            continue
-        rows.append(coerced_row)
+        if header_row is not None:
+            header_idx = int(header_row)
+            if header_idx < 0 or header_idx >= len(grid):
+                raise ValueError(f"header_row {header_idx} is outside the grid (0..{len(grid) - 1})")
+            # Labels, not values. parse_strings on this row turned "00123" into the
+            # column name "123.0" and str(2024.0) into "2024.0".
+            raw_headers = [_coerce_cell(cell, parse=False) for cell in grid[header_idx]]
+            col_names = _dedupe_column_names([header_label(h) for h in raw_headers])
+            body = grid[header_idx + 1 :]
+        else:
+            width = max((len(row) for row in grid), default=0)
+            col_names = [f"col_{i}" for i in range(width)]
+            body = grid
 
-    df = pd.DataFrame(rows, columns=cast("Any", col_names))
+        dropped_rows = 0
+        rows: list[list[Any]] = []
+        for row in body:
+            padded = list(row) + [None] * (len(col_names) - len(row))
+            coerced_row = [_coerce_cell(cell, parse=parse_strings) for cell in padded[: len(col_names)]]
+            if all(cell is None for cell in coerced_row):
+                dropped_rows += 1
+                continue
+            rows.append(coerced_row)
+
+        df = pd.DataFrame(rows, columns=cast("Any", col_names))
+
     df = _coerce_column_types(df, parse_strings=parse_strings, date_cols=date_cols, date_origin=date_origin)
-
     df = _apply_index_col(df, index_col)
-
     return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=dropped_rows))
 
 

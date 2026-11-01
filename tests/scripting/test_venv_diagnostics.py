@@ -23,15 +23,18 @@ from plugin.scripting.venv_diagnostics import (
     _AUDIO_PACKAGE_KEYS,
     _AUDIO_PROBE_SCRIPT,
     _DUCKDB_PROBE_SCRIPT,
+    _NLP_PACKAGE_KEYS,
     _NLP_PROBE_SCRIPT,
     _PROBE_JSON_PREFIX,
     _PROBE_KEY_TO_PIP,
+    _SELF_CHECK_DISPLAY_GROUP_COUNT,
     _UI_PACKAGE_KEYS,
     _UI_PROBE_SCRIPT,
+    _VECTOR_SEARCH_PACKAGE_KEYS,
     _VECTOR_SEARCH_PROBE_SCRIPT,
+    _VISION_PACKAGE_KEYS,
     _VISION_PROBE_SCRIPT,
     _build_probe_display,
-    _format_self_check_success,
     _import_probe_script,
     _import_try_block,
     _parse_probe_stdout,
@@ -42,6 +45,20 @@ from plugin.scripting.venv_diagnostics import (
 )
 
 orig_named_probe = _run_named_json_probe
+
+
+def _format_self_check_success(data: dict[str, Any]) -> str:
+    data = dict(data)
+    data.setdefault("vector_search", list(_VECTOR_SEARCH_PACKAGE_KEYS))
+    data.setdefault("vision", list(_VISION_PACKAGE_KEYS))
+    data.setdefault("audio", list(_AUDIO_PACKAGE_KEYS))
+    data.setdefault("nlp", list(_NLP_PACKAGE_KEYS))
+    data.setdefault("data_eng", ["pint"])
+    return _build_probe_display(
+        data,
+        completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
+        include_install_footer=True,
+    )
 
 def test_probe_venv_path_with_progress_not_directory():
     shown: list[str] = []
@@ -859,7 +876,7 @@ def test_duckdb_probe_script_is_not_sandboxed():
     from plugin.scripting.venv_diagnostics import _SANDBOX_SELF_CHECK_GROUPS, _VERSION_PROBE_SCRIPT, _package_probe_script
 
     assert "import duckdb" not in _VERSION_PROBE_SCRIPT
-    sandbox_pkgs = [pkg for _title, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs]
+    sandbox_pkgs = [pkg for _title, _key, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs]
     assert "duckdb" not in sandbox_pkgs
     with pytest.raises(ValueError, match="unsupported probe module"):
         _package_probe_script("duckdb")
@@ -991,7 +1008,7 @@ def test_format_self_check_success_nlp_language_tool_python_present():
 
 
 def test_format_self_check_success_audio_tts_optional_installed():
-    from plugin.scripting.venv_diagnostics import _format_self_check_success, _AUDIO_PACKAGE_KEYS
+    from plugin.scripting.venv_diagnostics import _AUDIO_PACKAGE_KEYS
 
     data = {
         "v": "3.13.0",
@@ -1022,7 +1039,7 @@ def test_format_self_check_success_audio_tts_optional_installed():
 
 
 def test_format_self_check_success_audio_tts_optional_missing_shows_hint():
-    from plugin.scripting.venv_diagnostics import _format_self_check_success, _AUDIO_PACKAGE_KEYS
+    from plugin.scripting.venv_diagnostics import _AUDIO_PACKAGE_KEYS
 
     data = {
         "v": "3.13.0",
@@ -1073,8 +1090,6 @@ def _audio_self_check_data(packages: dict[str, str | None]) -> dict:
 
 
 def test_format_self_check_success_whisper_missing_does_not_print_tts_recipe():
-    from plugin.scripting.venv_diagnostics import _format_self_check_success
-
     msg = _format_self_check_success(
         _audio_self_check_data(
             {
@@ -1094,8 +1109,6 @@ def test_format_self_check_success_whisper_missing_does_not_print_tts_recipe():
 
 
 def test_format_self_check_success_tts_missing_does_not_print_whisper_recipe():
-    from plugin.scripting.venv_diagnostics import _format_self_check_success
-
     msg = _format_self_check_success(
         _audio_self_check_data(
             {
@@ -1165,7 +1178,6 @@ def test_attach_external_probes_shares_one_helper(monkeypatch):
 def test_probe_key_to_pip_webview_is_pywebview():
     from plugin.scripting.venv_diagnostics import (
         _UI_PACKAGE_KEYS,
-        _format_self_check_success,
         _probe_key_to_pip,
     )
 
@@ -1327,7 +1339,7 @@ def test_partial_scientific_group_uses_translated_title(monkeypatch) -> None:
         data,
         completed_groups=0,
         partial_group_keys=("numpy",),
-        partial_group_title="L:Scientific Libraries",
+        partial_group_key="sci",
     )
     assert "L:Scientific Libraries: numpy" in msg
     assert "pandas" not in msg
