@@ -23,7 +23,7 @@ import logging
 import sys
 from typing import Any
 
-from plugin.framework.errors import ToolExecutionError, best_effort, uno_probe
+from plugin.framework.errors import ToolExecutionError, best_effort
 from plugin.framework.scratch_writer import clear_writer_body
 from plugin.framework.uno_context import get_desktop, get_service_manager
 from plugin.calc.address_utils import parse_address
@@ -32,21 +32,13 @@ import plugin.writer.format as format_support
 
 log = logging.getLogger("writeragent.calc")
 
-# Not "_blank" and not "_default". testing_runner's Windows keeper loads
-# Hidden Writer on "_blank" (542 used the same target and 33699746211 still
-# hung). Linux UNO probe: a second "_blank" gets a new RuntimeUID (not
-# document reuse) but Hidden frame names stay empty, so a Windows
-# frame-manager collision on the shared "_blank" target is still the
-# remaining hunch. CREATE|GLOBAL = FrameSearchFlag 8|55 — named target
-# with flags 0 can search instead of creating.
-# Low-priority research (B2-A18): a Writer-free HTML->cell insert (parse the
-# fragment and write text portions directly) would delete this hidden Writer,
-# its clipboard lifecycle, and the template-clear problem. Not planned.
+# Not "_blank" or "_default": a shared target collides with testing_runner's
+# Windows Hidden-Writer keeper and hung CI. CREATE|GLOBAL = FrameSearchFlag
+# 8|55; flags 0 can search instead of creating.
 _HTML_WRITER_TARGET = "_wa_calc_html"
 _HTML_WRITER_SEARCH_FLAGS = 8 | 55
-# Only this module loads _wa_calc_html, so process state says whether the load
-# below handed back the keeper. Do not enumerate the desktop (getComponents
-# can hang on Windows after a paste): the UID bookkeeping was deleted for that.
+# Only this module loads _wa_calc_html. Do not enumerate the desktop:
+# getComponents can hang on Windows after a paste.
 _keeper_loaded = False
 
 
@@ -79,28 +71,23 @@ def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
     """If SystemClipboard still owns *transferable*, replace it before closing the Writer.
 
     SwXTextView.getTransferable() builds a SwTransferable bound to that Writer
-    shell (PrepareForCopy). On Windows the OLE clipboard thread can keep that
-    transferable as owner after insertTransferable. Only touch the clipboard when
-    it actually holds *our* transferable so a normal paste does not clobber an
-    unrelated user copy. GHA 33771766524: insertTransferable often leaves
-    SystemClipboard empty; the hang was closing the
-    source Writer while Calc still held the paste — see ``insert_cell_html_rich``.
+    shell (PrepareForCopy). On Windows the OLE clipboard can keep that owner
+    after insertTransferable, and closing the Writer then hangs. Touch the
+    clipboard only when it holds this object so a user copy is left alone.
     """
     try:
         # Do not import chatbot for the clipboard; LibrePy ships this module.
         smgr = get_service_manager(uno_ctx)
-        clip = None if smgr is None else uno_probe(lambda: smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx), None)
+        if smgr is None:
+            return
+        clip = smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx)
         if clip is None:
             return
         contents = clip.getContents()
-        if contents is None:
-            return
-        same = contents is transferable
-        equal = uno_probe(lambda: contents == transferable, False)
-        if not (same or equal):
-            return
-        # None, None drops the previous owner (lostOwnership) without a new OLE source.
-        clip.setContents(None, None)
+        # Identity before ==: a thrown UNO == must not skip a real match.
+        if contents is not None and (contents is transferable or contents == transferable):
+            # None, None drops the previous owner (lostOwnership) without a new OLE source.
+            clip.setContents(None, None)
     except Exception:
         return
 
@@ -117,9 +104,8 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     if not (html or "").strip():
         raise ToolExecutionError("HTML content is empty")
 
-    bridge = CalcBridge(doc)
     col, row = parse_address(cell_address.strip())
-    sheet = bridge.get_active_sheet()
+    sheet = CalcBridge(doc).get_active_sheet()
     cell = sheet.getCellByPosition(col, row)
 
     content = html_std.unescape(html)
@@ -170,10 +156,9 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         w_ctrl.select(sel)
         step = _step("get transferable")
         transferable = _controller_get_transferable(w_ctrl)
-        # Do not snapshot SystemClipboard here. GHA 33771766524: getContents()
-        # was empty on every call, but those queries still attach the Windows
-        # OLE clipboard thread (CMtaOleClipboard) and the next desktop enum
-        # then blocked. Release-if-ours below is the only clipboard touch.
+        # Do not read SystemClipboard before the paste. getContents() attaches
+        # the Windows OLE clipboard thread and a later desktop enum can block.
+        # Release-if-ours below is the only clipboard touch.
 
         cell.getText().setString("")
 
@@ -185,14 +170,10 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         if not callable(ins):
             raise ToolExecutionError("Calc controller does not support insertTransferable.")
         ins(transferable)
-        # SwXTextView.getTransferable builds a SwTransferable bound to this
-        # Writer (PrepareForCopy). Keep the #572 rule: if SystemClipboard
-        # still owns that object, drop it before any close. Do not gc.collect()
-        # — GHA 33771769928 aborted in freeUnoInterfaceProxy → SdrObject dtor
-        # → SfxItemPool::unregisterItemSet after #572 forced a full GC.
+        # Drop SystemClipboard's owner before any close when it still holds
+        # this Writer's SwTransferable. Do not gc.collect(): a forced GC
+        # aborted in the SdrObject destructor after that release.
         step = _step("release clipboard")
-        _release_clipboard_if_holds(uno_ctx, transferable)
-        transferable = None
         pasted = True
     except ToolExecutionError:
         raise
@@ -202,13 +183,9 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     finally:
         if transferable is not None:
             _release_clipboard_if_holds(uno_ctx, transferable)
-            transferable = None
-        # Windows (GHA 33771766524, 33772063173): after a live paste,
-        # temp_doc.close() returns and an immediate writers_after_close enum
-        # can still return — but ~450ms later desktop.getComponents() blocks
-        # forever while Calc holds the paste. Do not close on success; reuse
-        # _wa_calc_html (CREATE|GLOBAL) and clear the body on the next call.
-        # Keep #572: release SystemClipboard only when it owns our transferable.
+        # Do not close after a successful paste. close() can return and then
+        # desktop.getComponents() blocks while Calc holds the paste. Reuse
+        # _wa_calc_html and clear the body on the next call.
         if temp_doc is not None and not reused and not pasted:
             step = _step("close hidden Writer")
             best_effort(lambda: temp_doc.close(True), "temp Writer close failed")
