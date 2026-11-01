@@ -46,7 +46,7 @@ def test_short_press_records_once_and_swallows_action() -> None:
     gesture, records = _run(["press", "release", "action"])
     assert records == 1
     assert gesture.sticky is False
-    assert gesture.suppress_action is False
+    assert gesture.phase == RecordPhase.IDLE
     assert gesture.holding is False
 
 
@@ -54,7 +54,7 @@ def test_action_before_release_records_once() -> None:
     gesture, records = _run(["press", "action", "release"])
     assert records == 1
     assert gesture.sticky is False
-    assert gesture.suppress_action is False
+    assert gesture.phase == RecordPhase.IDLE
 
 
 def test_long_press_sets_sticky_and_records_once() -> None:
@@ -62,7 +62,7 @@ def test_long_press_sets_sticky_and_records_once() -> None:
     assert records == 1
     assert gesture.sticky is True
     assert gesture.holding is False
-    assert gesture.suppress_action is False
+    assert gesture.phase == RecordPhase.IDLE
 
 
 @pytest.mark.parametrize(
@@ -108,7 +108,7 @@ def test_press_on_stop_rec_does_not_start_a_hold() -> None:
 def test_exit_while_idle_sticky_does_not_swallow_the_next_action() -> None:
     gesture = exit_sticky(RecordGesture(sticky=True))
     assert gesture.sticky is False
-    assert gesture.suppress_action is False
+    assert gesture.phase == RecordPhase.IDLE
     step = gesture_action(gesture)
     assert step.swallowed_action is False
 
@@ -121,7 +121,7 @@ def test_exit_lock_keeps_the_next_stop_rec_click() -> None:
     """Stop on a settled locked take must not swallow the Stop Rec that sends it."""
     gesture, _records = _run(["press", "hold", "release", "action", "exit"])
     assert gesture.sticky is False
-    assert gesture.suppress_action is False
+    assert gesture.phase == RecordPhase.IDLE
 
 
 def test_hands_free_silence_text_keeps_mode_visible() -> None:

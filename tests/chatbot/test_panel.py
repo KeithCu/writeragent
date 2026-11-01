@@ -1135,7 +1135,7 @@ def _hands_free_listener() -> tuple[SendButtonListener, Any]:
     listener.audio_recorder = MagicMock()
     listener.audio_recorder.state = AudioRecorderState(status="idle")
     listener._voice._hold_waiter.wait_and_post = MagicMock()
-    listener._voice._spawn_sticky_tts_wait = MagicMock()
+    listener._voice._sticky_waiter.wait_and_post = MagicMock()
     return listener, send_model
 
 
@@ -1225,7 +1225,7 @@ class TestHandsFreeRecord:
             listener._voice._flush_sticky_restart()
         assert listener._voice._sticky_restart_pending is False
         assert listener.sidebar_state.send.is_recording is False
-        listener._voice._spawn_sticky_tts_wait.assert_not_called()
+        listener._voice._sticky_waiter.wait_and_post.assert_not_called()
         listener.audio_recorder.start_recording.assert_not_called()
 
     def test_send_completed_with_sticky_waits_for_tts_then_records(self) -> None:
@@ -1240,10 +1240,9 @@ class TestHandsFreeRecord:
         with patch("plugin.audio.tts_service.is_speaking", return_value=True):
             listener._voice._flush_sticky_restart()
         assert listener.sidebar_state.send.is_recording is False
-        listener._voice._spawn_sticky_tts_wait.assert_called_once()
-        gen = listener._voice._spawn_sticky_tts_wait.call_args.args[0]
+        listener._voice._sticky_waiter.wait_and_post.assert_called_once()
         with patch("plugin.audio.tts_service.is_speaking", return_value=False):
-            listener._voice._poll_sticky_rerecord(gen)
+            listener._voice._poll_sticky_rerecord(listener._sticky_restart_gen)
         assert listener.sidebar_state.send.is_recording
         assert listener._record_gesture.sticky is True
         listener.status_control.setText.assert_any_call(hands_free_status_text())
