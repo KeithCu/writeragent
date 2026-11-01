@@ -94,8 +94,13 @@ class SmolToolAdapter(SmolTool):
         self._inner_tctx = tctx
         self._safe = safe
         self.name = cast("str", tool.name or "")
-        self.description = tool.get_description(tctx.doc_type)
-        self.is_final_answer_tool = tool.is_final_answer_tool
+        # ToolBaseDummy subclasses (e.g. AnalyzeDataTool) define description as a bare attribute
+        # without get_description() or is_final_answer_tool; support them gracefully.
+        if hasattr(tool, "get_description"):
+            self.description = tool.get_description(tctx.doc_type)
+        else:
+            self.description = tool.description
+        self.is_final_answer_tool = getattr(tool, "is_final_answer_tool", False)
         params = tool.get_parameters(tctx.doc_type) or {}
         self.inputs = to_smol_inputs(params, style=inputs_style)
         self.output_type = "any" if inputs_style == "librarian" else "object"
