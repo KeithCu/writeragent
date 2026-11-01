@@ -191,6 +191,10 @@ def _data_binding_display(parts: PythonFormulaParts | None) -> str:
     return "" if parts is None else format_data_binding_display(parts.data_suffix)
 
 
+def _existing_data_args(parsed_parts: PythonFormulaParts | None) -> list[str]:
+    return parse_data_binding_text(_data_binding_display(parsed_parts))
+
+
 def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None, *, parsed_parts: PythonFormulaParts | None = None) -> tuple[str, str | None] | dict[str, Any]:
     """When ``scripting.xl_static_rewrite`` is on, lift ``xl("A1")`` into data args.
 
@@ -202,7 +206,7 @@ def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None,
     if data_binding_text is not None:
         existing = parse_data_binding_text(data_binding_text)
     else:
-        existing = parse_data_binding_text(_data_binding_display(parsed_parts))
+        existing = _existing_data_args(parsed_parts)
     result = apply_xl_static_rewrite(new_code, existing)
     if result.issues:
         detail = "; ".join(result.issues[:5])
@@ -234,7 +238,7 @@ def _apply_followed_ref_save(formula_cell: Any, *, code_cell: Any, code_ref: str
     code_cell.setString(new_code)
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
-        old_args = parse_data_binding_text(_data_binding_display(parsed_parts))
+        old_args = _existing_data_args(parsed_parts)
         # Leave the formula cell alone when only the code changed. Native follow
         # save always sends Data: '' — rewriting =PY($A$1) used to emit =PY($A$1))
         # (Err:508) and is unnecessary when the ranges did not change.
@@ -264,7 +268,7 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | 
     from plugin.doc.compound_undo import WriterCompoundUndo
 
     with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
-        if code_cell is not None and code_ref and not _same_calc_cell(code_cell, cell):
+        if code_cell is not None and code_ref:
             result = _apply_followed_ref_save(cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
         elif save_as_plain:
             cell.setString(new_code)
@@ -283,7 +287,7 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | 
 
 
 def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str, parsed_parts: PythonFormulaParts | None, exe: str, code_cell: Any | None = None, code_ref: str | None = None) -> None:
-    follow = bool(code_ref and code_cell is not None and not _same_calc_cell(code_cell, cell))
+    follow = bool(code_ref and code_cell is not None)
     data_binding = _data_binding_display(parsed_parts)
     display_cell = code_cell if follow else cell
 

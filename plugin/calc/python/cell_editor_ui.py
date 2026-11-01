@@ -125,7 +125,7 @@ class NativePythonCellEditorDialog:
     def _following_ref(self) -> bool:
         # UNO often hands back distinct proxies for the same cell; identity (`is`)
         # would treat a self-ref as a follow. Address compare matches editor.py.
-        return bool(self._code_ref) and self._code_cell is not None and not editor._same_calc_cell(self._code_cell, self._cell)
+        return bool(self._code_ref) and not editor._same_calc_cell(self._code_cell, self._cell)
 
     def _apply_load(self, initial_code: str) -> None:
         self._loading = True
