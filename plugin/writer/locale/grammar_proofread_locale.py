@@ -320,20 +320,13 @@ GRAMMAR_TRAILING_CLOSERS: frozenset[str] = frozenset((
 # fmt: on
 
 
-def last_meaningful_char(text: str) -> str:
-    """Return the last non-closer character (skipping quotes, brackets, etc.)."""
-    if not text:
-        return ""
+def looks_complete_sentence(text: str) -> bool:
+    """True if ``text`` ends (after skipping trailing closers) with a sentence terminal."""
     for ch in reversed(text.rstrip()):
         if ch in GRAMMAR_TRAILING_CLOSERS:
             continue
-        return ch
-    return ""
-
-
-def looks_complete_sentence(text: str) -> bool:
-    """True if ``text`` ends (after skipping trailing closers) with a sentence terminal."""
-    return last_meaningful_char(text) in GRAMMAR_SENTENCE_TERMINATORS
+        return ch in GRAMMAR_SENTENCE_TERMINATORS
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -370,9 +363,7 @@ def split_sentence_chunks_by_separator_regex(text: str, sep_re: re.Pattern[str])
         result.append((last, tail))
     return result
 
-_sterm_chars = "".join(sorted(GRAMMAR_SENTENCE_TERMINATORS))
-_sterm_escaped = re.escape(_sterm_chars)
-_sterm_class = f"[{_sterm_escaped}]"
+_sterm_class = f"[{re.escape(''.join(sorted(GRAMMAR_SENTENCE_TERMINATORS)))}]"
 
 # Terminators used for cache key normalization (strips redundant trailing terminators).
 GRAMMAR_CACHE_NORMALIZATION_RE = re.compile(rf"^(.*?{_sterm_class})({_sterm_class}*)$")
@@ -384,7 +375,7 @@ GRAMMAR_CACHE_NORMALIZATION_RE = re.compile(rf"^(.*?{_sterm_class})({_sterm_clas
 
 
 def count_nonspace_chars(text: str) -> int:
-    return sum(1 for c in (text or "") if not c.isspace())
+    return sum(1 for c in text if not c.isspace())
 
 
 def filter_sentence_spans_for_thresholds(spans: Sequence[tuple[int, int, str]]) -> list[tuple[int, int, str]]:

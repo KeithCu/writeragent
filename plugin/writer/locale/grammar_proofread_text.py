@@ -151,14 +151,6 @@ def get_break_iterator_and_locale(ctx: Any, loc_key: str | None) -> tuple[Any, A
 # ---------------------------------------------------------------------------
 
 
-def extend_through_trailing_whitespace(text: str, end_pos: int) -> int:
-    """Return index after ``end_pos`` including following whitespace (line breaks included)."""
-    ws_end = end_pos
-    while ws_end < len(text) and text[ws_end].isspace():
-        ws_end += 1
-    return ws_end
-
-
 # ---------------------------------------------------------------------------
 # Abbreviations before "." (BreakIterator sentence extension)
 # ---------------------------------------------------------------------------
@@ -277,7 +269,9 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
                     continue
             break
 
-        ws_end = extend_through_trailing_whitespace(text, end_pos)
+        ws_end = end_pos
+        while ws_end < len(text) and text[ws_end].isspace():
+            ws_end += 1
 
         sentences.append((pos, text[pos:ws_end]))
         pos = ws_end
@@ -308,15 +302,12 @@ _DIALOGUE_QUOTES: frozenset[str] = frozenset((
 ))
 
 
-def _count_dialogue_quotes(text: str) -> int:
-    """Count double-quote-class characters in *text* for dialogue merge parity."""
-    return sum(1 for ch in text if ch in _DIALOGUE_QUOTES)
+DIALOGUE_MERGE_MAX_CHARS = 1000
+DIALOGUE_MERGE_MAX_CONSECUTIVE = 4
 
 
 def merge_dialogue_sentences(
     sentences: list[tuple[int, str]],
-    max_merge_chars: int = 1000,
-    max_consecutive_merges: int = 4,
 ) -> list[tuple[int, str]]:
     """Merge falsely split dialogue sentences (e.g. at '!' or '?') by checking quote parity.
 
@@ -332,12 +323,12 @@ def merge_dialogue_sentences(
 
     for i in range(1, len(sentences)):
         next_start, next_text = sentences[i]
-        quote_count = _count_dialogue_quotes(current_text)
+        quote_count = sum(1 for ch in current_text if ch in _DIALOGUE_QUOTES)
 
         if (
             quote_count % 2 != 0
-            and len(current_text) + len(next_text) <= max_merge_chars
-            and consecutive_merges < max_consecutive_merges
+            and len(current_text) + len(next_text) <= DIALOGUE_MERGE_MAX_CHARS
+            and consecutive_merges < DIALOGUE_MERGE_MAX_CONSECUTIVE
         ):
             current_text += next_text
             consecutive_merges += 1
@@ -359,40 +350,13 @@ def candidate_sentence_spans_for_proofreading(
     ctx: Any,
     loc_key: str,
     a_text: str,
-    n_start_lo: int,
-    n_suggested_behind_end: int,
 ) -> list[SentenceSpan]:
-    """Return ``(abs_start, abs_end, sentence_text)`` for sentences Writer should check this call.
-
-    - ``n_start_lo == 0``: paragraph-scale pass — all sentences in ``a_text``.
-    - Else: incremental — sentences overlapping LibreOffice's active range.
-    """
+    """Return ``(abs_start, abs_end, sentence_text)`` for all sentences in ``a_text``."""
     all_sents = split_into_sentences(ctx, loc_key, a_text)
     if not all_sents:
         return []
     all_sents = merge_dialogue_sentences(all_sents)
-    nlen = len(a_text)
-    spans: list[SentenceSpan] = []
-    for off, txt in all_sents:
-        end = off + len(txt)
-        spans.append((off, end, txt))
-    # Paragraph-scale pass from LibreOffice (n_start_lo == 0): process ALL sentences in aText.
-    # Incremental mode (n_start_lo != 0): only sentences overlapping [n_start_lo, n_suggested_behind_end).
-    if n_start_lo == 0:
-        return spans
-    return filter_sentence_spans_for_overlap(spans, n_start_lo, n_suggested_behind_end, nlen)
-
-
-def filter_sentence_spans_for_overlap(
-    spans: Sequence[SentenceSpan],
-    n_start: int,
-    n_suggested_end: int,
-    nlen: int,
-) -> list[SentenceSpan]:
-    """Keep spans whose ``[start, end)`` overlaps the clamped active window."""
-    lo = max(0, min(n_start, nlen))
-    hi = max(lo, min(n_suggested_end, nlen))
-    return [(s, e, t) for s, e, t in spans if span_overlaps_range(s, e, lo, hi)]
+    return [(off, off + len(txt), txt) for off, txt in all_sents]
 
 
 def active_spans_from_paragraph(
@@ -409,7 +373,10 @@ def active_spans_from_paragraph(
     """
     if n_start == 0:
         return list(paragraph_spans)
-    return filter_sentence_spans_for_overlap(paragraph_spans, n_start, n_suggested_end, len(a_text))
+    nlen = len(a_text)
+    lo = max(0, min(n_start, nlen))
+    hi = max(lo, min(n_suggested_end, nlen))
+    return [(s, e, t) for s, e, t in paragraph_spans if span_overlaps_range(s, e, lo, hi)]
 
 
 def resolve_work_spans(
@@ -618,8 +585,6 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
                 continue
             pos = slice_start + anchored_rel
             length = len(wrong)
-            if length <= 0:
-                continue
             search_pos = anchored_rel + 1
 
         # 2. Expand span for overlap
@@ -651,9 +616,7 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
 
 
 def calculate_covered_span_end(active_spans: Sequence[SentenceSpan]) -> int:
-    """Return the maximum end offset among active sentence spans, or 0 if empty."""
-    if not active_spans:
-        return 0
+    """Return the maximum end offset among active sentence spans."""
     return max(end for _start, end, _text in active_spans)
 
 

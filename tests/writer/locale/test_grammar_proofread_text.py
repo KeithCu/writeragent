@@ -586,9 +586,10 @@ def test_overlap_backward_expansion() -> None:
     assert len(norms2) == 1
     assert full[norms2[0].n_error_start : norms2[0].n_error_start + norms2[0].n_error_length] == "a good"
 
-def test_extend_through_trailing_whitespace() -> None:
-    assert gt.extend_through_trailing_whitespace("Hi.  There", 3) == 5
-    assert gt.extend_through_trailing_whitespace("word", 4) == 4
+def test_split_into_sentences_trailing_whitespace() -> None:
+    res = gt.split_into_sentences(None, "en-US", "Hi.  There")
+    assert res[0] == (0, "Hi.  ")
+    assert gt.split_into_sentences(None, "en-US", "word") == [(0, "word")]
 
 def test_anchor_wrong_in_window() -> None:
     assert gt.anchor_wrong_in_window("hello bob there", "bob", 0) == 6
@@ -598,7 +599,6 @@ def test_anchor_wrong_in_window() -> None:
 
 
 def test_calculate_covered_span_end() -> None:
-    assert gt.calculate_covered_span_end([]) == 0
     spans = [(0, 10, "Sentence 1."), (12, 25, "Sentence 2.")]
     assert gt.calculate_covered_span_end(spans) == 25
 
@@ -636,34 +636,15 @@ def test_candidate_sentence_spans_for_proofreading() -> None:
     text = "Sentence one. Sentence two. Sentence three."
     ctx = None
     loc = "en-US"
-    
-    # Paragraph pass (n_start_lo == 0) returns all
-    spans = gt.candidate_sentence_spans_for_proofreading(ctx, loc, text, 0, 10)
+
+    spans = gt.candidate_sentence_spans_for_proofreading(ctx, loc, text)
     assert len(spans) == 3
     assert spans[0][2] == "Sentence one. "
-    
-    # Incremental mode: overlap with "Sentence two." (bounds ~ 14 to 27)
-    # Let's request bounds inside sentence two: [15, 20)
-    spans2 = gt.candidate_sentence_spans_for_proofreading(ctx, loc, text, 15, 20)
-    assert len(spans2) == 1
-    assert spans2[0][2] == "Sentence two. "
-    
-    # Span overlap with first and second sentence [10, 15)
-    spans3 = gt.candidate_sentence_spans_for_proofreading(ctx, loc, text, 10, 15)
-    assert len(spans3) == 2
-    assert spans3[0][2] == "Sentence one. "
-    assert spans3[1][2] == "Sentence two. "
-    
-    # Clamping and out of bounds
-    spans4 = gt.candidate_sentence_spans_for_proofreading(ctx, loc, text, -5, 5)
-    assert len(spans4) == 1
-    assert spans4[0][2] == "Sentence one. "
-    
-    spans5 = gt.candidate_sentence_spans_for_proofreading(ctx, loc, text, 100, 110)
-    assert len(spans5) == 0
+    assert spans[1][2] == "Sentence two. "
+    assert spans[2][2] == "Sentence three."
 
     # Empty text
-    assert gt.candidate_sentence_spans_for_proofreading(ctx, loc, "", 0, 10) == []
+    assert gt.candidate_sentence_spans_for_proofreading(ctx, loc, "") == []
 
 
 def test_active_spans_from_paragraph_n_start_zero_keeps_all() -> None:
@@ -672,7 +653,7 @@ def test_active_spans_from_paragraph_n_start_zero_keeps_all() -> None:
     ctx = None
     loc = "en-US"
     paragraph = gl.filter_sentence_spans_for_thresholds(
-        gt.candidate_sentence_spans_for_proofreading(ctx, loc, text, 0, len(text))
+        gt.candidate_sentence_spans_for_proofreading(ctx, loc, text)
     )
     assert len(paragraph) == 3
     active = gt.active_spans_from_paragraph(paragraph, text, 0, 10)
@@ -683,12 +664,14 @@ def test_filter_sentence_spans_for_overlap_matches_incremental_candidate() -> No
     text = "Sentence one. Sentence two. Sentence three."
     ctx = None
     loc = "en-US"
-    paragraph = gt.candidate_sentence_spans_for_proofreading(ctx, loc, text, 0, len(text))
-    nlen = len(text)
-    for n_start, n_end in ((15, 20), (10, 15), (-5, 5), (100, 110)):
-        expected = gt.candidate_sentence_spans_for_proofreading(ctx, loc, text, n_start, n_end)
-        got = gt.filter_sentence_spans_for_overlap(paragraph, n_start, n_end, nlen)
-        assert got == expected
+    paragraph = gt.candidate_sentence_spans_for_proofreading(ctx, loc, text)
+    # Incremental mode: overlap with "Sentence two." (bounds ~ 14 to 27): [15, 20)
+    assert gt.active_spans_from_paragraph(paragraph, text, 15, 20) == [paragraph[1]]
+    # Span overlap with first and second sentence [10, 15)
+    assert gt.active_spans_from_paragraph(paragraph, text, 10, 15) == [paragraph[0], paragraph[1]]
+    # Clamping and out of bounds
+    assert gt.active_spans_from_paragraph(paragraph, text, -5, 5) == [paragraph[0]]
+    assert gt.active_spans_from_paragraph(paragraph, text, 100, 110) == []
 
 
 def test_active_spans_overlap_after_threshold_drops_short_fragments() -> None:
@@ -740,31 +723,37 @@ def test_merge_dialogue_unclosed_at_end() -> None:
 
 
 def test_merge_dialogue_max_chars_cap() -> None:
-    # Two chunks whose combined length exceeds max_merge_chars (100)
-    sents = [(0, '"' + 'a' * 60 + '! '), (64, 'b' * 60 + '!"')]
-    merged = gt.merge_dialogue_sentences(sents, max_merge_chars=100)
+    # Two chunks whose combined length exceeds DIALOGUE_MERGE_MAX_CHARS (1000)
+    s1 = '"' + 'a' * 600 + '! '
+    s2 = 'b' * 600 + '!"'
+    assert len(s1) + len(s2) > gt.DIALOGUE_MERGE_MAX_CHARS
+    sents = [(0, s1), (len(s1), s2)]
+    merged = gt.merge_dialogue_sentences(sents)
     assert len(merged) == 2
-    assert merged[0] == (0, '"' + 'a' * 60 + '! ')
-    assert merged[1] == (64, 'b' * 60 + '!"')
+    assert merged[0] == (0, s1)
+    assert merged[1] == (len(s1), s2)
 
 
 def test_merge_dialogue_max_consecutive_cap() -> None:
-    # 4 chunks with odd quotes, max_consecutive_merges=2
+    # 6 chunks with odd quotes, DIALOGUE_MERGE_MAX_CONSECUTIVE=4
     sents = [
         (0, '"One! '),
         (6, 'Two! '),
         (11, 'Three! '),
-        (18, 'Four!"'),
+        (18, 'Four! '),
+        (24, 'Five! '),
+        (30, 'Six!"'),
     ]
-    merged = gt.merge_dialogue_sentences(sents, max_consecutive_merges=2)
-    # Merges 0 + 1 (1 merge) + 2 (2 merges) -> then hits cap and emits, then 3 is separate
+    assert gt.DIALOGUE_MERGE_MAX_CONSECUTIVE == 4
+    merged = gt.merge_dialogue_sentences(sents)
+    # Merges 0 + 1 (1) + 2 (2) + 3 (3) + 4 (4) -> hits cap of 4 consecutive merges, 5 stays separate
     assert len(merged) == 2
-    assert merged[0] == (0, '"One! Two! Three! ')
-    assert merged[1] == (18, 'Four!"')
+    assert merged[0] == (0, '"One! Two! Three! Four! Five! ')
+    assert merged[1] == (30, 'Six!"')
 
 def test_candidate_sentence_spans_merges_dialogue() -> None:
     text = '"Fire! Fire!" he yelled. Next sentence.'
-    spans = gt.candidate_sentence_spans_for_proofreading(None, "en-US", text, 0, len(text))
+    spans = gt.candidate_sentence_spans_for_proofreading(None, "en-US", text)
     # Without dialogue merging, FakeBI splits at 'Fire! ' and 'Fire!" he yelled. '
     # With dialogue merging, the dialogue is kept as a single sentence.
     assert len(spans) == 2
