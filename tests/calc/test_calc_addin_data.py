@@ -16,7 +16,6 @@ from plugin.calc.calc_addin_data import (
     calc_addin_args_from_split,
     calc_addin_data_to_python,
     check_python_data_size,
-    check_python_multi_data_size,
     finalize_python_data,
     pack_calc_data_for_wire,
     pack_calc_multi_data_for_wire,
@@ -38,16 +37,8 @@ def test_scalar_is_1x1_grid():
     assert calc_addin_data_to_python(3.14) == [[3.14]]
 
 
-@pytest.mark.parametrize(
-    "value, value_2",
-    [
-        pytest.param("", None, id="test_empty_string_becomes_none_in_cell"),
-        # Text fidelity: literal text True is not coerced if no coercion sets are passed.
-        pytest.param("True", "True", id="test_text_true_string_stays_string_when_no_sets_provided"),
-    ],
-)
-def test_empty_string_becomes_none_in_cell(value, value_2):
-    assert calc_addin_data_to_python(value) == [[value_2]]
+def test_empty_string_becomes_none_in_cell():
+    assert calc_addin_data_to_python("") == [[None]]
 
 
 def test_2d_tuple_range_stays_2d():
@@ -138,38 +129,23 @@ def test_pack_calc_data_for_wire_uses_list_below_threshold():
 
 def test_logical_coercion_standard_scope():
     """Verify coercion for formulas, plain text, and Python constants."""
-    true_s = {"=TRUE()", "TRUE", "True"}
-    false_s = {"=FALSE()", "FALSE", "False"}
-
-    assert calc_addin_data_to_python("=TRUE()", true_s, false_s) == [[True]]
-    assert calc_addin_data_to_python(" =FALSE() ", true_s, false_s) == [[False]]
-    assert calc_addin_data_to_python("TRUE", true_s, false_s) == [[True]]
-    assert calc_addin_data_to_python("FALSE", true_s, false_s) == [[False]]
-    assert calc_addin_data_to_python("True", true_s, false_s) == [[True]]
-    assert calc_addin_data_to_python("False", true_s, false_s) == [[False]]
+    assert calc_addin_data_to_python("=TRUE()") == [[True]]
+    assert calc_addin_data_to_python(" =FALSE() ") == [[False]]
+    assert calc_addin_data_to_python("TRUE") == [[True]]
+    assert calc_addin_data_to_python("FALSE") == [[False]]
+    assert calc_addin_data_to_python("True") == [[True]]
+    assert calc_addin_data_to_python("False") == [[False]]
 
     grid = [["=TRUE()", "Normal"], ["False", 10]]
     expected = [[True, "Normal"], [False, 10]]
-    assert calc_addin_data_to_python(grid, true_s, false_s) == expected
-
-
-def test_localized_coercion_simulation():
-    """Verify coercion with simulated localized strings (e.g. German WAHR)."""
-    true_s = {"=TRUE()", "TRUE", "True", "=WAHR()", "WAHR", "Wahr"}
-    false_s = {"=FALSE()", "FALSE", "False", "=FALSCH()", "FALSCH", "Falsch"}
-
-    assert calc_addin_data_to_python("=WAHR()", true_s, false_s) == [[True]]
-    assert calc_addin_data_to_python("Falsch", true_s, false_s) == [[False]]
+    assert calc_addin_data_to_python(grid) == expected
 
 
 def test_logical_coercion_negative_controls():
     """Ensure unrelated strings are not coerced even if they look similar."""
-    true_s = {"=TRUE()", "TRUE", "True"}
-    false_s = {"=FALSE()", "FALSE", "False"}
-
-    assert calc_addin_data_to_python("true", true_s, false_s) == [["true"]]
-    assert calc_addin_data_to_python("True()", true_s, false_s) == [["True()"]]
-    assert calc_addin_data_to_python("VERDADERO", true_s, false_s) == [["VERDADERO"]]
+    assert calc_addin_data_to_python("true") == [["true"]]
+    assert calc_addin_data_to_python("True()") == [["True()"]]
+    assert calc_addin_data_to_python("VERDADERO") == [["VERDADERO"]]
 
 
 def test_calc_logical_float_sums_through_wire():
@@ -222,8 +198,8 @@ def test_calc_addin_args_from_split_multi_range():
 
 def test_check_python_multi_data_size_combined():
     ranges = [[[1.0] * 100], [[2.0] * 100]]
-    assert check_python_multi_data_size(ranges, max_cells=150) is not None
-    assert check_python_multi_data_size(ranges, max_cells=250) is None
+    assert check_python_data_size(ranges, max_cells=150, multi=True) is not None
+    assert check_python_data_size(ranges, max_cells=250, multi=True) is None
 
 
 def test_named_range_header_survives_py_pack_when_definition_is_used():
