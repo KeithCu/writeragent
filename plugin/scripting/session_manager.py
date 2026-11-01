@@ -163,21 +163,14 @@ def _writer_document(ctx: Any) -> Any | None:
     return _find_document_by_predicate(ctx, is_writer)
 
 
-def _read_workbook_key_parts(doc: Any, *, include_property_when_url: bool) -> tuple[Any, str, str | None]:
-    from plugin.framework.thread_guard import _unwrap_uno
-
-    raw_doc = _unwrap_uno(doc)
-    url = _doc_url(raw_doc)
-    existing: str | None = None
-    if include_property_when_url or not url:
-        try:
-            prop = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
-            if prop:
-                existing = str(prop)
-        except Exception:
-            log.debug("session_manager: reading session property failed", exc_info=True)
-            existing = None
-    return raw_doc, url, existing
+def _stored_session_prop(raw_doc: Any) -> str | None:
+    try:
+        prop = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
+        if prop:
+            return str(prop)
+    except Exception:
+        log.debug("session_manager: reading session property failed", exc_info=True)
+    return None
 
 
 def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | None) -> None:
@@ -214,12 +207,21 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
 
 def _existing_workbook_session_key(doc: Any) -> str | None:
     """URL or already-stored session prop. Does not create a prop."""
-    _raw_doc, url, existing = _read_workbook_key_parts(doc, include_property_when_url=False)
-    return url or existing
+    from plugin.framework.thread_guard import _unwrap_uno
+
+    raw_doc = _unwrap_uno(doc)
+    url = _doc_url(raw_doc)
+    if url:
+        return url
+    return _stored_session_prop(raw_doc)
 
 
 def _session_key_for_reset(doc: Any) -> str | None:
-    raw_doc, url, existing = _read_workbook_key_parts(doc, include_property_when_url=True)
+    from plugin.framework.thread_guard import _unwrap_uno
+
+    raw_doc = _unwrap_uno(doc)
+    url = _doc_url(raw_doc)
+    existing = _stored_session_prop(raw_doc)
     _retire_orphaned_unsaved_session(raw_doc, url, existing)
     return url or existing
 
@@ -491,15 +493,20 @@ def _reset_on_main(ctx: Any, doc: Any | None = None) -> None:
     # window is not Writer, Draw, or Calc; falling through to desktop
     # enumeration cleared a background Calc document. Tell the user and return.
     resets = (
-        (is_calc, _("Several Calc spreadsheets are open and none is focused. Switch to the spreadsheet to reset and try again."), _reset_calc_python_sessions),
-        (is_writer, _("Several Writer documents are open and none is focused. Switch to the document to reset and try again."), _reset_writer_sessions),
-        (is_draw, _("Several Draw documents are open and none is focused. Switch to the document to reset and try again."), _reset_rps_python_session),
+        (is_calc, _reset_calc_python_sessions),
+        (is_writer, _reset_writer_sessions),
+        (is_draw, _reset_rps_python_session),
     )
+    several_open = {
+        is_calc: _("Several Calc spreadsheets are open and none is focused. Switch to the spreadsheet to reset and try again."),
+        is_writer: _("Several Writer documents are open and none is focused. Switch to the document to reset and try again."),
+        is_draw: _("Several Draw documents are open and none is focused. Switch to the document to reset and try again."),
+    }
     if doc is None:
         desktop = get_desktop(ctx)
         doc = desktop.getCurrentComponent() if desktop else None
     if doc is not None:
-        for predicate, _several, reset in resets:
+        for predicate, reset in resets:
             if predicate(doc):
                 reset(ctx, doc)
                 return
@@ -507,10 +514,10 @@ def _reset_on_main(ctx: Any, doc: Any | None = None) -> None:
         return
 
     # No current component (headless): keep the open-document search.
-    for predicate, several, reset in resets:
+    for predicate, reset in resets:
         matches = _enumerated_matching_models(ctx, predicate)
         if len(matches) > 1:
-            _msgbox(ctx, several)
+            _msgbox(ctx, several_open[predicate])
             return
         if len(matches) == 1:
             reset(ctx, matches[0])
