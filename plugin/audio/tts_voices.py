@@ -66,7 +66,9 @@ def _normalize_voice_family(family: str) -> str:
 
 
 def _locale_language_stem(locale: str | None) -> str:
-    """Extract language prefix from locale (``en_US`` / ``en-US`` → ``en``)."""
+    """Language prefix (``en_US`` / ``en-US`` → ``en``). None is the active UI locale."""
+    if locale is None:
+        locale = i18n.get_active_locale()
     clean = (locale or "").strip().replace("-", "_").lower()
     return clean.split("_")[0] if clean else "en"
 
@@ -91,9 +93,7 @@ def _label_says_female(label: str) -> bool:
 def _kokoro_voice_is_female(voice_id: str, label: str) -> bool:
     """Kokoro ids encode gender in the second letter (``af_``, ``jf_``, ``ef_``)."""
     vid = (voice_id or "").lower()
-    if len(vid) >= 3 and vid[1] == "f" and vid[2] == "_":
-        return True
-    return _label_says_female(label)
+    return vid[1:3] == "f_" or _label_says_female(label)
 
 
 def _first_matching(
@@ -236,8 +236,6 @@ def _kokoro_default_for_stem(stem: str) -> str:
 def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
     """Return default voice for a family (canonical key or provider label) and UI locale."""
     fam = _normalize_voice_family(family)
-    if locale is None:
-        locale = i18n.get_active_locale()
     stem = _locale_language_stem(locale)
     if fam == "piper":
         return _piper_default_for_stem(stem)
@@ -255,9 +253,6 @@ def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, 
     fam = _normalize_voice_family(family)
     if fam not in ("piper", "kokoro"):
         return VOICE_CATALOGS.get(fam, [])
-
-    if locale is None:
-        locale = i18n.get_active_locale()
 
     stem = _locale_language_stem(locale)
 
@@ -295,15 +290,14 @@ def match_voice_id(voice: str, candidates: Iterable[str]) -> str | None:
     v = (voice or "").strip()
     if not v:
         return None
-    cand_list = list(candidates)
-    for c in cand_list:
+    v_fold = v.casefold()
+    folded = None
+    for c in candidates:
         if c == v:
             return c
-    v_fold = v.casefold()
-    for c in cand_list:
-        if c.casefold() == v_fold:
-            return c
-    return None
+        if folded is None and c.casefold() == v_fold:
+            folded = c
+    return folded
 
 
 def canonical_voice_id(family: str, voice: str) -> str:
@@ -476,12 +470,8 @@ def pick_voice_id(
         return current_id or stored_id
 
     values = [str(opt.get("value") or "") for opt in options if "value" in opt]
-    if current_id:
-        matched = match_voice_id(current_id, values)
-        if matched is not None:
-            return matched
-    if stored_id:
-        matched = match_voice_id(stored_id, values)
+    for cand in (current_id, stored_id):
+        matched = match_voice_id(cand, values)
         if matched is not None:
             return matched
     if family in ("openrouter", "together"):
@@ -520,8 +510,6 @@ def get_scoped_tts_voice(
     if context.source == "harvested":
         harvested_values = [opt["value"] for opt in context.rows]
         for cand in (clean_scoped, clean_gen):
-            if not cand:
-                continue
             matched = match_voice_id(cand, harvested_values)
             if matched is not None:
                 return matched
@@ -536,8 +524,6 @@ def get_scoped_tts_voice(
     # Catalog families
     valid_voices = {opt["value"] for opt in context.rows}
     for cand in (clean_scoped, clean_gen):
-        if not cand:
-            continue
         canon = canonical_voice_id(family, cand)
         if canon in valid_voices or _looks_like_path(canon):
             return canon

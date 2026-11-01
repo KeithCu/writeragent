@@ -25,12 +25,23 @@ PiperModel = tuple[str, str, str, str]
 
 CATALOG_PATH = os.path.join(os.path.dirname(__file__), "data", "voice_catalog.json")
 
-_PIPER_FIELDS: tuple[str, ...] = ("id", "onnx", "config", "lang", "label")
-_VOICE_FIELDS: tuple[str, ...] = ("id", "label")
 
 def _load_catalog(path: str = CATALOG_PATH) -> Any:
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _check_id_map(mapping: Any, where: str, valid_ids: set[str], family: str, bracket_key: bool) -> dict[str, str]:
+    """Key→id map. ``bracket_key`` keeps locale errors as where['k'] and alias errors as where.k."""
+    if not isinstance(mapping, dict):
+        raise ValueError(f"voice_catalog.json: {where} must be an object")
+    out: dict[str, str] = {}
+    for key, target_id in mapping.items():
+        if not isinstance(key, str) or not key or not isinstance(target_id, str) or target_id not in valid_ids:
+            key_text = f"['{key}']" if bracket_key else f".{key}"
+            raise ValueError(f"voice_catalog.json: {where}{key_text} -> '{target_id}' is not a {family} voice")
+        out[key] = target_id
+    return out
 
 
 def _parse_catalog(raw: Any) -> dict[str, Any]:
@@ -46,8 +57,7 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
     short_names: dict[str, str] = {}
     kokoro_ids: set[str] = set()
     fallbacks: dict[str, str] = {}
-    kokoro_locale_defaults: dict[str, str] = {}
-    piper_locale_defaults: dict[str, str] = {}
+    locale_defaults: dict[str, dict[str, str]] = {"kokoro": {}, "piper": {}}
 
     for family in ("piper", "kokoro", "openai", "system"):
         block = raw.get(family)
@@ -64,7 +74,7 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
             if not isinstance(entry, dict):
                 raise ValueError(f"voice_catalog.json: {family}.voices[{idx}] must be an object")
 
-            req_fields = _PIPER_FIELDS if family == "piper" else _VOICE_FIELDS
+            req_fields = ("id", "onnx", "config", "lang", "label") if family == "piper" else ("id", "label")
 
             for field in req_fields:
                 if field not in entry:
@@ -94,40 +104,21 @@ def _parse_catalog(raw: Any) -> dict[str, Any]:
 
         loc_defaults = block.get("locale_defaults")
         if loc_defaults is not None:
-            if not isinstance(loc_defaults, dict):
-                raise ValueError(f"voice_catalog.json: {family}.locale_defaults must be an object")
-            for loc_key, target_id in loc_defaults.items():
-                if not isinstance(loc_key, str) or not loc_key or not isinstance(target_id, str) or target_id not in seen_ids:
-                    raise ValueError(
-                        f"voice_catalog.json: {family}.locale_defaults['{loc_key}'] -> '{target_id}' is not a {family} voice"
-                    )
-            if family == "kokoro":
-                kokoro_locale_defaults = dict(loc_defaults)
-            elif family == "piper":
-                piper_locale_defaults = dict(loc_defaults)
+            checked = _check_id_map(loc_defaults, f"{family}.locale_defaults", seen_ids, family, True)
+            if family in locale_defaults:
+                locale_defaults[family] = checked
 
     voice_catalogs["openai"].sort(key=lambda row: row["label"].casefold())
 
-    kokoro_block = raw["kokoro"]
-    aliases = kokoro_block.get("openai_aliases")
-    if not isinstance(aliases, dict):
-        raise ValueError("voice_catalog.json: kokoro.openai_aliases must be an object")
-
-    kokoro_aliases: dict[str, str] = {}
-    for alias_key, target_id in aliases.items():
-        if not isinstance(alias_key, str) or not alias_key or not isinstance(target_id, str) or target_id not in kokoro_ids:
-            raise ValueError(
-                f"voice_catalog.json: kokoro.openai_aliases.{alias_key} -> '{target_id}' is not a kokoro voice"
-            )
-        kokoro_aliases[alias_key] = target_id
+    kokoro_aliases = _check_id_map(raw["kokoro"].get("openai_aliases"), "kokoro.openai_aliases", kokoro_ids, "kokoro", False)
 
     return {
         "piper_models": piper_models,
         "voice_catalogs": voice_catalogs,
         "kokoro_items": kokoro_items,
         "short_names": short_names,
-        "kokoro_locale_defaults": kokoro_locale_defaults,
-        "piper_locale_defaults": piper_locale_defaults,
+        "kokoro_locale_defaults": locale_defaults["kokoro"],
+        "piper_locale_defaults": locale_defaults["piper"],
         "kokoro_aliases": kokoro_aliases,
         "fallbacks": fallbacks,
     }
