@@ -16,7 +16,7 @@ import unohelper
 from plugin.framework.errors import is_real_disposal, uno_probe
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
-from plugin.framework.uno_listeners import install_view_doc_listener
+from plugin.framework.uno_listeners import _controller_alive, install_view_doc_listener
 
 log = logging.getLogger(__name__)
 
@@ -72,14 +72,6 @@ def _looks_like_cell_context_menu(container: Any) -> bool:
     except Exception:
         return False
     return False
-
-
-def _controller_alive(controller: Any) -> bool:
-    """Pruning must never raise: uno_probe re-raises real disposal."""
-    try:
-        return controller.getModel() is not None
-    except Exception:
-        return False
 
 
 def _get_interceptor() -> Any:

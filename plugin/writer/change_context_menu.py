@@ -33,7 +33,7 @@ import unohelper
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.errors import is_real_disposal
-from plugin.framework.uno_listeners import install_view_doc_listener
+from plugin.framework.uno_listeners import _controller_alive, install_view_doc_listener
 
 log = logging.getLogger(__name__)
 
@@ -128,13 +128,6 @@ def _make_interceptor(model: Any) -> Any:
 
         _interceptor_cls = _ChangeContextMenuInterceptor
     return _interceptor_cls(model)
-
-
-def _controller_alive(controller: Any) -> bool:
-    try:
-        return controller.getModel() is not None
-    except Exception:
-        return False
 
 
 def _cleanup_disposed_controllers() -> None:
