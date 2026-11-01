@@ -16,7 +16,7 @@ from plugin.scripting.venv.calc_functions_a_c import (
     _int_bitwise,
     _int_shift,
 )
-from plugin.scripting.venv.calc_functions_d_h import _dollar_fraction_terms
+from plugin.scripting.venv.calc_functions_d_h import _dollar_frac
 from plugin.scripting.venv.calc_functions_t_z import _find_match_index
 from plugin.scripting.venv.calc_functions_util import (
     _build_holiday_set,
@@ -237,37 +237,21 @@ def test_criteria_numbers():
 
 
 def test_dollar_fraction_terms():
-    # dollarde terms
-    terms = _dollar_fraction_terms(1.02, 4)
-    assert terms is not None
-    sign, i_part, f_part, f, scale = terms
-    assert sign == 1.0
-    assert i_part == 1.0
-    assert abs(f_part - 0.02) < 1e-9
-    assert f == 4
-    assert scale == 10
-
-    # Negative amount
-    neg_terms = _dollar_fraction_terms(-1.02, 4)
-    assert neg_terms is not None
-    assert neg_terms[0] == -1.0
-    assert neg_terms[1] == 1.0
-
-    # Non-positive or invalid fraction returns None
-    assert _dollar_fraction_terms(1.02, 0) is None
-    assert _dollar_fraction_terms(1.02, -4) is None
+    assert math.isclose(_dollar_frac(1.02, 4, to_decimal=True), 1.05)
+    assert math.isclose(_dollar_frac(-1.02, 4, to_decimal=True), -1.05)
+    assert math.isclose(_dollar_frac(1.5, 4, to_decimal=False), 1.2)
+    assert math.isnan(_dollar_frac(1.02, 0, to_decimal=True))
+    assert math.isnan(_dollar_frac(1.02, -4, to_decimal=False))
     with pytest.raises(ValueError):
-        _dollar_fraction_terms("invalid", 4)
+        _dollar_frac("invalid", 4, to_decimal=True)
     with pytest.raises(ValueError):
-        _dollar_fraction_terms(1.02, "invalid")
-
-    # inf used to crash in math.floor / int(float(inf)) via OverflowError.
-    assert _dollar_fraction_terms(1.02, float("inf")) is None
-    assert _dollar_fraction_terms(1.02, float("-inf")) is None
-    assert _dollar_fraction_terms(float("inf"), 4) is None
-    assert _dollar_fraction_terms(float("-inf"), 4) is None
-    assert _dollar_fraction_terms(float("nan"), 4) is None
-    assert _dollar_fraction_terms(10**400, 4) is None
+        _dollar_frac(1.02, "invalid", to_decimal=True)
+    assert math.isnan(_dollar_frac(1.02, float("inf"), to_decimal=True))
+    assert math.isnan(_dollar_frac(1.02, float("-inf"), to_decimal=False))
+    assert math.isnan(_dollar_frac(float("inf"), 4, to_decimal=True))
+    assert math.isnan(_dollar_frac(float("-inf"), 4, to_decimal=False))
+    assert math.isnan(_dollar_frac(float("nan"), 4, to_decimal=True))
+    assert math.isnan(_dollar_frac(10**400, 4, to_decimal=True))
 
 
 def test_match_criteria_wildcards_and_case():
