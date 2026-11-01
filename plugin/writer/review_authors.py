@@ -115,10 +115,7 @@ def deletion_author() -> Generator[None, None, None]:
     """Author the tracked deletion inside this block as the DELETE author, then restore the
     INSERT author. A no-op unless ``begin()`` armed split authoring on this thread."""
     ctx = getattr(_state, "ctx", None)
-    if ctx is None:
-        yield
-        return
-    if not _set_office_author(ctx, DELETE_AUTHOR):
+    if ctx is None or not _set_office_author(ctx, DELETE_AUTHOR):
         yield
         return
     try:
