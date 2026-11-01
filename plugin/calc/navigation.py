@@ -160,12 +160,7 @@ def lookup_cell_ref_at_index(control: Any, index: int) -> str | None:
     addr = cell_link_registry.lookup(control, index)
     if addr:
         return addr
-    if control is None or not hasattr(control, "getText"):
-        return None
-    text = control.getText()
-    if not isinstance(text, str):
-        return None
-    return cell_ref_at_index(text, index)
+    return cell_ref_at_index(control.getText(), index)
 
 
 def _accessible_text(control: Any) -> Any | None:

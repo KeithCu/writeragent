@@ -204,26 +204,19 @@ class CellInspector:
         Returns:
             dict with keys: address, value, formula, type.
         """
-        try:
-            cell, bare_address, value, type_name = self._resolve_single_cell(address)
-            formula = cell.getFormula() if type_name == "formula" else None
+        cell, bare_address, value, type_name = self._resolve_single_cell(address)
+        formula = cell.getFormula() if type_name == "formula" else None
 
-            info = {"address": bare_address.upper(), "value": value, "formula": formula, "type": type_name}
-            if include_format_info:
-                try:
-                    self._enrich_cell_format(info, cell)
-                except Exception as e:
-                    if is_disposed_exception(e):
-                        raise
-                    # Format metadata must never turn a previously valid core read into an error.
-                    log.exception("Date/time format enrichment failed for cell %s; returning the raw value", address)
-            return info
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Cell reading failed for %s", address)
-            # ToolExecutionError is a WriterAgentException, so =PY re-raises it and skips CALC_READ_ERROR (the message includes the cell address).
-            raise
+        info = {"address": bare_address.upper(), "value": value, "formula": formula, "type": type_name}
+        if include_format_info:
+            try:
+                self._enrich_cell_format(info, cell)
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+                # Format metadata must never turn a previously valid core read into an error.
+                log.exception("Date/time format enrichment failed for cell %s; returning the raw value", address)
+        return info
 
     def read_range(self, range_name: str, *, include_format_info: bool = False) -> list[list[dict[str, Any]]]:
         """Read values and formulas in a cell range.
@@ -239,73 +232,66 @@ class CellInspector:
             ``type`` / ``format_category`` ``duration``. Otherwise ``value``
             stays the raw serial.
         """
-        try:
-            cell_range = self.bridge.resolve_range_or_address(range_name)
+        cell_range = self.bridge.resolve_range_or_address(range_name)
 
-            addr = cell_range.getRangeAddress() if hasattr(cell_range, "getRangeAddress") else None
-            if addr is None or (addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow):
-                return [[self.read_cell(range_name, include_format_info=include_format_info)]]
-            # Refuse an over-cap range before fetching data/formula arrays.
-            n = (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1)
-            limit = configured_python_max_data_cells()
-            if n > limit:
-                raise CalcError(f"Data range has {n} cells; maximum is {limit}.")
+        addr = cell_range.getRangeAddress() if hasattr(cell_range, "getRangeAddress") else None
+        if addr is None or (addr.StartColumn == addr.EndColumn and addr.StartRow == addr.EndRow):
+            return [[self.read_cell(range_name, include_format_info=include_format_info)]]
+        # Refuse an over-cap range before fetching data/formula arrays.
+        n = (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1)
+        limit = configured_python_max_data_cells()
+        if n > limit:
+            raise CalcError(f"Data range has {n} cells; maximum is {limit}.")
 
-            data_array = cell_range.getDataArray()
-            formula_array = cell_range.getFormulaArray()
-            format_rows: TemporalRows = {}
-            null_date = None
-            if include_format_info:
-                try:
-                    format_rows, null_date = self._range_format_rows(cell_range, formula_array)
-                except Exception as e:
-                    if is_disposed_exception(e):
-                        raise
-                    # Some older/embedded Calc builds may not expose format-range queries.
-                    # Preserve the old raw response instead of failing read_cell_range.
-                    log.exception("Date/time format enrichment failed for range %s; returning raw values", range_name)
+        data_array = cell_range.getDataArray()
+        formula_array = cell_range.getFormulaArray()
+        format_rows: TemporalRows = {}
+        null_date = None
+        if include_format_info:
+            try:
+                format_rows, null_date = self._range_format_rows(cell_range, formula_array)
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+                # Some older/embedded Calc builds may not expose format-range queries.
+                # Preserve the old raw response instead of failing read_cell_range.
+                log.exception("Date/time format enrichment failed for range %s; returning raw values", range_name)
 
-            col_letters = [index_to_column(c) for c in range(addr.StartColumn, addr.EndColumn + 1)]
-            result = []
-            for row_idx, row in enumerate(range(addr.StartRow, addr.EndRow + 1)):
-                row_data = []
-                for col_idx, col in enumerate(range(addr.StartColumn, addr.EndColumn + 1)):
-                    # Extract raw data and formula strings from batch fetched arrays
-                    raw_val = data_array[row_idx][col_idx]
-                    raw_formula = formula_array[row_idx][col_idx]
+        col_letters = [index_to_column(c) for c in range(addr.StartColumn, addr.EndColumn + 1)]
+        result = []
+        for row_idx, row in enumerate(range(addr.StartRow, addr.EndRow + 1)):
+            row_data = []
+            for col_idx, col in enumerate(range(addr.StartColumn, addr.EndColumn + 1)):
+                # Extract raw data and formula strings from batch fetched arrays
+                raw_val = data_array[row_idx][col_idx]
+                raw_formula = formula_array[row_idx][col_idx]
 
-                    value = raw_val
-                    formula = None
+                value = raw_val
+                formula = None
 
-                    if raw_formula and raw_formula.startswith("="):
-                        cell_type = "formula"
-                        formula = raw_formula
-                        # Keep value as raw_val which already contains the evaluated formula result
-                    elif isinstance(raw_val, float):
-                        cell_type = "value"
-                    elif isinstance(raw_val, str) and raw_val:
-                        cell_type = "text"
-                    else:
-                        cell_type = "empty"
-                        value = None
+                if raw_formula and raw_formula.startswith("="):
+                    cell_type = "formula"
+                    formula = raw_formula
+                    # Keep value as raw_val which already contains the evaluated formula result
+                elif isinstance(raw_val, float):
+                    cell_type = "value"
+                elif isinstance(raw_val, str) and raw_val:
+                    cell_type = "text"
+                else:
+                    cell_type = "empty"
+                    value = None
 
-                    cell_address = f"{col_letters[col_idx]}{row + 1}"
+                cell_address = f"{col_letters[col_idx]}{row + 1}"
 
-                    cell_info = {"address": cell_address, "value": value, "formula": formula, "type": cell_type}
-                    if null_date is not None and isinstance(value, (int, float)):
-                        span = self._temporal_span(format_rows, row, col)
-                        if span is not None:
-                            category, format_code = span
-                            fields = self._temporal_fields(value, category, format_code, null_date)
-                            if fields:
-                                cell_info.update(fields)
-                    row_data.append(cell_info)
-                result.append(row_data)
+                cell_info = {"address": cell_address, "value": value, "formula": formula, "type": cell_type}
+                if null_date is not None and isinstance(value, (int, float)):
+                    span = self._temporal_span(format_rows, row, col)
+                    if span is not None:
+                        category, format_code = span
+                        fields = self._temporal_fields(value, category, format_code, null_date)
+                        if fields:
+                            cell_info.update(fields)
+                row_data.append(cell_info)
+            result.append(row_data)
 
-            return result
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Range reading failed for %s", range_name)
-            # ToolExecutionError is a WriterAgentException, so =PY re-raises it and skips CALC_READ_ERROR (the message includes the cell address).
-            raise
+        return result
