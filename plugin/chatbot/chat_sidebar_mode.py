@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from typing import Any, Callable
+from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.i18n import _
@@ -54,130 +54,69 @@ def sidebar_mode_flags_for_doc_type(doc_type_label: str) -> SidebarModeFlags:
     return SidebarModeFlags()
 
 
-def _label_chat() -> str:
-    return _("Chat")
-
-
-def _label_image() -> str:
-    return _("Image")
-
-
-def _label_web_research() -> str:
-    return _("Web Research")
-
-
-def _label_deep_research() -> str:
-    return _("Deep Research")
-
-
-def _label_brainstorming() -> str:
-    return _("Brainstorming")
-
-
-def _label_writing_plan() -> str:
-    return _("Writing Plan")
-
-
-def _label_ppt_master() -> str:
-    return _("PPT-Master")
-
-
-def _label_librarian() -> str:
-    return _("Librarian")
-
-
 @dataclass(frozen=True)
 class _ModeSpec:
     key: str
     label_fn: Any
     greeting_fn: Any = None
-    clear_on_switch: bool = True
-    doc_type_predicate: Callable[[str], bool] | None = None
     capture_topic: bool = False
-    handler: str = ""
     flag_attr: str | None = None
-    pinned_last: bool = False
 
 
 # Literals inside _() so xgettext extracts them (_(CONST) is invisible).
 _MODE_SPECS: tuple[_ModeSpec, ...] = (
-    _ModeSpec(CHAT_MODE_CHAT, _label_chat),
-    _ModeSpec(CHAT_MODE_IMAGE, _label_image, handler="image"),
+    _ModeSpec(CHAT_MODE_CHAT, lambda: _("Chat")),
+    _ModeSpec(CHAT_MODE_IMAGE, lambda: _("Image")),
     _ModeSpec(
         CHAT_MODE_WEB_RESEARCH,
-        _label_web_research,
+        lambda: _("Web Research"),
         greeting_fn=lambda _model: _("AI: I can do web research to answer any question, or summarize a web page, without seeing or changing your document. Let's chat."),
-        handler="web_research",
     ),
     _ModeSpec(
         CHAT_MODE_DEEP_RESEARCH,
-        _label_deep_research,
+        lambda: _("Deep Research"),
         greeting_fn=lambda _model: _("AI: Deep Research mode runs a multi-step web investigation (planning, several searches, synthesis) and can insert a formatted report into your document. It takes longer but produces more thorough results."),
-        handler="deep_research",
         flag_attr="include_deep_research",
     ),
     _ModeSpec(
         CHAT_MODE_BRAINSTORMING,
-        _label_brainstorming,
+        lambda: _("Brainstorming"),
         greeting_fn=lambda _model: _("AI: Let's explore and design your idea together. I'll ask questions, suggest approaches, and help you build an approved spec in your document when you're ready."),
-        doc_type_predicate=lambda d: d == "writer",
         capture_topic=True,
-        handler="brainstorming",
         flag_attr="include_brainstorming",
     ),
     # Writing-plan tools are TextDocument-only. Non-Writer sidebars do not list this mode.
     _ModeSpec(
         CHAT_MODE_WRITING_PLAN,
-        _label_writing_plan,
+        lambda: _("Writing Plan"),
         greeting_fn=lambda _model: _("AI: Let's draft your document section-by-section. I'll help you create a writing plan outline, and then implement it incrementally with your approval."),
-        clear_on_switch=False,
-        doc_type_predicate=lambda d: d == "writer",
         capture_topic=True,
-        handler="writing_plan",
         flag_attr="include_writing_plan",
     ),
     _ModeSpec(
         CHAT_MODE_PPT_MASTER,
-        _label_ppt_master,
+        lambda: _("PPT-Master"),
         greeting_fn=lambda _model: _("AI: PPT-Master mode — I'll run the ppt-master workflow in your configured Python venv (scripts + export to Impress). Describe your topic or point me at a project folder."),
-        doc_type_predicate=lambda d: d in ("draw", "impress"),
         capture_topic=True,
-        handler="ppt_master",
         flag_attr="include_ppt_master",
     ),
     _ModeSpec(
         CHAT_MODE_LIBRARIAN,
-        _label_librarian,
+        lambda: _("Librarian"),
         greeting_fn=lambda _model: _("AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite colors, and give a short tour. Pick Chat in the dropdown whenever you want to work on the document."),
-        handler="librarian",
-        pinned_last=True,
     ),
 )
 
 assert len(_MODE_SPECS) == len({s.key for s in _MODE_SPECS}), "Duplicate mode keys in _MODE_SPECS"
 assert all(s.flag_attr is None or s.flag_attr in SidebarModeFlags.__dataclass_fields__ for s in _MODE_SPECS), "Invalid flag_attr in _MODE_SPECS"
-_pinned_seen = False
-for _s in _MODE_SPECS:
-    if _s.pinned_last:
-        _pinned_seen = True
-    elif _pinned_seen:
-        raise AssertionError("Pinned mode specs must be last")
 
 _SPEC_BY_KEY: dict[str, _ModeSpec] = {spec.key: spec for spec in _MODE_SPECS}
 _VALID_MODES: frozenset[str] = frozenset(_SPEC_BY_KEY)
 
 
+# Tuple order is combobox order; Librarian stays last.
 def _modes_for(flags: SidebarModeFlags) -> tuple[str, ...]:
-    modes: list[str] = []
-    pinned: list[str] = []
-    for spec in _MODE_SPECS:
-        if spec.flag_attr and not getattr(flags, spec.flag_attr):
-            continue
-        if spec.pinned_last:
-            pinned.append(spec.key)
-        else:
-            modes.append(spec.key)
-    return tuple(modes + pinned)
+    return tuple(s.key for s in _MODE_SPECS if not s.flag_attr or getattr(flags, s.flag_attr))
 
 
 @deal.post(lambda result: isinstance(result, tuple) and len(result) >= 4)
@@ -251,23 +190,16 @@ def _set_combobox_items(ctrl: Any, labels: tuple[str, ...]) -> None:
             ctrl.addItem(label, 0)
 
 
-def _configure_mode_selector_model(ctrl: Any) -> None:
-    """Show dropdown arrow; do not set ReadOnly (breaks item list on some LO builds)."""
-    if not hasattr(ctrl, "getModel"):
-        return
-    model = ctrl.getModel()
-    if model is None:
-        return
-    if hasattr(model, "Dropdown"):
-        model.Dropdown = True
-
-
 def populate_mode_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> None:
     """Fill the mode combobox with translated items."""
     if not ctrl:
         return
     labels = tuple(str(x) for x in get_mode_labels(flags))
-    _configure_mode_selector_model(ctrl)
+    # Show dropdown arrow; do not set ReadOnly (breaks item list on some LO builds).
+    if hasattr(ctrl, "getModel"):
+        model = ctrl.getModel()
+        if model is not None and hasattr(model, "Dropdown"):
+            model.Dropdown = True
     _set_combobox_items(ctrl, labels)
 
 
@@ -320,15 +252,6 @@ def greeting_for_sidebar_mode(mode: str, model: Any) -> str:
     return get_greeting_for_document(model)
 
 
-def select_librarian_default_mode(has_invoked_flag: bool, profile_exists: bool) -> str:
-    """Pure selection of default mode: Librarian once on first open, Chat thereafter."""
-    if has_invoked_flag:
-        return CHAT_MODE_CHAT
-    if profile_exists:
-        return CHAT_MODE_CHAT
-    return CHAT_MODE_LIBRARIAN
-
-
 def librarian_default_mode(ctx: Any = None) -> str:
     """Librarian once on first sidebar open; later opens start on Chat even if USER.md is empty.
 
@@ -344,7 +267,7 @@ def librarian_default_mode(ctx: Any = None) -> str:
 
         profile_exists = user_profile_exists()
 
-    result = select_librarian_default_mode(has_invoked, profile_exists)
+    result = CHAT_MODE_CHAT if has_invoked or profile_exists else CHAT_MODE_LIBRARIAN
     if not has_invoked and (result == CHAT_MODE_LIBRARIAN or profile_exists):
         mark_librarian_invoked()
     return result
@@ -374,9 +297,17 @@ class SidebarModeController:
     def __init__(self, panel: Any) -> None:
         self._panel = panel
 
+    def _show_chat_mode(self) -> None:
+        flags = getattr(self._panel, "sidebar_mode_flags", None)
+        if self._panel.chat_mode_selector and flags:
+            set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_CHAT, flags)
+        # Combo change does not reliably fire ChatModeListener; apply the mode here.
+        apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
+        if callable(apply_fn):
+            apply_fn(CHAT_MODE_CHAT)
+
     def on_brainstorming_session_finished(self, spec_saved: bool = False) -> None:
         """Reset sidebar after brainstorming_finished (dropdown transitions to Writing Plan or Chat)."""
-        flags = getattr(self._panel, "sidebar_mode_flags", None)
         # Read _mode_topic before clear_brainstorming_session blanks
         # it, or the writing-plan handoff is always "Implement the saved spec: ".
         # selectItemPos often does not fire ChatModeListener, so the combo
@@ -384,49 +315,29 @@ class SidebarModeController:
         # Apply the mode here.
         topic = getattr(self._panel, "_mode_topic", "") or ""
         clear_brainstorming_session(self._panel)
-        apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
         if spec_saved:
+            flags = getattr(self._panel, "sidebar_mode_flags", None)
             self._panel._active_mode = CHAT_MODE_WRITING_PLAN
             self._panel._mode_topic = f"Implement the saved spec: {topic}"
             if self._panel.chat_mode_selector and flags:
                 set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_WRITING_PLAN, flags)
+            apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
             if callable(apply_fn):
                 apply_fn(CHAT_MODE_WRITING_PLAN)
         else:
-            if self._panel.chat_mode_selector and flags:
-                set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_CHAT, flags)
-            if callable(apply_fn):
-                apply_fn(CHAT_MODE_CHAT)
+            self._show_chat_mode()
 
     def on_librarian_session_finished(self) -> None:
         """Reset sidebar after switch_to_document_mode (dropdown returns to Chat). History is kept."""
-        flags = getattr(self._panel, "sidebar_mode_flags", None)
         clear_librarian_session(self._panel)
-        if self._panel.chat_mode_selector and flags:
-            set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_CHAT, flags)
-        # Do not rely on ComboBox item-changed: swap to doc_session, re-render Chat
-        # pane, and refresh [DOCUMENT CONTENT] for the next send.
-        apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
-        if callable(apply_fn):
-            apply_fn(CHAT_MODE_CHAT)
+        self._show_chat_mode()
 
     def on_writing_plan_session_finished(self) -> None:
         """Reset sidebar after writing_plan_finished (dropdown returns to Chat)."""
-        flags = getattr(self._panel, "sidebar_mode_flags", None)
         clear_writing_plan_session(self._panel)
-        if self._panel.chat_mode_selector and flags:
-            set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_CHAT, flags)
-        # Same as librarian: the combo change does not reliably run ChatModeListener.
-        apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
-        if callable(apply_fn):
-            apply_fn(CHAT_MODE_CHAT)
+        self._show_chat_mode()
 
     def on_ppt_master_session_finished(self) -> None:
         """Reset sidebar after ppt_master_finished (dropdown returns to Chat)."""
-        flags = getattr(self._panel, "sidebar_mode_flags", None)
         clear_ppt_master_session(self._panel)
-        if self._panel.chat_mode_selector and flags:
-            set_selector_mode_with_flags(self._panel.chat_mode_selector, CHAT_MODE_CHAT, flags)
-        apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
-        if callable(apply_fn):
-            apply_fn(CHAT_MODE_CHAT)
+        self._show_chat_mode()

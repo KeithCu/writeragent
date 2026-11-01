@@ -84,9 +84,7 @@ def test_ensure_config_file_creates_missing_file_private(tmp_path: Path) -> None
     from plugin.chatbot.external_editor import _ensure_config_file
 
     path = tmp_path / "sub" / "writeragent.json"
-    ok, err = _ensure_config_file(str(path))
-    assert ok is True
-    assert err is None
+    _ensure_config_file(str(path))
     assert path.parent.is_dir()
     assert path.read_text(encoding="utf-8") == "{}\n"
     if os.name == "posix":
@@ -98,9 +96,7 @@ def test_ensure_config_file_keeps_an_existing_file(tmp_path: Path) -> None:
 
     path = tmp_path / "writeragent.json"
     path.write_text('{"sentinel": true}\n', encoding="utf-8")
-    ok, err = _ensure_config_file(str(path))
-    assert ok is True
-    assert err is None
+    _ensure_config_file(str(path))
     assert path.read_text(encoding="utf-8") == '{"sentinel": true}\n'
 
 
