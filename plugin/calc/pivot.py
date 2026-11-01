@@ -130,13 +130,15 @@ def _set_field_orientations(
         avail = sorted(by_name.keys())
         raise ToolExecutionError("Unknown pivot field name(s): " + ", ".join(missing) + ". Available column headers: " + ", ".join(avail))
 
-    if data_functions:
-        for fld_name, func_name in data_functions.items():
-            if fld_name not in data_fields:
-                raise ToolExecutionError(f"Field '{fld_name}' in data_functions must be in data_fields.")
-            if str(func_name).strip().upper() not in _DATA_FUNCTIONS:
-                allowed = ", ".join(sorted(_DATA_FUNCTIONS.keys()))
-                raise ToolExecutionError(f"Unknown data function '{func_name}'. Allowed functions: {allowed}")
+    fn_by_field: dict[str, Any] = {}
+    for fld_name, func_name in (data_functions or {}).items():
+        if fld_name not in data_fields:
+            raise ToolExecutionError(f"Field '{fld_name}' in data_functions must be in data_fields.")
+        key = str(func_name).strip().upper()
+        if key not in _DATA_FUNCTIONS:
+            allowed = ", ".join(sorted(_DATA_FUNCTIONS.keys()))
+            raise ToolExecutionError(f"Unknown data function '{func_name}'. Allowed functions: {allowed}")
+        fn_by_field[fld_name] = _DATA_FUNCTIONS[key]
 
     if page_filters:
         for fld_name in page_filters:
@@ -147,9 +149,7 @@ def _set_field_orientations(
         orient = layout.get(nm, HIDDEN)
         fld.setPropertyValue("Orientation", orient)
         if orient == DATA:
-            fn_name = (data_functions.get(nm) if data_functions else None) or "SUM"
-            fn_enum = _DATA_FUNCTIONS[str(fn_name).strip().upper()]
-            fld.setPropertyValue("Function", fn_enum)
+            fld.setPropertyValue("Function", fn_by_field.get(nm, SUM))
 
     if page_filters:
         import uno
@@ -438,13 +438,11 @@ class ListPivotTables(ToolCalcPivotBase):
         out: list[dict[str, Any]] = []
 
         if only_sheet:
-            CalcBridge(doc).get_sheet(only_sheet)
-            sheet_names = [only_sheet]
+            sheets_to_scan = [CalcBridge(doc).get_sheet(only_sheet)]
         else:
-            sheet_names = [s for s in sh.getElementNames() if not s.startswith("_")]
+            sheets_to_scan = [sh.getByName(sname) for sname in sh.getElementNames() if not sname.startswith("_")]
 
-        for sname in sheet_names:
-            sheet = sh.getByName(sname)
+        for sheet in sheets_to_scan:
             dp_tables = _get_dp_tables(sheet)
             for pname in dp_tables.getElementNames():
                 entry: dict[str, Any] = {"name": pname, "sheet": sheet.getName()}

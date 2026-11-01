@@ -220,7 +220,7 @@ def test_calc_addin_data_to_python_rectangular_invariant(data) -> None:
 def test_filter_operator2_code_to_name_is_off_cover_all() -> None:
     """filter_operator2_code_to_name stays out of cover-all targets.
 
-    name→code, connection, and resolve stay on under a closed
+    connection and resolve stay on under a closed
     FilterOperator2 profile, while code→name remains off.
     """
     from pathlib import Path
@@ -232,7 +232,7 @@ def test_filter_operator2_code_to_name_is_off_cover_all() -> None:
 
     fqns = cover_fqns_for_module(Path("plugin/calc/sheet_filter_criteria.py"))
     assert not any(f.endswith(".filter_operator2_code_to_name") for f in fqns)
-    assert any(f.endswith(".filter_operator2_name_to_code") for f in fqns)
+    assert not any(f.endswith(".filter_operator2_name_to_code") for f in fqns)
     assert any(f.endswith(".filter_connection_code") for f in fqns)
     assert any(f.endswith(".resolve_filter_operator_code") for f in fqns)
 
