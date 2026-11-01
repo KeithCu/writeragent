@@ -636,16 +636,20 @@ def quartile(r: Any, q: Any) -> float | str:
     return float(np.percentile(arr, pct)) if len(arr) else float("nan")
 
 
-@_nan_on_error
 def rank(val: Any, r: Any, order: int | float = 0) -> float | str:
     # Numbers only. Text, bools, and NaN are ignored; one text cell must not abort the call.
-    target = float(val)
-    # Keep this. Not-found below is "#N/A", and list.index(nan) raises
-    # ValueError, so a NaN lookup would become #N/A. A NaN lookup is
-    # #NUM! (plain NaN is IllegalFPOperation).
-    if math.isnan(target):
+    # Narrow try on purpose: a blanket @_nan_on_error would also turn late errors from the
+    # array/compare work below into NaN instead of letting them surface.
+    try:
+        target = float(val)
+        # Keep this. Not-found below is "#N/A", and list.index(nan) raises
+        # ValueError, so a NaN lookup would become #N/A. A NaN lookup is
+        # #NUM! (plain NaN is IllegalFPOperation).
+        if math.isnan(target):
+            return float("nan")
+        descending = int(float(order)) == 0
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
-    descending = int(float(order)) == 0
     arr = _extract_numeric_array(r, propagate_nan=False)
     if arr.size == 0:
         return float("nan")
@@ -819,10 +823,13 @@ def slope(data_y: Any, data_x: Any) -> float:
     return float(ss_xy / ss_xx) if ss_xx != 0 else float("nan")
 
 
-@_nan_on_error
 def small(r: Any, k: Any) -> float:
     # Numbers only. Text, bools, and NaN are not part of the ranking.
-    ki = int(float(k))
+    # Only the k conversion is guarded; see rank() for why not a blanket decorator.
+    try:
+        ki = int(float(k))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
     arr = _extract_numeric_array(r, propagate_nan=False)
     if ki <= 0 or ki > len(arr):
         return float("nan")
