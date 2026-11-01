@@ -40,10 +40,6 @@ from plugin.audio.tts_models import (
     _resolve_piper_model_file,
     clear_generation_downloads,
 )
-from plugin.audio.voice_catalog import (
-    KOKORO_FALLBACK_VOICE as _KOKORO_FALLBACK_VOICE,
-    PIPER_FALLBACK_VOICE as _PIPER_FALLBACK_VOICE,
-)
 from plugin.audio.tts_voices import (
     clean_provider_name,
     clean_voice_name,
@@ -116,8 +112,6 @@ class _ReadyQueue:
     """Bounded, thread-safe FIFO buffer of synthesized sentence clips."""
 
     def __init__(self) -> None:
-        self.max_clips: int = SPEECH_READY_MAX_CLIPS
-        self.max_bytes: int = SPEECH_READY_MAX_BYTES
         self._lock: threading.Lock = threading.Lock()
         self._cv: threading.Condition = threading.Condition(self._lock)
         self._clips: deque[_ReadyClip] = deque()
@@ -132,7 +126,7 @@ class _ReadyQueue:
                     return False
                 if len(self._clips) < 2:
                     break
-                if len(self._clips) < self.max_clips and (self._bytes + clip.nbytes) <= self.max_bytes:
+                if len(self._clips) < SPEECH_READY_MAX_CLIPS and (self._bytes + clip.nbytes) <= SPEECH_READY_MAX_BYTES:
                     break
                 self._cv.wait(timeout=0.1)
             self._clips.append(clip)
@@ -172,14 +166,10 @@ class _ReadyQueue:
             return paths
 
 
-def _playback_blocked_locked(generation: int) -> bool:
-    return generation != _speech_generation
-
-
 def _playback_blocked(generation: int) -> bool:
     """True if speech has been cancelled or the utterance generation has changed."""
     with _speech_lock:
-        return _playback_blocked_locked(generation)
+        return generation != _speech_generation
 
 
 def _proc_running(proc: subprocess.Popen[Any] | None) -> bool:
@@ -381,7 +371,7 @@ def _end_utterance(generation: int) -> bool:
 def _new_speech_temp(suffix: str, generation: int) -> str | None:
     """Create a tracked temp file for audio."""
     with _speech_lock:
-        if _playback_blocked_locked(generation):
+        if generation != _speech_generation:
             return None
         fd, path = tempfile.mkstemp(prefix="writeragent_speech_", suffix=suffix)
         os.close(fd)
@@ -415,7 +405,7 @@ def _popen_for_speech(
     are not blocked during process startup.
     """
     with _speech_lock:
-        if _playback_blocked_locked(generation):
+        if generation != _speech_generation:
             log.info("Speech cancelled before process spawn")
             return None
 
@@ -436,7 +426,7 @@ def _popen_for_speech(
     assert proc is not None
 
     with _speech_lock:
-        if _playback_blocked_locked(generation):
+        if generation != _speech_generation:
             log.info("Speech cancelled during process spawn, killing process")
             _signal_stop_proc(proc)
             # That reap waits up to 5s and must not take a pool slot.
@@ -1083,45 +1073,6 @@ def _wav_played_or_blocked(wav_path: str | None, generation: int) -> bool:
     return bool(_playback_blocked(generation) or played)
 
 
-def _speak_kokoro_local(
-    text: str,
-    voice: str = _KOKORO_FALLBACK_VOICE,
-    speed: float = 1.0,
-    on_status: Callable[[str], None] | None = None,
-    *,
-    generation: int,
-) -> None:
-    """Synthesize text using local Kokoro and play it."""
-    log.info("Speaking via local Kokoro (voice=%s, speed=%.2f)", voice, speed)
-    if _playback_blocked(generation):
-        return
-    py_exe = resolve_kokoro_python()
-    if not py_exe:
-        log.warning(
-            "Local Kokoro TTS requires a configured Python venv. "
-            "Please configure your venv path in Settings -> Python."
-        )
-        _speak_system(text, speed=speed, generation=generation)
-        return
-
-    lang = kokoro_g2p_lang(text, voice)
-    log.info("Kokoro G2P lang=%s for voice=%s", lang, voice)
-    misaki_ready = _prepare_kokoro_misaki(text, voice, on_status, generation, py_exe=py_exe)
-    if misaki_ready is None:
-        return
-    wav_path = _kokoro_audio_file(
-        text, voice, speed, on_status, generation,
-    )
-    if _wav_played_or_blocked(wav_path, generation):
-        return
-    log.warning(
-        "Local Kokoro engine not available in configured venv. "
-        "Install with: %s. Falling back to OS speech.",
-        KOKORO_PIP_INSTALL,
-    )
-    _speak_system(text, speed=speed, generation=generation)
-
-
 def _piper_audio_file(
     text: str,
     voice: str,
@@ -1167,29 +1118,47 @@ def _piper_audio_file(
     return wav_path
 
 
-def _speak_piper_local(
+def _speak_local(
+    provider: str,
     text: str,
-    voice: str = _PIPER_FALLBACK_VOICE,
+    voice: str,
     speed: float = 1.0,
     on_status: Callable[[str], None] | None = None,
     *,
     generation: int,
 ) -> None:
-    """Synthesize text using local Piper and play it."""
-    log.info("Speaking via local Piper (voice=%s, speed=%.2f)", voice, speed)
+    """Synthesize with local Kokoro or Piper and play it."""
+    engine = "Kokoro" if provider == "kokoro" else "Piper"
+    log.info("Speaking via local %s (voice=%s, speed=%.2f)", engine, voice, speed)
     if _playback_blocked(generation):
         return
-    if not resolve_kokoro_python():
+    py_exe = resolve_kokoro_python()
+    if not py_exe:
         log.warning(
-            "Local Piper TTS requires a configured Python venv. "
-            "Please configure your venv path in Settings -> Python."
+            "Local %s TTS requires a configured Python venv. "
+            "Please configure your venv path in Settings -> Python.",
+            engine,
         )
         _speak_system(text, speed=speed, generation=generation)
         return
-    wav_path = _piper_audio_file(text, voice, speed, on_status, generation)
+    if provider == "kokoro":
+        lang = kokoro_g2p_lang(text, voice)
+        log.info("Kokoro G2P lang=%s for voice=%s", lang, voice)
+        if _prepare_kokoro_misaki(text, voice, on_status, generation, py_exe=py_exe) is None:
+            return
+        wav_path = _kokoro_audio_file(text, voice, speed, on_status, generation)
+    else:
+        wav_path = _piper_audio_file(text, voice, speed, on_status, generation)
     if _wav_played_or_blocked(wav_path, generation):
         return
-    log.warning("Piper synthesis failed for voice %s; falling back to OS speech", voice)
+    if provider == "kokoro":
+        log.warning(
+            "Local Kokoro engine not available in configured venv. "
+            "Install with: %s. Falling back to OS speech.",
+            KOKORO_PIP_INSTALL,
+        )
+    else:
+        log.warning("Piper synthesis failed for voice %s; falling back to OS speech", voice)
     _speak_system(text, speed=speed, generation=generation)
 
 
@@ -1254,7 +1223,7 @@ def _run_ready_playback(
     global _ready_queue
     ready = _ReadyQueue()
     with _speech_lock:
-        if _playback_blocked_locked(generation):
+        if generation != _speech_generation:
             return
         _ready_queue = ready
 
@@ -1508,13 +1477,10 @@ def speak_text_async(
                     on_status,
                     generation,
                 )
-            elif provider_code == "kokoro":
-                _speak_kokoro_local(
-                    clean, voice=voice_name, speed=speed_val, on_status=on_status, generation=generation,
-                )
-            elif provider_code == "piper":
-                _speak_piper_local(
-                    clean, voice=voice_name, speed=speed_val, on_status=on_status, generation=generation,
+            elif provider_code in ("kokoro", "piper"):
+                _speak_local(
+                    provider_code, clean, voice=voice_name, speed=speed_val,
+                    on_status=on_status, generation=generation,
                 )
             elif provider_code == "endpoint":
                 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
