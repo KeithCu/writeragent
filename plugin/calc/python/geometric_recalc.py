@@ -181,16 +181,12 @@ def save_geometric_registry_for_doc(doc: Any, workbook_key: str) -> None:
         log.exception("Failed to save geometric registry to document property")
 
 
-def clear_in_memory_geometric_state(*, workbook_key: str = "") -> None:
+def clear_in_memory_geometric_state(*, workbook_key: str) -> None:
     """Drop instance-scoped geometric maps. UDProp is left for a later open."""
     with _RUNTIME.lock:
-        if workbook_key:
-            for key in [k for k in _RUNTIME.records if k[0] == workbook_key]:
-                _RUNTIME.records.pop(key, None)
-            _RUNTIME.strip_safe = frozenset(k for k in _RUNTIME.strip_safe if k.workbook_key != workbook_key)
-        else:
-            _RUNTIME.records.clear()
-            _RUNTIME.strip_safe = frozenset()
+        for key in [k for k in _RUNTIME.records if k[0] == workbook_key]:
+            _RUNTIME.records.pop(key, None)
+        _RUNTIME.strip_safe = frozenset(k for k in _RUNTIME.strip_safe if k.workbook_key != workbook_key)
 
 
 def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, workbook_key: str = "") -> bool:
@@ -250,8 +246,6 @@ def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
     """Cell contents of an unquoted ``=PY($A$1)`` code ref (resolved source)."""
     sheet_name, rest = split_sheet_prefix(ref)
     if sheet_name:
-        if doc is None:
-            return ""
         try:
             sheet = doc.getSheets().getByName(sheet_name)
         except Exception as exc:
