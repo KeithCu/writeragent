@@ -74,15 +74,6 @@ log = logging.getLogger("writeragent.writer")
 _IMAGE_DOWNLOAD_CHUNK = 64 * 1024
 
 
-def _optional_property(obj: Any, name: str, default: Any = None) -> Any:
-    """Property some shapes do not have. Disposal is not a missing property."""
-    try:
-        return obj.getPropertyValue(name)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return default
-
-
 def _orient_number(raw: Any) -> int | None:
     # 0 is HoriOrientation.NONE. Do not treat 0 as missing.
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
@@ -605,8 +596,8 @@ class ImageList(ToolWriterImageBase):
                 name, graphic = item[0], item[1]
                 try:
                     size = graphic.getSize()
-                    title = _optional_property(graphic, "Title", "")
-                    description = _optional_property(graphic, "Description", "")
+                    title = visual_helpers.safe_get_property(graphic, "Title", "")
+                    description = visual_helpers.safe_get_property(graphic, "Description", "")
 
                     # Read anchor once and reuse for paragraph index and page
                     anchor = None
@@ -630,7 +621,7 @@ class ImageList(ToolWriterImageBase):
                             reraise_if_disposed(exc)
                     elif not is_calc:
                         if _is_at_page(graphic):
-                            page_no = _optional_property(graphic, "AnchorPageNo", 0)
+                            page_no = visual_helpers.safe_get_property(graphic, "AnchorPageNo", 0)
                             try:
                                 p = int(page_no)
                                 if p > 0:
@@ -741,19 +732,19 @@ class ImageGetInfo(ToolWriterImageBase):
 
         # GraphicObjectFillBitmap is an XGraphic, not a URL. str() of it was a pyuno repr.
         # Keep GraphicURL only when it is already a string.
-        raw_url = _optional_property(graphic, "GraphicURL", "")
+        raw_url = visual_helpers.safe_get_property(graphic, "GraphicURL", "")
         graphic_url = raw_url if isinstance(raw_url, str) else ""
 
         # Anchor type
-        anchor_type = visual_helpers.anchor_type_index(_optional_property(graphic, "AnchorType", None))
+        anchor_type = visual_helpers.anchor_type_index(visual_helpers.safe_get_property(graphic, "AnchorType", None))
 
         # Orientation
-        hori_orient = _orient_number(_optional_property(graphic, "HoriOrient", None))
-        vert_orient = _orient_number(_optional_property(graphic, "VertOrient", None))
+        hori_orient = _orient_number(visual_helpers.safe_get_property(graphic, "HoriOrient", None))
+        vert_orient = _orient_number(visual_helpers.safe_get_property(graphic, "VertOrient", None))
 
         # Title / description
-        title = _optional_property(graphic, "Title", "")
-        description = _optional_property(graphic, "Description", "")
+        title = visual_helpers.safe_get_property(graphic, "Title", "")
+        description = visual_helpers.safe_get_property(graphic, "Description", "")
 
         # Pixel frame that image_crop_and_highlight boxes refer to.
         width_px = height_px = None
@@ -925,19 +916,15 @@ class ImageSetProperties(ToolWriterImageBase):
 
         # Orientation accepts friendly names ('left'/'center'/'right', 'top'/'center'/'bottom') or
         # raw UNO ints (back-compat), resolved via the build's own constants. Resolve before any write.
-        hori_orient = kwargs.get("hori_orient")
-        resolved_hori = None
-        if hori_orient is not None:
-            resolved_hori, err = _resolve_orient(hori_orient, "hori")
-            if err:
-                return self._tool_error(err, code="INVALID_PARAMETER", parameter="hori_orient")
-
-        vert_orient = kwargs.get("vert_orient")
-        resolved_vert = None
-        if vert_orient is not None:
-            resolved_vert, err = _resolve_orient(vert_orient, "vert")
-            if err:
-                return self._tool_error(err, code="INVALID_PARAMETER", parameter="vert_orient")
+        resolved_orient: dict[str, int] = {}
+        for param, kind, prop in (("hori_orient", "hori", "HoriOrient"), ("vert_orient", "vert", "VertOrient")):
+            val = kwargs.get(param)
+            if val is not None:
+                resolved, err = _resolve_orient(val, kind)
+                if err:
+                    return self._tool_error(err, code="INVALID_PARAMETER", parameter=param)
+                assert resolved is not None
+                resolved_orient[prop] = resolved
 
         # Validate property support before mutating
         width_mm = kwargs.get("width_mm")
@@ -947,24 +934,17 @@ class ImageSetProperties(ToolWriterImageBase):
             if not has_size:
                 return self._tool_error("Graphic does not support setting size.", code="UNSUPPORTED_DOC_TYPE")
 
-        if anchor_type is not None and not visual_helpers.has_uno_property(graphic, "AnchorType"):
-            return self._tool_error("Graphic does not support AnchorType.", code="UNSUPPORTED_DOC_TYPE")
-
-        if hori_orient is not None and not visual_helpers.has_uno_property(graphic, "HoriOrient"):
-            return self._tool_error("Graphic does not support HoriOrient.", code="UNSUPPORTED_DOC_TYPE")
-
-        if vert_orient is not None and not visual_helpers.has_uno_property(graphic, "VertOrient"):
-            return self._tool_error("Graphic does not support VertOrient.", code="UNSUPPORTED_DOC_TYPE")
-
         has_crop = any(kwargs.get(k) is not None for k in ("crop_top_mm", "crop_bottom_mm", "crop_left_mm", "crop_right_mm"))
-        if has_crop and not visual_helpers.has_uno_property(graphic, "GraphicCrop"):
-            return self._tool_error("Graphic does not support GraphicCrop.", code="UNSUPPORTED_DOC_TYPE")
-
-        if kwargs.get("title") is not None and not visual_helpers.has_uno_property(graphic, "Title"):
-            return self._tool_error("Graphic does not support Title.", code="UNSUPPORTED_DOC_TYPE")
-
-        if kwargs.get("description") is not None and not visual_helpers.has_uno_property(graphic, "Description"):
-            return self._tool_error("Graphic does not support Description.", code="UNSUPPORTED_DOC_TYPE")
+        for prop, requested in (
+            ("AnchorType", anchor_type is not None),
+            ("HoriOrient", "HoriOrient" in resolved_orient),
+            ("VertOrient", "VertOrient" in resolved_orient),
+            ("GraphicCrop", has_crop),
+            ("Title", kwargs.get("title") is not None),
+            ("Description", kwargs.get("description") is not None),
+        ):
+            if requested and not visual_helpers.has_uno_property(graphic, prop):
+                return self._tool_error("Graphic does not support %s." % prop, code="UNSUPPORTED_DOC_TYPE")
 
         new_size = None
         if width_mm is not None or height_mm is not None:
@@ -1010,12 +990,12 @@ class ImageSetProperties(ToolWriterImageBase):
                         updated.append("anchor_type")
 
                 # Orientation
-                if resolved_hori is not None:
-                    graphic.setPropertyValue("HoriOrient", resolved_hori)
+                if "HoriOrient" in resolved_orient:
+                    graphic.setPropertyValue("HoriOrient", resolved_orient["HoriOrient"])
                     updated.append("hori_orient")
 
-                if resolved_vert is not None:
-                    graphic.setPropertyValue("VertOrient", resolved_vert)
+                if "VertOrient" in resolved_orient:
+                    graphic.setPropertyValue("VertOrient", resolved_orient["VertOrient"])
                     updated.append("vert_orient")
 
                 # Crop: trim mm off each edge via the GraphicCrop struct. Preserve edges the caller didn't pass.
@@ -1244,8 +1224,12 @@ class ImageDownload(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
+def _is_url(path: str) -> bool:
+    return path.startswith("http://") or path.startswith("https://")
+
+
 def _local_image_path(tool: Any, path: str, stop_checker: Any = None) -> str | dict[str, Any]:
-    if path.startswith("http://") or path.startswith("https://"):
+    if _is_url(path):
         dl_result = _download_for_tool(tool, path, stop_checker=stop_checker)
         if isinstance(dl_result, dict):
             return dl_result
@@ -1355,15 +1339,9 @@ class ImageInsert(ToolWriterImageBase):
                             h = 80.0
                     width_mm, height_mm = _fill_missing_dimension(w, h, px_w, px_h, ndigits=2)
                 else:
-                    if width_mm_val is None and height_mm_val is None:
-                        width_mm, height_mm = 80.0, 80.0
-                    elif width_mm_val is not None:
-                        width_mm = float(width_mm_val)
-                        height_mm = float(width_mm_val)
-                    else:
-                        assert height_mm_val is not None
-                        height_mm = float(height_mm_val)
-                        width_mm = float(height_mm_val)
+                    given = width_mm_val if width_mm_val is not None else height_mm_val
+                    side = 80.0 if given is None else float(given)
+                    width_mm = height_mm = side
 
             if target in ("header", "footer", "header_first", "footer_first"):
                 if doc_type not in ("writer", "web"):
@@ -1523,9 +1501,7 @@ class ImageReplace(ToolWriterImageBase):
         if dim_err is not None:
             return dim_err
 
-        is_url = new_image_path.startswith("http://") or new_image_path.startswith("https://")
-
-        if is_url:
+        if _is_url(new_image_path):
             # Existence is UNO. Do not hold the graphic proxy across the download.
             err = run_on_main(lambda: _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)[1], timeout=60.0)
             if err is not None:
