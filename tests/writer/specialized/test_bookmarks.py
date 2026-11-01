@@ -495,20 +495,21 @@ def test_ensure_heading_bookmarks_collision_retries(monkeypatch):
         {},
     )
     svc = BookmarkService()
-    calls = []
+    inserted = []
+    doc.insertTextContent = lambda cursor, bookmark, absorb: inserted.append(bookmark)
+    doc.getBookmarks().hasByName = lambda name: True
 
-    def counting_has_by_name(name):
-        calls.append(name)
-        if len(calls) < 4:
-            return True  # 3 collisions
-        return False
-
-    doc.getBookmarks().hasByName = counting_has_by_name
     result = svc.ensure_heading_bookmarks(doc)
-    assert 0 in result
-    # 4 calls in the retry loop (3 collisions + 1 success) + 1 call in _insert_named_bookmark
-    assert len(calls) == 5
-    assert calls[3] == calls[4]
+    assert 0 not in result
+    assert not inserted
+
+    doc2 = _HeadingDoc(
+        [_Para("Title", 1)],
+        {},
+    )
+    result2 = svc.ensure_heading_bookmarks(doc2)
+    assert 0 in result2
+    assert result2[0].startswith("_mcp_")
 
 
 def test_save_hook_key_doc_a_does_not_suppress_doc_b(monkeypatch):

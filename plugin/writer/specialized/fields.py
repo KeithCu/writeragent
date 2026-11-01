@@ -42,18 +42,19 @@ def _is_annotation(field: Any) -> bool:
 def _specific_field_service(field: Any) -> str:
     """Return the most specific com.sun.star.text.textfield.* service name."""
     try:
-        services = field.getSupportedServiceNames()
+        services = tuple(field.getSupportedServiceNames())
     except Exception:
         services = ()
-    candidates = [
+    narrower = sorted(
         s for s in services
-        if isinstance(s, str) and s.startswith("com.sun.star.text.textfield.")
-    ]
-    narrower = [s for s in candidates if s != "com.sun.star.text.textfield.TextField"]
+        if isinstance(s, str)
+        and s.startswith("com.sun.star.text.textfield.")
+        and s != "com.sun.star.text.textfield.TextField"
+    )
     if narrower:
-        return sorted(narrower)[0]
-    if candidates:
-        return candidates[0]
+        return narrower[0]
+    if "com.sun.star.text.textfield.TextField" in services:
+        return "com.sun.star.text.textfield.TextField"
     return ""
 
 
@@ -114,10 +115,8 @@ class FieldsList(ToolWriterFieldBase):
         doc = ctx.doc
         results = []
         hasher = hashlib.sha256()
-        count = 0
         service_props: dict[str, set[str]] = {}
         for field_id, field, service, presentation, location in _iter_body_field_identity(doc):
-            count = field_id
             # Hash structure (service and location), not presentation text which can shift with repagination or ticking dates.
             hasher.update(f"{service}|{location}\n".encode("utf-8"))
             try:
@@ -127,35 +126,31 @@ class FieldsList(ToolWriterFieldBase):
                 content = ""
 
             props = {}
-            if hasattr(field, "getPropertySetInfo"):
-                if service not in service_props:
+            if service not in service_props:
+                try:
+                    info = field.getPropertySetInfo()
+                    service_props[service] = {
+                        getattr(p, "Name", "")
+                        for p in (info.getProperties() or ())
+                    }
+                except Exception as e:
+                    reraise_if_disposed(e)
+                    service_props[service] = set()
+
+            valid_props = service_props.get(service, set())
+            for prop_name in KNOWN_PROPERTIES:
+                if prop_name in valid_props:
                     try:
-                        info = field.getPropertySetInfo()
-                        if info is not None and hasattr(info, "getProperties"):
-                            service_props[service] = {
-                                getattr(p, "Name", "")
-                                for p in (info.getProperties() or ())
-                            }
-                        else:
-                            service_props[service] = set()
+                        val = field.getPropertyValue(prop_name)
+                        if isinstance(val, (int, float, str, bool)):
+                            props[prop_name] = val
                     except Exception as e:
                         reraise_if_disposed(e)
-                        service_props[service] = set()
-
-                valid_props = service_props.get(service, set())
-                for prop_name in KNOWN_PROPERTIES:
-                    if prop_name in valid_props:
-                        try:
-                            val = field.getPropertyValue(prop_name)
-                            if isinstance(val, (int, float, str, bool)):
-                                props[prop_name] = val
-                        except Exception as e:
-                            reraise_if_disposed(e)
 
             results.append({"id": field_id, "presentation": presentation, "content": content,
                             "location": location, "properties": props})
 
-        return {"status": "ok", "field_count": count, "snapshot": hasher.hexdigest(), "fields": results}
+        return {"status": "ok", "field_count": len(results), "snapshot": hasher.hexdigest(), "fields": results}
 
 
 class FieldsDelete(ToolWriterFieldBase):
@@ -179,28 +174,25 @@ class FieldsDelete(ToolWriterFieldBase):
         raw_ids: list[Any] = kwargs["ids"]
         assert isinstance(raw_ids, list)
 
-        cleaned_ids: list[int] = []
-        seen = set()
         for item in raw_ids:
             if isinstance(item, bool) or not isinstance(item, int):
                 return self._tool_error("Parameter 'ids' must contain only integers (no booleans).")
-            if item not in seen:
-                seen.add(item)
-                cleaned_ids.append(item)
 
+        cleaned_ids = list(dict.fromkeys(raw_ids))
         requested_count = len(cleaned_ids)
         if requested_count == 0:
             return self._tool_error("No field IDs provided.", requested_count=0, missing_ids=[])
 
+        wanted = set(cleaned_ids)
         doc = ctx.doc
         hasher = hashlib.sha256()
-        fields_to_delete: list[tuple[int, Any, str]] = []
+        found: dict[int, tuple[Any, str]] = {}
 
         for field_id, field, service, _presentation, location in _iter_body_field_identity(doc):
             # Same structural hash as FieldsList.
             hasher.update(f"{service}|{location}\n".encode("utf-8"))
-            if field_id in seen:
-                fields_to_delete.append((field_id, field, location))
+            if field_id in wanted:
+                found[field_id] = (field, location)
 
         if snapshot is not None:
             current_snapshot = hasher.hexdigest()
@@ -212,10 +204,9 @@ class FieldsDelete(ToolWriterFieldBase):
                     "deleted_count": 0,
                 }
 
-        found_ids = {c for c, _, _ in fields_to_delete}
-        missing_ids = [fid for fid in cleaned_ids if fid not in found_ids]
+        missing_ids = [fid for fid in cleaned_ids if fid not in found]
 
-        if not fields_to_delete:
+        if not found:
             return {
                 "status": "error",
                 "code": "FIELD_NOT_FOUND",
@@ -226,7 +217,7 @@ class FieldsDelete(ToolWriterFieldBase):
             }
 
         targets = []
-        for _cid, field, where in fields_to_delete:
+        for field, where in found.values():
             anchor = field.getAnchor()
             try:
                 what = field.getPresentation(True)
