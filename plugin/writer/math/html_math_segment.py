@@ -17,13 +17,18 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 _MATH_OPEN_RE = re.compile(r"<math\b", re.IGNORECASE)
 _MATH_CLOSE_RE = re.compile(r"</math\s*>", re.IGNORECASE)
 
 TexDelim = Literal["$$", "$", "\\[", "\\("]
-_TEX_CLOSE: dict[TexDelim, str] = {"$$": "$$", "\\[": "\\]", "\\(": "\\)"}
+_TEX_DELIMS: dict[str, tuple[str, bool]] = {
+    "$$": ("$$", True),
+    "\\[": ("\\]", True),
+    "\\(": ("\\)", False),
+    "$": ("$", False),
+}
 
 _MASK_CHAR = "\x00"
 _HTML_NONTEXT_RE = re.compile(
@@ -169,13 +174,6 @@ def _display_block_from_open_tag(open_tag: str) -> bool:
     return False
 
 
-_TWO_CHAR_OPENERS: dict[str, tuple[TexDelim, bool]] = {
-    "$$": ("$$", True),
-    "\\[": ("\\[", True),
-    "\\(": ("\\(", False),
-}
-
-
 def _scan_next_tex_open(s: str, pos: int) -> tuple[int, TexDelim, bool] | None:
     """Return ``(index, delimiter, display_block)`` for the next TeX opener, or None."""
     n = len(s)
@@ -185,9 +183,8 @@ def _scan_next_tex_open(s: str, pos: int) -> tuple[int, TexDelim, bool] | None:
             i += 1
             continue
         two = s[i : i + 2]
-        op = _TWO_CHAR_OPENERS.get(two)
-        if op is not None:
-            return (i, op[0], op[1])
+        if len(two) == 2 and two in _TEX_DELIMS:
+            return (i, cast("TexDelim", two), _TEX_DELIMS[two][1])
         if s[i] == "$":
             if _is_currency_dollar(s, i):
                 i += 1
@@ -200,21 +197,15 @@ def _scan_next_tex_open(s: str, pos: int) -> tuple[int, TexDelim, bool] | None:
 def _try_close_tex(s: str, open_start: int, delim: TexDelim) -> int | None:
     """If *delim* closes, return the end index (exclusive); else None."""
     body_start = open_start + len(delim)
-    if delim == "$":
-        j = body_start
-        while j < len(s):
-            if _is_escaped(s, j):
-                j += 1
-                continue
-            if s[j] == "$" and _is_tex_dollar_close(s, body_start, j):
-                return j + 1
-            j += 1
-        return None
-    close = _TEX_CLOSE[delim]
+    closer = _TEX_DELIMS[delim][0]
     j = body_start
-    while j < len(s) - 1:
-        if s.startswith(close, j) and not _is_escaped(s, j):
-            return j + len(close)
+    while j < len(s):
+        if (
+            s.startswith(closer, j)
+            and not _is_escaped(s, j)
+            and (delim != "$" or _is_tex_dollar_close(s, body_start, j))
+        ):
+            return j + len(closer)
         j += 1
     return None
 
