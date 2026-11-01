@@ -14,7 +14,7 @@ import hashlib
 import json
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 
 from plugin.framework.deal_shim import deal
 from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
@@ -285,13 +285,6 @@ def _embedding_text_hash(text: str) -> str:
     return hashlib.sha256(str(text or "").strip().encode("utf-8")).hexdigest()
 
 
-def _first_vector(batch: Any) -> list[float] | None:
-    for batch_index, vector in zip(batch.indices, batch.vectors):
-        if batch_index == 0 and vector:
-            return vector
-    return None
-
-
 def _vector_from_json(raw: str, dim: int) -> list[float] | None:
     try:
         data = json.loads(raw)
@@ -362,13 +355,16 @@ def store_research_cache_embeddings(
     _web_cache_with_connection(cache_path, do_store)
 
 
+def _cache_cutoff(max_age_days: int) -> float:
+    return time.time() - (max_age_days * 86400)
+
+
 def _query_web_cache_rows(cache_path: str, sql: str, params: tuple[Any, ...]) -> list[Any]:
     from plugin.contrib.smolagents.default_tools import HAS_SQLITE, _web_cache_with_connection
 
     if not HAS_SQLITE:
         return []
-    raw = _web_cache_with_connection(cache_path, lambda conn: conn.execute(sql, params).fetchall())
-    return raw or []
+    return cast("list[Any]", _web_cache_with_connection(cache_path, lambda conn: conn.execute(sql, params).fetchall()))
 
 
 def _research_cache_embedding_rows(
@@ -379,7 +375,7 @@ def _research_cache_embedding_rows(
     snowball_lang: str,
     mode: str = "",
 ) -> list[tuple[str, list[float]]]:
-    cutoff = time.time() - (max_age_days * 86400)
+    cutoff = _cache_cutoff(max_age_days)
     raw_rows = _query_web_cache_rows(
         cache_path,
         "SELECT e.key, e.embedding_text, e.text_hash, e.dim, e.vector_json "
@@ -409,7 +405,7 @@ def _research_cache_missing_embedding_rows(
     max_age_days: int,
     limit: int,
 ) -> list[tuple[str, str]]:
-    cutoff = time.time() - (max_age_days * 86400)
+    cutoff = _cache_cutoff(max_age_days)
     raw_rows = _query_web_cache_rows(
         cache_path,
         "SELECT w.key, e.embedding_text, e.text_hash "
@@ -437,8 +433,7 @@ def _get_embedding_model_or_none() -> str | None:
     try:
         from plugin.embeddings.embedding_client import get_embedding_model
 
-        model = get_embedding_model().strip()
-        return model or None
+        return get_embedding_model()
     except Exception as e:
         log.debug("research cache embeddings: model unavailable: %s", e)
         return None
@@ -458,7 +453,7 @@ def find_embedding_research_match(
     """Pick best stored-vector match. Caller falls back to Jaccard on any miss/error."""
     if not cache_path or not word_key or not _research_cache_embedding_configured():
         return None
-    model = (_get_embedding_model_or_none() or "").strip()
+    model = _get_embedding_model_or_none()
     if not model:
         return None
     stored = _research_cache_embedding_rows(cache_path, embedding_model=model, max_age_days=max_age_days, snowball_lang=snowball_lang, mode=mode)
@@ -470,16 +465,15 @@ def find_embedding_research_match(
     query_text = str(embedding_text or "").strip() or word_key
     # Omit timeout_sec so embed_texts uses embeddings_worker_timeout_sec (long trusted budget).
     batch = embed_texts(ctx, [query_text], model=model)
-    query_vector = _first_vector(batch)
+    query_vector = dict(zip(batch.indices, batch.vectors)).get(0)
     if not query_vector:
         return None
 
     best_raw_key: str | None = None
     best_score = 0.0
-    threshold = max(0.0, min(1.0, similarity_min))
     for raw_key, stored_vector in stored:
         score = cosine_similarity(query_vector, stored_vector)
-        if score >= threshold and score > best_score:
+        if score >= similarity_min and score > best_score:
             best_raw_key = raw_key
             best_score = score
     if best_raw_key is None:
@@ -487,24 +481,29 @@ def find_embedding_research_match(
     return best_raw_key, best_score
 
 
+def _embed_and_store(ctx: Any, cache_path: str, model: str, pairs: list[tuple[str, str]]) -> bool:
+    from plugin.embeddings.embedding_client import embed_texts
+
+    texts = [text for _raw_key, text in pairs]
+    batch = embed_texts(ctx, texts, model=model)
+    by_index = dict(zip(batch.indices, batch.vectors))
+    rows: list[tuple[str, str, list[float]]] = []
+    for idx, (raw_key, text) in enumerate(pairs):
+        vector = by_index.get(idx)
+        if vector:
+            rows.append((raw_key, text, vector))
+    if rows:
+        store_research_cache_embeddings(cache_path, rows, embedding_model=model)
+    return bool(rows)
+
+
 def _research_cache_embedding_backfill_worker(ctx: Any, cache_path: str, max_age_days: int, embedding_model: str) -> None:
     try:
-        from plugin.embeddings.embedding_client import embed_texts
-
         while True:
             missing = _research_cache_missing_embedding_rows(cache_path, embedding_model=embedding_model, max_age_days=max_age_days, limit=_EMBEDDING_BACKFILL_BATCH_SIZE)
             if not missing:
                 return
-            texts = [text for _raw_key, text in missing]
-            batch = embed_texts(ctx, texts, model=embedding_model)
-            by_index = {idx: vector for idx, vector in zip(batch.indices, batch.vectors)}
-            rows: list[tuple[str, str, list[float]]] = []
-            for idx, (raw_key, text) in enumerate(missing):
-                vector = by_index.get(idx)
-                if vector:
-                    rows.append((raw_key, text, vector))
-            store_research_cache_embeddings(cache_path, rows, embedding_model=embedding_model)
-            if not rows:
+            if not _embed_and_store(ctx, cache_path, embedding_model, missing):
                 return
     except Exception as e:
         log.debug("research cache embeddings backfill skipped: %s", e)
@@ -545,16 +544,10 @@ def enqueue_research_cache_embedding_backfill(ctx: Any, cache_path: str, max_age
 
 def _research_cache_embedding_row_worker(ctx: Any, cache_path: str, raw_key: str, embedding_text: str, embedding_model: str) -> None:
     try:
-        from plugin.embeddings.embedding_client import embed_texts
-
         text = str(embedding_text or "").strip()
         if not text:
             return
-        batch = embed_texts(ctx, [text], model=embedding_model)
-        vector = _first_vector(batch)
-        if vector:
-            store_research_cache_embeddings(cache_path, [(raw_key, text, vector)], embedding_model=embedding_model)
-            return
+        _embed_and_store(ctx, cache_path, embedding_model, [(raw_key, text)])
     except Exception as e:
         log.debug("research cache embedding row skipped: %s", e)
 
@@ -641,18 +634,16 @@ def lookup_research_cache(
     if not cache_path or not word_key:
         return None
 
-    if mode == "deep":
-        # Do not fall through to the bare or shallow-prefixed key. Those rows
-        # are a different report (ordinary web_research / brainstorm), and
-        # returning them made Deep Research skip the live run.
-        exact_keys: tuple[str, ...] = (format_research_cache_key(snowball_lang, word_key, mode="deep"),)
-    elif snowball_lang == "english":
+    exact_keys: list[str] = []
+    if mode != "deep" and snowball_lang == "english":
         # Legacy rows were stored under the bare word key before language
         # prefixes. A French query whose words are "paris restaurants" must
         # not hit that English row (and must not refresh its created_at).
-        exact_keys = (word_key, format_research_cache_key(snowball_lang, word_key))
-    else:
-        exact_keys = (format_research_cache_key(snowball_lang, word_key),)
+        exact_keys.append(word_key)
+    # Do not fall through to the bare or shallow-prefixed key. Those rows
+    # are a different report (ordinary web_research / brainstorm), and
+    # returning them made Deep Research skip the live run.
+    exact_keys.append(format_research_cache_key(snowball_lang, word_key, mode="deep" if mode == "deep" else ""))
     for storage_key in exact_keys:
         cached = _web_cache_get(cache_path, "research", storage_key, max_age_days=max_age_days)
         if cached is not None:

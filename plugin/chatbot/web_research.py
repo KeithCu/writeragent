@@ -616,10 +616,6 @@ def _run_deep_web_research(
 
         return run_sub_agent, _chat_via(worker_client), worker_client.stop
 
-    def _parent_runner_not_for_pool(sub_query: str, research_goal: str, sub_history: str | None) -> str:
-        del sub_query, research_goal, sub_history
-        raise RuntimeError("deep-research sub-queries must run on a worker LlmClient")
-
     if agent_params.prompt_for_web_research and agent_params.approval_callback:
         # Same tuple-or-bool check as the web_search tool step. Reject or stop
         # skips this planning fetch; there is no second approval UI.
@@ -659,7 +655,6 @@ def _run_deep_web_research(
     researched = run_deep_research(
         query_str,
         llm_chat=llm_chat,
-        run_web_agent=_parent_runner_not_for_pool,
         worker_factory=worker_factory,
         stop_checker=agent_params.stop_checker,
         status_callback=agent_params.status_callback,

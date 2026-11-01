@@ -29,7 +29,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from plugin.framework.config_schema import as_bool
 from plugin.framework.constants import now_aware
@@ -97,6 +97,10 @@ def _load_repaired_json(response: str) -> Any:
     return None
 
 
+def _clean_str_list(raw: Any) -> list[str]:
+    return [str(x).strip() for x in raw if str(x).strip()] if isinstance(raw, list) else []
+
+
 def parse_search_queries_response(response: str, num_queries: int) -> list[dict[str, str]]:
     parsed = _load_repaired_json(response)
     candidate_queries = parsed
@@ -159,11 +163,7 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
         # A bare string used to be iterated here. ``"What about beta?"`` became
         # one fake question per character (a dict became its keys). Sibling
         # parsers already require a list before they walk the payload.
-        questions = (
-            [str(item).strip() for item in follow_up_payload if str(item).strip()]
-            if isinstance(follow_up_payload, list)
-            else []
-        )
+        questions = _clean_str_list(follow_up_payload)
         if learnings or questions:
             return {
                 "learnings": learnings[:num_learnings],
@@ -286,34 +286,31 @@ class _ResearchAccumulator:
 
 
 def parse_assessment_response(response: str) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "score": 0.0,
+        "knowledge_gaps": [],
+        "suggested_queries": [],
+        "stop": False,
+        "reasoning": "",
+    }
     parsed = _load_repaired_json(response)
     if isinstance(parsed, dict):
-        score_raw = parsed.get("score")
-        score = 0.0
-        if score_raw is not None:
-            try:
-                score = float(score_raw)
-            except (TypeError, ValueError):
-                score = 0.0
-        gaps_raw = parsed.get("knowledge_gaps") or parsed.get("gaps") or []
-        queries_raw = parsed.get("suggested_queries") or parsed.get("queries") or []
-        gaps = [str(g).strip() for g in gaps_raw if str(g).strip()] if isinstance(gaps_raw, list) else []
-        queries = [str(q).strip() for q in queries_raw if str(q).strip()] if isinstance(queries_raw, list) else []
+        try:
+            out["score"] = float(cast("Any", parsed.get("score")))
+        except (TypeError, ValueError):
+            pass
+        out["knowledge_gaps"] = _clean_str_list(parsed.get("knowledge_gaps") or parsed.get("gaps"))
+        out["suggested_queries"] = _clean_str_list(parsed.get("suggested_queries") or parsed.get("queries"))
         stop_flag = parsed.get("stop")
         # ``bool("false")``, ``bool("0")``, and ``bool("no")`` are True, so a
         # stringified flag ended the research loop early. `as_bool` correctly
         # handles standard boolean token strings. Parse tokens the way score
         # is coerced above: only a real boolean counts, and bad input falls
         # back to "do not stop".
-        stop = as_bool(stop_flag) if stop_flag is not None else False
-        return {
-            "score": score,
-            "knowledge_gaps": gaps,
-            "suggested_queries": queries,
-            "stop": stop,
-            "reasoning": str(parsed.get("reasoning") or ""),
-        }
-    return {"score": 0.0, "knowledge_gaps": [], "suggested_queries": [], "stop": False, "reasoning": ""}
+        if stop_flag is not None:
+            out["stop"] = as_bool(stop_flag)
+        out["reasoning"] = str(parsed.get("reasoning") or "")
+    return out
 
 
 def _format_cited_learnings(learnings: list[str], citations: dict[str, list[str]]) -> list[str]:
@@ -490,14 +487,14 @@ def _extract_urls_from_text(text: str) -> list[str]:
 
 
 def _merge_branch_results(acc: _ResearchAccumulator, branch: dict[str, Any]) -> None:
-    acc.learnings.extend(branch.get("learnings") or [])
-    for learning, urls in (branch.get("citations") or {}).items():
+    acc.learnings.extend(branch["learnings"])
+    for learning, urls in branch["citations"].items():
         acc.citations.setdefault(learning, []).extend(urls)
-    ctx = branch.get("context")
+    ctx = branch["context"]
     if ctx:
         acc.context_chunks.append(str(ctx))
-    for url in branch.get("sources") or []:
-        if url and url not in acc.sources:
+    for url in branch["sources"]:
+        if url not in acc.sources:
             acc.sources.append(url)
 
 
@@ -568,22 +565,18 @@ def _process_one_sub_query(
         "citations": citation_map,
         "context": sub_context,
         "sources": sources,
-        "followUpQuestions": results.get("followUpQuestions") or [],
-        "researchGoal": research_goal,
     }
 
 
 def _run_sub_queries_parallel(
     serp_queries: list[dict[str, str]],
     *,
-    run_web_agent: WebAgentRunner,
-    llm_chat: LlmChatFn,
+    worker_factory: WorkerFactory,
     stop_checker: StopChecker,
     acc: _ResearchAccumulator,
     concurrency: int,
     progress: ResearchProgress,
     status_callback: StatusCallback,
-    worker_factory: WorkerFactory | None = None,
 ) -> dict[str, Any] | None:
     if not serp_queries:
         return None
@@ -596,24 +589,12 @@ def _run_sub_queries_parallel(
         work_q.put(sq)
 
     def _worker_fn() -> None:
-        # worker_factory builds a fresh LlmClient + extraction chat on this
-        # thread. Falling back to the shared callables is for unit tests that
-        # do not open HTTP; production always passes a factory.
-        if worker_factory is not None:
-            task_run_web_agent, task_llm_chat, worker_cleanup = worker_factory()
-        else:
-            task_run_web_agent, task_llm_chat, worker_cleanup = run_web_agent, llm_chat, None
+        task_run_web_agent, task_llm_chat, worker_cleanup = worker_factory()
         try:
             while True:
                 sq = work_q.get()
                 if sq is None:
                     break
-                # Stop can land after submit and before this body. Return without
-                # building a client so the pool join is not stuck in HTTP.
-                stopped = _check_stopped(stop_checker)
-                if stopped is not None:
-                    result_q.put((sq, {"error": stopped}))
-                    continue
                 try:
                     branch = _process_one_sub_query(
                         sq,
@@ -628,15 +609,13 @@ def _run_sub_queries_parallel(
                 except Exception as exc:
                     result_q.put((sq, exc))
         finally:
-            if worker_cleanup is not None:
-                worker_cleanup()
+            worker_cleanup()
 
     handles = [
         run_in_background(_worker_fn, name=f"deep-research-{idx}", dedicated=True)
         for idx in range(workers)
     ]
 
-    error_payload: dict[str, Any] | None = None
     completed = 0
     total = len(serp_queries)
 
@@ -644,8 +623,7 @@ def _run_sub_queries_parallel(
         while completed < total:
             stopped = _check_stopped(stop_checker)
             if stopped is not None:
-                error_payload = stopped
-                return error_payload
+                return stopped
             try:
                 sq, res = result_q.get(timeout=0.25)
             except queue.Empty:
@@ -663,14 +641,10 @@ def _run_sub_queries_parallel(
 
             branch = res
             if isinstance(branch, dict) and branch.get("error"):
-                error_payload = branch["error"]
-                if isinstance(error_payload, dict) and error_payload.get("code") == "USER_STOPPED":
-                    return error_payload
-                # Emulate the `break` from original `as_completed` when an error branch is found
-                break
+                return branch["error"]
             if branch:
                 _merge_branch_results(acc, branch)
-        return error_payload
+        return None
     finally:
         # Cancel unstarted work on Stop, then join the pool.
         while not work_q.empty():
@@ -685,7 +659,7 @@ def _run_sub_queries_parallel(
         deadline = time.monotonic() + _STOP_POOL_JOIN_SEC
         for handle in handles:
             remaining = deadline - time.monotonic()
-            handle.join(timeout=0.0 if remaining <= 0 else remaining)
+            handle.join(timeout=max(0.0, remaining))
         stuck = [h for h in handles if h.is_alive()]
         if stuck:
             log.warning(
@@ -695,21 +669,12 @@ def _run_sub_queries_parallel(
             )
 
 
-def _serp_from_suggested_queries(queries: list[str]) -> list[dict[str, str]]:
-    out: list[dict[str, str]] = []
-    for q in queries:
-        text = str(q).strip()
-        if text:
-            out.append({"query": text, "researchGoal": f"Fill knowledge gap: {text}"})
-    return out
-
-
 def _run_adaptive_research_loop(
     combined_query: str,
     original_query: str,
     *,
     llm_chat: LlmChatFn,
-    run_web_agent: WebAgentRunner,
+    worker_factory: WorkerFactory,
     stop_checker: StopChecker,
     status_callback: StatusCallback,
     breadth: int,
@@ -717,7 +682,6 @@ def _run_adaptive_research_loop(
     concurrency: int,
     max_sub_queries: int,
     quality_threshold: int,
-    worker_factory: WorkerFactory | None = None,
 ) -> dict[str, Any]:
     acc = _ResearchAccumulator()
     progress = ResearchProgress(max_rounds=max_rounds, max_sub_queries=max_sub_queries)
@@ -738,7 +702,7 @@ def _run_adaptive_research_loop(
                 status_callback(_("Planning {count} research queries...").format(count=breadth))
             raw_queries = generate_search_queries(llm_chat, combined_query, num_queries=breadth)
         else:
-            raw_queries = _serp_from_suggested_queries(next_gap_queries[:breadth])
+            raw_queries = [{"query": text, "researchGoal": f"Fill knowledge gap: {text}"} for text in next_gap_queries[:breadth]]
 
         serp_queries = []
         for sq in raw_queries:
@@ -761,14 +725,12 @@ def _run_adaptive_research_loop(
 
         loop_error = _run_sub_queries_parallel(
             serp_queries,
-            run_web_agent=run_web_agent,
-            llm_chat=llm_chat,
+            worker_factory=worker_factory,
             stop_checker=stop_checker,
             acc=acc,
             concurrency=concurrency,
             progress=progress,
             status_callback=status_callback,
-            worker_factory=worker_factory,
         )
         if loop_error is not None:
             return {"error": loop_error}
@@ -794,9 +756,9 @@ def _run_adaptive_research_loop(
             )
             score = assessment["score"]
             gaps = assessment["knowledge_gaps"]
-            next_gap_queries = assessment.get("suggested_queries") or gaps
+            next_gap_queries = assessment["suggested_queries"] or gaps
 
-            if assessment.get("stop") or score >= quality_threshold or not next_gap_queries:
+            if assessment["stop"] or score >= quality_threshold or not next_gap_queries:
                 log.info("deep_research: stopping after round %s (score=%s)", round_num, score)
                 break
         else:
@@ -808,7 +770,6 @@ def _run_adaptive_research_loop(
         "citations": acc.citations,
         "context": acc.context_chunks,
         "sources": list(acc.sources),
-        "branch_error": acc.last_branch_error,
     }
 
 
@@ -816,7 +777,7 @@ def run_deep_research(
     query: str,
     *,
     llm_chat: LlmChatFn,
-    run_web_agent: WebAgentRunner,
+    worker_factory: WorkerFactory,
     stop_checker: StopChecker,
     status_callback: StatusCallback,
     breadth: int,
@@ -826,7 +787,6 @@ def run_deep_research(
     concurrency: int = 2,
     max_sub_queries: int = 14,
     quality_threshold: int = 7,
-    worker_factory: WorkerFactory | None = None,
 ) -> str | dict[str, Any]:
     """Run adaptive multi-round deep research; returns report string or error payload dict."""
     stopped = _check_stopped(stop_checker)
@@ -842,7 +802,7 @@ def run_deep_research(
             combined_query,
             query,
             llm_chat=llm_chat,
-            run_web_agent=run_web_agent,
+            worker_factory=worker_factory,
             stop_checker=stop_checker,
             status_callback=status_callback,
             breadth=breadth,
@@ -850,23 +810,19 @@ def run_deep_research(
             concurrency=concurrency,
             max_sub_queries=max_sub_queries,
             quality_threshold=quality_threshold,
-            worker_factory=worker_factory,
         )
         if loop_result.get("error"):
             return loop_result["error"]
 
-        learnings = loop_result.get("learnings") or []
-        context_chunks = loop_result.get("context") or []
-        citations = loop_result.get("citations") or {}
-        sources = loop_result.get("sources") or []
+        learnings = loop_result["learnings"]
+        context_chunks = loop_result["context"]
+        citations = loop_result["citations"]
+        sources = loop_result["sources"]
 
         if not learnings and not context_chunks:
             # A failed extraction drops only the extracted learnings; the sub-agent
             # report in ``context`` is still evidence. Error only when both are empty,
             # or the run would synthesize from nothing.
-            err = loop_result.get("branch_error")
-            if isinstance(err, dict) and err.get("status") == "error":
-                return err
             return format_error_payload(
                 ToolExecutionError(_("Web research collected no usable evidence."))
             )
