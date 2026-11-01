@@ -103,7 +103,7 @@ def resolve_code_bank_ref(code: str, sheet_cells: dict[str, dict[str, tuple[str,
         cell_map = sheet_cells.get(sheet) or by_lower.get(sheet.lower())
         if not cell_map:
             return None
-        _formula, value = cell_map.get(a1) or cell_map.get(a1.lower(), ("", ""))
+        _formula, value = cell_map.get(a1, ("", ""))
         stripped = value.strip()
         return stripped or None
 
