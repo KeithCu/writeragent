@@ -61,15 +61,6 @@ def _effort_order(vocab: tuple[str, ...], req: str) -> list[str]:
     return ([req] if req in vocab else []) + lower + higher
 
 
-def _place_effort(provider: str | None, value: str) -> dict[str, Any]:
-    prov = str(provider or "").strip().lower()
-    if prov == "openrouter":
-        return {"reasoning": {"effort": value}}
-    if prov == "anthropic":
-        return {"output_config": {"effort": value}}
-    return {"reasoning_effort": value}
-
-
 def effort_payload(provider: str | None, level: str | None) -> dict[str, Any]:
     """Fragment to merge into the chat JSON body. {} sends no effort field."""
     if not isinstance(level, str):
@@ -78,9 +69,13 @@ def effort_payload(provider: str | None, level: str | None) -> dict[str, Any]:
     if req != LOWEST_SENTINEL and req not in OUR_EFFORTS:
         return {}
     vocab = _provider_efforts(provider)
-    if req == LOWEST_SENTINEL:
-        return _place_effort(provider, vocab[0])
-    return _place_effort(provider, _effort_order(vocab, req)[0])
+    value = vocab[0] if req == LOWEST_SENTINEL else _effort_order(vocab, req)[0]
+    prov = str(provider or "").strip().lower()
+    if prov == "openrouter":
+        return {"reasoning": {"effort": value}}
+    if prov == "anthropic":
+        return {"output_config": {"effort": value}}
+    return {"reasoning_effort": value}
 
 
 def _effort_holder(body: bytes | str) -> tuple[dict[str, Any], dict[str, Any], str] | None:
@@ -326,8 +321,7 @@ class BaseProviderShim:
     def _reasoning_provider(self) -> str:
         if self._openrouter_chat():
             return "openrouter"
-        provider = self.client._get_provider()
-        return provider if isinstance(provider, str) and provider else "custom"
+        return self.client._get_provider()
 
     def _client_config(self) -> dict[str, Any]:
         config = getattr(self.client, "config", None)
@@ -338,13 +332,10 @@ class BaseProviderShim:
         return raw.strip() if isinstance(raw, str) else ""
 
     def _requested_effort_level(self, chat_extra: dict[str, Any] | None) -> str:
-        if isinstance(chat_extra, dict):
-            reasoning = chat_extra.get("reasoning")
-            if isinstance(reasoning, dict):
-                raw_effort = reasoning.get("effort")
-                if isinstance(raw_effort, str) and raw_effort.strip():
-                    return raw_effort.strip()
-        return self._endpoint_reasoning_effort()
+        reasoning = chat_extra.get("reasoning") if isinstance(chat_extra, dict) else None
+        raw_effort = reasoning.get("effort") if isinstance(reasoning, dict) else None
+        stripped = raw_effort.strip() if isinstance(raw_effort, str) else ""
+        return stripped or self._endpoint_reasoning_effort()
 
     def _openrouter_chat(self) -> bool:
         return bool(self._client_config().get("is_openrouter"))
@@ -422,9 +413,7 @@ class BaseProviderShim:
         delta_raw = choice.get("delta", {})
         delta = delta_raw if isinstance(delta_raw, dict) else {}
 
-        finish_reason = choice.get("finish_reason") if choice else None
-        if not finish_reason:
-            finish_reason = chunk.get("finish_reason") or chunk.get("done_reason")
+        finish_reason = choice.get("finish_reason") or chunk.get("finish_reason") or chunk.get("done_reason")
         if not finish_reason and choices:
             for c in choices:
                 if isinstance(c, dict) and c.get("finish_reason"):
