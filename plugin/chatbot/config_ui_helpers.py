@@ -439,18 +439,16 @@ REASONING_EFFORT_OPTIONS: tuple[tuple[str, str], ...] = (
 )
 
 REASONING_EFFORT_DISPLAY_LABELS: tuple[str, ...] = tuple(disp for disp, _val in REASONING_EFFORT_OPTIONS)
-REASONING_EFFORT_DISPLAY_TO_VALUE: dict[str, str] = dict(REASONING_EFFORT_OPTIONS)
-REASONING_EFFORT_VALUE_TO_DISPLAY: dict[str, str] = {val: disp for disp, val in REASONING_EFFORT_OPTIONS}
 
 
 def reasoning_effort_to_display(effort: str | None) -> str:
     """Map stored effort level ('', 'low', 'medium', 'high', 'xhigh', 'max') to short display label ('def', 'lo', ...)."""
-    return REASONING_EFFORT_VALUE_TO_DISPLAY.get((effort or "").strip(), "default")
+    return {val: disp for disp, val in REASONING_EFFORT_OPTIONS}.get((effort or "").strip(), "default")
 
 
 def display_to_reasoning_effort(label: str | None) -> str:
     """Map short display label ('def', 'lo', ...) back to stored effort level ('', 'low', ...)."""
-    return REASONING_EFFORT_DISPLAY_TO_VALUE.get((label or "").strip(), "")
+    return dict(REASONING_EFFORT_OPTIONS).get((label or "").strip(), "")
 
 
 def set_reasoning_effort_selector_value(ctrl: Any, label: str) -> None:

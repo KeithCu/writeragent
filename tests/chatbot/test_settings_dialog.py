@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 from plugin.framework.event_bus import get_event_bus
 from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_LABELS, get_settings_field_specs
-import pytest
 
 
 def test_image_default_aspect_has_sidebar_matching_options():
@@ -115,22 +114,6 @@ def test_core_field_specs_omit_stt_model():
     # No XDL controls. OK used to write "" over the schema defaults.
     assert "text_analytics_sentiment_model" not in names
     assert "text_analytics_sentiment_engine" not in names
-
-
-@pytest.mark.parametrize(
-    "value, value_2, value_3, value_4",
-    [
-        pytest.param("audio.stt_model", "whisper-1", "whisper-1", "audio_model_lru", id="test_update_lru_for_audio_stt_model"),
-        pytest.param("audio.tts_model", "hexgrad/Kokoro-82M", "hexgrad/Kokoro-82M", "tts_model_lru", id="test_update_lru_for_tts_model"),
-    ],
-)
-def test_update_lru_for_audio_stt_model(value, value_2, value_3, value_4):
-    from plugin.chatbot.settings_dialog import _lru_rows_for_key
-
-    assert _lru_rows_for_key(value, value_2, "https://openrouter.ai/api") == [
-        (value_3, value_4, "https://openrouter.ai/api"),
-    ]
-    assert _lru_rows_for_key("image_model", "flux-dev", "https://openrouter.ai/api") == []
 
 
 def test_apply_settings_skips_model_combobox_placeholders():

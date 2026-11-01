@@ -144,7 +144,7 @@ def build_module_field_specs(
         if schema_type in ("bool", "int", "float"):
             field["type"] = str(schema_type)
             if schema_type == "bool":
-                field["value"] = "true" if as_bool(val) else "false"
+                field["value"] = str(as_bool(val)).lower()
 
         field_specs.append(field)
     return field_specs
