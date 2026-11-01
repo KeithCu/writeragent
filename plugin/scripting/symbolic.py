@@ -20,7 +20,6 @@ from plugin.scripting.client import run_symbolic as client_run_symbolic
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     is_status_helper_result,
-    supports_calc_or_writer_manual,
 )
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
@@ -77,10 +76,6 @@ def run_trusted_symbolic(
         raise ToolExecutionError("helper is required", code="SYMBOLIC_ERROR")
     if name not in HELPER_NAMES:
         raise ToolExecutionError(f"Unknown helper {name!r}", code="SYMBOLIC_ERROR")
-    if not doc_type:
-        from plugin.framework.queue_executor import run_on_main
-
-        doc_type = "calc" if run_on_main(supports_calc_or_writer_manual, doc) else ""
     if doc_type not in ("calc", "writer"):
         raise ToolExecutionError("Symbolic helpers require a Writer or Calc document.", code="SYMBOLIC_ERROR")
 

@@ -547,7 +547,6 @@ def run_units(
     clean.pop("output_style", None)
     if _get_ureg() is None:
         return missing_package_error(helper, "pint")
-    assert helper in _DISPATCH, helper
     result = _DISPATCH[helper](clean)
     if result.get("status") == "ok" and context and "task_hint" in context:
         result["task_hint"] = context["task_hint"]
