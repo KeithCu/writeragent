@@ -214,20 +214,15 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[Any] | None:
     f_idx = -1
     # bool is an int subclass. int(True) - 1 would select column 0 when
     # the label "TRUE" is missing. A bool field is the header text.
-    if isinstance(field, (int, float)) and not isinstance(field, bool):
-        try:
-            f_idx = int(field) - 1
-        except (ValueError, TypeError, OverflowError):
-            f_idx = -1
-    elif field is not None:
+    if field is not None and not (isinstance(field, (int, float)) and not isinstance(field, bool)):
         f_name = header_label(field).upper()
         if f_name in header_index:
             f_idx = header_index[f_name]
-        elif not isinstance(field, (str, bool)):
-            try:
-                f_idx = int(float(field)) - 1
-            except (ValueError, TypeError, OverflowError):
-                f_idx = -1
+    if f_idx < 0 and field is not None and not isinstance(field, (str, bool)):
+        try:
+            f_idx = int(float(field)) - 1
+        except (ValueError, TypeError, OverflowError):
+            f_idx = -1
 
     if f_idx < 0 or f_idx >= db_arr.shape[1]:
         return None
@@ -692,6 +687,13 @@ def even(n: Any) -> float:
     return float(math.floor(v / 2.0) * 2)
 
 
+def _flag_default_true(val: Any) -> bool:
+    # _as_nonzero treats a blank as false. These three flags treat it as true.
+    if val is None or val == "":
+        return True
+    return _as_nonzero(val)
+
+
 def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     st = _scipy_stats()
     if st is None:
@@ -700,7 +702,7 @@ def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     x_val = float(x)
     lam = float(lambda_)
     try:
-        cum = True if (c is None or c == "") else _as_nonzero(c)
+        cum = _flag_default_true(c)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
     # st.expon.pdf of a negative x is 0. scale=1/lam is ZeroDivisionError when lam is 0.
@@ -753,27 +755,22 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
     try:
         arr = np.asarray(range_arr)
         crit = np.asarray(criteria)
-        if arr.ndim == 1 and crit.size == arr.size:
-            axis = "row"
-        elif arr.ndim == 2 and crit.ndim == 1 and crit.size == arr.shape[0]:
-            axis = "row"
-        elif arr.ndim == 2 and crit.ndim == 1 and crit.size == arr.shape[1]:
-            axis = "col"
-        elif arr.ndim == 2 and crit.ndim == 2 and crit.shape == (arr.shape[0], 1):
-            axis = "row"
-        elif arr.ndim == 2 and crit.ndim == 2 and crit.shape == (1, arr.shape[1]):
-            axis = "col"
-        elif arr.ndim == 2 and crit.ndim == 2 and crit.shape == arr.shape:
-            axis = "elem"
-        else:
+        row = (
+            (arr.ndim == 1 and crit.size == arr.size)
+            or (arr.ndim == 2 and (
+                (crit.ndim == 1 and crit.size == arr.shape[0])
+                or (crit.ndim == 2 and crit.shape == (arr.shape[0], 1))
+            ))
+        )
+        col = arr.ndim == 2 and (
+            (crit.ndim == 1 and crit.size == arr.shape[1])
+            or (crit.ndim == 2 and crit.shape == (1, arr.shape[1]))
+        )
+        elem = arr.ndim == 2 and crit.ndim == 2 and crit.shape == arr.shape
+        if not (row or col or elem):
             return "#VALUE!"
         mask = np.asarray([_as_nonzero(x) for x in crit.ravel()])
-        if axis == "elem":
-            out = arr[mask.reshape(arr.shape)]
-        elif axis == "col":
-            out = arr[:, mask]
-        else:
-            out = arr[mask]
+        out = arr[mask] if row else arr[:, mask] if col else arr[mask.reshape(arr.shape)]
     except (ValueError, TypeError, IndexError, OverflowError):
         return "#VALUE!"
     if out.size == 0:
@@ -891,7 +888,7 @@ def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
     a = float(alpha)
     b = float(beta)
     try:
-        cum = True if (c is None or c == "") else _as_nonzero(c)
+        cum = _flag_default_true(c)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
     # st.gamma.pdf of a negative x is 0. Excel is #NUM!.
@@ -968,7 +965,7 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
         # A text "0" is truthy in Python, so GROWTH fitted an intercept.
         # expondist and fixed coerce with bool(float()). "FALSE" raises
         # and the handler below returns "#VALUE!".
-        use_const = True if (const is None or const == "") else _as_nonzero(const)
+        use_const = _flag_default_true(const)
         if use_const:
             coeffs = np.polyfit(x, y_log, 1)
             res = np.exp(np.polyval(coeffs, new_x_arr))
