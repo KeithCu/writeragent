@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from com.sun.star.awt import ItemEvent, TextEvent
 
-from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort, is_disposed_exception
+from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort, suppress_disposed
 from plugin.framework.menu_icon_dpi import menu_icon_asset_url
 from plugin.framework.uno_context import get_extension_url
 from plugin.framework.i18n import N_, _
@@ -124,24 +124,6 @@ def apply_provider_button_icon(ctrl: Any, ctx: Any, stem: str) -> None:
     model.ImagePosition = _IMAGE_POSITION_LEFT_CENTER
 
 
-def _load_selection_token_controls(extend_ctrl: Any, edit_extra_ctrl: Any) -> None:
-    if extend_ctrl:
-        set_control_text(extend_ctrl, str(get_config_int("extend_selection_max_tokens")))
-    if edit_extra_ctrl:
-        set_control_text(edit_extra_ctrl, str(get_config_int("edit_selection_max_new_tokens")))
-
-
-def _save_selection_token_controls(extend_ctrl: Any, edit_extra_ctrl: Any) -> None:
-    # Batch writes so if one value fails validation, partial saves are avoided.
-    values: dict[str, Any] = {}
-    if extend_ctrl:
-        values["extend_selection_max_tokens"] = get_control_text(extend_ctrl)
-    if edit_extra_ctrl:
-        values["edit_selection_max_new_tokens"] = get_control_text(edit_extra_ctrl)
-    if values:
-        set_configs(values)
-
-
 # ── Generic Helpers ──────────────────────────────────────────────────
 
 def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tuple[str, str]:
@@ -179,9 +161,13 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
                 skip_remote_fetch=True,
             )
 
-        extend_tokens_ctrl = get_optional(dlg, "extend_max_tokens")
-        extra_tokens_ctrl = get_optional(dlg, "edit_extra_tokens")
-        _load_selection_token_controls(extend_tokens_ctrl, extra_tokens_ctrl)
+        token_controls = (
+            (get_optional(dlg, "extend_max_tokens"), "extend_selection_max_tokens"),
+            (get_optional(dlg, "edit_extra_tokens"), "edit_selection_max_new_tokens"),
+        )
+        for ctrl, cfg_key in token_controls:
+            if ctrl:
+                set_control_text(ctrl, str(get_config_int(cfg_key)))
 
         dlg.getControl("edit").setFocus()
         dlg.getControl("edit").setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", 0, len(str(default))))
@@ -193,7 +179,13 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
                 chosen = model_selector.getText()
                 if chosen:
                     set_text_model(chosen, update_lru=True)
-            _save_selection_token_controls(extend_tokens_ctrl, extra_tokens_ctrl)
+            values = {
+                cfg_key: get_control_text(ctrl)
+                for ctrl, cfg_key in token_controls
+                if ctrl
+            }
+            if values:
+                set_configs(values)
             return ret_text, ret_prompt
         # ESC/close: execute() returned false — skip dispose in finally (double dispose segfaults LO).
         need_dispose = False
@@ -215,11 +207,6 @@ def _first_control(dlg: Any, *names: str) -> Any:
     return ctrl
 
 
-def _listen_combo(ctrl: Any, listener: Any) -> None:
-    ctrl.addItemListener(listener)
-    ctrl.addTextListener(listener)
-
-
 class SettingsDialog:
     """Manages the lifecycle of the WriterAgent Settings dialog."""
 
@@ -234,6 +221,14 @@ class SettingsDialog:
         self._endpoint_listener = None
         self._attached = []
 
+    def _attach(self, ctrl: Any, kind: str, listener: Any) -> None:
+        getattr(ctrl, f"add{kind}Listener")(listener)
+        self._attached.append((ctrl, f"remove{kind}Listener", listener))
+
+    def _attach_combo(self, ctrl: Any, listener: Any) -> None:
+        self._attach(ctrl, "Item", listener)
+        self._attach(ctrl, "Text", listener)
+
     def show(self) -> dict[str, Any]:
         """Execute the settings dialog and apply results.
 
@@ -246,9 +241,6 @@ class SettingsDialog:
 
         try:
             self._create_dialog()
-            if self._dlg is None:
-                return {}
-
             set_active_settings_dialog(self._dlg)
 
             field_specs = get_settings_field_specs(self._ctx)
@@ -332,34 +324,23 @@ class SettingsDialog:
         for btn_name, factory in action_buttons:
             btn = get_optional(self._dlg, btn_name)
             if btn:
-                listener = factory()
-                btn.addActionListener(listener)
-                self._attached.append((btn, "removeActionListener", listener))
+                self._attach(btn, "Action", factory())
 
         port_ctrl = get_optional(self._dlg, "mcp__mcp_port")
         if port_ctrl:
-            port_listener = McpPortTextListener(self._dlg)
-            port_ctrl.addTextListener(port_listener)
-            self._attached.append((port_ctrl, "removeTextListener", port_listener))
+            self._attach(port_ctrl, "Text", McpPortTextListener(self._dlg))
 
         tunnel_enabled_ctrl = get_optional(self._dlg, "mcp__tunnel_enabled")
         if tunnel_enabled_ctrl:
-            tunnel_listener = McpTunnelEnabledListener(self._dlg)
-            tunnel_enabled_ctrl.addItemListener(tunnel_listener)
-            self._attached.append((tunnel_enabled_ctrl, "removeItemListener", tunnel_listener))
+            self._attach(tunnel_enabled_ctrl, "Item", McpTunnelEnabledListener(self._dlg))
 
         provider_ctrl = get_optional(self._dlg, "mcp__tunnel_provider")
         if provider_ctrl:
-            tunnel_prov_listener = McpTunnelProviderListener(self._dlg)
-            _listen_combo(provider_ctrl, tunnel_prov_listener)
-            self._attached.append((provider_ctrl, "removeItemListener", tunnel_prov_listener))
-            self._attached.append((provider_ctrl, "removeTextListener", tunnel_prov_listener))
+            self._attach_combo(provider_ctrl, McpTunnelProviderListener(self._dlg))
 
     def _populate_fields(self, field_specs: list[dict[str, Any]], current_endpoint: str) -> None:
         assert self._dlg is not None
-        from plugin.chatbot.config_ui_helpers import (
-            populate_combobox_with_lru, populate_endpoint_selector
-        )
+        from plugin.chatbot.config_ui_helpers import populate_endpoint_selector
 
         api_key_val = next((str(f.get("value") or "") for f in field_specs if f.get("name") == "api_key"), "")
 
@@ -416,9 +397,7 @@ class SettingsDialog:
     def _setup_tts_listeners(self) -> None:
         test_btn = get_optional(self._dlg, "audio__test_voice")
         if test_btn:
-            tts_test_listener = TtsTestVoiceListener(self._ctx, self._dlg)
-            test_btn.addActionListener(tts_test_listener)
-            self._attached.append((test_btn, "removeActionListener", tts_test_listener))
+            self._attach(test_btn, "Action", TtsTestVoiceListener(self._ctx, self._dlg))
 
         prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
         voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
@@ -430,14 +409,10 @@ class SettingsDialog:
         tts_listener = TtsSettingsListener(self._dlg)
 
         if prov_ctrl:
-            _listen_combo(prov_ctrl, tts_listener)
-            self._attached.append((prov_ctrl, "removeItemListener", tts_listener))
-            self._attached.append((prov_ctrl, "removeTextListener", tts_listener))
+            self._attach_combo(prov_ctrl, tts_listener)
 
         if model_ctrl:
-            _listen_combo(model_ctrl, tts_listener)
-            self._attached.append((model_ctrl, "removeItemListener", tts_listener))
-            self._attached.append((model_ctrl, "removeTextListener", tts_listener))
+            self._attach_combo(model_ctrl, tts_listener)
 
         tts_listener.sync_ui()
 
@@ -446,9 +421,7 @@ class SettingsDialog:
         if prov_ctrl is None:
             return
         stt_listener = SttSettingsListener(self._dlg)
-        _listen_combo(prov_ctrl, stt_listener)
-        self._attached.append((prov_ctrl, "removeItemListener", stt_listener))
-        self._attached.append((prov_ctrl, "removeTextListener", stt_listener))
+        self._attach_combo(prov_ctrl, stt_listener)
         stt_listener.sync_ui()
 
     def _endpoint_api_key_override(self) -> str | None:
@@ -471,9 +444,7 @@ class SettingsDialog:
         the provider was OpenRouter or Together left Ollama, Groq, and custom
         URLs with only the open-time fill, and that load blocked execute().
         """
-        from plugin.framework.config import get_api_key_for_endpoint
         from plugin.framework.client.auth import provider_requires_api_key
-        from plugin.framework.client.provider_detection import get_provider_from_endpoint
 
         listener = self._endpoint_listener
         if not listener or not endpoint:
@@ -488,13 +459,12 @@ class SettingsDialog:
 
     def _setup_endpoint_listener(self, ctrl: Any) -> None:
         self._endpoint_listener = EndpointCombinedListener(self._dlg, self._ctx, ctrl)
-        _listen_combo(ctrl, self._endpoint_listener)
+        ctrl.addItemListener(self._endpoint_listener)
+        ctrl.addTextListener(self._endpoint_listener)
 
         ak_ctrl = get_optional(self._dlg, "api_key")
         if ak_ctrl:
-            api_key_listener = ApiKeyTextListener(self._endpoint_listener)
-            ak_ctrl.addTextListener(api_key_listener)
-            self._attached.append((ak_ctrl, "removeTextListener", api_key_listener))
+            self._attach(ak_ctrl, "Text", ApiKeyTextListener(self._endpoint_listener))
 
     def _apply_sqlite_restrictions(self) -> None:
         if not HAS_SQLITE:
@@ -534,25 +504,16 @@ class SettingsDialog:
     def _cleanup(self) -> None:
         # A disposed control used to escape this finally and replace the error show() was handling.
         if self._endpoint_listener:
-            try:
+            with suppress_disposed("close endpoint listener", logger=log, suppress_all=False):
                 self._endpoint_listener.close()
-            except Exception as e:
-                if not is_disposed_exception(e):
-                    raise
         if self._dlg is not None:
             for ctrl, method, listener in self._attached:
-                try:
+                with suppress_disposed("detach settings listener", logger=log, suppress_all=False):
                     getattr(ctrl, method)(listener)
-                except Exception as e:
-                    if not is_disposed_exception(e):
-                        raise
         clear_active_settings_dialog(self._dlg)
         if self._dlg:
-            try:
+            with suppress_disposed("dispose settings dialog", logger=log, suppress_all=False):
                 self._dlg.dispose()
-            except Exception as e:
-                if not is_disposed_exception(e):
-                    raise
 
 
 def settings_box(ctx: Any) -> Any:
@@ -617,7 +578,6 @@ class ProviderStarterListener(BaseActionListener):
             set_control_text(endpoint_ctrl, self._endpoint_url)
             ak_ctrl = get_optional(self._dlg, "api_key")
             if ak_ctrl:
-                from plugin.framework.config import get_api_key_for_endpoint
                 set_control_text(ak_ctrl, get_api_key_for_endpoint(self._endpoint_url))
                 ak_ctrl.setFocus()
         if self._signup_url:
@@ -640,10 +600,7 @@ class TestConnectionListener(BaseActionListener):
         self._catalog_recheck = catalog_recheck
 
     def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
         from plugin.chatbot.quick_setup import check_endpoint_connection
-        from plugin.framework.worker_pool import run_in_background
-        from plugin.framework.queue_executor import post_to_main_thread
 
         btn_test = get_optional(self._dlg, "btn_test_conn")
         lbl_status = get_optional(self._dlg, "lbl_test_status")
@@ -668,7 +625,6 @@ class TestConnectionListener(BaseActionListener):
             api_key = override
         elif api_key_ctrl:
             from plugin.chatbot.settings_dialog import effective_api_key
-            from plugin.framework.config import get_api_key_for_endpoint
 
             saved_endpoint = get_current_endpoint()
             api_key = effective_api_key(
@@ -731,8 +687,6 @@ def _dialog_endpoint_url(dlg: Any) -> str | None:
     ctrl = get_optional(dlg, "endpoint")
     if ctrl is None:
         return None
-    from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
-
     return endpoint_from_selector_text(get_control_text(ctrl))
 
 
@@ -1067,8 +1021,6 @@ class TtsTestVoiceListener(BaseActionListener):
         # Sticky errors (HTTP body, fallback) still use MessageBox via __call__.
         on_status = _TtsTestStatusSink(self)
 
-        from plugin.framework.queue_executor import post_to_main_thread
-
         def _on_complete() -> None:
             post_to_main_thread(self._close_progress)
 
@@ -1105,7 +1057,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _synced_endpoint: str | None
     _applied_catalog: tuple[str, str] | None
     _painted_provider: str | None
-    _has_painted: bool
 
     def __init__(self, dialog: Any, context: Any, combo_ctrl: Any) -> None:
         self._dlg = dialog
@@ -1117,10 +1068,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         # Endpoint + live key last painted from the in-memory catalog.
         # A later keystroke with the same pair must not refetch or rewrite.
         self._applied_catalog = None
-        # Provider the model combos were last filled for. None until the
-        # first fill; that fill compares against the saved endpoint.
-        self._painted_provider = None
-        self._has_painted = False
+        # Provider the model combos were last filled for. Initialized to the
+        # saved endpoint's provider so the first fill compares against it.
+        self._painted_provider = get_provider_from_endpoint(get_current_endpoint())
 
         # URL whose saved key the field was last aligned to. Set from the
         # combo at attach time so the first keystroke is a change, not a baseline.
@@ -1198,109 +1148,44 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     def _apply_dropdowns(self, resolved: str, models: Any = None, skip_fetch: bool = False) -> None:
         ak_ctrl = get_optional(self._dlg, "api_key")
         api_key_ov = str(get_control_text(ak_ctrl)) if ak_ctrl else ""
-        skip_remote = bool(skip_fetch)
         resolved_provider = (
             get_provider_from_endpoint(resolved)
             if resolved and endpoint_url_suitable_for_v1_models_fetch(resolved)
             else None
         )
-        # The first fill compares against the saved endpoint's provider.
-        # Later fills compare against the provider this listener last filled
-        # for (_painted_provider). Comparing against the saved endpoint on
-        # every fill discards a typed Text model and jumps Image to the
-        # catalog's first id after a provider switch that is not OK'd yet.
-        # Combos hold ids from the wrong provider only right after the
-        # provider changes. Once filled for Together, a Together repaint
-        # keeps what the user typed or picked; switching back to the saved
-        # provider still drops the Together ids.
-        if self._has_painted:
-            baseline_provider = self._painted_provider
-        else:
-            baseline_provider = get_provider_from_endpoint(get_current_endpoint())
+        baseline_provider = self._painted_provider
         same_provider = bool(resolved_provider and resolved_provider == baseline_provider)
         self._painted_provider = resolved_provider
-        self._has_painted = True
 
-        text_ctrl = get_optional(self._dlg, "text_model")
-        if text_ctrl:
-            current = self._combo_current_for_provider(
-                text_ctrl,
-                same_provider=same_provider,
-                fallback=str(get_text_model() or ""),
-            )
-            populate_combobox_with_lru(
-                text_ctrl,
-                current,
-                "model_lru",
-                resolved,
-                remote_models=models,
-                api_key_override=api_key_ov,
-                skip_remote_fetch=skip_remote,
-            )
-
-        stt_ctrl = _first_control(self._dlg, "audio__stt_model", "stt_model")
-        if stt_ctrl:
-            stt_val = self._combo_current_for_provider(
-                stt_ctrl,
-                same_provider=same_provider,
-                # get_stt_model dual-reads audio.stt_model then legacy stt_model.
-                fallback=str(get_stt_model() or ""),
-            )
-            stt_remote = self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "stt")
-            populate_combobox_with_lru(
-                stt_ctrl,
-                stt_val,
-                "audio_model_lru",
-                resolved,
-                remote_models=stt_remote,
-                api_key_override=api_key_ov,
-                skip_remote_fetch=skip_remote,
-            )
-
-        tts_ctrl = _first_control(self._dlg, "audio__tts_model", "tts_model")
-        if tts_ctrl:
-            tts_val = self._combo_current_for_provider(
-                tts_ctrl,
-                same_provider=same_provider,
-                fallback=str(get_config("audio.tts_model") or get_tts_model() or ""),
-            )
-            tts_remote = self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "tts")
-            populate_combobox_with_lru(
-                tts_ctrl,
-                tts_val,
-                "tts_model_lru",
-                resolved,
-                remote_models=tts_remote,
-                api_key_override=api_key_ov,
-                skip_remote_fetch=skip_remote,
-            )
-            # Speech-list or Together /v1/voices just filled supported_voices.
-            # The model text may be unchanged, so the voice listener would not run.
-            TtsSettingsListener(self._dlg).sync_ui()
-
-        image_ctrl = get_optional(self._dlg, "image_model")
-        if image_ctrl:
-            # The worker stores image ids before this runs. Calling
-            # fetch_available_image_models here GETs on the UI thread for any
-            # host that is not already in that memo (Ollama used to).
-            if models is not None:
-                image_models = cached_image_models(resolved, api_key_override=self._api_key_override())
-            else:
-                image_models = None
-            image_val = self._combo_current_for_provider(
-                image_ctrl,
-                same_provider=same_provider,
-                fallback=str(get_image_model() or ""),
-            )
-            populate_combobox_with_lru(
-                image_ctrl,
-                image_val,
-                "image_model_lru",
-                resolved,
-                remote_models=image_models,
-                api_key_override=api_key_ov,
-                skip_remote_fetch=skip_remote,
-            )
+        image_models = (
+            cached_image_models(resolved, api_key_override=self._api_key_override())
+            if models is not None
+            else None
+        )
+        rows = (
+            (get_optional(self._dlg, "text_model"), str(get_text_model() or ""), "model_lru", models),
+            (_first_control(self._dlg, "audio__stt_model", "stt_model"), str(get_stt_model() or ""), "audio_model_lru", self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "stt")),
+            (_first_control(self._dlg, "audio__tts_model", "tts_model"), str(get_config("audio.tts_model") or get_tts_model() or ""), "tts_model_lru", self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "tts")),
+            (get_optional(self._dlg, "image_model"), str(get_image_model() or ""), "image_model_lru", image_models),
+        )
+        for ctrl, fallback, lru_key, remote in rows:
+            if ctrl:
+                current = self._combo_current_for_provider(
+                    ctrl,
+                    same_provider=same_provider,
+                    fallback=fallback,
+                )
+                populate_combobox_with_lru(
+                    ctrl,
+                    current,
+                    lru_key,
+                    resolved,
+                    remote_models=remote,
+                    api_key_override=api_key_ov,
+                    skip_remote_fetch=skip_fetch,
+                )
+                if lru_key == "tts_model_lru":
+                    TtsSettingsListener(self._dlg).sync_ui()
 
     def _speech_remote_models(
         self,
@@ -1337,11 +1222,21 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         found = fetch(resolved, api_key_override=self._api_key_override())
         return found if isinstance(found, list) else None
 
-    def close(self) -> None:
-        self._closed = True
-        self._debounce_gen += 1
+    def _cancel_pending(self) -> int:
         if self._timer:
             self._timer.cancel()
+        self._debounce_gen += 1
+        return self._debounce_gen
+
+    def _start_bg_fetch(self, gen: int, resolved: str, key_ov: str | None, name: str) -> None:
+        tts_model_id = self._tts_model_id_for_voice_fetch()
+        run_in_background(
+            lambda: self._bg_fetch(gen, resolved, tts_model_id, key_ov), name=name,
+        )
+
+    def close(self) -> None:
+        self._closed = True
+        self._cancel_pending()
 
     def _api_key_field_follows_saved(self, ak_ctrl: Any, previous: str | None) -> bool:
         """True when the field is empty or still shows the saved key for *previous*."""
@@ -1404,7 +1299,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         # and transcription are separate modality queries; Together voices are
         # GET /v1/voices. That blocked Settings, including OK. The worker fills
         # the process caches; apply_ui only reads them.
-        if resolved and provider in {"openrouter", "together"}:
+        if provider in {"openrouter", "together"}:
             fetch_available_image_models(resolved, api_key_override=key_ov)
             if provider == "openrouter":
                 fetch_available_tts_models(resolved, api_key_override=key_ov)
@@ -1438,16 +1333,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         # is not painted again: typing must not rewrite fields. Test Connection
         # is the recheck.
         if resolved and self._catalog_is_warm(resolved):
-            if self._timer:
-                self._timer.cancel()
-            self._debounce_gen += 1
+            self._cancel_pending()
             if self._catalog_identity(resolved) == self._applied_catalog:
                 return
             self._apply_from_cache(resolved)
             return
-        if self._timer: self._timer.cancel()
-        self._debounce_gen += 1
-        gen = self._debounce_gen
+        gen = self._cancel_pending()
         self._timer = threading.Timer(1.0, lambda: post_to_main_thread(lambda: self._run_fetch(gen)))
         self._timer.daemon = True
         self._timer.start()
@@ -1459,11 +1350,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             return
         resolved = endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
-            tts_model_id = self._tts_model_id_for_voice_fetch()
             key_ov = self._api_key_override()
-            run_in_background(
-                lambda: self._bg_fetch(gen, resolved, tts_model_id, key_ov), name="settings-fetch",
-            )
+            self._start_bg_fetch(gen, resolved, key_ov, "settings-fetch")
 
     def force_catalog_refresh(self) -> None:
         """Clear this endpoint+key memo and refetch off the UI thread."""
@@ -1472,14 +1360,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             return
         key_ov = self._api_key_override()
         clear_settings_catalog_cache(resolved, api_key_override=key_ov)
-        if self._timer:
-            self._timer.cancel()
-        self._debounce_gen += 1
-        gen = self._debounce_gen
-        tts_model_id = self._tts_model_id_for_voice_fetch()
-        run_in_background(
-            lambda: self._bg_fetch(gen, resolved, tts_model_id, key_ov), name="settings-recheck",
-        )
+        gen = self._cancel_pending()
+        self._start_bg_fetch(gen, resolved, key_ov, "settings-recheck")
 
     def textChanged(self, rEvent: TextEvent) -> None:
         # A typed URL reloads that URL's saved key, but only while the field
@@ -1499,12 +1381,10 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         url = endpoint_from_selector_text(item)
         if url: self._ctrl.setText(url)
         
-        if self._timer: self._timer.cancel()
-        self._debounce_gen += 1
+        gen = self._cancel_pending()
         # Snapshot on the UI thread. The worker used to read _debounce_gen
         # when it started, so a newer click was invisible, and it omitted the
         # Together TTS model id that force_catalog_refresh already captures.
-        gen = self._debounce_gen
         resolved = endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             self._sync_api_key(force=True)
@@ -1516,10 +1396,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             # Non-OpenRouter providers used to fetch inside _apply_dropdowns
             # and froze the dialog on a dead host.
             self._apply_dropdowns(resolved, models=None, skip_fetch=True)
-            tts_model_id = self._tts_model_id_for_voice_fetch()
-            run_in_background(
-                lambda: self._bg_fetch(gen, resolved, tts_model_id, key_ov), name="settings-select",
-            )
+            self._start_bg_fetch(gen, resolved, key_ov, "settings-select")
 
 
 # ── Evaluation Dashboard ─────────────────────────────────────────────

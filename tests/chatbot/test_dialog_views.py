@@ -195,7 +195,7 @@ class TestSettingsInitialModelsFetch:
         dlg = SettingsDialog(MagicMock())
         listener = MagicMock()
         dlg._endpoint_listener = listener
-        with patch('plugin.framework.config.get_api_key_for_endpoint', return_value='sk-test'):
+        with patch('plugin.chatbot.dialog_views.get_api_key_for_endpoint', return_value='sk-test'):
             dlg._schedule_initial_models_fetch('https://openrouter.ai/api')
         listener._schedule_debounced_models_fetch.assert_called_once()
 
@@ -205,7 +205,7 @@ class TestSettingsInitialModelsFetch:
         dlg = SettingsDialog(MagicMock())
         listener = MagicMock()
         dlg._endpoint_listener = listener
-        with patch('plugin.framework.config.get_api_key_for_endpoint', return_value=''):
+        with patch('plugin.chatbot.dialog_views.get_api_key_for_endpoint', return_value=''):
             dlg._schedule_initial_models_fetch('https://openrouter.ai/api')
         listener._schedule_debounced_models_fetch.assert_not_called()
 
@@ -500,8 +500,8 @@ class TestSettingsEnhancements:
 
         dlg.getControl.side_effect = get_control_side_effect
 
-        with patch("plugin.framework.worker_pool.run_in_background", side_effect=lambda fn, **kwargs: fn()), \
-             patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()), \
+        with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, **kwargs: fn()), \
+             patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: fn()), \
              patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText.return_value):
             listener = TestConnectionListener(ctx, dlg)
             listener.on_action_performed(MagicMock())
@@ -510,7 +510,7 @@ class TestSettingsEnhancements:
         status_ctrl.setText.assert_called_with("✓ Connected (25ms)")
 
     @patch("plugin.chatbot.dialog_views.open_system_url")
-    @patch("plugin.framework.config.get_api_key_for_endpoint", return_value="sk-saved-together-key")
+    @patch("plugin.chatbot.dialog_views.get_api_key_for_endpoint", return_value="sk-saved-together-key")
     def test_provider_starter_listener_action(self, mock_get_key, mock_open_url):
         from plugin.chatbot.dialog_views import ProviderStarterListener
 
@@ -902,7 +902,7 @@ def test_populate_fields_skips_one_missing_control() -> None:
     view = SettingsDialog(MagicMock())
     view._dlg = dlg
 
-    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
+    with patch("plugin.chatbot.dialog_views.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(
             [
                 {"name": "not_in_xdl", "value": "x"},
@@ -1039,7 +1039,7 @@ def test_populate_fields_wires_audio_stt_model_lru(expected, value, value_2, val
     view._dlg = dlg
     field_specs = [{"name": value, "value": value_2}]
 
-    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
+    with patch("plugin.chatbot.dialog_views.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
             stt_ctrl, value_3, "audio_model_lru", "https://openrouter.ai/api",
@@ -1057,7 +1057,7 @@ def test_populate_fields_wires_tts_model_lru() -> None:
     view._dlg = dlg
     field_specs = [{"name": "audio__tts_model", "value": ""}]
 
-    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
+    with patch("plugin.chatbot.dialog_views.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
             tts_ctrl, "", "tts_model_lru", "https://openrouter.ai/api",
@@ -1326,8 +1326,6 @@ def test_warm_openrouter_catalog_does_not_http_until_test_connection() -> None:
                 listener.force_catalog_refresh()
 
             with patch("plugin.chatbot.quick_setup.check_endpoint_connection", return_value=(True, "ok", [])), \
-                 patch("plugin.framework.worker_pool.run_in_background", side_effect=lambda fn, **kwargs: fn()), \
-                 patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()), \
                  patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
                  patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None):
                 TestConnectionListener(MagicMock(), MagicMock(), catalog_recheck=recheck).on_action_performed(MagicMock())
@@ -2203,8 +2201,7 @@ def test_settings_cleanup_disposed_control_still_detaches_others_and_disposes():
         (other_ctrl, "removeActionListener", listener2),
     ]
 
-    with patch("plugin.chatbot.dialog_views.clear_active_settings_dialog") as mock_clear, \
-         patch("plugin.chatbot.dialog_views.is_disposed_exception", side_effect=lambda e: isinstance(e, DisposedException)):
+    with patch("plugin.chatbot.dialog_views.clear_active_settings_dialog") as mock_clear:
         dialog._cleanup()
 
     other_ctrl.removeActionListener.assert_called_once_with(listener2)
