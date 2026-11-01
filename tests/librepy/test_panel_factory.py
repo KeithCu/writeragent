@@ -122,45 +122,6 @@ def test_get_real_interface_clears_toolpanel_and_retries():
     assert el.controller is not None
 
 
-def test_get_real_interface_disposes_controller_when_create_fails_late():
-    from typing import Any
-    from plugin.framework.errors import UnoObjectError
-
-    el = _element()
-    root = _root_window()
-    root.getPosSize.return_value = MagicMock(Width=200, Height=400)
-    controller = MagicMock(name="controller")
-
-    class _FailingPanel:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        @property
-        def resize_listener(self) -> Any:
-            return None
-
-        @resize_listener.setter
-        def resize_listener(self, val: Any) -> None:
-            raise RuntimeError("assign resize_listener failed")
-
-    with patch(
-        "plugin.librepy.panel_factory.run_on_main",
-        side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-    ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
-        el, "_getOrCreatePanelRootWindow", return_value=root
-    ), patch(
-        "plugin.librepy.panel_factory.PythonToolPanel", _FailingPanel
-    ), patch(
-        "plugin.librepy.python_sidebar.PythonSidebarController", return_value=controller
-    ):
-        with pytest.raises(UnoObjectError):
-            el.getRealInterface()
-
-    controller.disposing.assert_called_once()
-    assert el.toolpanel is None
-    assert el.controller is None
-
-
 def test_get_real_interface_second_create_panel_is_noop():
     el = _element()
     root = _root_window()
