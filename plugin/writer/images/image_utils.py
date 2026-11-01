@@ -154,6 +154,25 @@ class EndpointImageProvider:
         suffix = validated_image_suffix(body)
         return write_temp_image(body, suffix=suffix)
 
+    def _save_image_ref(
+        self,
+        ref: str,
+        *,
+        stop_checker: Any,
+        status_callback: Any,
+        http_text: str,
+        fetch_http_if_data_failed: bool,
+    ) -> str | None:
+        if "data:image" in ref:
+            b64 = _extract_b64(ref)
+            if b64:
+                return self._save_b64(b64)
+            if not fetch_http_if_data_failed:
+                return None
+        if http_text.startswith("http"):
+            return self._save_url(http_text, stop_checker=stop_checker, status_callback=status_callback)
+        return None
+
     def _run_image_completion(
         self,
         prompt: str,
@@ -186,17 +205,25 @@ class EndpointImageProvider:
         except Exception as e:
             return _abandon_image_paths(paths, stop_checker, e, log_message)
 
-    def generate(self, prompt: str, width: int = DEFAULT_IMAGE_BASE_SIZE, height: int = DEFAULT_IMAGE_BASE_SIZE, model: str | None = None, steps: int | None = None, **kwargs: Any) -> tuple[list[str], str]:
+    def generate(
+        self,
+        prompt: str,
+        width: int = DEFAULT_IMAGE_BASE_SIZE,
+        height: int = DEFAULT_IMAGE_BASE_SIZE,
+        model: str | None = None,
+        steps: int | None = None,
+        status_callback: Any = None,
+        stop_checker: Any = None,
+        image_model: str | None = None,
+        source_image: str | None = None,
+        aspect_ratio: str | None = None,
+    ) -> tuple[list[str], str]:
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
         try:
-            status_callback = kwargs.pop("status_callback", None)
-            stop_checker = kwargs.pop("stop_checker", None)
-            override = kwargs.pop("image_model", None)
-            if isinstance(override, str) and override.strip():
-                model = override.strip()
+            if isinstance(image_model, str) and image_model.strip():
+                model = image_model.strip()
             model = model or self.model
             steps = steps if (steps is not None and steps > 0) else None
-            source_image = kwargs.get("source_image")
             log.info("Requesting image via endpoint: %s", model)
 
             is_openrouter = self.client.config.get("is_openrouter")
@@ -232,7 +259,7 @@ class EndpointImageProvider:
                 # Create: Gemini multimodal models need image_config hints;
                 # pixel size is not a chat-completions field
                 # (https://openrouter.ai/google/gemini-3.1-flash-lite-image).
-                hint = canonical_aspect_ratio(width, height, named=kwargs.get("aspect_ratio"))
+                hint = canonical_aspect_ratio(width, height, named=aspect_ratio)
                 image_config = {}
                 if hint:
                     image_config["aspect_ratio"] = hint
@@ -243,8 +270,6 @@ class EndpointImageProvider:
                     body_dict["image_config"] = image_config
             if steps is not None:
                 body_dict["steps"] = steps
-            if "max_tokens" in kwargs:
-                body_dict["max_tokens"] = kwargs["max_tokens"]
 
             paths = []
             try:
@@ -270,12 +295,15 @@ class EndpointImageProvider:
                     if not url:
                         continue
 
-                    if "data:image" in url:
-                        b64 = _extract_b64(url)
-                        if b64:
-                            paths.append(self._save_b64(b64))
-                    elif url.startswith("http"):
-                        paths.append(self._save_url(url, stop_checker=stop_checker, status_callback=status_callback))
+                    path = self._save_image_ref(
+                        url,
+                        stop_checker=stop_checker,
+                        status_callback=status_callback,
+                        http_text=url,
+                        fetch_http_if_data_failed=False,
+                    )
+                    if path:
+                        paths.append(path)
             except Exception as e:
                 return _abandon_image_paths(paths, stop_checker, e, "OpenRouter image processing failed")
 
@@ -283,17 +311,17 @@ class EndpointImageProvider:
                 return paths, ""
 
             # Fallback: image in content string (some endpoints)
-            if isinstance(fallback_content, str) and fallback_content:
-                paths = []
+            if fallback_content:
                 try:
-                    if "data:image" in fallback_content:
-                        b64 = _extract_b64(fallback_content)
-                        if b64:
-                            paths.append(self._save_b64(b64))
-                    stripped = fallback_content.strip()
-                    if not paths and stripped.startswith("http"):
-                        paths.append(self._save_url(stripped, stop_checker=stop_checker, status_callback=status_callback))
-                    if paths:
+                    path = self._save_image_ref(
+                        fallback_content,
+                        stop_checker=stop_checker,
+                        status_callback=status_callback,
+                        http_text=fallback_content.strip(),
+                        fetch_http_if_data_failed=True,
+                    )
+                    if path:
+                        paths.append(path)
                         return paths, ""
                 except Exception as e:
                     return _abandon_image_paths(paths, stop_checker, e, "Image fallback content processing failed")

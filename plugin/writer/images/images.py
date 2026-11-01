@@ -1343,8 +1343,7 @@ class ImageInsert(ToolWriterImageBase):
                 width_mm = float(width_mm_val)
                 height_mm = float(height_mm_val)
             else:
-                px_size = image_tools.graphic_pixel_size_from_path(ctx.ctx, image_path)
-                px_w, px_h = px_size if px_size is not None else (None, None)
+                px_w, px_h = image_tools.graphic_pixel_size_from_path(ctx.ctx, image_path)
                 if px_w is not None and px_h is not None and px_w > 0 and px_h > 0:
                     w = float(width_mm_val) if width_mm_val is not None else None
                     h = float(height_mm_val) if height_mm_val is not None else None

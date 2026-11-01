@@ -154,10 +154,9 @@ def _dispatch_insert_linked_graphic(ctx: Any, model: Any, file_url: str) -> Any 
 def _assign_graphic_source(graphic: Any, file_url: str, ctx: Any | None = None) -> bool:
     if visual_helpers.safe_set_property(graphic, "GraphicURL", file_url):
         return True
-    if ctx is not None:
-        xgraphic = _graphic_from_provider(ctx, file_url)
-        if xgraphic is not None and visual_helpers.safe_set_property(graphic, "Graphic", xgraphic):
-            return True
+    xgraphic = _graphic_from_provider(ctx, file_url)
+    if xgraphic is not None and visual_helpers.safe_set_property(graphic, "Graphic", xgraphic):
+        return True
     return False
 
 
