@@ -197,8 +197,8 @@ def test_sqlite_closes_connection_and_saves_null_text(tmp_path, monkeypatch):
     history = history_db.SQLite3History("sid", str(tmp_path / "history.db"))
     history.add_message("user", [{"type": "text", "text": None}])
     assert history.get_messages()[0]["content"] == ""
-    history.clear()
-    # init, add, get, clear — each connect must be closed, not left to GC.
+    history.replace_messages([])
+    # init, add, get, replace — each connect must be closed, not left to GC.
     assert len(opened) == 4
     for conn in opened:
         with pytest.raises(sqlite3.ProgrammingError):
@@ -235,12 +235,12 @@ def test_json_history_clear_replaces_messages(tmp_path, monkeypatch):
     jh.add_message("user", "first message")
     assert len(jh.get_messages()) == 1
 
-    # clear() replaces the file instead of swallowing an os.remove error
+    # replace_messages([]) replaces the file instead of swallowing an os.remove error
     def failing_remove(*args, **kwargs):
         raise OSError("Permission denied")
 
     monkeypatch.setattr(os, "remove", failing_remove)
-    jh.clear()
+    jh.replace_messages([])
     assert jh.get_messages() == []
 
 

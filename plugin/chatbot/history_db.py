@@ -99,13 +99,16 @@ class SQLite3History:
         self.db_path = db_path
         self._init_db()
 
-    def _init_db(self) -> None:
+    def _connect(self) -> closing[Any]:
         assert sqlite3 is not None
         # sqlite3.Connection's context manager commits or rolls back and does
         # not close. Each history call left a connection until GC. closing()
         # calls close() on the way out, including when execute raises. Every
         # connect in this file uses the same wrap.
-        with closing(sqlite3.connect(self.db_path)) as conn:
+        return closing(sqlite3.connect(self.db_path))
+
+    def _init_db(self) -> None:
+        with self._connect() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS message_store (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,35 +120,30 @@ class SQLite3History:
             conn.commit()
 
     def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
-        assert sqlite3 is not None
         msg_dict = message_to_dict(role, content, tool_calls)
-        with closing(sqlite3.connect(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.execute("INSERT INTO message_store (session_id, message) VALUES (?, ?)", (self.session_id, json.dumps(msg_dict)))
             conn.commit()
             log.debug(f"SQLite3: Added message for session {self.session_id}")
 
     def update_last_user_content(self, content: Any) -> None:
-        assert sqlite3 is not None
         msg_dict = message_to_dict("user", content)
-        with closing(sqlite3.connect(self.db_path)) as conn:
+        with self._connect() as conn:
             cursor = conn.execute(
                 "SELECT id, message FROM message_store WHERE session_id = ? ORDER BY id DESC",
                 (self.session_id,),
             )
-            target_id = None
             for row_id, raw in cursor.fetchall():
                 try:
                     parsed = json.loads(raw)
                     if isinstance(parsed, dict) and parsed.get("role") == "user":
-                        target_id = row_id
+                        conn.execute(
+                            "UPDATE message_store SET message = ? WHERE id = ?",
+                            (json.dumps(msg_dict), row_id),
+                        )
                         break
                 except json.JSONDecodeError:
                     continue
-            if target_id is not None:
-                conn.execute(
-                    "UPDATE message_store SET message = ? WHERE id = ?",
-                    (json.dumps(msg_dict), target_id),
-                )
             else:
                 conn.execute(
                     "INSERT INTO message_store (session_id, message) VALUES (?, ?)",
@@ -154,8 +152,7 @@ class SQLite3History:
             conn.commit()
 
     def get_messages(self) -> list[dict[str, Any]]:
-        assert sqlite3 is not None
-        with closing(sqlite3.connect(self.db_path)) as conn:
+        with self._connect() as conn:
             cursor = conn.execute("SELECT id, message FROM message_store WHERE session_id = ? ORDER BY id ASC", (self.session_id,))
             msgs: list[dict[str, Any]] = []
             for row_id, raw in cursor.fetchall():
@@ -173,20 +170,13 @@ class SQLite3History:
             log.debug(f"SQLite3: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
 
-    def clear(self) -> None:
-        assert sqlite3 is not None
-        with closing(sqlite3.connect(self.db_path)) as conn:
-            conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
-            conn.commit()
-
     def replace_messages(self, messages: list[dict[str, Any]]) -> None:
         """Replace this session's rows in one transaction.
 
         A delete that commits before the inserts leaves an empty session if a
         later insert fails. Other session ids in the same file are untouched.
         """
-        assert sqlite3 is not None
-        with closing(sqlite3.connect(self.db_path)) as conn:
+        with self._connect() as conn:
             try:
                 conn.execute("DELETE FROM message_store WHERE session_id = ?", (self.session_id,))
                 for msg in messages:
@@ -251,19 +241,24 @@ class JSONHistory:
 
         self.file_path = os.path.join(self.history_dir, _json_history_filename(session_id, self.history_dir))
 
-    def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
-        msg_dict = message_to_dict(role, content, tool_calls)
+    def _load_for_write(self) -> list[dict[str, Any]] | None:
         try:
-            messages = self.get_messages()
+            return self.get_messages()
         except (json.JSONDecodeError, UnicodeDecodeError):
             # open(..., "w") truncated the file before json.dump. A crash or a
             # bad read then looked like an empty session and the next add
             # replaced history with one row. Leave an unreadable file alone.
             log.exception("JSONHistory: refusing to overwrite unreadable session %s", self.session_id)
+            return None
+
+    def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
+        msg_dict = message_to_dict(role, content, tool_calls)
+        messages = self._load_for_write()
+        if messages is None:
             return
         messages.append(msg_dict)
         try:
-            self._replace_messages(messages)
+            self.replace_messages(messages)
             log.debug(f"JSONHistory: Added message for session {self.session_id}")
         except (OSError, TypeError):
             # The turn is already in ChatSession.messages. Swallowing the save
@@ -273,10 +268,8 @@ class JSONHistory:
 
     def update_last_user_content(self, content: Any) -> None:
         msg_dict = message_to_dict("user", content)
-        try:
-            messages = self.get_messages()
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            log.exception("JSONHistory: refusing to overwrite unreadable session %s", self.session_id)
+        messages = self._load_for_write()
+        if messages is None:
             return
         for i in range(len(messages) - 1, -1, -1):
             if messages[i].get("role") == "user":
@@ -285,14 +278,10 @@ class JSONHistory:
         else:
             messages.append(msg_dict)
         try:
-            self._replace_messages(messages)
+            self.replace_messages(messages)
         except (OSError, TypeError):
             log.exception("JSONHistory: Error updating last user message")
             raise
-
-    def _replace_messages(self, messages: list[dict[str, Any]]) -> None:
-        """Atomic replace in the session directory (same pattern as MemoryStore.write)."""
-        atomic_write_text(self.file_path, json.dumps(messages, indent=2), prefix=".history-", fsync=False)
 
     def get_messages(self) -> list[dict[str, Any]]:
         if not os.path.exists(self.file_path):
@@ -313,17 +302,9 @@ class JSONHistory:
             log.exception("JSONHistory: Error reading messages")
             raise
 
-    def clear(self) -> None:
-        self.replace_messages([])
-
     def replace_messages(self, messages: list[dict[str, Any]]) -> None:
-        """Replace this session file in one ``os.replace``.
-
-        ``clear`` used to swallow an ``os.remove`` ``OSError`` and leave the old
-        rows, so a later append duplicated them. Both now write the file in one
-        ``os.replace`` or raise.
-        """
-        self._replace_messages(list(messages))
+        """Replace this session file in one ``os.replace``."""
+        atomic_write_text(self.file_path, json.dumps(messages, indent=2), prefix=".history-", fsync=False)
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +351,6 @@ def fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
     if any(msg.get("role") != "system" for msg in dest_history.get_messages()):
         return
 
-    messages = list(get_chat_history(old_session_id).get_messages())
+    messages = get_chat_history(old_session_id).get_messages()
     dest_history.replace_messages(messages)
 

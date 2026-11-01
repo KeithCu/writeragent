@@ -321,10 +321,6 @@ def keep_recent_tokens(window: int, system_tokens: int, tool_tokens: int, force:
     return clamped
 
 
-def _is_cut_point(msg: dict[str, Any]) -> bool:
-    return msg.get("role") in ("user", "assistant")  # not "tool", not "system"
-
-
 def find_cut_index(messages: list[dict[str, Any]], keep_tokens: int, start_index: int = 1) -> int | None:
     """First index of a verbatim tail whose token sum is <= keep_tokens.
 
@@ -340,9 +336,6 @@ def find_cut_index(messages: list[dict[str, Any]], keep_tokens: int, start_index
     n = len(messages)
     if keep_tokens <= 0 or n <= start_index:
         return None
-    cut_points = [i for i in range(start_index, n) if _is_cut_point(messages[i])]
-    if not cut_points:
-        return None
     accumulated = 0
     earliest = n  # tail would be messages[earliest:]
     for i in range(n - 1, start_index - 1, -1):
@@ -356,11 +349,8 @@ def find_cut_index(messages: list[dict[str, Any]], keep_tokens: int, start_index
     # Snap FORWARD to a legal cut (user/assistant). Forward-only shrinks the
     # tail, so it cannot exceed keep. If earliest is a tool message, the
     # assistant+tools block goes to the summarized side together.
-    candidates = [cp for cp in cut_points if cp >= earliest]
-    if not candidates:
-        return None
-    cut_index = candidates[0]
-    if cut_index <= start_index:
+    cut_index = next((i for i in range(earliest, n) if messages[i].get("role") in ("user", "assistant")), None)
+    if cut_index is None or cut_index <= start_index:
         return None  # entire unsummarized range already fits — nothing to compact
     return cut_index
 
@@ -651,8 +641,8 @@ def _drop_stale_compaction(session: Any, messages: list[dict[str, Any]]) -> Any:
     if state is None:
         return None
     idx = state.first_kept_index
-    anchor = getattr(state, "kept_message_id", None)
-    in_range = isinstance(idx, int) and 1 <= idx < len(messages)
+    anchor = state.kept_message_id
+    in_range = 1 <= idx < len(messages)
     anchored = anchor is None or (in_range and id(messages[idx]) == anchor)
     if in_range and anchored:
         return state
@@ -695,9 +685,7 @@ def is_context_overflow_error(text: str | None) -> bool:
         return False
     if any(m in lower for m in _OVERFLOW_MARKERS):
         return True
-    if "llama.cpp" in lower and "overflow" in lower:
-        return True
-    return False
+    return "llama.cpp" in lower and "overflow" in lower
 
 
 def should_retry_overflow(attempts: int, compact_reason: str | None, tokens_before: int | None = None, tokens_after: int | None = None) -> bool:
@@ -722,17 +710,6 @@ def should_retry_overflow(attempts: int, compact_reason: str | None, tokens_befo
     return True
 
 
-def _today_for_prompt() -> str:
-    """YYYY-MM-DD.
-
-    Same idea as Hermes ``_today_for_prompt``
-    (``context_compressor.py:1584-1594``). Hermes uses ``hermes_time``;
-    WA uses ``datetime.date.today()``.
-    https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L1584-L1594
-    """
-    return datetime.date.today().isoformat()
-
-
 def _temporal_anchoring_rule() -> str:
     """Dated past-tense rule for the summarizer. Near-copy of Hermes.
 
@@ -741,9 +718,7 @@ def _temporal_anchoring_rule() -> str:
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L3392-L3405
     Copyright (c) 2025 Nous Research. MIT License.
     """
-    today = _today_for_prompt()
-    if not today:
-        return ""
+    today = datetime.date.today().isoformat()
     return (
         "\nTEMPORAL ANCHORING: The current date is %s. When an "
         "action has already been carried out, phrase it as a completed, "
@@ -808,12 +783,6 @@ def _truncate_summary_line(
     max_out: int,
     previous_summary: str,
 ) -> str | None:
-    if not _summarizer_request_fits(
-        _summarizer_user_body("", previous_summary),
-        window=window,
-        max_out=max_out,
-    ):
-        return None
     cur = line
     while len(cur) > 32:
         cur = cur[:max(32, len(cur) * 3 // 4)]
@@ -901,7 +870,6 @@ def _summarize_bounded(
     running = previous_summary
     idx = 0
     chunks = 0
-    has_summary = False
 
     while idx < len(lines):
         if stop_checker and stop_checker():
@@ -948,11 +916,8 @@ def _summarize_bounded(
             return None, "failed", chunks
 
         running = _cap_running_summary(content, window)
-        has_summary = True
         idx = next_idx
 
-    if not has_summary:
-        return None, "failed", chunks
     return running, "ok", chunks
 
 
@@ -1010,17 +975,16 @@ def compact_session(
     if status_callback:
         status_callback("Compacting conversation...")
 
-    budget = _summary_budget(window)
-    max_out = budget
+    max_out = _summary_budget(window)
     if max_tokens is not None and max_tokens > 0:
         max_out = min(max_out, max_tokens)
 
-    previous = state.summary if state is not None and state.summary else ""
+    previous = state.summary if state else ""
     # Bugfix: The slice was sent in full with only max_tokens capped, so on force=True
     # or a reloaded history the summarizer prompt itself overflowed, compact_session
     # returned "failed", and should_retry_overflow stopped retrying. Chunks keep each
     # request inside window - gen_reserve.
-    sum_res = _summarize_bounded(
+    summary, reason, chunks = _summarize_bounded(
         client,
         slice_to_summarize,
         window=window,
@@ -1030,7 +994,6 @@ def compact_session(
         session=session,
         messages=messages,
     )
-    summary, reason, chunks = sum_res
     if summary is None:
         return CompactResult(False, reason, before, before)
 
@@ -1040,7 +1003,6 @@ def compact_session(
     if session.messages is not messages:
         return CompactResult(False, "aborted", before, before)
 
-    prev_state = state
     session.compaction = CompactionState(
         summary=summary,
         first_kept_index=new_cut,  # monotonic: new_cut > prev_kept
@@ -1050,7 +1012,7 @@ def compact_session(
     after = prompt_tokens(messages_for_llm(session), tools)
     reserve = gen_reserve(window)
     if after > window - reserve:
-        session.compaction = prev_state  # revert; do not ship a too-large view
+        session.compaction = state  # revert; do not ship a too-large view
         return CompactResult(False, "failed", before, after)
     log.info(
         "Compaction ok window=%s tokens_before=%s tokens_after=%s cut=%s prev_kept=%s chunks=%s",
