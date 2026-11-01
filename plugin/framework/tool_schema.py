@@ -146,20 +146,6 @@ def _strip_call_arguments(schema: dict[str, Any], arguments: Any) -> Any:
     return json.dumps(stripped)
 
 
-def _normalize_one_outbound_call(call: Any, schemas: dict[str, dict[str, Any]]) -> None:
-    if not isinstance(call, dict):
-        return
-    fn = call.get("function")
-    if not isinstance(fn, dict):
-        return
-    name = fn.get("name")
-    if not isinstance(name, str) or name not in schemas:
-        return
-    new_args = _strip_call_arguments(schemas[name], fn.get("arguments"))
-    if new_args is not fn.get("arguments"):
-        fn["arguments"] = new_args
-
-
 def normalize_outbound_tool_calls(messages: _OutboundMessages, tools: Any) -> _OutboundMessages:
     """Schema-check tool-call arguments before a provider shim sees them.
 
@@ -188,7 +174,19 @@ def normalize_outbound_tool_calls(messages: _OutboundMessages, tools: Any) -> _O
         if not isinstance(calls, list):
             continue
         for call in calls:
-            _normalize_one_outbound_call(call, schemas)
+            if not isinstance(call, dict):
+                continue
+            fn = call.get("function")
+            if not isinstance(fn, dict):
+                continue
+            name = fn.get("name")
+            if not isinstance(name, str) or name not in schemas:
+                continue
+            old = fn.get("arguments")
+            new_args = _strip_call_arguments(schemas[name], old)
+            # A missing key must stay missing; only assign when arguments changed.
+            if new_args is not old:
+                fn["arguments"] = new_args
     return messages
 
 
@@ -380,8 +378,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
         # The full verbose guidance with examples is still used in chat system prompts.
         desc = (f"{desc} Delegates to a specialized {agent_label} task. See the 'domain' property for available areas and the 'task' parameter rules.").strip()
 
-        props = input_schema.get("properties")
-        if isinstance(props, dict) and "domain" in props and isinstance(props["domain"], dict):
+        if "domain" in props and isinstance(props["domain"], dict):
             props["domain"]["description"] = format_specialized_domains_description(agent_label=agent_label)
 
     input_schema = _normalize_schema_for_strict_providers(input_schema)

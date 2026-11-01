@@ -470,7 +470,6 @@ class ToolBaseDummy(_ToolErrorMixin):
     """
 
     name: str | None = None
-    is_final_answer_tool: bool = False
     parameters: dict[str, Any] | None = None
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
@@ -834,19 +833,6 @@ class ToolRegistry:
 
     # ── Execution ─────────────────────────────────────────────────────
 
-    def _get_tool_timeout(self, tool: ToolBase) -> float:
-        """Return the timeout in seconds configured on *tool*, or 0.0 if unset/invalid.
-
-        Bugfix: getattr(tool, "timeout", 0) returned None when a tool had timeout = None.
-        Subsequent `timeout <= 0` comparisons raised TypeError inside _execute_impl,
-        which converted into a TOOL_REGISTRY_ERROR.
-        Coerce missing, None, boolean, or non-numeric timeout values to 0.0 (no timeout).
-        """
-        raw = getattr(tool, "timeout", 0) or 0
-        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-            return 0.0
-        return float(raw)
-
     def _execute_with_timeout(self, func: Any, timeout: float, tool_name: str = "<unknown>") -> Any:
         """Run *func* with an optional wall-clock timeout.
 
@@ -1009,7 +995,15 @@ class ToolRegistry:
             # Sync tools are marshaled to the LO main thread so MCP long-running and any
             # other worker-thread caller cannot touch UNO off-thread.
             runner = tool.execute if bypass_thread_guard else tool.execute_safe
-            timeout = self._get_tool_timeout(tool)
+            # Bugfix: getattr(tool, "timeout", 0) returned None when a tool had timeout = None.
+            # Subsequent `timeout <= 0` comparisons raised TypeError inside _execute_impl,
+            # which converted into a TOOL_REGISTRY_ERROR.
+            # Coerce missing, None, boolean, or non-numeric timeout values to 0.0 (no timeout).
+            raw = getattr(tool, "timeout", 0) or 0
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                timeout = 0.0
+            else:
+                timeout = float(raw)
 
             # Bugfix: A spread model dict (e.g. from MCP or host RPC) containing keys
             # named 'ctx' or 'tool_name' collided with parameters on _execute_impl
