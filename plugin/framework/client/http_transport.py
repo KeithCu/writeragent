@@ -65,12 +65,16 @@ from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context
 
 log = logging.getLogger(__name__)
 
-CONNECTION_ERRORS = (http.client.HTTPException, socket.error, OSError)
+CONNECTION_ERRORS = (http.client.HTTPException, OSError)
 RetryAction = Literal["retry", "stop"]
 _MAX_REDIRECTS = 5
 
 HttpObserve = Callable[[Any, str, str, Any], str]
 HttpSender = Callable[..., http.client.HTTPResponse]
+
+
+def _stopped_error() -> NetworkError:
+    return NetworkError("LLM request aborted by Stop", code="STOPPED")
 
 
 def parse_strict_json(raw: Any) -> Any:
@@ -126,8 +130,11 @@ class LlmHttpTransport:
         # configured endpoint again.
         self._redirect_origin: str | None = None
 
+    def _current_endpoint(self) -> str:
+        return self._redirect_origin if self._redirect_origin else self._endpoint_getter()
+
     def _endpoint_parts(self) -> tuple[str, str, int]:
-        endpoint = self._redirect_origin if self._redirect_origin else self._endpoint_getter()
+        endpoint = self._current_endpoint()
         parsed = http_security._parse_url(endpoint)
         scheme = parsed.scheme.lower()
         host = parsed.hostname or ""
@@ -136,8 +143,8 @@ class LlmHttpTransport:
 
     def pacing_key_for_model(self, model: str | None = None) -> str:
         _, host, port = self._endpoint_parts()
-        endpoint = self._redirect_origin if self._redirect_origin else self._endpoint_getter()
-        explicit = bool(self._openrouter_getter()) if self._openrouter_getter is not None else False
+        endpoint = self._current_endpoint()
+        explicit = bool(self._openrouter_getter and self._openrouter_getter())
         return pacing_key(host, model, port=port, openrouter=is_openrouter_endpoint(endpoint, explicit_is_openrouter=explicit))
 
     def _absolute_url(self, path: str) -> str:
@@ -219,7 +226,7 @@ class LlmHttpTransport:
                 self._drop_stopped_connection(conn)
             else:
                 self.close()
-            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+            raise _stopped_error()
 
     def send(
         self,
@@ -235,9 +242,8 @@ class LlmHttpTransport:
         """Send one request on the persistent connection and return its response."""
         key = self.pacing_key_for_model(request_model_from_body(body))
         if not wait_host_gap(key, stop_checker, status_callback):
-            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+            raise _stopped_error()
         conn = self.get_connection()
-        conn.auto_open = 0
         # The timeout used to be stored only when the socket was opened.
         # ``LlmClient._timeout`` reads ``request_timeout`` on every call, so a
         # later change never reached a keep-alive connection. Connect still
@@ -319,7 +325,7 @@ class LlmHttpTransport:
             if stop_checker is not None and stop_checker():
                 cancelled.set()
                 self._drop_stopped_connection(conn)
-                raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                raise _stopped_error()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 cancelled.set()
@@ -413,7 +419,6 @@ class LlmHttpTransport:
         persistent chat endpoint.
         """
         wire_headers = dict(headers or {})
-        wire_secrets = http_security.collect_secrets(secrets, http_security.secrets_from_headers(wire_headers), http_security.secrets_from_target(path))
         self._redirect_origin = None
 
         sends_left = RETRY_MAX_ATTEMPTS
@@ -421,6 +426,7 @@ class LlmHttpTransport:
         model = request_model_from_body(body)
         try:
             while True:
+                wire_secrets = http_security.collect_secrets(secrets, http_security.secrets_from_headers(wire_headers), http_security.secrets_from_target(path))
                 body_in_hand = False
                 # True once this iteration has already spent one attempt on a non-200.
                 attempt_charged = False
@@ -445,7 +451,7 @@ class LlmHttpTransport:
                             wire_headers,
                             current_url,
                             status,
-                            (response.getheader("Location") or "").strip(),
+                            (response.getheader("Location") or ""),
                         )
                         if hop is not None:
                             response.read()
@@ -459,7 +465,6 @@ class LlmHttpTransport:
                             wire_headers = new_headers
                             path = new_path
                             redirects_followed += 1
-                            wire_secrets = http_security.collect_secrets(secrets, http_security.secrets_from_headers(wire_headers), http_security.secrets_from_target(path))
                             continue
                     if status != 200:
                         sends_left -= 1
@@ -477,7 +482,7 @@ class LlmHttpTransport:
                             observe_http_error=observe_http_error,
                         )
                         if action == "stop":
-                            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                            raise _stopped_error()
                         if on_retry is not None:
                             on_retry()
                         continue
@@ -521,7 +526,7 @@ class LlmHttpTransport:
                         secrets=wire_secrets,
                     )
                     if action == "stop":
-                        raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+                        raise _stopped_error()
                     continue
         finally:
             if self._redirect_origin is not None:
