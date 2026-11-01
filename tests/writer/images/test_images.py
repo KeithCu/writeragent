@@ -36,7 +36,6 @@ from plugin.writer.images.images import (
     _replacement_size_units,
     _resolve_crop_edges,
     _resolve_orient,
-    resolve_image_generate_is_edit,
 )
 from plugin.writer.specialized_base import SpecializedWorkflowFinished
 from tests.chatbot.test_tool_loop import DummyCalcSpecialTool
@@ -149,7 +148,7 @@ def test_image_generate_forwards_stop_checker():
         return fn(*args, **kwargs)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image"),
@@ -178,7 +177,7 @@ def test_image_generate_inserts_even_if_stopped_after_download():
         return fn(*args)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image") as mock_insert,
@@ -229,13 +228,66 @@ def test_image_generate_rejects_non_integer_base_size():
 
 
 def test_resolve_image_generate_is_edit_defaults_to_selection():
-    assert resolve_image_generate_is_edit(None, selection_available=True) is True
-    assert resolve_image_generate_is_edit("", selection_available=True) is True
-    assert resolve_image_generate_is_edit("  ", selection_available=True) is True
-    assert resolve_image_generate_is_edit("selection", selection_available=True) is True
-    assert resolve_image_generate_is_edit("SELECTION", selection_available=False) is True
-    assert resolve_image_generate_is_edit(None, selection_available=False) is False
-    assert resolve_image_generate_is_edit("", selection_available=False) is False
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/out.png"], None)
+
+    target_obj = MagicMock()
+    target_obj.getSize.return_value = MagicMock(Width=6400, Height=4800)
+    graphic_model = MagicMock()
+    graphic_model.getPropertyValue.side_effect = (
+        lambda prop: SimpleNamespace(Width=1024, Height=1024) if prop == "SizePixel" else None
+    )
+
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        return fn(*args, **kwargs)
+
+    for raw in ("", "  "):
+        with (
+            patch("plugin.writer.images.images.run_on_main", side_effect=_run),
+            patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
+            patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
+            patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
+            patch("plugin.writer.images.images.ImageService", return_value=svc),
+            patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
+            patch("plugin.writer.images.images.insert_image") as insert,
+            patch("plugin.writer.images.images.get_config_int", return_value=512),
+            patch("plugin.writer.images.images.get_config_bool", return_value=False),
+            patch("plugin.writer.images.images.get_config_str", return_value="square"),
+            patch("plugin.writer.images.images.get_image_model", return_value=""),
+        ):
+            res = ImageGenerate().execute(ctx, prompt="a tabby cat", source_image=raw)
+            assert res["status"] == "ok"
+            assert "edited" in res["message"].lower()
+            replace.assert_called_once()
+            insert.assert_not_called()
+
+        with (
+            patch("plugin.writer.images.images.run_on_main", side_effect=_run),
+            patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
+            patch("plugin.writer.images.images.ImageService", return_value=svc),
+            patch("plugin.writer.images.images.replace_graphic_source") as replace,
+            patch("plugin.writer.images.images.insert_image") as insert,
+            patch("plugin.writer.images.images.get_config_int", return_value=512),
+            patch("plugin.writer.images.images.get_config_bool", return_value=False),
+            patch("plugin.writer.images.images.get_config_str", return_value="square"),
+            patch("plugin.writer.images.images.get_image_model", return_value=""),
+        ):
+            res = ImageGenerate().execute(ctx, prompt="a tabby cat", source_image=raw)
+            assert res["status"] == "ok"
+            assert "generated" in res["message"].lower()
+            insert.assert_called_once()
+            replace.assert_not_called()
+
+    with (
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
+        patch("plugin.writer.images.images.get_config_int", return_value=512),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="a tabby cat", source_image="SELECTION")
+        assert res["status"] == "error"
+        assert res["code"] == "NO_SELECTION"
 
 
 def test_image_generate_omitted_source_edits_when_selected():
@@ -254,7 +306,7 @@ def test_image_generate_omitted_source_edits_when_selected():
         return fn(*args, **kwargs)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
         patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
         patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
@@ -303,7 +355,7 @@ def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_s
         return fn(*args, **kwargs)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
         patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
         patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
@@ -355,7 +407,7 @@ def test_image_generate_edit_scales_single_sided_dimension():
         return fn(*args, **kwargs)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
         patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngsel"),
         patch("plugin.doc.visual_helpers.graphic_from_object", return_value=graphic_model),
@@ -383,7 +435,7 @@ def test_image_generate_omitted_source_creates_when_no_selection():
         return fn(*args, **kwargs)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_graphic_source") as replace,
@@ -434,7 +486,7 @@ def test_list_nearby_image_files_calls_backend_with_images_kind():
     expected = {"status": "ok", "files": [], "truncated": False}
 
     with patch("plugin.writer.images.images.list_nearby_files", return_value=expected) as mock_list:
-        with patch("plugin.writer.images.images.execute_on_main_thread", side_effect=lambda fn: fn()):
+        with patch("plugin.writer.images.images.run_on_main", side_effect=lambda fn, *a, **k: fn()):
             result = tool.execute(ctx, filter="logo")
 
     mock_list.assert_called_once_with(ctx.ctx, ctx.doc, filter="logo", file_kind="images")
@@ -611,7 +663,7 @@ def test_image_generate_marshals_insert_unscoped():
         return fn(*args, **kwargs)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_track_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_track_run),
         patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image"),
@@ -783,7 +835,7 @@ def test_image_generate_export_failure_is_tool_execution_error():
         return fn(*args, **kwargs)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=MagicMock()),
         patch("plugin.writer.images.images.export_graphic_object_to_bytes", side_effect=RuntimeError("export")),
     ):
@@ -1011,7 +1063,7 @@ def test_image_insert_downloads_before_main_thread():
         patch("plugin.writer.images.images._download_image_to_cache", side_effect=_mock_download),
         patch("os.path.isfile", return_value=True),
         patch("plugin.writer.images.images.insert_image_at_locator", return_value=graphic),
-        patch("plugin.writer.images.images._run_on_main", side_effect=_mock_run_on_main),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_mock_run_on_main),
     ):
         res = ImageInsert().execute(ctx, path="https://example.com/logo.png")
 
@@ -1037,7 +1089,7 @@ def test_image_replace_downloads_between_uno_calls():
         patch("plugin.writer.images.images._download_image_to_cache", side_effect=_mock_download),
         patch("os.path.isfile", return_value=True),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
-        patch("plugin.writer.images.images._run_on_main", side_effect=_mock_run_on_main),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_mock_run_on_main),
     ):
         res = ImageReplace().execute(ctx, name="Pic", path="https://example.com/logo.png")
 
@@ -1063,7 +1115,7 @@ def test_image_insert_url_unscoped_after_download():
         patch("plugin.writer.images.images._download_image_to_cache", return_value="/tmp/test.png"),
         patch("os.path.isfile", return_value=True),
         patch("plugin.writer.images.images.insert_image_at_locator", return_value=graphic),
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
     ):
         res = ImageInsert().execute(ctx, path="https://example.com/logo.png")
 
@@ -1089,7 +1141,7 @@ def test_image_replace_url_existence_scoped_apply_unscoped():
     with (
         patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=graphic),
         patch("plugin.writer.images.images._download_image_to_cache") as mock_download,
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run_cancel_existence),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run_cancel_existence),
     ):
         with pytest.raises(SendCancelled):
             ImageReplace().execute(ctx, name="Pic", path="https://example.com/logo.png")
@@ -1109,7 +1161,7 @@ def test_image_replace_url_existence_scoped_apply_unscoped():
         patch("plugin.writer.images.images._download_image_to_cache", return_value="/tmp/logo.png"),
         patch("os.path.isfile", return_value=True),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run_pass_unscoped),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run_pass_unscoped),
     ):
         res = ImageReplace().execute(ctx, name="Pic", path="https://example.com/logo.png")
 
@@ -1283,7 +1335,7 @@ def test_image_generate_export_disposal_propagates():
         return fn(*args, **kwargs)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=MagicMock()),
         patch("plugin.writer.images.images.export_graphic_object_to_bytes", side_effect=DocumentDisposedError("closed")),
     ):
@@ -1938,7 +1990,7 @@ def test_image_generate_temp_files_cleaned_up_after_insert():
         return fn(*args)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image"),
@@ -1964,7 +2016,7 @@ def test_image_generate_temp_files_cleaned_up_on_insert_exception():
         return fn(*args)
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image", side_effect=RuntimeError("insert boom")),
@@ -2035,7 +2087,7 @@ def test_image_insert_non_writer_with_paragraph_or_locator_returns_unsupported()
 
     with (
         patch("os.path.isfile", return_value=True),
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="calc"),
         patch("plugin.writer.images.images.insert_image_at_locator") as mock_insert,
     ):
@@ -2065,7 +2117,7 @@ def test_image_generate_preserves_large_frame_units_without_capping():
             return fn(*args, **kwargs)
 
         with (
-            patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+            patch("plugin.writer.images.images.run_on_main", side_effect=_run),
             patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=target_obj),
             patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngdata"),
             patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
@@ -2113,7 +2165,7 @@ def test_image_generate_replaces_original_target_even_if_selection_changed():
     original_target.getSize.return_value = frame_size
 
     with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.doc.visual_helpers.selected_graphic_object", side_effect=lambda doc: current_selection[0]),
         patch("plugin.writer.images.images.export_graphic_object_to_bytes", return_value=b"pngdata"),
         patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
@@ -2142,7 +2194,7 @@ def test_image_insert_sizing_rules():
 
     with (
         patch("os.path.isfile", return_value=True),
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.writer.images.images.insert_image_at_locator", side_effect=_mock_insert),
     ):
         # 1. 200x100 PNG with both sizes omitted lands at 80 x 40 mm
@@ -2279,7 +2331,7 @@ def test_image_insert_vector_proportional_fallback_from_100th_mm():
 
     with (
         patch("os.path.isfile", return_value=True),
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.writer.images.images.insert_image_at_locator", side_effect=_mock_insert),
     ):
         res = ImageInsert().execute(ctx, path="/tmp/vector.svg")
