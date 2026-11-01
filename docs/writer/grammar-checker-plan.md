@@ -220,7 +220,7 @@ Shared behavior for **LLM** and **langdetect** modes: in-memory language LRU (`g
 
 #### Tail enqueue, dedup keys, stale detection, diagnostics
 
-- **Same-key newest wins + stale suppression**: Drain-time **`deduplicate_grammar_batch`** keeps, for each **`inflight_key`**, only the item with the highest **`enqueue_seq`** (Layer 2 drain dict + Layer 3 `_latest_seq` guards; see [`grammar_work_queue.py`](../../plugin/writer/locale/grammar_work_queue.py) module docstring).
+- **Same-key newest wins + stale suppression**: Drain-time dict accumulator keeps, for each **`inflight_key`**, only the item with the highest **`enqueue_seq`** (Layer 2 drain dict + Layer 3 `_latest_seq` guards; see [`grammar_work_queue.py`](../../plugin/writer/locale/grammar_work_queue.py) module docstring).
 - **`inflight_key` logic (stable key)**:
     - **Complete**: `{doc_id}|{locale}|{hash(sent_text)}`. Ensures uniqueness across paragraphs and stability if the sentence is not being edited.
     - **Incomplete**: `{doc_id}|{locale}|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING`. Ensures all partial drafts for the active typing spot supersede each other, preventing typing floods.
@@ -299,7 +299,7 @@ Code pointer: [`CLDR_ABBREVS`](../../plugin/writer/locale/locale_abbrev.py) in `
 
 ### Why `enqueue_seq` exists (queue FIFO is not enough)
 
-Global monotonic counter (`next_enqueue_seq()` in [`grammar_work_queue.py`](../../plugin/writer/locale/grammar_work_queue.py)); each [`GrammarWorkItem`](../../plugin/writer/locale/grammar_work_queue.py) stores **`enqueue_seq`** as a generation stamp for supersede/dedup — not a queue position. Used by: batch drain + `deduplicate_grammar_batch` (highest seq per `inflight_key`), pre-execute stale skip, and post-LLM `inflight_superseded` before `cache_put_sentence`.
+Global monotonic counter (`next_enqueue_seq()` in [`grammar_work_queue.py`](../../plugin/writer/locale/grammar_work_queue.py)); each [`GrammarWorkItem`](../../plugin/writer/locale/grammar_work_queue.py) stores **`enqueue_seq`** as a generation stamp for supersede/dedup — not a queue position. Used by: batch drain dict (highest seq per `inflight_key`), pre-execute stale skip, and post-LLM `inflight_superseded` before `cache_put_sentence`.
 
 ### Risks (still relevant)
 

@@ -13,11 +13,9 @@ from pathlib import Path
 from plugin.writer.locale.grammar_work_queue import (
     GrammarWorkItem,
     GrammarWorkQueue,
-    deduplicate_grammar_batch,
     enqueue_misses,
     filter_stale_and_group,
     inflight_superseded,
-    record_enqueue_latest,
     should_replace_for_key,
 )
 from unittest.mock import MagicMock, patch
@@ -77,157 +75,6 @@ def _make_item(
     )
 
 
-def test_mid_sentence_typing_dedup() -> None:
-    """Incomplete sentences share a stable key and should supersede."""
-    from plugin.writer.locale.grammar_work_queue import grammar_inflight_key
-    # All incomplete sentences in a doc share the same key
-    key = grammar_inflight_key("doc1", "en-US", "H", is_complete=False)
-    assert key == "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
-    assert key == grammar_inflight_key("doc1", "en-US", "Hello world", is_complete=False)
-    
-    items = [
-        _make_item("Hello", seq=1, inflight_key=key),
-        _make_item("Hello world", seq=2, inflight_key=key),
-    ]
-    result = deduplicate_grammar_batch(items)
-    assert len(result) == 1
-    assert result[0].enqueue_seq == 2
-
-
-def test_prefix_dedup_typing_sequence() -> None:
-    """Typing 'This is' -> 'This is a' -> 'This is a story.' keeps only newest."""
-    items = [
-        _make_item("This is", seq=1),
-        _make_item("This is a", seq=2),
-        _make_item("This is a story.", seq=3),
-    ]
-    result = deduplicate_grammar_batch(items)
-    assert len(result) == 1
-    surviving_text = result[0].text
-    assert surviving_text == "This is a story."
-
-
-def test_prefix_dedup_different_paragraphs() -> None:
-    """Two different paragraphs (non-prefix) should both survive."""
-    items = [
-        _make_item("Hello world.", seq=1, doc_id="para_a"),
-        _make_item("Goodbye world.", seq=2, doc_id="para_b"),
-    ]
-    result = deduplicate_grammar_batch(items)
-    texts = {r.text for r in result}
-    assert texts == {"Hello world.", "Goodbye world."}
-
-
-def test_supersede_same_key() -> None:
-    """Same inflight_key with different sequences -> only highest seq survives."""
-    key = "doc1|en-US|k1"
-    items = [
-        _make_item("Same text.", seq=1, inflight_key=key),
-        _make_item("Same text.", seq=3, inflight_key=key),
-        _make_item("Same text.", seq=2, inflight_key=key),
-    ]
-    result = deduplicate_grammar_batch(items)
-    assert len(result) == 1
-    assert result[0].enqueue_seq == 3
-
-
-def test_mixed_dedup() -> None:
-    """Combination of prefix dedup + supersede in one batch."""
-    key = "doc_short|en-US|k1"
-    items = [
-        # Two versions of the same key (supersede: keep seq=5)
-        _make_item("Short.", seq=3, doc_id="doc_short", inflight_key=key),
-        _make_item("Short.", seq=5, doc_id="doc_short", inflight_key=key),
-        # A prefix chain (prefix dedup: keep newest)
-        _make_item("The cat", seq=6, doc_id="doc_cat"),
-        _make_item("The cat sat on the mat.", seq=7, doc_id="doc_cat"),
-        # Unrelated paragraph
-        _make_item("Unrelated paragraph.", seq=8, doc_id="doc_other"),
-    ]
-    result = deduplicate_grammar_batch(items)
-    texts = {r.text for r in result}
-    # "Short." survives (seq=5), "The cat" dropped (older prefix-related),
-    # "The cat sat on the mat." survives (newer), "Unrelated paragraph." survives
-    # (distinct doc_id so inflight_key does not collapse unrelated paragraphs).
-    assert "Short." in texts
-    assert "The cat sat on the mat." in texts
-    assert "Unrelated paragraph." in texts
-    assert "The cat" not in texts
-    assert len(texts) == 3
-
-
-def test_different_locales_not_deduped() -> None:
-    """Same text in different locales should NOT be deduped (different groups)."""
-    items = [
-        _make_item("Bonjour le monde.", locale="fr-FR", seq=1),
-        _make_item("Bonjour le monde.", locale="en-US", seq=2),
-    ]
-    result = deduplicate_grammar_batch(items)
-    assert len(result) == 2
-    locales = {r.grammar_bcp47 for r in result}
-    assert locales == {"fr-FR", "en-US"}
-
-
-def test_newest_wins_over_longest_for_prefix_related_items() -> None:
-    """A newer shorter prefix-related item must survive over older longer text."""
-    items = [
-        _make_item("What is going on", seq=10),
-        _make_item("What is going", seq=11),
-    ]
-    result = deduplicate_grammar_batch(items)
-    assert len(result) == 1
-    item = result[0]
-    assert item.enqueue_seq == 11
-    assert item.text == "What is going"
-
-
-def test_reverse_prefix_chain_executes_only_latest() -> None:
-    """Reverse chain reproducer: only newest item survives."""
-    items = [
-        _make_item("What is going on", seq=1),
-        _make_item("What is going o", seq=2),
-        _make_item("What is going", seq=3),
-        _make_item("What is goin", seq=4),
-        _make_item("What is goi", seq=5),
-        _make_item("What is go", seq=6),
-        _make_item("What is g", seq=7),
-        _make_item("What is ", seq=8),
-        _make_item("What is", seq=9),
-        _make_item("W", seq=10),
-    ]
-    result = deduplicate_grammar_batch(items)
-    assert len(result) == 1
-    item = result[0]
-    assert item.enqueue_seq == 10
-    assert item.text == "W"
-
-
-@pytest.mark.parametrize(
-    "value, value_2",
-    [
-        # Different sentences should have different keys (based on their text) and both remain.
-        pytest.param("First sentence.", "Second sentence.", id="test_two_sentences_same_document_distinct_inflight_keys_survive"),
-        # Two different complete sentences with same relative start (handled by text-based keys) survive.
-        pytest.param("Paragraph one is unique.", "Paragraph two is also unique.", id="test_paragraph_collision_survives_dedup"),
-    ],
-)
-def test_two_sentences_same_document_distinct_inflight_keys_survive(value, value_2) -> None:
-    from plugin.writer.locale.grammar_work_queue import grammar_inflight_key
-    s1 = value
-    s2 = value_2
-    key1 = grammar_inflight_key("doc1", "en-US", s1, is_complete=True)
-    key2 = grammar_inflight_key("doc1", "en-US", s2, is_complete=True)
-    
-    assert key1 != key2
-    
-    items = [
-        _make_item(s1, seq=1, inflight_key=key1),
-        _make_item(s2, seq=2, inflight_key=key2),
-    ]
-    result = deduplicate_grammar_batch(items)
-    assert len(result) == 2
-
-
 def test_grammar_inflight_key_complete_uses_full_fingerprint() -> None:
     from plugin.writer.locale.grammar_proofread_locale import fingerprint_for_text
     from plugin.writer.locale.grammar_work_queue import grammar_inflight_key
@@ -243,14 +90,43 @@ def test_grammar_inflight_key_incomplete_stable() -> None:
     assert key == "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
     assert key == grammar_inflight_key("doc1", "en-US", "Hello world", is_complete=False)
 
-def test_two_sentences_string_prefix_collision_both_survive() -> None:
-    """Regression: ``deduplicate_grammar_batch`` must not apply text-prefix rules across *different* ``inflight_key`` values.
+def test_drain_loop_dispatches_highest_seq_for_same_key() -> None:
+    """Drain loop collapses items with the same key to the highest enqueue_seq (seqs 1, 3, 2 -> 3)."""
+    import threading
 
-    Historical bug: grouping by (doc, locale) and dropping prefix-related slices removed
-    the first sentence when the second sentence's text extended the first (e.g. ``No.``
-    vs ``No problem today.``). Fix: dedup by ``inflight_key`` only (see comments above
-    ``deduplicate_grammar_batch`` in ``grammar_work_queue.py``).
-    """
+    q = GrammarWorkQueue()
+    key = "doc1|en-US|k1"
+    items = [
+        _item(1, key=key, partial=False),
+        _item(3, key=key, partial=False),
+        _item(2, key=key, partial=False),
+    ]
+    drained: list[list[GrammarWorkItem]] = []
+    drain_done = threading.Event()
+
+    def fake_run(group_items, *, grammar_queue_instance=None):
+        drained.append(list(group_items))
+        q._q.put(None)
+        drain_done.set()
+
+    for it in items:
+        q._q.put(it)
+
+    with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
+         patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S", 0.01):
+        q._ensure_workers(None)
+        assert drain_done.wait(timeout=2.0)
+
+    assert len(drained) == 1
+    assert len(drained[0]) == 1
+    assert drained[0][0].enqueue_seq == 3
+
+
+def test_drain_loop_distinct_keys_both_dispatch() -> None:
+    """Distinct inflight keys both survive drain accumulation without cross-key prefix dropping."""
+    import threading
+
+    q = GrammarWorkQueue()
     items = [
         GrammarWorkItem(
             ctx=None,
@@ -271,34 +147,55 @@ def test_two_sentences_string_prefix_collision_both_survive() -> None:
             enqueue_seq=2,
         ),
     ]
-    result = deduplicate_grammar_batch(items)
-    assert len(result) == 2
+    drained: list[list[GrammarWorkItem]] = []
+    drain_done = threading.Event()
+
+    def fake_run(group_items, *, grammar_queue_instance=None):
+        drained.append(list(group_items))
+        q._q.put(None)
+        drain_done.set()
+
+    for it in items:
+        q._q.put(it)
+
+    with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
+         patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S", 0.01):
+        q._ensure_workers(None)
+        assert drain_done.wait(timeout=2.0)
+
+    assert len(drained) == 1
+    assert len(drained[0]) == 2
+    assert {it.text for it in drained[0]} == {"No.", "No problem today."}
 
 
-def test_record_enqueue_latest_updates_map() -> None:
-    d, out_of_order, prev_bad = record_enqueue_latest({}, _item(1))
-    assert d["d|en-US|k1"] == 1
-    assert out_of_order is False
-    assert prev_bad is None
+def test_enqueue_updates_latest_seq_and_handles_out_of_order(caplog) -> None:
+    """Enqueue updates latest_seq; older seq leaves higher value and logs error; newer seq updates without error."""
+    import logging
 
+    q = GrammarWorkQueue()
+    with patch.object(q, "_ensure_workers"):
+        with caplog.at_level(logging.ERROR):
+            # First enqueue seq 10
+            q.enqueue(_item(10, key="d|en-US|k1"))
+            assert q._latest_seq["d|en-US|k1"] == 10
+            assert "out-of-order seq detected" not in caplog.text
 
-def test_record_enqueue_latest_detects_out_of_order() -> None:
-    d = {"d|en-US|k1": 10}
-    d2, out_of_order, prev_bad = record_enqueue_latest(d, _item(5))
-    assert out_of_order is True
-    assert prev_bad == 10
-    assert d2["d|en-US|k1"] == 10
+            # Enqueue older seq 5: stays 10, logs error
+            q.enqueue(_item(5, key="d|en-US|k1"))
+            assert q._latest_seq["d|en-US|k1"] == 10
+            assert "out-of-order seq detected for key=d|en-US|k1: incoming seq=5 < latest seq=10" in caplog.text
 
-    d3, out_of_order3, prev_bad3 = record_enqueue_latest(d, _item(15))
-    assert out_of_order3 is False
-    assert prev_bad3 is None
-    assert d3["d|en-US|k1"] == 15
+            caplog.clear()
+            # Enqueue newer seq 15: updates to 15, no error
+            q.enqueue(_item(15, key="d|en-US|k1"))
+            assert q._latest_seq["d|en-US|k1"] == 15
+            assert "out-of-order seq detected" not in caplog.text
 
 
 # NOTE (historical): test_tail_enqueue_operation and the entire Layer 1
 # "tail-replace under Queue mutex" mechanism were removed in the TD4
 # simplification pass. The drain-loop dict accumulator (this test) plus
-# deduplicate_grammar_batch + _latest_seq guards are now the complete story.
+# _latest_seq guards are now the complete story.
 
 
 def test_drain_loop_collapses_same_key_items_during_burst() -> None:
@@ -603,33 +500,6 @@ def test_filter_stale_and_group_all_stale_returns_empty() -> None:
     items = [_item(1), _item(2)]
     groups = filter_stale_and_group(items, lambda _: True)
     assert groups == {}
-
-
-def test_drain_batch_accumulation_matches_deduplicate() -> None:
-    """Verify that dict-based accumulation (Layer 2 fast path) produces the same
-    result as ``deduplicate_grammar_batch`` for the same input."""
-    key = "d|en-US|k1"
-    items = [
-        _item(1, key=key),
-        _item(5, key=key),
-        _item(3, key=key),
-        _item(2, key="other"),
-    ]
-    # Simulate dict accumulator (same logic as _drain_loop)
-    batch_by_key: dict[str, GrammarWorkItem] = {}
-    for it in items:
-        prev = batch_by_key.get(it.inflight_key)
-        if should_replace_for_key(prev, it):
-            batch_by_key[it.inflight_key] = it
-    dict_result = sorted(batch_by_key.values(), key=lambda x: x.inflight_key)
-
-    # Canonical dedup
-    dedup_result = sorted(deduplicate_grammar_batch(items), key=lambda x: x.inflight_key)
-
-    assert len(dict_result) == len(dedup_result)
-    for a, b in zip(dict_result, dedup_result):
-        assert a.inflight_key == b.inflight_key
-        assert a.enqueue_seq == b.enqueue_seq
 
 
 def test_enqueue_misses() -> None:
