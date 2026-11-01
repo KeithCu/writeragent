@@ -62,20 +62,13 @@ def _annotation_text(sheet: Any, col: int, row: int) -> tuple[Any, str]:
 
 
 def _resolve_comment_cell(
-    tool: Any,
     doc: Any,
     cell_ref: str,
     sheet_name_arg: str | None = None,
-) -> tuple[Any, int, int, str] | dict[str, Any]:
-    try:
-        sheet, address = CalcBridge(doc).resolve(cell_ref, sheet_name_arg)
-        col, row = parse_address(address)
-    except Exception as e:
-        if is_real_disposal(e):
-            raise
-        return tool._tool_error(str(e))
-
-    return sheet, col, row, cell_ref
+) -> tuple[Any, int, int]:
+    sheet, address = CalcBridge(doc).resolve(cell_ref, sheet_name_arg)
+    col, row = parse_address(address)
+    return sheet, col, row
 
 
 class ListCellComments(ToolCalcCommentBase):
@@ -131,10 +124,12 @@ class AddCellComment(ToolCalcCommentBase):
         if not cell_ref or not text:
             return self._tool_error("cell and text are required.")
 
-        target = _resolve_comment_cell(self, ctx.doc, cell_ref, kwargs.get("sheet"))
-        if isinstance(target, dict):
-            return target
-        sheet, col, row, cell_ref = target
+        try:
+            sheet, col, row = _resolve_comment_cell(ctx.doc, cell_ref, kwargs.get("sheet"))
+        except Exception as e:
+            if is_real_disposal(e):
+                raise
+            return self._tool_error(str(e))
 
         cell_ann, existing_text = _annotation_text(sheet, col, row)
         if existing_text:
@@ -158,10 +153,12 @@ class DeleteCellComment(ToolCalcCommentBase):
         if not cell_ref:
             return self._tool_error("cell is required.")
 
-        target = _resolve_comment_cell(self, ctx.doc, cell_ref, kwargs.get("sheet"))
-        if isinstance(target, dict):
-            return target
-        sheet, col, row, cell_ref = target
+        try:
+            sheet, col, row = _resolve_comment_cell(ctx.doc, cell_ref, kwargs.get("sheet"))
+        except Exception as e:
+            if is_real_disposal(e):
+                raise
+            return self._tool_error(str(e))
 
         annotations = sheet.getAnnotations()
         # Find and remove the annotation at this position
