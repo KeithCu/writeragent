@@ -169,9 +169,7 @@ def setup_rich_control_ready(
     if panel._rich_control_listener:
         panel._rich_control_listener.on_replaced = _on_control_replaced
     if panel._panel_resize_listener:
-        panel._panel_resize_listener.on_control_replaced = lambda name, new_ctrl: (
-            _on_control_replaced(new_ctrl) if name == "response_rich" else None
-        )
+        panel._panel_resize_listener.on_control_replaced = _on_control_replaced
 
     hide_response = False
     if controls.get("response"):
