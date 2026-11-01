@@ -21,7 +21,6 @@ Venv code can import library defs via ``wa.scripts.<Name>`` (My Scripts) and
 from __future__ import annotations
 
 from enum import Enum
-import hashlib
 import json
 import logging
 from typing import Any, Callable
@@ -42,6 +41,7 @@ from plugin.scripting.domain_registry import (
     parse_picker_display_name,
     picker_display_name,
 )
+from plugin.scripting.named_scripts import script_body_hash
 from plugin.scripting.session_manager import calc_init_session_id
 
 log = logging.getLogger(__name__)
@@ -299,10 +299,6 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
     return guard_uno(doc)
 
 
-def init_script_hash(code: str) -> str:
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
-
-
 def build_python_eval_init_kwargs(doc: Any) -> dict[str, Any]:
     """Kwargs for ``run_code_in_user_venv`` init execution (pass with separate ``session_id=``)."""
     init_code = (get_calc_init_script(doc) or "").strip()
@@ -311,7 +307,7 @@ def build_python_eval_init_kwargs(doc: Any) -> dict[str, Any]:
     return {
         "init_script": init_code,
         "init_session_id": calc_init_session_id(doc),
-        "init_script_hash": init_script_hash(init_code),
+        "init_script_hash": script_body_hash(init_code),
     }
 
 
@@ -677,8 +673,7 @@ def save_selected_script(
         return None
     user_scripts = get_user_scripts()
     if display_name in user_scripts:
-        save_err = save_user_script(display_name, code)
-        return save_err if isinstance(save_err, str) else None
+        return save_user_script(display_name, code)
     if doc is not None:
         stored, load_err = _load_document_script_map(doc)
     else:
@@ -714,22 +709,6 @@ def _closed_document_scripts_list(status_error_text: str) -> dict[str, Any]:
     }
 
 
-def _require_writable_session(
-    session_doc: Any | None,
-    session_doc_url: str | None,
-    *,
-    action_label: str = "",
-) -> str | None:
-    """Validate that the session document is open and not stale. Return error text or None."""
-    if session_doc is None:
-        if action_label == "save":
-            return _("No document is open to save scripts.")
-        return _("No document is open.")
-    if document_scripts_write_is_stale(session_doc, session_doc_url):
-        return _("Document changed — close and reopen Run Python Script to edit document scripts.")
-    return None
-
-
 def _on_request_scripts(
     msg: dict[str, Any],
     *,
@@ -761,7 +740,7 @@ def _validate_script_target(
     session_doc: Any | None = None,
     session_doc_url: str | None = None,
     action_label: str = "delete",
-) -> tuple[str, str, str | None] | None:
+) -> tuple[str, str, str] | None:
     name = str(msg.get("name", "") or "").strip()
     origin = str(msg.get("origin", "") or "").strip()
     if not name:
@@ -770,13 +749,17 @@ def _validate_script_target(
     if not script_origin_is_writable(origin):
         send_list(status_error_text=read_only_helper_message())
         return None
-    storage_name: str | None = None
     if origin == SCRIPT_ORIGIN_DOCUMENT:
-        err = _require_writable_session(session_doc, session_doc_url, action_label=action_label)
-        if err:
+        if session_doc is None:
+            err = _("No document is open to save scripts.") if action_label == "save" else _("No document is open.")
             send_list(status_error_text=err)
             return None
+        if document_scripts_write_is_stale(session_doc, session_doc_url):
+            send_list(status_error_text=_("Document changed — close and reopen Run Python Script to edit document scripts."))
+            return None
         storage_name = parse_document_script_display_name(name) or name
+    else:
+        storage_name = name
     return name, origin, storage_name
 
 
@@ -799,8 +782,19 @@ def _on_save_script(
     name, origin, storage_name = target
     raw_code = msg.get("code", "")
     script_code = raw_code if isinstance(raw_code, str) else ""
+
+    def _finish_user_save(saved_name: str, ok_text: str, *, log_user: bool = False) -> bool:
+        user_err = save_user_script(saved_name, script_code)
+        if user_err:
+            send_list(status_error_text=str(user_err))
+            return True
+        config.set_config(resolve_run_script_name_config_key(session_doc), saved_name)
+        if log_user:
+            log.info("scripts picker: save_script '%s' (user)", saved_name)
+        send_list(status_ok_text=ok_text)
+        return True
+
     if origin == SCRIPT_ORIGIN_DOCUMENT:
-        assert storage_name is not None
         save_err = save_document_script(session_doc, storage_name, script_code)
         if save_err:
             # Fall back to My Scripts only for READONLY (read-only document or
@@ -812,29 +806,17 @@ def _on_save_script(
                         status_error_text=readonly_fallback_name_taken_message(storage_name, save_err)
                     )
                     return True
-                user_err = save_user_script(storage_name, script_code)
-                if user_err:
-                    send_list(status_error_text=str(user_err))
-                    return True
-                config.set_config(resolve_run_script_name_config_key(session_doc), storage_name)
-                send_list(
-                    status_ok_text=readonly_fallback_saved_message(storage_name, save_err),
+                return _finish_user_save(
+                    storage_name,
+                    readonly_fallback_saved_message(storage_name, save_err),
                 )
-                return True
             send_list(status_error_text=str(save_err))
             return True
         display_name = document_script_display_name(storage_name)
         config.set_config(resolve_run_script_name_config_key(session_doc), display_name)
         send_list(status_ok_text=_("Saved script '{0}' to this document.").format(storage_name))
         return True
-    user_err = save_user_script(name, script_code)
-    if user_err:
-        send_list(status_error_text=str(user_err))
-        return True
-    config.set_config(resolve_run_script_name_config_key(session_doc), name)
-    log.info("scripts picker: save_script '%s' (user)", name)
-    send_list(status_ok_text=_("Saved script '{0}'.").format(name))
-    return True
+    return _finish_user_save(name, _("Saved script '{0}'.").format(name), log_user=True)
 
 
 def _on_delete_script(
@@ -849,7 +831,6 @@ def _on_delete_script(
         return True
     name, origin, storage_name = target
     if origin == SCRIPT_ORIGIN_DOCUMENT:
-        assert storage_name is not None
         del_err = delete_document_script(session_doc, storage_name)
         if del_err:
             send_list(status_error_text=str(del_err))
