@@ -24,6 +24,7 @@ from plugin.writer.hyperlink_fixup import (
     _paint,
     capture_outline_hyperlinks,
     plan_outline_updates,
+    public_hyperlink_reports,
     restore_outline_hyperlinks,
     substitute_if_present,
 )
@@ -51,7 +52,7 @@ def test_plan_leaves_a_repeated_title_and_a_repeated_name():
     repeated = OutlineLink("#1.foo foo|outline", "foo", "foo")
     plans = plan_outline_updates([repeated], "foo", "bar", None)
     assert plans[0]["new_url"] is None
-    assert plans[0]["hyperlink_updated"] is False
+    assert public_hyperlink_reports(plans)[0]["hyperlink_updated"] is False
     once = OutlineLink("#1.foo|outline", "foo foo", "foo")
     plans = plan_outline_updates([once], "foo", "bar", None)
     assert plans[0]["new_url"] == "#1.bar|outline"
@@ -66,8 +67,8 @@ def test_plan_skips_bookmark_and_a_url_that_does_not_contain_the_match():
     plans = plan_outline_updates([unrelated], "Old title", "New title", None)
     assert plans[0]["new_url"] is None
     assert plans[0]["new_name"] is None
-    assert plans[0]["hyperlink_updated"] is False
-    assert plans[0]["hyperlink_url_after"] == "#1.Other|outline"
+    assert public_hyperlink_reports(plans)[0]["hyperlink_updated"] is False
+    assert public_hyperlink_reports(plans)[0]["hyperlink_url_after"] == "#1.Other|outline"
 
 
 def test_plan_rewrites_url_and_only_name_or_target_that_contain_the_match():
@@ -76,7 +77,7 @@ def test_plan_rewrites_url_and_only_name_or_target_that_contain_the_match():
     assert plans[0]["new_url"] == "#1.New title|outline"
     assert plans[0]["new_name"] == "New title"
     assert plans[0]["new_target"] is None
-    assert plans[0]["hyperlink_updated"] is True
+    assert public_hyperlink_reports(plans)[0]["hyperlink_updated"] is True
 
 
 def test_plan_override_replaces_the_url_without_substitution():
