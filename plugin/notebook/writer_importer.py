@@ -217,20 +217,16 @@ def _no_spellcheck_locale() -> Any:
     """Locale that disables Writer spell/grammar checking (ISO 639-2 ``zxx``)."""
     try:
         import uno
-    except ImportError:
+        create = uno.createUnoStruct
+    except (ImportError, AttributeError):
         # External test/development Pythons can see LibreOffice's uno.py but fail to
         # load pyuno when the bundled Python ABI differs. A namespace with the same
         # attributes is enough for setPropertyValue mocks and keeps import tests portable.
         return SimpleNamespace(Language="zxx", Country="")
-
-    create = getattr(uno, "createUnoStruct", None)
-    if callable(create):
-        loc: Any = create("com.sun.star.lang.Locale")
-        loc.Language = "zxx"
-        loc.Country = ""
-        return loc
-    # pytest may load a mocked ``uno`` without ``createUnoStruct``; attrs still reach setPropertyValue.
-    return SimpleNamespace(Language="zxx", Country="")
+    loc: Any = create("com.sun.star.lang.Locale")
+    loc.Language = "zxx"
+    loc.Country = ""
+    return loc
 
 
 def _set_prop_map(obj: Any, props: dict[str, Any], fail_fmt: str, *fail_args: Any) -> None:
@@ -509,12 +505,17 @@ def _last_nonempty_para_cursor(text: Any) -> Any | None:
     return None
 
 
+def _paragraph_span(text: Any, cursor: Any) -> Any:
+    rng = text.createTextCursorByRange(cursor)
+    rng.gotoStartOfParagraph(False)
+    rng.gotoEndOfParagraph(True)
+    return rng
+
+
 def _cursor_para_is_empty(cursor: Any) -> bool:
     """True when *cursor*'s paragraph has no visible text (trailing list leftover)."""
     def empty() -> bool:
-        rng = cursor.getText().createTextCursorByRange(cursor)
-        rng.gotoStartOfParagraph(False)
-        rng.gotoEndOfParagraph(True)
+        rng = _paragraph_span(cursor.getText(), cursor)
         raw = rng.getString()
         if raw is None:
             return True
@@ -559,9 +560,7 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
         text = doc.getText()
         cursor = _cursor_at_end(text)
 
-        para_rng = text.createTextCursorByRange(cursor)
-        para_rng.gotoStartOfParagraph(False)
-        para_rng.gotoEndOfParagraph(True)
+        para_rng = _paragraph_span(text, cursor)
         if (para_rng.getString() or "").strip() != "":
             return
 
@@ -603,12 +602,8 @@ def _html_attr(tag_or_attrs: str, name: str) -> str:
     for match in _HTML_ATTR_RE.finditer(tag_or_attrs or ""):
         if (match.group(1) or "").lower() != want:
             continue
-        raw = match.group(2)
-        if raw is None:
-            raw = match.group(3)
-        if raw is None:
-            raw = match.group(4)
-        return html_lib.unescape((raw or "").strip())
+        raw = next((g for g in match.groups()[1:] if g is not None), "")
+        return html_lib.unescape(raw.strip())
     return ""
 
 
@@ -951,6 +946,15 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
             _append_body_paragraph(doc, display, _STYLE_BODY, lead_break=False)
         return
     first = True
+    def _append_lead_paragraphs(texts: list[str], lead: bool) -> None:
+        for i, text in enumerate(texts):
+            _append_body_paragraph(doc, text, _STYLE_BODY, lead_break=lead if i == 0 else True)
+
+    def _embed_or_fallback(src: str, alt: str, lead: bool, **kwargs: Any) -> None:
+        if not _embed_markdown_image(doc, str(src), notebook_dir, ctx=ctx, budget=budget, **kwargs):
+            fallback = alt or src
+            _append_body_paragraph(doc, str(fallback), _STYLE_BODY, lead_break=lead)
+
     for kind, payload in _iter_markdown_blocks(display):
         block_lead = lead_break if first else True
         first = False
@@ -961,12 +965,14 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
         elif kind in ("ul", "ol"):
             html = _list_block_to_html(payload)
             if not _insert_html_at_body_end(doc, html, lead_break=block_lead, exit_list=True):
+                items: list[str] = []
                 for i, item in enumerate(payload):
                     _indent, item_kind, start, text = item
                     if not isinstance(start, int):
                         start = i + 1
                     prefix = "• " if item_kind == "ul" else f"{start}. "
-                    _append_body_paragraph(doc, prefix + text, _STYLE_BODY, lead_break=block_lead if i == 0 else True)
+                    items.append(prefix + text)
+                _append_lead_paragraphs(items, block_lead)
         elif kind == "blockquote":
             body = str(payload)
             # Separate multiple paragraphs within blockquotes if present (> \n >).
@@ -975,13 +981,10 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
             inner = "".join("<p>" + _inline_markdown_to_html(p).replace("\n", "<br/>") + "</p>" for p in parts)
             html = f"<blockquote>{inner}</blockquote>"
             if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
-                for p_idx, p_text in enumerate(b_paras or [body]):
-                    _append_body_paragraph(doc, p_text, _STYLE_BODY, lead_break=block_lead if p_idx == 0 else True)
+                _append_lead_paragraphs(b_paras or [body], block_lead)
         elif kind == "img":
             alt, src = payload if isinstance(payload, tuple) else ("", str(payload))
-            if not _embed_markdown_image(doc, str(src), notebook_dir, ctx=ctx, budget=budget, field_w=field_w):
-                fallback = alt or src
-                _append_body_paragraph(doc, str(fallback), _STYLE_BODY, lead_break=block_lead)
+            _embed_or_fallback(str(src), alt, block_lead, field_w=field_w)
         else:
             def emit_text(piece: str, lead: bool) -> None:
                 if _paragraph_needs_html(piece):
@@ -1002,9 +1005,7 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool, notebook_d
                         lead = True
                     alt = match.group(1) or ""
                     dest = match.group(2)
-                    if not _embed_markdown_image(doc, dest, notebook_dir, ctx=ctx, budget=budget):
-                        fallback = alt or dest
-                        _append_body_paragraph(doc, str(fallback), _STYLE_BODY, lead_break=lead)
+                    _embed_or_fallback(dest, alt, lead)
                     lead = True
                     last_idx = match.end()
                 tail_piece = p_str[last_idx:]
@@ -1350,12 +1351,6 @@ def _resolve_markdown_image(src: str, notebook_dir: str | None, *, budget: _Remo
     cleaned = _split_markdown_image_src(src)
     if not cleaned:
         return None
-    if cleaned.startswith("file:"):
-        path = _file_url_to_local_path(cleaned)
-        if os.path.isfile(path):
-            raw = _read_image_capped(path)
-            return (raw, path) if raw is not None else None
-        return None
     if cleaned.startswith("http://") or cleaned.startswith("https://"):
         if budget is not None:
             timeout = budget.allow()
@@ -1367,15 +1362,17 @@ def _resolve_markdown_image(src: str, notebook_dir: str | None, *, budget: _Remo
         if raw is not None:
             return (raw, cleaned.split("?", 1)[0])
         return None
-    unquoted = unquote(cleaned)
-    if os.path.isfile(unquoted):
-        raw = _read_image_capped(unquoted)
-        return (raw, unquoted) if raw is not None else None
-    if notebook_dir:
-        joined = os.path.normpath(os.path.join(notebook_dir, unquoted))
-        if os.path.isfile(joined):
-            raw = _read_image_capped(joined)
-            return (raw, joined) if raw is not None else None
+    if cleaned.startswith("file:"):
+        candidates = [_file_url_to_local_path(cleaned)]
+    else:
+        unquoted = unquote(cleaned)
+        candidates = [unquoted]
+        if notebook_dir:
+            candidates.append(os.path.normpath(os.path.join(notebook_dir, unquoted)))
+    for path in candidates:
+        if os.path.isfile(path):
+            raw = _read_image_capped(path)
+            return (raw, path) if raw is not None else None
     return None
 
 
@@ -1471,7 +1468,7 @@ def _output_image_payload(output: Any) -> tuple[str, str] | None:
     return None
 
 
-def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_count: Any | None = None) -> tuple[list[tuple[str, Any]], int]:
+def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_count: Any | None = None) -> list[tuple[str, Any]]:
     """Interleave text and image outputs in notebook order.
 
     Previously appended all text, then all images, so ``[display image,
@@ -1479,10 +1476,8 @@ def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_coun
     consecutive text before an image, then the image. Caps at
     ``_MAX_OUTPUTS_PER_CELL``.
 
-    Returns ``(segments, text_output_count)``. Each segment is
-    ``("text", joined_str)`` or ``("image", (mime, b64))``. ``text_output_count`` is
-    the number of outputs that produced non-empty text (same meaning as the
-    old ``stats["outputs"]`` increment, without a second ``format_output_text``).
+    Returns ``segments``. Each segment is
+    ``("text", joined_str)`` or ``("image", (mime, b64))``.
     """
     out_list = outputs or []
     if len(out_list) > _MAX_OUTPUTS_PER_CELL:
@@ -1490,7 +1485,6 @@ def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_coun
         out_list = out_list[:_MAX_OUTPUTS_PER_CELL]
     segments: list[tuple[str, Any]] = []
     text_parts: list[str] = []
-    text_count = 0
 
     def flush_text() -> None:
         if text_parts:
@@ -1506,9 +1500,8 @@ def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_coun
             text = format_output_text(output, execution_count)
             if text.strip():
                 text_parts.append(text)
-                text_count += 1
     flush_text()
-    return segments, text_count
+    return segments
 
 
 # ---------------------------------------------------------------------------
@@ -1532,10 +1525,8 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
         "cells": 0,
         "markdown": 0,
         "code": 0,
-        "raw": 0,
         "shapes": 0,
         "images": 0,
-        "outputs": 0,
     }
 
     notebook_in = _ensure_notebook_import_styles(doc)
@@ -1643,8 +1634,7 @@ def _import_cells(
                     entry.output_start_bookmark = ""
                 # Interleave in notebook order. Used to dump all text, then all
                 # images, so [display image, print(...)] rendered print-then-image.
-                segments, n_text = _format_outputs_for_body(outputs, idx, execution_count=ec)
-                stats["outputs"] += n_text
+                segments = _format_outputs_for_body(outputs, idx, execution_count=ec)
                 for kind, payload in segments:
                     if kind == "text":
                         display = _prepare_display_text(payload)
@@ -1662,7 +1652,6 @@ def _import_cells(
                             log.warning("notebook import cell=%d image not inserted mime=%s", idx, mime)
                             _append_body_paragraph(doc, "[image output omitted]", _STYLE_BODY, lead_break=False)
             else:
-                stats["raw"] += 1
                 display = _prepare_display_text(source)
                 if display:
                     _append_body_paragraph(doc, display, _STYLE_BODY, lead_break=lead)

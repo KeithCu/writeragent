@@ -197,8 +197,7 @@ def test_format_outputs_for_body_interleaves_image_then_stream():
         {"output_type": "display_data", "data": {"image/png": "abc"}},
         {"output_type": "stream", "name": "stdout", "text": "hello printed\n"},
     ]
-    segments, n_text = _format_outputs_for_body(outputs, 0)
-    assert n_text == 1
+    segments = _format_outputs_for_body(outputs, 0)
     assert [kind for kind, _payload in segments] == ["image", "text"]
     assert segments[0][1] == ("image/png", "abc")
     assert segments[1][1] == "hello printed\n"
@@ -210,7 +209,6 @@ def test_import_cells_does_not_reformat_outputs_for_stats():
     src = inspect.getsource(wi._import_cells)
     assert "format_output_text" not in src
     assert "_format_outputs_for_body" in src
-    assert 'stats["outputs"] += n_text' in src
 
 
 def test_trim_trailing_empty_paragraph_deletes_when_empty():
@@ -1031,7 +1029,6 @@ def test_import_image_then_stream_keeps_notebook_order(tmp_path, monkeypatch):
     stats = import_ipynb_to_writer(doc, str(ipynb), ctx=MagicMock())
 
     assert order == ["image", "text"]
-    assert stats["outputs"] == 1
     assert stats["images"] == 1
 
 
