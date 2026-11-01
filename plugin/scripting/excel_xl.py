@@ -26,9 +26,6 @@ _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 _HEADERS_OMIT = object()
 
 
-_FIRST_BINDING = 2
-
-
 @deal.pre(
     lambda ranges: ranges is None
     or (isinstance(ranges, (list, tuple)) and len(ranges) <= DEAL_MAX_SHAPE_DIM)
@@ -51,7 +48,8 @@ def make_xl(ranges: tuple[Any, ...] | list[Any] | None) -> Any:
                 f"got {ref!r} (no live sheet reads)"
             )
         ref_num = int(m.group(1))
-        idx = ref_num - _FIRST_BINDING
+        # %P2% is the first binding (%P1% is reserved / formula).
+        idx = ref_num - 2
         if idx < 0 or idx >= len(bound):
             raise ValueError(
                 f"xl({ref!r}) has no matching data binding "
@@ -67,8 +65,6 @@ def make_xl(ranges: tuple[Any, ...] | list[Any] | None) -> Any:
                 f"xl({ref!r}, headers={headers!r}) requires a CalcRange binding; "
                 f"got {type(rng).__name__}"
             )
-        if headers is True:
-            return rng.to_pandas()
-        return rng.to_pandas(header_row=None)
+        return rng.to_pandas(header_row=0 if headers else None)
 
     return xl
