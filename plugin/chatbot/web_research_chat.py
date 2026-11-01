@@ -26,12 +26,9 @@ def clip_sub_agent_history(history_text: str | None) -> str | None:
         return "..." + history_text[-HISTORY_CLIP_CHARS:]
 
     head = history_text[:first_sep]
-    if len(head) > 2000:
-        head = head[:2000]
+    head = head[:2000]
 
     budget = HISTORY_CLIP_CHARS - len(head)
-    if budget < 500:
-        budget = 500
 
     tail_part = history_text[first_sep:]
     if len(tail_part) <= budget:
