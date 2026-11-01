@@ -119,9 +119,9 @@ def _history_user_tail(sl: Any) -> str:
 
 def _session_snapshot_fields(sl: Any) -> dict[str, Any]:
     """Packet K: URP cannot read ``session.messages``; snapshot from soffice."""
-    session = getattr(sl, "session", None) if sl is not None else None
-    messages = list(getattr(session, "messages", None) or []) if session is not None else []
-    compaction = getattr(session, "compaction", None) if session is not None else None
+    session = getattr(sl, "session", None)
+    messages = list(getattr(session, "messages", None) or [])
+    compaction = getattr(session, "compaction", None)
     return {
         "session_n_messages": len(messages),
         "session_roles": [str(m.get("role") or "") for m in messages if isinstance(m, dict)],
@@ -130,7 +130,7 @@ def _session_snapshot_fields(sl: Any) -> dict[str, Any]:
         ],
         "has_compaction": compaction is not None,
         # Per-turn now (TurnController); None once the drain dropped the turn.
-        "last_compact_reason": getattr(getattr(sl, "_turn", None), "_last_compact_reason", None) if sl is not None else None,
+        "last_compact_reason": getattr(getattr(sl, "_turn", None), "_last_compact_reason", None),
     }
 
 
@@ -438,6 +438,16 @@ def _fresh_fake_state(mode: str, saved: dict[str, Any] | None, **extra: Any) -> 
     return state
 
 
+def _fresh_or_update_fake_state(
+    state: dict[str, Any], mode: str, saved: dict[str, Any] | None, **extra: Any
+) -> dict[str, Any]:
+    if not state or state.get("mode") != mode:
+        return _fresh_fake_state(mode, saved, **extra)
+    state["mode"] = mode
+    state["saved"] = dict(saved) if saved is not None else None
+    return state
+
+
 def read_fake_stt_state() -> dict[str, Any]:
     return _read_json_dict(_tmp_state_path(_FAKE_STT_NAME), retry=True)
 
@@ -473,15 +483,23 @@ def _fake_stt_watch_exit(proc: subprocess.Popen[Any]) -> None:
         write_json_state(_tmp_state_path(_FAKE_STT_NAME), _FAKE_STT_STATE)
 
 
-def set_late_transcript_delay(delay: float) -> None:
-    _require_debug()
+def _local_or_op(op: str, local: Callable[[], Any]) -> None:
     sl = send_listener()
     if sl is None:
-        execute_debug_sidebar_op("FAKE_STT_DELAY_" + str(delay))
+        execute_debug_sidebar_op(op)
         return
-    global _FAKE_STT_DELAY
-    with _FAKE_STT_LOCK:
-        _FAKE_STT_DELAY = delay
+    local()
+
+
+def set_late_transcript_delay(delay: float) -> None:
+    _require_debug()
+
+    def _apply() -> None:
+        global _FAKE_STT_DELAY
+        with _FAKE_STT_LOCK:
+            _FAKE_STT_DELAY = delay
+
+    _local_or_op("FAKE_STT_DELAY_" + str(delay), _apply)
 
 
 def _restore_saved_config(saved: dict[str, Any]) -> None:
@@ -615,12 +633,7 @@ def _apply_fake_stt(mode: str) -> None:
         # set_config("audio.stt_provider", "local")
 
         _FAKE_STT_MODE = mode
-
-        if not _FAKE_STT_STATE or _FAKE_STT_STATE.get("mode") != mode:
-            _FAKE_STT_STATE = _fresh_fake_state(mode, _FAKE_STT_SAVED)
-        else:
-            _FAKE_STT_STATE["mode"] = mode
-            _FAKE_STT_STATE["saved"] = dict(_FAKE_STT_SAVED) if _FAKE_STT_SAVED is not None else None
+        _FAKE_STT_STATE = _fresh_or_update_fake_state(_FAKE_STT_STATE, mode, _FAKE_STT_SAVED)
 
         if _FAKE_STT_ORIG is None:
             _FAKE_STT_ORIG = {
@@ -716,11 +729,7 @@ def install_fake_stt(mode: str) -> None:
     _require_debug()
     if mode not in ("hold", "crash", "missing", "silence", "noisy"):
         raise ValueError(f"Invalid fake STT mode: {mode}")
-    sl = send_listener()
-    if sl is None:
-        execute_debug_sidebar_op("FAKE_STT_" + mode.upper())
-        return
-    _apply_fake_stt(mode)
+    _local_or_op("FAKE_STT_" + mode.upper(), lambda: _apply_fake_stt(mode))
 
 def _clear_fake_out_of_process(op: str, read_state: Callable[[], dict[str, Any]], path: str) -> None:
     execute_debug_sidebar_op(op)
@@ -775,10 +784,7 @@ def _fake_tts_refresh_locked() -> None:
     _FAKE_TTS_STATE.setdefault("argv0s", [])
     _FAKE_TTS_STATE.setdefault("requested_basenames", [])
     _FAKE_TTS_STATE.setdefault("speak_calls", 0)
-    if _FAKE_TTS_SAVED is not None:
-        _FAKE_TTS_STATE["saved"] = dict(_FAKE_TTS_SAVED)
-    else:
-        _FAKE_TTS_STATE.setdefault("saved", None)
+    _FAKE_TTS_STATE["saved"] = dict(_FAKE_TTS_SAVED) if _FAKE_TTS_SAVED is not None else None
     import plugin.audio.tts_service as tts_service
 
     _FAKE_TTS_STATE["speaking"] = bool(tts_service.is_speaking())
@@ -881,14 +887,9 @@ def _apply_fake_tts(mode: str) -> None:
         set_config("audio.tts_sentence_mode", False)
 
         _FAKE_TTS_MODE = mode
-
-        if not _FAKE_TTS_STATE or _FAKE_TTS_STATE.get("mode") != mode:
-            _FAKE_TTS_STATE = _fresh_fake_state(
-                mode, _FAKE_TTS_SAVED, speak_calls=0, speaking=False
-            )
-        else:
-            _FAKE_TTS_STATE["mode"] = mode
-            _FAKE_TTS_STATE["saved"] = dict(_FAKE_TTS_SAVED) if _FAKE_TTS_SAVED is not None else None
+        _FAKE_TTS_STATE = _fresh_or_update_fake_state(
+            _FAKE_TTS_STATE, mode, _FAKE_TTS_SAVED, speak_calls=0, speaking=False
+        )
 
         if _FAKE_TTS_ORIG is None:
             _FAKE_TTS_ORIG = {
@@ -1027,11 +1028,7 @@ def install_fake_tts(mode: str) -> None:
     _require_debug()
     if mode not in ("hold", "crash", "missing"):
         raise ValueError(f"Invalid fake TTS mode: {mode}")
-    sl = send_listener()
-    if sl is None:
-        execute_debug_sidebar_op("FAKE_TTS_" + mode.upper())
-        return
-    _apply_fake_tts(mode)
+    _local_or_op("FAKE_TTS_" + mode.upper(), lambda: _apply_fake_tts(mode))
 
 
 def clear_fake_tts() -> None:
@@ -1045,23 +1042,23 @@ def clear_fake_tts() -> None:
 
 def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
     send = sl.sidebar_state.send if sl is not None else None
-    rec = getattr(sl, "audio_recorder", None) if sl is not None else None
+    rec = getattr(sl, "audio_recorder", None)
     audio = rec.state if rec is not None else None
     # The paint counters live on RichTextChatWidget, not on the raw response control.
-    rich_widget = getattr(sl, "rich_text_widget", None) if sl is not None else None
+    rich_widget = getattr(sl, "rich_text_widget", None)
     data: dict[str, Any] = {
         "is_busy": bool(getattr(send, "is_busy", False)),
         "is_recording": bool(getattr(send, "is_recording", False)),
         "has_text": bool(getattr(send, "has_text", False)),
         "has_audio": bool(getattr(send, "has_audio", False)),
         "audio_supported": bool(getattr(send, "audio_supported", False)),
-        "send_label": _control_label(getattr(sl, "send_control", None)) if sl is not None else "",
-        "stop_label": _control_label(getattr(sl, "stop_control", None)) if sl is not None else "",
+        "send_label": _control_label(getattr(sl, "send_control", None)),
+        "stop_label": _control_label(getattr(sl, "stop_control", None)),
         "status": getattr(audio, "status", "idle") if audio is not None else "idle",
         "error_message": getattr(audio, "error_message", None) if audio is not None else None,
         "stub_start_count": get_stub_start_count(rec),
-        "history_user_tail": _history_user_tail(sl) if sl is not None else "",
-        "approval_active": bool(getattr(sl, "_approval_event", None)) if sl is not None else False,
+        "history_user_tail": _history_user_tail(sl),
+        "approval_active": bool(getattr(sl, "_approval_event", None)),
         **_slash_snapshot_fields(sl),
         **_session_snapshot_fields(sl),
         **_tts_snapshot_fields(),
@@ -2373,7 +2370,7 @@ def _slash_lru_names() -> list[str]:
 
 
 def _slash_snapshot_fields(sl: Any) -> dict[str, Any]:
-    popup = _attach_slash_popup_on_listener(sl) if sl is not None else None
+    popup = _attach_slash_popup_on_listener(sl)
     if popup is None:
         return {"slash_available": False, "slash_visible": False, "slash_items": [], "slash_selected": None}
     return {
@@ -2805,7 +2802,7 @@ def inject_wav(path_or_bytes: Any, *, listener: Any = None) -> None:
 
     wav_path = path_or_bytes
     if isinstance(path_or_bytes, (bytes, bytearray)):
-        dest = os.path.join(__import__("tempfile").gettempdir(), "writeragent_stub_inject.wav")
+        dest = _tmp_state_path("writeragent_stub_inject.wav")
         with open(dest, "wb") as handle:
             handle.write(path_or_bytes)
         wav_path = dest
