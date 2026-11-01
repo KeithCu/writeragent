@@ -94,7 +94,7 @@ def _resolve_temp_dir() -> str:
 
 
 @contextlib.contextmanager
-def _with_temp_buffer(content: Any = None, ext: str | None = None) -> Generator[tuple[str, str], None, None]:  # pyright: ignore[reportUnusedFunction]
+def _with_temp_buffer(content: Any = None, ext: str = ".html") -> Generator[tuple[str, str], None, None]:  # pyright: ignore[reportUnusedFunction]
     """Context manager that yields ``(path, file_url)`` for a temp file
     with the correct format extension.
 
@@ -102,8 +102,6 @@ def _with_temp_buffer(content: Any = None, ext: str | None = None) -> Generator[
     *ext* overrides the file extension (e.g. ``".xhtml"`` for the read filter).
     The file is deleted on exit.
     """
-    if ext is None:
-        ext = ".html"
     fd, path = tempfile.mkstemp(suffix=ext, dir=_resolve_temp_dir())
     try:
         if content is not None:
