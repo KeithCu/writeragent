@@ -157,29 +157,27 @@ def test_speak_text_async_routing_local():
     }
     with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: cfg.get(k, d)), \
          patch("plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kw: fn()), \
-         patch("plugin.audio.tts_service._speak_kokoro_local") as mock_kokoro, \
-         patch("plugin.audio.tts_service._speak_piper_local") as mock_piper:
+         patch("plugin.audio.tts_service._speak_local") as mock_local:
         speak_text_async("Hello Kokoro")
-        assert mock_kokoro.call_args.args == ("Hello Kokoro",)
-        assert mock_kokoro.call_args.kwargs["voice"] == "af_bella"
-        assert mock_kokoro.call_args.kwargs["speed"] == 1.1
-        assert mock_kokoro.call_args.kwargs["on_status"] is None
-        assert isinstance(mock_kokoro.call_args.kwargs["generation"], int)
-        mock_piper.assert_not_called()
+        assert mock_local.call_args.args == ("kokoro", "Hello Kokoro")
+        assert mock_local.call_args.kwargs["voice"] == "af_bella"
+        assert mock_local.call_args.kwargs["speed"] == 1.1
+        assert mock_local.call_args.kwargs["on_status"] is None
+        assert isinstance(mock_local.call_args.kwargs["generation"], int)
 
         cfg["audio.tts_provider"] = "piper"
         cfg["audio.tts_voice_piper"] = "en_US-lessac-medium"
         speak_text_async("Hello Piper")
-        assert mock_piper.call_args.args == ("Hello Piper",)
-        assert mock_piper.call_args.kwargs["voice"] == "en_US-lessac-medium"
-        assert mock_piper.call_args.kwargs["speed"] == 1.1
-        assert mock_piper.call_args.kwargs["on_status"] is None
+        assert mock_local.call_args.args == ("piper", "Hello Piper")
+        assert mock_local.call_args.kwargs["voice"] == "en_US-lessac-medium"
+        assert mock_local.call_args.kwargs["speed"] == 1.1
+        assert mock_local.call_args.kwargs["on_status"] is None
 
 
 def test_speak_text_async_uses_dialog_overrides_when_config_disabled():
     with patch("plugin.framework.config.get_config", return_value=False), \
          patch("plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kw: fn()), \
-         patch("plugin.audio.tts_service._speak_kokoro_local") as mock_kokoro:
+         patch("plugin.audio.tts_service._speak_local") as mock_local:
         speak_text_async(
             "Bonjour",
             provider="Kokoro (Local Neural, ONNX CPU)",
@@ -187,17 +185,17 @@ def test_speak_text_async_uses_dialog_overrides_when_config_disabled():
             speed=1.25,
             enabled=True,
         )
-        mock_kokoro.assert_called_once()
-        assert mock_kokoro.call_args.args == ("Bonjour",)
-        assert mock_kokoro.call_args.kwargs["voice"] == "jf_alpha"
-        assert mock_kokoro.call_args.kwargs["speed"] == 1.25
-        assert mock_kokoro.call_args.kwargs["on_status"] is None
-        assert isinstance(mock_kokoro.call_args.kwargs["generation"], int)
+        mock_local.assert_called_once()
+        assert mock_local.call_args.args == ("kokoro", "Bonjour")
+        assert mock_local.call_args.kwargs["voice"] == "jf_alpha"
+        assert mock_local.call_args.kwargs["speed"] == 1.25
+        assert mock_local.call_args.kwargs["on_status"] is None
+        assert isinstance(mock_local.call_args.kwargs["generation"], int)
 
 
 def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
     import plugin.audio.tts_service as tts
-    from plugin.audio.tts_service import _speak_kokoro_local
+    from plugin.audio.tts_service import _speak_local
 
     generation = tts._begin_utterance()
 
@@ -234,7 +232,7 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
              patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
              patch("plugin.audio.tts_service.get_kokoro_pool", return_value=None), \
              patch("plugin.audio.tts_service._play_audio_file") as play:
-            _speak_kokoro_local(text, voice=voice, speed=1.0, generation=generation)
+            _speak_local("kokoro", text, voice=voice, speed=1.0, generation=generation)
         assert play.called
         assert len(launched) == 1
         return launched[0], ensure
@@ -249,7 +247,7 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
 
 def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tmp_path):
     import plugin.audio.tts_service as tts
-    from plugin.audio.tts_service import _speak_kokoro_local
+    from plugin.audio.tts_service import _speak_local
 
     generation = tts._begin_utterance()
 
@@ -263,7 +261,7 @@ def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tm
          patch("plugin.audio.tts_service.ensure_kokoro_misaki", return_value=None), \
          patch("plugin.framework.managed_subprocess.subprocess.Popen") as popen, \
          patch("plugin.audio.tts_service._speak_system") as system:
-        _speak_kokoro_local("こんにちは", voice="jf_alpha", speed=1.0, generation=generation)
+        _speak_local("kokoro", "こんにちは", voice="jf_alpha", speed=1.0, generation=generation)
 
     popen.assert_not_called()
     system.assert_not_called()
@@ -599,6 +597,10 @@ def _speak_sentence_case(cfg, *, provider=None, model=None):
             oneshot[name] = args[0]
         return _call
 
+    def remember_local(*args, **kwargs):
+        del kwargs
+        oneshot[args[0]] = args[1]
+
     with patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: cfg.get(key, default)), patch(
         "plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kwargs: fn()
     ), patch(
@@ -607,8 +609,8 @@ def _speak_sentence_case(cfg, *, provider=None, model=None):
     ), patch("plugin.audio.tts_service.sentences_for_speech", side_effect=spy_split), patch(
         "plugin.audio.tts_service._run_sentence_pipeline", side_effect=fake_pipeline
     ), patch("plugin.audio.tts_service._speak_system", side_effect=remember("system")), patch(
-        "plugin.audio.tts_service._speak_kokoro_local", side_effect=remember("kokoro")
-    ), patch("plugin.audio.tts_service._speak_piper_local", side_effect=remember("piper")), patch(
+        "plugin.audio.tts_service._speak_local", side_effect=remember_local
+    ), patch(
         "plugin.audio.tts_service._speak_endpoint", side_effect=remember("endpoint")
     ), patch(
         "plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api/v1"
@@ -920,36 +922,35 @@ def test_ready_queue_byte_cap_blocks_below_the_clip_cap():
 
     generation = tts._begin_utterance()
     try:
-        floor = tts._ReadyQueue()
-        floor.max_bytes = 100
-        assert floor.put(_ReadyClip(None, "big1", 500), generation)
-        assert floor.put(_ReadyClip(None, "big2", 500), generation)
+        with patch.object(tts, "SPEECH_READY_MAX_BYTES", 100):
+            floor = tts._ReadyQueue()
+            assert floor.put(_ReadyClip(None, "big1", 500), generation)
+            assert floor.put(_ReadyClip(None, "big2", 500), generation)
 
-        ready = tts._ReadyQueue()
-        ready.max_bytes = 100
-        for text in ("A", "B", "C"):
-            assert ready.put(_ReadyClip(None, text, 10), generation)
-        assert len(ready._clips) < ready.max_clips
+            ready = tts._ReadyQueue()
+            for text in ("A", "B", "C"):
+                assert ready.put(_ReadyClip(None, text, 10), generation)
+            assert len(ready._clips) < tts.SPEECH_READY_MAX_CLIPS
 
-        result: list[bool] = []
-        done = threading.Event()
+            result: list[bool] = []
+            done = threading.Event()
 
-        def put_big() -> None:
-            result.append(ready.put(_ReadyClip(None, "D", 80), generation))
-            done.set()
+            def put_big() -> None:
+                result.append(ready.put(_ReadyClip(None, "D", 80), generation))
+                done.set()
 
-        producer = threading.Thread(target=put_big)
-        producer.start()
-        # 30 + 80 bytes is over the 100-byte budget while only 3 of 6 clips are queued.
-        assert not done.wait(0.3)
-        clip = ready.get(generation)
-        assert clip is not None and clip.text == "A"
-        # 20 + 80 fits exactly, so D is admitted by bytes (not the two-clip floor).
-        assert done.wait(2)
-        producer.join(1)
-        assert result == [True]
-        assert [c.text for c in ready._clips] == ["B", "C", "D"]
-        assert ready._bytes == 100
+            producer = threading.Thread(target=put_big)
+            producer.start()
+            # 30 + 80 bytes is over the 100-byte budget while only 3 of 6 clips are queued.
+            assert not done.wait(0.3)
+            clip = ready.get(generation)
+            assert clip is not None and clip.text == "A"
+            # 20 + 80 fits exactly, so D is admitted by bytes (not the two-clip floor).
+            assert done.wait(2)
+            producer.join(1)
+            assert result == [True]
+            assert [c.text for c in ready._clips] == ["B", "C", "D"]
+            assert ready._bytes == 100
     finally:
         tts.stop_speech()
 
