@@ -166,8 +166,6 @@ def _collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None
     """All matching formula origins on *sheet* (one per queryContentCells range)."""
     found: list[tuple[Any, int, int]] = []
     formula_cells = sheet.queryContentCells(CELL_FLAG_FORMULA)
-    if formula_cells is None:
-        return found
     count = formula_cells.getCount() if hasattr(formula_cells, "getCount") else 0
     for i in range(count):
         cell_range = formula_cells.getByIndex(i)
@@ -175,11 +173,9 @@ def _collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None
         for r, c, formula_str in iter_range_formula_texts(sheet, cell_range):
             if is_matching_py_formula(formula_str, code_str, sheet=sheet, doc=doc):
                 hits.append((r, c))
-        if len(hits) <= 1:
-            found.extend((sheet.getCellByPosition(c, r), r, c) for r, c in hits)
-            continue
-        origins = list(dict.fromkeys(_array_block_origin(sheet, c, r) or (r, c) for r, c in hits))
-        found.extend((sheet.getCellByPosition(c, r), r, c) for r, c in origins)
+        if len(hits) > 1:
+            hits = list(dict.fromkeys(_array_block_origin(sheet, c, r) or (r, c) for r, c in hits))
+        found.extend((sheet.getCellByPosition(c, r), r, c) for r, c in hits)
     return found
 
 
@@ -198,18 +194,12 @@ def locate_formula_cell_in_doc(doc: Any, code_str: str) -> _Location | None:
         return memo[cache_key]
 
     collected: list[_Location] = []
-    seen: set[tuple[str, int, int]] = set()
     sheets = doc.getSheets() if hasattr(doc, "getSheets") else None
     if sheets is not None:
         count = sheets.getCount() if hasattr(sheets, "getCount") else 0
         for i in range(count):
             sheet = sheets.getByIndex(i)
-            sheet_name = sheet.getName() if hasattr(sheet, "getName") else ""
             for cell, r, c in _collect_matching_formula_origins(sheet, code_str, doc=doc):
-                key = (sheet_name, r, c)
-                if key in seen:
-                    continue
-                seen.add(key)
                 collected.append((sheet, cell, (r, c)))
             if len(collected) > 1:
                 break
