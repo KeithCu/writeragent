@@ -1177,7 +1177,12 @@ def test_linguistic_profile_skips_empty_pos(monkeypatch: pytest.MonkeyPatch) -> 
             return 2
 
     doc = DummyDoc()
-    monkeypatch.setattr(vta, "_run_nlp_doc", lambda text, lang, context: (None, doc, None, None))
+
+    class _Nlp:
+        def __call__(self, text: str) -> DummyDoc:
+            return doc
+
+    monkeypatch.setattr(vta, "_load_nlp", lambda lang=None: _Nlp())
     monkeypatch.setattr(vta, "_extract_readability", lambda doc: ({}, {}))
     monkeypatch.setattr(vta, "_extract_entities", lambda doc: [])
     monkeypatch.setattr(vta, "_extract_key_phrases", lambda doc: [])
