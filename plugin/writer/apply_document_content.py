@@ -656,7 +656,7 @@ class ApplyDocumentContent(ToolBase):
             doc, opts_pattern if regex_opt else search_string,
             use_regex=regex_opt, case_sensitive=opts_cs)
         if shape is not None:
-            shape_name = (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
+            shape_name = search_mod._shape_display_name(shape)
             if track_reviewable:
                 return {
                     "status": "error",

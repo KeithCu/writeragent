@@ -35,15 +35,6 @@ from plugin.writer.tree import _collect_heading_indices, heading_ref
 log = logging.getLogger("writeragent.writer.nav.proximity")
 
 
-def _anchor_in_body(anchor: Any, text_obj: Any) -> bool:
-    """True when *anchor* is a range in the body text, not a header/footer/frame."""
-    try:
-        return anchor is not None and uno_same(anchor.getText(), text_obj)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return False
-
-
 def _validate_para_index(index: int, total: int) -> None:
     """Reject a paragraph index outside the document before it becomes a wrong window."""
     if index < 0 or index >= total:
@@ -52,41 +43,16 @@ def _validate_para_index(index: int, total: int) -> None:
         )
 
 
-def _anchored_paragraph(
-    anchor: Any,
-    text_obj: Any,
-    doc_svc: Any,
-    para_ranges: Any,
-    entries: Any,
-    start_idx: int,
-    end_idx: int,
-) -> int | None:
-    if not _anchor_in_body(anchor, text_obj):
-        return None
-    raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-    pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
-    if pi is not None and start_idx <= pi <= end_idx:
-        return pi
-    return None
-
-
 def _collect_anchored(
     container: Any,
-    doc_svc: Any,
-    para_ranges: Any,
-    text_obj: Any,
-    entries: Any,
-    start_idx: int,
-    end_idx: int,
+    anchored: Any,
     builder: Any,
 ) -> list[dict[str, Any]]:
     items = []
     for name in container.getElementNames():
         try:
             obj = container.getByName(name)
-            pi = _anchored_paragraph(
-                obj.getAnchor(), text_obj, doc_svc, para_ranges, entries, start_idx, end_idx
-            )
+            pi = anchored(obj.getAnchor())
             if pi is not None:
                 items.append(builder(obj, name, pi))
         except Exception as exc:
@@ -145,15 +111,13 @@ class ProximityService(ServiceBase):
 
         return pos, was_heading
 
-    def _get_heading_chain(self, flat: list[Any], ctx_idx: int | None, bookmark_map: dict[Any, Any]) -> list[dict[str, Any]]:
-        chain = []
-        entry = flat[ctx_idx] if ctx_idx is not None else None
-        while entry is not None:
-            node = entry["node"]
-            chain.append(heading_ref(node, bookmark_map))
-            entry = entry["parent"]
-        chain.reverse()
-        return chain
+    def _heading_flat_and_bookmarks(self, doc: Any, para_ranges: Any) -> tuple[list[Any], dict[Any, Any]]:
+        tree = self._tree_svc.build_heading_tree(doc, elements=para_ranges)
+        indices = _collect_heading_indices(tree)
+        bookmark_map = self._bm_svc.ensure_heading_bookmarks(
+            doc, heading_para_indices=indices, para_ranges=para_ranges
+        )
+        return self._flatten_tree(tree), bookmark_map
 
     # ==================================================================
     # navigate_heading
@@ -171,12 +135,7 @@ class ProximityService(ServiceBase):
 
         para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         _validate_para_index(para_index, len(para_ranges))
-        tree = self._tree_svc.build_heading_tree(doc, elements=para_ranges)
-        indices = _collect_heading_indices(tree)
-        bookmark_map = self._bm_svc.ensure_heading_bookmarks(
-            doc, heading_para_indices=indices, para_ranges=para_ranges
-        )
-        flat = self._flatten_tree(tree)
+        flat, bookmark_map = self._heading_flat_and_bookmarks(doc, para_ranges)
 
         if not flat:
             return {"error": "Document has no headings"}
@@ -288,16 +247,18 @@ class ProximityService(ServiceBase):
 
         result = {"center_para_index": center_idx, "range": {"start": start_idx, "end": end_idx}}
 
-        bookmark_map = {}
+        bookmark_map: dict[Any, Any] = {}
         if "headings" in include:
-            tree = self._tree_svc.build_heading_tree(doc, elements=para_ranges)
-            indices = _collect_heading_indices(tree)
-            bookmark_map = self._bm_svc.ensure_heading_bookmarks(
-                doc, heading_para_indices=indices, para_ranges=para_ranges
-            )
-            flat = self._flatten_tree(tree)
+            flat, bookmark_map = self._heading_flat_and_bookmarks(doc, para_ranges)
             ctx_idx, _unused = self._find_heading_context(flat, center_idx)
-            result["heading_chain"] = self._get_heading_chain(flat, ctx_idx, bookmark_map)
+            chain = []
+            entry = flat[ctx_idx] if ctx_idx is not None else None
+            while entry is not None:
+                node = entry["node"]
+                chain.append(heading_ref(node, bookmark_map))
+                entry = entry["parent"]
+            chain.reverse()
+            result["heading_chain"] = chain
 
         if "paragraphs" in include:
             if not bookmark_map:
@@ -320,21 +281,30 @@ class ProximityService(ServiceBase):
         if any(k in include for k in ("images", "tables", "frames", "comments")):
             entries = paragraph_entries(para_ranges)
 
-        def _collect(container: Any, builder: Any) -> list[dict[str, Any]]:
-            return _collect_anchored(
-                container, self._doc_svc, para_ranges, text_obj, entries, start_idx, end_idx, builder
-            )
+        def anchored(anchor: Any) -> int | None:
+            try:
+                if anchor is None or not uno_same(anchor.getText(), text_obj):
+                    return None
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                return None
+            raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+            pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+            if pi is not None and start_idx <= pi <= end_idx:
+                return pi
+            return None
 
         if "images" in include:
             def _image_entry(g: Any, name: str, pi: int) -> dict[str, Any]:
                 size = g.getPropertyValue("Size")
                 return {"name": name, "paragraph_index": pi, "title": g.getPropertyValue("Title"), "width_mm": size.Width // 100, "height_mm": size.Height // 100}
 
-            result["images"] = _collect(doc.getGraphicObjects(), _image_entry)
+            result["images"] = _collect_anchored(doc.getGraphicObjects(), anchored, _image_entry)
 
         if "tables" in include:
-            result["tables"] = _collect(
+            result["tables"] = _collect_anchored(
                 doc.getTextTables(),
+                anchored,
                 lambda t, name, pi: {"name": name, "paragraph_index": pi, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()},
             )
 
@@ -343,7 +313,7 @@ class ProximityService(ServiceBase):
                 size = fr.getPropertyValue("Size")
                 return {"name": name, "paragraph_index": pi, "width_mm": size.Width // 100, "height_mm": size.Height // 100}
 
-            result["frames"] = _collect(doc.getTextFrames(), _frame_entry)
+            result["frames"] = _collect_anchored(doc.getTextFrames(), anchored, _frame_entry)
 
         if "comments" in include:
             comments = []
@@ -355,9 +325,7 @@ class ProximityService(ServiceBase):
                         field = enum.nextElement()
                         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                             continue
-                        pi = _anchored_paragraph(
-                            field.getAnchor(), text_obj, self._doc_svc, para_ranges, entries, start_idx, end_idx
-                        )
+                        pi = anchored(field.getAnchor())
                         if pi is None:
                             continue
                         comments.append(

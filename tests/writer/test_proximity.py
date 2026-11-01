@@ -224,41 +224,37 @@ def test_collect_anchored_skips_anchor_not_in_body():
     obj_body = MagicMock()
     obj_body.getAnchor.return_value = anchor_body
 
+    size = MagicMock(Width=1000, Height=2000)
+    for obj in (obj_header, obj_body):
+        obj.getPropertyValue.side_effect = lambda prop: size if prop == "Size" else "title"
+
     container = MagicMock()
     container.getElementNames.return_value = ["header_img", "body_img"]
     container.getByName.side_effect = lambda name: obj_header if name == "header_img" else obj_body
 
     doc_svc = MagicMock()
+    doc_svc.resolve_locator.return_value = {"para_index": 1}
     doc_svc.find_paragraph_for_range.return_value = 1
 
-    def builder(_obj, name, pi):
-        return {"name": name, "pi": pi}
-
-    # Pass confirm_paragraph_index: since anchor.getStart() / para_ranges check might be called
-    # Let's see what confirm_paragraph_index does or mock para_ranges appropriately
-    # In proximity.py:
-    # pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
-    # If text_obj is matched and para_ranges has element at 1:
     para_range = MagicMock()
     para_range.getStart.return_value = anchor_body.getStart.return_value
     para_range.getEnd.return_value = anchor_body.getEnd.return_value
     para_ranges = [MagicMock(), para_range]
+    doc_svc.get_paragraph_ranges.return_value = para_ranges
 
-    items = _collect_anchored(
-        container=container,
-        doc_svc=doc_svc,
-        para_ranges=para_ranges,
-        text_obj=body_text,
-        entries=None,
-        start_idx=0,
-        end_idx=2,
-        builder=builder,
-    )
-    assert [item["name"] for item in items] == ["body_img"]
+    doc = MagicMock()
+    doc.getText.return_value = body_text
+    doc.getGraphicObjects.return_value = container
+
+    services = MagicMock()
+    services.document = doc_svc
+    prox = ProximityService(services)
+
+    result = prox.get_surroundings(doc, "paragraph:1", radius=2, include=["images"])
+    assert [item["name"] for item in result["images"]] == ["body_img"]
 
 
 def test_collect_anchored_reraises_disposed_anchor():
-    body_text = object()
     obj = MagicMock()
     obj.getAnchor.side_effect = DocumentDisposedError("disposed")
 
@@ -266,17 +262,10 @@ def test_collect_anchored_reraises_disposed_anchor():
     container.getElementNames.return_value = ["img"]
     container.getByName.return_value = obj
 
-    doc_svc = MagicMock()
-
     with pytest.raises(DocumentDisposedError):
         _collect_anchored(
             container=container,
-            doc_svc=doc_svc,
-            para_ranges=[],
-            text_obj=body_text,
-            entries=None,
-            start_idx=0,
-            end_idx=2,
+            anchored=lambda _a: 0,
             builder=lambda _o, n, pi: {"name": n},
         )
 
