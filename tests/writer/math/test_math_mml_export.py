@@ -210,7 +210,7 @@ def test_math_export_batch_converts_repeated_formula_once() -> None:
     fake_desktop.loadComponentFromURL.return_value = fake_doc
 
     with patch.object(exp, "get_desktop", return_value=fake_desktop), patch.object(
-        exp, "file_url", side_effect=lambda path: path
+        exp, "path_to_file_url", side_effect=lambda path: path
     ):
         batch = exp._MathExportBatch(object())
         res1 = batch.convert_starmath_to_latex("x")

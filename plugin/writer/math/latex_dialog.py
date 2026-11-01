@@ -66,9 +66,6 @@ def show_latex_input_dialog(
     dlg: Any = None
     try:
         dlg = load_writeragent_dialog("LatexInputDialog", ctx)
-        if dlg is None:
-            msgbox(ctx, _("Error"), _("Could not open the LaTeX input dialog."))
-            return None
 
         # Populate initial values
         edit = dlg.getControl("LatexEdit")
@@ -93,14 +90,11 @@ def show_latex_input_dialog(
             outcome = (t, db)
             dlg.endDialog(1)
 
-        def on_cancel() -> None:
-            dlg.endDialog(0)
-
         btn_insert = dlg.getControl("BtnInsert")
         btn_insert.getModel().Label = _("Update") if update else _("Insert")
         btn_insert.addActionListener(_ClickListener(on_insert))
         btn_cancel = dlg.getControl("BtnCancel")
-        btn_cancel.addActionListener(_ClickListener(on_cancel))
+        btn_cancel.addActionListener(_ClickListener(lambda: dlg.endDialog(0)))
 
         # Set focus to the edit control
         edit.setFocus()
@@ -214,9 +208,7 @@ def insert_latex_math_dialog(ctx: Any) -> None:
         if available and exe:
             log.info("insert_latex_math_dialog: using Monaco editor")
 
-            def on_save(code: str, save_as_plain: bool, data_binding: str | None = None, _action: str = "cell_save") -> dict[str, Any]:
-                # save_as_plain checkbox represents display_block for LaTeX editor!
-                display_block = save_as_plain
+            def on_save(code: str, display_block: bool, data_binding: str | None = None, _action: str = "cell_save") -> dict[str, Any]:
                 if not code:
                     return {"type": "saved", "ok": True}
 
