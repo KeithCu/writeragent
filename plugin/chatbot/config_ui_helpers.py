@@ -12,12 +12,16 @@ from plugin.framework.client.auth import provider_requires_api_key, provider_req
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
 from plugin.framework.client.model_fetcher import (
     get_image_model,
+    get_text_model,
+    get_stt_model,
+    get_tts_model,
     ENDPOINT_PRESETS,
 )
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.default_models import (
     DEFAULT_MODELS,
     _catalog_id_matches,
+    get_provider_defaults,
     merge_provider_default_models,
     together_speech_ids,
 )
@@ -101,6 +105,13 @@ def _effective_api_key(endpoint: str, api_key_override: str | None) -> str:
     return str(get_api_key_for_endpoint(endpoint) or "").strip()
 
 
+_REQ_CAP_DEFAULTS = {
+    "text": ("text_model", get_text_model),
+    "audio": ("stt_model", get_stt_model),
+    "tts": ("tts_model", get_tts_model),
+}
+
+
 def _resolve_display_model_for_combobox(
     curr_val_str: str,
     is_incompatible: bool,
@@ -118,15 +129,8 @@ def _resolve_display_model_for_combobox(
         return first
 
     preferred = ""
-    if provider and req_cap in ("text", "audio", "tts"):
-        from plugin.framework.default_models import get_provider_defaults
-
-        if req_cap == "text":
-            key = "text_model"
-        elif req_cap == "tts":
-            key = "tts_model"
-        else:
-            key = "stt_model"
+    if provider and req_cap in _REQ_CAP_DEFAULTS:
+        key = _REQ_CAP_DEFAULTS[req_cap][0]
         preferred = str(get_provider_defaults(provider).get(key, "") or "").strip()
 
     if preferred:
@@ -161,22 +165,7 @@ def _paint_combo(ctrl: Any, items: list[str], selected: str) -> None:
         ctrl.setText("")
 
 
-def _populate_plain_combobox_with_lru(ctx: Any, ctrl: Any, current_val: Any, lru_key: str, endpoint: str) -> str:
-    """Populate combobox from LRU only; no model fetch or text_model fallback."""
-    scoped_key = lru_config_key(lru_key, endpoint)
-    lru = get_config(scoped_key)
-    if not isinstance(lru, list):
-        lru = []
-    curr_val_str = str(current_val or "").strip()
-    to_show = [str(m).strip() for m in lru if str(m).strip()]
-    if curr_val_str and curr_val_str not in to_show:
-        to_show.insert(0, curr_val_str)
-    _paint_combo(ctrl, to_show, curr_val_str)
-    return curr_val_str
-
-
 def populate_combobox_with_lru(
-    ctx: Any,
     ctrl: Any,
     current_val: Any,
     lru_key: str,
@@ -195,8 +184,18 @@ def populate_combobox_with_lru(
     skip_remote_fetch: when True, never call fetch_available_models (LRU + provider defaults).
     api_key_override: live Settings field value; wins over saved config for auth gating.
     """
+    scoped_key = lru_config_key(lru_key, endpoint)
+    lru = get_config(scoped_key)
+    if not isinstance(lru, list):
+        lru = []
+
     if lru_key in _PLAIN_LRU_KEYS:
-        return _populate_plain_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint)
+        curr_val_str = str(current_val or "").strip()
+        items = [str(m).strip() for m in lru if str(m).strip()]
+        if curr_val_str and curr_val_str not in items:
+            items.insert(0, curr_val_str)
+        _paint_combo(ctrl, items, curr_val_str)
+        return curr_val_str
 
     if endpoint and not endpoint_url_suitable_for_v1_models_fetch(endpoint):
         provider = None
@@ -213,11 +212,6 @@ def populate_combobox_with_lru(
     )
     effective_key = _effective_api_key(endpoint, api_key_override)
     auth_blocked = bool(provider and provider_requires_api_key(provider) and not effective_key and remote_models is None)
-
-    scoped_key = lru_config_key(lru_key, endpoint)
-    lru = get_config(scoped_key)
-    if not isinstance(lru, list):
-        lru = []
 
     fetch_succeeded = False
     to_show: list[str] = []
@@ -274,39 +268,19 @@ def populate_combobox_with_lru(
             to_show.insert(0, "openrouter/free")
 
     curr_val_str = _sanitize_model_combobox_value(current_val)
-    if not auth_blocked and not curr_val_str and req_cap == "text":
-        # After an endpoint switch, use this endpoint's last-used model (the
-        # LRU is scoped per endpoint, newest first) before the provider default.
-        lru_for_provider = _filter_models_for_provider(lru_clean, provider)
-        if lru_for_provider:
-            curr_val_str = lru_for_provider[0]
+    if not auth_blocked and not curr_val_str and req_cap in _REQ_CAP_DEFAULTS:
+        if req_cap == "text":
+            # After an endpoint switch, use this endpoint's last-used model (the
+            # LRU is scoped per endpoint, newest first) before the provider default.
+            lru_for_provider = _filter_models_for_provider(lru_clean, provider)
+            if lru_for_provider:
+                curr_val_str = lru_for_provider[0]
 
+        cfg_key, fetcher = _REQ_CAP_DEFAULTS[req_cap]
         if not curr_val_str and provider:
-            from plugin.framework.default_models import get_provider_defaults
-
-            curr_val_str = str(get_provider_defaults(provider).get("text_model", "") or "").strip()
+            curr_val_str = str(get_provider_defaults(provider).get(cfg_key, "") or "").strip()
         if not curr_val_str:
-            from plugin.framework.client.model_fetcher import get_text_model
-
-            curr_val_str = _sanitize_model_combobox_value(str(get_text_model() or ""))
-    elif not auth_blocked and not curr_val_str and req_cap == "audio":
-        if provider:
-            from plugin.framework.default_models import get_provider_defaults
-
-            curr_val_str = str(get_provider_defaults(provider).get("stt_model", "") or "").strip()
-        if not curr_val_str:
-            from plugin.framework.client.model_fetcher import get_stt_model
-
-            curr_val_str = _sanitize_model_combobox_value(str(get_stt_model() or ""))
-    elif not auth_blocked and not curr_val_str and req_cap == "tts":
-        if provider:
-            from plugin.framework.default_models import get_provider_defaults
-
-            curr_val_str = str(get_provider_defaults(provider).get("tts_model", "") or "").strip()
-        if not curr_val_str:
-            from plugin.framework.client.model_fetcher import get_tts_model
-
-            curr_val_str = _sanitize_model_combobox_value(str(get_tts_model() or ""))
+            curr_val_str = _sanitize_model_combobox_value(str(fetcher() or ""))
 
     is_incompatible = _is_incompatible_model_for_provider(curr_val_str, provider)
     if auth_blocked:
@@ -430,7 +404,6 @@ def populate_endpoint_selector(ctrl: Any, current_endpoint: Any) -> None:
 
 
 def populate_image_model_selector(
-    ctx: Any,
     ctrl: Any,
     override_endpoint: str | None = None,
     *,
@@ -444,7 +417,6 @@ def populate_image_model_selector(
     current_image_model = get_image_model()
     endpoint = override_endpoint if override_endpoint is not None else get_current_endpoint()
     return populate_combobox_with_lru(
-        ctx,
         ctrl,
         current_image_model,
         "image_model_lru",
@@ -453,43 +425,6 @@ def populate_image_model_selector(
         skip_remote_fetch=skip_remote_fetch,
         api_key_override=api_key_override,
     )
-
-
-PROVIDER_SIGNUP_URLS: dict[str, str] = {
-    "openrouter": "https://openrouter.ai/keys",
-    "together": "https://api.together.ai/settings/api-keys",
-    "huggingface": "https://huggingface.co/settings/tokens",
-    "groq": "https://console.groq.com/keys",
-    "deepseek": "https://platform.deepseek.com/api_keys",
-    "mistral": "https://console.mistral.ai/api-keys/",
-    "google": "https://aistudio.google.com/app/apikey",
-    "gemini": "https://aistudio.google.com/app/apikey",
-    "openai": "https://platform.openai.com/api-keys",
-    "anthropic": "https://console.anthropic.com/settings/keys",
-    "cerebras": "https://cloud.cerebras.ai/",
-    "perplexity": "https://www.perplexity.ai/settings/api",
-    "xai": "https://console.x.ai/",
-    "grok": "https://console.x.ai/",
-    "zai": "https://api.z.ai/",
-    "nvidia": "https://build.nvidia.com/settings/api-keys",
-    "nim": "https://build.nvidia.com/settings/api-keys",
-}
-
-
-def get_signup_url_for_endpoint(endpoint: str) -> str | None:
-    """Return signup / API key dashboard URL for a given endpoint if known."""
-    if not endpoint or not isinstance(endpoint, str):
-        return None
-    url_lower = endpoint.lower().strip()
-    if "localhost" in url_lower or "127.0.0.1" in url_lower:
-        return None
-    provider = get_provider_from_endpoint(endpoint)
-    if provider and provider in PROVIDER_SIGNUP_URLS:
-        return PROVIDER_SIGNUP_URLS[provider]
-    for key, signup_url in PROVIDER_SIGNUP_URLS.items():
-        if key in url_lower:
-            return signup_url
-    return None
 
 
 REASONING_EFFORT_OPTIONS: tuple[tuple[str, str], ...] = (
@@ -504,8 +439,6 @@ REASONING_EFFORT_OPTIONS: tuple[tuple[str, str], ...] = (
 REASONING_EFFORT_DISPLAY_LABELS: tuple[str, ...] = tuple(disp for disp, _val in REASONING_EFFORT_OPTIONS)
 REASONING_EFFORT_DISPLAY_TO_VALUE: dict[str, str] = dict(REASONING_EFFORT_OPTIONS)
 REASONING_EFFORT_VALUE_TO_DISPLAY: dict[str, str] = {val: disp for disp, val in REASONING_EFFORT_OPTIONS}
-REASONING_EFFORT_VALUE_TO_DISPLAY[""] = "default"
-REASONING_EFFORT_VALUE_TO_DISPLAY["(default)"] = "default"
 
 
 def reasoning_effort_to_display(effort: str | None) -> str:

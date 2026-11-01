@@ -206,7 +206,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         with patch('plugin.chatbot.config_ui_helpers.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
-                self.ctx, ctrl, 'google/gemini-3.8-flash', 'model_lru',
+                ctrl, 'google/gemini-3.8-flash', 'model_lru',
                 'https://openrouter.ai/api', api_key_override='test-key',
             )
             mock_fetch.assert_not_called()
@@ -215,14 +215,14 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
-            populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'http://localhost:8080', skip_remote_fetch=True)
+            populate_combobox_with_lru(ctrl, '', 'model_lru', 'http://localhost:8080', skip_remote_fetch=True)
             mock_fetch.assert_not_called()
 
     def test_remote_models_does_not_call_fetch(self):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
-            populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'http://localhost:8080', remote_models=['m1', 'm2'])
+            populate_combobox_with_lru(ctrl, '', 'model_lru', 'http://localhost:8080', remote_models=['m1', 'm2'])
             mock_fetch.assert_not_called()
             ctrl.addItems.assert_called()
             items = ctrl.addItems.call_args[0][0]
@@ -236,7 +236,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
-                self.ctx, ctrl, '', 'model_lru', 'https://api.together.xyz',
+                ctrl, '', 'model_lru', 'https://api.together.xyz',
                 skip_remote_fetch=True, api_key_override='test-key',
             )
             mock_fetch.assert_not_called()
@@ -250,7 +250,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         self.config_data[f'model_lru@{ep}'] = ['picked-model', 'other-model']
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', ep, skip_remote_fetch=True)
+        populate_combobox_with_lru(ctrl, '', 'model_lru', ep, skip_remote_fetch=True)
         ctrl.setText.assert_called_with('picked-model')
 
     def test_openrouter_remote_models_merge_nitro_default(self):
@@ -259,7 +259,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ep = 'https://openrouter.ai/api'
         with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
-                self.ctx,
                 ctrl,
                 '',
                 'model_lru',
@@ -278,7 +277,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ep = 'https://openrouter.ai/api'
         with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
-                self.ctx,
                 ctrl,
                 '',
                 'model_lru',
@@ -291,14 +289,13 @@ class TestPopulateComboboxWithLruFetchOptions:
         assert (items[0]) == ('openrouter/free')
 
     def test_openrouter_nitro_current_val_not_stray(self):
-        ctx = MagicMock()
         ctrl = MagicMock()
         endpoint = 'https://openrouter.ai/api'
         current_val = 'openai/gpt-oss-120b:nitro'
         with patch('plugin.chatbot.config_ui_helpers.get_config', return_value=[]):
             with patch('plugin.framework.client.model_fetcher.fetch_available_models', return_value=None):
                 populate_combobox_with_lru(
-                    ctx, ctrl, current_val, 'model_lru', endpoint, api_key_override='test-key',
+                    ctrl, current_val, 'model_lru', endpoint, api_key_override='test-key',
                 )
         call_args = ctrl.addItems.call_args[0][0]
         assert (current_val) in (call_args)
@@ -308,7 +305,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         ep = 'https://openrouter.ai/api'
-        populate_combobox_with_lru(self.ctx, ctrl, 'llama3.2', 'model_lru', ep, api_key_override='')
+        populate_combobox_with_lru(ctrl, 'llama3.2', 'model_lru', ep, api_key_override='')
         items = list(ctrl.addItems.call_args[0][0])
         assert (items) == (['(Enter API Key to load models)'])
         ctrl.setText.assert_called_with('(Enter API Key to load models)')
@@ -317,7 +314,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         populate_combobox_with_lru(
-            self.ctx, ctrl, 'llama3.2', 'model_lru', 'https://openrouter.ai/api', api_key_override='',
+            ctrl, 'llama3.2', 'model_lru', 'https://openrouter.ai/api', api_key_override='',
         )
         items = ctrl.addItems.call_args[0][0]
         assert ('llama3.2') not in (items)
@@ -328,7 +325,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         with patch('plugin.chatbot.config_ui_helpers.fetch_available_models', return_value=['local-model']) as mock_fetch:
-            populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'http://localhost:1234', api_key_override='')
+            populate_combobox_with_lru(ctrl, '', 'model_lru', 'http://localhost:1234', api_key_override='')
             mock_fetch.assert_called_once()
         items = list(ctrl.addItems.call_args[0][0])
         assert 'local-model' in items
@@ -339,7 +336,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         with patch('plugin.chatbot.config_ui_helpers.fetch_available_models', return_value=['llama3']):
             populate_combobox_with_lru(
-                self.ctx,
                 ctrl,
                 '(Enter API Key to load models)',
                 'model_lru',
@@ -357,7 +353,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         chat_only = ['llama3.2', 'mistral']
         with patch('plugin.chatbot.config_ui_helpers.fetch_available_models', return_value=chat_only):
             populate_combobox_with_lru(
-                self.ctx, ctrl, '', 'image_model_lru', 'http://localhost:11434', api_key_override='',
+                ctrl, '', 'image_model_lru', 'http://localhost:11434', api_key_override='',
             )
         items = list(ctrl.addItems.call_args[0][0])
         assert ('(No image models on this endpoint)') in (items)
@@ -369,12 +365,11 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         with patch('plugin.chatbot.config_ui_helpers.fetch_available_models', return_value=None):
-            populate_combobox_with_lru(self.ctx, ctrl, '', 'model_lru', 'http://127.0.0.1:9', api_key_override='')
+            populate_combobox_with_lru(ctrl, '', 'model_lru', 'http://127.0.0.1:9', api_key_override='')
         items = list(ctrl.addItems.call_args[0][0])
         assert (items) == (['(Connection failed)'])
 
     def test_populate_combobox_stray_model_filtering(self):
-        ctx = MagicMock()
         ctrl = MagicMock()
         
         # Scenario: Current val is a Google model, but we just switched to Z.ai.
@@ -386,7 +381,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
             # Mock fetch_available_models to return None (fail)
             with patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=None):
-                populate_combobox_with_lru(ctx, ctrl, current_val, "model_lru", endpoint)
+                populate_combobox_with_lru(ctrl, current_val, "model_lru", endpoint)
                 
         # Verify that ctrl.addItems was called with the placeholder, NOT the stray Gemini model
         call_args = ctrl.addItems.call_args[0][0]
@@ -400,7 +395,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         remote = ['openrouter/fusion', 'some/other-model', 'openai/gpt-oss-120b']
         with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
-                self.ctx,
                 ctrl,
                 'llama3.2',
                 'model_lru',
@@ -417,7 +411,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ep = 'https://openrouter.ai/api'
         image_ids = ['google/gemini-2.5-flash-image', 'openai/gpt-5-image']
         populate_combobox_with_lru(
-            self.ctx,
             ctrl,
             '',
             'image_model_lru',
@@ -437,7 +430,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         remote = ['mistralai/voxtral-mini-transcribe', 'google/gemini-2.5-flash']
         with patch('plugin.framework.client.model_fetcher.fetch_available_models') as mock_fetch:
             populate_combobox_with_lru(
-                self.ctx,
                 ctrl,
                 '',
                 'audio_model_lru',
@@ -464,7 +456,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         ep = 'https://openrouter.ai/api'
         populate_combobox_with_lru(
-            self.ctx,
             ctrl,
             '',
             value,
@@ -480,7 +471,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         ep = 'https://openrouter.ai/api'
         populate_combobox_with_lru(
-            self.ctx,
             ctrl,
             '(Default for current endpoint)',
             'tts_model_lru',
@@ -501,7 +491,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         self.config_data[f'tts_model_lru@{ep}'] = ['hexgrad/Kokoro-82M']
         remote = ['hexgrad/kokoro-82m', 'x-ai/grok-voice-tts-1.0', 'microsoft/mai-voice-2']
         populate_combobox_with_lru(
-            self.ctx,
             ctrl,
             '',
             'tts_model_lru',
@@ -521,7 +510,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         ep = 'https://api.together.xyz'
         populate_combobox_with_lru(
-            self.ctx,
             ctrl,
             '',
             'tts_model_lru',
@@ -547,7 +535,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         ep = 'https://api.together.xyz'
         populate_combobox_with_lru(
-            self.ctx,
             ctrl,
             '',
             'audio_model_lru',
@@ -572,7 +559,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         ep = 'https://api.together.xyz'
         populate_combobox_with_lru(
-            self.ctx,
             ctrl,
             '',
             'tts_model_lru',
@@ -590,7 +576,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ep = 'https://openrouter.ai/api'
         with patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=lambda k: ['custom/my-tts'] if k == f'tts_model_lru@{ep}' else None):
             populate_combobox_with_lru(
-                self.ctx,
                 ctrl,
                 '',
                 'tts_model_lru',
@@ -602,7 +587,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         assert items[0] == 'custom/my-tts'
 
     def test_populate_combobox_placeholder_no_provider(self):
-        ctx = MagicMock()
         ctrl = MagicMock()
         
         # Scenario: Unknown endpoint, fetch fails.
@@ -610,7 +594,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
             with patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=None):
-                populate_combobox_with_lru(ctx, ctrl, "", "model_lru", endpoint)
+                populate_combobox_with_lru(ctrl, "", "model_lru", endpoint)
                 
         call_args = ctrl.addItems.call_args[0][0]
         assert "(Connection failed)" in call_args
@@ -619,7 +603,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
-            populate_combobox_with_lru(self.ctx, ctrl, "", "prompt_lru", "")
+            populate_combobox_with_lru(ctrl, "", "prompt_lru", "")
         ctrl.addItems.assert_not_called()
         ctrl.setText.assert_called_with("")
 
@@ -628,7 +612,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
             with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="llama3.2"):
-                populate_combobox_with_lru(self.ctx, ctrl, "", "prompt_lru", "")
+                populate_combobox_with_lru(ctrl, "", "prompt_lru", "")
         ctrl.addItems.assert_not_called()
         ctrl.setText.assert_called_with("")
 
@@ -638,7 +622,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         history = ["Use formal tone", "Be concise"]
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=history):
             with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="gpt-4o"):
-                populate_combobox_with_lru(self.ctx, ctrl, "Use formal tone", "prompt_lru", "")
+                populate_combobox_with_lru(ctrl, "Use formal tone", "prompt_lru", "")
         ctrl.addItems.assert_called_once_with(tuple(history), 0)
         ctrl.setText.assert_called_with("Use formal tone")
 
@@ -647,7 +631,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
             with patch("plugin.framework.client.model_fetcher.fetch_available_image_models", return_value=["flux-dev"]):
-                populate_combobox_with_lru(self.ctx, ctrl, "", "image_base_size_lru", "")
+                populate_combobox_with_lru(ctrl, "", "image_base_size_lru", "")
         ctrl.addItems.assert_not_called()
         ctrl.setText.assert_called_with("")
 
@@ -656,7 +640,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         ep = "https://api.z.ai/api/paas"
         with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=["glm-5.2", "glm-4.7"]):
-            populate_combobox_with_lru(self.ctx, ctrl, "", "model_lru", ep, api_key_override="zai-key")
+            populate_combobox_with_lru(ctrl, "", "model_lru", ep, api_key_override="zai-key")
         items = list(ctrl.addItems.call_args[0][0])
         assert ("glm-5.2") in (items)
         assert ("glm-4.7") in (items)
@@ -670,7 +654,6 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=None):
             populate_combobox_with_lru(
-                self.ctx,
                 ctrl,
                 "glm-5.2",
                 "model_lru",
@@ -689,7 +672,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         ep = "https://api.deepseek.com"
         with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=["deepseek-chat", "deepseek-reasoner"]):
-            populate_combobox_with_lru(self.ctx, ctrl, "", "model_lru", ep, api_key_override="ds-key")
+            populate_combobox_with_lru(ctrl, "", "model_lru", ep, api_key_override="ds-key")
         items = list(ctrl.addItems.call_args[0][0])
         assert ("deepseek-chat") in (items)
         assert ("deepseek-reasoner") in (items)
@@ -699,7 +682,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         ep = "https://api.together.xyz"
         with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=["llama3.2", "openai/gpt-oss-120b"]):
-            populate_combobox_with_lru(self.ctx, ctrl, "", "model_lru", ep, api_key_override="tg-key")
+            populate_combobox_with_lru(ctrl, "", "model_lru", ep, api_key_override="tg-key")
         items = list(ctrl.addItems.call_args[0][0])
         assert ("llama3.2") not in (items)
         assert ("openai/gpt-oss-120b") in (items)
@@ -707,13 +690,12 @@ class TestPopulateComboboxWithLruFetchOptions:
     def test_populate_combobox_with_bad_port_does_not_raise(self):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        populate_combobox_with_lru(self.ctx, ctrl, "", "model_lru", "http://localhost:1a")
+        populate_combobox_with_lru(ctrl, "", "model_lru", "http://localhost:1a")
 
     def test_lmstudio_keeps_catalogued_elsewhere_model(self):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         populate_combobox_with_lru(
-            self.ctx,
             ctrl,
             "deepseek-chat",
             "model_lru",

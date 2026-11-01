@@ -815,7 +815,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # catalog on the UI thread and an unreachable endpoint freezes
             # LibreOffice for the fetch timeout.
             set_val = populate_combobox_with_lru(
-                self.ctx,
                 model_selector,
                 current_model,
                 "model_lru",
@@ -829,7 +828,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # Refresh visual (image) model via shared helper; persist correction if strict replaced value
             current_image = get_image_model()
             set_image_val = populate_image_model_selector(
-                self.ctx,
                 image_model_selector,
                 skip_remote_fetch=True,
             )
@@ -905,7 +903,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if base_size_input:
             from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
 
-            populate_combobox_with_lru(self.ctx, base_size_input, str(get_config("image_base_size")), "image_base_size_lru", "")
+            populate_combobox_with_lru(base_size_input, str(get_config("image_base_size")), "image_base_size_lru", "")
 
         def update_base_size_label(aspect_str: str) -> None:
 
