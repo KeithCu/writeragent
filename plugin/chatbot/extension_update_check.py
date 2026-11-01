@@ -71,11 +71,6 @@ UPDATE_CHECK_PROFILES: dict[str, UpdateCheckProfile] = {
 }
 
 
-def get_update_check_profile(extension_id: str) -> UpdateCheckProfile | None:
-    """Return the profile for ``extension_id``, or None if unknown."""
-    return UPDATE_CHECK_PROFILES.get(extension_id)
-
-
 def version_tuple(s: str) -> tuple[int, ...] | None:
     """Parse a dotted numeric version into a tuple for ordering. Returns None if invalid."""
     s = (s or "").strip()
@@ -109,7 +104,7 @@ def parse_update_xml(data: bytes) -> tuple[str | None, str | None]:
 
 def schedule_extension_update_check_once(ctx: Any, extension_id: str) -> None:
     """Run weekly update check at most once per process per product, after init_logging."""
-    profile = get_update_check_profile(extension_id)
+    profile = UPDATE_CHECK_PROFILES.get(extension_id)
     if profile is None:
         log.info("extension update check: no profile for %r, not scheduling", extension_id)
         return
@@ -138,7 +133,7 @@ def run_extension_update_check(ctx: Any, extension_id: str) -> None:
     from plugin.framework.client.requests import sync_request
     from plugin.version import EXTENSION_VERSION
 
-    profile = get_update_check_profile(extension_id)
+    profile = UPDATE_CHECK_PROFILES.get(extension_id)
     if profile is None:
         log.info("extension update check: no profile for %r, not running", extension_id)
         return

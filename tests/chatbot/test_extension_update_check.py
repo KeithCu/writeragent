@@ -8,7 +8,6 @@ import pytest
 from plugin.chatbot.extension_update_check import (
     _FAILURE_RETRY_SECONDS,
     UPDATE_CHECK_PROFILES,
-    get_update_check_profile,
     parse_update_xml,
     reset_extension_update_check_schedule_for_tests,
     run_extension_update_check,
@@ -114,15 +113,15 @@ def test_update_check_profiles_cover_three_products():
         EXTENSION_ID_LIBREPY,
         EXTENSION_ID_LIBREHARPER,
     }
-    wa = get_update_check_profile(EXTENSION_ID_WRITERAGENT)
-    lp = get_update_check_profile(EXTENSION_ID_LIBREPY)
-    lh = get_update_check_profile(EXTENSION_ID_LIBREHARPER)
+    wa = UPDATE_CHECK_PROFILES.get(EXTENSION_ID_WRITERAGENT)
+    lp = UPDATE_CHECK_PROFILES.get(EXTENSION_ID_LIBREPY)
+    lh = UPDATE_CHECK_PROFILES.get(EXTENSION_ID_LIBREHARPER)
     assert wa is not None and wa.config_key_epoch == "extension_update_check_epoch"
     assert lp is not None and lp.config_key_epoch == "librepy_update_check_epoch"
     assert lh is not None and lh.config_key_epoch == "libreharper_update_check_epoch"
     # Dual-install: WriterAgent and LibreHarper must not share a cadence key.
     assert wa.config_key_epoch != lh.config_key_epoch
-    assert get_update_check_profile("other.extension") is None
+    assert UPDATE_CHECK_PROFILES.get("other.extension") is None
 
 
 def test_schedule_once_allows_two_products_same_process():

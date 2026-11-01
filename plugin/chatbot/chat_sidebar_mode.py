@@ -111,7 +111,6 @@ assert len(_MODE_SPECS) == len({s.key for s in _MODE_SPECS}), "Duplicate mode ke
 assert all(s.flag_attr is None or s.flag_attr in SidebarModeFlags.__dataclass_fields__ for s in _MODE_SPECS), "Invalid flag_attr in _MODE_SPECS"
 
 _SPEC_BY_KEY: dict[str, _ModeSpec] = {spec.key: spec for spec in _MODE_SPECS}
-_VALID_MODES: frozenset[str] = frozenset(_SPEC_BY_KEY)
 
 
 # Tuple order is combobox order; Librarian stays last.
@@ -126,7 +125,7 @@ def get_mode_labels(flags: SidebarModeFlags = SidebarModeFlags()) -> tuple[str, 
 
 
 @deal.pre(lambda label, flags=SidebarModeFlags(): str_bounded(label, DEAL_MAX_TOKEN))
-@deal.post(lambda result: result in _VALID_MODES)
+@deal.post(lambda result: result in _SPEC_BY_KEY)
 def mode_from_label(label: str, flags: SidebarModeFlags = SidebarModeFlags()) -> str:
     """Map a combobox display label to a mode constant."""
     # crosshair: off
@@ -205,7 +204,7 @@ def populate_mode_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> Non
 def set_selector_mode_with_flags(ctrl: Any, mode: str, flags: SidebarModeFlags) -> None:
     """Set combobox selection by mode constant."""
     # crosshair: off
-    if not ctrl or mode not in _VALID_MODES:
+    if not ctrl or mode not in _SPEC_BY_KEY:
         return
     modes = _modes_for(flags)
     if mode not in modes:
@@ -283,11 +282,6 @@ def clear_librarian_session(send_listener: Any) -> None:
     _clear_mode_topic_session(send_listener, CHAT_MODE_LIBRARIAN)
 
 
-def clear_writing_plan_session(send_listener: Any) -> None:
-    """Drop in-progress writing plan state."""
-    _clear_mode_topic_session(send_listener, CHAT_MODE_WRITING_PLAN)
-
-
 class SidebarModeController:
     _panel: Any
 
@@ -325,7 +319,7 @@ class SidebarModeController:
 
     def on_writing_plan_session_finished(self) -> None:
         """Reset sidebar after writing_plan_finished (dropdown returns to Chat)."""
-        clear_writing_plan_session(self._panel)
+        _clear_mode_topic_session(self._panel, CHAT_MODE_WRITING_PLAN)
         self._show_mode(CHAT_MODE_CHAT)
 
     def on_ppt_master_session_finished(self) -> None:

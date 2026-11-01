@@ -126,10 +126,6 @@ class EvalRunListener(BaseActionListener):
         self._owner = owner
         self.is_running = False
 
-    def _dialog_closed(self) -> bool:
-        """True after show() disposes the dialog, or when the dialog is gone."""
-        return self._owner._closed
-
     def on_action_performed(self, rEvent: Any) -> None:
         if self.is_running:
             return
@@ -200,7 +196,7 @@ class EvalRunListener(BaseActionListener):
             # The suite worker outlives the dialog. Close returns from
             # execute() and show() disposes it, so a late post must not
             # call getControl. A closed window has nothing to paint.
-            if self._dialog_closed():
+            if self._owner._closed:
                 return
             try:
                 area = self.dialog.getControl("log_area")
@@ -221,7 +217,7 @@ class EvalRunListener(BaseActionListener):
         try:
             # Same close race as _after_test. is_running still clears so a
             # later Run is not stuck after the dialog is already gone.
-            if self._dialog_closed():
+            if self._owner._closed:
                 return
             with suppress_disposed("eval summary", logger=log, suppress_all=False):
                 log_text = f"Benchmarks Complete for {model_name}!\n"
@@ -240,7 +236,7 @@ class EvalRunListener(BaseActionListener):
         # the dialog on "Running...". A close during the suite disposes the
         # dialog before this post runs: skip the paint, still clear is_running.
         try:
-            if self._dialog_closed():
+            if self._owner._closed:
                 return
             self.dialog.getControl("log_area").setText(f"Benchmark failed:\n{exc}\n")
             self.dialog.getControl("status").setText("Finished")

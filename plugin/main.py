@@ -854,10 +854,9 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
                 # How it happened: accelerators invoke trigger with ExtendSelection directly.
                 # Why this change: bootstrap eagerly before calling selection action.
                 bootstrap()
-                from plugin.chatbot.dialog_views import input_box
                 from plugin.chatbot.selection import do_selection_action_for_document
 
-                do_selection_action_for_document(self.ctx, model, input_box, Event == "EditSelection")
+                do_selection_action_for_document(self.ctx, model, Event == "EditSelection")
         except Exception as exc:  # UNO boundary: XJobExecutor.trigger entry point
             report_action_failure(str(Event or "trigger"), exc)
 
