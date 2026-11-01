@@ -140,43 +140,35 @@ def scan_redline_view(model: Any, *, preview: bool = False) -> RedlineView:
         start = rl.getPropertyValue("RedlineStart")
         end = rl.getPropertyValue("RedlineEnd")
 
+        kind = None
         if token is not None:
-            kind = None
             if preview:
                 kind_raw = rl.getPropertyValue("RedlineType")
                 kind = str(kind_raw) if kind_raw is not None else None
-            rows.append(
-                RedlineRow(
-                    token=token,
-                    start=start,
-                    end=end,
-                    kind=kind,
-                    identity=None,
-                )
+            identity = None
+        else:
+            rid = rl.getPropertyValue("RedlineIdentifier")
+
+            def prop(name: str) -> Any:
+                try:
+                    return rl.getPropertyValue(name)
+                except Exception:
+                    return None
+
+            identity = (
+                rid,
+                prop("RedlineType"),
+                prop("RedlineAuthor"),
+                _review_scan.redline_date_key(prop("RedlineDateTime")),
+                comment_raw,
             )
-            return True
 
-        rid = rl.getPropertyValue("RedlineIdentifier")
-
-        def prop(name: str) -> Any:
-            try:
-                return rl.getPropertyValue(name)
-            except Exception:
-                return None
-
-        identity = (
-            rid,
-            prop("RedlineType"),
-            prop("RedlineAuthor"),
-            _review_scan.redline_date_key(prop("RedlineDateTime")),
-            comment_raw,
-        )
         rows.append(
             RedlineRow(
-                token=None,
+                token=token,
                 start=start,
                 end=end,
-                kind=None,
+                kind=kind,
                 identity=identity,
             )
         )
@@ -391,9 +383,7 @@ def _build_bounds_from_view(view: RedlineView, token: str | frozenset[str]) -> t
 
     text, group_rows = groups[0]
     bounds = _span_for_rows(text, group_rows)
-    if bounds is None:
-        return None, None
-    return bounds
+    return bounds or (None, None)
 
 
 def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
@@ -423,21 +413,25 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
         return None
     n = len(items)
 
+    cur_text = None
+    cur_start: Any = None
+    cur_end: Any = None
+    cur_collapsed = False
     try:
         vc = model.getCurrentController().getViewCursor()
-        cur_text = vc.getText()
-        cur_start = cur_text.createTextCursorByRange(vc.getStart())
-        cur_end = cur_text.createTextCursorByRange(vc.getEnd())
+        vc_text = vc.getText()
+        cur_start = vc_text.createTextCursorByRange(vc.getStart())
+        cur_end = vc_text.createTextCursorByRange(vc.getEnd())
         cur_collapsed = bool(vc.isCollapsed())
-        cur = (cur_text, cur_start, cur_end, cur_collapsed)
-    except Exception:
-        cur = None
+    except Exception:  # noqa: S110 - cursor read failure leaves cur_text None
+        pass
+    else:
+        cur_text = vc_text
 
     chosen_idx = None
-    if cur is None:
+    if cur_text is None:
         chosen_idx = 0 if forward else n - 1
     else:
-        cur_text, cur_start, cur_end, cur_collapsed = cur
         # Tip: a selection counts as "reviewing" a change only when it matches the change's whole span
         # (start and end). A collapsed caret never counts, so the first change stays reachable.
         sel_idx = None
@@ -776,7 +770,6 @@ def resolve_agent_change(
 def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
     """Group dispatches into one undo step; keeps landed edits on failure."""
     um = None
-    entered = False
     try:
         if hasattr(model, "getUndoManager"):
             candidate = model.getUndoManager()
@@ -791,7 +784,6 @@ def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
                     try:
                         candidate.enterUndoContext(_("Resolve agent changes"))
                         um = candidate
-                        entered = True
                     except Exception:
                         log.warning("inline_review: enterUndoContext failed, undo grouping skipped", exc_info=True)
                 else:
@@ -801,7 +793,7 @@ def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
     try:
         yield
     finally:
-        if entered and um is not None:
+        if um is not None:
             try:
                 um.leaveUndoContext()
             except Exception:

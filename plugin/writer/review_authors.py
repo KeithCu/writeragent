@@ -76,23 +76,18 @@ def begin(ctx: Any) -> tuple[str, str] | None:
     armed for a later, unrelated edit on this thread, even when the caller skips ``end()`` on a
     None return.
     """
-    prior = None
-    armed = False
     try:
         access = _author_access(ctx)
         prior = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
         # We commit the author swap to the profile, not hold it uncommitted, because LibreOffice stamps redlines with the committed UserProfile name; begin/end bracket one synchronous main-thread edit, so we do not add startup recovery.
         _commit_author(access, INSERT_AUTHOR, "")
-        armed = True
-    except Exception:
-        log.debug("review_authors.begin failed", exc_info=True)
-        prior = None
-    if armed:
         _state.ctx = ctx
         _state.last = INSERT_AUTHOR
-    else:
+        return prior
+    except Exception:
+        log.debug("review_authors.begin failed", exc_info=True)
         _disarm()
-    return prior
+        return None
 
 
 def end(ctx: Any, prior: tuple[str, str] | None) -> None:

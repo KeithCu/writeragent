@@ -89,9 +89,7 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
 
         from com.sun.star.awt import Rectangle
 
-        smgr = getattr(ctx, "getServiceManager", lambda: None)()
-        if smgr is None:
-            return
+        smgr = ctx.getServiceManager()
         popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
         # Per-change only: Accept / Reject the change under the pointer. Bulk accept/reject ALL
         # intentionally lives on the review toolbar, not in this per-click popup.
@@ -200,9 +198,6 @@ def register_click_review(controller: Any) -> None:
         return
     cleanup_disposed_controllers()
     try:
-        with _lock:
-            if any(c == controller for c, _h in _attached):
-                return
         if not hasattr(controller, "addMouseClickHandler"):
             return
         model = controller.getModel()
