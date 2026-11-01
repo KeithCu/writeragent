@@ -600,7 +600,7 @@ def test_backend_indicator_layout():
     assert ind.x + ind.width == 900 - right_margin
 
     # Narrow width where leftover is < 8
-    layouts_narrow = compute_chat_panel_layout(ind.x + 5, 500, snapshot, right_margin=0)
+    layouts_narrow = compute_chat_panel_layout(ind.x + 5, 500, snapshot)
     assert layouts_narrow["backend_indicator"].width == 0
 
 
