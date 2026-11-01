@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.chatbot.eval_dashboard_ui import EvalRunListener
+from plugin.chatbot.eval_dashboard_ui import EvalDashboard, EvalRunListener
 
 
 def test_show_loads_eval_dialog_with_ctx() -> None:
@@ -132,13 +132,13 @@ def test_run_suite_imports_eval_runner_at_runtime(monkeypatch: pytest.MonkeyPatc
     sys.modules["tests.eval_runner"] = fake_mod
 
     dialog, _controls = _dialog()
-    listener = EvalRunListener(MagicMock(), dialog)
+    listener = EvalRunListener(MagicMock(), dialog, EvalDashboard(MagicMock()))
     with patch("plugin.framework.uno_context.process_events_to_idle"), patch(
         "plugin.chatbot.eval_dashboard_ui.get_active_document", return_value=MagicMock()
     ):
-        listener.run_suite()
-        assert listener._job is not None
-        listener._job.join(timeout=2)
+        job = listener.run_suite()
+        assert job is not None
+        job.join(timeout=2)
     fake_mod.run_benchmark_suite.assert_called_once()
     sys.modules.pop("tests.eval_runner", None)
 
@@ -167,7 +167,7 @@ def test_run_suite_reports_when_eval_runner_is_missing() -> None:
         return _Ctrl()
 
     dialog.getControl.side_effect = _control
-    listener = EvalRunListener(MagicMock(), dialog)
+    listener = EvalRunListener(MagicMock(), dialog, EvalDashboard(MagicMock()))
     try:
         listener.run_suite()
     finally:
@@ -195,7 +195,7 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
     fake_mod.run_benchmark_suite.side_effect = _block
     sys.modules["tests.eval_runner"] = fake_mod
     dialog, controls = _dialog()
-    listener = EvalRunListener(MagicMock(), dialog)
+    listener = EvalRunListener(MagicMock(), dialog, EvalDashboard(MagicMock()))
     # What was wrong: joining the suite worker was enough to see "Finished".
     # post() no longer runs inline on a tagged background task, so the worker
     # only queues _show_summary. The line stays "Running..." until this thread
@@ -209,14 +209,14 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
             "plugin.chatbot.eval_dashboard_ui.get_active_document", return_value=MagicMock()
         ):
             started = time.monotonic()
-            listener.run_suite()
+            job = listener.run_suite()
             elapsed = time.monotonic() - started
             assert elapsed < 0.5
             assert entered.wait(timeout=1)
             assert controls["status"].text == "Running..."
             release.set()
-            assert listener._job is not None
-            listener._job.join(timeout=2)
+            assert job is not None
+            job.join(timeout=2)
             assert controls["status"].text == "Running..."
             _drain_posted_main_thread()
     finally:
@@ -238,7 +238,7 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
     fake_mod.run_benchmark_suite.side_effect = _boom
     sys.modules["tests.eval_runner"] = fake_mod
     dialog, controls = _dialog()
-    listener = EvalRunListener(MagicMock(), dialog)
+    listener = EvalRunListener(MagicMock(), dialog, EvalDashboard(MagicMock()))
     from plugin.framework import queue_executor as qe
 
     qe.set_force_marshal_mode(True)
@@ -246,9 +246,9 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
         with patch("plugin.framework.uno_context.process_events_to_idle"), patch(
             "plugin.chatbot.eval_dashboard_ui.get_active_document", return_value=MagicMock()
         ):
-            listener.run_suite()
-            assert listener._job is not None
-            listener._job.join(timeout=2)
+            job = listener.run_suite()
+            assert job is not None
+            job.join(timeout=2)
             # Same contract as a clean summary: the worker posts _show_failure
             # and leaves the line on Running... until the main thread paints it.
             assert controls["status"].text == "Running..."
@@ -357,7 +357,7 @@ def test_disposed_dialog_summary_and_failure_clear_running() -> None:
 
     dialog = MagicMock()
     dialog.getControl.side_effect = DisposedException("disposed")
-    listener = EvalRunListener(MagicMock(), dialog)
+    listener = EvalRunListener(MagicMock(), dialog, EvalDashboard(MagicMock()))
     listener.is_running = True
     listener._show_summary(
         "model",

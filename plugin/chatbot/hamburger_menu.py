@@ -50,11 +50,13 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
 
         item_actions: dict[int, str] = {}
         next_id = [1]
+        pos_box = [0]
 
-        def add_item(menu: Any, label: str, action: str, pos: int, icon_filename: str | None = None) -> None:
+        def add_item(menu: Any, label: str, action: str, box: list[int], icon_filename: str | None = None) -> None:
             n_id = next_id[0]
             next_id[0] += 1
-            menu.insertItem(n_id, label, 0, pos)
+            menu.insertItem(n_id, label, 0, box[0])
+            box[0] += 1
             item_actions[n_id] = action
             if hasattr(menu, "setCommand"):
                 menu.setCommand(n_id, "org.extension.writeragent:" + action)
@@ -68,109 +70,89 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
                     elif hasattr(menu, "setItemGraphic"):
                         best_effort(lambda: menu.setItemGraphic(n_id, g), f"setItemGraphic failed for {icon_filename}")
 
-        pos = 0
+        def add_separator(menu: Any, box: list[int]) -> None:
+            menu.insertSeparator(box[0])
+            box[0] += 1
+
+        def add_submenu(menu: Any, label: str, submenu: Any, box: list[int]) -> None:
+            sub_id = next_id[0]
+            next_id[0] += 1
+            menu.insertItem(sub_id, label, 0, box[0])
+            menu.setPopupMenu(sub_id, submenu)
+            box[0] += 1
 
         # 1. Edit / Extend selection
-        add_item(popup, _("Extend Selection"), "chatbot.extend_selection", pos)
-        pos += 1
-        add_item(popup, _("Edit Selection"), "chatbot.edit_selection", pos)
-        pos += 1
+        add_item(popup, _("Extend Selection"), "chatbot.extend_selection", pos_box)
+        add_item(popup, _("Edit Selection"), "chatbot.edit_selection", pos_box)
 
         # 2. Separator
-        popup.insertSeparator(pos)
-        pos += 1
+        add_separator(popup, pos_box)
 
         # 3. Main feature actions
-        add_item(popup, _("Run Python Script..."), "scripting.run_python_dialog", pos, menu_icon_filename("python", ctx=ctx))
-        pos += 1
+        add_item(popup, _("Run Python Script..."), "scripting.run_python_dialog", pos_box, menu_icon_filename("python", ctx=ctx))
 
         if is_calc_doc:
-            add_item(popup, _("Edit Python in Cell..."), "scripting.edit_python_cell", pos, menu_icon_filename("python_cell", ctx=ctx))
-            pos += 1
-            add_item(popup, _("Convert Sheet to Python..."), "calc.convert_spreadsheet_to_python", pos)
-            pos += 1
+            add_item(popup, _("Edit Python in Cell..."), "scripting.edit_python_cell", pos_box, menu_icon_filename("python_cell", ctx=ctx))
+            add_item(popup, _("Convert Sheet to Python..."), "calc.convert_spreadsheet_to_python", pos_box)
 
-        add_item(popup, _("Search Nearby Files..."), "embeddings.search_dialog", pos, menu_icon_filename("search", ctx=ctx))
-        pos += 1
+        add_item(popup, _("Search Nearby Files..."), "embeddings.search_dialog", pos_box, menu_icon_filename("search", ctx=ctx))
 
         if is_writer_doc:
-            add_item(popup, _("Insert LaTeX Math..."), "writer.insert_latex_dialog", pos, menu_icon_filename("latex", ctx=ctx))
-            pos += 1
-            add_item(popup, _("Text Analytics..."), "textanalytics.open_dialog", pos)
-            pos += 1
+            add_item(popup, _("Insert LaTeX Math..."), "writer.insert_latex_dialog", pos_box, menu_icon_filename("latex", ctx=ctx))
+            add_item(popup, _("Text Analytics..."), "textanalytics.open_dialog", pos_box)
 
         # 4. Separator
-        popup.insertSeparator(pos)
-        pos += 1
+        add_separator(popup, pos_box)
 
         # 5. Settings & Servers with Dynamic MCP Status
-        add_item(popup, _("Settings"), "main.settings", pos, menu_icon_filename("gear", ctx=ctx))
-        pos += 1
-        add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos)
-        pos += 1
+        add_item(popup, _("Settings"), "main.settings", pos_box, menu_icon_filename("gear", ctx=ctx))
+        add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos_box)
 
         from plugin.framework.main_shared import tests_bundled
         from plugin.main import _get_menu_icon, get_menu_text
 
         mcp_toggle_text = best_effort(lambda: get_menu_text("mcp.toggle_server"), "mcp toggle menu text") or _("Toggle MCP Server")
-        add_item(popup, mcp_toggle_text, "mcp.toggle_server", pos)
-        pos += 1
+        add_item(popup, mcp_toggle_text, "mcp.toggle_server", pos_box)
 
         mcp_running = best_effort(lambda: _get_menu_icon("mcp.server_status"), "mcp status menu icon") == "running"
         mcp_status_icon = menu_icon_filename(
             "running" if mcp_running else "stopped", ctx=ctx
         )
         mcp_status_text = _("MCP Server (Running)") if mcp_running else _("MCP Server (Stopped)")
-        add_item(popup, mcp_status_text, "mcp.server_status", pos, mcp_status_icon)
-        pos += 1
+        add_item(popup, mcp_status_text, "mcp.server_status", pos_box, mcp_status_icon)
 
-        add_item(popup, _("Reset Python Session"), "scripting.reset_python_session", pos)
-        pos += 1
+        add_item(popup, _("Reset Python Session"), "scripting.reset_python_session", pos_box)
         # Not every Writer file: only an imported notebook that still has code cells.
         # Addons.xcu cannot express that, so these stay hamburger-only.
         from plugin.librepy.sidebar_menus import document_has_notebook_registry
 
         if is_writer_doc and document_has_notebook_registry(model):
-            add_item(popup, _("Run All"), "notebook.run_all", pos)
-            pos += 1
-            add_item(popup, _("Run From Here"), "notebook.run_from_here", pos)
-            pos += 1
-            add_item(popup, _("Stop"), "notebook.stop", pos)
-            pos += 1
+            add_item(popup, _("Run All"), "notebook.run_all", pos_box)
+            add_item(popup, _("Run From Here"), "notebook.run_from_here", pos_box)
+            add_item(popup, _("Stop"), "notebook.stop", pos_box)
 
         # Release builds strip Debug from Addons.xcu; omit commands when tests are unbundled.
         if tests_bundled():
             # 6. Separator
-            popup.insertSeparator(pos)
-            pos += 1
+            add_separator(popup, pos_box)
 
             # 7. Debug Submenu
             debug_popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
             if debug_popup is not None:
-                d_pos = 0
+                d_box = [0]
                 if is_writer_doc:
-                    add_item(debug_popup, _("Run format tests"), "main.RunFormatTests", d_pos)
-                    d_pos += 1
+                    add_item(debug_popup, _("Run format tests"), "main.RunFormatTests", d_box)
                 if is_calc_doc:
-                    add_item(debug_popup, _("Run calc tests"), "main.RunCalcTests", d_pos)
-                    d_pos += 1
-                    add_item(debug_popup, _("Run Calc API integration tests"), "main.RunCalcIntegrationTests", d_pos)
-                    d_pos += 1
+                    add_item(debug_popup, _("Run calc tests"), "main.RunCalcTests", d_box)
+                    add_item(debug_popup, _("Run Calc API integration tests"), "main.RunCalcIntegrationTests", d_box)
                 if is_draw_doc:
-                    add_item(debug_popup, _("Run draw tests"), "main.RunDrawTests", d_pos)
-                    d_pos += 1
-                add_item(debug_popup, _("Evaluation Dashboard"), "main.EvaluationDashboard", d_pos)
-                d_pos += 1
+                    add_item(debug_popup, _("Run draw tests"), "main.RunDrawTests", d_box)
+                add_item(debug_popup, _("Evaluation Dashboard"), "main.EvaluationDashboard", d_box)
 
-                debug_id = next_id[0]
-                next_id[0] += 1
-                popup.insertItem(debug_id, _("Debug"), 0, pos)
-                popup.setPopupMenu(debug_id, debug_popup)
-                pos += 1
+                add_submenu(popup, _("Debug"), debug_popup, pos_box)
 
         # 8. Report bug
-        add_item(popup, _("Report bug..."), "main.report_bug", pos)
-        pos += 1
+        add_item(popup, _("Report bug..."), "main.report_bug", pos_box)
 
         from plugin.librepy.sidebar_menus import execute_popup_under_button, invoke_action_handler
 
