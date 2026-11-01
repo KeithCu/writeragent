@@ -26,7 +26,7 @@ def test_frame_model_is_used(monkeypatch) -> None:
         assert got is frame
         return model
 
-    def _do(ctx, doc, input_box_fn, is_edit):
+    def _do(ctx, doc, is_edit):
         seen["doc"] = doc
         seen["is_edit"] = is_edit
 
@@ -44,7 +44,7 @@ def test_no_frame_uses_active_document(monkeypatch) -> None:
     def _from_frame(got):
         raise AssertionError(got)
 
-    def _do(ctx, doc, input_box_fn, is_edit):
+    def _do(ctx, doc, is_edit):
         seen["doc"] = doc
         seen["is_edit"] = is_edit
 
@@ -63,7 +63,7 @@ def test_registered_handler_passes_frame(monkeypatch) -> None:
     model = object()
     seen: dict[str, object] = {}
 
-    def _do(ctx, doc, input_box_fn, is_edit):
+    def _do(ctx, doc, is_edit):
         seen["doc"] = doc
         seen["edit"] = is_edit
 

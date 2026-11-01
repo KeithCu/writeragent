@@ -12,14 +12,14 @@ _GRAMMAR_STATUS_PREVIEW_CHARS = 10
 _GRAMMAR_STATUS_RESULT_CHARS = 120
 
 
-def _clip_grammar_status_preview(s: str, max_len: int = _GRAMMAR_STATUS_PREVIEW_CHARS) -> str:
+def _clip_grammar_status_preview(s: str) -> str:
     """One-line snippet for the sidebar status field (short to save space)."""
     compact = " ".join(s.strip().split())
     if not compact:
         return "(empty)"
-    if len(compact) <= max_len:
+    if len(compact) <= _GRAMMAR_STATUS_PREVIEW_CHARS:
         return compact
-    return f"{compact[:max_len]}…"
+    return f"{compact[:_GRAMMAR_STATUS_PREVIEW_CHARS]}…"
 
 
 def _grammar_status_area(phase: str, result: str, preview: str) -> Literal["language", "grammar"]:

@@ -16,8 +16,8 @@ def test_clip_grammar_status_preview_empty():
 
 
 def test_clip_grammar_status_preview_short_and_long():
-    assert _clip_grammar_status_preview("hello", max_len=10) == "hello"
-    assert _clip_grammar_status_preview("hello world this is long", max_len=10) == "hello worl…"
+    assert _clip_grammar_status_preview("hello") == "hello"
+    assert _clip_grammar_status_preview("hello world this is long") == "hello worl…"
 
 
 def test_grammar_status_area():

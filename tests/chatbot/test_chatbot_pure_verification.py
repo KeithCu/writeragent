@@ -16,7 +16,7 @@ from plugin.chatbot.chat_sidebar_mode import (
     sidebar_mode_flags_for_doc_type,
     get_mode_labels,
     mode_from_label,
-    _VALID_MODES,
+    _SPEC_BY_KEY,
 )
 from plugin.chatbot.skills import HUMANIZER_GUIDANCE
 from plugin.chatbot.research_cache_fluff import translated_research_cache_fluff
@@ -53,12 +53,12 @@ def test_sidebar_mode_flags_contracts(doc_type: str) -> None:
 @given(label=st.text(max_size=DEAL_MAX_TOKEN))
 def test_mode_from_label_contracts(label: str) -> None:
     mode = mode_from_label(label)
-    assert mode in _VALID_MODES
+    assert mode in _SPEC_BY_KEY
 
     labels = get_mode_labels()
     assert isinstance(labels, tuple)
     assert len(labels) >= 4
-    assert "librarian" in _VALID_MODES
+    assert "librarian" in _SPEC_BY_KEY
 
 
 def test_skills_guidance_constant() -> None:

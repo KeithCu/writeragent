@@ -24,10 +24,10 @@ from plugin.chatbot.chat_sidebar_mode import (
     LIBRARIAN_HISTORY_SESSION_ID,
     SidebarModeFlags,
     SidebarModeController,
+    _clear_mode_topic_session,
     _modes_for,
     clear_brainstorming_session,
     clear_librarian_session,
-    clear_writing_plan_session,
     get_mode_labels,
     librarian_default_mode,
     mark_librarian_invoked,
@@ -183,7 +183,7 @@ def test_clear_writing_plan_session_resets_flags():
     listener = MagicMock()
     listener._active_mode = CHAT_MODE_WRITING_PLAN
     listener._mode_topic = "topic"
-    clear_writing_plan_session(listener)
+    _clear_mode_topic_session(listener, CHAT_MODE_WRITING_PLAN)
     assert listener._active_mode == ""
     assert listener._mode_topic == ""
 

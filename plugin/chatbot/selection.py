@@ -158,7 +158,7 @@ def stream_completion_tasks(
         raise
 
 
-def do_selection_action_for_document(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) -> None:
+def do_selection_action_for_document(ctx: Any, model: Any, is_edit: bool) -> None:
     """Dispatch Extend/Edit Selection to the document-specific implementation."""
     doc_type = get_document_type(model)
     if doc_type == DocumentType.WRITER:
@@ -166,7 +166,7 @@ def do_selection_action_for_document(ctx: Any, model: Any, input_box_fn: Any, is
 
         # Extend no longer takes input_box_fn (168-wr_format); Edit still does.
         if is_edit:
-            do_edit_selection(ctx, model, input_box_fn)
+            do_edit_selection(ctx, model, input_box)
         else:
             do_extend_selection(ctx, model)
         return
@@ -174,7 +174,7 @@ def do_selection_action_for_document(ctx: Any, model: Any, input_box_fn: Any, is
     if doc_type == DocumentType.CALC:
         from plugin.calc.editselection import do_calc_extend_edit
 
-        do_calc_extend_edit(ctx, model, input_box_fn, is_edit)
+        do_calc_extend_edit(ctx, model, input_box, is_edit)
         return
 
     action = _("Edit") if is_edit else _("Extend")
@@ -198,7 +198,7 @@ def _action_selection(services: Any, is_edit: bool, frame: Any = None) -> None:
         msgbox(ctx, "WriterAgent", _("No document open"))
         return
 
-    do_selection_action_for_document(ctx, doc, input_box, is_edit)
+    do_selection_action_for_document(ctx, doc, is_edit)
 
 
 def action_extend_selection(services: Any, frame: Any = None) -> None:
