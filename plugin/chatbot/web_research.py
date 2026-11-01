@@ -187,23 +187,6 @@ def _write_research_cache(
 from plugin.contrib.smolagents.tools import Tool
 
 
-def _normalize_visit_url(url: str) -> str:
-    return str(url or "").strip().rstrip("/")
-
-
-def _visit_result_has_page_text(text: Any) -> bool:
-    """True when the fetch returned text worth treating as already read.
-
-    An error string is retryable. An empty extract is too: a blank page or
-    whitespace-only innerText is not an error prefix, so it used to be stored
-    as visited and the next sub-query was told the URL was already read.
-    """
-    body = str(text or "").strip()
-    if body.startswith(("Error", "Failed")):
-        return False
-    return bool(body)
-
-
 class _VisitWebpageDedupTool(Tool):
     """Wraps visit_webpage and skips URLs already read in this deep-research run."""
 
@@ -220,7 +203,7 @@ class _VisitWebpageDedupTool(Tool):
         self._visited_urls = visited_urls
 
     def forward(self, url: str) -> str:
-        key = _normalize_visit_url(url)
+        key = str(url or "").strip().rstrip("/")
         if not key:
             return self._inner.forward(url)
         with self._visited_urls.lock:
@@ -228,10 +211,12 @@ class _VisitWebpageDedupTool(Tool):
                 return f"(Already visited in this research run: {key})"
         text = self._inner.forward(url)
         # Record the URL only after non-empty, non-error text, under the
-        # same lock as the check. Inserting it before the fetch returns
-        # keeps a CDP/HTTP error or a blank page in the set, and later
-        # sub-queries get "Already visited" instead of a retry.
-        if _visit_result_has_page_text(text):
+        # same lock as the check. An error string is retryable. An empty
+        # extract is too: a blank page or whitespace-only innerText is not
+        # an error prefix, so it used to be stored as visited and the next
+        # sub-query was told the URL was already read.
+        body = str(text or "").strip()
+        if body and not body.startswith(("Error", "Failed")):
             with self._visited_urls.lock:
                 self._visited_urls.add(key)
         return text
@@ -408,6 +393,10 @@ def _unpack_approval(result: Any) -> tuple[bool, str | None]:
     return bool(result), None
 
 
+def _user_stopped_payload() -> dict[str, Any]:
+    return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
+
+
 def _run_web_agent(
     ctx: Any,
     query: str,
@@ -479,7 +468,7 @@ def _run_web_agent(
     def tool_call_handler(step: ToolCall) -> Any:
         nonlocal web_search_step_index
         if stop_checker and stop_checker():
-            return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
+            return _user_stopped_payload()
         status_msg = ""
         if step.name == "web_search":
             q = _web_search_query_from_arguments(step.arguments)
@@ -503,7 +492,7 @@ def _run_web_agent(
                 proceed, query_override = _unpack_approval(approval_result)
 
                 if not proceed:
-                    return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
+                    return _user_stopped_payload()
                 if query_override is not None:
                     _apply_web_search_query_override(step, query_override)
                     q = query_override
@@ -571,8 +560,6 @@ def _run_deep_web_research(
 
         return chat
 
-    llm_chat = _chat_via(parent_client)
-
     visited = _VisitedUrls()
     sub_steps = get_config_int_safe("chatbot.deep_research_sub_agent_steps")
     if sub_steps > 0:
@@ -612,7 +599,7 @@ def _run_deep_web_research(
         worker_params = replace(deep_params, smol_model=worker_model, approval_callback=None)
 
         def run_sub_agent(sub_query: str, research_goal: str) -> str | dict[str, Any]:
-            return _run_web_agent(ctx, sub_query, None, worker_params, research_goal=research_goal or None)
+            return _run_web_agent(ctx, sub_query, None, worker_params, research_goal=research_goal)
 
         return run_sub_agent, _chat_via(worker_client), worker_client.stop
 
@@ -626,7 +613,7 @@ def _run_deep_web_research(
             # kept going after the sidebar went idle. Same stop payload as
             # a rejected shallow search.
             return (
-                format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")),
+                _user_stopped_payload(),
                 query_str,
             )
         if query_override is not None:
@@ -654,7 +641,7 @@ def _run_deep_web_research(
 
     researched = run_deep_research(
         query_str,
-        llm_chat=llm_chat,
+        llm_chat=_chat_via(parent_client),
         worker_factory=worker_factory,
         stop_checker=agent_params.stop_checker,
         status_callback=agent_params.status_callback,
@@ -754,9 +741,6 @@ class WebResearchTool(ToolBase):
                 log.warning("Failed to lookup web research cache: %s", e)
 
         status_callback = ctx.status_callback
-        append_thinking_callback = ctx.append_thinking_callback
-        approval_callback = ctx.approval_callback
-        chat_append_callback = ctx.chat_append_callback
 
         from plugin.chatbot.web_research_chat import clip_sub_agent_history
 
@@ -777,8 +761,6 @@ class WebResearchTool(ToolBase):
         cdp_url = None
         cdp_held = False
 
-        stop_checker = ctx.stop_checker
-        cancel_scope = ctx.send_cancellation
         smol_model = create_smol_model(ctx, status_callback=status_callback)
 
         prompt_for_web_research = as_bool(get_config("chatbot.prompt_for_web_research"))
@@ -799,14 +781,14 @@ class WebResearchTool(ToolBase):
                 cache_max_mb=cache_max_mb,
                 cache_max_age_days=cache_max_age_days,
                 cdp_url=cdp_url,
-                stop_checker=stop_checker,
+                stop_checker=ctx.stop_checker,
                 status_callback=status_callback,
-                append_thinking_callback=append_thinking_callback,
-                approval_callback=approval_callback,
-                chat_append_callback=chat_append_callback,
+                append_thinking_callback=ctx.append_thinking_callback,
+                approval_callback=ctx.approval_callback,
+                chat_append_callback=ctx.chat_append_callback,
                 prompt_for_web_research=prompt_for_web_research,
                 outer_query=query_str,
-                cancellation_scope=cancel_scope,
+                cancellation_scope=ctx.send_cancellation,
             )
             if deep:
                 final_ans, researched_query = _run_deep_web_research(
@@ -874,8 +856,7 @@ def _web_search_query_from_arguments(arguments: Any) -> str:
 def _apply_web_search_query_override(step: Any, query_override: str) -> None:
     args = _coerce_args_dict(step.arguments)
     args["query"] = query_override
-    if step.arguments is not args:
-        step.arguments = args
+    step.arguments = args
 
 
 def _norm_research_query(q: str) -> str:
