@@ -223,7 +223,7 @@ def _chunk_callbacks(
 def _compact_bound_session(
     session: Any,
     client: Any,
-    turn: TurnController,
+    turn: TurnController | None,
     *,
     tools: Any,
     max_tokens: int | None,
@@ -248,9 +248,12 @@ def _compact_bound_session(
         status_callback=status_cb,
         enabled=True,
     )
-    turn._last_compact_reason = result.reason
-    turn._last_compact_tokens_before = result.tokens_before
-    turn._last_compact_tokens_after = result.tokens_after
+    # bind_spawn's current_turn can be None (no live turn); only a real
+    # TurnController carries the _last_compact_* fields.
+    if isinstance(turn, TurnController):
+        turn._last_compact_reason = result.reason
+        turn._last_compact_tokens_before = result.tokens_before
+        turn._last_compact_tokens_after = result.tokens_after
     if result.reason == "aborted":
         # The caller emits STOPPED through turn.put, which flushes.
         return False
@@ -965,8 +968,8 @@ class ToolCallingMixin:
             turn_session = session_for_turn(self._panel)
             image_msg = _last_user_message_with_image(turn_session)
             if image_msg is not None:
-                assert live is not None
-                _strip_user_image(turn_session, image_msg, live.active_query_text or "")
+                # Old code tolerated a missing live turn; keep that.
+                _strip_user_image(turn_session, image_msg, getattr(live, "active_query_text", "") or "")
 
         # Prompt-too-large: respawn the worker with force_compact. Never call
         # compact_session on this drain / UI thread (UNO + lane). Process death
