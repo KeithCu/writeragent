@@ -57,6 +57,13 @@ def _get_table(doc: Any, name: str) -> Any:
     return tables.getByName(name)
 
 
+def _require_table(doc: Any, name: str) -> Any:
+    """Table by name, requiring a non-empty name."""
+    if not name:
+        raise ValueError("name is required.")
+    return _get_table(doc, name)
+
+
 def _draw_ok(entry: dict[str, Any], name: str, **extra: Any) -> dict[str, Any]:
     return {
         "status": "ok",
@@ -179,21 +186,6 @@ def _nesting_for(doc: Any, table: Any, name: str) -> dict[str, Any]:
     return _writer_nesting(doc)[0].get(name, _not_nested())
 
 
-def _is_wrong_start_node(exc: BaseException) -> bool:
-    """True for the body-XText + cursor-in-cell insert failure.
-
-    ``doc.getText().insertTextContent(viewCursor, table)`` raises when the
-    cursor already sits in a nested XText (table cell, frame). The usual
-    wording is ``End of content node doesn't have the proper start node``.
-    """
-    msg = str(exc).lower()
-    return "start node" in msg and "content node" in msg
-
-
-def _recording_changes(doc: Any) -> bool:
-    return uno_probe(lambda: bool(doc.getPropertyValue("RecordChanges")), False)
-
-
 def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) -> None:
     """Delete a Writer table as a tracked change. Change tracking must already be on.
 
@@ -264,7 +256,7 @@ def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: 
     before the tracked path runs. A second review wrapper here would nest
     sessions and tag the redlines twice.
     """
-    if _recording_changes(doc):
+    if uno_probe(lambda: bool(doc.getPropertyValue("RecordChanges")), False):
         _delete_writer_table_tracked(doc, uno_ctx, table, name)
         return True
     _remove_writer_table(doc, table, name, nesting)
@@ -431,9 +423,7 @@ class TableGetCells(ToolWriterTableBase):
                 else:
                     payload["matrix"] = get_draw_cells(entry)
                 return payload
-            if not name:
-                raise ValueError("name is required.")
-            table = _get_table(ctx.doc, name)
+            table = _require_table(ctx.doc, name)
             rows, cols = table_dims(table)
             # getColumns() is the first row's box count (SwXTableColumns::getCount),
             # so range(cols) skipped D2 after A1:D1 merge. getCellNames() is the list.
@@ -529,9 +519,7 @@ class TableSetCell(ToolWriterTableBase):
                     old_text=old,
                     new_text=new,
                 )
-            if not name:
-                raise ValueError("name is required.")
-            table = _get_table(ctx.doc, name)
+            table = _require_table(ctx.doc, name)
             names = _writer_named_cells(table)
             cell_name = _resolve_cell_name(cell_raw, names)
             if cell_name is None:
@@ -613,9 +601,7 @@ class ManageTableStructure(ToolWriterTableBase):
                 )
                 rows, cols = manage_draw_structure(entry, action, axis_arg, idx)
                 return _draw_ok(entry, name, rows=rows, cols=cols)
-            if not name:
-                raise ValueError("name is required.")
-            table = _get_table(ctx.doc, name)
+            table = _require_table(ctx.doc, name)
             band = table.getRows() if axis_arg == "row" else table.getColumns()
             count = band.getCount()
             if not insert and idx < count and count > 1:
@@ -730,7 +716,11 @@ class TableInsert(ToolWriterTableBase):
                         if is_disposed_exception(exc):
                             raise
                         # Body XText + cursor already in a cell: do not guess a nest target.
-                        if _is_wrong_start_node(exc):
+                        # doc.getText().insertTextContent(viewCursor, table) raises when the
+                        # cursor already sits in a nested XText (table cell, frame):
+                        # "End of content node doesn't have the proper start node".
+                        msg = str(exc).lower()
+                        if "start node" in msg and "content node" in msg:
                             raise ValueError(
                                 "Cannot insert a table at the view cursor (it is probably inside a cell). "
                                 "Pass parent and cell to nest, or move the cursor out of the table."
@@ -788,9 +778,7 @@ class TableDelete(ToolWriterTableBase):
                     ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index")
                 )
                 return _raise_draw_result(result, "Delete failed")
-            if not name:
-                raise ValueError("name is required.")
-            table = _get_table(ctx.doc, name)
+            table = _require_table(ctx.doc, name)
             nesting = _nesting_for(ctx.doc, table, name)
             tracked: list[bool] = []
             uno_ctx = resolve_uno_context(ctx)
