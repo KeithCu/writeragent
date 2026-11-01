@@ -176,7 +176,9 @@ def test_run_web_research_stores_raw_answer_and_rerenders():
 
                 panel._run_specialized("What is X?", model, mode="web_research")  # type: ignore
 
-    panel.session.add_assistant_message.assert_called_once_with(content="<p>HTML answer</p>")
+    panel.session.add_assistant_message.assert_called_once_with(
+        content="<p>HTML answer</p>", tool_calls=None, reasoning_replay=None
+    )
     panel.rerender_rich_text_session.assert_called_once()
     assert "<p>HTML answer</p>\n" in panel.responses
     assert "AI (research):" not in "".join(panel.responses)
@@ -557,7 +559,9 @@ def test_direct_image_success_persists_assistant_note():
         {"status": "done", "message": "Image generated successfully"},
     )
     panel.session.add_assistant_message.assert_called_once_with(
-        content="[image_generate: Image generated successfully]"
+        content="[image_generate: Image generated successfully]",
+        tool_calls=None,
+        reasoning_replay=None,
     )
     assert panel._terminal_status == "Ready"
     assert any("image_generate: Image generated successfully" in text for text in panel.responses)
@@ -572,7 +576,9 @@ def test_direct_image_tool_error_persists_assistant_note():
         {"status": "error", "message": "Failed to generate image"},
     )
     panel.session.add_assistant_message.assert_called_once_with(
-        content="[image_generate: Failed to generate image]"
+        content="[image_generate: Failed to generate image]",
+        tool_calls=None,
+        reasoning_replay=None,
     )
     assert "[image_generate: Failed to generate image]\n" in panel.responses
 
@@ -713,7 +719,9 @@ def test_agent_stream_persists_visible_text_once_on_done():
         q.put((StreamQueueKind.STREAM_DONE, {}))
 
     _drive_unified_drain(panel, worker, "agent")
-    panel.session.add_assistant_message.assert_called_once_with(content="Hello world")
+    panel.session.add_assistant_message.assert_called_once_with(
+        content="Hello world", tool_calls=None, reasoning_replay=None
+    )
 
 
 def test_agent_stop_stores_partial_or_placeholder():
@@ -724,7 +732,9 @@ def test_agent_stop_stores_partial_or_placeholder():
         q.put((StreamQueueKind.STOPPED, None))
 
     _drive_unified_drain(panel, worker, "agent")
-    panel.session.add_assistant_message.assert_any_call(content="partial")
+    panel.session.add_assistant_message.assert_any_call(
+        content="partial", tool_calls=None, reasoning_replay=None
+    )
     assert any(
         "[Stopped by user]" in str(call.kwargs.get("content") or "")
         for call in panel.session.add_assistant_message.call_args_list
@@ -738,7 +748,9 @@ def test_agent_stop_with_no_chunks_stores_placeholder():
         q.put((StreamQueueKind.STOPPED, None))
 
     _drive_unified_drain(panel, worker, "agent")
-    panel.session.add_assistant_message.assert_any_call(content="No response.")
+    panel.session.add_assistant_message.assert_any_call(
+        content="No response.", tool_calls=None, reasoning_replay=None
+    )
     assert any(
         "[Stopped by user]" in str(call.kwargs.get("content") or "")
         for call in panel.session.add_assistant_message.call_args_list
@@ -1536,7 +1548,9 @@ def test_web_stop_without_emitted_text_stores_placeholder():
         q.put((StreamQueueKind.STOPPED, None))
 
     _drive_unified_drain(panel, worker, "web")
-    panel.session.add_assistant_message.assert_any_call(content="No response.")
+    panel.session.add_assistant_message.assert_any_call(
+        content="No response.", tool_calls=None, reasoning_replay=None
+    )
     assert any(
         "[Stopped by user]" in str(call.kwargs.get("content") or "")
         for call in panel.session.add_assistant_message.call_args_list

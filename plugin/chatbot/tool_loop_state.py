@@ -186,7 +186,6 @@ class AddMessageEffect:
 
 @dataclasses.dataclass(frozen=True)
 class UpdateActivityStateEffect:
-    action: str
     round_num: Optional[int] = None
     tool_name: Optional[str] = None
 
@@ -425,7 +424,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                         func_args=func_args,
                     )
                 )
-                effects.append(UpdateActivityStateEffect(action="tool_execute", round_num=state.round_num, tool_name=func_name))
+                effects.append(UpdateActivityStateEffect(round_num=state.round_num, tool_name=func_name))
 
                 effects.append(
                     LogAgentEffect(

@@ -342,7 +342,6 @@ def test_next_tool_with_pending_tools_and_action_state():
     
     # Check activity state effect
     activity_eff = next(e for e in effects if isinstance(e, UpdateActivityStateEffect))
-    assert activity_eff.action == "tool_execute"
     assert activity_eff.tool_name == "test_tool"
 
 def test_next_tool_malformed_arguments_and_missing_func():
