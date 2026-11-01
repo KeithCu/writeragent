@@ -326,7 +326,12 @@ def _convert_image_bytes(image: Any, params: dict[str, Any]) -> Any:
     stream = base_models.DocumentStream(name=stream_name, stream=buf)
     converter = _get_docling_converter(norm)
     result = converter.convert(stream)
-    return result.document
+    # Bugfix: #2688 returned result.document directly, so a conversion with no
+    # document surfaced as None (or AttributeError) instead of a clear error.
+    document = getattr(result, "document", None)
+    if document is None:
+        raise RuntimeError("Docling conversion returned no document")
+    return document
 
 
 def _page_height(document: Any, prov: Any) -> float | None:

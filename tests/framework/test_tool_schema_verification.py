@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 import shutil
 import subprocess
@@ -88,9 +89,16 @@ def test_optional_scalar_nullable() -> None:
 @given(schema=_schema)
 @settings(max_examples=60)
 def test_hypothesis_normalize_idempotent(schema: dict) -> None:
+    # Compare against independent copies: if normalize mutated its input,
+    # ``twice == once`` would compare one object with itself and always pass.
+    original = copy.deepcopy(schema)
     once = _normalize_schema_for_strict_providers(schema)
+    assert schema == original, "normalize must not mutate its input"
+    once_snapshot = copy.deepcopy(once)
     twice = _normalize_schema_for_strict_providers(once)
-    assert twice == once
+    assert once == once_snapshot, "normalize must not mutate its input"
+    assert twice is not once
+    assert twice == once_snapshot
     assert isinstance(once, dict)
     assert once.get("required") != []
 

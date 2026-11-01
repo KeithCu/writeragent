@@ -731,3 +731,31 @@ def test_parse_cli_args_user_profile_sets_env(monkeypatch) -> None:
     tr._parse_cli_args(["--user-profile"])
     assert tr.use_user_profile is True
     assert os.environ["WRITERAGENT_UNO_USER_PROFILE"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("suite_name", "expected_modules_attr"),
+    [
+        ("calc.tests", "CALC_MENU_UNIT_MODULES"),
+        ("calc.integration_tests", "CALC_MENU_INTEGRATION_MODULES"),
+    ],
+)
+def test_calc_menu_suite_names_dispatch_to_calc_fallbacks(monkeypatch, suite_name, expected_modules_attr) -> None:
+    """Regression (#2584): main.RunCalcTests passes "calc.tests"; the generic
+    rule derives "run_tests_tests", which would discover zero tests and report
+    a false-green 0 passed / 0 failed."""
+    import tests.calc.test_calc_uno as calc_menu
+
+    seen: list[tuple[str, ...]] = []
+
+    def fake_aggregated(_ctx: Any, module_names: tuple[str, ...]) -> tuple[int, int, list[str]]:
+        seen.append(module_names)
+        return len(module_names), 0, []
+
+    monkeypatch.setattr(calc_menu, "_run_calc_menu_aggregated", fake_aggregated)
+    passed, failed, _log = tr.run_module_suite(object(), calc_menu, suite_name)
+
+    expected = getattr(calc_menu, expected_modules_attr)
+    assert seen == [expected]
+    assert passed == len(expected) > 0
+    assert failed == 0

@@ -1239,6 +1239,12 @@ def run_module_suite(ctx: Any, module: Any, name: str) -> tuple[int, int, list[s
     # Discovery fallback: if no @test functions, check for old run_*_tests approach
     if not test_funcs:
         fallback_func_name = f"run_{name.split('.')[-1].replace('_tests', '').replace('test_', '')}_tests"
+        # Bugfix: #2584 dropped this override, so "calc.tests" derived
+        # "run_tests_tests", found nothing, and the Calc debug menu reported a
+        # false-green 0 passed / 0 failed. The generic rule cannot map the bare
+        # "tests" suffix to test_calc_uno.run_calc_tests, so name it explicitly.
+        if name == "calc.tests":
+            fallback_func_name = "run_calc_tests"
         fallback_func = getattr(module, fallback_func_name, None)
         if fallback_func:
             try:

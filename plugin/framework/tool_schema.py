@@ -265,6 +265,10 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     # crosshair: off
     if type(params) is not dict or len(params) == 0:
         return params
+    # Bugfix: #2594 removed this copy, so normalization mutated the caller's
+    # schema in place (e.g. ToolBase.parameters class dicts shared by every
+    # call). Copy first so the input is never changed.
+    params = copy.deepcopy(params)
     # Dedupe only. One remaining name becomes a string. An empty list
     # becomes "string". Do not collapse a real union to one member:
     # ["string", "number"] must stay both, and ["array", "string"] must
