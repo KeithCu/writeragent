@@ -104,32 +104,14 @@ _BIB_FIELD_NAMES = (
     "TargetURL",
 )
 
-_BIB_FIELD_NAME_SET = frozenset(_BIB_FIELD_NAMES)
-
-
 def _bib_name_key(name: str) -> str:
     return name.replace("-", "_").replace("_", "").lower()
 
 
-_BIB_FIELD_FOLDED = {_bib_name_key(name): name for name in _BIB_FIELD_NAMES}
-
-# Convenience / IDL / English aliases → live Fields names. Unused kinds ignore
-# these kwargs; v2 keys (zotero_key, citekey, locator, csl_style) stay unmapped.
-_BIB_FIELD_ALIASES = {
-    "identifier": "Identifier",
-    "author": "Author",
-    "title": "Title",
-    "year": "Year",
-    "pages": "Pages",
-    "isbn": "ISBN",
-    "url": "URL",
-    "booktitle": "Booktitle",
-    "publisher": "Publisher",
-    "bibiliographictype": "BibiliographicType",
+_BIB_FIELD_FOLDED = {
+    **{_bib_name_key(name): name for name in _BIB_FIELD_NAMES},
     "bibliographictype": "BibiliographicType",
-    "bibliographic_type": "BibiliographicType",
-    "bibiliographic_type": "BibiliographicType",
-    "bibilographic_type": "BibiliographicType",
+    "bibilographictype": "BibiliographicType",
 }
 
 # BibliographyDataType constants (book=1 matches Insert → Bibliographic Entry).
@@ -168,42 +150,28 @@ _IGNORED_CITE_KWARGS = frozenset({"zotero_key", "citekey", "locator", "csl_style
 def canonicalize_bibliography_field_name(name: str) -> str | None:
     """Map a model/IDL alias to the live Fields PropertyValue.Name, or None."""
     raw = (name or "").strip()
-    if not raw:
-        return None
-    if raw in _BIB_FIELD_NAME_SET:
-        return raw
-    folded = raw.replace("-", "_")
-    alias = _BIB_FIELD_ALIASES.get(folded.lower())
-    if alias:
-        return alias
-    # Joining segments turned BOOK_TITLE into BookTitle and REPORT_TYPE into
-    # ReportType. Neither string is the live Fields name.
-    return _BIB_FIELD_FOLDED.get(_bib_name_key(raw))
+    return _BIB_FIELD_FOLDED.get(_bib_name_key(raw)) if raw else None
 
 
 def resolve_bibliographic_type(value: Any) -> int | None:
     """Coerce a type hint to BibliographyDataType (int). None if unused/invalid."""
-    if value is None or value == "":
-        return None
-    if isinstance(value, bool):
+    if value is None or value == "" or isinstance(value, bool):
         return None
     if isinstance(value, int):
-        # Strings already reject "-1" and "22". This branch wrote those ints
-        # straight into Fields["BibiliographicType"].
-        return value if 0 <= value <= _BIB_TYPE_MAX else None
-    text = str(value).strip()
-    if not text:
-        return None
-    if text.isascii() and (text.isdigit() or (text.startswith("-") and text[1:].isdigit())):
-        val = int(text)
-        if 0 <= val <= _BIB_TYPE_MAX:
-            return val
-        return None
-    return _BIB_TYPE_NAMES.get(text.lower().replace(" ", "").replace("-", ""))
+        val = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.isascii() and (text.isdigit() or (text.startswith("-") and text[1:].isdigit())):
+            val = int(text)
+        else:
+            return _BIB_TYPE_NAMES.get(text.lower().replace(" ", "").replace("-", ""))
+    return val if 0 <= val <= _BIB_TYPE_MAX else None
 
 
-def collect_bibliography_field_pairs(kwargs: dict[str, Any]) -> list[tuple[str, Any]]:
-    """Build (Name, Value) pairs for Fields. Later keys override earlier ones."""
+def collect_bibliography_field_pairs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Build {Name: Value} for Fields. Later keys override earlier ones."""
     pairs: dict[str, Any] = {}
     extra = kwargs.get("fields")
     if isinstance(extra, dict):
@@ -213,23 +181,15 @@ def collect_bibliography_field_pairs(kwargs: dict[str, Any]) -> list[tuple[str, 
                 continue
             if canon == "BibiliographicType":
                 resolved = resolve_bibliographic_type(value)
-                if resolved is None:
-                    continue
-                pairs[canon] = resolved
-                continue
-            pairs[canon] = value
+                if resolved is not None:
+                    pairs[canon] = resolved
+            else:
+                pairs[canon] = str(value)
 
-    convenience = (
-        ("identifier", kwargs.get("identifier")),
-        ("author", kwargs.get("author")),
-        ("title", kwargs.get("title")),
-        ("year", kwargs.get("year")),
-        ("pages", kwargs.get("pages")),
-    )
-    for alias, value in convenience:
-        if value is None or value == "":
-            continue
-        pairs[_BIB_FIELD_ALIASES[alias]] = value
+    for name in ("Identifier", "Author", "Title", "Year", "Pages"):
+        value = kwargs.get(name.lower())
+        if value not in (None, ""):
+            pairs[name] = str(value)
 
     type_val = resolve_bibliographic_type(
         kwargs.get("bibliographic_type", kwargs.get("bibiliographic_type"))
@@ -237,21 +197,12 @@ def collect_bibliography_field_pairs(kwargs: dict[str, Any]) -> list[tuple[str, 
     if type_val is not None:
         pairs["BibiliographicType"] = type_val
 
-    if "Identifier" not in pairs or pairs["Identifier"] in (None, ""):
+    if pairs.get("Identifier") in (None, ""):
         text = kwargs.get("text")
         if text not in (None, ""):
-            pairs["Identifier"] = text
+            pairs["Identifier"] = str(text)
 
-    out: list[tuple[str, Any]] = []
-    for name, value in pairs.items():
-        if value is None:
-            continue
-        if name == "BibiliographicType":
-            out.append((name, value))
-            continue
-        # Year and the rest of the bag are strings in SwAuthorityField::QueryValue.
-        out.append((name, str(value)))
-    return out
+    return pairs
 
 
 def fields_sequence_to_dict(raw: Any) -> dict[str, Any]:
@@ -307,7 +258,7 @@ def is_bibliography_text_field(field: Any) -> bool:
     return False
 
 
-def set_bibliography_field_values(field: Any, pairs: list[tuple[str, Any]]) -> None:
+def set_bibliography_field_values(field: Any, pairs: dict[str, Any]) -> None:
     """Write Fields as a typed UNO sequence.
 
     A Python tuple passed to ``setPropertyValue("Fields", …)`` is accepted and
@@ -318,7 +269,7 @@ def set_bibliography_field_values(field: Any, pairs: list[tuple[str, Any]]) -> N
     import uno
 
     uno_any = getattr(uno, "Any")
-    seq = tuple(create_property_value(name, value) for name, value in pairs)
+    seq = tuple(create_property_value(name, value) for name, value in pairs.items())
     typed = uno_any("[]com.sun.star.beans.PropertyValue", cast("Any", seq))
     uno.invoke(field, "setPropertyValue", cast("Any", ("Fields", typed)))
 
@@ -352,13 +303,13 @@ class IndexesUpdateAll(ToolWriterIndexBase):
 def _contained(text: Any, outer: Any, inner: Any) -> bool:
     """True when *inner* lies entirely inside *outer*."""
     # Probes degrade; a disposed document must not read as an empty result.
-    try:
-        start_ok = int(text.compareRegionStarts(outer.getStart(), inner.getStart())) >= 0
-        end_ok = int(text.compareRegionEnds(inner.getEnd(), outer.getEnd())) != -1
-        return start_ok and end_ok
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return False
+    return uno_read(
+        lambda: (
+            int(text.compareRegionStarts(outer.getStart(), inner.getStart())) >= 0
+            and int(text.compareRegionEnds(inner.getEnd(), outer.getEnd())) != -1
+        ),
+        False,
+    )
 
 
 def _set_protected(idx: Any, value: bool) -> None:
@@ -388,8 +339,6 @@ def _entry_before(found: Any, content: str) -> tuple[str, str]:
     except Exception:
         return "", ""
     end = offset + len(matched)
-    if entry[offset:end] != matched:
-        end = min(len(entry), end)
     after = entry[:offset] + content + entry[end:]
     return entry[:160], after[:160]
 
@@ -399,11 +348,7 @@ def _paragraph_string(cursor: Any) -> str:
     if cursor is None:
         return ""
     try:
-        text = cursor.getText()
-        para = text.createTextCursorByRange(cursor.getStart())
-        para.gotoStartOfParagraph(False)
-        para.gotoEndOfParagraph(True)
-        return (para.getString() or "")[:160]
+        return (_select_paragraph(cursor).getString() or "")[:160]
     except Exception:
         return ""
 
@@ -415,51 +360,46 @@ def _enum_has_more(enum: Any) -> bool:
     return is another mock). Same rule as ``hyperlink_fixup._enum_has_more``.
     """
     # Probes degrade; a disposed document must not read as an empty result.
-    try:
-        return enum.hasMoreElements() is True
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return False
+    return uno_read(lambda: enum.hasMoreElements() is True, False)
 
 
-def resolve_toc(doc: Any, index: Any) -> tuple[Any | None, str | None]:
-    """The single TOC, or the TOC at document-index *index*. Error string otherwise."""
+def _resolve_toc_target(
+    tool: Any, doc: Any, index: Any
+) -> tuple[Any, Any, int | None, dict[str, Any] | None]:
     indexes = doc.getDocumentIndexes()
     count = indexes.getCount()
     if index is None:
-        tocs = []
+        found: tuple[int, Any] | None = None
         for i in range(count):
-            idx = indexes.getByIndex(i)
-            if index_kind_from_uno(idx) == "toc":
-                tocs.append(idx)
-        if len(tocs) != 1:
-            return None, "index is required when the document does not have exactly one table of contents."
-        return tocs[0], None
+            item = indexes.getByIndex(i)
+            if index_kind_from_uno(item) == "toc":
+                if found is not None:
+                    return None, None, None, tool._tool_error(
+                        "index is required when the document does not have exactly one table of contents.",
+                        code="INVALID_PARAM",
+                    )
+                found = (i, item)
+        if found is None:
+            return None, None, None, tool._tool_error(
+                "index is required when the document does not have exactly one table of contents.",
+                code="INVALID_PARAM",
+            )
+        pos, idx = found
+        return idx, idx.getAnchor(), pos, None
+
     index_position, index_err = parse_non_negative_int(index, name="index")
     if index_err:
-        return None, index_err
+        return None, None, None, tool._tool_error(index_err, code="INVALID_PARAM")
     assert index_position is not None
     err = index_error(index_position, count, "document index")
     if err:
-        return None, err
+        return None, None, None, tool._tool_error(err, code="INVALID_PARAM")
     idx = indexes.getByIndex(index_position)
     if index_kind_from_uno(idx) != "toc":
-        return None, "index is not a table of contents."
-    return idx, None
-
-
-def _resolve_toc_target(tool: Any, doc: Any, index: Any) -> tuple[Any, Any, dict[str, Any] | None]:
-    idx, err = resolve_toc(doc, index)
-    if err or idx is None:
-        return (
-            None,
-            None,
-            tool._tool_error(
-                err or "Could not find the table of contents.",
-                code="INVALID_PARAM",
-            ),
+        return None, None, None, tool._tool_error(
+            "index is not a table of contents.", code="INVALID_PARAM"
         )
-    return idx, idx.getAnchor(), None
+    return idx, idx.getAnchor(), index_position, None
 
 
 def toc_match(doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple[Any | None, str | None]:
@@ -481,6 +421,18 @@ def toc_match(doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple
     return inside[pick], None
 
 
+def _toc_hit(
+    tool: Any, doc: Any, anchor: Any, old_content: Any, occurrence: Any
+) -> tuple[Any, dict[str, Any] | None]:
+    found, find_error = toc_match(doc, anchor, str(old_content).strip(), occurrence)
+    if find_error or found is None:
+        return None, tool._tool_error(
+            find_error or "No table-of-contents entry contains that text.",
+            code="NOT_FOUND",
+        )
+    return found, None
+
+
 def _commit_toc_mutation(
     tool: Any,
     doc: Any,
@@ -489,10 +441,6 @@ def _commit_toc_mutation(
     *,
     failure_message: str,
     failure_code: str = "TOOL_EXECUTION_ERROR",
-    undo_unavailable_message: str = (
-        "Cannot edit the TOC entry atomically (no usable undo context)."
-    ),
-    manage_protection: bool = True,
 ) -> dict[str, Any] | None:
     """Unprotect one TOC, run *mutate* in one undo context, then protect again.
 
@@ -501,19 +449,13 @@ def _commit_toc_mutation(
     ``IsProtected`` only for the edit, then restoring it, keeps the flag the
     document had. On failure the undo title is undone so neighbors stay put.
     *mutate* returns an error payload to roll back, or None on success.
-
-    ``manage_protection`` is False for ``indexes_create`` target=search. That
-    index is not in the document yet. The helper is only the undo context
-    around the match deletion, ``insertTextContent``, and ``update()``.
     """
     from ..edit_review import next_agent_edit_undo_title
 
-    was_protected = False
-    if manage_protection:
-        # Attribute fallback is for a live index without getPropertyValue.
-        # A disposed index must not be edited.
-        read = uno_read(lambda: bool(idx.getPropertyValue("IsProtected")), None)
-        was_protected = bool(getattr(idx, "IsProtected", False)) if read is None else read
+    # Attribute fallback is for a live index without getPropertyValue.
+    # A disposed index must not be edited.
+    read = uno_read(lambda: bool(idx.getPropertyValue("IsProtected")), None)
+    was_protected = bool(getattr(idx, "IsProtected", False)) if read is None else read
 
     def _wrapped_mutate() -> dict[str, Any] | None:
         if was_protected:
@@ -550,10 +492,25 @@ def _commit_toc_mutation(
         doc,
         undo_title,
         _wrapped_mutate,
-        undo_unavailable_message,
+        "Cannot edit the TOC entry atomically (no usable undo context).",
         failure_message,
         code=failure_code,
     )
+
+
+def _ok(preview: dict[str, Any], dry_run: bool) -> dict[str, Any]:
+    preview["status"] = "ok"
+    preview["dry_run"] = bool(dry_run)
+    return preview
+
+
+def _one_line(text: str, repl: str) -> str:
+    return text.replace("\n", repl).replace("\r", repl)
+
+
+def _copy_hyperlink_report(target: dict[str, Any], report: dict[str, Any]) -> None:
+    for key in ("hyperlink_url", "hyperlink_url_after", "hyperlink_updated"):
+        target[key] = report[key]
 
 
 def _reject_markup(text: str) -> bool:
@@ -687,23 +644,6 @@ def toc_entry_rows(anchor: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def _single_toc_position(doc: Any) -> int | None:
-    """Document-index position of the only TOC. None when it cannot be named."""
-    try:
-        indexes = doc.getDocumentIndexes()
-        count = indexes.getCount()
-    except Exception:
-        return None
-    found = None
-    for i in range(count):
-        if index_kind_from_uno(indexes.getByIndex(i)) != "toc":
-            continue
-        if found is not None:
-            return None
-        found = i
-    return found
-
-
 def _compose_toc_line(content: str, page: str | None, sibling_text: str) -> tuple[str, str, bool]:
     """One TOC line, the page text used, and whether that page came from the sibling.
 
@@ -712,7 +652,7 @@ def _compose_toc_line(content: str, page: str | None, sibling_text: str) -> tupl
     those digits; pass *page* to write that text instead.
     """
     if "\t" in content:
-        _title, explicit = content.rsplit("\t", 1)
+        explicit = content.rsplit("\t", 1)[1]
         return content, explicit, False
     sibling_page = None
     if "\t" in sibling_text:
@@ -854,7 +794,7 @@ def _insert_toc_paragraph(
     return lived if isinstance(lived, str) else new_text
 
 
-def _remove_paragraph(text: Any, para: Any, anchor: Any = None) -> None:
+def _remove_paragraph(text: Any, para: Any, anchor: Any) -> None:
     """Delete *para* including its paragraph break, leaving the next row intact.
 
     Select from this paragraph start to the next paragraph start so the range
@@ -868,7 +808,7 @@ def _remove_paragraph(text: Any, para: Any, anchor: Any = None) -> None:
     sel.gotoStartOfParagraph(False)
     nxt = text.createTextCursorByRange(sel.getStart())
     if nxt.gotoNextParagraph(False) is True:
-        if anchor is None or _contained(text, anchor, nxt):
+        if _contained(text, anchor, nxt):
             nxt.gotoStartOfParagraph(False)
             sel.gotoRange(nxt.getStart(), True)
             sel.setString("")
@@ -917,8 +857,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         content: str = kwargs["content"]
         if not old_content.strip():
             return self._tool_error("old_content must be a non-empty string.", code="INVALID_PARAM")
-        if "\n" in content or "\r" in content:
-            content = content.replace("\n", " ").replace("\r", " ")
+        content = _one_line(content, " ")
         if _reject_markup(content):
             return self._tool_error(
                 "indexes_refresh_toc_entry takes plain text so the entry's formatting stays.",
@@ -928,26 +867,22 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         if raw_url is not None:
             if not raw_url.strip():
                 return self._tool_error("hyperlink_url must be a non-empty string.", code="INVALID_PARAM")
-            override = raw_url
-            if "\n" in override or "\r" in override:
-                override = override.replace("\n", "").replace("\r", "")
+            override = _one_line(raw_url, "")
         occurrence, occurrence_error = parse_non_negative_int(kwargs.get("occurrence"))
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
-        idx, anchor, err = _resolve_toc_target(self, doc, kwargs.get("index"))
+        idx, anchor, _pos, err = _resolve_toc_target(self, doc, kwargs.get("index"))
         if err is not None:
             return err
-        found, find_error = toc_match(doc, anchor, str(old_content).strip(), occurrence)
-        if find_error:
-            return self._tool_error(find_error, code="NOT_FOUND")
+        found, err = _toc_hit(self, doc, anchor, old_content, occurrence)
+        if err is not None:
+            return err
         preview, preview_error = self._preview(found, content, override)
         if preview_error or preview is None:
             return preview_error or self._tool_error(
                 "Could not preview the TOC entry.", code="TOOL_EXECUTION_ERROR")
         if kwargs.get("dry_run"):
-            preview["status"] = "ok"
-            preview["dry_run"] = True
-            return preview
+            return _ok(preview, True)
         return self._write(ctx, doc, idx, found, content, override, preview)
 
     def _preview(self, found: Any, content: str, override: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -968,9 +903,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         before, after = _entry_before(found, content)
         preview: dict[str, Any] = {"text": before, "text_after": after}
         if len(reports) == 1:
-            preview["hyperlink_url"] = reports[0]["hyperlink_url"]
-            preview["hyperlink_url_after"] = reports[0]["hyperlink_url_after"]
-            preview["hyperlink_updated"] = reports[0]["hyperlink_updated"]
+            _copy_hyperlink_report(preview, reports[0])
         elif reports:
             preview["hyperlinks"] = reports
         return preview, None
@@ -999,9 +932,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             if snapshot.links or snapshot.preserve_url:
                 reports = restore_outline_hyperlinks(point, snapshot, content, override)
                 if len(reports) == 1:
-                    preview["hyperlink_url"] = reports[0]["hyperlink_url"]
-                    preview["hyperlink_url_after"] = reports[0]["hyperlink_url_after"]
-                    preview["hyperlink_updated"] = reports[0]["hyperlink_updated"]
+                    _copy_hyperlink_report(preview, reports[0])
             return None
 
         error = _commit_toc_mutation(
@@ -1014,9 +945,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         )
         if error is not None:
             return error
-        preview["status"] = "ok"
-        preview["dry_run"] = False
-        return preview
+        return _ok(preview, False)
 
 
 class IndexesDeleteTocEntry(ToolWriterIndexBase):
@@ -1053,21 +982,19 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
         occurrence, occurrence_error = parse_non_negative_int(kwargs.get("occurrence"))
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
-        idx, anchor, err = _resolve_toc_target(self, doc, kwargs.get("index"))
+        idx, anchor, _pos, err = _resolve_toc_target(self, doc, kwargs.get("index"))
         if err is not None:
             return err
-        found, find_error = toc_match(doc, anchor, str(old_content).strip(), occurrence)
-        if find_error or found is None:
-            return self._tool_error(find_error or "No table-of-contents entry contains that text.", code="NOT_FOUND")
+        found, err = _toc_hit(self, doc, anchor, old_content, occurrence)
+        if err is not None:
+            return err
         para = _paragraph_element(found)
         if para is None:
             return self._tool_error("Could not read the TOC entry.", code="TOOL_EXECUTION_ERROR")
         entry = _entry_text(para)[:160]
         preview: dict[str, Any] = {"text": entry, "text_after": ""}
         if kwargs.get("dry_run"):
-            preview["status"] = "ok"
-            preview["dry_run"] = True
-            return preview
+            return _ok(preview, True)
 
         def mutate() -> dict[str, Any] | None:
             _remove_paragraph(anchor.getText(), para, anchor)
@@ -1082,9 +1009,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
         )
         if error is not None:
             return error
-        preview["status"] = "ok"
-        preview["dry_run"] = False
-        return preview
+        return _ok(preview, False)
 
 
 class IndexesInsertTocEntry(ToolWriterIndexBase):
@@ -1127,9 +1052,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         content: str = kwargs["content"]
         if not content.strip():
             return self._tool_error("content must be a non-empty string.", code="INVALID_PARAM")
-        content = content.strip()
-        if "\n" in content or "\r" in content:
-            content = content.replace("\n", " ").replace("\r", " ")
+        content = _one_line(content.strip(), " ")
         if _reject_markup(content):
             return self._tool_error(
                 "indexes_insert_toc_entry takes plain text so the new entry's formatting can be cloned.",
@@ -1137,8 +1060,8 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         page, page_error = self._page_text(kwargs.get("page"))
         if page_error:
             return self._tool_error(page_error, code="INVALID_PARAM")
-        if page is not None and ("\n" in page or "\r" in page):
-            page = page.replace("\n", " ").replace("\r", " ")
+        if page is not None:
+            page = _one_line(page, " ")
         if page is not None and _reject_markup(page):
             return self._tool_error("page must be plain text.", code="INVALID_PARAM")
         if page is not None and "\t" in content:
@@ -1148,8 +1071,8 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         url, url_error = self._outline_url(kwargs.get("hyperlink_url"))
         if url_error:
             return self._tool_error(url_error, code="INVALID_PARAM")
-        if url is not None and ("\n" in url or "\r" in url):
-            url = url.replace("\n", "").replace("\r", "")
+        if url is not None:
+            url = _one_line(url, "")
         # schema enum. Omitted position defaults to end.
         position = kwargs.get("position") or "end"
         old_content = kwargs.get("old_content")
@@ -1177,17 +1100,16 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         level, level_error = self._level(kwargs.get("level"))
         if level_error:
             return self._tool_error(level_error, code="INVALID_PARAM")
-        idx, anchor, err = _resolve_toc_target(self, doc, kwargs.get("index"))
+        idx, anchor, _pos, err = _resolve_toc_target(self, doc, kwargs.get("index"))
         if err is not None:
             return err
         paragraphs = _paragraphs_in_anchor(anchor)
         if position == "end":
             ref = self._end_anchor(paragraphs)
         else:
-            found, find_error = toc_match(doc, anchor, str(old_content).strip(), occurrence)
-            if find_error or found is None:
-                return self._tool_error(
-                    find_error or "No table-of-contents entry contains that text.", code="NOT_FOUND")
+            found, err = _toc_hit(self, doc, anchor, old_content, occurrence)
+            if err is not None:
+                return err
             ref = _paragraph_element(found)
         if ref is None:
             return self._tool_error(
@@ -1200,11 +1122,12 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                 code="INVALID_PARAM")
         sibling_text = _entry_text(ref)
         line, page_used, page_from_sibling = _compose_toc_line(content, page, sibling_text)
-        copy_tabs = level is None and _is_contents_level_style(_para_style_name(ref))
+        ref_is_contents = _is_contents_level_style(_para_style_name(ref))
+        copy_tabs = level is None and ref_is_contents
         # Snapshot before the edit. The sibling paragraph object is not stable
         # once a row is inserted beside it.
         tab_stops = _snapshot_tab_stops(ref) if copy_tabs else None
-        char_props = _char_props(ref) if _is_contents_level_style(_para_style_name(ref)) else {}
+        char_props = _char_props(ref) if ref_is_contents else {}
         where = "after" if position == "end" else position
         preview: dict[str, Any] = {
             "text": sibling_text[:160],
@@ -1217,9 +1140,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if url:
             preview["hyperlink_url"] = url
         if kwargs.get("dry_run"):
-            preview["status"] = "ok"
-            preview["dry_run"] = True
-            return preview
+            return _ok(preview, True)
 
         def mutate() -> dict[str, Any] | None:
             lived = _insert_toc_paragraph(
@@ -1237,9 +1158,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         )
         if error is not None:
             return error
-        preview["status"] = "ok"
-        preview["dry_run"] = False
-        return preview
+        return _ok(preview, False)
 
     def _page_text(self, raw: Any) -> tuple[str | None, str | None]:
         if raw is None:
@@ -1362,14 +1281,10 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         # customized formatting).
         doc = ctx.doc
         index = kwargs.get("index")
-        _unused_idx, anchor, err = _resolve_toc_target(self, doc, index)
+        _unused_idx, anchor, position, err = _resolve_toc_target(self, doc, index)
         if err is not None:
             return err
         entries = toc_entry_rows(anchor)
-        if isinstance(index, int) and not isinstance(index, bool):
-            position: int | None = index
-        else:
-            position = _single_toc_position(doc)
         return {
             "status": "ok",
             "index": position,
@@ -1470,33 +1385,30 @@ class IndexesCreate(ToolWriterIndexBase):
         except ValueError as ve:
             return self._tool_error(str(ve))
 
-        if target == "search" and old_content:
-            # The undo helper rolls deletion back if insert or update fails.
-            def mutate() -> dict[str, Any] | None:
+        def mutate() -> dict[str, Any] | None:
+            if target == "search" and old_content:
                 cursor.setString("")
-                text = cursor.getText()
-                text.insertTextContent(cursor, index, False)
-                index.update()
-                return None
+            text = cursor.getText()
+            text.insertTextContent(cursor, index, False)
+            index.update()
+            return None
 
-            error = _commit_toc_mutation(
+        if target == "search" and old_content:
+            from ..edit_review import next_agent_edit_undo_title
+            from plugin.doc.undo import commit_or_rollback_mutation
+
+            error = commit_or_rollback_mutation(
                 self,
                 doc,
-                index,
+                next_agent_edit_undo_title(),
                 mutate,
-                failure_message="Failed to create index; the change was rolled back",
-                undo_unavailable_message=(
-                    "Cannot replace the matched text atomically (no usable undo context)."
-                ),
-                manage_protection=False,
+                "Cannot replace the matched text atomically (no usable undo context).",
+                "Failed to create index; the change was rolled back",
             )
             if error is not None:
                 return error
         else:
-            # execute_safe reports insert and update failures.
-            text = cursor.getText()
-            text.insertTextContent(cursor, index, False)
-            index.update()
+            mutate()
 
         return {"status": "ok", "message": f"Created '{index_kind}' index successfully", "title": title}
 
@@ -1579,11 +1491,7 @@ class IndexesAddMark(ToolWriterIndexBase):
     def _insert_bibliography_cite(self, doc: Any, cursor: Any, kwargs: Any) -> dict[str, Any]:
         unused_reserved = [key for key in _IGNORED_CITE_KWARGS if kwargs.get(key) not in (None, "")]
         pairs = collect_bibliography_field_pairs(kwargs)
-        identifier = ""
-        for name, value in pairs:
-            if name == "Identifier":
-                identifier = str(value)
-                break
+        identifier = str(pairs.get("Identifier") or "")
         if not identifier:
             return self._tool_error(
                 "Bibliography cite needs identifier or text (used as Identifier)."
@@ -1602,7 +1510,7 @@ class IndexesAddMark(ToolWriterIndexBase):
             "message": "Added bibliography cite '%s'" % identifier,
             "kind": "bibliography",
             "identifier": identifier,
-            "fields": {name: value for name, value in pairs},
+            "fields": dict(pairs),
         }
         if unused_reserved:
             payload["ignored"] = unused_reserved
