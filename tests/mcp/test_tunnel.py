@@ -1582,7 +1582,7 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     bound.port = 18765
     monkeypatch.setattr(mcp_mod, "_shared_http_server", bound)
     tunnel = TunnelManager()
-    mod._tunnel = tunnel
+    monkeypatch.setattr(mcp_mod, "_shared_tunnel", tunnel)
 
     caller = threading.current_thread()
     probed = threading.Event()

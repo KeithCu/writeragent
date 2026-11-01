@@ -216,9 +216,9 @@ def test_mcp_action_server_status_dialog_controls():
 
     mock_dlg.getControl.side_effect = lambda name: mock_controls.get(name)
 
-    mod._tunnel = mock_tunnel
     with (
         patch("plugin.mcp._shared_http_server", mock_server),
+        patch("plugin.mcp._shared_tunnel", mock_tunnel),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=mock_dlg),
     ):
@@ -237,7 +237,7 @@ def test_mcp_action_toggle_server_start_does_not_popup_modal_msgbox():
     from plugin.mcp import McpModule
 
     mod = McpModule()
-    mod._mcp_routes_registered = True
+    mod._registry = MagicMock()
     mock_server = MagicMock()
     mock_server.is_running.return_value = True
 
@@ -268,7 +268,6 @@ def test_mcp_action_toggle_server_stop_does_not_popup_modal_msgbox():
     from plugin.mcp import McpModule
 
     mod = McpModule()
-    mod._mcp_routes_registered = True
     mock_server = MagicMock()
     mock_server.is_running.return_value = True
 
@@ -293,7 +292,7 @@ def test_mcp_action_toggle_server_failure_shows_failure_dialog():
     from plugin.mcp import McpModule
 
     mod = McpModule()
-    mod._mcp_routes_registered = True
+    mod._registry = MagicMock()
     mock_cfg = MagicMock()
     mock_cfg.get.side_effect = lambda k, default=None: {
         "mcp_enabled": True,
