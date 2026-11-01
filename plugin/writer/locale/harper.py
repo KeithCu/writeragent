@@ -37,7 +37,6 @@ from plugin.writer.locale.grammar_ignore_rules import HARPER_RULE_PREFIX, make_r
 log = logging.getLogger("writeragent.grammar")
 
 _JSONRPC = "2.0"
-_INIT_PARAMS: dict[str, Any] = {"rootUri": "file:///tmp", "capabilities": {"textDocument": {"publishDiagnostics": {"relatedInformation": False}, "codeAction": {"dynamicRegistration": False, "codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix"]}}}}}}
 
 _LINT_BUDGET_SEC = 15.0
 _INIT_BUDGET_SEC = 5.0
@@ -190,11 +189,25 @@ class HarperLSClient:
             self.stdout_thread = threading.Thread(target=self._read_loop, args=(out_queue, managed.popen.stdout), daemon=True)  # nosemgrep: raw-uno-thread-ban
             self.stdout_thread.start()
 
-            init_params = dict(_INIT_PARAMS)
-            init_params["processId"] = os.getpid()
             deadline = time.monotonic() + _INIT_BUDGET_SEC
             _emit_progress(self._heartbeat_fn, "Initializing Harper LSP…")
-            self._send_request("initialize", init_params, deadline=deadline)
+            self._send_request(
+                "initialize",
+                {
+                    "processId": os.getpid(),
+                    "rootUri": "file:///tmp",
+                    "capabilities": {
+                        "textDocument": {
+                            "publishDiagnostics": {"relatedInformation": False},
+                            "codeAction": {
+                                "dynamicRegistration": False,
+                                "codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix"]}},
+                            },
+                        },
+                    },
+                },
+                deadline=deadline,
+            )
             self._write(_lsp_notification("initialized", {}))
         except Exception as e:
             self.close()

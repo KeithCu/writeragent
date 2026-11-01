@@ -808,7 +808,7 @@ def test_fetch_latest_release_asset_uses_github_api(tmp_path: Path) -> None:
     with patch("plugin.writer.locale.harper_binary._github_api_request", return_value=api_payload), \
          patch("plugin.writer.locale.harper_binary.platform.system", return_value="Linux"), \
          patch("plugin.writer.locale.harper_binary.platform.machine", return_value="x86_64"):
-        release = _fetch_latest_release_asset("linux", "x86_64", tmp_path / "harper")
+        release = _fetch_latest_release_asset(tmp_path / "harper")
 
     assert release.version == "2.7.0"
     assert release.sha256 == "abc123"
@@ -898,9 +898,11 @@ def test_read_persisted_release_malformed_json_is_cache_miss(tmp_path: Path, pay
 def test_fetch_latest_release_asset_logs_error_when_asset_missing(mock_log: MagicMock, tmp_path: Path) -> None:
     api_payload = {"tag_name": "v2.7.0", "assets": []}
 
-    with patch("plugin.writer.locale.harper_binary._github_api_request", return_value=api_payload):
+    with patch("plugin.writer.locale.harper_binary._github_api_request", return_value=api_payload), \
+         patch("plugin.writer.locale.harper_binary.platform.system", return_value="Linux"), \
+         patch("plugin.writer.locale.harper_binary.platform.machine", return_value="x86_64"):
         with pytest.raises(RuntimeError, match="not found in latest release"):
-            _fetch_latest_release_asset("linux", "x86_64", tmp_path / "harper")
+            _fetch_latest_release_asset(tmp_path / "harper")
 
     mock_log.error.assert_called()
     assert "not found" in mock_log.error.call_args[0][1]
@@ -909,9 +911,11 @@ def test_fetch_latest_release_asset_logs_error_when_asset_missing(mock_log: Magi
 @patch("plugin.writer.locale.harper_binary.log")
 def test_fetch_latest_release_asset_logs_github_api_failure(mock_log: MagicMock, tmp_path: Path) -> None:
 
-    with patch("plugin.writer.locale.harper_binary._github_api_request", side_effect=OSError("network down")):
+    with patch("plugin.writer.locale.harper_binary._github_api_request", side_effect=OSError("network down")), \
+         patch("plugin.writer.locale.harper_binary.platform.system", return_value="Linux"), \
+         patch("plugin.writer.locale.harper_binary.platform.machine", return_value="x86_64"):
         with pytest.raises(RuntimeError, match="Harper releases API request failed"):
-            _fetch_latest_release_asset("linux", "x86_64", tmp_path / "harper")
+            _fetch_latest_release_asset(tmp_path / "harper")
 
     mock_log.exception.assert_called()
     assert "GitHub releases API request failed" in mock_log.exception.call_args[0][0]

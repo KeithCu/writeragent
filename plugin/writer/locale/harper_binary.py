@@ -125,9 +125,9 @@ def _write_persisted_release(harper_dir: Path, release: HarperReleaseAsset) -> N
     atomic_write_text(str(harper_dir / _RELEASE_CACHE_FILENAME), json.dumps(payload))
 
 
-def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> HarperReleaseAsset:
+def _fetch_latest_release_asset(harper_dir: Path, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> HarperReleaseAsset:
     """Resolve the latest harper-ls asset for this platform (checked at most once per week)."""
-    asset_name = _resolve_harper_asset(system, machine)
+    asset_name = _resolve_harper_asset(platform.system().lower(), platform.machine().lower())
 
     persisted = _read_persisted_release(harper_dir, asset_name)
     if persisted is not None:
@@ -265,9 +265,7 @@ def _get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str
     suffix = ".exe" if os.name == "nt" else ""
     binary_path = harper_dir / f"harper-ls{suffix}"
 
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    release = _fetch_latest_release_asset(system, machine, harper_dir, heartbeat_fn=heartbeat_fn)
+    release = _fetch_latest_release_asset(harper_dir, heartbeat_fn=heartbeat_fn)
     installed = _read_installed_version(harper_dir)
 
     if not binary_path.exists() or installed != release.version:
