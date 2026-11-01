@@ -83,16 +83,26 @@ class SmolToolAdapter(SmolTool):
     _inner_tool: ToolBase
     _inner_tctx: ToolContext
     _safe: bool
+    _on_result: Callable[[str, Any], None] | None
     name: str
     description: str
     is_final_answer_tool: bool
     inputs: dict[str, dict[str, str | type | bool]]
     output_type: str
 
-    def __init__(self, tool: ToolBase, tctx: ToolContext, *, safe: bool = False, inputs_style: SmolInputsStyle = "librarian") -> None:
+    def __init__(
+        self,
+        tool: ToolBase,
+        tctx: ToolContext,
+        *,
+        safe: bool = False,
+        inputs_style: SmolInputsStyle = "librarian",
+        on_result: Callable[[str, Any], None] | None = None,
+    ) -> None:
         self._inner_tool = tool
         self._inner_tctx = tctx
         self._safe = safe
+        self._on_result = on_result
         self.name = cast("str", tool.name or "")
         # ToolBaseDummy subclasses (e.g. AnalyzeDataTool) define description as a bare attribute
         # without get_description() or is_final_answer_tool; support them gracefully.
@@ -124,31 +134,37 @@ class SmolToolAdapter(SmolTool):
         # (e.g. position='start') ran the tool instead of returning the valid-value error.
         prepared = prepare_tool_call(tool, ctx, tool.name or self.name, kwargs)
         if prepared.error is not None:
-            return prepared.error
-        kwargs = prepared.kwargs
-
-        # Refuse before dispatch with the same flag, detects_mutation(), and
-        # READ_ONLY_TARGET payload as ToolRegistry.execute. forward used to
-        # call ToolBase.execute and skip that check, so a mutating tool ran
-        # on a read_only_target context. The field is a bool, so only an
-        # explicit True counts.
-        if getattr(ctx, "read_only_target", False) is True and tool.detects_mutation():
-            return make_tool_error("This document is open for read-only document_research access; writes are not allowed.", code="READ_ONLY_TARGET", **prepared.details)
-
-        if tool.is_async():
-            _spec_log.debug("SmolToolAdapter executing async tool '%s' on worker", self.name)
-            result = (tool.execute_safe if self._safe else tool.execute)(ctx, **kwargs)
+            result = prepared.error
+        elif getattr(ctx, "read_only_target", False) is True and tool.detects_mutation():
+            # Refuse before dispatch with the same flag, detects_mutation(), and
+            # READ_ONLY_TARGET payload as ToolRegistry.execute. forward used to
+            # call ToolBase.execute and skip that check, so a mutating tool ran
+            # on a read_only_target context. The field is a bool, so only an
+            # explicit True counts.
+            result = make_tool_error(
+                "This document is open for read-only document_research access; writes are not allowed.",
+                code="READ_ONLY_TARGET",
+                **prepared.details,
+            )
         else:
-            from plugin.framework.queue_executor import execute_on_main_thread
+            kwargs = prepared.kwargs
+            if tool.is_async():
+                _spec_log.debug("SmolToolAdapter executing async tool '%s' on worker", self.name)
+                result = (tool.execute_safe if self._safe else tool.execute)(ctx, **kwargs)
+            else:
+                from plugin.framework.queue_executor import execute_on_main_thread
 
-            # Note: Even tools that do not strictly require UNO (like Librarian's MemoryTool)
-            # are marshalled to the main thread here if they are sync.
-            # This sync-default policy is intentional and the extra hop is acceptable.
-            _spec_log.debug("SmolToolAdapter executing sync tool '%s' on main thread", self.name)
-            result = execute_on_main_thread(tool.execute_safe if self._safe else tool.execute, ctx, **kwargs)
-        # Like ToolRegistry.execute: say which arguments were dropped instead of ignoring them silently.
-        if prepared.ignored and isinstance(result, dict):
-            result.setdefault("ignored_parameters", prepared.ignored)
+                # Note: Even tools that do not strictly require UNO (like Librarian's MemoryTool)
+                # are marshalled to the main thread here if they are sync.
+                # This sync-default policy is intentional and the extra hop is acceptable.
+                _spec_log.debug("SmolToolAdapter executing sync tool '%s' on main thread", self.name)
+                result = execute_on_main_thread(tool.execute_safe if self._safe else tool.execute, ctx, **kwargs)
+            # Like ToolRegistry.execute: say which arguments were dropped instead of ignoring them silently.
+            if prepared.ignored and isinstance(result, dict):
+                result.setdefault("ignored_parameters", prepared.ignored)
+
+        if self._on_result is not None:
+            self._on_result(self.name or "", result)
         return result
 
 
@@ -291,14 +307,11 @@ class SmolAgentExecutor:
                 elif isinstance(step, ActionStep):
                     if self.ctx.append_thinking_callback:
                         msg = f"Step {step.step_number}:\n"
-                        if step.model_output:
-                            mo = step.model_output
-                            msg += f"{str(mo).strip()}\n"
-                        else:
-                            mom = step.model_output_message
-                            if mom is not None and mom.content:
-                                mc = mom.content
-                                msg += f"{str(mc).strip()}\n"
+                        text = step.model_output
+                        if not text and step.model_output_message is not None:
+                            text = step.model_output_message.content
+                        if text:
+                            msg += f"{str(text).strip()}\n"
 
                         if step.observations:
                             msg += f"Observation: {str(step.observations).strip()}\n"
@@ -357,21 +370,18 @@ def create_smol_model(
     max_tokens: int | None = None,
     status_callback: object | None = None,
     stop_checker: Callable[[], bool] | None = None,
-    cancellation_scope: Any | None = None,
 ) -> WriterAgentSmolModel:
     """Construct a WriterAgentSmolModel with configured client, max tokens, and callbacks."""
     if max_tokens is None:
         max_tokens = get_config_int("chat_max_tokens")
     if stop_checker is None and ctx is not None:
         stop_checker = ctx.stop_checker
-    if cancellation_scope is None and ctx is not None:
-        cancellation_scope = ctx.send_cancellation
     if status_callback is None and ctx is not None:
         status_callback = ctx.status_callback
     if client is None:
         uno_ctx = ctx.ctx if ctx is not None else None
         config = get_api_config()
-        client = LlmClient(config, uno_ctx, cancellation_scope=cancellation_scope)
+        client = LlmClient(config, uno_ctx, cancellation_scope=ctx.send_cancellation if ctx is not None else None)
     return WriterAgentSmolModel(
         client,
         max_tokens=max_tokens,
@@ -479,17 +489,11 @@ def run_smol_side_turn(
 
         reply_tool = StickyReplyToUserTool(reply_spec)
 
-    class _ObservedSmolToolAdapter(SmolToolAdapter):
-        def forward(self, *args: Any, **kwargs: Any) -> Any:
-            result = super().forward(*args, **kwargs)
-            assert reply_tool is not None
-            reply_tool.record_tool_result(self.name or "", result)
-            return result
-
     collector_tools = collector(ctx)
-    adapter_cls = _ObservedSmolToolAdapter if reply_tool is not None else SmolToolAdapter
+    on_result = reply_tool.record_tool_result if reply_tool is not None else None
     smol_tools: list[SmolTool] = [
-        adapter_cls(t, ctx, safe=collector_safe, inputs_style=inputs_style) for t in collector_tools
+        SmolToolAdapter(t, ctx, safe=collector_safe, inputs_style=inputs_style, on_result=on_result)
+        for t in collector_tools
     ]
 
     if reply_tool is not None:
