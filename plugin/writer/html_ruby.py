@@ -15,12 +15,9 @@ from typing import Any, Iterator, NamedTuple
 
 from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
-from plugin.writer.html_export import _iter_xtext_paragraphs
 import plugin.writer.range_copy as range_copy
 
 log = logging.getLogger("writeragent.writer")
-# uno_read default where None is a real UNO result.
-_FAILED: Any = object()
 
 # StarWriter HTML import has no ruby rule: <ruby>漢字<rt>かんじ</rt></ruby> becomes
 # concatenated body text. Strip <rt> before import, then set RubyText on the base.
@@ -171,8 +168,8 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
     ``Text`` run; the end mark is empty. ``getString()`` on the paragraph is
     base only — reading is not a text field.
     """
-    portion_enum = uno_read(lambda: para.createEnumeration(), _FAILED)
-    if portion_enum is _FAILED:
+    portion_enum = uno_read(lambda: para.createEnumeration(), range_copy._FAILED)
+    if portion_enum is range_copy._FAILED:
         return
     in_delete = False
     in_ruby = False
@@ -208,9 +205,6 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
                 if base and reading:
                     yield _RubySpan(base, reading, base_start, base_start + len(base), is_above)
                 in_ruby = False
-                reading = ""
-                is_above = True
-                base_parts = []
             continue
         chunk = uno_read(lambda: portion.getString() or "", "")
         if not chunk:
@@ -223,18 +217,18 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
 
 def iter_ruby_spans(text_obj: Any) -> Iterator[_RubySpan]:
     """Document-order ruby pairs under *text_obj* (body or cell), including tables."""
-    for para in _iter_xtext_paragraphs(text_obj):
+    for para in range_copy._iter_xtext_paragraphs(text_obj):
         yield from _iter_ruby_spans_in_paragraph(para)
 
 
 
 def _ruby_spans_in_window(para: Any, trim_start: int, trim_end: int) -> list[_RubySpan]:
     """Ruby pairs whose entire base lies inside the copied visible-text window."""
-    out = []
-    for span in _iter_ruby_spans_in_paragraph(para):
-        if span.start >= trim_start and span.end <= trim_end:
-            out.append(span)
-    return out
+    return [
+        span
+        for span in _iter_ruby_spans_in_paragraph(para)
+        if span.start >= trim_start and span.end <= trim_end
+    ]
 
 
 
@@ -349,7 +343,7 @@ def _ruby_skip(text_obj: Any, cursor: Any, spans: list[Any]) -> int:
     Building the prefix cursor and calling ``getString()`` reads the entire
     text before the insert point, which is wasted when there is no ruby.
     """
-    if not spans or text_obj is None or cursor is None:
+    if not spans:
         return 0
     return range_copy._prefix_char_count(text_obj, cursor)
 
@@ -376,7 +370,7 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
     origin, haystack = got
     # skip_chars is the imported suffix. Offsets from extract_and_strip_ruby
     # are relative to that suffix, not to earlier document text.
-    anchor = skip_chars if skip_chars > 0 else 0
+    anchor = skip_chars
     pos = anchor
 
     cur: Any = None
@@ -391,7 +385,7 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
         # The span's fourth item is the base's visible-text offset, so a repeated
         # base (漢字 … <ruby>漢字</ruby>) gets the reading on the right copy.
         offset = item[3]
-        target_offset = (anchor + offset) if offset is not None and offset >= 0 else None
+        target_offset = anchor + offset
 
         idx = -1
         if target_offset is not None and target_offset >= pos and target_offset + len(base) <= len(haystack) and haystack[target_offset : target_offset + len(base)] == base:

@@ -36,16 +36,11 @@ from plugin.writer.math.math_mml_export import (
     portion_math_embed,
     substitute_math_placeholders,
 )
+from . import html_ruby
 from . import range_copy
 from . import xhtml_style_postprocess as xhtml_post
 
 log = logging.getLogger("writeragent.writer")
-# uno_read default where None is a real UNO result.
-_FAILED: Any = object()
-
-
-# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-_PARAGRAPH_BREAK = 0
 
 _DATA_URI_IMAGE_RE = re.compile(
     r"data:image/[^\"'\s);>]+;base64,[A-Za-z0-9+/=\s]+",
@@ -90,37 +85,6 @@ def _apply_image_export_options(content: str, *, include_images: bool) -> str:
     return content if include_images else strip_embedded_image_data(content)
 
 
-def _iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
-    """Yield paragraphs under *text_obj*, descending into table cells."""
-    enum = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
-    if enum is _FAILED:
-        return
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
-        if range_copy._supports_service(el, "com.sun.star.text.TextTable"):
-            try:
-                names = el.getCellNames() or ()
-            except Exception as exc:
-                log.debug("_iter_xtext_paragraphs: getCellNames failed: %s", exc)
-                continue
-            for name in names:
-                try:
-                    cell = el.getCellByName(name)
-                except Exception as exc:
-                    log.debug("_iter_xtext_paragraphs: getCellByName failed: %s", exc)
-                    continue
-                yield from _iter_xtext_paragraphs(cell)
-            continue
-        if hasattr(el, "createEnumeration"):
-            yield el
-
-
-from . import html_ruby
-
-
 def _truncate_html(content: str, max_chars: int) -> str:
     """Cut *content* to *max_chars* without ending inside a tag or an entity.
 
@@ -139,15 +103,24 @@ def _truncate_html(content: str, max_chars: int) -> str:
     return window + "\n\n[... truncated ...]"
 
 
+def _read_filter_text(doc: Any, filter_name: str, ext: str | None = None) -> str:
+    from . import format as format_mod
+    with format_mod._with_temp_buffer(ext=ext) as (path, file_url):
+        props = (format_mod.create_property_value("FilterName", filter_name),)
+        doc.storeToURL(file_url, props)
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+
+
+def _export_starwriter_html(doc: Any) -> str:
+    from . import format as format_mod
+    return format_mod._strip_html_boilerplate(_read_filter_text(doc, format_mod.HTML_FILTER))
+
 
 def _export_xhtml(doc: Any) -> str:
     """Export *doc* via the XHTML Writer File filter; return the raw XHTML string."""
     from . import format as format_mod
-    with format_mod._with_temp_buffer(ext=format_mod.XHTML_EXTENSION) as (path, file_url):
-        props = (format_mod.create_property_value("FilterName", format_mod.XHTML_FILTER),)
-        doc.storeToURL(file_url, props)
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return f.read()
+    return _read_filter_text(doc, format_mod.XHTML_FILTER, ext=format_mod.XHTML_EXTENSION)
 
 
 
@@ -168,11 +141,7 @@ def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | No
     onto the temp document first (see _paint_direct_formatting)."""
     def read_maps() -> tuple[dict[str, str], dict[str, str], bool | None]:
         from . import format as format_mod
-        with format_mod._with_temp_buffer(ext=format_mod.FODT_EXTENSION) as (path, file_url):
-            props = (format_mod.create_property_value("FilterName", format_mod.FLAT_ODF_FILTER),)
-            doc.storeToURL(file_url, props)
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                fodt = f.read()
+        fodt = _read_filter_text(doc, format_mod.FLAT_ODF_FILTER, ext=format_mod.FODT_EXTENSION)
         parents, overrides = xhtml_post._parse_fodt_autostyles(fodt)
         return (parents, overrides, "<text:ruby" in fodt)
 
@@ -421,7 +390,7 @@ def _range_to_content_via_temp_doc(
                 first_para = False
             else:
                 temp_cursor.gotoEnd(False)
-                temp_text.insertControlCharacter(temp_cursor, _PARAGRAPH_BREAK, False)
+                temp_text.insertControlCharacter(temp_cursor, range_copy._PARAGRAPH_BREAK, False)
                 # After insertControlCharacter the cursor is still before the break, not in the
                 # new paragraph. Move into it before setting style/content, otherwise setString
                 # clobbers the previous paragraph instead of filling the new one.
@@ -461,12 +430,7 @@ def _range_to_content_via_temp_doc(
                         slice_text = chunk[s_start:s_end]
                     if not slice_text:
                         continue
-                    start_pos = temp_cursor.getStart()
-                    temp_text.insertString(temp_cursor, slice_text, False)
-                    run = temp_text.createTextCursorByRange(start_pos)
-                    run.gotoRange(temp_cursor.getEnd(), True)
-                    range_copy._copy_properties(p, run, range_copy._COPIED_CHAR_PROPERTIES)
-                    temp_cursor.gotoRange(run.getEnd(), False)
+                    range_copy._copy_text_run(p, temp_text, temp_cursor, slice_text)
 
             copied_urls.extend(_hyperlink_urls(portions, trim_start, trim_end))
             # RubyText lives on the empty Ruby start mark, not the Text run, so
@@ -489,14 +453,7 @@ def _range_to_content_via_temp_doc(
             # A closed document must not start a second export.
             reraise_if_disposed(e)
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
-            from . import format as format_mod
-            filter_name = format_mod.HTML_FILTER
-            with format_mod._with_temp_buffer() as (path, file_url):
-                props = (format_mod.create_property_value("FilterName", filter_name),)
-                temp_doc.storeToURL(file_url, props)
-                with open(path, "r", encoding="utf-8", errors="replace") as f:
-                    content = f.read()
-            content = format_mod._strip_html_boilerplate(content)
+            content = _export_starwriter_html(temp_doc)
         content = _restore_anchor_hrefs(content, copied_urls)
         content = _apply_image_export_options(content, include_images=include_images)
         content = substitute_math_placeholders(content, math_records, ctx)
@@ -631,30 +588,23 @@ def document_to_content(
     # Fallback: legacy StarWriter export (so reads never hard-fail).
     try:
         t_phase = time.perf_counter()
-        from . import format as format_mod
-        filter_name = format_mod.HTML_FILTER
-        with format_mod._with_temp_buffer() as (path, file_url):
-            props = (format_mod.create_property_value("FilterName", filter_name),)
-            model.storeToURL(file_url, props)
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
-            content = format_mod._strip_html_boilerplate(content)
-            content = _apply_image_export_options(content, include_images=include_images)
-            content = inject_exported_math_tex(model, ctx, content)
-            content = html_ruby._inject_ruby_from_model(model, content, None)
-            _raise_if_empty_export(model, content, "the HTML export came back empty")
-            if max_chars and len(content) > max_chars:
-                content = _truncate_html(content, max_chars)
-            log.debug(
-                "document_to_content: phase=starwriter_fallback elapsed_ms=%.1f content_len=%d",
-                (time.perf_counter() - t_phase) * 1000.0,
-                len(content),
+        content = _export_starwriter_html(model)
+        content = _apply_image_export_options(content, include_images=include_images)
+        content = inject_exported_math_tex(model, ctx, content)
+        content = html_ruby._inject_ruby_from_model(model, content, None)
+        _raise_if_empty_export(model, content, "the HTML export came back empty")
+        if max_chars and len(content) > max_chars:
+            content = _truncate_html(content, max_chars)
+        log.debug(
+            "document_to_content: phase=starwriter_fallback elapsed_ms=%.1f content_len=%d",
+            (time.perf_counter() - t_phase) * 1000.0,
+            len(content),
+        )
+        if walk_warnings is not None:
+            walk_warnings.append(
+                "XHTML export failed; content came from the legacy HTML export and has no style tokens."
             )
-            if walk_warnings is not None:
-                walk_warnings.append(
-                    "XHTML export failed; content came from the legacy HTML export and has no style tokens."
-                )
-            return _done(content, "starwriter")
+        return _done(content, "starwriter")
     except Exception as e:
         # Disposal is not a double export failure.
         reraise_if_disposed(e)
@@ -683,11 +633,6 @@ def _raise_if_empty_export(model: Any, content: str, why: str) -> None:
     has_text = uno_read(lambda: bool(model.getText().getString().strip()), True)
     if has_text:
         raise ToolExecutionError(why)
-
-
-def _open_hidden_writer(ctx: Any) -> Any:
-    """Hidden, empty scratch Writer (see ``new_blank_writer``)."""
-    return new_blank_writer(ctx)
 
 
 _PAGE_NUMBER_SUBTYPE_NAMES: dict[int, str] = {
@@ -768,7 +713,7 @@ def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
                     log.debug("extract_page_number_fields TextField processing failed: %s", e)
                     continue
 
-    for para in _iter_xtext_paragraphs(text_obj):
+    for para in range_copy._iter_xtext_paragraphs(text_obj):
         _walk_para(para)
     return fields
 
@@ -830,7 +775,7 @@ def xtext_to_content(
 
     temp_doc = None
     try:
-        temp_doc = _open_hidden_writer(ctx)
+        temp_doc = new_blank_writer(ctx)
         if not temp_doc or not hasattr(temp_doc, "getText"):
             # Bugfix: returning "" made page_get_header_footer_text report
             # status ok with empty content (relato #63), including when

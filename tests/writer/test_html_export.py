@@ -481,7 +481,7 @@ def test_xtext_to_content_propagates_export_error_and_closes():
     temp = MagicMock()
     temp.getText.return_value = MagicMock()
     with (
-        patch.object(html_export, "_open_hidden_writer", return_value=temp),
+        patch.object(html_export, "new_blank_writer", return_value=temp),
         patch.object(html_export.range_copy, "_copy_xtext_into_doc"),
         patch.object(
             html_export,
@@ -499,7 +499,7 @@ def test_xtext_to_content_raises_when_scratch_missing():
     from plugin.writer import html_export
 
     with (
-        patch.object(html_export, "_open_hidden_writer", return_value=None),
+        patch.object(html_export, "new_blank_writer", return_value=None),
         pytest.raises(ToolExecutionError, match="no scratch document"),
     ):
         html_export.xtext_to_content(MagicMock(), MagicMock(), MagicMock())
@@ -762,7 +762,7 @@ def test_xtext_injects_nonzero_page_offset():
     temp.getText.return_value = MagicMock()
     fields = [{"SubType": 2, "Offset": 1, "NumberingType": 4}]
     with (
-        patch.object(html_export, "_open_hidden_writer", return_value=temp),
+        patch.object(html_export, "new_blank_writer", return_value=temp),
         patch.object(html_export.range_copy, "_copy_xtext_into_doc"),
         patch.object(html_export, "extract_page_number_fields", return_value=fields),
         patch.object(html_export, "document_to_content", return_value=html),
