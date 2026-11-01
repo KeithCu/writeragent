@@ -17,27 +17,24 @@ from .base_provider_shim import BaseProviderShim, _dict_parts, coerce_raw_b64, e
 log = logging.getLogger(__name__)
 
 
-def _image_url_value(image_url: Any) -> str:
-    """OpenAI image part: a dict ``{"url": ...}`` or, on some paths, a bare string."""
-    if isinstance(image_url, dict):
-        url = image_url.get("url", "")
-        return url if isinstance(url, str) else ""
-    if isinstance(image_url, str):
-        return image_url
-    return ""
-
-
-def _anthropic_image_block(url_val: Any) -> dict[str, Any] | None:
+def _anthropic_image_block(image_url: Any) -> dict[str, Any] | None:
     """Turn an OpenAI image part into an Anthropic image block.
 
+    ``image_url`` is ``{"url": ...}`` or a bare string.
     A data URL with no comma used to raise ``ValueError`` from ``split`` and
     abort the whole request. Skip that part instead.
-
     An http(s) URL used to be dropped with the data-URL check, so the model
     never saw the image. Messages accepts ``source.type`` ``url``
     (see docs/images/generation.md). ``file_id`` is not produced here.
     """
-    if not isinstance(url_val, str) or not url_val:
+    if isinstance(image_url, dict):
+        url = image_url.get("url", "")
+        url_val = url if isinstance(url, str) else ""
+    elif isinstance(image_url, str):
+        url_val = image_url
+    else:
+        return None
+    if not url_val:
         return None
     if url_val.lower().startswith(("http://", "https://")):
         return {"type": "image", "source": {"type": "url", "url": url_val}}
@@ -146,7 +143,7 @@ def _convert_parts(content: Any, *, allow_images: bool) -> list[dict[str, Any]]:
                 if text:
                     blocks.append({"type": "text", "text": text})
             elif allow_images and part.get("type") == "image_url":
-                image_block = _anthropic_image_block(_image_url_value(part.get("image_url")))
+                image_block = _anthropic_image_block(part.get("image_url"))
                 if image_block is not None:
                     blocks.append(image_block)
         return blocks
@@ -177,10 +174,9 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
     converted: list[dict[str, Any]] = []
     dropped_tool_ids: set[str] = set()
 
-    for raw in messages:
-        if not isinstance(raw, dict):
+    for m in messages:
+        if not isinstance(m, dict):
             continue
-        m = raw
         role = m.get("role")
         content = m.get("content")
 
