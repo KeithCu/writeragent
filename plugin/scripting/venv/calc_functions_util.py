@@ -10,6 +10,7 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 from decimal import Decimal, InvalidOperation, Overflow, ROUND_HALF_UP, localcontext
+from functools import wraps
 import math
 import operator
 import re
@@ -37,6 +38,19 @@ _WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
     16: (4,),
     17: (5,),
 }
+
+
+# Whole-body handlers that return NaN for these three errors only.
+# Do not add ZeroDivisionError or re.error: xirr, xnpv, and textsplit catch more.
+def _nan_on_error(fn: Any) -> Any:
+    @wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        except (ValueError, TypeError, OverflowError):
+            return float("nan")
+
+    return wrapper
 
 
 def _serial_to_date(serial: Any) -> dt.date | None:

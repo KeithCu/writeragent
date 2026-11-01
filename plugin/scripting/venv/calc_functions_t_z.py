@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import calendar
 import datetime as dt
-from functools import wraps
 import math
 import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
@@ -28,6 +27,7 @@ from .calc_functions_util import (
     _date_to_serial,
     _extract_numeric_array,
     _is_calc_error,
+    _nan_on_error,
     _parse_weekend,
     _scipy_stats,
     _serial_to_date,
@@ -73,22 +73,6 @@ __all__ = [
     "yieldmat",
     "ztest",
 ]
-
-
-# Whole-body handlers that return NaN for these three errors only.
-# Do not add ZeroDivisionError or re.error: xirr, xnpv, and textsplit catch more.
-_NAN_ON_ERROR = (ValueError, TypeError, OverflowError)
-
-
-def _nan_on_error(fn: Any) -> Any:
-    @wraps(fn)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return fn(*args, **kwargs)
-        except _NAN_ON_ERROR:
-            return float("nan")
-
-    return wrapper
 
 
 def t(value: Any) -> str:
