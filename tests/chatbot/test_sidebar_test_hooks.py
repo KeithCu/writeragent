@@ -1082,7 +1082,7 @@ def test_sidebar_provider_uses_sidebar_property_not_controller_get_decks() -> No
     provider = sidebar_provider(ctrl)
     assert provider is ctrl.Sidebar
     assert not hasattr(ctrl, "getDecks")
-    assert "WriterAgentDeck" in sidebar_deck_names(SimpleNamespace(), ctrl)
+    assert "WriterAgentDeck" in sidebar_deck_names(ctrl)
 
 
 def test_sidebar_provider_falls_back_to_controller_get_decks() -> None:

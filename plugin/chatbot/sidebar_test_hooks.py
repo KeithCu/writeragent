@@ -250,12 +250,12 @@ def _read_json_dict(path: str, *, retry: bool = False) -> dict[str, Any]:
     return {}
 
 
-def _replace_state_file(tmp_path: str, path: str) -> None:
-    """os.replace that rides out a reader holding *path* open.
-
-    Tip: on Windows, replace fails with WinError 5 while another thread or the
-    URP side has the old file open in _read_json_dict. Retry briefly.
-    """
+def write_json_state(path: str, data: Any) -> None:
+    """Atomically write JSON data to *path* via temp file."""
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle)
+        handle.flush()
     for attempt in range(20):
         try:
             os.replace(tmp_path, path)
@@ -264,15 +264,6 @@ def _replace_state_file(tmp_path: str, path: str) -> None:
             if attempt == 19:
                 raise
             time.sleep(0.01)
-
-
-def write_json_state(path: str, data: Any) -> None:
-    """Atomically write JSON data to *path* via temp file and _replace_state_file."""
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-        json.dump(data, handle)
-        handle.flush()
-    _replace_state_file(tmp_path, path)
 
 
 def _remove_quiet(path: str) -> None:
@@ -348,27 +339,24 @@ def try_stub_initialize(recorder: Any) -> bool:
     flags["start_count"] = flags.get("start_count", 0) + 1
 
     recorder._auto_stopped_path = None
-    if flags["fail_start"]:
+    if flags["fail_start"] or flags["hang_ready"]:
         from plugin.chatbot.audio_recorder_state import ErrorOccurredEvent
 
-        recorder._apply_event(ErrorOccurredEvent(flags["fail_start"]))
-        return True
-    if flags["hang_ready"]:
-        # G21: child never emits ready. Do not wait the real 30s spawn timeout.
-        from plugin.chatbot.audio_recorder_state import ErrorOccurredEvent
-
-        timeout = ctrl.get("ready_timeout_sec")
-        try:
-            timeout_s = float(timeout) if timeout is not None else 0.0
-        except (TypeError, ValueError):
-            timeout_s = 0.0
-        if timeout_s > 0:
-            time.sleep(timeout_s)
-        shown = timeout_s if timeout_s > 0 else 30
-        # Same wording as wait_for_recording_ready TimeoutExpired.
-        recorder._apply_event(
-            ErrorOccurredEvent(f"Recording subprocess timed out after {shown:g} seconds.")
-        )
+        if flags["fail_start"]:
+            err_msg = flags["fail_start"]
+        else:
+            # G21: child never emits ready. Do not wait the real 30s spawn timeout.
+            timeout = ctrl.get("ready_timeout_sec")
+            try:
+                timeout_s = float(timeout) if timeout is not None else 0.0
+            except (TypeError, ValueError):
+                timeout_s = 0.0
+            if timeout_s > 0:
+                time.sleep(timeout_s)
+            shown = timeout_s if timeout_s > 0 else 30
+            # Same wording as wait_for_recording_ready TimeoutExpired.
+            err_msg = f"Recording subprocess timed out after {shown:g} seconds."
+        recorder._apply_event(ErrorOccurredEvent(err_msg))
         return True
 
     # Packet G: pretend the capture child said {"status":"ready"} without a mic.
@@ -430,6 +418,24 @@ def _fake_child_python() -> str:
     from plugin.scripting.sandbox import resolve_libreoffice_python
 
     return resolve_libreoffice_python() or sys.executable
+
+
+def _fresh_fake_state(mode: str, saved: dict[str, Any] | None, **extra: Any) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "mode": mode,
+        "interpreter": _fake_child_python(),
+        "spawn_count": 0,
+        "pids": [],
+        "alive": [],
+        "returncodes": {},
+        "overlap_spawns": 0,
+        "max_alive": 0,
+        "argv0s": [],
+        "requested_basenames": [],
+        "saved": dict(saved) if saved is not None else None,
+    }
+    state.update(extra)
+    return state
 
 
 def read_fake_stt_state() -> dict[str, Any]:
@@ -611,19 +617,7 @@ def _apply_fake_stt(mode: str) -> None:
         _FAKE_STT_MODE = mode
 
         if not _FAKE_STT_STATE or _FAKE_STT_STATE.get("mode") != mode:
-            _FAKE_STT_STATE = {
-                "mode": mode,
-                "interpreter": _fake_child_python(),
-                "spawn_count": 0,
-                "pids": [],
-                "alive": [],
-                "returncodes": {},
-                "overlap_spawns": 0,
-                "max_alive": 0,
-                "argv0s": [],
-                "requested_basenames": [],
-                "saved": dict(_FAKE_STT_SAVED) if _FAKE_STT_SAVED is not None else None,
-            }
+            _FAKE_STT_STATE = _fresh_fake_state(mode, _FAKE_STT_SAVED)
         else:
             _FAKE_STT_STATE["mode"] = mode
             _FAKE_STT_STATE["saved"] = dict(_FAKE_STT_SAVED) if _FAKE_STT_SAVED is not None else None
@@ -731,7 +725,7 @@ def install_fake_stt(mode: str) -> None:
 def _clear_fake_out_of_process(op: str, read_state: Callable[[], dict[str, Any]], path: str) -> None:
     execute_debug_sidebar_op(op)
     st = read_state()
-    if os.path.isfile(path) and st.get("mode") != "off":
+    if st.get("mode") != "off":
         pids = st.get("pids", [])
         for pid in pids:
             if sys.platform != "win32":
@@ -889,21 +883,9 @@ def _apply_fake_tts(mode: str) -> None:
         _FAKE_TTS_MODE = mode
 
         if not _FAKE_TTS_STATE or _FAKE_TTS_STATE.get("mode") != mode:
-            _FAKE_TTS_STATE = {
-                "mode": mode,
-                "interpreter": _fake_child_python(),
-                "spawn_count": 0,
-                "pids": [],
-                "alive": [],
-                "returncodes": {},
-                "overlap_spawns": 0,
-                "max_alive": 0,
-                "argv0s": [],
-                "requested_basenames": [],
-                "speak_calls": 0,
-                "speaking": False,
-                "saved": dict(_FAKE_TTS_SAVED) if _FAKE_TTS_SAVED is not None else None,
-            }
+            _FAKE_TTS_STATE = _fresh_fake_state(
+                mode, _FAKE_TTS_SAVED, speak_calls=0, speaking=False
+            )
         else:
             _FAKE_TTS_STATE["mode"] = mode
             _FAKE_TTS_STATE["saved"] = dict(_FAKE_TTS_SAVED) if _FAKE_TTS_SAVED is not None else None
@@ -1216,27 +1198,19 @@ def handle_debug_sidebar_command(command: str) -> None:
             _SAVED_REQUEST_TIMEOUT = None
         _write_debug_snapshot(sl)
         return
-    # Packet R: agent edits record as tracked changes only when soffice itself reads
-    # doc.agent_edit_review_mode=record; set it in-process (URP set_config is not seen).
-    if op in ("AGENT_REVIEW_RECORD", "AGENT_REVIEW_OFF"):
+    config_ops: dict[str, tuple[str, Any]] = {
+        "AGENT_REVIEW_RECORD": ("doc.agent_edit_review_mode", "record"),
+        "AGENT_REVIEW_OFF": ("doc.agent_edit_review_mode", "off"),
+        "WEB_RESEARCH_PROMPT_ON": ("chatbot.prompt_for_web_research", True),
+        "WEB_RESEARCH_PROMPT_OFF": ("chatbot.prompt_for_web_research", False),
+        "SET_TTS_ON": ("audio.tts_enabled", True),
+        "SET_TTS_OFF": ("audio.tts_enabled", False),
+    }
+    if op in config_ops:
         from plugin.framework.config import set_config
 
-        set_config("doc.agent_edit_review_mode", "record" if op == "AGENT_REVIEW_RECORD" else "off")
-        _write_debug_snapshot(sl)
-        return
-    # Packet R8: HITL approval for web_research, read by the soffice sidebar.
-    if op in ("WEB_RESEARCH_PROMPT_ON", "WEB_RESEARCH_PROMPT_OFF"):
-        from plugin.framework.config import set_config
-
-        set_config("chatbot.prompt_for_web_research", op == "WEB_RESEARCH_PROMPT_ON")
-        _write_debug_snapshot(sl)
-        return
-    # Settings→Speech writes audio.tts_enabled then emits config:changed; these
-    # ops exercise the same path so headed tests can prove sidebar chk_voice sync.
-    if op in ("SET_TTS_ON", "SET_TTS_OFF"):
-        from plugin.framework.config import set_config
-
-        set_config("audio.tts_enabled", op == "SET_TTS_ON")
+        key, val = config_ops[op]
+        set_config(key, val)
         _write_debug_snapshot(sl)
         return
     if op == "TOGGLE_SIDEBAR_TTS":
@@ -1428,12 +1402,15 @@ def execute_debug_sidebar_op(op: str, *, ctx: Any = None, doc: Any = None) -> di
     return _read_debug_snapshot()
 
 
-def _urp_target_controls(ctx: Any) -> dict[str, Any]:
+def _urp_target_controls() -> dict[str, Any]:
     """Chat controls of the current doc, else of the last doc a test focused.
 
     Tip: on macOS, after a Calc window closes, the desktop's current component
     can stay on a doc with no chat deck even though Writer is in front.
     """
+    ctx = _HOOK_CTX
+    if ctx is None:
+        return {}
     controls = chat_dialog_controls(ctx, current_component(ctx))
     if controls:
         return controls
@@ -1451,10 +1428,7 @@ def _urp_target_doc(ctx: Any) -> Any:
 
 
 def _urp_send_control() -> Any:
-    ctx = _HOOK_CTX
-    if ctx is None:
-        return None
-    return _urp_target_controls(ctx).get("send")
+    return _urp_target_controls().get("send")
 
 
 def _try_click_send_for_kind(kind: SendEventKind) -> bool:
@@ -1485,10 +1459,7 @@ def _urp_record_click_took() -> bool:
     label = _send_label_lower()
     if "stop rec" in label or (label and "record" not in label):
         return True
-    ctx = _HOOK_CTX
-    if ctx is None:
-        return False
-    return control_enabled(_urp_target_controls(ctx).get("stop")) is True
+    return control_enabled(_urp_target_controls().get("stop")) is True
 
 
 def _wait_for(timeout: float, pred: Callable[[], bool]) -> bool:
@@ -1500,40 +1471,39 @@ def _wait_for(timeout: float, pred: Callable[[], bool]) -> bool:
     return False
 
 
+def _sl(listener: Any = None) -> Any:
+    return listener if listener is not None else send_listener()
+
+
+def _require_listener(listener: Any = None) -> Any:
+    sl = _sl(listener)
+    if sl is None:
+        raise RuntimeError("no live SendButtonListener")
+    return sl
+
+
 def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is not None:
         sl.dispatch(SendEvent(kind))
         return
+    took = False
     if kind == SendEventKind.RECORD_CLICKED:
         _wait_for(1.5, lambda: "record" in _send_label_lower() and "stop rec" not in _send_label_lower())
         spawns_before = read_fake_stt_state().get("spawn_count", 0)
-        if _try_click_send_for_kind(kind):
-            # Any move off Record, or Stop enabled, means it took. Counting
-            # only Stop Rec misses G4's stub auto-stop, which sends the take
-            # before a poll sees Stop Rec. The fallback op then starts a
-            # second take that never stops (hidden while Stop is greyed
-            # during takes, since idle = Stop off).
-            # A fake recorder that crashes at once puts the label back on
-            # Record before a poll sees Stop Rec. Its spawn still shows the
-            # click took; the fallback op would start a second take (S7).
-            if _wait_for(
-                2.0,
-                lambda: _urp_record_click_took() or read_fake_stt_state().get("spawn_count", 0) > spawns_before,
-            ):
-                return
-        execute_debug_sidebar_op(kind.name)
-        return
-    if kind == SendEventKind.STOP_REC_CLICKED:
+        took = _try_click_send_for_kind(kind) and _wait_for(
+            2.0,
+            lambda: _urp_record_click_took() or read_fake_stt_state().get("spawn_count", 0) > spawns_before,
+        )
+    elif kind == SendEventKind.STOP_REC_CLICKED:
         _wait_for(2.0, lambda: "stop rec" in _send_label_lower())
-        if _try_click_send_for_kind(kind):
-            if _wait_for(1.5, lambda: "stop rec" not in _send_label_lower()):
-                return
+        took = _try_click_send_for_kind(kind) and _wait_for(
+            1.5, lambda: "stop rec" not in _send_label_lower()
+        )
+    else:
+        took = _try_click_send_for_kind(kind)
+    if not took:
         execute_debug_sidebar_op(kind.name)
-        return
-    if _try_click_send_for_kind(kind):
-        return
-    execute_debug_sidebar_op(kind.name)
 
 
 def _panel_frame(panel: Any) -> Any:
@@ -1845,7 +1815,7 @@ def sidebar_provider(controller: Any) -> Any:
     return _query_uno_interface(controller, "com.sun.star.ui.XSidebarProvider")
 
 
-def sidebar_deck_names(ctx: Any, doc: Any) -> list[str]:
+def sidebar_deck_names(doc: Any) -> list[str]:
     """Deck ids from XSidebarProvider, or empty if the API is unavailable."""
     _require_debug()
     if doc is None:
@@ -2038,13 +2008,6 @@ def _writeragent_deck(provider: Any) -> Any:
     return uno_probe(_find, None)
 
 
-def _activate_writeragent_deck(provider: Any) -> None:
-    """Switch to WriterAgent via XDeck.activate (no toggle)."""
-    deck = _writeragent_deck(provider)
-    if deck is not None:
-        best_effort(lambda: deck.activate(True), "activate WriterAgentDeck failed")
-
-
 def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
     """Make the WriterAgent sidebar deck visible on *doc* (debug tests).
 
@@ -2085,7 +2048,9 @@ def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
     if hasattr(provider, "setVisible"):
         provider.setVisible(True)
     best_effort(lambda: provider.showDecks(True), "showDecks failed")
-    _activate_writeragent_deck(provider)
+    deck = _writeragent_deck(provider)
+    if deck is not None:
+        best_effort(lambda: deck.activate(True), "activate WriterAgentDeck failed")
 
 
 def wait_for_chat_dialog_controls(
@@ -2223,7 +2188,7 @@ def ensure_sidebar_chat_mode(
         )
 
         set_selector_mode_with_flags(sel, CHAT_MODE_CHAT, sidebar_mode_flags_for_doc_type(doc_type))
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is not None:
         apply_fn = getattr(sl, "_apply_sidebar_mode_fn", None)
         if apply_fn is not None:
@@ -2241,7 +2206,7 @@ def set_query_text_via_controls(controls: dict[str, Any], text: str, *, listener
 
     if "query" in controls:
         set_control_text(controls["query"], text)
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is not None:
         sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(text.strip())))
     else:
@@ -2267,6 +2232,18 @@ def wait_controls_send_finished(
     # Let the click start; HTTP 500 can finish before the first poll.
     time.sleep(0.25)
     saw_busy = False
+
+    def _needle(text: str, *, strict: bool) -> bool:
+        assert wait_for is not None
+        n, low = wait_for.lower(), text.lower()
+        a = low.rfind("assistant:")
+        if a >= 0:
+            if n in low[a:]:
+                return True
+            if strict:
+                return False
+        return ("[" in text) and (n in low)
+
     while time.monotonic() <= deadline:
         en = control_enabled(stop) if stop is not None else None
         busy = en is True
@@ -2274,48 +2251,29 @@ def wait_controls_send_finished(
             saw_busy = True
         body = transcript_fn() if transcript_fn is not None else ""
         suffix = body[len(before) :] if before and body.startswith(before) else body
+        fake_st = read_fake_tts_state()
+        speech_busy = bool(fake_st.get("speaking") or fake_st.get("alive"))
         if wait_for:
-            asst_idx = suffix.lower().rfind("assistant:")
-            if asst_idx >= 0:
-                found = wait_for.lower() in suffix[asst_idx:].lower()
-            elif "[" in suffix:
-                found = wait_for.lower() in suffix.lower()
-            else:
-                found = False
+            found = _needle(suffix, strict=True)
             # Only search the whole control when a rich rerender dropped the prefix.
             # ``body != before`` is too weak: any new character plus a needle already
             # in earlier turns (Packet C truncated banner) would look finished.
             if not found and before and body and not body.startswith(before):
-                asst_idx = body.lower().rfind("assistant:")
-                if asst_idx >= 0:
-                    found = wait_for.lower() in body[asst_idx:].lower()
-                elif "[" in body:
-                    found = wait_for.lower() in body.lower()
-            fake_st = read_fake_tts_state()
-            speech_busy = bool(fake_st.get("speaking") or fake_st.get("alive"))
+                found = _needle(body, strict=True)
             if found and (not busy or speech_busy):
                 return True
         else:
             found = bool(suffix.strip()) or (not before and bool(body.strip()))
-            fake_st = read_fake_tts_state()
-            speech_busy = bool(fake_st.get("speaking") or fake_st.get("alive"))
             if (saw_busy or found) and (not busy or (found and speech_busy)):
                 return True
         time.sleep(0.15)
     if wait_for and transcript_fn is not None:
         body = transcript_fn()
         suffix = body[len(before) :] if before and body.startswith(before) else body
-        asst_idx = suffix.lower().rfind("assistant:")
-        if asst_idx >= 0 and wait_for.lower() in suffix[asst_idx:].lower():
+        if _needle(suffix, strict=False):
             return True
-        if "[" in suffix and wait_for.lower() in suffix.lower():
+        if before and body and not body.startswith(before) and _needle(body, strict=False):
             return True
-        if before and body and not body.startswith(before):
-            asst_idx = body.lower().rfind("assistant:")
-            if asst_idx >= 0 and wait_for.lower() in body[asst_idx:].lower():
-                return True
-            if "[" in body and wait_for.lower() in body.lower():
-                return True
         return False
     en = control_enabled(stop) if stop is not None else None
     return en is not True
@@ -2330,7 +2288,7 @@ def _control_label(control: Any) -> str:
 def set_query_text(text: str, *, listener: Any = None) -> None:
     """Set the query box and dispatch ``TEXT_UPDATED`` (same as ``QueryTextListener``)."""
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is not None:
         from plugin.chatbot.dialogs import set_control_text
 
@@ -2345,7 +2303,7 @@ def set_query_text(text: str, *, listener: Any = None) -> None:
         return
     ctx = _HOOK_CTX
     if ctx is not None:
-        controls = _urp_target_controls(ctx)
+        controls = _urp_target_controls()
         set_query_text_via_controls(controls, text)
         # QueryTextListener may not fire over URP setText; refresh inside soffice.
         popup = ensure_slash_popup()
@@ -2358,7 +2316,7 @@ def set_query_text(text: str, *, listener: Any = None) -> None:
 
 def query_text(*, listener: Any = None) -> str:
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is None:
         return ""
     from plugin.chatbot.dialogs import get_control_text
@@ -2412,16 +2370,6 @@ def _slash_lru_names() -> list[str]:
     from plugin.chatbot.slash_commands import load_slash_lru
 
     return best_effort(lambda: list(load_slash_lru()), "load slash lru", default=[]) or []
-
-
-def _slash_state_from_snapshot(data: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "visible": bool(data.get("slash_visible")),
-        "items": list(data.get("slash_items") or []),
-        "selected": data.get("slash_selected"),
-        "available": bool(data.get("slash_available")),
-        "lru": list(data.get("slash_lru") or []),
-    }
 
 
 def _slash_snapshot_fields(sl: Any) -> dict[str, Any]:
@@ -2506,10 +2454,7 @@ class _UrpSlashHost:
 def _urp_slash_controller() -> Any:
     """Bind ``SlashPopupController`` to the live sidebar ListBox over URP."""
     global _URP_SLASH_POPUP
-    ctx = _HOOK_CTX
-    if ctx is None:
-        return None
-    controls = _urp_target_controls(ctx)
+    controls = _urp_target_controls()
     ctrl = controls.get("slash_popup")
     query = controls.get("query")
     if ctrl is None or query is None:
@@ -2520,7 +2465,7 @@ def _urp_slash_controller() -> Any:
     from plugin.chatbot.slash_popup import SlashPopupController
 
     response = controls.get("response_rich") or controls.get("response")
-    host = _UrpSlashHost(query, response, controls.get("clear"), controls.get("stop"), ctx)
+    host = _UrpSlashHost(query, response, controls.get("clear"), controls.get("stop"), _HOOK_CTX)
     popup = SlashPopupController(ctrl, host, query)
     host.slash_popup = popup
     _URP_SLASH_POPUP = popup
@@ -2540,16 +2485,13 @@ def ensure_slash_popup(*, listener: Any = None) -> Any:
     from plugin.chatbot.slash_commands import enable_mock_slash_commands
 
     enable_mock_slash_commands()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is not None:
         popup = getattr(sl, "slash_popup", None)
         if popup is not None:
             return popup
-        ctrl = None
-        ctx = _HOOK_CTX
-        if ctx is not None:
-            controls = _urp_target_controls(ctx)
-            ctrl = controls.get("slash_popup")
+        controls = _urp_target_controls()
+        ctrl = controls.get("slash_popup")
         if ctrl is None:
             return _urp_slash_controller()
         from plugin.chatbot.slash_popup import SlashPopupController
@@ -2563,13 +2505,20 @@ def ensure_slash_popup(*, listener: Any = None) -> Any:
 def slash_popup_state(*, listener: Any = None) -> dict[str, Any]:
     """Visible names and selection for the Ask-box slash completion menu."""
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     popup = getattr(sl, "slash_popup", None) if sl is not None else None
     if popup is None:
         popup = ensure_slash_popup(listener=sl)
     if popup is None:
         # Last resort: in-soffice snapshot (listener lives only in soffice).
-        return _slash_state_from_snapshot(execute_debug_sidebar_op("SNAPSHOT"))
+        data = execute_debug_sidebar_op("SNAPSHOT")
+        return {
+            "visible": bool(data.get("slash_visible")),
+            "items": list(data.get("slash_items") or []),
+            "selected": data.get("slash_selected"),
+            "available": bool(data.get("slash_available")),
+            "lru": list(data.get("slash_lru") or []),
+        }
     visible = bool(getattr(popup, "is_open", False))
     items = list(getattr(popup, "visible_names", None) or [])
     selected = getattr(popup, "selected_name", None)
@@ -2590,7 +2539,7 @@ def slash_popup_state(*, listener: Any = None) -> dict[str, Any]:
 def press_query_key(key_code: int, modifiers: int = 0, *, listener: Any = None) -> None:
     """Drive ``QueryKeyListener`` (Enter / Esc / arrows / Tab) on the Ask field."""
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is None:
         popup = ensure_slash_popup()
         handle = getattr(popup, "handle_key", None) if popup is not None else None
@@ -2611,7 +2560,7 @@ def press_query_key(key_code: int, modifiers: int = 0, *, listener: Any = None) 
 
 def transcript_text(*, listener: Any = None) -> str:
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is None:
         return ""
     from plugin.chatbot.dialogs import get_control_text
@@ -2660,7 +2609,7 @@ def clear_sidebar_chat(*, listener: Any = None) -> None:
     paint the reply onto the wiped transcript.
     """
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is not None:
         clear_listener = getattr(sl, "clear_listener", None)
         action = getattr(clear_listener, "on_action_performed", None)
@@ -2682,10 +2631,7 @@ def clear_sidebar_chat(*, listener: Any = None) -> None:
         if response is not None:
             set_control_text(response, "")
         return
-    ctx = _HOOK_CTX
-    if ctx is None:
-        return
-    controls = _urp_target_controls(ctx)
+    controls = _urp_target_controls()
     clear_btn = controls.get("clear")
     if clear_btn is not None:
         try:
@@ -2703,16 +2649,14 @@ def clear_sidebar_chat(*, listener: Any = None) -> None:
 def press_send(*, listener: Any = None) -> None:
     """Primary Send button path (also Accept when HITL owns the label)."""
     _require_debug()
-    sl = listener if listener is not None else send_listener()
-    if sl is None:
-        raise RuntimeError("no live SendButtonListener")
+    sl = _require_listener(listener)
     sl.on_action_performed(None)
 
 
 def press_stop(*, listener: Any = None) -> None:
     """Windows / ActionEvent Stop path (``StopButtonListener.on_action_performed``)."""
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is None:
         label = _send_label_lower()
         # Stop during a recording take (S6): same listener as in-process. The
@@ -2729,24 +2673,19 @@ def press_stop(*, listener: Any = None) -> None:
 def press_stop_mouse(*, listener: Any = None) -> None:
     """GTK Stop ``mousePressed`` path. No-op while web-search approval is active."""
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     notify_stop_mouse_pressed(sl)
 
 
 def press_accept(*, listener: Any = None) -> None:
     _require_debug()
-    sl = listener if listener is not None else send_listener()
-    if sl is None:
-        raise RuntimeError("no live SendButtonListener")
-    sl.on_action_performed(None)
+    press_send(listener=listener)
 
 
 def press_change(query_override: str | None = None, *, listener: Any = None) -> None:
     """HITL Change without the modal edit dialog (Packet E9c). Not ``STOP_CLICKED``."""
     _require_debug()
-    sl = listener if listener is not None else send_listener()
-    if sl is None:
-        raise RuntimeError("no live SendButtonListener")
+    sl = _require_listener(listener)
     if query_override is None:
         query_override = getattr(sl, "_approval_query_for_engine", None) or ""
     sl._events._finish_inline_web_approval(True, query_override=query_override)
@@ -2755,15 +2694,13 @@ def press_change(query_override: str | None = None, *, listener: Any = None) -> 
 def press_reject(*, listener: Any = None) -> None:
     """HITL Reject (Clear-button overlay). Not ``STOP_CLICKED``."""
     _require_debug()
-    sl = listener if listener is not None else send_listener()
-    if sl is None:
-        raise RuntimeError("no live SendButtonListener")
+    sl = _require_listener(listener)
     sl._events._finish_inline_web_approval(False)
 
 
 def approval_active(*, listener: Any = None) -> bool:
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is None:
         return False
     return getattr(sl, "_approval_event", None) is not None
@@ -2779,7 +2716,7 @@ def press_record(*, listener: Any = None) -> None:
     already dispatched).
     """
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is not None:
         notify_record_mouse_pressed(sl)
         notify_record_mouse_released(sl)
@@ -2795,7 +2732,7 @@ def press_stop_rec(*, listener: Any = None) -> None:
     and Record labels. The URP branch clicks only when the label matches.
     """
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is not None:
         from plugin.framework.i18n import _
 
@@ -2817,7 +2754,7 @@ def press_send_clicked(*, listener: Any = None) -> None:
 
 def set_audio_supported(supported: bool, *, listener: Any = None) -> None:
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is None:
         execute_debug_sidebar_op("SET_AUDIO_1" if supported else "SET_AUDIO_0")
         return
@@ -2834,7 +2771,7 @@ def set_audio_supported(supported: bool, *, listener: Any = None) -> None:
 
 def audio_status(*, listener: Any = None) -> dict[str, Any]:
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is None:
         data = execute_debug_sidebar_op("SNAPSHOT")
         return {
@@ -2859,10 +2796,7 @@ def audio_status(*, listener: Any = None) -> dict[str, Any]:
 
 
 def _live_audio_recorder(*, listener: Any = None) -> Any:
-    sl = listener if listener is not None else send_listener()
-    if sl is None:
-        return None
-    return getattr(sl, "audio_recorder", None)
+    return getattr(_sl(listener), "audio_recorder", None)
 
 
 def inject_wav(path_or_bytes: Any, *, listener: Any = None) -> None:
@@ -2939,7 +2873,7 @@ class SidebarHookSendView:
 
 def send_state(*, listener: Any = None) -> SidebarHookSendView:
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     if sl is None:
         data = execute_debug_sidebar_op("SNAPSHOT")
         return SidebarHookSendView(
@@ -2988,20 +2922,17 @@ def pump_until(pred: Callable[[], bool], timeout: float = 30.0, *, ctx: Any = No
 
 def wait_idle(*, listener: Any = None, timeout: float = 30.0) -> bool:
     _require_debug()
-    sl0 = listener if listener is not None else send_listener()
+    sl0 = _sl(listener)
     if sl0 is None:
         # Let Stop Rec / Send enable Stop before the first idle poll (else we
         # return immediately and Packet G never waits for the mock reply).
         time.sleep(0.35)
 
     def _idle() -> bool:
-        sl = listener if listener is not None else send_listener()
+        sl = _sl(listener)
         if sl is None:
             # Do not executeDispatch SNAPSHOT in a loop — that hangs the URP pipe.
-            ctx = _HOOK_CTX
-            if ctx is None:
-                return False
-            controls = _urp_target_controls(ctx)
+            controls = _urp_target_controls()
             stop = controls.get("stop")
             send = controls.get("send")
             if control_enabled(stop) is True:
@@ -3110,7 +3041,7 @@ def undo(frame: Any, ctx: Any) -> None:
 def next_hello_ok(*, listener: Any = None, timeout: float = 60.0) -> bool:
     """Send ``hello``, wait until idle, require assistant HTML or hello text in the transcript."""
     _require_debug()
-    sl = listener if listener is not None else send_listener()
+    sl = _sl(listener)
     set_query_text("hello", listener=sl)
     press_send(listener=sl)
     if not wait_idle(listener=sl, timeout=timeout):
@@ -3271,6 +3202,5 @@ def dispatch_undo(*, ctx: Any = None) -> None:
         from plugin.framework.uno_context import get_ctx
 
         uno_ctx = get_ctx()
-    helper = uno_ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
-    helper.executeDispatch(frame, ".uno:Undo", "", 0, ())
+    undo(frame, uno_ctx)
 
