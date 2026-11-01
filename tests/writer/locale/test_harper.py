@@ -21,7 +21,6 @@ import pytest
 
 from plugin.contrib.lsp.json_rpc_framing import read_exactly
 from plugin.writer.locale.harper import (
-    HARPER_SLOW_RESULT_MS,
     HarperLSClient,
     HarperRuntimeState,
     _harper_lsp_settings,
@@ -33,7 +32,6 @@ from plugin.writer.locale.harper import (
     run_harper_check,
     run_harper_lint,
     shutdown_harper_runtime,
-    warn_if_harper_result_slow,
 )
 from plugin.writer.locale.harper_binary import (
     HarperReleaseAsset,
@@ -506,7 +504,7 @@ def test_harper_run_harper_lint_retries_after_failure(mock_get_bin: MagicMock) -
     assert res == {"errors": []}
     broken_client.close.assert_called_once()
     mock_ctor.assert_called_once()
-    fresh_client.lint.assert_called_once_with("retry me.", bcp47="en-US", heartbeat_fn=None)
+    fresh_client.lint.assert_called_once_with("retry me.", bcp47="en-US", heartbeat_fn=None, deadline=None, cancel_event=None)
 
 
 def test_read_exactly_handles_partial_reads() -> None:
@@ -1102,7 +1100,7 @@ def test_run_harper_lint_normalizes_unicode_whitespace() -> None:
         res = run_harper_lint(original_text, "/tmp/cfg", bcp47="en-US")
 
         # client.lint must receive normalized string with standard ASCII spaces
-        mock_client.lint.assert_called_once_with("Harper is an language checker.", bcp47="en-US", heartbeat_fn=None)
+        mock_client.lint.assert_called_once_with("Harper is an language checker.", bcp47="en-US", heartbeat_fn=None, deadline=None, cancel_event=None)
         # Sliced wrong text must match exact substring from original text
         assert res["errors"][0]["wrong"] == "an"
         assert res["errors"][0]["n_error_start"] == 10
@@ -1546,12 +1544,12 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
 def test_harper_try_lint_reenter_during_wait_asserts() -> None:
     """Nested try_lint while a wait is active is a bug: it trips an assert."""
     _ready_harper_client(lambda *_a, **_k: [])
-    assert harper_module._try_begin_harper_wait()
+    harper_module._HARPER_WAIT_TLS.active = True
     try:
         with pytest.raises(AssertionError, match="re-entered during pumped wait"):
             harper_try_lint("Other sentence.", "/tmp", ctx=MagicMock())
     finally:
-        harper_module._end_harper_wait()
+        harper_module._HARPER_WAIT_TLS.active = False
 
 
 def test_harper_try_lint_concurrent_threads_all_return_results() -> None:
@@ -1627,22 +1625,28 @@ def test_shutdown_harper_runtime_closes_cached_clients() -> None:
 
 
 def test_warn_if_harper_result_slow_silent_at_and_below_threshold(caplog: pytest.LogCaptureFixture) -> None:
+    mock_client = MagicMock()
+    mock_client.lint.return_value = []
     caplog.set_level(logging.WARNING, logger="writeragent.grammar")
-    assert HARPER_SLOW_RESULT_MS == 500
-    assert warn_if_harper_result_slow(500, text_len=40, error_count=2) is False
-    assert warn_if_harper_result_slow(0, text_len=40, error_count=0) is False
+    times = iter((0.0, 0.5))
+    with patch("plugin.writer.locale.harper.time.monotonic", side_effect=lambda: next(times)):
+        harper_module._lint_with_client(mock_client, "Hello world.", "en-US")
     assert not any("slow result" in r.message for r in caplog.records)
 
 
 def test_warn_if_harper_result_slow_warns_above_threshold(caplog: pytest.LogCaptureFixture) -> None:
+    mock_client = MagicMock()
+    mock_client.lint.return_value = []
     caplog.set_level(logging.WARNING, logger="writeragent.grammar")
-    assert warn_if_harper_result_slow(501, text_len=87, error_count=3, cache="miss") is True
+    times = iter((0.0, 0.501))
+    with patch("plugin.writer.locale.harper.time.monotonic", side_effect=lambda: next(times)):
+        harper_module._lint_with_client(mock_client, "Hello world.", "en-US")
     records = [r for r in caplog.records if "slow result" in r.message]
     assert len(records) == 1
     assert records[0].levelno == logging.WARNING
     assert "elapsed_ms=501" in records[0].message
-    assert "text_len=87" in records[0].message
-    assert "errors=3" in records[0].message
+    assert "text_len=12" in records[0].message
+    assert "errors=0" in records[0].message
     assert "cache=miss" in records[0].message
 
 
@@ -1842,7 +1846,7 @@ def test_off_caller_timeout_cancels_worker_and_releases_lock() -> None:
     t0 = time.monotonic()
     with patch("plugin.framework.uno_context.wait_while_pumping", fake_wait):
         with pytest.raises(TimeoutError, match="cancelled"):
-            harper_module._run_lint_off_caller_thread(client, "Hi.", "en-US", ctx=object(), restart=False)
+            harper_module._run_lint_off_caller_thread(client, "Hi.", "en-US", ctx=object())
     assert time.monotonic() - t0 < 3.0
     assert harper_module._HARPER_LOCK.acquire(timeout=0.5)
     harper_module._HARPER_LOCK.release()
@@ -1907,7 +1911,7 @@ def test_run_lint_off_caller_thread_closes_client_on_cancel_timeout() -> None:
         patch("plugin.writer.locale.harper._HARPER_CANCEL_JOIN_SEC", 0.05),
     ):
         with pytest.raises(TimeoutError, match="Harper LSP operation timed out"):
-            harper_module._run_lint_off_caller_thread(client, "Hi.", "en-US", ctx=object(), restart=False)
+            harper_module._run_lint_off_caller_thread(client, "Hi.", "en-US", ctx=object())
 
     unblock.set()
     client.close.assert_called_once()

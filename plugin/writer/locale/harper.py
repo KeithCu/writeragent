@@ -37,7 +37,7 @@ from plugin.writer.locale.grammar_ignore_rules import HARPER_RULE_PREFIX, make_r
 log = logging.getLogger("writeragent.grammar")
 
 _JSONRPC = "2.0"
-_INIT_PARAMS = {"processId": os.getpid(), "rootUri": "file:///tmp", "capabilities": {"textDocument": {"publishDiagnostics": {"relatedInformation": False}, "codeAction": {"dynamicRegistration": False, "codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix"]}}}}}}
+_INIT_PARAMS: dict[str, Any] = {"rootUri": "file:///tmp", "capabilities": {"textDocument": {"publishDiagnostics": {"relatedInformation": False}, "codeAction": {"dynamicRegistration": False, "codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix"]}}}}}}
 
 _LINT_BUDGET_SEC = 15.0
 _INIT_BUDGET_SEC = 5.0
@@ -47,10 +47,6 @@ _HARPER_CANCEL_POLL_SEC = 0.25
 _HARPER_CANCEL_JOIN_SEC = 1.0
 # close() unblocks read(); the reader should exit well inside this.
 _STDOUT_READER_JOIN_SEC = 0.5
-
-# LibreHarper often logs at WARN only. One line when lint+normalize exceeds
-# this budget so slowness shows up in writeragent_debug.log; faster calls stay quiet.
-HARPER_SLOW_RESULT_MS = 500
 
 _LSP_POSITION_CODEC = PositionCodec("utf-16")
 
@@ -249,9 +245,6 @@ class HarperLSClient:
                 if cancel is None or _deadline_remaining(deadline) <= 0:
                     raise TimeoutError("Harper LSP operation timed out")
 
-    def _reply_workspace_configuration(self, req_id: int) -> None:
-        self._write(_lsp_response(req_id, [self._lsp_settings]))
-
     def _read_and_handle(self, deadline: float) -> dict[str, Any] | None:
         while True:
             msg = self._read(deadline)
@@ -260,7 +253,7 @@ class HarperLSClient:
             if "id" not in msg or "method" not in msg:
                 return msg
             if msg["method"] == "workspace/configuration":
-                self._reply_workspace_configuration(msg["id"])
+                self._write(_lsp_response(msg["id"], [self._lsp_settings]))
             else:
                 self._write(_lsp_response(msg["id"], None))
 
@@ -429,26 +422,9 @@ def lsp_range_to_offset(text: str, line: int, character: int) -> int:
     return min(offset + pos.character, len(text))
 
 
-def _try_begin_harper_wait() -> bool:
-    """Mark a Harper lint wait in flight on this thread. False if one is already active here."""
-    if _harper_wait_active():
-        return False
-    _HARPER_WAIT_TLS.started = time.monotonic()
-    return True
-
-
-def _end_harper_wait() -> None:
-    _HARPER_WAIT_TLS.started = None
-
-
-def _harper_wait_active() -> bool:
-    """True if the current thread is inside a pumped Harper lint wait."""
-    return getattr(_HARPER_WAIT_TLS, "started", None) is not None
-
-
 def shutdown_harper_runtime() -> None:
     """Close every cached harper-ls client. Safe from tests and extension teardown."""
-    _end_harper_wait()
+    _HARPER_WAIT_TLS.active = False
     with _HARPER_LOCK:
         clients = list(_HARPER_CLIENT_CACHE.values())
         _HARPER_CLIENT_CACHE.clear()
@@ -679,7 +655,7 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     # Pumping runs on main and doProofreading on the linguistic thread, so a
     # nested call on the same thread during its active wait would be a bug.
     # Calls from other threads are fine: they block on ``_HARPER_LOCK``.
-    assert not _harper_wait_active(), "harper_try_lint re-entered during pumped wait"
+    assert not getattr(_HARPER_WAIT_TLS, "active", False), "harper_try_lint re-entered during pumped wait"
     none_reason = "not_ready"
     client: HarperLSClient | None = None
     # Block (pumping UI events) rather than skip: every sentence must be checked,
@@ -705,10 +681,12 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
             return None
         grammar_obs("harper_try_lint_none", reason=none_reason, ensure_submitted=submitted)
         return None
-    began_wait = _try_begin_harper_wait()
-    assert began_wait, "harper_try_lint re-entered during pumped wait"
+    _HARPER_WAIT_TLS.active = True
     try:
-        return _lint_ready_client(client, text, bcp47=bcp47, ctx=ctx)
+        if ctx is None:
+            with _HARPER_LOCK:
+                return _lint_with_client(client, text, bcp47=bcp47, restart=False)
+        return _run_lint_off_caller_thread(client, text, bcp47=bcp47, ctx=ctx)
     except Exception:
         # restart=False: do not Popen on the linguistic thread. The
         # walk returns empty; background ensure restarts harper-ls.
@@ -721,7 +699,7 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
         harper_ensure_ready_async(user_config_dir, bcp47)
         return None
     finally:
-        _end_harper_wait()
+        _HARPER_WAIT_TLS.active = False
 
 
 def normalize_spaces_1to1(text: str) -> str:
@@ -735,39 +713,11 @@ def normalize_spaces_1to1(text: str) -> str:
     return "".join(" " if ch.isspace() and ch not in "\r\n" else ch for ch in text)
 
 
-def warn_if_harper_result_slow(
-    elapsed_ms: int,
-    *,
-    text_len: int,
-    error_count: int,
-    cache: str = "miss",
-) -> bool:
-    """Log one WARN when Harper lint+normalize took more than 500ms.
-
-    Returns True if a warning was emitted. Sub-threshold calls are silent so
-    the linguistic hot path does not spam. ``cache`` is ``miss`` when we
-    actually linted (the usual path) or ``hit`` if a caller timed a cache
-    return — cheap to pass when known.
-    """
-    if elapsed_ms <= HARPER_SLOW_RESULT_MS:
-        return False
-    log.warning(
-        "[harper] slow result elapsed_ms=%s text_len=%s errors=%s cache=%s",
-        elapsed_ms,
-        text_len,
-        error_count,
-        cache,
-    )
-    return True
-
-
-def _diagnostics_to_errors(text: str, results: list[Any], lint_text: str | None = None) -> dict[str, Any]:
+def _diagnostics_to_errors(text: str, results: list[Any], lint_text: str) -> dict[str, Any]:
     """Map LSP ranges against *lint_text* (what Harper saw); slice "wrong" from *text*.
 
     normalize_spaces_1to1 keeps offsets 1:1, so the original text shows the user's characters.
     """
-    if lint_text is None:
-        lint_text = text
     errors = []
     for item in results:
         diag = item["diagnostic"]
@@ -802,32 +752,11 @@ def _diagnostics_to_errors(text: str, results: list[Any], lint_text: str | None 
     return {"errors": errors}
 
 
-def _lint_ready_client(
-    client: HarperLSClient,
-    text: str,
-    bcp47: str,
-    *,
-    ctx: Any,
-) -> dict[str, Any]:
-    """Lint a READY client. With ``ctx``, worker waits; caller pumps VCL.
-
-    Without ``ctx`` there is nothing to pump: block on the caller thread
-    (tests / scripts). The wait-active flag is already set by ``harper_try_lint``.
-    """
-    if ctx is None:
-        with _HARPER_LOCK:
-            return _lint_with_client(client, text, bcp47=bcp47, restart=False)
-    return _run_lint_off_caller_thread(client, text, bcp47=bcp47, ctx=ctx, restart=False)
-
-
 def _run_lint_off_caller_thread(
     client: HarperLSClient,
     text: str,
     bcp47: str,
     ctx: Any,
-    *,
-    restart: bool,
-    heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
 ) -> dict[str, Any]:
     """Worker owns blocking ``client.lint`` + ``_HARPER_LOCK``; caller pumps or joins.
 
@@ -848,8 +777,7 @@ def _run_lint_off_caller_thread(
                     client,
                     text,
                     bcp47=bcp47,
-                    heartbeat_fn=heartbeat_fn,
-                    restart=restart,
+                    restart=False,
                     deadline=deadline,
                     cancel_event=cancel_event,
                 )
@@ -903,7 +831,6 @@ def _replace_harper_client(
     if _HARPER_CLIENT_CACHE.get(binary_path) is dead:
         del _HARPER_CLIENT_CACHE[binary_path]
     _HARPER_LOCK.release()
-    built: HarperLSClient | None = None
     try:
         built = HarperLSClient(
             binary_path,
@@ -913,8 +840,6 @@ def _replace_harper_client(
         )
     finally:
         _HARPER_LOCK.acquire()
-    if built is None:
-        raise RuntimeError("harper-ls restart did not return a client")
     current = _HARPER_CLIENT_CACHE.get(binary_path)
     if current is not None and current is not built and current.is_alive():
         built.close()
@@ -941,9 +866,6 @@ def _lint_with_client(
     error_count = 0
 
     def _call_lint(target: HarperLSClient) -> list[Any]:
-        # No deadline/cancel: keep the previous call shape (tests and the grammar queue).
-        if deadline is None and cancel_event is None:
-            return target.lint(lint_text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
         return target.lint(
             lint_text,
             bcp47=bcp47,
@@ -966,17 +888,19 @@ def _lint_with_client(
         # sent to Harper. Mapping against the original `text` misaligns
         # offsets and line numbers.
         out = _diagnostics_to_errors(text, results, lint_text)
-        error_count = len(out.get("errors") or [])
+        error_count = len(out["errors"])
         return out
     finally:
         # Wall time of lint + normalize into errors (worker or caller thread).
         elapsed_ms = int((time.monotonic() - started) * 1000)
-        warn_if_harper_result_slow(
-            elapsed_ms,
-            text_len=len(text),
-            error_count=error_count,
-            cache="miss",
-        )
+        if elapsed_ms > 500:
+            log.warning(
+                "[harper] slow result elapsed_ms=%s text_len=%s errors=%s cache=%s",
+                elapsed_ms,
+                len(text),
+                error_count,
+                "miss",
+            )
 
 
 def run_harper_lint(
