@@ -15,7 +15,7 @@ from plugin.notebook.cell_registry import (
 from plugin.notebook import form_lookup
 from plugin.notebook.form_lookup import read_code_from_field
 from plugin.notebook.notebook_runner import (
-    _find_cell_output_heading_end,
+    _collapse_leading_empty_paragraphs,
     _gutter_text_cursor,
     _is_next_cell_boundary,
     _paragraph_has_frame,
@@ -352,8 +352,6 @@ def test_clear_cell_output_source_has_no_delete_contents():
 
 def test_find_output_heading_stays_inside_paragraph():
     """Bookmark insert uses gotoEndOfParagraph, not para.getEnd() (the break)."""
-    src = inspect.getsource(_find_cell_output_heading_end)
-    assert "createTextCursorByRange(para.getEnd())" not in src
     from plugin.notebook.notebook_runner import _reanchor_output_bookmark, _code_field_paragraph_end
 
     assert "createTextCursorByRange(para.getEnd())" not in inspect.getsource(_reanchor_output_bookmark)
@@ -362,7 +360,7 @@ def test_find_output_heading_stays_inside_paragraph():
 
 def test_find_output_uses_bookmark_not_output_heading():
     """Output chrome is gone; the insert cursor is the nb_out_* bookmark."""
-    src = inspect.getsource(_find_cell_output_heading_end)
+    src = inspect.getsource(_collapse_leading_empty_paragraphs)
     assert "_cursor_after_bookmark" in src
     assert 'content.strip() == "Output"' not in src
 
