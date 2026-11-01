@@ -60,7 +60,7 @@ def test_iter_inline_and_display_math(ctx: Any, doc: Any) -> None:
     text.insertString(cur, " World", False)
     insert_writer_math_formula(doc, cur, "x", display_block=True)
 
-    hits = list(iter_writer_math_objects(doc, ctx))
+    hits = list(iter_writer_math_objects(doc))
     assert len(hits) >= 2
     inline = hits[0]
     assert inline.display_block is False
@@ -136,7 +136,7 @@ def test_body_table_and_header_math_order_uno(ctx: Any, doc: Any) -> None:
     insert_writer_math_formula(doc, cur, "c + 3", display_block=False)
 
     # iter_writer_math_objects walks body and table cells, omitting header
-    hits = list(iter_writer_math_objects(doc, ctx))
+    hits = list(iter_writer_math_objects(doc))
     assert len(hits) == 3, f"Expected 3 body math objects, got {len(hits)}"
     assert "a + 1" in hits[0].starmath or "a+1" in hits[0].starmath
     assert "b + 2" in hits[1].starmath or "b+2" in hits[1].starmath

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, NamedTuple, cast
+from typing import Any, Callable, cast
 import uno
 
 from plugin.framework.uno_listeners import BaseActionListener
@@ -49,13 +49,6 @@ class _ClickListener(BaseActionListener):
 
     def actionPerformed(self, rEvent: Any) -> None:
         self._callback()
-
-
-class _SelectionLatexPrefill(NamedTuple):
-    name: str | None
-    latex: str
-    display: bool
-    abort: bool
 
 
 def show_latex_input_dialog(
@@ -126,10 +119,10 @@ def show_latex_input_dialog(
 
 def _selection_latex_prefill(
     ctx: Any, doc: Any, last_latex: str, last_display: bool
-) -> _SelectionLatexPrefill:
+) -> tuple[str | None, str, bool] | None:
     """Inspect selection: abort on multiple Math objects; prefill TeX for one.
 
-    Returns ``(embed_name_or_none, latex, display, abort)``.
+    Returns ``(embed_name_or_none, latex, display)`` or None on abort.
     """
     hits = math_mml_export.selected_math_embeds(doc)
 
@@ -139,10 +132,10 @@ def _selection_latex_prefill(
             _("Edit LaTeX Math"),
             _("Select a single formula to update. Multiple formulas are selected."),
         )
-        return _SelectionLatexPrefill(None, last_latex, last_display, True)
+        return None
 
     if len(hits) != 1:
-        return _SelectionLatexPrefill(None, last_latex, last_display, False)
+        return (None, last_latex, last_display)
 
     embed = hits[0]
     name = math_mml_export.resolve_math_embed_name(doc, embed)
@@ -152,13 +145,13 @@ def _selection_latex_prefill(
             _("Edit LaTeX Math"),
             _("Could not identify the selected formula. Click in the text, then insert a new formula."),
         )
-        return _SelectionLatexPrefill(None, last_latex, last_display, True)
+        return None
     try:
         starmath = math_mml_export.read_starmath(embed)
         if starmath:
             exported = math_mml_export.convert_starmath_to_latex(ctx, starmath)
             if exported.ok and exported.latex:
-                return _SelectionLatexPrefill(name, exported.latex, last_display, False)
+                return (name, exported.latex, last_display)
     except Exception:
         log.debug("latex dialog: selection Math → LaTeX prefill failed", exc_info=True)
     msgbox(
@@ -166,7 +159,7 @@ def _selection_latex_prefill(
         _("Edit LaTeX Math"),
         _("Could not convert formula to LaTeX. Enter formula manually."),
     )
-    return _SelectionLatexPrefill(name, "", last_display, False)
+    return (name, "", last_display)
 
 
 def _apply_latex_to_writer(
@@ -190,15 +183,15 @@ def _apply_latex_to_writer(
             log.exception("replace_writer_math_formula failed")
             # str() of a PyUNO exception is often empty; the detail is in .Message.
             return False, resolve_exception_message(exc)
-        set_config("last_latex_input", latex)
-        return True, _("Formula updated.")
-
-    controller = doc.getCurrentController()
-    view_cursor = controller.getViewCursor()
-    insert_writer_math_formula(doc, view_cursor, starmath, display_block=display_block)
+        msg = _("Formula updated.")
+    else:
+        controller = doc.getCurrentController()
+        view_cursor = controller.getViewCursor()
+        insert_writer_math_formula(doc, view_cursor, starmath, display_block=display_block)
+        set_config("last_latex_display_block", display_block)
+        msg = _("Formula inserted.")
     set_config("last_latex_input", latex)
-    set_config("last_latex_display_block", display_block)
-    return True, _("Formula inserted.")
+    return True, msg
 
 
 def insert_latex_math_dialog(ctx: Any) -> None:
@@ -211,11 +204,10 @@ def insert_latex_math_dialog(ctx: Any) -> None:
 
         last_latex = get_config_str("last_latex_input")
         last_display = bool(get_config("last_latex_display_block"))
-        target_name, last_latex, last_display, abort = _selection_latex_prefill(
-            ctx, doc, last_latex, last_display
-        )
-        if abort:
+        prefill = _selection_latex_prefill(ctx, doc, last_latex, last_display)
+        if prefill is None:
             return
+        target_name, last_latex, last_display = prefill
 
         # Check if Monaco editor is available
         exe, available = monaco_editor_available(ctx)
@@ -232,9 +224,6 @@ def insert_latex_math_dialog(ctx: Any) -> None:
                 if not ok:
                     return {"type": "error", "message": status}
                 return {"type": "saved", "ok": True, "status_ok_text": status}
-
-            def on_closed() -> None:
-                log.debug("LaTeX Monaco editor closed")
 
             load_msg: dict[str, Any] = {
                 "type": "load",
@@ -255,7 +244,6 @@ def insert_latex_math_dialog(ctx: Any) -> None:
                 exe=exe,
                 load_message=load_msg,
                 on_save=on_save,
-                on_closed=on_closed,
             )
             return
 

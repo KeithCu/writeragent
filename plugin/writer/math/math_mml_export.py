@@ -63,17 +63,13 @@ class WriterMathHit:
     """One Writer formula object in document order."""
 
     starmath: str
-    latex: str | None
-    mathml: str | None
-    error_message: str | None
     display_block: bool
-    para_index: int
     embed_name: str | None = None
 
 
 def convert_mathml_to_latex(mathml_fragment: str) -> MathExportResult:
     """Presentation MathML string → LaTeX via vendored ``mathml-to-latex``. No UNO."""
-    if not mathml_fragment or not isinstance(mathml_fragment, str):
+    if not mathml_fragment:
         return MathExportResult(False, None, None, "empty_mathml")
     root = math_root(mathml_fragment)
     if not root:
@@ -89,12 +85,30 @@ def convert_mathml_to_latex(mathml_fragment: str) -> MathExportResult:
         return MathExportResult(False, None, None, _exception_message(exc))
     if not isinstance(latex, str) or not latex.strip():
         return MathExportResult(False, None, None, "mathml_to_latex_empty_output")
-    return MathExportResult(True, latex.strip(), root, None)
+    return MathExportResult(True, latex.strip(), None, None)
+
+
+def _export_doc_to_mathml(doc: Any, starmath: str, path: str, url: str) -> str | None:
+    from plugin.writer.format import create_property_value
+
+    try:
+        doc.setPropertyValue("Formula", starmath.strip())
+    except Exception:
+        doc.Formula = starmath.strip()
+
+    props = (
+        create_property_value("FilterName", MATHML_EXPORT_FILTER),
+        create_property_value("Overwrite", True),
+    )
+    doc.storeToURL(url, props)
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        raw = f.read()
+    return math_root(raw)
 
 
 def convert_starmath_to_mathml(ctx: Any, starmath: str) -> MathExportResult:
     """StarMath command string → MathML via a hidden LibreOffice Math document."""
-    if not starmath or not isinstance(starmath, str) or not starmath.strip():
+    if not starmath or not starmath.strip():
         return MathExportResult(False, None, None, "empty_starmath")
 
     from plugin.writer.format import create_property_value
@@ -108,20 +122,7 @@ def convert_starmath_to_mathml(ctx: Any, starmath: str) -> MathExportResult:
     fd, path = tempfile.mkstemp(suffix=".mml", prefix="writeragent-math-export-", text=False)
     os.close(fd)
     try:
-        try:
-            doc.setPropertyValue("Formula", starmath.strip())
-        except Exception:
-            doc.Formula = starmath.strip()
-
-        url = file_url(path)
-        props = (
-            create_property_value("FilterName", MATHML_EXPORT_FILTER),
-            create_property_value("Overwrite", True),
-        )
-        doc.storeToURL(url, props)
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            raw = f.read()
-        mathml = math_root(raw)
+        mathml = _export_doc_to_mathml(doc, starmath, path, file_url(path))
         if not mathml:
             return MathExportResult(False, None, None, "empty_mathml_export")
         return MathExportResult(True, None, mathml, None)
@@ -142,12 +143,9 @@ def convert_starmath_to_mathml(ctx: Any, starmath: str) -> MathExportResult:
 def convert_starmath_to_latex(ctx: Any, starmath: str) -> MathExportResult:
     """StarMath → MathML (LO) → LaTeX (``mathml-to-latex``)."""
     mml = convert_starmath_to_mathml(ctx, starmath)
-    if not mml.ok or not mml.mathml:
-        return MathExportResult(False, None, mml.mathml, mml.error_message)
-    tex = convert_mathml_to_latex(mml.mathml)
-    if not tex.ok:
-        return MathExportResult(False, None, mml.mathml, tex.error_message)
-    return MathExportResult(True, tex.latex, mml.mathml, None)
+    if mml.ok and mml.mathml:
+        return convert_mathml_to_latex(mml.mathml)
+    return MathExportResult(False, None, None, mml.error_message)
 
 
 def wrap_latex_delimiters(latex: str, *, display_block: bool) -> str:
@@ -183,21 +181,13 @@ def _formula_replacement(
     return _failure_markup(result.error_message if result else None, starmath)
 
 
-def iter_writer_math_objects(model: Any, ctx: Any | None = None) -> Iterator[WriterMathHit]:
+def iter_writer_math_objects(model: Any) -> Iterator[WriterMathHit]:
     """Yield Math embeds in document order."""
     text = model.getText() if hasattr(model, "getText") else None
     if text is None:
         return
-    batch = _MathExportBatch(ctx) if ctx is not None else None
-    try:
-        para_index = 0
-        for para in _iter_body_paragraphs(text):
-            for hit in _math_hits_in_paragraph(para, para_index, ctx, batch=batch):
-                yield hit
-            para_index += 1
-    finally:
-        if batch is not None:
-            batch.close()
+    for para in _iter_body_paragraphs(text):
+        yield from _math_hits_in_paragraph(para)
 
 
 def inject_math_tex_into_html(model: Any, ctx: Any, html: str) -> str:
@@ -544,27 +534,10 @@ class _MathExportBatch:
         doc = self._ensure_doc()
         if doc is None or not self._temp_path or not self._temp_url:
             return convert_starmath_to_latex(self.ctx, starmath)
-        from plugin.writer.format import create_property_value
-
         try:
-            try:
-                doc.setPropertyValue("Formula", starmath.strip())
-            except Exception:
-                doc.Formula = starmath.strip()
-            props = (
-                create_property_value("FilterName", MATHML_EXPORT_FILTER),
-                create_property_value("Overwrite", True),
-            )
-            doc.storeToURL(self._temp_url, props)
-            with open(self._temp_path, "r", encoding="utf-8", errors="replace") as f:
-                raw = f.read()
-            mml = math_root(raw)
-            if not mml:
-                return convert_starmath_to_latex(self.ctx, starmath)
-            res = convert_mathml_to_latex(mml)
-            if not res.ok:
-                return convert_starmath_to_latex(self.ctx, starmath)
-            return MathExportResult(True, res.latex, mml, None)
+            mml = _export_doc_to_mathml(doc, starmath, self._temp_path, self._temp_url)
+            res = convert_mathml_to_latex(mml) if mml else None
+            return res if (res and res.ok) else convert_starmath_to_latex(self.ctx, starmath)
         except Exception:
             return convert_starmath_to_latex(self.ctx, starmath)
 
@@ -583,44 +556,15 @@ class _MathExportBatch:
             self._temp_path = None
 
 
-def _build_hit(
-    embed: Any,
-    para_index: int,
-    display_block: bool,
-    ctx: Any | None,
-    batch: _MathExportBatch | None = None,
-) -> WriterMathHit:
-    starmath = read_starmath(embed)
-    latex = None
-    mathml = None
-    err = None
-    if starmath and (batch is not None or ctx is not None):
-        if batch is not None:
-            res = batch.convert_starmath_to_latex(starmath)
-        else:
-            res = convert_starmath_to_latex(ctx, starmath)
-        latex = res.latex
-        mathml = res.mathml
-        err = None if res.ok else res.error_message
-    elif not starmath:
-        err = "empty_formula_property"
+def _build_hit(embed: Any, display_block: bool) -> WriterMathHit:
     return WriterMathHit(
-        starmath=starmath,
-        latex=latex,
-        mathml=mathml,
-        error_message=err,
+        starmath=read_starmath(embed),
         display_block=display_block,
-        para_index=para_index,
         embed_name=math_embed_name(embed),
     )
 
 
-def _math_hits_in_paragraph(
-    para: Any,
-    para_index: int,
-    ctx: Any | None,
-    batch: _MathExportBatch | None = None,
-) -> list[WriterMathHit]:
+def _math_hits_in_paragraph(para: Any) -> list[WriterMathHit]:
     embeds: list[Any] = []
     non_ws_text = False
     try:
@@ -643,4 +587,4 @@ def _math_hits_in_paragraph(
             non_ws_text = True
 
     display_block = bool(embeds) and not non_ws_text
-    return [_build_hit(emb, para_index, display_block, ctx, batch) for emb in embeds]
+    return [_build_hit(emb, display_block) for emb in embeds]
