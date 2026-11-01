@@ -12,7 +12,7 @@ def test_has_uno_property_uses_property_set_info():
     psi.hasPropertyByName.return_value = True
     obj = MagicMock()
     obj.getPropertySetInfo.return_value = psi
-    assert image_tools._has_uno_property(obj, "GraphicURL") is True
+    assert image_tools.visual_helpers.has_uno_property(obj, "GraphicURL") is True
     psi.hasPropertyByName.assert_called_once_with("GraphicURL")
 
 
@@ -24,7 +24,7 @@ def test_create_embedded_graphic_uses_safe_set_not_hasattr(monkeypatch):
     doc = MagicMock()
     doc.createInstance.return_value = graphic
 
-    monkeypatch.setattr(image_tools, "_safe_set_property", lambda obj, name, value: name == "GraphicURL")
+    monkeypatch.setattr(image_tools.visual_helpers, "safe_set_property", lambda obj, name, value: name == "GraphicURL")
     monkeypatch.setattr(image_tools, "_graphic_from_provider", lambda ctx, url: None)
 
     result = image_tools._create_embedded_graphic(doc, "writer", "file:///tmp/x.png", ctx=MagicMock())

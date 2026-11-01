@@ -220,7 +220,7 @@ class TestWriterImageCursorConversion:
         ctx = MagicMock()
 
         with patch.object(image_tools, "_should_link_image_path", return_value=False):
-            image_tools._insert_image_to_writer(
+            image_tools._insert_writer_graphic(
                 ctx,
                 model,
                 "/home/user/photo.png",
@@ -228,7 +228,6 @@ class TestWriterImageCursorConversion:
                 height=20,
                 title="t",
                 description="d",
-                add_frame=False,
             )
 
         # Body must clone via getStart(), not the ViewCursor itself (PR #796).
@@ -262,7 +261,7 @@ class TestWriterImageCursorConversion:
         ctx = MagicMock()
 
         with patch.object(image_tools, "_should_link_image_path", return_value=False):
-            image_tools._insert_image_to_writer(
+            image_tools._insert_writer_graphic(
                 ctx,
                 model,
                 "/home/user/photo.png",
@@ -270,7 +269,6 @@ class TestWriterImageCursorConversion:
                 height=20,
                 title="t",
                 description="d",
-                add_frame=False,
             )
 
         body.createTextCursorByRange.assert_not_called()
@@ -304,7 +302,7 @@ class TestWriterImageCursorConversion:
         ctx = MagicMock()
 
         with patch.object(image_tools, "_should_link_image_path", return_value=False):
-            image_tools._insert_image_to_writer(
+            image_tools._insert_writer_graphic(
                 ctx,
                 model,
                 "/home/user/photo.png",
@@ -312,7 +310,6 @@ class TestWriterImageCursorConversion:
                 height=20,
                 title="t",
                 description="d",
-                add_frame=False,
             )
 
         body.createTextCursorByRange.assert_not_called()
@@ -331,7 +328,7 @@ class TestWriterImageCursorConversion:
 
         with patch.object(image_tools, "_should_link_image_path", return_value=True):
             with patch.object(image_tools, "_dispatch_insert_linked_graphic", return_value=image_instance) as dispatch:
-                image_tools._insert_image_to_writer(
+                image_tools._insert_writer_graphic(
                     ctx,
                     model,
                     "/home/user/photo.png",
@@ -339,7 +336,6 @@ class TestWriterImageCursorConversion:
                     height=20,
                     title="t",
                     description="d",
-                    add_frame=False,
                 )
 
         dispatch.assert_called_once()
@@ -430,7 +426,7 @@ class TestWriterImageCursorConversion:
         doc_text.createTextCursorByRange.side_effect = ["tc1", "tc2"]
 
         with patch.object(image_tools, "_should_link_image_path", return_value=False):
-            image_tools._insert_image_to_writer(
+            image_tools._insert_writer_graphic(
                 ctx,
                 model,
                 "/tmp/generated.png",
@@ -438,7 +434,6 @@ class TestWriterImageCursorConversion:
                 height=20,
                 title="t",
                 description="d",
-                add_frame=False,
             )
 
         view_cursor.jumpToStartOfPage.assert_called_once()
@@ -685,9 +680,9 @@ class TestWriterImageCursorConversion:
         sentinel = MagicMock()
 
         with (
-            patch.object(image_tools, "get_type_doc", return_value="draw"),
+            patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="draw"),
             patch.object(image_tools, "_insert_image_to_drawpage", return_value=sentinel) as insert_dp,
-            patch.object(image_tools, "_selection_graphic_object") as sel_obj,
+            patch.object(image_tools.visual_helpers, "selected_graphic_object") as sel_obj,
             patch("plugin.doc.compound_undo.WriterCompoundUndo"),
         ):
             res = image_tools.insert_image_at_locator(ctx, model, "/tmp/img.png", width_mm=40, height_mm=30)
@@ -745,8 +740,8 @@ class TestReplaceGraphicSource:
         ctx = MagicMock()
 
         with (
-            patch.object(image_tools, "get_type_doc", return_value="writer"),
-            patch.object(image_tools, "_safe_set_property", return_value=False),
+            patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
+            patch.object(image_tools.visual_helpers, "safe_set_property", return_value=False),
             patch.object(image_tools, "_graphic_from_provider", return_value=None),
         ):
             ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/new.png")
@@ -762,7 +757,7 @@ class TestReplaceGraphicSource:
         ctx = MagicMock()
 
         with (
-            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
             patch("plugin.doc.compound_undo.WriterCompoundUndo"),
@@ -782,7 +777,7 @@ class TestReplaceGraphicSource:
         ctx = MagicMock()
 
         with (
-            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
             patch("plugin.doc.compound_undo.WriterCompoundUndo"),
@@ -805,7 +800,7 @@ class TestReplaceGraphicSource:
         ctx = MagicMock()
 
         with (
-            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
             patch("plugin.doc.compound_undo.WriterCompoundUndo"),
@@ -830,7 +825,7 @@ class TestReplaceGraphicSource:
         ctx = MagicMock()
 
         with (
-            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
             patch.object(image_tools.uno, "systemPathToFileUrl", return_value="file:////tmp/new.png"),
             patch("plugin.doc.compound_undo.WriterCompoundUndo"),
@@ -863,11 +858,11 @@ class TestImageCompoundUndo:
         model = MagicMock()
         ctx = MagicMock()
         with (
-            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch("plugin.doc.visual_helpers.px_to_display_units", return_value=(1000, 1000)),
             patch.object(
                 image_tools,
-                "_insert_image_to_writer",
+                "_insert_writer_graphic",
                 side_effect=lambda *a, **k: events.append("insert"),
             ),
             patch.object(
@@ -911,9 +906,9 @@ class TestImageCompoundUndo:
         model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
         ctx = MagicMock()
         with (
-            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
             patch.object(image_tools, "_should_link_image_path", return_value=False),
-            patch.object(image_tools, "_safe_set_property", return_value=True),
+            patch.object(image_tools.visual_helpers, "safe_set_property", return_value=True),
             patch("plugin.doc.compound_undo.WriterCompoundUndo", FakeUndo),
         ):
             ok = image_tools.replace_graphic_source(ctx, model, graphic, "/tmp/cache/x.png")
@@ -938,8 +933,8 @@ class TestDisplaySizeCap:
         model = MagicMock()
         ctx = MagicMock()
         with (
-            patch.object(image_tools, "get_type_doc", return_value="writer"),
-            patch.object(image_tools, "_insert_image_to_writer", side_effect=_capture),
+            patch.object(image_tools.visual_helpers, "get_visual_doc_type", return_value="writer"),
+            patch.object(image_tools, "_insert_writer_graphic", side_effect=_capture),
             patch("plugin.doc.compound_undo.WriterCompoundUndo"),
         ):
             image_tools.insert_image(
