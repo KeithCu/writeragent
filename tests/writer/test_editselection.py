@@ -351,11 +351,12 @@ def test_extend_selection_empty_text_shows_message(mock_get_str, mock_stream, mo
 def test_both_commands_write_model_lru_once(
     mock_update_lru, mock_get_model, mock_get_ep, mock_create_client, mock_stream
 ):
-    # Same seed as sibling extend tests: without it get_config_int raises ConfigError
-    # once create_validated_client is mocked through (PR tip already hit this).
+    # Seed both token caps: LRU test exercises Extend then Edit, and without these
+    # get_config_int raises once create_validated_client is mocked through.
     set_configs(
         {
             "extend_selection_max_tokens": 100,
+            "edit_selection_max_new_tokens": 100,
             "doc.agent_edit_review_mode": "none",
             "additional_instructions": "",
         }
