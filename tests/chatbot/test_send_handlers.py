@@ -90,7 +90,7 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
         patch("plugin.mcp.is_mcp_server_running", return_value=False),
         patch("plugin.chatbot.send_handlers.get_config", return_value="builtin"),
     ):
-        panel._execute_agent_backend_effect("hello", MagicMock(), "writer", MagicMock(), MagicMock())
+        panel._execute_agent_backend_effect("hello", MagicMock(), "writer")
 
     adapter.send.assert_called_once()
     assert adapter.send.call_args.kwargs["mcp_url"] is None
@@ -114,7 +114,7 @@ def test_agent_backend_prompt_includes_mcp_when_server_running():
         patch("plugin.mcp.is_mcp_server_running", return_value=True),
         patch("plugin.chatbot.send_handlers.get_config", return_value="builtin"),
     ):
-        panel._execute_agent_backend_effect("hello", MagicMock(), "writer", MagicMock(), MagicMock())
+        panel._execute_agent_backend_effect("hello", MagicMock(), "writer")
 
     adapter.send.assert_called_once()
     assert adapter.send.call_args.kwargs["mcp_url"] == "http://localhost:18765/mcp"
@@ -586,15 +586,13 @@ def test_direct_image_tool_error_persists_assistant_note():
 def test_direct_image_stop_keeps_stopped_status():
     panel = DummyChatbotPanel()
     panel._terminal_status = "Ready"
-    state = SendHandlerState(handler_type="image", status="ready")
-    interpreter = EffectInterpreter(panel)
 
     def fake_drain(q, worker, current_state, interpreter, **kwargs):
         panel._terminal_status = "Stopped"
 
     with patch("plugin.chatbot.send_handlers.update_lru_history"):
         with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=fake_drain):
-            panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)
+            panel._execute_direct_image_effect("a cat", MagicMock())
     assert panel._terminal_status == "Stopped"
 
 
@@ -871,13 +869,11 @@ def test_unavailable_agent_backend_does_not_store_user_row():
     panel = DummyChatbotPanel()
     panel.session.refresh_document_context = MagicMock()
     panel.session.document_context = ""
-    state = SendHandlerState(handler_type="agent", status="starting")
-    interpreter = EffectInterpreter(panel)
     adapter = MagicMock()
     adapter.is_available.return_value = False
 
     with patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter):
-        panel._execute_agent_backend_effect("hello", MockDocument(), "writer", state, interpreter)
+        panel._execute_agent_backend_effect("hello", MockDocument(), "writer")
 
     panel.session.add_user_message.assert_not_called()
     assert "hello" not in panel.responses
@@ -1490,7 +1486,7 @@ def test_agent_backend_worker_does_not_call_get_document_type():
         patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker),
         patch("plugin.doc.doc_type.get_document_type") as mock_gdt,
     ):
-        panel._execute_agent_backend_effect("hi", model, "writer", MagicMock(), MagicMock())
+        panel._execute_agent_backend_effect("hi", model, "writer")
 
     adapter.send.assert_called_once()
     mock_gdt.assert_not_called()
@@ -1570,8 +1566,6 @@ def test_specialized_tool_errors_persist_assistant_row():
     for mode, needle in cases:
         panel = DummyChatbotPanel()
         panel.session.messages = []
-        state = SendHandlerState(handler_type="web", status="starting")
-        interpreter = EffectInterpreter(panel)
         mock_main = MagicMock()
         mock_registry = MagicMock()
         mock_registry.execute.return_value = {"status": "error", "message": "nope"}
@@ -1585,7 +1579,7 @@ def test_specialized_tool_errors_persist_assistant_row():
             with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
                 with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                     with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain([])):
-                        panel._execute_web_research_effect("query", MagicMock(), state, interpreter, mode=mode)
+                        panel._execute_web_research_effect("query", MagicMock(), mode=mode)
 
         content = panel.session.add_assistant_message.call_args.kwargs["content"]
         assert content == needle
@@ -1676,8 +1670,6 @@ def test_image_worker_drops_output_after_abort():
 
     panel = DummyChatbotPanel()
     begin_send_turn(panel)
-    state = SendHandlerState(handler_type="image", status="starting")
-    interpreter = EffectInterpreter(panel)
 
     def execute(_name, tctx, bypass_thread_guard=False, **_kwargs):
         abort_turn(panel)
@@ -1698,7 +1690,7 @@ def test_image_worker_drops_output_after_abort():
         with patch("plugin.chatbot.send_handlers.update_lru_history"):
             with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                 with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain(kinds)):
-                    panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)
+                    panel._execute_direct_image_effect("a cat", MagicMock())
 
     assert StreamQueueKind.CHUNK not in kinds
     assert StreamQueueKind.STATUS not in kinds
@@ -1712,8 +1704,6 @@ def test_web_worker_drops_output_after_abort():
     panel = DummyChatbotPanel()
     panel.session.messages = []
     begin_send_turn(panel)
-    state = SendHandlerState(handler_type="web", status="starting")
-    interpreter = EffectInterpreter(panel)
 
     def execute(_name, _tctx, bypass_thread_guard=False, **_kwargs):
         abort_turn(panel)
@@ -1736,7 +1726,7 @@ def test_web_worker_drops_output_after_abort():
         with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
             with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                 with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain(kinds)):
-                    panel._execute_web_research_effect("query", MagicMock(), state, interpreter)
+                    panel._execute_web_research_effect("query", MagicMock())
 
     assert StreamQueueKind.CHUNK not in kinds
     assert StreamQueueKind.THINKING not in kinds
@@ -1755,8 +1745,6 @@ def test_agent_backend_drops_output_after_abort():
     panel.session.refresh_document_context = MagicMock()
     panel.session.document_context = "doc"
     begin_send_turn(panel)
-    state = SendHandlerState(handler_type="agent", status="starting")
-    interpreter = EffectInterpreter(panel)
     model = MagicMock()
     model.getURL.return_value = "file:///tmp/doc.odt"
 
@@ -1792,7 +1780,7 @@ def test_agent_backend_drops_output_after_abort():
         patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg),
         patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain(kinds)),
     ):
-        panel._execute_agent_backend_effect("hi", model, "writer", state, interpreter)
+        panel._execute_agent_backend_effect("hi", model, "writer")
 
     assert StreamQueueKind.CHUNK not in kinds
     assert StreamQueueKind.STATUS not in kinds
@@ -1843,8 +1831,6 @@ def test_run_search_keeps_spawn_scope_after_next_send():
     panel = DummyChatbotPanel()
     panel.session.messages = []
     old, calls = _arm_spawn_scope(panel)
-    state = SendHandlerState(handler_type="web", status="starting")
-    interpreter = EffectInterpreter(panel)
     seen = {}
     captured = {}
 
@@ -1865,7 +1851,7 @@ def test_run_search_keeps_spawn_scope_after_next_send():
     with patch.dict("sys.modules", {"plugin.main": mock_main}):
         with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
             with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker):
-                panel._execute_web_research_effect("query", MagicMock(), state, interpreter)
+                panel._execute_web_research_effect("query", MagicMock())
                 assert calls == [old]
                 new = _swap_scope_and_run(panel, old, calls, captured["fn"])
 
@@ -1880,8 +1866,6 @@ def test_direct_image_keeps_spawn_scope_after_next_send():
 
     panel = DummyChatbotPanel()
     old, calls = _arm_spawn_scope(panel)
-    state = SendHandlerState(handler_type="image", status="starting")
-    interpreter = EffectInterpreter(panel)
     seen = {}
     captured = {}
 
@@ -1902,7 +1886,7 @@ def test_direct_image_keeps_spawn_scope_after_next_send():
     with patch.dict("sys.modules", {"plugin.main": mock_main}):
         with patch("plugin.chatbot.send_handlers.update_lru_history"):
             with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker):
-                panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)
+                panel._execute_direct_image_effect("a cat", MagicMock())
                 assert calls == [old]
                 new = _swap_scope_and_run(panel, old, calls, captured["fn"])
 
@@ -1920,8 +1904,6 @@ def test_agent_worker_keeps_spawn_checker_after_next_send():
     panel.session.document_context = "doc"
     panel._get_mcp_url = MagicMock(return_value=None)
     old, calls = _arm_spawn_scope(panel)
-    state = SendHandlerState(handler_type="agent", status="starting")
-    interpreter = EffectInterpreter(panel)
     model = MagicMock()
     model.getURL.return_value = "file:///tmp/doc.odt"
     seen = {}
@@ -1954,7 +1936,7 @@ def test_agent_worker_keeps_spawn_checker_after_next_send():
         patch("plugin.chatbot.send_handlers.full_manual", return_value=""),
         patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker),
     ):
-        panel._execute_agent_backend_effect("hi", model, "writer", state, interpreter)
+        panel._execute_agent_backend_effect("hi", model, "writer")
         assert calls == [old]
         new = _swap_scope_and_run(panel, old, calls, captured["fn"])
 
@@ -2131,10 +2113,8 @@ def test_direct_image_stop_finalizes_with_stop_line():
     """Image-mode Stop must draw the stop line like chat and web (Scrolly QA)."""
     panel = DummyChatbotPanel()
     panel.stop_requested = True
-    state = SendHandlerState(handler_type="image", status="ready")
-    interpreter = EffectInterpreter(panel)
     with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=lambda *a, **kw: kw.get("on_finished") and kw["on_finished"]()), patch("plugin.chatbot.send_handlers.update_lru_history"), patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response") as fin:
-        panel._execute_direct_image_effect("a cat", MagicMock(), state, interpreter)  # type: ignore
+        panel._execute_direct_image_effect("a cat", MagicMock())
     fin.assert_called_once_with(panel, allow_rerender=False)
 
 def test_start_event_mode_determines_executed_tool():
@@ -2195,9 +2175,7 @@ def test_execute_agent_backend_effect_errors():
     mock_turn.refresh_document_context.side_effect = Exception("Doc ctx error")
     with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=mock_turn), \
          patch("plugin.chatbot.send_handlers.defer_until_drain_done") as mock_defer:
-        interpreter = EffectInterpreter(panel)
-        current_state = SendHandlerState(handler_type="agent", status="ready")
-        panel._execute_agent_backend_effect("query", MagicMock(), "writer", current_state, interpreter)
+        panel._execute_agent_backend_effect("query", MagicMock(), "writer")
     assert panel._terminal_status == "Error"
     mock_defer.assert_called_once()
 
@@ -2241,7 +2219,7 @@ def test_approval_dialog_submit_false_on_error():
     with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()), \
          patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
          patch("plugin.chatbot.send_handlers.get_config", return_value="some_backend"):
-         panel._execute_agent_backend_effect("query", MagicMock(), "writer", MagicMock(), MagicMock())
+         panel._execute_agent_backend_effect("query", MagicMock(), "writer")
 
     cb = cb_capture[0]
     with patch("plugin.chatbot.send_handlers.show_approval_dialog", side_effect=Exception("UI Error")), \
@@ -2314,7 +2292,7 @@ def test_execute_direct_image_effect_aborted_turn_returns_early():
     panel = DummyChatbotPanel()
     panel._run_unified_worker_drain_loop = MagicMock()
     with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=None):
-        panel._execute_direct_image_effect("draw a cat", MagicMock(), MagicMock(), MagicMock())
+        panel._execute_direct_image_effect("draw a cat", MagicMock())
 
     panel._run_unified_worker_drain_loop.assert_not_called()
 
@@ -2355,18 +2333,18 @@ def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():
         patch("plugin.chatbot.send_handlers.get_config", side_effect=get_config),
         patch("plugin.mcp.is_mcp_server_running", return_value=False),
     ):
-        panel._execute_agent_backend_effect("one", MagicMock(), "writer", MagicMock(), MagicMock())
+        panel._execute_agent_backend_effect("one", MagicMock(), "writer")
         assert order == ["prepare", "register"]
         assert created == ["hermes"]
         assert panel._acp_backend is hermes
         assert panel._acp_backend_id == "hermes"
         order.clear()
-        panel._execute_agent_backend_effect("two", MagicMock(), "writer", MagicMock(), MagicMock())
+        panel._execute_agent_backend_effect("two", MagicMock(), "writer")
         assert created == ["hermes"]
         assert order == ["prepare", "register"]
         hermes.shutdown.assert_not_called()
         assert panel._acp_backend is hermes
-        panel._execute_agent_backend_effect("three", MagicMock(), "writer", MagicMock(), MagicMock())
+        panel._execute_agent_backend_effect("three", MagicMock(), "writer")
     hermes.shutdown.assert_called_once()
     assert created == ["hermes", "claude"]
     assert panel._acp_backend is claude
@@ -2397,8 +2375,6 @@ def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():
 def test_specialized_runner_decoder_modes(mode, outcome):
     """Decoder test over every mode x ok / leave / error."""
     panel = DummyChatbotPanel()
-    state = SendHandlerState(handler_type="web", status="starting")
-    interpreter = EffectInterpreter(panel)
     mock_main = MagicMock()
     mock_registry = MagicMock()
 
@@ -2426,7 +2402,7 @@ def test_specialized_runner_decoder_modes(mode, outcome):
         with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
             with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                 with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain([])):
-                    panel._execute_web_research_effect("query", MagicMock(), state, interpreter, mode=mode)
+                    panel._execute_web_research_effect("query", MagicMock(), mode=mode)
 
     content = panel.session.add_assistant_message.call_args.kwargs["content"]
     if outcome == "ok":
