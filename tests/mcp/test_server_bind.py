@@ -92,7 +92,6 @@ def test_format_mcp_start_failure_other_oserror():
 
 def test_start_server_stashes_last_start_error(monkeypatch):
     """Failed HttpServer.start must leave a reason for Toggle/Status (#379)."""
-    import threading
     from unittest.mock import MagicMock
 
     import plugin.mcp as mcp_mod
@@ -113,7 +112,6 @@ def test_start_server_stashes_last_start_error(monkeypatch):
 
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
     mod._registry = MagicMock()
-    mod._srv_lock = threading.Lock()
     mod.name = "mcp"
 
     boom = OSError(98, "Address already in use")
@@ -216,7 +214,6 @@ class _Listener:
 
 def _module_with_listener(monkeypatch, listener, cfg_values, *, fail_start: BaseException | None = None):
     """McpModule wired to a fake listener and config, without a live socket."""
-    import threading
     from unittest.mock import MagicMock
 
     import plugin.mcp as mcp_mod
@@ -238,9 +235,6 @@ def _module_with_listener(monkeypatch, listener, cfg_values, *, fail_start: Base
     mod.name = "mcp"
     mod._services = services
     mod._registry = MagicMock()
-    mod._srv_lock = threading.Lock()
-    mod._tunnel = None
-    mod._mcp_routes_registered = True
     mod._mcp_protocol = None
     dialogs: list = []
     mod._show_start_failure_dialog = lambda ctx=None: dialogs.append(ctx)
