@@ -147,6 +147,9 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
     listener._fail_send = types.MethodType(SendButtonListener._fail_send, listener)
     listener._read_and_clear_query = types.MethodType(SendButtonListener._read_and_clear_query, listener)
     listener._route_sidebar_mode = types.MethodType(SendButtonListener._route_sidebar_mode, listener)
+    listener._begin_send = types.MethodType(SendButtonListener._begin_send, listener)
+    listener._selector_mode = types.MethodType(SendButtonListener._selector_mode, listener)
+    listener._set_query = types.MethodType(SendButtonListener._set_query, listener)
     listener._voice = PanelVoiceController(listener)
     return listener
 

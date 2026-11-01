@@ -145,7 +145,8 @@ class _FakeListener:
         self._approval_query_for_engine = "cats"
         self.approval_finished: list[tuple] = []
         self._button_action = ButtonAction.RECORD
-        self._voice = SimpleNamespace(_apply_record_gesture=lambda step: None)
+        self._stop_button_action = ButtonAction.IGNORE
+        self._voice = SimpleNamespace(_apply_record_gesture=lambda step: None, stop_during_take=lambda: False)
         self._events = SimpleNamespace(_finish_inline_web_approval=self._finish_inline_web_approval)
         self.sidebar_state = SidebarCompositeState(
             send=SendButtonState(

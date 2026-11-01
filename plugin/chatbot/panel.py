@@ -1276,15 +1276,19 @@ class SendButtonListener(BaseActionListener):
             drop_turn(self)
             kick_pending_peer_starts()
 
+    def _set_query(self, text: str) -> None:
+        if self.query_control and self.query_control.getModel():
+            from plugin.chatbot.dialogs import set_control_text
+
+            set_control_text(self.query_control, text)
+
     def _restore_query_text(self, text: str) -> None:
         """Put text back in the Ask box after a send returns early (Stop, STT error).
 
         _do_send clears the Ask box before transcription, so every early return
         must hand the typed text (plus any transcript) back or it is lost.
         """
-        if self.query_control and self.query_control.getModel():
-            from plugin.chatbot.dialogs import set_control_text
-            set_control_text(self.query_control, text)
+        self._set_query(text)
 
     def _fail_send(
         self,
@@ -1363,17 +1367,14 @@ class SendButtonListener(BaseActionListener):
             self._terminal_status = "Ready"
             return None
 
-        if self.query_control and self.query_control.getModel():
-            from plugin.chatbot.dialogs import set_control_text
-
-            set_control_text(self.query_control, "")
-            session = self.frame_session
-            if session is not None:
-                session.note_user_wants_query()
-            # Send button click leaves focus on Send; keep the query field
-            # ready for the next question (reveal/scroll must not win later).
-            if hasattr(self.query_control, "setFocus"):
-                self.query_control.setFocus()
+        self._set_query("")
+        session = self.frame_session
+        if session is not None:
+            session.note_user_wants_query()
+        # Send button click leaves focus on Send; keep the query field
+        # ready for the next question (reveal/scroll must not win later).
+        if hasattr(self.query_control, "setFocus"):
+            self.query_control.setFocus()
         return query_text
 
     def _selector_mode(self) -> str:
@@ -1397,8 +1398,7 @@ class SendButtonListener(BaseActionListener):
         from plugin.chatbot.send_handlers import dispatch_sidebar_send
         from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
-        _mode = getattr(self, "_selector_mode", None) or (lambda: SendButtonListener._selector_mode(self))
-        sidebar_mode = _mode()
+        sidebar_mode = self._selector_mode()
 
         # The document is an argument of the turn already started.
         # A later dropdown change aborts it; it does not retarget the turn.
@@ -1421,8 +1421,7 @@ class SendButtonListener(BaseActionListener):
             return
 
         log.info("=== _do_send START ===")
-        _begin = getattr(self, "_begin_send", None) or (lambda: SendButtonListener._begin_send(self))
-        doc_info = _begin()
+        doc_info = self._begin_send()
         if not doc_info:
             return
         model, doc_type_label = doc_info
@@ -1760,23 +1759,23 @@ class StopButtonListener(BaseActionListener):
         self.send_listener = send_listener
 
     def on_action_performed(self, rEvent: Any) -> None:
-        if getattr(self.send_listener, "_stop_button_action", None) == ButtonAction.CHANGE:
+        if not self.send_listener:
+            return
+        if self.send_listener._stop_button_action == ButtonAction.CHANGE:
             self.send_listener._events._open_web_search_change_dialog()
             return
         # During a take Stop steps down (leave hands-free, then cancel). Only
         # this ActionEvent path does it; mousePressed returns while not busy,
         # so one click is one step.
         # ``is True`` so a MagicMock host (tests) is not treated as recording.
-        take_stop = getattr(getattr(self.send_listener, "_voice", None), "stop_during_take", None)
-        if callable(take_stop) and take_stop() is True:
+        if self.send_listener._voice.stop_during_take() is True:
             return
-        if self.send_listener:
-            from plugin.chatbot.panel_voice import stop_playback_if_speaking
+        from plugin.chatbot.panel_voice import stop_playback_if_speaking
 
-            if stop_playback_if_speaking(self.send_listener):
-                return
-            log.info("StopButtonListener: STOP_CLICKED")
-            self.send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        if stop_playback_if_speaking(self.send_listener):
+            return
+        log.info("StopButtonListener: STOP_CLICKED")
+        self.send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
 
 
 # ---------------------------------------------------------------------------
@@ -1808,38 +1807,34 @@ class ClearButtonListener(BaseActionListener):
 
     def on_action_performed(self, rEvent: Any) -> None:
         _stop_tts()
-        if self.send_listener is not None:
-            self.send_listener._voice.exit_hands_free_record()
-            self.send_listener._voice._release_open_microphone()
         sl = self.send_listener
-        if sl is not None and (
-            getattr(sl, "_clear_button_action", None) == ButtonAction.REJECT or getattr(sl, "_approval_event", None) is not None
-        ):
-            sl._events._finish_inline_web_approval(False)
-            return
-        # Latch Stop before wiping messages. Clear on the UI thread while
-        # a send drain is still active leaves the in-flight reply to append
-        # onto that wiped chat.
-        send_state = getattr(getattr(self.send_listener, "sidebar_state", None), "send", None)
-        if self.send_listener is not None and send_state is not None and send_state.is_busy:
-            self.send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
-        if self.send_listener is not None:
+        if sl is not None:
+            sl._voice.exit_hands_free_record()
+            sl._voice._release_open_microphone()
+            if sl._clear_button_action == ButtonAction.REJECT or sl._approval_event is not None:
+                sl._events._finish_inline_web_approval(False)
+                return
+            # Latch Stop before wiping messages. Clear on the UI thread while
+            # a send drain is still active leaves the in-flight reply to append
+            # onto that wiped chat.
+            if sl.sidebar_state.send.is_busy:
+                sl.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
             from plugin.chatbot.tool_loop_actions import abort_turn
 
             # Abort before the list is replaced. Stop already aborted a busy
             # send; abort again when it was idle so a worker that outlived
             # the button cannot paint onto the new list.
-            abort_turn(self.send_listener)
+            abort_turn(sl)
             # Reset mode topic so the next prompt sets a fresh one. Clear
             # wipes session history; leaving _mode_topic lets _do_send reuse
             # the stale topic with an empty history.
-            self.send_listener._mode_topic = ""
+            sl._mode_topic = ""
         self.session.clear()
 
         greeting = self.greeting
         if not greeting:
             # Nothing sets .doc on the listener. Use a real doc source.
-            model = self.send_listener._get_document_model() if self.send_listener else None
+            model = sl._get_document_model() if sl else None
             from plugin.framework.errors import DocumentDisposedError
             from plugin.framework.prompts import get_greeting_for_document
 
