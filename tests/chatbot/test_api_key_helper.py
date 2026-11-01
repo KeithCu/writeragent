@@ -80,7 +80,7 @@ def test_test_connection_uses_endpoint_listener_key():
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda dlg, name: controls.get(name)), \
          patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c, *a, **k: c.getText()), \
          patch("plugin.chatbot.quick_setup.check_endpoint_connection", side_effect=lambda ep, key: sent.append((ep, key)) or (True, "ok")), \
-         patch("plugin.framework.worker_pool.run_in_background", side_effect=lambda fn, name=None: fn()), \
-         patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: None):
+         patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
+         patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None):
         listener.on_action_performed(None)
     assert sent and sent[0][1] == ""
