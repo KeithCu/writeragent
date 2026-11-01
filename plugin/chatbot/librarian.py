@@ -42,7 +42,7 @@ def _normalize_suggested_name(raw: str | None) -> str | None:
         return None
     if len(name) > MAX_SUGGESTED_NAME_LEN:
         name = name[:MAX_SUGGESTED_NAME_LEN].strip()
-    if not name or name.lower() in _GENERIC_NAMES:
+    if name.lower() in _GENERIC_NAMES:
         return None
     return name
 
@@ -173,11 +173,10 @@ TOOLS FOR COMPLETION:
         + "\nFormat reply_to_user answer with this style; that text is shown in the chat sidebar."
     )
     mem_block = format_user_memory_prompt_block()
-    if mem_block:
-        # Cap USER.md with the same CHAT_DOCUMENT_CONTEXT_MAX_CHARS limit
-        # as the main chat prompt. A raw profile crowds out the librarian
-        # instructions.
-        instructions += mem_block
+    # Cap USER.md with the same CHAT_DOCUMENT_CONTEXT_MAX_CHARS limit
+    # as the main chat prompt. A raw profile crowds out the librarian
+    # instructions.
+    instructions += mem_block
 
     from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC
 

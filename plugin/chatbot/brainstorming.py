@@ -17,6 +17,7 @@ from plugin.chatbot.sub_agent_tools import (
     SUB_AGENT_DOC_CORE_TOOLS,
     SubAgentResearchWebBase,
     SubAgentSessionToolBase,
+    _session_tool_parameters,
     run_domain_sub_agent,
 )
 from plugin.writer.specialized_base import ToolWriterSpecialBase
@@ -93,7 +94,7 @@ class SaveDesignSpec(HtmlContentToolBase):
     )
 
 
-def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, topic: str | None = None, **kwargs: Any) -> dict[str, Any]:
+def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text: str | None = None, topic: str | None = None) -> dict[str, Any]:
     """Run one turn of the brainstorming smol sub-agent."""
     from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
 
@@ -120,13 +121,7 @@ class BrainstormingSessionTool(SubAgentSessionToolBase):
     agent_label: str = "Brainstorming"
     runner: Callable[..., dict[str, Any]] | None = staticmethod(_run_brainstorming_agent)
     doc_types: list[str] | None = ["writer"]
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "User message or initial task."},
-            "history_text": {"type": "string", "description": "Previous conversation text."},
-            "topic": {"type": "string", "description": "Original brainstorming topic from delegate task."},
-        },
-        "required": ["query"],
-    }
+    parameters: dict[str, Any] | None = _session_tool_parameters(
+        "Original brainstorming topic from delegate task."
+    )
 

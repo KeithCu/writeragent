@@ -119,7 +119,7 @@ class StickyReplyToUserTool(ToolBase):
     spec: StickyReplySpec
     description: str
     parameters: dict[str, Any] | None
-    spec_saved: bool = False
+    spec_saved: bool
 
     def __init__(self, spec: StickyReplySpec) -> None:
         self.spec = spec
@@ -138,9 +138,7 @@ class StickyReplyToUserTool(ToolBase):
                 ),
             },
         }
-        self._extra_names: list[str] = []
         for name, desc in spec.extra_bools:
-            self._extra_names.append(name)
             properties[name] = {
                 "type": "boolean",
                 "description": desc,
@@ -171,10 +169,7 @@ class StickyReplyToUserTool(ToolBase):
                 "result": answer_text,
                 "message": answer_text,
             }
-            for extra in self._extra_names:
-                if extra == "spec_saved":
-                    payload[extra] = bool(self.spec_saved)
-                else:
-                    payload[extra] = as_bool(kwargs.get(extra, False))
+            for extra in self.spec.extra_bools:
+                payload[extra[0]] = bool(self.spec_saved)
             return payload
         return {"status": STATUS_OK, "result": answer_text}
