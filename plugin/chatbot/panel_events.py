@@ -39,15 +39,13 @@ def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
             ctrl.setPosSize(rect.X, rect.Y, rect.Width, rect.Height, 15)
 
 
-def _restore_control(ctrl: Any, backup: dict[str, Any], label_key: str, enabled_key: str, mnemonics: dict[str, str]) -> None:
-    """Restore button label and enabled status independently from backup."""
+def _restore_control(ctrl: Any, label: str, enabled: bool, mnemonics: dict[str, str]) -> None:
+    """Restore button label and enabled status from backup."""
     if not ctrl or not ctrl.getModel():
         return
     m = ctrl.getModel()
-    if label_key in backup:
-        _relabel_button(ctrl, backup[label_key], mnemonics)
-    if enabled_key in backup:
-        m.Enabled = backup[enabled_key]
+    _relabel_button(ctrl, label, mnemonics)
+    m.Enabled = enabled
 
 
 class PanelEventsController:
@@ -119,10 +117,14 @@ class PanelEventsController:
             self._finish_inline_web_approval(False)
         self._panel._approval_event = event
         self._panel._approval_query_for_engine = query
+        controls: dict[str, tuple[str, bool]] = {}
         self._panel._approval_ui_backup = {
-            "button_action": self._panel._button_action,
-            "stop_button_action": self._panel._stop_button_action,
-            "clear_button_action": self._panel._clear_button_action,
+            "actions": (
+                self._panel._button_action,
+                self._panel._stop_button_action,
+                self._panel._clear_button_action,
+            ),
+            "controls": controls,
         }
         self._panel._button_action = ButtonAction.ACCEPT
         self._panel._stop_button_action = ButtonAction.CHANGE
@@ -137,8 +139,7 @@ class PanelEventsController:
             ):
                 if ctrl and ctrl.getModel():
                     m = ctrl.getModel()
-                    self._panel._approval_ui_backup[f"{key}_label"] = m.Label
-                    self._panel._approval_ui_backup[f"{key}_enabled"] = m.Enabled
+                    controls[key] = (m.Label, m.Enabled)
                     _relabel_button(ctrl, label, cache)
                     m.Enabled = True
             if self._panel.status_control:
@@ -167,18 +168,26 @@ class PanelEventsController:
         self._panel._approval_query_for_engine = None
         b: dict[str, Any] = self._panel._approval_ui_backup or {}
         self._panel._approval_ui_backup = None
-        self._panel._button_action = b.get("button_action", ButtonAction.RECORD)
-        self._panel._stop_button_action = b.get("stop_button_action", ButtonAction.IGNORE)
-        self._panel._clear_button_action = b.get("clear_button_action", ButtonAction.IGNORE)
+        (
+            self._panel._button_action,
+            self._panel._stop_button_action,
+            self._panel._clear_button_action,
+        ) = b.get("actions", (ButtonAction.RECORD, ButtonAction.IGNORE, ButtonAction.IGNORE))
         with suppress_disposed("_finish_inline_web_approval restore", logger=log):
             cache = self._panel._mnemonic_cache()
-            _restore_control(self._panel.send_control, b, "send_label", "send_enabled", cache)
-            _restore_control(self._panel.stop_control, b, "stop_label", "stop_enabled", cache)
-            _restore_control(self._panel.clear_control, b, "clear_label", "clear_enabled", cache)
+            controls = b.get("controls", {})
+            for key, ctrl in (
+                ("send", self._panel.send_control),
+                ("stop", self._panel.stop_control),
+                ("clear", self._panel.clear_control),
+            ):
+                if key in controls:
+                    label, enabled = controls[key]
+                    _restore_control(ctrl, label, enabled, cache)
             if self._panel.status_control and "status_text" in b:
                 self._panel.status_control.setText(b["status_text"])
         ev.approved = approved
-        ev.query_override = query_override if approved else None
+        ev.query_override = query_override
         if approved and query_override is not None:
             log.debug("_finish_inline_web_approval: approved with query_override len=%d", len(query_override))
         ev.set()
