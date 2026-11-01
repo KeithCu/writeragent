@@ -766,15 +766,13 @@ def _normalize_with_fake_struct(updates):
 
 
 def test_line_spacing_dict_becomes_a_uno_struct():
-    out, err = _normalize_with_fake_struct({"ParaLineSpacing": {"Mode": 0, "Height": 150}})
-    assert err is None
+    out = _normalize_with_fake_struct({"ParaLineSpacing": {"Mode": 0, "Height": 150}})
     assert not isinstance(out["ParaLineSpacing"], dict)
     assert out["ParaLineSpacing"].Height == 150
 
 
 def test_line_spacing_mode_accepts_the_word():
-    out, err = _normalize_with_fake_struct({"ParaLineSpacing": {"Mode": "fix", "Height": 500}})
-    assert err is None
+    out = _normalize_with_fake_struct({"ParaLineSpacing": {"Mode": "fix", "Height": 500}})
     assert out["ParaLineSpacing"].Mode == 3
 
 
@@ -786,20 +784,19 @@ def test_line_spacing_mode_accepts_the_word():
     ],
 )
 def test_unknown_line_spacing_mode_is_refused_with_the_options(value, value_2, value_3, value_4):
-    out, err = _normalize_with_fake_struct({"ParaLineSpacing": {value: value_2}})
-    assert out == {}
+    with pytest.raises(ValueError) as excinfo:
+        _normalize_with_fake_struct({"ParaLineSpacing": {value: value_2}})
+    err = str(excinfo.value)
     assert value_3 in err and value_4 in err
 
 def test_struct_property_given_a_scalar_is_refused():
-    out, err = _normalize_with_fake_struct({"ParaLineSpacing": 150})
+    out = _normalize_with_fake_struct({"ParaLineSpacing": 150})
     # Not a dict -> left for UNO to reject; the normalizer must not crash.
-    assert err is None
     assert out["ParaLineSpacing"] == 150
 
 
 def test_simple_properties_pass_through_untouched():
-    out, err = _normalize_with_fake_struct({"CharWeight": 150, "CharColor": "#FF0000"})
-    assert err is None
+    out = _normalize_with_fake_struct({"CharWeight": 150, "CharColor": "#FF0000"})
     assert out == {"CharWeight": 150, "CharColor": "#FF0000"}
 
 

@@ -75,10 +75,12 @@ log = logging.getLogger("writeragent.writer")
 # entry is many creates old, and its destructor no longer races this lookup.
 _CREATED_STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
 
+_TEXT_STYLE_FAMILIES = ["ParagraphStyles", "CharacterStyles"]
+
 # Families style_list will report and enumerate. PageStyles is listed because the page tools take
 # a page-style NAME and a document converted from .docx rarely uses "Standard" — without it the
 # only way to learn the real names was to guess one and read them off the error.
-_STYLE_FAMILIES = ["ParagraphStyles", "CharacterStyles", "PageStyles"]
+_STYLE_FAMILIES = [*_TEXT_STYLE_FAMILIES, "PageStyles"]
 
 _CONDITIONAL_CONTEXTS = [
     "TableHeader", "Table", "Frame", "Section", "Footnote", "Endnote",
@@ -190,13 +192,13 @@ def _missing_style_error(tool: Any, style_name: str, family: str, style_family: 
         "Style '%s' not found in %s.%s%s" % (style_name, family, hint, sample))
 
 
-def _para_adjust_to_uno(value: Any) -> tuple[Any | None, str | None]:
+def _para_adjust_to_uno(value: Any) -> int:
     """Schema word → UNO integer. Integers are refused (the old 0/1/2/3 trap)."""
     if isinstance(value, str):
         key = value.strip().lower()
         if key in _PARA_ADJUST_TO_UNO:
-            return _PARA_ADJUST_TO_UNO[key], None
-    return None, (
+            return _PARA_ADJUST_TO_UNO[key]
+    raise ValueError(
         "ParaAdjust must be one of left, center, right, justify "
         "(not 0/1/2/3 — 1 is right, 2 is justify, 3 is center), got %r" % (value,)
     )
@@ -370,29 +372,29 @@ def _coerce_uno_field(struct: Any, field: str, value: Any) -> Any:
     return value
 
 
-def _struct_field_value(struct_name: str, field: str, value: Any) -> tuple[Any, str | None]:
+def _struct_field_value(struct_name: str, field: str, value: Any) -> Any:
     """Translate the handful of fields that read better as words."""
     if field == "Color":
         # BorderLine2.Color accepts hex, integer, or -1 / automatic / transparent.
         col = _style_color_to_uno(value)
         if col is None:
-            return None, "%s.Color is not a color: %r" % (struct_name, value)
-        return col, None
+            raise ValueError("%s.Color is not a color: %r" % (struct_name, value))
+        return col
     if struct_name == "com.sun.star.style.LineSpacing" and field == "Mode" and isinstance(value, str):
         mode = _LINE_SPACING_MODES.get(value.strip().lower())
         if mode is None:
-            return None, (
+            raise ValueError(
                 "ParaLineSpacing Mode must be one of prop, minimum, leading, fix "
                 "(or the UNO integer), got %r" % (value,)
             )
-        return mode, None
-    return value, None
+        return mode
+    return value
 
 
-def _dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> tuple[Any, str | None]:
-    """Build a UNO struct from a plain dict. Returns (struct, error_message)."""
+def _dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> Any:
+    """Build a UNO struct from a plain dict."""
     if not isinstance(value, dict):
-        return None, (
+        raise ValueError(
             "%s takes an object of fields, e.g. {\"Mode\": \"prop\", \"Height\": 150}, got %r"
             % (prop_name, value)
         )
@@ -401,26 +403,24 @@ def _dict_to_uno_struct(prop_name: str, struct_name: str, value: Any) -> tuple[A
     try:
         struct = cast("Any", uno.createUnoStruct(struct_name))
     except Exception as e:
-        return None, "Could not build %s for %s: %s" % (struct_name, prop_name, e)
+        raise ValueError("Could not build %s for %s: %s" % (struct_name, prop_name, e))
     # A TabStop's FillChar starts as NUL; Writer's own tab stops use a space.
     fields = {"FillChar": " "} if struct_name == "com.sun.star.style.TabStop" else {}
     fields.update(value)
     for field, raw in fields.items():
         if not hasattr(struct, str(field)):
-            return None, (
+            raise ValueError(
                 "%s has no field %r. Fields for %s: %s"
                 % (prop_name, field, struct_name,
                    ", ".join(sorted(n for n in dir(struct) if not n.startswith("_"))))
             )
-        converted, err = _struct_field_value(struct_name, str(field), raw)
-        if err:
-            return None, err
+        converted = _struct_field_value(struct_name, str(field), raw)
         converted = _coerce_uno_field(struct, str(field), converted)
         try:
             setattr(struct, str(field), converted)
         except Exception as e:
-            return None, "%s.%s rejected %r: %s" % (prop_name, field, raw, e)
-    return struct, None
+            raise ValueError("%s.%s rejected %r: %s" % (prop_name, field, raw, e))
+    return struct
 
 
 def _set_style_property(style: Any, prop_name: str, value: Any) -> None:
@@ -615,30 +615,21 @@ def _clone_text_style(
     }
 
 
-def _normalize_property_updates(property_updates: Any) -> tuple[dict[str, Any], str | None]:
-    """Copy updates and translate ParaAdjust and UNO structs. Returns (dict, error_message)."""
+def _normalize_property_updates(property_updates: Any) -> dict[str, Any]:
+    """Copy updates and translate ParaAdjust and UNO structs."""
     updates = dict(property_updates)
     if "ParaAdjust" in updates:
-        uno_adj, err = _para_adjust_to_uno(updates["ParaAdjust"])
-        if err:
-            return {}, err
-        updates["ParaAdjust"] = uno_adj
+        updates["ParaAdjust"] = _para_adjust_to_uno(updates["ParaAdjust"])
     for name, struct_name in _STRUCT_PROPERTIES.items():
         if name in updates and isinstance(updates[name], dict):
-            struct, err = _dict_to_uno_struct(name, struct_name, updates[name])
-            if err:
-                return {}, err
-            updates[name] = struct
+            updates[name] = _dict_to_uno_struct(name, struct_name, updates[name])
     for name, struct_name in _STRUCT_SEQUENCE_PROPERTIES.items():
         if name in updates and isinstance(updates[name], list):
             built = []
             for item in updates[name]:
-                struct, err = _dict_to_uno_struct(name, struct_name, item)
-                if err:
-                    return {}, err
-                built.append(struct)
+                built.append(_dict_to_uno_struct(name, struct_name, item))
             updates[name] = tuple(built)
-    return updates, None
+    return updates
 
 
 def _validate_style_updates(
@@ -659,9 +650,10 @@ def _validate_style_updates(
     if not isinstance(property_updates, dict):
         return tool._tool_error("property_updates must be an object.")
 
-    updates, adj_err = _normalize_property_updates(property_updates)
-    if adj_err:
-        return tool._tool_error(adj_err)
+    try:
+        updates = _normalize_property_updates(property_updates)
+    except ValueError as exc:
+        return tool._tool_error(str(exc))
 
     return style_name, family, parent_style, updates
 
@@ -718,6 +710,13 @@ def _style_family(tool: Any, doc: Any, family: str) -> Any:
         missing_msg="Document does not support style families.",
         not_found_msg="Unknown style family: %s" % family,
     )
+
+
+def _get_style_family(tool: Any, doc: Any, family: str) -> Any:
+    style_families = doc.getStyleFamilies()
+    if not style_families.hasByName(family):
+        return tool._tool_error("Document does not support style family: %s" % family)
+    return style_families.getByName(family)
 
 
 class StyleList(ToolWriterStyleBase):
@@ -879,7 +878,7 @@ class ApplyStyle(FrameworkToolBase):
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Style name (e.g. Heading 1, Source Text)."},
-            "family": enum_param(["ParagraphStyles", "CharacterStyles"], ("Style family. Default: ParagraphStyles.")),
+            "family": enum_param(_TEXT_STYLE_FAMILIES, ("Style family. Default: ParagraphStyles.")),
             "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
             "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
@@ -1060,26 +1059,20 @@ class ApplyStyle(FrameworkToolBase):
                     break
 
             if mgr is not None:
-                left = False
                 undone = False
                 leave_error: Exception | None = None
                 try:
                     mgr.leaveUndoContext()
-                    left = True
                 except Exception as leave_exc:
                     log.exception("apply_style: leaveUndoContext failed")
+                    reraise_if_disposed(leave_exc)
+                    undone = False
                     leave_error = leave_exc
-                # What was wrong: a failed leave with no apply error returned ok
-                # and left the undo context open, so the next edit folded into it.
-                # How it happened: leaveUndoContext's exception was only logged.
-                # Why this fixes it: disposal propagates; any other failed leave
-                # is an error after the matches were styled.
-                if leave_error is not None:
-                    reraise_if_disposed(leave_error)
-                if error is not None:
-                    if left:
+                else:
+                    if error is not None:
                         undone = _rollback_undo_action(mgr, title, "apply_style rollback failed")
-                    if error is not None and is_disposed_exception(error):
+                if error is not None:
+                    if is_disposed_exception(error):
                         raise error
                     if undone:
                         return self._tool_error("Nothing was changed: %s" % (error,))
@@ -1088,6 +1081,11 @@ class ApplyStyle(FrameworkToolBase):
                         % (len(reports), len(ranges), error)
                     )
                 if leave_error is not None:
+                    # What was wrong: a failed leave with no apply error returned ok
+                    # and left the undo context open, so the next edit folded into it.
+                    # How it happened: leaveUndoContext's exception was only logged.
+                    # Why this fixes it: disposal propagates; any other failed leave
+                    # is an error after the matches were styled.
                     return self._tool_error(
                         "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
                         "The changes are in the document and the undo context is still open."
@@ -1151,7 +1149,7 @@ class StyleUpdate(ToolWriterStyleBase):
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Name of the style to modify (e.g., 'Heading 1', 'Source Text')."},
-            "family": enum_param(["ParagraphStyles", "CharacterStyles"], "Style family. Default: ParagraphStyles."),
+            "family": enum_param(_TEXT_STYLE_FAMILIES, "Style family. Default: ParagraphStyles."),
             "parent_style": {"type": "string", "description": "Name of the style to inherit from."},
             "property_updates": {
                 "type": "object",
@@ -1261,7 +1259,7 @@ class StyleCreate(ToolWriterStyleBase):
         "type": "object",
         "properties": {
             "style": {"type": "string", "description": "Name of the new style."},
-            "family": enum_param(["ParagraphStyles", "CharacterStyles"], "Style family. Default: ParagraphStyles."),
+            "family": enum_param(_TEXT_STYLE_FAMILIES, "Style family. Default: ParagraphStyles."),
             "parent_style": {"type": "string", "description": "Name of the style to inherit from (e.g. 'Standard', 'Default Paragraph Style')."},
             "property_updates": {
                 "type": "object",
@@ -1294,11 +1292,9 @@ class StyleCreate(ToolWriterStyleBase):
         conditional_rules = kwargs.get("conditional_rules")
 
         doc = ctx.doc
-        style_families = doc.getStyleFamilies()
-        if not style_families.hasByName(family):
-            return self._tool_error("Document does not support style family: %s" % family)
-
-        style_family = style_families.getByName(family)
+        style_family = _get_style_family(self, doc, family)
+        if isinstance(style_family, dict):
+            return style_family
         if style_family.hasByName(style_name):
             return self._tool_error("Style '%s' already exists in %s." % (style_name, family))
 
@@ -1420,10 +1416,9 @@ class StyleClone(ToolWriterStyleBase):
         doc = ctx.doc
         # getStyleFamilies does not fail on a live document. execute_safe
         # reports a closed document.
-        style_families = doc.getStyleFamilies()
-        if not style_families.hasByName(family):
-            return self._tool_error("Document does not support style family: %s" % family)
-        style_family = style_families.getByName(family)
+        style_family = _get_style_family(self, doc, family)
+        if isinstance(style_family, dict):
+            return style_family
         if not style_family.hasByName(style_name):
             return _missing_style_error(self, style_name, family, style_family)
         if style_family.hasByName(new_name):
