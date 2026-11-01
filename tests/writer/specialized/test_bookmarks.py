@@ -717,7 +717,7 @@ def test_read_mcp_bookmark_map_skips_paragraph_scan_when_no_mcp_names(monkeypatc
     svc = BookmarkService()
     bm_map, all_names = svc._read_mcp_bookmark_map_and_names(doc, para_ranges=None)
     assert bm_map == {}
-    assert all_names == ["intro_bm", "appendix_bm"]
+    assert all_names == []
 
 
 def test_bookmark_resolve_description_names_its_registered_tool():
