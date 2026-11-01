@@ -5,7 +5,7 @@ import sys
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.stream_batch import StreamQueueKind
+from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.chatbot.tool_loop_actions import build_tool_execute_fn, current_turn, take_stop_partial
 from plugin.chatbot.tool_loop import ToolCallingMixin
 from plugin.chatbot.tool_loop_state import ToolLoopState
@@ -733,8 +733,9 @@ def test_final_stream_done_and_stop_partial(test_instance):
     turn = current_turn(test_instance)
     assert turn is not None
     q1: queue.Queue[Any] = queue.Queue()
+    b1 = BatchingStreamQueue(q1, batch_interval=10)
     turn.queue = q1
-    turn.batcher = None
+    turn.batcher = b1
 
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
@@ -744,12 +745,13 @@ def test_final_stream_done_and_stop_partial(test_instance):
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
-        test_instance._spawn_final_stream(q1, client, 256)
+        test_instance._spawn_final_stream(b1, client, 256)
         original_set_status = test_instance._set_status
         mock_set_status = MagicMock()
         test_instance._set_status = mock_set_status
         captured["fn"]()
         test_instance._set_status = original_set_status
+    b1._timer.stop()
 
     mock_set_status.assert_not_called()
     assert "\nAI: " in test_instance.responses
@@ -760,15 +762,15 @@ def test_final_stream_done_and_stop_partial(test_instance):
     while not q1.empty():
         items1.append(q1.get_nowait())
 
-    assert (StreamQueueKind.CHUNK, "ab") in items1
-    assert (StreamQueueKind.CHUNK, "c") in items1
+    assert (StreamQueueKind.CHUNK, "abc") in items1
     assert items1[-1] == (StreamQueueKind.FINAL_DONE, "abc")
     assert not any(item[0] == StreamQueueKind.STREAM_DONE for item in items1)
 
     # 2. Second run on a fresh queue: aborted mid-stream
     q2: queue.Queue[Any] = queue.Queue()
+    b2 = BatchingStreamQueue(q2, batch_interval=10)
     turn.queue = q2
-    turn.batcher = None
+    turn.batcher = b2
     client._stopped = False
 
     def fake_stream_abort(messages, max_tokens, append_c, append_t, stop_checker=None, status_callback=None):
@@ -785,21 +787,24 @@ def test_final_stream_done_and_stop_partial(test_instance):
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
-        test_instance._spawn_final_stream(q2, client, 256)
+        test_instance._spawn_final_stream(b2, client, 256)
         captured["fn"]()
+    b2._timer.stop()
 
     items2: list[Any] = []
     while not q2.empty():
         items2.append(q2.get_nowait())
 
+    assert (StreamQueueKind.CHUNK, "ab") in items2
     assert items2[-1] == (StreamQueueKind.STOPPED,)
     assert not any(item[0] == StreamQueueKind.FINAL_DONE for item in items2)
     assert take_stop_partial(current_turn(test_instance)) == "ab"
 
     # 3. Stop pressed before the final stream starts: no lane, no request.
     q3: queue.Queue[Any] = queue.Queue()
+    b3 = BatchingStreamQueue(q3, batch_interval=10)
     turn.queue = q3
-    turn.batcher = None
+    turn.batcher = b3
     client._stopped = True
     client.stream_chat_response.reset_mock()
 
@@ -809,9 +814,10 @@ def test_final_stream_done_and_stop_partial(test_instance):
         patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
         patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
-        test_instance._spawn_final_stream(q3, client, 256)
+        test_instance._spawn_final_stream(b3, client, 256)
         captured["fn"]()
         mock_lane.assert_not_called()
+    b3._timer.stop()
 
     client.stream_chat_response.assert_not_called()
     assert q3.get_nowait() == (StreamQueueKind.STOPPED,)

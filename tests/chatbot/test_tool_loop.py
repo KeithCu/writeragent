@@ -25,7 +25,7 @@ setattr(sys.modules['com.sun.star.awt'], 'XMouseListener', XMouseListener)
 setattr(sys.modules['com.sun.star.awt'], 'XTextListener', XTextListener)
 
 
-from plugin.framework.stream_batch import StreamQueueKind  # noqa: E402
+from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind  # noqa: E402
 
 # Now import the actual ToolCallingMixin class from the module
 from plugin.chatbot.tool_loop import CHAT_STREAM_BATCH_INTERVAL, ToolCallingMixin  # noqa: E402
@@ -215,7 +215,7 @@ def test_handle_stream_error_persists_banner():
     with patch("plugin.chatbot.tool_loop.try_native_audio_stt_fallback", return_value=False), \
          patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False), \
          patch("plugin.scripting.audio_recorder_service.clear_pending_audio_wav"):
-        result = panel._handle_stream_error(Exception("boom"))
+        result = panel._handle_stream_error({"message": "boom"})
     assert result is None
     assert session.messages[-1]["content"] == "[API error: boom]"
 
@@ -1115,6 +1115,8 @@ def _run_captured_llm_worker(spawn):
     turn = current_turn(panel)
     q = queue.Queue()
     turn.queue = q
+    batched = BatchingStreamQueue(q, batch_interval=10)
+    turn.batcher = batched
     old = SendCancellation()
     new = SendCancellation()
     panel._send_cancellation = old
@@ -1160,7 +1162,7 @@ def _run_captured_llm_worker(spawn):
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture),
         patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
     ):
-        spawn(panel, q, client)
+        spawn(panel, batched, client)
         assert calls == [old]
         assert len(started) == 1
         started[0]()
@@ -1172,6 +1174,7 @@ def _run_captured_llm_worker(spawn):
     item = q.get(timeout=1)
     assert item[0] == StreamQueueKind.STOPPED
     assert q.empty()
+    batched._timer.stop()
 
 
 def test_llm_worker_keeps_spawn_scope_after_next_send():
@@ -1239,6 +1242,8 @@ def test_retry_status_restored_on_first_chunk():
     turn = current_turn(panel)
     q = queue.Queue()
     turn.queue = q
+    batched = BatchingStreamQueue(q, batch_interval=10)
+    turn.batcher = batched
     client = MagicMock()
     client._stopped = False
 
@@ -1254,8 +1259,9 @@ def test_retry_status_restored_on_first_chunk():
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
         patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
     ):
-        ToolCallingMixin._spawn_llm_worker(panel, q, client, 100, [], 0)
+        ToolCallingMixin._spawn_llm_worker(panel, batched, client, 100, [], 0)
         started[0]()
+    batched._timer.stop()
 
     items = []
     while not q.empty():
@@ -1281,6 +1287,8 @@ def test_retry_status_restored_on_first_chunk_final_stream():
     turn = current_turn(panel)
     q = queue.Queue()
     turn.queue = q
+    batched = BatchingStreamQueue(q, batch_interval=10)
+    turn.batcher = batched
     client = MagicMock()
     client._stopped = False
 
@@ -1295,8 +1303,9 @@ def test_retry_status_restored_on_first_chunk_final_stream():
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
         patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
     ):
-        ToolCallingMixin._spawn_final_stream(panel, q, client, 100)
+        ToolCallingMixin._spawn_final_stream(panel, batched, client, 100)
         started[0]()
+    batched._timer.stop()
 
     items = []
     while not q.empty():
@@ -1328,18 +1337,25 @@ def test_bind_spawn_without_live_turn_has_no_session():
 
 
 def test_chunk_callbacks_post_resume_status_after_retry():
+    import queue
     from plugin.chatbot.tool_loop import _chunk_callbacks
+    from plugin.framework.stream_batch import BatchingStreamQueue
 
-    emitted = []
-    status_cb, content_cb, _thinking_cb = _chunk_callbacks(None, None, emitted.append, "Thinking...")
+    raw_q = queue.Queue()
+    batched = BatchingStreamQueue(raw_q, batch_interval=10)
+    status_cb, content_cb, _thinking_cb = _chunk_callbacks(None, batched, batched.put, "Thinking...")
     status_cb("Retrying...")
     content_cb("hi")
     content_cb("there")
+    batched.flush()
+    batched._timer.stop()
+    emitted = []
+    while not raw_q.empty():
+        emitted.append(raw_q.get_nowait())
     assert emitted == [
         (StreamQueueKind.STATUS, "Retrying..."),
         (StreamQueueKind.STATUS, "Thinking..."),
-        (StreamQueueKind.CHUNK, "hi"),
-        (StreamQueueKind.CHUNK, "there"),
+        (StreamQueueKind.CHUNK, "hithere"),
     ]
 
 

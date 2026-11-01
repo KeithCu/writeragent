@@ -18,17 +18,16 @@ import logging
 import inspect
 import dataclasses
 import os
-from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
-    import queue
     from plugin.framework.client.llm_client import LlmClient
 
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_message, format_error_payload, is_tool_document_disposed, resolve_exception_message, suppress_disposed, UnoObjectError
+from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_payload, is_tool_document_disposed, resolve_exception_message, suppress_disposed, UnoObjectError
 from plugin.framework.client.errors import (
     is_local_model_server_crash,
     local_model_overflow_message,
@@ -145,7 +144,7 @@ def _live_text(turn: TurnController | None, callback: Callable[[str], None]) -> 
 
 def _chunk_callbacks(
     turn: TurnController | None,
-    batched: BatchingStreamQueue | None,
+    batched: BatchingStreamQueue,
     emit: Callable[[Any], None],
     resume_status: str,
 ) -> tuple[Callable[[str], None], Callable[[str], None], Callable[[str], None]]:
@@ -156,7 +155,7 @@ def _chunk_callbacks(
         retry_shown = True
         emit((StreamQueueKind.STATUS, t))
 
-    raw_chunk = batched.content_cb() if batched else lambda t: emit((StreamQueueKind.CHUNK, t))
+    raw_chunk = batched.content_cb()
 
     def on_chunk(t: str) -> None:
         nonlocal retry_shown
@@ -166,7 +165,7 @@ def _chunk_callbacks(
         raw_chunk(t)
 
     content_cb = _live_text(turn, on_chunk)
-    thinking_cb = _live_text(turn, batched.thinking_cb() if batched else lambda t: emit((StreamQueueKind.THINKING, t)))
+    thinking_cb = _live_text(turn, batched.thinking_cb())
     return status_cb, content_cb, thinking_cb
 
 
@@ -252,7 +251,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
     stt_model = get_stt_model()
     # Local Whisper does not need an endpoint model id. Endpoint STT still does.
     local_stt = uses_local_stt()
-    if turn is None or not getattr(turn, "alive", False):
+    if turn is None or not turn.alive:
         return False
     retry_q = spawn_queue(turn)
     if (stt_model or local_stt) and retry_q is not None and getattr(turn, "active_client", None) is not None:
@@ -268,14 +267,13 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
             # or sessions mid-transcription while the turn is aborted.
             # Why this fixes it: Bind turn.session and verify the turn is still alive and has
             # identical message list identity before modifying session state or deleting the WAV.
-            turn_session = getattr(turn, "session", None)
-            same_messages = getattr(turn, "same_messages", None)
             if (
-                turn_session is None
-                or not getattr(turn, "alive", False)
-                or not (callable(same_messages) and same_messages())
+                turn.session is None
+                or not turn.alive
+                or not turn.same_messages()
             ):
                 return None
+            turn_session = turn.session
             wav_path = host.audio_wav_path
             host.audio_wav_path = None
             if wav_path:
@@ -629,26 +627,21 @@ class ToolCallingMixin:
 
     def _run_stream_worker(
         self,
+        bound_spawn: tuple[TurnController | None, Any, Callable[[], bool], Callable[[Any], None], Callable[[], bool]],
         *,
-        turn: TurnController | None,
-        bound_session: Any,
-        stop_checker: Callable[[], bool],
-        emit: Callable[[Any], None],
-        stopped_for_this_send: Callable[[], bool],
-        batched: BatchingStreamQueue | None,
+        batched: BatchingStreamQueue,
         client: LlmClient,
         max_tokens: int,
         tools: list[dict[str, Any]] | None,
         force: bool,
         resume_status: str,
         stream_call: Callable[[Any, Callable[[str], None], Callable[[str], None], Callable[[str], None], Callable[[], bool]], Any],
-        stop_partial: Callable[[Any], Any],
         done_kind: StreamQueueKind,
         on_success: Callable[[], None] | None,
         error_log_msg: str,
         strip_round_0_image: bool = False,
     ) -> None:
-        session = bound_session
+        turn, session, stop_checker, emit, stopped_for_this_send = bound_spawn
         if turn is None or not turn.alive or session is None:
             emit((StreamQueueKind.STOPPED,))
             return
@@ -693,7 +686,7 @@ class ToolCallingMixin:
             # next send clears the panel field and calls clear_stop() on
             # this shared client, so a live stop_requested read is wrong.
             if stopped_for_this_send():
-                note_stop_partial(turn, stop_partial(response))
+                note_stop_partial(turn, response)
                 emit((StreamQueueKind.STOPPED,))
             else:
                 if on_success is not None:
@@ -705,10 +698,8 @@ class ToolCallingMixin:
             log.exception(error_log_msg)
             emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
-    def _spawn_llm_worker(self, q: "queue.Queue[Any] | BatchingStreamQueue", client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None, force_compact: bool = False) -> None:
-        """Spawn a background thread that streams the LLM response into q (or the batcher's raw queue)."""
-        batched = q if isinstance(q, BatchingStreamQueue) else None
-
+    def _spawn_llm_worker(self, batched: BatchingStreamQueue, client: "LlmClient", max_tokens: int, tools: list[dict[str, Any]], round_num: int, query_text: str | None = None, force_compact: bool = False) -> None:
+        """Spawn a background thread that streams the LLM response into the batcher."""
         update_activity_state("tool_loop", round_num=round_num)
         log.debug("Tool loop round %d: sending %d messages to API..." % (round_num, len(self._panel.session.messages)))
         resume_status = "Thinking..." if round_num == 0 else "Thinking (round %d)..." % (round_num + 1)
@@ -718,7 +709,7 @@ class ToolCallingMixin:
         if not force_compact:
             self._panel._set_status(resume_status)
 
-        turn, bound_session, stop_checker, emit, stopped_for_this_send = self._bind_spawn(client)
+        bound_spawn = self._bind_spawn(client)
 
         def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, stop_chk: Any) -> Any:
             payload = messages_for_llm(sess)
@@ -732,11 +723,7 @@ class ToolCallingMixin:
 
         def run() -> None:
             self._run_stream_worker(
-                turn=turn,
-                bound_session=bound_session,
-                stop_checker=stop_checker,
-                emit=emit,
-                stopped_for_this_send=stopped_for_this_send,
+                bound_spawn,
                 batched=batched,
                 client=client,
                 max_tokens=max_tokens,
@@ -744,7 +731,6 @@ class ToolCallingMixin:
                 force=force_compact,
                 resume_status=resume_status,
                 stream_call=stream_call,
-                stop_partial=lambda resp: resp,
                 done_kind=StreamQueueKind.STREAM_DONE,
                 on_success=lambda: update_activity_state("tool_loop", round_num=round_num),
                 error_log_msg="Tool loop round %d: API ERROR" % round_num,
@@ -753,18 +739,17 @@ class ToolCallingMixin:
 
         run_in_background(run, name=f"llm-worker-{round_num}", dedicated=True)
 
-    def _spawn_final_stream(self, q: "queue.Queue[Any] | BatchingStreamQueue", client: "LlmClient", max_tokens: int) -> None:
-        """Spawn a background thread for a final no-tools stream into q (or the batcher's raw queue)."""
-        batched = q if isinstance(q, BatchingStreamQueue) else None
-
+    def _spawn_final_stream(self, batched: BatchingStreamQueue, client: "LlmClient", max_tokens: int) -> None:
+        """Spawn a background thread for a final no-tools stream into the batcher."""
         update_activity_state("exhausted_rounds")
         self._panel._set_status("Finishing...")
         self._panel._append_response("\nAI: ")
 
-        turn, bound_session, stop_checker, emit, stopped_for_this_send = self._bind_spawn(client)
-        last_streamed: list[str] = []
+        bound_spawn = self._bind_spawn(client)
 
         def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, stop_chk: Any) -> Any:
+            last_streamed: list[str] = []
+
             def append_c(c: str) -> None:
                 content_cb(c)
                 last_streamed.append(c)
@@ -778,11 +763,7 @@ class ToolCallingMixin:
 
         def run_final() -> None:
             self._run_stream_worker(
-                turn=turn,
-                bound_session=bound_session,
-                stop_checker=stop_checker,
-                emit=emit,
-                stopped_for_this_send=stopped_for_this_send,
+                bound_spawn,
                 batched=batched,
                 client=client,
                 max_tokens=max_tokens,
@@ -790,7 +771,6 @@ class ToolCallingMixin:
                 force=False,
                 resume_status="Finishing...",
                 stream_call=stream_call,
-                stop_partial=lambda _resp: "".join(last_streamed),
                 done_kind=StreamQueueKind.FINAL_DONE,
                 on_success=None,
                 error_log_msg="Final stream failed",
@@ -801,10 +781,10 @@ class ToolCallingMixin:
 
     def _create_event_from_stream_item(self, item: Any) -> ToolLoopEvent | None:
         """Factory method to convert a raw stream item tuple into a ToolLoopEvent."""
-        raw_kind = item[0] if isinstance(item, (tuple, list)) else item
+        raw_kind = item[0]
         if not isinstance(raw_kind, StreamQueueKind):
             return None
-        data = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else None
+        data = item[1] if len(item) > 1 else None
 
         if raw_kind == StreamQueueKind.STREAM_DONE:
             response = data
@@ -821,22 +801,17 @@ class ToolCallingMixin:
         elif raw_kind == StreamQueueKind.NEXT_TOOL:
             return ToolLoopEvent(kind=EventKind.NEXT_TOOL)
         elif raw_kind == StreamQueueKind.TOOL_DONE:
-            raw = item if isinstance(item, (tuple, list)) else ()
-            s = cast("Sequence[Any]", raw)
-            if len(s) < 5:
-                log.warning("Tool loop received malformed TOOL_DONE item: %r", item)
-                return ToolLoopEvent(kind=EventKind.ERROR, data={"error": "Malformed TOOL_DONE item"})
             mutates = False
             with suppress_disposed("Tool loop event: mutates_document check", logger=log):
                 from plugin.main import get_tools as _get_tools_registry
 
-                tool = _get_tools_registry().get(s[2])
+                tool = _get_tools_registry().get(item[2])
                 if tool and tool.detects_mutation():
                     mutates = True
-            call_id = s[1] if isinstance(s[1], str) and s[1].strip() else ""
-            func_name = s[2] if isinstance(s[2], str) and s[2].strip() else "unknown"
-            func_args_str = s[3] if isinstance(s[3], str) else "{}"
-            result = s[4] if isinstance(s[4], str) else ("" if s[4] is None else str(s[4]))
+            call_id = item[1] if isinstance(item[1], str) and item[1].strip() else ""
+            func_name = item[2] if isinstance(item[2], str) and item[2].strip() else "unknown"
+            func_args_str = item[3] if isinstance(item[3], str) else "{}"
+            result = item[4] if isinstance(item[4], str) else ("" if item[4] is None else str(item[4]))
             func_args = object_dict_or_empty(safe_json_loads(func_args_str) if func_args_str else {})
             result_data = object_dict_or_empty(safe_json_loads(result) if result else {})
             return ToolLoopEvent(
@@ -912,15 +887,8 @@ class ToolCallingMixin:
         # If we reached here, it's either not a modality error or STT is not configured.
         # Drain ERROR items are format_error_payload dicts (see _spawn_llm_worker),
         # not BaseException.
-        if isinstance(e, dict):
-            err_msg = str(e.get("message") or e.get("code") or e)
-            crash_blob = "%s %s" % (err_msg, e)
-        elif isinstance(e, BaseException):
-            err_msg = format_error_message(e)
-            crash_blob = err_msg
-        else:
-            err_msg = resolve_exception_message(e)
-            crash_blob = err_msg
+        err_msg = str(e.get("message") or e.get("code") or e)
+        crash_blob = "%s %s" % (err_msg, e)
 
         # Tip: a model that rejects images must not keep them in history, or
         # every later prompt fails too. Mark it text-only and strip the image.
@@ -1008,12 +976,9 @@ class ToolCallingMixin:
 
     def _on_tool_loop_approval_required(self, item: Any) -> None:
         """Main-thread handler: show inline Accept/Reject and unblock the tool worker."""
-        query_for_engine = item[1]
-        tool_name = item[2]
-        event_obj = item[3]
-        if event_obj is not None:
-            self._panel._events.begin_inline_web_approval(query_for_engine, tool_name, event_obj)
-        log.info("tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)", tool_name)
+        if item[3] is not None:
+            self._panel._events.begin_inline_web_approval(item[1], item[2], item[3])
+        log.info("tool_loop on_approval_required: tool=%s (inline Accept/Change/Reject)", item[2])
 
     def _start_tool_calling_async(self, client: "LlmClient", model: Any, max_tokens: int, tools: list[dict[str, Any]], execute_tool_fn: Callable[..., Any], max_tool_rounds: int, query_text: str | None = None) -> None:
         """Tool-calling event loop: single queue, main-thread drain.
