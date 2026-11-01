@@ -40,7 +40,7 @@ class TestInsertImageIntoHeaderFooter:
         region_text.getEnd.return_value = MagicMock()
 
         with (
-            patch("plugin.writer.page.resolve_page_style", return_value=(style, "Standard")),
+            patch("plugin.writer.page.resolve_page_style", return_value=style),
             patch("plugin.writer.page.set_header_footer_auto_height") as set_auto,
             patch.object(image_tools, "_insert_embedded_at_writer_cursor", return_value=graphic) as insert,
         ):
@@ -81,7 +81,7 @@ class TestInsertImageIntoHeaderFooter:
         first_text.getEnd.return_value = MagicMock()
 
         with (
-            patch("plugin.writer.page.resolve_page_style", return_value=(style, "Standard")),
+            patch("plugin.writer.page.resolve_page_style", return_value=style),
             patch("plugin.writer.page.set_header_footer_auto_height") as set_auto,
             patch.object(image_tools, "_insert_embedded_at_writer_cursor", return_value=graphic) as insert,
         ):
@@ -113,7 +113,7 @@ class TestInsertImageIntoHeaderFooter:
         first_text.getEnd.return_value = MagicMock()
 
         with (
-            patch("plugin.writer.page.resolve_page_style", return_value=(style, "Standard")),
+            patch("plugin.writer.page.resolve_page_style", return_value=style),
             patch("plugin.writer.page.set_header_footer_auto_height"),
             patch.object(image_tools, "_insert_embedded_at_writer_cursor", return_value=graphic) as insert,
         ):

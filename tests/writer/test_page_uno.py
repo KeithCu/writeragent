@@ -102,7 +102,7 @@ def test_header_logo_visible_to_scan_and_get(ctx, doc):
     except Exception:
         expected_name = None
 
-    style, _resolved = resolve_page_style(doc, "Standard")
+    style = resolve_page_style(doc, "Standard")
     header_text = style.getPropertyValue("HeaderText")
     scan = _scan_region_content(doc, header_text)
     draw_count = 0
