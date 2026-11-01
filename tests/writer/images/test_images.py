@@ -271,8 +271,11 @@ def test_image_generate_omitted_source_edits_when_selected():
     assert res["status"] == "ok"
     assert "edited" in res["message"].lower()
     assert svc.generate_image.call_args.kwargs.get("source_image") == base64.b64encode(b"pngsel").decode("ascii")
-    assert svc.generate_image.call_args.kwargs.get("width") == 1024
-    assert svc.generate_image.call_args.kwargs.get("height") == 1024
+    # SizePixel is 1024, but the patched base size is 512. Output pixels follow
+    # the base size; the bytes and the on-page frame do not.
+    assert svc.generate_image.call_args.kwargs.get("width") == 512
+    assert svc.generate_image.call_args.kwargs.get("height") == 512
+    assert svc.generate_image.call_args.kwargs.get("aspect_ratio") == "1:1"
 
     replace.assert_called_once_with(
         ctx.ctx,
@@ -288,7 +291,7 @@ def test_image_generate_omitted_source_edits_when_selected():
 
 
 def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_size():
-    """If native size is not available, uses the display size for generating and replacing."""
+    """Missing SizePixel uses the frame's aspect and the base size, not the frame's pixel count."""
     ctx = TestingFactory.create_context(doc_type="writer")
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/edited.png"], None)
@@ -317,8 +320,10 @@ def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_s
     assert res["status"] == "ok"
     assert "edited" in res["message"].lower()
     assert svc.generate_image.call_args.kwargs.get("source_image") == base64.b64encode(b"pngsel").decode("ascii")
-    assert svc.generate_image.call_args.kwargs.get("width") == 640
-    assert svc.generate_image.call_args.kwargs.get("height") == 480
+    # 640x480 is 4:3. Patched base size 512 is the long edge, so the short edge is 384.
+    assert svc.generate_image.call_args.kwargs.get("width") == 512
+    assert svc.generate_image.call_args.kwargs.get("height") == 384
+    assert svc.generate_image.call_args.kwargs.get("aspect_ratio") == "4:3"
 
     replace.assert_called_once_with(
         ctx.ctx,

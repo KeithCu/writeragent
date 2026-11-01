@@ -5,27 +5,62 @@ import pytest
 from plugin.framework.client.base_provider_shim import BaseProviderShim, coerce_image_data_url, coerce_raw_b64
 from plugin.framework.client.llm_client import adjust_image_body_for_rejection
 
-def test_adjust_image_body_for_rejection():
-    # Test that regex trailing JSON junk is not captured
-    body = b'{"resolution": "1K", "aspect_ratio": "16:9"}'
-
-    # Error message contains trailing JSON syntax from being embedded in a JSON response
+def test_adjust_image_body_for_rejection_drops_resolution():
+    # Trailing JSON used to be captured into the replacement token. resolution
+    # is now deleted, and the quote must not leak into a sibling field.
+    body = b'{"resolution": "512", "aspect_ratio": "16:9"}'
     error_text = "resolution: not supported. Accepted: 2K\"}"
 
     new_body = adjust_image_body_for_rejection(body, error_text)
     assert new_body is not None
     new_data = json.loads(new_body)
-    assert new_data["resolution"] == "2K" # and not "2K\"}"
+    assert "resolution" not in new_data
+    assert new_data["aspect_ratio"] == "16:9"
 
 
-def test_adjust_image_body_keeps_value_when_one_provider_omits_accepted():
-    # A line with no Accepted list must not force a delete when another
-    # line names a value. The retry uses that value.
+def test_adjust_image_body_aspect_strips_trailing_json():
+    body = b'{"aspect_ratio": "16:9"}'
+    error_text = 'aspect_ratio: not supported. Accepted: 1:1, 4:3"}'
+    new_body = adjust_image_body_for_rejection(body, error_text)
+    assert new_body is not None
+    assert json.loads(new_body)["aspect_ratio"] == "4:3"
+
+
+def test_adjust_image_body_drops_resolution_even_when_accepted_listed():
+    # A listed tier is not copied. The provider default is the legal one.
     body = b'{"resolution": "512"}'
     error_text = "resolution: not supported. Accepted: 1K | resolution: not supported."
     new_body = adjust_image_body_for_rejection(body, error_text)
     assert new_body is not None
-    assert json.loads(new_body)["resolution"] == "1K"
+    assert "resolution" not in json.loads(new_body)
+
+
+def test_adjust_image_body_aspect_uses_named_value_when_one_line_omits_list():
+    # A line with no Accepted list must not erase the value another line named.
+    body = b'{"aspect_ratio": "16:9"}'
+    error_text = "aspect_ratio: not supported. Accepted: 1:1 | aspect_ratio: not supported."
+    new_body = adjust_image_body_for_rejection(body, error_text)
+    assert new_body is not None
+    assert json.loads(new_body)["aspect_ratio"] == "1:1"
+
+
+def test_adjust_image_body_aspect_picks_closest():
+    body = b'{"aspect_ratio": "16:9"}'
+    error_text = "aspect_ratio: not supported. Accepted: 1:1, 4:3, 3:2"
+    new_body = adjust_image_body_for_rejection(body, error_text)
+    assert new_body is not None
+    assert json.loads(new_body)["aspect_ratio"] == "3:2"
+
+
+def test_adjust_image_body_drops_size_and_output_format():
+    body = b'{"size": "512x512", "output_format": "webp", "prompt": "cat"}'
+    error_text = "size: not supported. Accepted: 1024x1024 | output_format: not supported. Accepted: png, jpeg"
+    new_body = adjust_image_body_for_rejection(body, error_text)
+    assert new_body is not None
+    data = json.loads(new_body)
+    assert "size" not in data
+    assert "output_format" not in data
+    assert data["prompt"] == "cat"
 
 
 def test_parse_sync_response_null_usage():

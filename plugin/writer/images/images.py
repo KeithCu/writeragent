@@ -64,7 +64,7 @@ from .image_utils import (
 from . import image_mark, image_tools
 from plugin.framework.config import get_config_int, get_config_bool, get_config_str
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
-from plugin.framework.client.base_provider_shim import canonical_aspect_ratio
+from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, closest_aspect_label
 from plugin.framework.client.model_fetcher import get_image_model
 from plugin.framework.constants import USER_AGENT
 from plugin.framework.model_lru import update_lru_history
@@ -178,6 +178,63 @@ def resolve_generation_size(
 
     wire_ratio = canonical_aspect_ratio(final_w, final_h)
     return final_w, final_h, wire_ratio
+
+
+def _nearest_multiple_of_64(value: float) -> int:
+    snapped = int(round(value / 64.0)) * 64
+    return snapped if snapped >= 64 else 64
+
+
+def _short_edge_for_ratio(long_edge: int, ideal_short: float, expected: float, *, width_is_long: bool) -> int:
+    """Nearest 64px short edge that ``canonical_aspect_ratio`` still maps to ``expected``.
+
+    Flooring the ideal side (create's ``(n // 64) * 64``) can leave the 7%
+    window, and OpenRouter then sends a raw ``size`` instead of ``aspect_ratio``.
+    """
+    center = max(1, int(round(ideal_short / 64.0)))
+    best_inside: tuple[float, int] | None = None
+    best_any: tuple[float, int] | None = None
+    for step in range(0, 6):
+        offsets = (0,) if step == 0 else (step, -step)
+        for offset in offsets:
+            multiple = center + offset
+            if multiple < 1:
+                continue
+            short = multiple * 64
+            width, height = (long_edge, short) if width_is_long else (short, long_edge)
+            gap = abs((width / height) / expected - 1) if height and expected else 1.0
+            if best_any is None or gap < best_any[0]:
+                best_any = (gap, short)
+            if gap <= 0.07 and (best_inside is None or gap < best_inside[0]):
+                best_inside = (gap, short)
+    chosen = best_inside or best_any
+    return chosen[1] if chosen else 64
+
+
+def resolve_edit_generation_size(base_size: int, src_width: int, src_height: int) -> tuple[int, int, str | None]:
+    """Output pixels for an edit. The long edge follows ``base_size``, not the file.
+
+    The selection's pixel count is not a vendor tier. People edit phone photos,
+    screenshots, and logos, and a JPEG often has no ``SizePixel``, so the old
+    path copied the on-page frame. That frame is capped at 135mm (~510px), and
+    ``canonical_resolution`` turned it into ``resolution`` ``512``, which
+    gemini-3.1-flash-lite-image rejects (``Accepted: 1K``). The source bytes
+    are not resized. The long edge is ``base_size`` (not the create-path short
+    edge, which turns 16:9 at 1024 into ~1792px and a ``2K`` tier). The closest
+    standard aspect is used even past the 7% window, so a 1:2 photo becomes
+    9:16 instead of a raw WxH ``size``.
+    """
+    if src_width < 1 or src_height < 1:
+        src_width, src_height = 1, 1
+    label = closest_aspect_label(src_width, src_height) or "1:1"
+    num, den = (int(part) for part in label.split(":"))
+    long_edge = _nearest_multiple_of_64(base_size if base_size > 0 else 64)
+    expected = num / den
+    width_is_long = num >= den
+    ideal_short = long_edge * den / num if width_is_long else long_edge * num / den
+    short = _short_edge_for_ratio(long_edge, ideal_short, expected, width_is_long=width_is_long)
+    width, height = (long_edge, short) if width_is_long else (short, long_edge)
+    return width, height, canonical_aspect_ratio(width, height) or label
 
 
 class ImageGenerate(ToolWriterImageBase):
@@ -335,8 +392,15 @@ class ImageGenerate(ToolWriterImageBase):
         if is_edit:
             arg_w = args.get("width")
             arg_h = args.get("height")
-            width, height = _fill_missing_dimension(arg_w, arg_h, edit_width, edit_height)
-            wire_ratio = None
+            # Omitted size is the Settings base-size grid. The file's pixels
+            # and the on-page frame only supply the aspect. An explicit side
+            # still scales from the selection, and the retry drops a tier the
+            # model rejects.
+            if arg_w is None and arg_h is None:
+                width, height, wire_ratio = resolve_edit_generation_size(base_size, edit_width, edit_height)
+            else:
+                width, height = _fill_missing_dimension(arg_w, arg_h, edit_width, edit_height)
+                wire_ratio = canonical_aspect_ratio(width, height)
         else:
             aspect = args.get("aspect_ratio") or get_config_str("image_default_aspect")
             width, height, wire_ratio = resolve_generation_size(

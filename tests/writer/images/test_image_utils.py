@@ -786,6 +786,20 @@ def test_resolve_generation_size_omitted_and_explicit():
     assert resolve_generation_size(64, "16:9") == (64, 64, "1:1")
 
 
+def test_resolve_edit_generation_size_uses_base_size_and_closest_aspect():
+    from plugin.writer.images.images import resolve_edit_generation_size
+
+    # 16:9 long edge stays 1024 (create would grow the long side to ~1792 / 2K).
+    assert resolve_edit_generation_size(1024, 1920, 1080) == (1024, 576, "16:9")
+    # The 135mm frame is ~510px. That used to become resolution "512".
+    assert resolve_edit_generation_size(1024, 510, 287) == (1024, 576, "16:9")
+    # 1:2 is outside the 7% window of 9:16. Edit still snaps instead of sending raw WxH.
+    assert resolve_edit_generation_size(1024, 1000, 2000) == (576, 1024, "9:16")
+    assert resolve_edit_generation_size(1024, 1024, 1024) == (1024, 1024, "1:1")
+    assert resolve_edit_generation_size(1024, 1500, 1000) == (1024, 704, "3:2")
+    assert resolve_edit_generation_size(10, 100, 100) == (64, 64, "1:1")
+
+
 def test_fill_missing_dimension():
     from plugin.writer.images.images import _fill_missing_dimension
 
