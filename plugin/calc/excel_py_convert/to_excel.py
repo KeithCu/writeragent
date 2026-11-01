@@ -42,6 +42,8 @@ from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
 # Calc ``Sheet.A1`` → Excel ``Sheet!A1`` for _xlws.PY deps (leave ranges without a sheet alone).
 _CALC_SHEET_REF_RE = re.compile(r"^((?:'[^']*(?:''[^']*)*')|[^'!.]+)\.(\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?)$")
 
+_IGNORED_ORDERING_DEPS_ISSUE = "ignored ordering-only deps on reverse export"
+
 # (sheet, cell, formula) or (sheet, cell, formula, report-cell-meta)
 DagFormulaItem = tuple[str, str, str] | tuple[str, str, str, dict[str, Any]]
 
@@ -338,7 +340,7 @@ def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: s
 
     excel_code, deps, issues, fatal = rewrite_dag_code_to_excel(parts.code, data_args, header_modes=modes)
     if ordering_args:
-        issues.append("ignored ordering-only deps on reverse export")
+        issues.append(_IGNORED_ORDERING_DEPS_ISSUE)
     array_ref = str(meta.get("array_ref") or "")
     excel_deps_meta = [str(a) for a in (meta.get("excel_deps") or []) if a]
     # Keep export tokens aligned with rewritten data_args length.
@@ -392,7 +394,7 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
         modes = _data_header_modes(cell.bindings)
         excel_code, deps, issues, fatal = rewrite_dag_code_to_excel(cell.converted_code, list(cell.data_args), header_modes=modes)
         if cell.ordering_args:
-            issues.append("ignored ordering-only deps on reverse export")
+            issues.append(_IGNORED_ORDERING_DEPS_ISSUE)
         excel_deps = list(cell.excel_deps)
         if excel_deps and len(excel_deps) != len(deps):
             # data_args rewrite rarely changes length; if it does, fall back to A1.

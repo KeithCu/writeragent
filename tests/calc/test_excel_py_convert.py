@@ -1733,7 +1733,7 @@ def test_ensure_cell_missing_row_ordering():
     from xml.etree import ElementTree as ET
 
     from plugin.calc.excel_py_convert.ooxml_util import local_name
-    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex, _ensure_sheet_data
+    from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex
 
     # Worksheet with row 1 and row 5
     xml = (
@@ -1749,7 +1749,7 @@ def test_ensure_cell_missing_row_ordering():
     # Insert B1 in row 1: must be inserted between A1 and C1
     idx = _WorksheetCellIndex(ws)
     idx.ensure_cell("B1")
-    sheet_data = _ensure_sheet_data(ws)
+    sheet_data = idx.sheet_data
     row1 = [r for r in sheet_data if r.attrib.get("r") == "1"][0]
     col_order_1 = [c.attrib.get("r") for c in row1]
     assert col_order_1 == ["A1", "B1", "C1"]
@@ -1772,7 +1772,7 @@ def test_ensure_cell_missing_row_ordering():
     # Ensure cell A2: should match second row (implicit 2) rather than creating a duplicate row
     idx_no_r = _WorksheetCellIndex(ws_no_r)
     _c_a2 = idx_no_r.ensure_cell("A2")
-    sheet_data_no_r = _ensure_sheet_data(ws_no_r)
+    sheet_data_no_r = idx_no_r.sheet_data
     assert len(list(sheet_data_no_r)) == 2
 
 
@@ -3090,7 +3090,7 @@ def test_drop_py_code_sheets_sets_full_calc_on_load():
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
 </Relationships>"""
 
-    new_wb_xml, _ = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, set())
+    new_wb_xml, _ = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, set(), set())
     root = ET.fromstring(new_wb_xml)
     calc_pr = root.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}calcPr")
     assert calc_pr is not None
@@ -3621,7 +3621,7 @@ def test_drop_py_code_sheets_places_calc_pr_before_extlst():
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
 </Relationships>"""
 
-    new_wb_xml, _ = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, set())
+    new_wb_xml, _ = _drop_py_code_sheets_from_workbook(wb_xml, rels_xml, set(), set())
     root = ET.fromstring(new_wb_xml)
     tags = [local_name(c.tag) for c in root]
     assert tags == ["sheets", "calcPr", "extLst"]

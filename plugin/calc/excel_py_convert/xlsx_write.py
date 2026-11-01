@@ -209,13 +209,6 @@ def _strip_rels_python(data: bytes, *, strip_python: bool = True) -> bytes:
     return serialize_xml_preserving_namespaces(root, ns_map)
 
 
-def _ensure_sheet_data(ws_root: ET.Element) -> ET.Element:
-    found = find_child(ws_root, "sheetData")
-    if found is not None:
-        return found
-    return ET.SubElement(ws_root, _xml_tag(ws_root, SSML_NS, "sheetData"))
-
-
 def _row_num(el: ET.Element, prev: int) -> int:
     r_attr = el.attrib.get("r")
     if r_attr is None:
@@ -240,7 +233,10 @@ class _WorksheetCellIndex:
     """Index of rows and cells in a worksheet for ascending-order lookup and insertion."""
 
     def __init__(self, ws_root: ET.Element) -> None:
-        self.sheet_data: ET.Element = _ensure_sheet_data(ws_root)
+        sheet_data = find_child(ws_root, "sheetData")
+        if sheet_data is None:
+            sheet_data = ET.SubElement(ws_root, _xml_tag(ws_root, SSML_NS, "sheetData"))
+        self.sheet_data: ET.Element = sheet_data
         self.rows: dict[int, ET.Element] = {}
         self.cells_by_row: dict[ET.Element, dict[int, ET.Element]] = {}
         self.max_row: int = 0
@@ -438,11 +434,11 @@ def _drop_py_code_sheets_from_workbook(
     wb_xml: bytes,
     rels_xml: bytes,
     drop_rids: set[str],
-    drop_titles: set[str] | None = None,
+    drop_titles: set[str],
 ) -> tuple[bytes, bytes]:
     """Remove ``py_code_*`` sheet entries and definedNames from workbook.xml + workbook rels."""
     wb, wb_ns = parse_and_extract_namespaces(wb_xml)
-    drop_titles_set = {t.lower() for t in drop_titles} if drop_titles else set()
+    drop_titles_set = {t.lower() for t in drop_titles}
     for sheets_el in list(wb):
         if local_name(sheets_el.tag) != "sheets":
             continue
@@ -506,20 +502,15 @@ def _require_workbook_sheets(zin: zipfile.ZipFile) -> list[SheetInfo]:
 _PY_NS = "http://schemas.microsoft.com/office/spreadsheetml/2022/pythonscript"
 
 
-def _xml_text_escape(text: str) -> str:
-    """Escape &, <, >, and CR for XML text nodes, rejecting characters outside XML 1.0."""
-    raw = text or ""
-    if _INVALID_XML_CHARS_RE.search(raw):
-        raise ValueError(f"script contains invalid XML 1.0 character: {raw!r}")
-    escaped = raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return escaped.replace("\r", "&#13;")
-
-
 def python_scripts_xml(scripts: Sequence[str]) -> bytes:
     """Serialize ordered script bank to ``xl/pythonScripts.xml`` bytes (UTF-8)."""
     chunks = ['<?xml version="1.0" encoding="UTF-8"?>\n', f'<pythonScripts xmlns="{_PY_NS}">\n']
     for body in scripts:
-        chunks.append(f"  <pythonScript><code>{_xml_text_escape(body or '')}</code></pythonScript>\n")
+        raw = body or ""
+        if _INVALID_XML_CHARS_RE.search(raw):
+            raise ValueError(f"script contains invalid XML 1.0 character: {raw!r}")
+        escaped = raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\r", "&#13;")
+        chunks.append(f"  <pythonScript><code>{escaped}</code></pythonScript>\n")
     chunks.append("</pythonScripts>\n")
     return "".join(chunks).encode("utf-8")
 
