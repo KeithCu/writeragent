@@ -106,9 +106,7 @@ def _run_test_suite(module_name: str, test_name: str) -> None:
     ctx = get_ctx()
     try:
         log.info(f"_run_test_suite start: {test_name}")
-        # What was wrong: test modules were imported during handler registration even when test suites were unbundled or never invoked.
-        # How it happened: handlers passed an eagerly imported module object into _run_test_suite.
-        # Why this change: pass the module name string and import dynamically only after tests_bundled() succeeds.
+        # Import test module dynamically on demand.
         import importlib
 
         test_module = importlib.import_module(module_name)
@@ -173,11 +171,7 @@ def register_core_handlers() -> None:
 
     _install_optional(_install_calc_menus, message="Calc cell context menu install failed", level=logging.DEBUG)
 
-    # What was wrong: the from-import sat outside _install_optional.
-    # How it happened: only the call was wrapped, so ImportError left this
-    # function. _bootstrap_state is already INITIALIZED, so bootstrap does not retry and
-    # handlers after the import (search, review) never register.
-    # Why this change: import inside the callable, same as _install_calc_menus.
+    # Import inside the callable so ImportError is caught by _install_optional.
     def _install_excel_py_auto_convert() -> None:
         from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
 

@@ -92,3 +92,27 @@ def test_embed_and_upsert_batches_emits_heartbeats():
     assert len(mock_heartbeats) == 2
     assert mock_heartbeats[0] == {"phase": "embed", "chunks": 1}
     assert mock_heartbeats[1] == {"phase": "embed", "chunks": 2}
+
+
+def test_write_meta_preserves_host_fields(tmp_path):
+    import json
+    from plugin.embeddings.venv.embeddings_ingest_graph import _write_meta
+
+    meta_path = tmp_path / "corpus_meta.json"
+    meta_path.write_text(
+        json.dumps({"row_count": "100", "host_token": "secret123"}),
+        encoding="utf-8",
+    )
+    state = {
+        "meta_path": str(meta_path),
+        "model": "test-model-name",
+    }
+    _write_meta(state, chunk_count_override=42, dim=384)
+
+    saved = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert saved["row_count"] == "100"
+    assert saved["host_token"] == "secret123"
+    assert saved["chunk_count"] == "42"
+    assert saved["dim"] == "384"
+    assert saved["embedding_model"] == "test-model-name"
+    assert saved["storage_backend"] == "sqlite_vec"

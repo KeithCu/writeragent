@@ -53,12 +53,7 @@ def _openai_reasoning_model(model_name: str | None) -> bool:
 
 
 def _pick_size(width: int, height: int, landscape: str, portrait: str, square: str) -> str:
-    """Bucket WxH into one of three vendor sizes.
-
-    ``width=0`` used to divide as 0 and pick the portrait size. ``height=0``
-    already became square. Both axes must be positive or the ratio is treated
-    as square. ``image_generate`` can pass 0 after ``(n // 64) * 64``.
-    """
+    """Bucket WxH into one of three vendor sizes. Both axes must be positive or square is used."""
     ratio = (width / height) if width and height else 1.0
     if ratio > 1.2:
         return landscape
@@ -207,8 +202,6 @@ class OllamaShim(BaseProviderShim):
         return self._post(url, data)
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
-        # A non-dict body, or a list entry that is not a string, used to be
-        # returned as-is. The caller base64-decodes each item and then raises.
         if not isinstance(response_data, dict):
             return []
         images = response_data.get("images")

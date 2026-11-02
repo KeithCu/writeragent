@@ -251,12 +251,7 @@ def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], dict[str
 
 
 def _resolved_openwebui(endpoint: str) -> bool:
-    # What was wrong: Catalog suffix followed only the checkbox, while chat's
-    # get_api_config also treats an openwebui / open-webui host as Open WebUI,
-    # and a stored .../api path plus the checkbox produced /api/api/...
-    # How it happened: Fetchers called normalize_endpoint_url with the flag false,
-    # then _api_suffix read get_config_bool_safe only.
-    # Why this change: This boolean is the one LlmClient._api_path already uses, via is_openwebui_endpoint.
+    # Resolve Open WebUI by host or explicit setting matching LlmClient._api_path.
     return is_openwebui_endpoint(endpoint, explicit_is_openwebui=get_config_bool_safe("is_openwebui"))
 
 
@@ -346,9 +341,7 @@ def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
     try:
         p = urllib.parse.urlparse(endpoint.strip())
         # Accessing .port raises ValueError on invalid port strings (e.g. '1a') or out-of-range ints (>65535).
-        # What was wrong: Helpers returning None/False on bad URLs called get_provider_from_endpoint
-        # which raised ConfigError on p.port, escaping catalog/settings error handlers.
-        # Why this fixes it: Reject bad ports at the suitability gate.
+        # Reject bad port values at the suitability gate.
         getattr(p, "port")
     except ValueError:
         return False
@@ -575,8 +568,7 @@ def _fetch_openrouter_modality_models(endpoint: str, modality: str, api_key_over
 
     Together's ``/v1/models`` type enum has no speech or transcription value, so
     this returns None there and the Speech tab keeps curated catalog rows.
-    A failed lookup is not cached, same as ``fetch_available_models``: storing
-    None used to stick for the process and leave the Speech combo empty.
+    A failed lookup is not cached, same as ``fetch_available_models``.
     """
     if modality not in ("speech", "transcription"):
         return None
@@ -902,8 +894,7 @@ def preferred_openrouter_tts_model_id(model_id: str) -> str:
     return mid
 
 
-# vision / llava / coder used to hide chat models (Gemini vision, Qwen coder).
-# Specific non-chat names stay: codellama, whisper, dall-e, and the rest.
+# Specific non-chat names to exclude from text model listings.
 _TEXT_MODEL_EXCLUDES = frozenset({
     "embedding", "embed", "aqa", "attribution", "retrieval", "rerank",
     "classifier", "moderation", "whisper", "speech", "audio",
@@ -1122,6 +1113,7 @@ def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, ap
     Providers without vision metadata are always warm with no answer.
     """
     if provider in ("openrouter", "together"):
+        # Uses the normalized request triple and api_key_override matching catalog fetch.
         built = _v1_models_request(endpoint, api_key_override)
         if built is None:
             return True, None
@@ -1372,6 +1364,7 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
     """
     if not endpoint or not model_id:
         return None
+    # Look up context cache with the same request triple and key override as catalog fetch.
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return None

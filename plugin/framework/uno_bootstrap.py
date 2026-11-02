@@ -9,8 +9,8 @@ XJob, etc.), it often does so with a very limited sys.path. Code in those files
 must manually ensure the extension root is on sys.path so that normal
 `import plugin.xxx` statements work.
 
-This module centralizes the fragile path-walking logic that was previously
-duplicated (with slight variations) in several places.
+This module centralizes the path-walking logic to find extension root and
+site-packages directories.
 """
 
 import logging

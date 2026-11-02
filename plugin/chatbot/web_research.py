@@ -34,7 +34,8 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.memory import ToolCall
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
-from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, safe_json_loads
+from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
+from plugin.framework.json_utils import safe_json_loads
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
 from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text

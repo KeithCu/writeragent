@@ -8,7 +8,6 @@
 """LangGraph ingestion pipeline: split → embed → sqlite-vec upsert (trusted venv)."""
 from __future__ import annotations
 
-import json
 import logging
 import time
 from pathlib import Path
@@ -308,16 +307,16 @@ def _write_meta(state: IngestState, *, chunk_count_override: int, dim: int) -> N
     meta_path = Path(str(state.get("meta_path") or ""))
     if not meta_path.parent:
         return
-    meta_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "storage_backend": "sqlite_vec",
-        "embedding_model": str(state.get("model") or ""),
-        "dim": str(dim),
-        "chunk_count": str(chunk_count_override),
-        "updated_at": str(time.time()),
-    }
-    meta_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    from plugin.embeddings.embeddings_cache import CorpusMeta
+
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        storage_backend="sqlite_vec",
+        embedding_model=str(state.get("model") or ""),
+        dim=dim,
+        chunk_count=chunk_count_override,
+        updated_at=str(time.time()),
+    ).save(meta_path)
 
 
 def _build_ingest_graph() -> Any:

@@ -64,6 +64,7 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/module_graph.py",
     "plugin/framework/uno_bootstrap.py",
     "plugin/framework/logging.py",
+    "plugin/framework/process_global.py",
     "plugin/framework/uno_context.py",
     "plugin/framework/vcl_pumping.py",
     "plugin/framework/worker_pool.py",

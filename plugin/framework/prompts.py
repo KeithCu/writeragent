@@ -522,17 +522,7 @@ DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
 
 # : str so checkers keep this as str (Writer/Draw already are, via a str-returning call).
 #
-# Sort / header / fill-down used to be three adjacent identical
-# "Do Z because Y" lines. Small models (glm-5.3-flash) merged that blob and
-# dropped routing (hand-rolled write_formula_range instead of sort_range) while
-# still keeping the last teaching. Keep all three meanings, but give each a
-# different shape and a short header, and put SORT last (recency) because that
-# is the line flash dropped. Routing stays the only "Do … then tool" line;
-# has_header is a plain constraint under SORT. Do not restack Don't+Do
-# (duplicates, ~2× prompt). Because-clause is PR 616's: rewriting by hand
-# loses the header row — do not name write_formula_range / =PY in the why.
-# FORMULAS is fill-down (not the old pin-workaround); keep a different shape
-# from SORT so flash cannot merge them.
+# Keep distinct shapes and headers across sort, header, and fill-down directives.
 CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (another file/sheet by name or path, e.g. "my spreadsheet", "cell A9 from PythonInCalc"):
 - You MUST NOT ask the user where the file is stored, or to upload, paste, or share its contents.
 - You MUST call delegate_to_specialized_calc_toolset(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).

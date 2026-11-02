@@ -221,8 +221,7 @@ def _aspect_ratio_value(label: str) -> float | None:
 def closest_named_aspect(current: str, accepted: list[str]) -> str | None:
     """Accepted ratio closest to ``current``. Unknown tokens are skipped.
 
-    First-in-list used to win, so a rejected ``16:9`` became ``1:1`` whenever
-    the provider listed square first. Ties keep the earlier accepted token.
+    Ties keep the earlier accepted token.
     """
     current_ratio = _aspect_ratio_value(current)
     if current_ratio is None:
@@ -320,9 +319,7 @@ def coerce_raw_b64(image_url: str | None = None, source_image: str | None = None
     if not ref:
         return None
     # Ollama's REST ``images[]`` and Gemini ``inlineData.data`` are raw base64.
-    # An http(s) URL used to be returned unchanged and sent as if it were
-    # base64. Ollama does not fetch URLs on this route, and a Gemini URL
-    # belongs in ``fileData.fileUri``, which this client does not send.
+    # Refuse http(s) URLs as these routes require base64 or data URLs.
     # https://docs.ollama.com/api/generate
     # https://ai.google.dev/gemini-api/docs/generate-content/image-understanding
     if ref.startswith(("http://", "https://")):
@@ -384,9 +381,7 @@ class BaseProviderShim:
     def _chat_payload(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        # top_p used to be hardcoded to 0.9 on every OpenAI-compatible chat.
-        # Models that reject temperature and top_p together returned HTTP 400,
-        # and there is no top_p setting. Omit it, same as a missing temperature.
+        # Omit top_p so models that reject temperature and top_p together use server default.
         data: dict[str, Any] = {"messages": messages, "max_tokens": max_tokens, "stream": stream}
         if temperature is not None:
             data["temperature"] = temperature
@@ -408,11 +403,7 @@ class BaseProviderShim:
             if isinstance(extra, dict) and extra:
                 merge_openrouter_chat_extra(data, extra)
 
-        # Bugfix: grammar's chat_extra was an OpenRouter reasoning object merged raw
-        # (or rewritten to reasoning_effort: "minimal" on non-OpenRouter), sending
-        # undocumented keys or values. The sidebar value was also copied verbatim,
-        # sending max to xAI/Gemini and xhigh to models whose ceiling is high.
-        # Now effort_payload maps per provider; a model that rejects it gets a 400 retry.
+        # effort_payload maps effort level per provider format.
         level = self._requested_effort_level(chat_extra)
         if level:
             fragment = effort_payload(self._reasoning_provider(), level)
@@ -439,9 +430,7 @@ class BaseProviderShim:
         from .stream_normalizer import extract_thinking_from_delta
 
         choices = chunk.get("choices", [])
-        # Unexpected schema (string "choices", non-dict first element) used to
-        # AttributeError on .get and abort the whole stream. Treat as no choice
-        # so later valid chunks can still apply.
+        # Ignore malformed choices schema so subsequent valid chunks apply.
         choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
         delta_raw = choice.get("delta", {})
         delta = delta_raw if isinstance(delta_raw, dict) else {}
@@ -494,16 +483,13 @@ class BaseProviderShim:
 
         raw_content = message.get("content")
         content = normalize_message_content(raw_content) or ""
-        # A string ``images`` used to be returned as-is. ``image_utils`` iterates
-        # that value, so each character was treated as an image URL.
+        # Ensure images is a list of strings.
         images = raw_img if isinstance(raw_img := message.get("images"), list) else []
         # A string tool_calls is truthy. request_with_tools then rewrites
         # finish_reason to tool_calls, and coalesce_split_tool_calls drops
         # the value because it is not a list.
         tool_calls = raw_tc if isinstance(raw_tc := message.get("tool_calls"), list) else None
-        # JSON "usage": null makes .get("usage", {}) return None, because the
-        # key is present. A list or string used to pass through, and callers
-        # call usage.get.
+        # Ensure usage is a dict.
         usage = raw_us if isinstance(raw_us := response_data.get("usage"), dict) else {}
 
         return content, finish_reason, tool_calls, usage, images, message
@@ -533,11 +519,8 @@ class BaseProviderShim:
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
         """Extract list of base64 image data from response (standard OpenAI format)."""
-        # ``image_completion`` already rejects a non-dict HTTP body. A direct
-        # caller passing a list used to raise AttributeError on ``.get``.
         if not isinstance(response_data, dict):
             return []
-        # A null or non-object entry used to raise AttributeError on .get.
         out = []
         for it in _dict_parts(response_data.get("data")):
             if b64 := it.get("b64_json"):

@@ -57,7 +57,8 @@ from plugin.calc.datetime_wire import (
     match_iso_temporal,
     should_preserve_temporal_format,
 )
-from plugin.framework.errors import CalcError, safe_json_loads, is_disposed_exception, uno_probe
+from plugin.framework.errors import CalcError, is_disposed_exception, uno_probe
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.uno_context import get_ctx
 
 

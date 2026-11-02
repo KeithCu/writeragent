@@ -103,7 +103,7 @@ class EvalRunner:
                 func = tc.get("function", {})
                 t_name = func.get("name")
                 t_args_str = func.get("arguments", "{}")
-                from plugin.framework.errors import safe_json_loads
+                from plugin.framework.json_utils import safe_json_loads
                 t_args = safe_json_loads(t_args_str)
                 if not isinstance(t_args, dict):
                     t_args = {}

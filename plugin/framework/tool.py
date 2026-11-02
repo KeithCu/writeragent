@@ -48,8 +48,8 @@ from plugin.framework.errors import (
     is_tool_document_disposed,
     make_tool_error,
     resolve_exception_message,
-    safe_json_loads,
 )
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.thread_guard import assert_main_thread, on_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
@@ -224,7 +224,6 @@ def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
             return True
         if one == "null" and value is None:
             return True
-        # Unknown names (``"str"``) used to accept any value. They match nothing.
     return False
 
 
@@ -393,14 +392,7 @@ class ToolBase(_ToolErrorMixin, ABC):
         except Exception as e:
             _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")
             doc = getattr(ctx, "doc", None) if ctx is not None else None
-            # Bugfix: The pre-execute probe is skipped for async tools so review-wait can
-            # run off the UI thread, but the exception handler still called getImplementationName
-            # via is_tool_document_disposed on background worker threads. Marshaling that probe
-            # to the main thread deadlocks when the UI thread is inside _execute_with_timeout's join(),
-            # while running it directly off-thread violates UNO thread safety.
-            # When off the main thread, check only for real disposal exceptions (DisposedException /
-            # DocumentDisposedError) without probing the document model, letting a bare
-            # RuntimeException fall through to TOOL_EXECUTION_ERROR.
+            # Off the main thread, check only for real disposal exceptions without probing UNO.
             if on_main_thread():
                 disposed = is_tool_document_disposed(e, doc)
             else:
@@ -409,9 +401,7 @@ class ToolBase(_ToolErrorMixin, ABC):
             if disposed:
                 # UNO DisposedException often has an empty str() and the text in .Message; use the same resolver as the branch below.
                 return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED", original_error=resolve_exception_message(e), error_type=type(e).__name__)
-            # Returning _tool_error() already keeps the code. Raising
-            # ConfigError used to be rewritten as
-            # TOOL_EXECUTION_ERROR and lose details.
+            # Format domain exceptions directly to preserve code and details.
             if isinstance(e, WriterAgentException):
                 return format_error_payload(e)
             # Bare RuntimeException often has an empty message; fall back to the type name.
@@ -670,7 +660,7 @@ class ToolRegistry:
         self,
         doc: Any = None,
         doc_type: str | None = None,
-        names: Any = None,
+        names: frozenset[str] | None = None,
         filter_doc_type: bool = True,
         exclude_tiers: Any = _DEFAULT_EXCLUDE_TIERS,
         active_domain: str | None = None,
@@ -683,9 +673,8 @@ class ToolRegistry:
             doc: Optional document model (legacy; prefer doc_type + uno_services_supported).
             doc_type: Optional string indicating compatibility ("writer", "calc", "draw").
             uno_services_supported: Cached UNO service names from sidebar/MCP (no live doc probe).
-            names: Optional collection of exact tool names. ``None`` applies
-                no name filter. An empty collection matches nothing. A bare
-                string is that one name, not a substring.
+            names: Optional frozenset of exact tool names. ``None`` applies
+                no name filter. An empty frozenset matches nothing.
             filter_doc_type: If True, filters by doc model services or doc_type. Defaults to True.
             exclude_tiers: Tiers to omit from the result. If omitted, excludes
                 ``specialized``, ``specialized_control``, and ``mcp`` so nested
@@ -694,7 +683,7 @@ class ToolRegistry:
             active_domain: If provided, dynamically includes specialized tools for this domain,
                 the specialized_workflow_finished tool, and names listed in
                 ``required_core_tools`` whose tier is ``core`` or ``specialized``.
-            ctx: Optional ToolContext or context used to filter vision specialized tools.
+            ctx: Optional ToolContext or context for filtering vision specialized tools.
         """
         # crosshair: off
         tools: Any = self._tools.values()
@@ -753,17 +742,8 @@ class ToolRegistry:
         else:
             if to_exclude:
                 tools = [t for t in tools if getattr(t, "tier", None) not in to_exclude]
-        # Only None skips the filter. Callers pass tool names, not a substring
-        # to search. ``if names`` treats ``[]`` and ``""`` as no filter and
-        # returns every tool. A bare string is iterable, so ``t.name in
-        # "target"`` matches the tool named ``get``. A str is one exact name;
-        # any other collection becomes a set, and an empty set matches nothing.
         if names is not None:
-            if isinstance(names, str):
-                name_set = frozenset((names,))
-            else:
-                name_set = frozenset(names)
-            tools = [t for t in tools if t.name in name_set]
+            tools = [t for t in tools if t.name in names]
         if ctx is not None:
             from plugin.vision.vision_availability import filter_vision_specialized_tools
 
@@ -970,10 +950,6 @@ class ToolRegistry:
 
             # Check document compatibility using cached doc_type / UNO services (no live doc probe).
             if not tool_supports_document(tool, doc_type=ctx.doc_type, uno_services_supported=getattr(ctx, "uno_services_supported", None)):
-                # A registered tool whose uno_services/doc_types miss this document
-                # used to raise ValueError, and ``except ValueError`` re-raised it
-                # into the model as a traceback. Unknown names stay UNKNOWN_TOOL.
-                # This path is a stable tool error the model can read.
                 return make_tool_error(
                     f"Tool '{tool_name}' does not support the current document.",
                     code="UNSUPPORTED_DOCUMENT",
@@ -994,9 +970,6 @@ class ToolRegistry:
             # Sync tools are marshaled to the LO main thread so MCP long-running and any
             # other worker-thread caller cannot touch UNO off-thread.
             runner = tool.execute if bypass_thread_guard else tool.execute_safe
-            # Bugfix: getattr(tool, "timeout", 0) returned None when a tool had timeout = None.
-            # Subsequent `timeout <= 0` comparisons raised TypeError inside _execute_impl,
-            # which converted into a TOOL_REGISTRY_ERROR.
             # Coerce missing, None, boolean, or non-numeric timeout values to 0.0 (no timeout).
             raw = getattr(tool, "timeout", 0) or 0
             if isinstance(raw, bool) or not isinstance(raw, (int, float)):
@@ -1004,13 +977,7 @@ class ToolRegistry:
             else:
                 timeout = float(raw)
 
-            # Bugfix: A spread model dict (e.g. from MCP or host RPC) containing keys
-            # named 'ctx' or 'tool_name' collided with parameters on _execute_impl
-            # before the try block, and keys named 'timeout', 'tool_name', 'run_threaded',
-            # or 'ctx' collided with parameters on _execute_with_timeout.
-            # Passing tool_kwargs as a dict to _execute_impl and invoking the runner via
-            # a zero-argument closure prevents keyword parameter collisions and keeps
-            # declared schema properties in kwargs.
+            # Invoking runner via a zero-argument closure prevents keyword parameter collisions with caller kwargs.
             def _run_tool() -> Any:
                 return runner(ctx, **kwargs)
 
@@ -1025,9 +992,7 @@ class ToolRegistry:
                 if isinstance(result_details, dict):
                     cast("dict[str, Any]", result)["details"] = {**common_details, **result_details}
 
-            # The dropped keys used to vanish silently: image_insert(paragraph_index=70) -- the
-            # name image_list reports -- dropped the index and put the image at the view cursor
-            # with status ok (relato #25). Say which arguments were not used.
+            # Record any ignored parameters in the result.
             if ignored and isinstance(result, dict):
                 cast("dict[str, Any]", result).setdefault("ignored_parameters", ignored)
 

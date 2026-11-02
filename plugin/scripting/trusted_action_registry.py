@@ -57,11 +57,6 @@ _TRUSTED_ACTION_WIRING: tuple[TrustedActionWiring, ...] = (
         "plugin.embeddings.venv.embeddings_index_dispatch:dispatch_trusted",
         supports_heartbeat=True,
     ),
-    TrustedActionWiring(
-        "folder_fts",
-        "plugin.embeddings.venv.folder_fts_dispatch:dispatch_trusted",
-        supports_heartbeat=True,
-    ),
 )
 
 

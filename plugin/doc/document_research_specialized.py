@@ -56,7 +56,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         return registry.get_tools(
             doc=opened_model,
             doc_type=doc_type,
-            names=[*allowlist, "specialized_workflow_finished"],
+            names=frozenset((*allowlist, "specialized_workflow_finished")),
             exclude_tiers=(),
         )
 

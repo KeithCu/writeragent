@@ -1612,13 +1612,9 @@ def test_get_tools_names_empty_and_bare_string():
     listed = {"filter_doc_type": False}
     assert {t.name for t in reg.get_tools(**listed)} == {"get", "target"}
     assert {t.name for t in reg.get_tools(names=None, **listed)} == {"get", "target"}
-    assert reg.get_tools(names=[], **listed) == []
-    assert reg.get_tools(names="", **listed) == []
-    assert reg.get_tools(names=(), **listed) == []
-    # "get" in "target" is true; the filter must not substring-match.
-    assert [t.name for t in reg.get_tools(names="target", **listed)] == ["target"]
-    assert [t.name for t in reg.get_tools(names="get", **listed)] == ["get"]
-    assert [t.name for t in reg.get_tools(names=["get"], **listed)] == ["get"]
+    assert reg.get_tools(names=frozenset(), **listed) == []
+    assert [t.name for t in reg.get_tools(names=frozenset({"target"}), **listed)] == ["target"]
+    assert [t.name for t in reg.get_tools(names=frozenset({"get"}), **listed)] == ["get"]
 
 
 def test_execute_with_timeout_parameterizes_result_queue() -> None:
