@@ -110,8 +110,7 @@ class SmolToolAdapter(SmolTool):
         else:
             self.description = tool.description
         self.is_final_answer_tool = getattr(tool, "is_final_answer_tool", False)
-        params = tool.get_parameters(tctx.doc_type) or {}
-        self.inputs = to_smol_inputs(params, style=inputs_style)
+        self.inputs = to_smol_inputs(tool.get_parameters(tctx.doc_type), style=inputs_style)
         self.output_type = "any" if inputs_style == "librarian" else "object"
         super().__init__()
 
@@ -131,7 +130,7 @@ class SmolToolAdapter(SmolTool):
         # Same schema filter, coercion, validate() and VALIDATION_ERROR payload as
         # ToolRegistry.execute. forward used to skip them, so a bad enum value
         # (e.g. position='start') ran the tool instead of returning the valid-value error.
-        prepared = prepare_tool_call(tool, ctx, tool.name or self.name, kwargs)
+        prepared = prepare_tool_call(tool, ctx, self.name, kwargs)
         if prepared.error is not None:
             result = prepared.error
         elif getattr(ctx, "read_only_target", False) is True and tool.detects_mutation():
@@ -163,7 +162,7 @@ class SmolToolAdapter(SmolTool):
                 result.setdefault("ignored_parameters", prepared.ignored)
 
         if self._on_result is not None:
-            self._on_result(self.name or "", result)
+            self._on_result(self.name, result)
         return result
 
 
