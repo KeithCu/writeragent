@@ -32,7 +32,6 @@ from __future__ import annotations
 
 from plugin.framework.constants import now_aware
 import logging
-import sys
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
@@ -88,6 +87,18 @@ class _EvaluationUndoGuard:
 
         if self.sheet_removed and not self.was_modified:
             _quiet_probe_cleanup(lambda: self.doc.setModified(False), "setModified")
+
+
+def _drop_eval_sheet(sheets: Any, name: str, undo_guard: _EvaluationUndoGuard) -> bool:
+    """Remove the temporary evaluation sheet. False (logged) when that fails."""
+    try:
+        if sheets.hasByName(name):
+            sheets.removeByName(name)
+        undo_guard.sheet_removed = True
+        return True
+    except Exception:
+        log.exception("Failed to cleanup evaluation sheet")
+        return False
 
 
 class ListCalcFunctions(ToolBase):
@@ -220,23 +231,21 @@ class EvaluateFormula(ToolCalcErrorBase):
         with _EvaluationUndoGuard(doc) as undo_guard:
             # Copy active sheet with all its data
             sheets.copyByName(active_name, temp_sheet_name, sheets.getCount())
-            result = None
+            cleanup_msg = f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'"
             try:
                 sheet = sheets.getByName(temp_sheet_name)
                 result = self._evaluate_on_copy(sheet, col, row, formula_string, cell_address)
-                return result
-            finally:
-                incoming = sys.exc_info()[1]
-                try:
-                    if sheets.hasByName(temp_sheet_name):
-                        sheets.removeByName(temp_sheet_name)
-                    undo_guard.sheet_removed = True
-                except Exception:
-                    log.exception("Failed to cleanup evaluation sheet")
-                    if result is not None:
-                        result["warning"] = f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'"
-                    elif isinstance(incoming, Exception):
-                        return self._tool_error(f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'")
+            except BaseException as exc:
+                cleaned = _drop_eval_sheet(sheets, temp_sheet_name, undo_guard)
+                # A failed cleanup turns an ordinary evaluation error into a
+                # tool error. A disposed document (or a BaseException such as
+                # KeyboardInterrupt) still propagates.
+                if not cleaned and isinstance(exc, Exception) and not is_disposed_exception(exc):
+                    return self._tool_error(cleanup_msg)
+                raise
+            if not _drop_eval_sheet(sheets, temp_sheet_name, undo_guard):
+                result["warning"] = cleanup_msg
+            return result
 
     def _evaluate_on_copy(
         self,

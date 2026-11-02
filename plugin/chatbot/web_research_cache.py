@@ -50,8 +50,14 @@ def _get_stemmer(snowball_lang: str) -> Any | None:
         _STEMMER_CACHE[snowball_lang] = stemmer
         return stemmer
     except ImportError:
-        log.warning("No stemmer for '%s', falling back to english", snowball_lang)
+        log.warning("snowballstemmer not installed; web research cache keys are not stemmed")
         return None
+    except KeyError:
+        # snowballstemmer.stemmer raises KeyError for an unknown algorithm.
+        if snowball_lang == "english":
+            return None
+        log.warning("No stemmer for '%s', falling back to english", snowball_lang)
+        return _get_stemmer("english")
 
 
 def stem_word(snowball_lang: str, token: str) -> str:

@@ -294,7 +294,16 @@ class McpModule(ModuleBase):
             tunnel.stop()
             return
         port = cfg.get("mcp_port")
-        provider = cfg.get("tunnel_provider") or DEFAULT_PROVIDER
+        if port is None:
+            port = getattr(_shared_http_server, "port", None)
+        try:
+            port_i = int(port) if port is not None else None
+        except (TypeError, ValueError):
+            port_i = None
+        if port_i is None:
+            log.warning("tunnel_enabled but no usable MCP port (%r)", port)
+            return
+        provider = str(cfg.get("tunnel_provider") or DEFAULT_PROVIDER)
         provider_token = str(cfg.get("tunnel_provider_token") or "")
         # Armed before the thread is queued. stop() clears it, so a disable
         # that lands while this start is still waiting to run cannot lose.
@@ -303,7 +312,7 @@ class McpModule(ModuleBase):
 
         def _start() -> None:
             before = tunnel.last_error
-            ok = tunnel.start(port, provider, provider_token=provider_token, start_token=start_token)
+            ok = tunnel.start(port_i, provider, provider_token=provider_token, start_token=start_token)
             # A superseded start (stop, or a newer arm) returns False without
             # a new last_error. Only a probe/spawn failure is worth logging.
             if not ok and tunnel.last_error and tunnel.last_error != before:

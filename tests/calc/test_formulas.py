@@ -366,3 +366,18 @@ def test_evaluate_formula_flags_array_results():
     assert filter_res["requires_array"] is True
 
 
+def test_evaluate_formula_cleanup_failure_still_propagates_disposed_document(monkeypatch):
+    # The old return inside finally turned a DisposedException from the
+    # evaluation into a "Failed to clean up" tool error.
+    import pytest
+
+    DisposedException = type("DisposedException", (Exception,), {})
+    doc = _EvalDoc(undo_possible=False, modified=False)
+    doc.sheets.raise_on_remove = RuntimeError("Lock contention")
+
+    def _disposed_get_by_name(_name: str):
+        raise DisposedException("gone")
+
+    monkeypatch.setattr(doc.sheets, "getByName", _disposed_get_by_name)
+    with pytest.raises(DisposedException):
+        EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")

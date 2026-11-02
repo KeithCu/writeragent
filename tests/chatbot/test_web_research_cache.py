@@ -610,3 +610,24 @@ def test_fluff_keeps_topical_words_after_normalization():
     assert "restaurantes" not in fluff
     assert "madrid" not in fluff
     assert "historia" not in fluff
+
+
+def test_get_stemmer_unknown_language_falls_back_to_english(monkeypatch, caplog):
+    import logging
+    import sys
+    import types
+
+    from plugin.chatbot import web_research_cache as wrc
+
+    english = object()
+
+    def _stemmer(lang: str):
+        if lang == "english":
+            return english
+        raise KeyError(lang)
+
+    monkeypatch.setitem(sys.modules, "snowballstemmer", types.SimpleNamespace(stemmer=_stemmer))
+    monkeypatch.setattr(wrc, "_STEMMER_CACHE", {})
+    with caplog.at_level(logging.WARNING):
+        assert wrc._get_stemmer("klingon") is english
+    assert "falling back to english" in caplog.text
