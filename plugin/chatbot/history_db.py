@@ -188,22 +188,21 @@ def _json_history_filename(session_id: str, history_dir: str) -> str:
     To stop case-alias collisions on case-insensitive filesystems, any id that contains
     an uppercase letter is also hashed, unless an older unhashed file already exists.
     """
-    name = session_id or ""
+    name = session_id
     is_unsafe = (
         not name
         or name in (".", "..")
         or "\\" in name
         or os.path.basename(name) != name
     )
-    hashed = hashlib.sha256(name.encode("utf-8")).hexdigest()
     legacy = False
-    if history_dir and not is_unsafe and name != name.lower():
+    if not is_unsafe and name != name.lower():
         try:
             legacy = f"{name}.json" in os.listdir(history_dir)
         except OSError:
             pass
     if is_unsafe or (name != name.lower() and not legacy):
-        name = hashed
+        name = hashlib.sha256(name.encode("utf-8")).hexdigest()
     return f"{name}.json"
 
 
@@ -227,7 +226,7 @@ class JSONHistory:
 
         self.file_path = os.path.join(self.history_dir, _json_history_filename(session_id, self.history_dir))
 
-    def _modify(self, mutate: Callable[[list[dict[str, Any]]], None], error: str) -> bool:
+    def _modify(self, mutate: Callable[[list[dict[str, Any]]], None], error: str) -> None:
         try:
             messages = self.get_messages()
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -235,19 +234,17 @@ class JSONHistory:
             # bad read then looked like an empty session and the next add
             # replaced history with one row. Leave an unreadable file alone.
             log.exception("JSONHistory: refusing to overwrite unreadable session %s", self.session_id)
-            return False
+            return
         mutate(messages)
         try:
             self.replace_messages(messages)
         except (OSError, TypeError):
             log.exception(error)
             raise
-        return True
 
     def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         msg_dict = message_to_dict(role, content, tool_calls)
-        if self._modify(lambda msgs: msgs.append(msg_dict), "JSONHistory: Error saving message"):
-            log.debug(f"JSONHistory: Added message for session {self.session_id}")
+        self._modify(lambda msgs: msgs.append(msg_dict), "JSONHistory: Error saving message")
 
     def update_last_user_content(self, content: Any) -> None:
         msg_dict = message_to_dict("user", content)

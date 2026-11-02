@@ -175,7 +175,7 @@ def test_fit_guarantee_ceiling_walk_4k():
     result = C.compact_session(session, client, window=4096)
     assert result.compacted is True
     view = C.messages_for_llm(session)
-    after = C.prompt_tokens(view, None)
+    after = C.estimate_tokens(view)
     assert after <= 4096 - C.gen_reserve(4096)
     tail = session.messages[session.compaction.first_kept_index :]
     assert C.estimate_tokens(tail) <= 1328
@@ -210,16 +210,19 @@ def test_exact_fill_of_window_minus_reserve_is_success():
 def test_after_equals_window_is_not_success(monkeypatch):
     session = DummySession(_history_3x1000())
     client = DummyClient()
-    real = C.prompt_tokens
-    calls = {"n": 0}
+    real = C.estimate_tokens
 
-    def _pt(messages, tools=None):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return real(messages, tools)
-        return 4096
+    def _et(messages):
+        if (
+            isinstance(messages, list)
+            and messages
+            and messages[0].get("role") == "system"
+            and any("[CONVERSATION SUMMARY]" in str(m.get("content", "")) for m in messages)
+        ):
+            return 4096
+        return real(messages)
 
-    monkeypatch.setattr(C, "prompt_tokens", _pt)
+    monkeypatch.setattr(C, "estimate_tokens", _et)
     prev = session.compaction
     result = C.compact_session(session, client, window=4096)
     assert result.reason == "failed"
@@ -231,16 +234,19 @@ def test_after_equals_window_is_not_success(monkeypatch):
 def test_applied_view_over_reserve_reverts(monkeypatch):
     session = DummySession(_history_3x1000())
     client = DummyClient()
-    real = C.prompt_tokens
-    calls = {"n": 0}
+    real = C.estimate_tokens
 
-    def _pt(messages, tools=None):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return real(messages, tools)
-        return 4096 - C.gen_reserve(4096) + 1
+    def _et(messages):
+        if (
+            isinstance(messages, list)
+            and messages
+            and messages[0].get("role") == "system"
+            and any("[CONVERSATION SUMMARY]" in str(m.get("content", "")) for m in messages)
+        ):
+            return 4096 - C.gen_reserve(4096) + 1
+        return real(messages)
 
-    monkeypatch.setattr(C, "prompt_tokens", _pt)
+    monkeypatch.setattr(C, "estimate_tokens", _et)
     result = C.compact_session(session, client, window=4096)
     assert result.reason == "failed"
     assert session.compaction is None
@@ -979,7 +985,7 @@ def test_tail_pressure_stub_fat_newest_tool():
     assert result.tokens_after <= 4096 - C.gen_reserve(4096)
     assert session.messages[-1]["content"] == tool_body
     view = C.messages_for_llm(session)
-    assert C.prompt_tokens(view, None) <= 3840
+    assert C.estimate_tokens(view) <= 3840
     # Last user stays in the tail; the fat tool is stubbed only in the view.
     tail = view[3:]  # after system + summary pair
     assert any(m.get("content") == last_user["content"] for m in tail)
@@ -1064,8 +1070,11 @@ def test_below_threshold_skips_http():
 
 def test_tool_schema_tokens_in_numerator():
     tools = [{"type": "function", "function": {"name": "x", "parameters": {"type": "object"}}}]
-    msgs = [_msg("user", 4)]
-    assert C.prompt_tokens(msgs, tools) == C.estimate_tokens(msgs) + C.tool_schema_tokens(tools)
+    session = DummySession([_system_doc(100), _msg("user", 20)])
+    client = DummyClient()
+    result = C.compact_session(session, client, window=4096, tools=tools)
+    assert result.reason == "below_threshold"
+    assert result.tokens_before == C.estimate_tokens(C.messages_for_llm(session)) + C.tool_schema_tokens(tools)
     assert C.tool_schema_tokens(None) == 0
     assert C.tool_schema_tokens([]) == 0
 
@@ -1090,11 +1099,11 @@ def test_empty_or_whitespace_summary_fails():
 
 
 def test_summary_truncation_while_loop_and_cap_summary():
-    # cap_summary unit checks
-    assert C.cap_summary("short", 100) == "short"
-    capped = C.cap_summary("a" * 200, 100)
-    assert len(capped) <= 100
-    assert capped.endswith(C._SUMMARY_TRUNCATION_MARKER)
+    assert C._cap_running_summary("short", 4096) == "short"
+    budget = C._summary_budget(4096)
+    final = C._cap_running_summary("a" * (budget * C.CHARS_PER_TOKEN + 50), 4096)
+    assert len(final) <= max(32, budget * C.CHARS_PER_TOKEN * 3 // 4)
+    assert final.endswith(C._SUMMARY_TRUNCATION_MARKER)
 
     # Client returns an oversized summary (~2000 tokens) exceeding _summary_budget(4096)=512
     session = DummySession(_history_3x1000())

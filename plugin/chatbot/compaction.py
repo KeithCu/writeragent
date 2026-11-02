@@ -271,28 +271,9 @@ def tool_schema_tokens(tools: Any) -> int:
     return estimate_tokens_rough(blob)
 
 
-def prompt_tokens(messages: list[dict[str, Any]], tools: Any) -> int:
-    """Messages plus tool schemas.
-
-    Same idea as Hermes ``estimate_request_tokens_rough``
-    (``model_metadata.py:2155-2167``): count the request, not just the
-    transcript. WA ``json.dumps``s the schema; Hermes sums cached field
-    lengths.
-    https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/model_metadata.py#L2155-L2167
-    """
-    return estimate_tokens(messages) + tool_schema_tokens(tools)
-
-
 def _summary_budget(window: int) -> int:
     """Token allowance for the summary pair, summarizer max_tokens, and char cap."""
     return min(1024, max(256, window // 8))
-
-
-def cap_summary(summary: str, max_chars: int) -> str:
-    if len(summary) <= max_chars:
-        return summary
-    keep = max(0, max_chars - len(_SUMMARY_TRUNCATION_MARKER))
-    return summary[:keep] + _SUMMARY_TRUNCATION_MARKER
 
 
 def should_compact(tokens: int, window: int | None) -> bool:
@@ -623,10 +604,7 @@ def _drop_stale_compaction(session: Any, messages: list[dict[str, Any]]) -> Any:
     state = getattr(session, "compaction", None)
     if state is None:
         return None
-    idx = state.first_kept_index
-    anchor = state.kept_message_id
-    in_range = 1 <= idx < len(messages)
-    if in_range and id(messages[idx]) == anchor:
+    if 1 <= state.first_kept_index < len(messages) and id(messages[state.first_kept_index]) == state.kept_message_id:
         return state
     session.compaction = None
     return None
@@ -780,10 +758,14 @@ def _next_summary_chunk(
 
 def _cap_running_summary(summary: str, window: int) -> str:
     budget = _summary_budget(window)
-    summary = cap_summary(summary, budget * CHARS_PER_TOKEN)
-    while estimate_tokens(summary_pair(summary)) > budget and len(summary) > 32:
-        summary = cap_summary(summary, max(32, len(summary) * 3 // 4))
-    return summary
+    limit = budget * CHARS_PER_TOKEN
+    marker = _SUMMARY_TRUNCATION_MARKER
+    while True:
+        if len(summary) > limit:
+            summary = summary[:max(0, limit - len(marker))] + marker
+        if estimate_tokens(summary_pair(summary)) <= budget or len(summary) <= 32:
+            return summary
+        limit = max(32, len(summary) * 3 // 4)
 
 
 def _summarize_bounded(
@@ -870,9 +852,12 @@ def compact_session(
     if not messages:
         return CompactResult(False, "nothing_to_compact")
 
+    tool_tokens = tool_schema_tokens(tools)
     view = messages_for_llm(session)
     state = getattr(session, "compaction", None)
-    before = prompt_tokens(view, tools)
+    # Hermes estimate_request_tokens_rough (model_metadata.py:2155-2167):
+    # count the request, not just the transcript.
+    before = estimate_tokens(view) + tool_tokens
     if window is None or window <= 0:
         # No denominator → no remaining-budget clamp. Skip proactive *and* force.
         return CompactResult(False, "no_window", before, before)
@@ -881,7 +866,6 @@ def compact_session(
         return CompactResult(False, "below_threshold", before, before)
 
     system_tokens = estimate_message_tokens(messages[0])
-    tool_tokens = tool_schema_tokens(tools)
     keep = keep_recent_tokens(window, system_tokens, tool_tokens, force=force)
     if keep is None:
         return CompactResult(False, "nothing_to_compact", before, before)
@@ -913,7 +897,7 @@ def compact_session(
         max_out=max_out,
         previous_summary=previous,
         stop_checker=stop_checker,
-        stale=lambda: getattr(session, "messages", None) is not messages,
+        stale=lambda: session.messages is not messages,
     )
     if summary is None:
         return CompactResult(False, reason, before, before)
@@ -930,7 +914,7 @@ def compact_session(
         stubbed_tool_call_ids=stubbed_ids,
         kept_message_id=id(messages[new_cut]),
     )
-    after = prompt_tokens(messages_for_llm(session), tools)
+    after = estimate_tokens(messages_for_llm(session)) + tool_tokens
     reserve = gen_reserve(window)
     if after > window - reserve:
         session.compaction = state  # revert; do not ship a too-large view
