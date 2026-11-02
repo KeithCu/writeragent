@@ -26,6 +26,7 @@ from plugin.doc.doc_type import (
     get_document_uno_services,
     is_calc,
     is_draw,
+    is_impress,
     is_writer,
     uno_services_for_doc_type_label,
     uno_services_for_document,
@@ -134,6 +135,7 @@ def test_doc_type_truth_table(
     assert is_writer(model) is (expected_type == DocumentType.WRITER)
     assert is_calc(model) is (expected_type == DocumentType.CALC)
     assert is_draw(model) is (expected_type in (DocumentType.DRAW, DocumentType.IMPRESS))
+    assert is_impress(model) is (_IMPRESS_SERVICE in services if services else False)
 
 
 def test_doc_type_of_resolution() -> None:

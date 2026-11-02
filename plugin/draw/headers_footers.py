@@ -21,7 +21,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Iterator
 
-from plugin.framework.errors import WriterAgentException, is_disposed_exception, uno_probe
+from plugin.doc.doc_type import is_impress
+from plugin.framework.errors import WriterAgentException, is_disposed_exception, uno_probe, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -95,56 +96,27 @@ _FIELDS = (
     ("date_time_fixed", "IsDateTimeFixed", None, "fixed"),
 )
 
-# Probe-failure sentinel. None is a real shape and a real member value.
-_MISSING: Any = object()
-
-
 def _impress_master_hf_use_shapes(doc: Any, is_master_page: bool) -> bool:
-    return uno_probe(lambda: bool(doc.supportsService("com.sun.star.presentation.PresentationDocument")), False) and is_master_page
+    return is_impress(doc) and is_master_page
 
 
 def _iter_shapes_on_page(page: Any) -> Iterator[Any]:
-    n = uno_probe(lambda: int(page.getCount()), None)
-    if n is None:
-        return
+    n = uno_read(lambda: int(page.getCount()), 0)
     for i in range(n):
-        # uno_probe calls the lambda immediately, so i is the current index.
-        shape = uno_probe(lambda: page.getByIndex(i), _MISSING)
-        if shape is not _MISSING:
+        shape = uno_read(lambda: page.getByIndex(i), None)
+        if shape is not None:
             yield shape
-
-
-def _hf_shape_hit(shape: Any, svc: str, base: str, *, strict: bool) -> bool:
-    if strict:
-        st = getattr(shape, "ShapeType", None)
-        if st is None and hasattr(shape, "getShapeType"):
-            st = shape.getShapeType()
-        if st and (st == svc or str(st).endswith("." + base)):
-            return True
-        return bool(hasattr(shape, "supportsService") and shape.supportsService(svc))
-    if not hasattr(shape, "getSupportedServiceNames"):
-        return False
-    suffix = "." + base
-    for name in shape.getSupportedServiceNames():
-        nm = str(name)
-        if nm == svc or nm.endswith(suffix):
-            return True
-    return False
 
 
 def _collect_hf_shapes(page: Any) -> dict[str, Any]:
     services = (_SVC_HEADER, _SVC_FOOTER, _SVC_DATETIME, _SVC_SLIDENO)
     found: dict[str, Any] = {s: None for s in services}
-    shapes = list(_iter_shapes_on_page(page))
-    bases = {svc: svc.rsplit(".", 1)[-1] for svc in services}
-    for strict in (True, False):
-        for shape in shapes:
-            for svc in services:
-                if found[svc] is not None:
-                    continue
-                hit = uno_probe(lambda: _hf_shape_hit(shape, svc, bases[svc], strict=strict), False)
-                if hit:
-                    found[svc] = shape
+    for shape in _iter_shapes_on_page(page):
+        for svc in services:
+            if found[svc] is not None:
+                continue
+            if uno_read(lambda: bool(shape.supportsService(svc)), False) or uno_read(lambda: getattr(shape, "ShapeType", None) == svc, False):
+                found[svc] = shape
     return found
 
 
@@ -167,23 +139,15 @@ def _write(fn: Any, what: str) -> bool:
 
 
 def _set_text(shape: Any, text: str) -> bool:
-    # Resolve setString inside the probe. A missing member stays silent; the write logs.
     if shape is None:
         return False
-    setter = uno_probe(lambda: shape.setString, _MISSING)
-    if setter is _MISSING:
-        return False
-    return _write(lambda: setter(text), "setString on header/footer shape")
+    return _write(lambda: shape.setString(text), "setString on header/footer shape")
 
 
 def _set_visible(shape: Any, vis: bool) -> bool:
-    # Same split as _set_text: lookup is silent, setPropertyValue logs through _write.
     if shape is None:
         return False
-    setter = uno_probe(lambda: shape.setPropertyValue, _MISSING)
-    if setter is _MISSING:
-        return False
-    return _write(lambda: setter("Visible", vis), "set Visible on header/footer shape")
+    return _write(lambda: shape.setPropertyValue("Visible", vis), "set Visible on header/footer shape")
 
 
 def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:
