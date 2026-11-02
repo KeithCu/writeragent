@@ -1,7 +1,7 @@
 
 import pytest
 
-from plugin.doc.compound_undo import WriterCompoundUndo
+from plugin.doc.compound_undo import WriterCompoundUndo, _is_undo_locked
 from plugin.framework.errors import DocumentDisposedError
 import plugin.writer.edit_review as edit_review
 
@@ -144,6 +144,43 @@ def test_writer_compound_undo_close_can_retry_after_failed_leave():
     assert doc.undo.left is False
     assert cu.close() is True
     assert doc.undo.left is True
+
+
+def test_is_undo_locked_only_is_true_counts_as_locked():
+    """PyUNO returns bool; test doubles may return other truthy values — only ``True`` locks."""
+
+    class _Locked:
+        def isLocked(self):
+            return True
+
+    class _UnlockedBool:
+        def isLocked(self):
+            return False
+
+    class _UnlockedInt:
+        def isLocked(self):
+            return 1
+
+    class _NoIsLocked:
+        pass
+
+    assert _is_undo_locked(_Locked()) is True
+    assert _is_undo_locked(_UnlockedBool()) is False
+    assert _is_undo_locked(_UnlockedInt()) is False
+    assert _is_undo_locked(_NoIsLocked()) is False
+
+
+def test_writer_compound_undo_enters_when_islocked_returns_one():
+    doc = _MockDoc(recording=True)
+
+    def _locked_one():
+        return 1
+
+    setattr(doc.undo, "isLocked", _locked_one)
+    cu = WriterCompoundUndo(doc, "WriterAgent: truthy-not-true")
+    assert cu.entered is True
+    assert doc.undo.entered is True
+    cu.close()
 
 
 def test_writer_compound_undo_magicmock_islocked_enters():
