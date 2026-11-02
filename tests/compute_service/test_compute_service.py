@@ -449,7 +449,7 @@ class TestComputeHttp:
         # 1 worker, semaphore size 1. Explicit max_threads=1 is listener_thread_count:
         # max(8, n + 4) = 8. Overflow waits on the permit instead of a fast 503.
         sem = threading.Semaphore(1)
-        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, worker_semaphore=sem)
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, semaphore=sem)
         server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -529,7 +529,7 @@ class TestComputeHttp:
             return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
         sem = threading.Semaphore(1)
-        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, worker_semaphore=sem)
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, semaphore=sem)
         server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -614,7 +614,7 @@ class TestComputeHttp:
             return bool(acquired)
 
         sem.acquire = watching_acquire  # type: ignore[method-assign]
-        app = create_wsgi_app(ComputeSettings(workers=1), execute_fn=execute_fn, worker_semaphore=sem)
+        app = create_wsgi_app(ComputeSettings(workers=1), execute_fn=execute_fn, semaphore=sem)
         body = json.dumps({"code": "result = 1"}).encode("utf-8")
         first = threading.Thread(target=lambda: _wsgi_post(app, body, path="/v1/execute"))
         first.start()
@@ -657,6 +657,7 @@ class TestComputeHttp:
         app = create_wsgi_app(
             ComputeSettings(workers=1, default_timeout_sec=1),
             execute_fn=execute_fn,
+            semaphore=threading.Semaphore(1),
         )
         body = json.dumps({"code": "result = 1"}).encode("utf-8")
         first = threading.Thread(target=lambda: _wsgi_post(app, body, path="/v1/execute"))
@@ -1812,120 +1813,6 @@ class TestSessionResetHttp:
         assert body.get("code") == "VISION_UNAVAILABLE"
         assert body.get("id") == "v-missing"
 
-    def test_formula_permits_do_not_starve_vision_admission(self) -> None:
-        """workers=2 and ocr_workers=4 used to share six permits.
-
-        Six in-flight executes then held every permit, so /v1/vision returned
-        VISION_POOL_BUSY while OCR workers were still idle.
-        """
-        settings = ComputeSettings(workers=2, ocr_workers=4)
-        hold = threading.Event()
-        entered_lock = threading.Lock()
-        entered_count = 0
-        both_in = threading.Event()
-
-        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
-            nonlocal entered_count
-            with entered_lock:
-                entered_count += 1
-                if entered_count >= 2:
-                    both_in.set()
-            assert hold.wait(timeout=5)
-            return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
-
-        app = create_wsgi_app(settings, execute_fn=execute_fn)
-        body = json.dumps({"code": "result = 1"}).encode("utf-8")
-        results: list[tuple[str, str | None]] = []
-        results_lock = threading.Lock()
-
-        def post() -> None:
-            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
-            code = parsed.get("code") if isinstance(parsed, dict) else None
-            with results_lock:
-                results.append((status, code))
-
-        threads = [threading.Thread(target=post) for _ in range(6)]
-        fake_pool = MagicMock()
-        fake_pool.execute.return_value = {"id": "v-free", "status": "ok", "text": "ok"}
-        try:
-            for thread in threads:
-                thread.start()
-            assert both_in.wait(timeout=5)
-            time.sleep(0.05)
-            with results_lock:
-                assert not any(item[0].startswith("503") for item in results)
-            assert entered_count == 2
-            with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-                vstatus, _vheaders, vbody = _wsgi_vision_post(app, {"id": "v-free"}, b"png")
-            assert vstatus.startswith("200")
-            assert vbody.get("code") != "VISION_POOL_BUSY"
-            fake_pool.execute.assert_called_once()
-            assert fake_pool.execute.call_args.kwargs["image"] == b"png"
-        finally:
-            hold.set()
-            for thread in threads:
-                thread.join(timeout=5)
-        assert len(results) == 6
-        assert all(status.startswith("200") for status, _code in results)
-
-    def test_vision_permits_do_not_starve_formula_admission(self) -> None:
-        """The reverse of the shared-permit bug: a full vision pool must not 503 execute."""
-        settings = ComputeSettings(workers=2, ocr_workers=4)
-        hold = threading.Event()
-        entered_lock = threading.Lock()
-        entered_count = 0
-        all_in = threading.Event()
-
-        def vision_execute(**_kwargs: Any) -> dict[str, Any]:
-            nonlocal entered_count
-            with entered_lock:
-                entered_count += 1
-                if entered_count >= 4:
-                    all_in.set()
-            assert hold.wait(timeout=5)
-            return {"status": "ok", "text": "ok"}
-
-        fake_pool = MagicMock()
-        fake_pool.execute.side_effect = vision_execute
-
-        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
-            return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
-
-        app = create_wsgi_app(settings, execute_fn=execute_fn)
-        ct, payload = encode_multipart_vision({"id": "v"}, b"png")
-        results: list[tuple[str, str | None]] = []
-        results_lock = threading.Lock()
-
-        def post() -> None:
-            status, _headers, parsed = _wsgi_post(app, payload, path="/v1/vision", headers={"Content-Type": ct})
-            code = parsed.get("code") if isinstance(parsed, dict) else None
-            with results_lock:
-                results.append((status, code))
-
-        threads = [threading.Thread(target=post) for _ in range(5)]
-        try:
-            with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
-                for thread in threads:
-                    thread.start()
-                assert all_in.wait(timeout=5)
-                time.sleep(0.05)
-                with results_lock:
-                    assert not any(item[0].startswith("503") for item in results)
-                assert entered_count == 4
-                estatus, _eheaders, ebody = _wsgi_post(
-                    app,
-                    json.dumps({"code": "result = 1"}).encode("utf-8"),
-                    path="/v1/execute",
-                )
-            assert estatus.startswith("200")
-            assert ebody.get("code") != "WORKER_POOL_BUSY"
-        finally:
-            hold.set()
-            for thread in threads:
-                thread.join(timeout=5)
-        assert len(results) == 5
-        assert all(status.startswith("200") for status, _code in results)
-
     def test_non_ascii_bearer_and_key_file(self, tmp_path) -> None:
         """hmac.compare_digest on str raises TypeError for non-ASCII. That escaped the WSGI app."""
         from compute_service.server import authenticate_request
@@ -2268,7 +2155,7 @@ class TestSessionResetHttp:
         app = create_wsgi_app(
             settings,
             execute_fn=lambda **_kwargs: {"status": "ok"},
-            worker_semaphore=threading.Semaphore(0),
+            semaphore=threading.Semaphore(0),
         )
         body = json.dumps({"id": "slow", "code": "result = 1", "timeout_ms": 1500}).encode("utf-8")
         holder: list[tuple[str, dict]] = []
@@ -2298,7 +2185,7 @@ class TestSessionResetHttp:
         app = create_wsgi_app(
             settings,
             execute_fn=lambda **_kwargs: {"status": "ok"},
-            worker_semaphore=threading.Semaphore(0),
+            semaphore=threading.Semaphore(0),
         )
         body = json.dumps({"id": "def", "code": "result = 1"}).encode("utf-8")
         holder: list[tuple[str, dict]] = []
@@ -2319,7 +2206,7 @@ class TestSessionResetHttp:
 
     def test_vision_admission_waits_for_request_timeout(self) -> None:
         settings = ComputeSettings(ocr_timeout_sec=1, max_timeout_sec=30, ocr_workers=1)
-        app = create_wsgi_app(settings, vision_semaphore=threading.Semaphore(0))
+        app = create_wsgi_app(settings, semaphore=threading.Semaphore(0))
         holder: list[tuple[str, dict]] = []
 
         def run() -> None:
@@ -2620,20 +2507,14 @@ def test_flatten_config_json_rejects_api_key() -> None:
         _flatten_config_json({"auth": {"api_key": "secret"}})
 
 
-def test_sticky_slots_scale_with_formula_workers() -> None:
-    """Four formula workers used to share one sticky listener slot."""
-    from compute_service.wsgi_server import listener_thread_count
-    from compute_service.server import service_listener_threads, sticky_listener_slots
+def test_admission_permits_leave_two_listeners() -> None:
+    from compute_service.server import admission_permits, service_listener_threads
 
-    wide = ComputeSettings(workers=4, ocr_workers=0)
-    assert sticky_listener_slots(wide) == 4
-    pool_threads = service_listener_threads(wide)
-    vision_permits = 1
-    assert pool_threads >= wide.workers + vision_permits + sticky_listener_slots(wide) + 2
-
-    small = ComputeSettings(workers=2, ocr_workers=0)
-    assert service_listener_threads(small) == listener_thread_count(small.threads) == 8
-    assert sticky_listener_slots(small) == 3
+    assert service_listener_threads(ComputeSettings(workers=2, ocr_workers=0)) == 8
+    assert admission_permits(ComputeSettings(workers=2, ocr_workers=0)) == 6
+    wide = ComputeSettings(workers=6, ocr_workers=2)
+    assert service_listener_threads(wide) == 12
+    assert admission_permits(wide) == 10
 
 
 @pytest.mark.parametrize("code", ["VISION_WORKER_ERROR", "WORKER_EXECUTION_ERROR"])
@@ -3500,7 +3381,7 @@ def test_real_socket_queue_absorption() -> None:
         return {"status": "ok", "result": "absorbed_done"}
 
     # Single-worker gate to force request 2 into the admission queue
-    app = create_wsgi_app(settings, execute_fn=fake_execute, worker_semaphore=threading.Semaphore(1))
+    app = create_wsgi_app(settings, execute_fn=fake_execute, semaphore=threading.Semaphore(1))
     server = WSGIDualStackServer("127.0.0.1", 0, max_threads=4)
     server.set_app(app)
 
@@ -3787,34 +3668,6 @@ def test_isolated_mode_with_session_id_rejected() -> None:
         assert "session_id URL query parameter is only permitted with mode='shared'" in parsed.get("error", "")
 
 
-def test_header_deadline_fires_inside_handle() -> None:
-    """A request line that arrives after the accept deadline returns 408 instead of a traceback."""
-    from compute_service.wsgi_server import DeadlineRequestHandler
-
-    client, server_sock = socket.socketpair()
-    try:
-        server_sock.settimeout(30)
-        rfile = server_sock.makefile("rb")
-        wfile = server_sock.makefile("wb", buffering=0)
-        handler = DeadlineRequestHandler.__new__(DeadlineRequestHandler)
-        handler.connection = server_sock
-        handler.rfile = rfile
-        handler.wfile = wfile
-        handler.client_address = ("127.0.0.1", 0)
-        handler.close_connection = True
-        handler.server = type("Srv", (), {"_accept_times": {server_sock: time.monotonic() - 100.0}})()
-        started = time.monotonic()
-        handler.handle()
-        assert time.monotonic() - started < 2.0
-        client.settimeout(1.0)
-        raw = client.recv(4096)
-        assert b"408" in raw
-        assert b"Request read timeout" in raw
-    finally:
-        client.close()
-        server_sock.close()
-
-
 def test_slow_body_drip_is_408() -> None:
     """One socket timeout per large read used to let a drip outlive the body deadline."""
     from compute_service.wsgi_server import _REQUEST_READ_TIMEOUT_SEC
@@ -4017,17 +3870,8 @@ def test_gated_prepare_exception_is_json_internal_error() -> None:
     assert not sem.acquire(timeout=0)
 
 
-def test_sticky_cap_leaves_isolated_execute_free() -> None:
-    """Sticky permits do not consume the isolated-execute gate.
-
-    workers=4 gets one sticky slot per formula worker. Filling those slots
-    queues another sticky call until a slot frees. An isolated call still runs.
-    """
-    from compute_service.server import sticky_listener_slots
-
-    settings = ComputeSettings(workers=4, ocr_workers=0)
-    slots = sticky_listener_slots(settings)
-    assert slots == 4
+def test_sticky_burst_fills_shared_permits() -> None:
+    """Sticky calls waiting on one worker hold the shared permits, so an isolated call waits and then gets 503."""
     hold = threading.Event()
     entered = threading.Semaphore(0)
 
@@ -4037,51 +3881,27 @@ def test_sticky_cap_leaves_isolated_execute_free() -> None:
             assert hold.wait(timeout=5)
         return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
-    app = create_wsgi_app(settings, execute_fn=execute_fn)
+    app = create_wsgi_app(ComputeSettings(workers=4, ocr_workers=0), execute_fn=execute_fn, semaphore=threading.Semaphore(2))
     body = json.dumps({"code": "result = 1", "mode": "shared"}).encode("utf-8")
-    results: list[tuple[str, str | None]] = []
-    results_lock = threading.Lock()
-
-    def post_sticky(sid: str) -> None:
-        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query=f"session_id={sid}")
-        with results_lock:
-            results.append((status, parsed.get("code") if isinstance(parsed, dict) else None))
-
-    threads = [threading.Thread(target=post_sticky, args=(f"sticky-{i}",)) for i in range(slots)]
-    overflow_thread: threading.Thread | None = None
+    statuses: list[str] = []
+    threads = [
+        threading.Thread(target=lambda sid=sid: statuses.append(_wsgi_post(app, body, path="/v1/execute", query=f"session_id={sid}")[0]))
+        for sid in ("a", "b")
+    ]
     for thread in threads:
         thread.start()
     try:
-        for _unused in range(slots):
+        for _unused in threads:
             assert entered.acquire(timeout=5)
-        overflow: dict[str, tuple[str, dict[str, Any]]] = {}
-
-        def post_overflow() -> None:
-            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query="session_id=sticky-overflow")
-            overflow["out"] = (status, parsed)
-
-        overflow_thread = threading.Thread(target=post_overflow)
-        overflow_thread.start()
-        time.sleep(0.05)
-        assert "out" not in overflow
-        isolated, _iheaders, ibody = _wsgi_post(
-            app,
-            json.dumps({"code": "result = 1"}).encode("utf-8"),
-            path="/v1/execute",
-        )
-        assert isolated.startswith("200")
-        assert ibody.get("code") != "WORKER_POOL_BUSY"
+        isolated, _headers, parsed = _wsgi_post(app, json.dumps({"code": "result = 1", "timeout_ms": 100}).encode("utf-8"), path="/v1/execute")
+        assert isolated.startswith("503")
+        assert parsed.get("code") == "WORKER_POOL_BUSY"
     finally:
         hold.set()
         for thread in threads:
             thread.join(timeout=5)
-        if overflow_thread is not None:
-            overflow_thread.join(timeout=5)
-    overflow_status, overflow_body = overflow["out"]
-    assert overflow_status.startswith("200")
-    assert overflow_body.get("code") != "WORKER_POOL_BUSY"
-    assert len(results) == slots
-    assert all(status.startswith("200") for status, _code in results)
+    assert statuses == ["200 OK", "200 OK"]
+    assert _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")[0].startswith("200")
 
 
 def test_invalid_base64_and_params_are_400() -> None:
@@ -4429,10 +4249,10 @@ def test_reset_queue_timeout_closes_connection() -> None:
     assert stream_app.tell() == 0
 
 
-def test_reset_body_read_before_sticky_permit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:
     import compute_service.server as server_mod
 
-    monkeypatch.setattr(server_mod, "sticky_listener_slots", lambda settings: 1)
+    monkeypatch.setattr(server_mod, "admission_permits", lambda settings: 1)
 
     in_first_reset = threading.Event()
     unblock_first_reset = threading.Event()

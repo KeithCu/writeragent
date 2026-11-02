@@ -1207,28 +1207,15 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
 
 
 def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[str | None, int, int]:
-    """setString from the last match backward. Returns (error, fields, shapes).
-
-    WriterCompoundUndo only groups; it does not undo a failed write. Several
-    matches have to leave the context and undo that title, same as a TOC
-    one-entry edit, or a later failure would leave the earlier replacements.
-    """
+    """setString from the last match backward. Returns (error, fields, shapes)."""
     from .edit_review import next_agent_edit_undo_title
+    from plugin.doc.compound_undo import WriterCompoundUndo
 
     before = _scan_region_content(doc, text_obj)
     after = before
     title = next_agent_edit_undo_title()
-    mgr = None
-    try:
-        candidate = doc.getUndoManager()
-        # `is True`: MagicMock isLocked() is truthy and must not look locked.
-        if candidate is not None and candidate.isLocked() is not True:
-            candidate.enterUndoContext(title)
-            mgr = candidate
-    except Exception:
-        log.warning("header/footer replace: undo grouping skipped", exc_info=True)
-        mgr = None
-    if mgr is None and len(cursors) > 1:
+    group = WriterCompoundUndo.try_enter(doc, title)
+    if group is None and len(cursors) > 1:
         return "Cannot replace every match in one undo step. Nothing was changed.", 0, 0
 
     error: str | None = None
@@ -1240,27 +1227,14 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
             raise RuntimeError("the replace removed a field or graphic")
     except Exception as exc:
         error = str(exc)
-    left = False
     undone = False
-    if mgr is not None:
-        try:
-            mgr.leaveUndoContext()
-            left = True
-        except Exception:
-            log.exception("header/footer replace: leaveUndoContext failed")
+    if group is not None:
+        left = group.close()
+        if not left:
             error = error or "Could not close the header/footer undo context."
         if error and left:
-            try:
-                titles = mgr.getAllUndoActionTitles()
-                if titles and titles[0] == title:
-                    mgr.undo()
-                    undone = True
-            except Exception:
-                log.exception("header/footer replace rollback failed")
+            undone = group.rollback_if_top()
     if error:
-        # What was wrong: if a post-check failed or replacement error occurred but undo() did not run,
-        # the error message did not warn that edits were already written.
-        # Why this change fixes it: prefix with note that replacement could not be rolled back.
         if not undone:
             error = "the replacement was written and could not be rolled back: " + error
         return error, 0, 0

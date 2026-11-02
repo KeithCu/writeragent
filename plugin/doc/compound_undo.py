@@ -13,7 +13,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from plugin.framework.errors import reraise_if_disposed
+
 log = logging.getLogger(__name__)
+
+
+def _is_undo_locked(um: Any) -> bool:
+    fn = getattr(um, "isLocked", None)
+    if fn is None:
+        return False
+    return fn() is True
 
 
 class WriterCompoundUndo:
@@ -34,28 +43,37 @@ class WriterCompoundUndo:
     _undo_manager: Any | None
     _open: bool
     entered: bool
+    leave_error: BaseException | None
+    rollback_error: BaseException | None
+    _titles_before: tuple[str, ...] | None
 
-    def __init__(self, doc: Any, title: str) -> None:
+    def __init__(self, doc: Any, title: str, *, _warn: bool = True) -> None:
         self._title = title
         self._undo_manager = None
         self._open = False
         self.entered = False
+        self.leave_error = None
+        self.rollback_error = None
+        self._titles_before = None
         try:
             if not hasattr(doc, "getUndoManager"):
-                log.warning("WriterCompoundUndo: doc has no getUndoManager, undo grouping skipped (title=%r)", title)
+                if _warn:
+                    log.warning("WriterCompoundUndo: doc has no getUndoManager, undo grouping skipped (title=%r)", title)
                 return
             um = doc.getUndoManager()
             if um is None:
-                log.warning("WriterCompoundUndo: getUndoManager() returned None, undo grouping skipped (title=%r)", title)
+                if _warn:
+                    log.warning("WriterCompoundUndo: getUndoManager() returned None, undo grouping skipped (title=%r)", title)
                 return
-            # Bugfix: what was wrong: enterUndoContext on a locked XUndoManager silently failed,
-            # but left entered=True / _open=True, causing mismatched leave and inaccurate status.
-            # How it happened: XUndoManager ignores enterUndoContext when locked without raising.
-            # Why this change fixes it: checks isLocked() upfront and aborts grouping early.
-            if hasattr(um, "isLocked") and um.isLocked():
-                log.warning("WriterCompoundUndo: undo manager is locked, undo grouping skipped (title=%r)", title)
+            if _is_undo_locked(um):
+                if _warn:
+                    log.warning("WriterCompoundUndo: undo manager is locked, undo grouping skipped (title=%r)", title)
                 return
-            # Probe undo manager state to detect prior unclosed contexts (best-effort; UNO may not expose these).
+            try:
+                self._titles_before = tuple(um.getAllUndoActionTitles() or ())
+            except Exception as titles_e:
+                reraise_if_disposed(titles_e)
+                self._titles_before = None
             try:
                 is_in_ctx = um.isInContext()
                 undo_enabled = um.isUndoEnabled()
@@ -66,20 +84,18 @@ class WriterCompoundUndo:
             self._undo_manager = um
             self._open = True
             self.entered = True
-            # Log after success so we always see this when the context is live.
             log.debug("WriterCompoundUndo: context entered %r", title)
         except Exception as e:
-            from plugin.framework.errors import reraise_if_disposed
-
-            # Bugfix: what was wrong: enterUndoContext swallowed DisposedException behind warning log.
-            # How it happened: broad except Exception caught DocumentDisposedError/DisposedException.
-            # Why this change fixes it: re-raises disposed exceptions per project error policy.
             reraise_if_disposed(e)
-            # Upgrade from debug to warning so failures are visible without debug logging.
-            # "Insert $1" in the undo menu means this context was never opened.
-            log.warning("WriterCompoundUndo: enterUndoContext failed, undo grouping disabled (title=%r): %s", title, e)
+            if _warn:
+                log.warning("WriterCompoundUndo: enterUndoContext failed, undo grouping disabled (title=%r): %s", title, e)
 
-    def __enter__(self) -> "WriterCompoundUndo":
+    @classmethod
+    def try_enter(cls, doc: Any, title: str) -> WriterCompoundUndo | None:
+        inst = cls(doc, title, _warn=False)
+        return inst if inst.entered else None
+
+    def __enter__(self) -> WriterCompoundUndo:
         return self
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
@@ -99,16 +115,27 @@ class WriterCompoundUndo:
             log.debug("WriterCompoundUndo: leaving context %r", self._title)
             um.leaveUndoContext()
         except Exception as e:
-            from plugin.framework.errors import reraise_if_disposed
-
-            # Bugfix: what was wrong: leaveUndoContext swallowed DisposedException behind error log.
-            # How it happened: broad except Exception caught DocumentDisposedError/DisposedException.
-            # Why this change fixes it: re-raises disposed exceptions per project error policy.
             reraise_if_disposed(e)
-            # Keep _open/_undo_manager so a later close() can retry; clearing them
-            # here left the undo context open for the rest of the session.
+            self.leave_error = e
+            # Keep _open so a later close() can retry; clearing it leaves the context open.
             log.exception("leaveUndoContext failed (title=%r)", self._title)
             return False
         self._open = False
-        self._undo_manager = None
         return True
+
+    def rollback_if_top(self) -> bool:
+        """Roll back the undo context if it is the top action on the undo stack."""
+        if not self.entered or self._open or self._titles_before is None or self._undo_manager is None:
+            return False
+        try:
+            raw = self._undo_manager.getAllUndoActionTitles()
+            after = tuple(raw or ())
+            if after != self._titles_before and after and after[0] == self._title:
+                self._undo_manager.undo()
+                return True
+            return False
+        except Exception as e:
+            reraise_if_disposed(e)
+            self.rollback_error = e
+            log.exception("rollback_if_top failed (title=%r)", self._title)
+            return False

@@ -96,9 +96,7 @@ class TestWriterMathPreservation:
         tool = ApplyDocumentContent()
         ctx = MagicMock()
         ctx.doc = MagicMock()
-        # The edit path is atomic in ALL modes now (R4 fix): it opens a grouped undo context and
-        # refuses when the undo manager is unusable/locked — a bare MagicMock's isLocked() would be
-        # truthy, so pin a usable manager for the fake document.
+        # The lock rule is is True. Keep isLocked.return_value = False.
         ctx.doc.getUndoManager.return_value.isLocked.return_value = False
         ctx.ctx = MagicMock()
         ctx.services = MagicMock()

@@ -140,7 +140,9 @@ class TestAccessorsAndCollector:
         shape.getString.side_effect = DisposedException("disposed")
         import pytest
 
-        with pytest.raises(DisposedException):
+        from plugin.framework.errors import DocumentDisposedError
+
+        with pytest.raises(DocumentDisposedError):
             _get_text(shape)
 
     def test_get_bool_visible_without_fallback(self):
@@ -417,9 +419,12 @@ def test_set_text_disposed_reraises():
         def setString(self):
             raise DisposedException("disposed")
 
+    from plugin.framework.errors import DocumentDisposedError
+
+    # The write re-raises the original; the uno_read lookup wraps it.
     with pytest.raises(DisposedException):
         _set_text(Shape(), "hello")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         _set_text(LookupDisposed(), "hello")
 
 

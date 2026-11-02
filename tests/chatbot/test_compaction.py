@@ -667,9 +667,8 @@ def test_resolve_context_window_slash_lru_unknown_is_none():
 def _clear_v1_context_cache_keys(substr):
     import plugin.framework.client.model_fetcher as mf
 
-    for store in (mf._model_fetch_cache, mf._model_fetch_image_cache, mf._model_context_cache):
-        for key in [k for k in store if substr in k]:
-            store.pop(key, None)
+    for key in [k for k in list(mf._catalog_memos) if substr in k]:
+        mf._catalog_memos.pop(key, None)
 
 
 def test_resolve_context_window_prefers_cached_live_over_catalog():

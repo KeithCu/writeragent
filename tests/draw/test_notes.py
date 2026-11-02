@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.draw.notes import GetSpeakerNotes, SetSpeakerNotes
+from plugin.framework.errors import DocumentDisposedError
 
 
 class _DisposedException(Exception):
@@ -228,7 +229,7 @@ def test_disposed_notes_page_propagates():
     slide = _DisposedSlide()
     ctx = _ctx()
     with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
-        with pytest.raises(_DisposedException):
+        with pytest.raises(DocumentDisposedError):
             GetSpeakerNotes().execute(ctx, page=0)
-        with pytest.raises(_DisposedException):
+        with pytest.raises(DocumentDisposedError):
             SetSpeakerNotes().execute(ctx, text="hi", page=0)

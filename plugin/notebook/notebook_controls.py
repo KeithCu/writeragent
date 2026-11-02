@@ -392,23 +392,13 @@ def _doc_key(doc: Any) -> str:
     the cell multiple times (``[In [4]]`` jumped to ``[In [7]]``).
     ``RuntimeUID`` is the same object for every wrapper of that document.
 
-    Read it with ``_read_runtime_uid``, the same ladder without
-    ``@main_thread_only``. ``get_runtime_uid`` raises off the main thread
-    when the dev UNO thread guard is on. File Open ``XFilter.filter`` runs
-    on Dummy-2 and the extensionless detect reload on Dummy-3 (see the
-    wire_all comment above). ``filter()`` would catch that ``RuntimeError``
-    and return False, and ``loadComponentFromURL`` would return None.
-    Decorating this path or hopping to the main thread deadlocks the
-    waiting host (#402).
+    Read it with ``get_runtime_uid``.
     """
-    from plugin.framework.uno_context import _read_runtime_uid
+    from plugin.framework.uno_context import get_runtime_uid
 
-    uid = _read_runtime_uid(doc)
+    uid = get_runtime_uid(doc)
     if uid:
         return f"uid:{uid}"
-    url = uno_read(lambda: doc.getURL(), "")
-    if isinstance(url, str) and url:
-        return f"url:{url}"
     return f"id:{id(doc)}"
 
 
@@ -477,67 +467,25 @@ class NotebookFormRunListener(BaseActionListener):
 
     _ctx: Any
     _doc_key_val: str
-    _doc_url: str
     _runtime_uid: str
-    _doc_weak: Any | None
     _attached_names: set[str]
 
     def __init__(self, ctx: Any, doc: Any) -> None:
         self._ctx = ctx
         self._doc_key_val = _doc_key(doc)
-        self._doc_url = str(uno_read(lambda: doc.getURL(), "") or "")
-        # _doc_key already stored RuntimeUID in the uid: prefix. Untitled docs
-        # have an empty URL. Hidden native tests (and a notebook that is not
-        # Desktop.getCurrentComponent) then failed get_active_document; PyUNO
-        # wrappers usually cannot be weakref'd, so ▶ looked wired but
-        # actionPerformed returned "document gone".
         self._runtime_uid = self._doc_key_val[4:] if self._doc_key_val.startswith("uid:") else ""
-        import weakref
-
-        self._doc_weak = uno_read(lambda: weakref.ref(doc), None)
         self._attached_names = set()
 
     def _resolve_doc(self) -> Any | None:
-        from plugin.framework.uno_context import get_active_document, resolve_document_by_url
+        from plugin.framework.uno_context import resolve_document_by_url
 
-        weak = self._doc_weak
-        if callable(weak):
-            ref_doc: Any = weak()
-            if ref_doc is not None:
-                for meth in ("getRuntimeUID", "getURL"):
-                    fn = getattr(ref_doc, meth, None)
-                    if not callable(fn):
-                        continue
-                    try:
-                        fn()
-                        return ref_doc
-                    except Exception:
-                        log.debug(
-                            "notebook controls: %s liveness probe failed",
-                            meth,
-                            exc_info=True,
-                        )
-            self._doc_weak = None
-
-        active = best_effort(
-            lambda: get_active_document(self._ctx),
-            "notebook controls: active document resolution failed",
+        if not self._runtime_uid:
+            return None
+        resolved = best_effort(
+            functools.partial(resolve_document_by_url, self._ctx, self._runtime_uid),
+            "notebook controls: runtime uid resolution failed",
         )
-        if active is not None and _doc_key(active) == self._doc_key_val:
-            return active
-
-        for token, what in (
-            (self._doc_url, "notebook controls: doc resolution failed"),
-            (self._runtime_uid, "notebook controls: runtime uid resolution failed"),
-        ):
-            if not token:
-                continue
-            resolved = best_effort(
-                functools.partial(resolve_document_by_url, self._ctx, token),
-                what,
-            )
-            if resolved is None:
-                continue
+        if resolved is not None:
             doc, _doc_type = resolved
             if doc is not None:
                 return doc

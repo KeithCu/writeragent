@@ -142,6 +142,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/uno_bootstrap.py",
     "plugin/framework/main_shared.py",
     "plugin/framework/logging.py",
+    "plugin/framework/process_global.py",
     "plugin/framework/uno_context.py",
     "plugin/framework/scratch_writer.py",
     "plugin/framework/vcl_pumping.py",
@@ -166,6 +167,8 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/client/errors.py",
     # errors.py does ``from .responses_shim import responses_failed_message``.
     "plugin/framework/client/responses_shim.py",
+    # responses_shim.py imports its pure helpers from shim_helpers.py.
+    "plugin/framework/client/shim_helpers.py",
     "plugin/framework/client/requests.py",
     # sync_request is a URL adapter over LlmHttpTransport (stop, timeout, retry, redaction).
     "plugin/framework/client/http_transport.py",

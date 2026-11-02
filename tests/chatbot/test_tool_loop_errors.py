@@ -181,14 +181,14 @@ def test_document_context_error_handling(test_instance, mock_get_tools):
         assert any("[Error reading document: bridge broke]" in r for r in test_instance.responses)
         assert not any("[Document closed or unavailable.]" in r for r in test_instance.responses)
 
-        # RuntimeException against dead doc -> closed
+        # RuntimeException against dead doc is still a reading error; only DisposedException means closed
         test_instance.responses.clear()
         test_instance._terminal_status = None
         mock_refresh.side_effect = MockRuntimeException("bridge broke")
         test_instance._do_send_chat_with_tools("test", DeadDoc(), "writer")
 
         assert test_instance._terminal_status == "Error"
-        assert any("[Document closed or unavailable.]" in r for r in test_instance.responses)
+        assert any("[Error reading document: bridge broke]" in r for r in test_instance.responses)
 
 def test_audio_handling_error(test_instance, mock_get_tools):
     mock_get_tools.get_schemas.return_value = [{"name": "test_tool"}]
@@ -1015,11 +1015,9 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
 
     endpoint = "https://openrouter.ai/api"
     model_id = "vendor/cold-vision-model"
-    mf._model_fetch_vision_cache.clear()
-    for cache in (mf._model_fetch_cache, mf._model_fetch_image_cache, mf._model_context_cache):
-        for key in list(cache):
-            if "openrouter.ai" in key:
-                cache.pop(key, None)
+    for key in list(mf._catalog_memos):
+        if "openrouter.ai" in key:
+            mf._catalog_memos.pop(key, None)
     test_instance._get_document_model = MagicMock()
     mock_get_tools.get_schemas.return_value = []
     test_instance._start_tool_calling_async = MagicMock()

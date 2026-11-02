@@ -3,10 +3,11 @@ import queue
 import pytest
 import sys
 from typing import Any
-from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload, safe_json_loads
+from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.tool import ToolBase
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from unittest.mock import MagicMock
 from plugin.draw.shapes import DrawShapes, DrawError
 from plugin.framework.errors import safe_python_literal_eval
@@ -330,7 +331,7 @@ class TestAsyncStreamErrorHandling:
 
     def test_run_stream_drain_loop_error_handler(self):
         q = queue.Queue()
-        job_done = [False]
+        outcome = DrainOutcome()
         test_error = ValueError('Simulation error')
         formatted_error = format_error_payload(test_error)
         q.put((StreamQueueKind.ERROR, formatted_error))
@@ -343,8 +344,8 @@ class TestAsyncStreamErrorHandling:
 
             def processEventsToIdle(self):
                 pass
-        run_stream_drain_loop(q, DummyToolkit(), job_done, (lambda c, t: None), on_error=on_error, on_stream_done=(lambda x: True), on_stopped=(lambda : None))
-        assert (job_done[0])
+        run_stream_drain_loop(q, DummyToolkit(), outcome, (lambda c, t: None), on_error=on_error, on_stream_done=(lambda x: True), on_stopped=(lambda : None))
+        assert outcome.done
         assert (len(error_received)) == (1)
         assert (error_received[0]['status']) == ('error')
         assert (error_received[0]['message']) == ('Simulation error')

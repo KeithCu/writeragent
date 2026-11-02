@@ -236,8 +236,6 @@ def parse_float_robust(val: Any) -> float:
         pass
 
     # Same comma rule as parse_int_robust: "1,234" is 1234, "1,5" is 1.5.
-    # Replacing every comma used to turn a thousands separator into a decimal
-    # and truncate the value.
     normalized = _normalize_comma_number(s)
     if normalized is not None:
         try:

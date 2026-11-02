@@ -140,11 +140,17 @@ def lancedb_ingest_rows(db_path: str, meta_path: str, model_name: str, rows: lis
     count = len(tbl)
 
     # Write/refresh the shared corpus_meta.json
-    from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta
+    from plugin.embeddings.embeddings_cache import SCHEMA_VERSION, CorpusMeta
 
     meta_p = Path(str(meta_path))
-    ensure_corpus_meta(meta_p, embedding_model=model_name, dim=dim or None, chunk_count=count)
-    write_corpus_meta(meta_p, storage_backend="lancedb", updated_at=str(time.time()))
+    CorpusMeta.load(meta_p).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=model_name,
+        dim=dim or 0,
+        chunk_count=count,
+        storage_backend="lancedb",
+        updated_at=str(time.time()),
+    ).save(meta_p)
 
     return {"indexed": len(rows), "upserted": len(rows), "dim": dim, "storage_backend": "lancedb"}
 
@@ -230,7 +236,7 @@ def lancedb_hybrid_search(db_path: str, query_text: str, k: int, *, model_name: 
 def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: str = "auto", heartbeat_fn: Callable[[dict[str, Any]], None] | None = None, hb: HeartbeatThrottle | None = None) -> dict[str, Any]:
     """LanceDB specific folder maintain."""
 
-    from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta, lancedb_collection_path
+    from plugin.embeddings.embeddings_cache import SCHEMA_VERSION, CorpusMeta, lancedb_collection_path
     from plugin.embeddings.embeddings_fs import guess_indexable_paths, indexable_chunks_from_path
 
     root = str(listing_root or "").strip()
@@ -274,8 +280,12 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
     if dim <= 0:
         dim = 384
 
-    ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim)
-    write_corpus_meta(meta_path, storage_backend="lancedb")
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=embedding_model,
+        dim=dim,
+        storage_backend="lancedb",
+    ).save(meta_path)
 
     # Purge deleted files
     current_urls = {entry.url for entry in files}
@@ -351,8 +361,14 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
     except Exception:
         final_count = indexed
 
-    ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim, chunk_count=final_count)
-    write_corpus_meta(meta_path, storage_backend="lancedb", updated_at=str(time.time()))
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=embedding_model,
+        dim=dim,
+        chunk_count=final_count,
+        storage_backend="lancedb",
+        updated_at=str(time.time()),
+    ).save(meta_path)
 
     _hb.force({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total})
 

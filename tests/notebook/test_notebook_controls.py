@@ -151,50 +151,27 @@ def test_ensure_form_design_mode_off_with_controller():
     assert doc.ApplyFormDesignMode is False
     controller.setFormDesignMode.assert_called_once_with(False)
 
-def test_notebook_run_button_listener_resolve_doc_order():
+def test_notebook_run_button_listener_resolves_by_runtime_uid():
     ctx = MagicMock()
     doc = MagicMock()
-    doc.getURL.return_value = "file:///tmp/nb.odt"
     doc.getRuntimeUID.return_value = "uid-resolve-order"
     listener = NotebookFormRunListener(ctx, doc)
-    listener._doc_weak = None
 
-    # URL set, weakref empty, active document key matches -> resolve_document_by_url not called
-    active_doc = MagicMock()
-    active_doc.getURL.return_value = "file:///tmp/nb.odt"
-    active_doc.getRuntimeUID.return_value = "uid-resolve-order"
-    with (
-        patch("plugin.framework.uno_context.get_active_document", return_value=active_doc),
-        patch("plugin.framework.uno_context.resolve_document_by_url") as resolve_url,
-    ):
-        assert listener._resolve_doc() is active_doc
-        resolve_url.assert_not_called()
-
-    # Active key differs -> URL resolve is called
-    diff_doc = MagicMock()
-    diff_doc.getURL.return_value = "file:///tmp/other.odt"
-    diff_doc.getRuntimeUID.return_value = "uid-different"
     resolved_doc = MagicMock()
-    with (
-        patch("plugin.framework.uno_context.get_active_document", return_value=diff_doc),
-        patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(resolved_doc, "writer")) as resolve_url,
-    ):
+    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(resolved_doc, "writer")) as resolve_url:
         assert listener._resolve_doc() is resolved_doc
-        resolve_url.assert_called_once_with(ctx, "file:///tmp/nb.odt")
+        resolve_url.assert_called_once_with(ctx, "uid-resolve-order")
 
-    # Disposed weakref falls through
-    dead_doc = MagicMock()
-    dead_doc.getRuntimeUID.side_effect = Exception("disposed")
-    dead_doc.getURL.side_effect = Exception("disposed")
-    import weakref
+    # When resolution returns None
+    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=None) as resolve_url:
+        assert listener._resolve_doc() is None
 
-    listener._doc_weak = weakref.ref(dead_doc)
-    with (
-        patch("plugin.framework.uno_context.get_active_document", return_value=active_doc),
-        patch("plugin.framework.uno_context.resolve_document_by_url") as resolve_url,
-    ):
-        assert listener._resolve_doc() is active_doc
-        assert listener._doc_weak is None
+    # When runtime_uid is empty
+    doc_no_uid = MagicMock()
+    doc_no_uid.getRuntimeUID.return_value = ""
+    listener_no_uid = NotebookFormRunListener(ctx, doc_no_uid)
+    with patch("plugin.framework.uno_context.resolve_document_by_url") as resolve_url:
+        assert listener_no_uid._resolve_doc() is None
         resolve_url.assert_not_called()
 
 
@@ -205,17 +182,19 @@ def test_listener_init_when_get_url_raises():
     doc.getURL.side_effect = RuntimeError("broken getURL")
     listener = NotebookFormRunListener(ctx, doc)
     assert listener._doc_key_val == "uid:uid-runtime-works"
-    assert listener._doc_url == ""
     assert notebook_controls._doc_key(doc) == "uid:uid-runtime-works"
 
 
 def test_notebook_run_button_listener_calls_runner():
     ctx = MagicMock()
     doc = MagicMock()
-    doc.getURL.return_value = ""
+    doc.getRuntimeUID.return_value = "uid-run-button"
     listener = NotebookFormRunListener(ctx, doc)
     event = MagicMock(ActionCommand="nb_run_deadbeef", Source=None)
-    with patch("plugin.notebook.notebook_runner.run_cell_for_doc_hex") as run:
+    with (
+        patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(doc, "writer")),
+        patch("plugin.notebook.notebook_runner.run_cell_for_doc_hex") as run,
+    ):
         listener.on_action_performed(event)
     run.assert_called_once_with(ctx, doc, "deadbeef")
 
@@ -228,11 +207,9 @@ def test_notebook_run_button_listener_untitled_resolves_by_runtime_uid():
     doc.getURL.return_value = ""
     doc.getRuntimeUID.return_value = "uid-hidden-nb"
     listener = NotebookFormRunListener(ctx, doc)
-    listener._doc_weak = None
     event = MagicMock(ActionCommand="nb_run_cafebabecafebabecafebabecafebabe", Source=None)
     with (
         patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(found, "writer")) as resolve,
-        patch("plugin.framework.uno_context.get_active_document", return_value=None),
         patch("plugin.notebook.notebook_runner.run_cell_for_doc_hex") as run,
     ):
         listener.on_action_performed(event)
@@ -243,7 +220,7 @@ def test_notebook_run_button_listener_untitled_resolves_by_runtime_uid():
 def test_form_run_listener_dispatches_nb_run_name():
     ctx = MagicMock()
     doc = MagicMock()
-    doc.getURL.return_value = ""
+    doc.getRuntimeUID.return_value = "uid-form-run"
     listener = NotebookFormRunListener(ctx, doc)
     model = MagicMock()
     model.Name = "nb_run_deadbeefdeadbeefdeadbeefdeadbeef"
@@ -252,7 +229,10 @@ def test_form_run_listener_dispatches_nb_run_name():
     ev = MagicMock()
     ev.Source = control
     ev.ActionCommand = ""
-    with patch("plugin.notebook.notebook_runner.run_cell_for_doc_hex") as run:
+    with (
+        patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(doc, "writer")),
+        patch("plugin.notebook.notebook_runner.run_cell_for_doc_hex") as run,
+    ):
         listener.on_action_performed(ev)
     run.assert_called_once_with(ctx, doc, "deadbeefdeadbeefdeadbeefdeadbeef")
 
@@ -312,6 +292,7 @@ def test_wire_all_attaches_one_form_listener_without_getcontrol():
     state.code_cells = [cell, cell]
 
     with (
+        patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(doc, "writer")),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
         patch("plugin.notebook.notebook_runner.flush_ui_idle") as flush_idle,
     ):
@@ -358,6 +339,7 @@ def test_doc_event_does_not_attach_a_second_form_listener():
     assert listener is not None
 
     with (
+        patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(doc, "writer")),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=state) as mock_load,
         patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)) as mock_fc,
         patch("plugin.notebook.notebook_controls.ensure_form_design_mode_off") as mock_off,
@@ -516,16 +498,9 @@ def test_prune_dead_listeners_off_main_thread_keeps_listeners(monkeypatch):
 
     notebook_controls._listener_refs = [lis]
 
-    # weakref is available and returns doc, so it should be kept
+    # Off main thread returns early, so it should be kept
     prune_dead_listeners()
 
-    assert lis in notebook_controls._listener_refs
-
-    # Now if weakref is NOT available (e.g. PyUNO doesn't support it)
-    lis._doc_weak = None
-    prune_dead_listeners()
-
-    # We still keep it because we can't safely resolve off main thread
     assert lis in notebook_controls._listener_refs
 
 def test_form_and_container_multiple_forms():
@@ -588,6 +563,7 @@ def test_recreated_view_rewires_when_container_changes():
         return a is b
 
     with (
+        patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(doc, "writer")),
         patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
         patch("plugin.framework.uno_context.uno_same", side_effect=mock_uno_same)
     ):
@@ -687,6 +663,7 @@ def test_doc_event_on_unload_removes_listeners_and_preserves_other_docs():
         return MagicMock(), container2
 
     with (
+        patch("plugin.framework.uno_context.resolve_document_by_url", side_effect=lambda ctx, uid: (doc1 if uid == "uid-doc-1" else doc2, "writer")),
         patch("plugin.notebook.notebook_controls.load_registry", side_effect=lambda d: state1 if d is doc1 else state2),
         patch("plugin.notebook.notebook_controls._form_and_container", side_effect=_forms),
     ):

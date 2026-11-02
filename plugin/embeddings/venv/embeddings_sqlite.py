@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -540,6 +541,54 @@ def vec0_search(
     return candidates
 
 
+_NEAR_SLASH_RE = re.compile(r"(.+?)\s+NEAR\s*/\s*(\d+)\s+(.+)", re.IGNORECASE)
+_FTS5_NEAR_CALL_RE = re.compile(r"\bNEAR\s*\(", re.IGNORECASE)
+_BOOL_RE = re.compile(r"\b(AND|OR|NOT)\b", re.IGNORECASE)
+
+
+def _escape_fts_token(token: str) -> str:
+    cleaned = str(token or "").strip()
+    if not cleaned:
+        return '""'
+    escaped = cleaned.replace('"', '""')
+    return f'"{escaped}"'
+
+
+def build_match_query(query: str, *, near_slop: int = 10) -> str:
+    """Build an FTS5 MATCH expression (multi-word defaults to NEAR with slop)."""
+    raw = str(query or "").strip()
+    if not raw:
+        raise ValueError("query is required")
+    slop = max(0, int(near_slop))
+
+    if _FTS5_NEAR_CALL_RE.search(raw):
+        return raw
+    if _BOOL_RE.search(raw):
+        return raw
+
+    near_match = _NEAR_SLASH_RE.search(raw)
+    if near_match:
+        left_tokens = [t for t in near_match.group(1).split() if t.strip()]
+        right_tokens = [t for t in near_match.group(3).split() if t.strip()]
+        dist = int(near_match.group(2))
+        tokens = left_tokens + right_tokens
+        if not tokens:
+            raise ValueError("NEAR query has no terms")
+        quoted = " ".join(_escape_fts_token(t) for t in tokens)
+        return f"NEAR({quoted}, {dist})"
+
+    tokens = [t for t in raw.split() if t.strip()]
+    if len(tokens) == 1:
+        return _escape_fts_token(tokens[0])
+    quoted = " ".join(_escape_fts_token(t) for t in tokens)
+    return f"NEAR({quoted}, {slop})"
+
+
+def strip_fts_snippet_markers(snippet: str) -> str:
+    """Remove FTS5 snippet() highlight brackets; readable plain text for agents and UI."""
+    return str(snippet or "").replace("[", "").replace("]", "")
+
+
 def fts_corpus_search(
     conn: sqlite3.Connection,
     query: str,
@@ -549,8 +598,6 @@ def fts_corpus_search(
     doc_url_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     """BM25 + NEAR search on unified corpus.db passages (rowid = chunk_id)."""
-    from plugin.embeddings.venv.folder_fts import build_match_query, strip_fts_snippet_markers
-
     limit = max(1, min(int(k or 10), 50))
     match_expr = build_match_query(str(query or ""), near_slop=near_slop)
 

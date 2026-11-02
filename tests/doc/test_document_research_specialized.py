@@ -1148,7 +1148,7 @@ def test_allowlist_tools_are_registered(doc_type):
     r.register(GetDrawTree())
     r.register(SpecializedWorkflowFinished())
 
-    got = {t.name for t in r.get_tools(doc_type=doc_type, names=list(READ_TOOLS_BY_DOC_TYPE[doc_type]), exclude_tiers=())}
+    got = {t.name for t in r.get_tools(doc_type=doc_type, names=frozenset(READ_TOOLS_BY_DOC_TYPE[doc_type]), exclude_tiers=())}
     assert got == set(READ_TOOLS_BY_DOC_TYPE[doc_type])
 
 

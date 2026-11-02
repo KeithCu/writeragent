@@ -11,7 +11,15 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from .anthropic_shim import AnthropicShim
-from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_image_data_url, coerce_raw_b64, effort_payload
+from .shim_helpers import _openai_model_leaf
+from .base_provider_shim import (
+    BaseProviderShim,
+    canonical_aspect_ratio,
+    canonical_resolution,
+    coerce_image_data_url,
+    coerce_raw_b64,
+    effort_payload,
+)
 from .google_shim import GoogleShim
 from .grok_shim import GrokShim
 from .responses_shim import (
@@ -30,23 +38,9 @@ _OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt-6")
 
 def _openai_reasoning_model(model_name: str | None) -> bool:
     """True for OpenAI model families that reject ``max_tokens``."""
-    name = str(model_name or "").strip().lower()
+    name = _openai_model_leaf(model_name)
     if not name:
         return False
-    # Fine-tune ids are ft:<base>:<org>:<suffix>:<id>. Splitting on '/' first
-    # turned ft:gpt-5-mini:org/team:name:id into team:name:id, so the gpt-5
-    # base kept max_tokens and api.openai.com returned 400. The base is the
-    # field after ft:, including when a provider prefix sits in front
-    # (openai/ft:...). A '/' inside that base (ft:openai/gpt-5-mini:...) is
-    # stripped afterwards.
-    # https://developers.openai.com/api/reference/resources/fine_tuning/subresources/jobs/methods/create
-    ft_at = name.find("ft:")
-    if ft_at != -1 and (ft_at == 0 or name[ft_at - 1] in "/:"):
-        base = name[ft_at + 3 :].split(":", 1)[0]
-        if base:
-            name = base
-    if "/" in name:
-        name = name.rsplit("/", 1)[-1]
     # ChatGPT snapshots (gpt-5-chat-latest, gpt-5.1-chat-latest,
     # gpt-5.2-chat-latest, gpt-6-chat-latest) accept max_tokens and a non-default
     # temperature. Their model pages do not list reasoning-token support; gpt-5.1 does.
@@ -59,12 +53,7 @@ def _openai_reasoning_model(model_name: str | None) -> bool:
 
 
 def _pick_size(width: int, height: int, landscape: str, portrait: str, square: str) -> str:
-    """Bucket WxH into one of three vendor sizes.
-
-    ``width=0`` used to divide as 0 and pick the portrait size. ``height=0``
-    already became square. Both axes must be positive or the ratio is treated
-    as square. ``image_generate`` can pass 0 after ``(n // 64) * 64``.
-    """
+    """Bucket WxH into one of three vendor sizes. Both axes must be positive or square is used."""
     ratio = (width / height) if width and height else 1.0
     if ratio > 1.2:
         return landscape
@@ -213,8 +202,6 @@ class OllamaShim(BaseProviderShim):
         return self._post(url, data)
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
-        # A non-dict body, or a list entry that is not a string, used to be
-        # returned as-is. The caller base64-decodes each item and then raises.
         if not isinstance(response_data, dict):
             return []
         images = response_data.get("images")

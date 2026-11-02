@@ -12,7 +12,13 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from .base_provider_shim import BaseProviderShim, _dict_parts, coerce_raw_b64, effort_payload, inline_image_mime
+from .shim_helpers import _dict_parts, _normalize_usage, _system_text
+from .base_provider_shim import (
+    BaseProviderShim,
+    coerce_raw_b64,
+    effort_payload,
+    inline_image_mime,
+)
 
 log = logging.getLogger(__name__)
 
@@ -21,11 +27,7 @@ def _anthropic_image_block(image_url: Any) -> dict[str, Any] | None:
     """Turn an OpenAI image part into an Anthropic image block.
 
     ``image_url`` is ``{"url": ...}`` or a bare string.
-    A data URL with no comma used to raise ``ValueError`` from ``split`` and
-    abort the whole request. Skip that part instead.
-    An http(s) URL used to be dropped with the data-URL check, so the model
-    never saw the image. Messages accepts ``source.type`` ``url``
-    (see docs/images/generation.md). ``file_id`` is not produced here.
+    Invalid data URLs with no comma return None. Accepts data URLs and http(s) URLs.
     """
     if isinstance(image_url, dict):
         url = image_url.get("url", "")
@@ -101,8 +103,7 @@ def _convert_tool_call(tc: dict[str, Any]) -> dict[str, Any] | None:
 
     The caller records a non-empty id when this returns None so the matching
     tool result is dropped. An empty id is not recorded: it is not a real
-    ``tool_use`` id, and storing ``None`` or ``""`` used to swallow a later
-    tool message that also had no id.
+    ``tool_use`` id.
     """
     raw_fn = tc.get("function")
     fn = raw_fn if isinstance(raw_fn, dict) else {}
@@ -118,13 +119,6 @@ def _convert_tool_call(tc: dict[str, Any]) -> dict[str, Any] | None:
     if args_obj is None:
         return None
     return {"type": "tool_use", "id": tc_id, "name": name, "input": args_obj}
-
-
-def _system_text(content: Any) -> str:
-    """Text of one system or developer message. List parts keep their order."""
-    if isinstance(content, list):
-        return "\n\n".join(p.get("text", "") for p in _dict_parts(content) if p.get("type") == "text")
-    return str(content or "")
 
 
 def _convert_parts(content: Any, *, allow_images: bool) -> list[dict[str, Any]]:
@@ -240,22 +234,6 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
     return "\n\n".join(system_parts), converted
 
 
-def _normalize_usage(raw: Any) -> dict[str, Any]:
-    """Copy Anthropic usage and add the OpenAI token names callers already read.
-
-    Librarian and PPT host use ``prompt_tokens`` / ``completion_tokens``.
-    Anthropic sends ``input_tokens`` / ``output_tokens``. Cache fields stay.
-    """
-    if not isinstance(raw, dict) or not raw:
-        return {}
-    usage = dict(raw)
-    if "prompt_tokens" not in usage and "input_tokens" in usage:
-        usage["prompt_tokens"] = usage["input_tokens"]
-    if "completion_tokens" not in usage and "output_tokens" in usage:
-        usage["completion_tokens"] = usage["output_tokens"]
-    return usage
-
-
 # OpenAI-style finish_reason values the tool loop already understands.
 # Unknown Anthropic reasons pass through so a new API value is not hidden.
 _ANTHROPIC_FINISH_REASONS = {
@@ -277,11 +255,7 @@ def _map_anthropic_finish_reason(reason: Any) -> str | None:
 def _tool_calls_from_content_blocks(content_parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Sync ``tool_use`` blocks as OpenAI tool calls. Unpairable blocks are skipped.
 
-    An empty id used to become ``id: ""``. The tool loop ran the call, then the
-    next request dropped both the call and its result because ``tool_use_id``
-    must be a non-empty string. A list ``input`` is not an object; replaying it
-    failed the same way after the tool had run on ``{}``. Missing ``input`` is
-    a no-argument call.
+    Tool use id must be a non-empty string.
     """
     tool_calls: list[dict[str, Any]] = []
     for part in content_parts:
@@ -343,10 +317,7 @@ class AnthropicShim(BaseProviderShim):
         endpoint = self.client._endpoint()
         url = f"{endpoint}/v1/messages"
         model = model_name.strip() if isinstance(model_name, str) else ""
-        # A retired hardcoded id (claude-3-5-sonnet-20241022) used to fill a
-        # blank Settings model and fail at Anthropic with a confusing 404.
-        # The caller already passed config["model"]; an empty value is a
-        # missing setting, not a license to invent one.
+        # Model must be explicitly configured.
         if not model:
             raise NetworkError(_("Anthropic model is not set. Choose a model in Settings."), code="BAD_REQUEST")
         system_msg, converted = _convert_messages(messages)
@@ -364,9 +335,7 @@ class AnthropicShim(BaseProviderShim):
             converted_tools = [tool_def for tool_def in (_anthropic_tool_def(t) for t in tools) if tool_def]
             if converted_tools:
                 data["tools"] = converted_tools
-        # Bugfix: previously any non-empty string (e.g. "turbo") was written to
-        # output_config.effort. effort_payload sends only Anthropic's effort words;
-        # a model that rejects one gets the 400 retry in llm_client.
+        # effort_payload sends only supported Anthropic effort levels.
         data.update(effort_payload("anthropic", self._requested_effort_level(chat_extra)))
 
         return self._post(url, data)
@@ -411,23 +380,19 @@ class AnthropicShim(BaseProviderShim):
                 if tool_delta:
                     delta = tool_delta
         elif msg_type == "message":
-            # SYNC response. content: null and a non-dict part used to raise.
+            # SYNC response.
             content_parts = _dict_parts(chunk.get("content", []))
             content = "".join([p.get("text", "") for p in content_parts if p.get("type") == "text"])
             thinking = _thinking_text(content_parts)
             finish_reason = _map_anthropic_finish_reason(chunk.get("stop_reason"))
             tool_calls = _tool_calls_from_content_blocks(content_parts)
             delta = {"role": "assistant", "content": content}
-            # Sync thinking used to be dropped. The stream path already surfaces
-            # thinking_delta. ``reasoning`` is the key replay already reads.
-            # Signature bytes are still not echoed; that is a separate feature.
+            # Surface thinking under reasoning matching the stream path.
             if thinking:
                 delta["reasoning"] = thinking
             if tool_calls:
                 delta["tool_calls"] = tool_calls
         elif msg_type == "message_delta":
-            # Other Anthropic branches already ignore a non-dict delta. A
-            # missing or string delta used to raise AttributeError here.
             raw_delta = chunk.get("delta")
             if isinstance(raw_delta, dict):
                 finish_reason = _map_anthropic_finish_reason(raw_delta.get("stop_reason"))

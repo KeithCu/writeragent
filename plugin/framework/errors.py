@@ -28,7 +28,7 @@ import logging
 from typing import Any, Callable, NoReturn, TypeVar, overload
 
 from plugin.framework.i18n import _
-from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from plugin.framework.json_utils import safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 from plugin.framework.deal_shim import DEAL_MAX_MSGID, UNDER_CROSSHAIR, deal
 
@@ -330,8 +330,6 @@ def format_error_message(e: BaseException) -> str:
                 return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
             return reason
         # urllib.request wraps a certificate failure as URLError(reason=SSLError).
-        # A direct SSLError is handled above. The wrapped form used to return "Connection Error"
-        # and hide the TLS sentence.
         if isinstance(reason_obj, ssl.SSLError):
             return _("TLS/SSL Error: {0}").format(reason)
         if "timed out" in rl and "formula" not in rl:
@@ -474,6 +472,7 @@ def uno_call(fn: Callable[[], _T], what: str) -> _T:
     try:
         return fn()
     except WriterAgentException:
+        # Preserve specific domain exceptions.
         raise
     except Exception as e:
         if is_disposal(e):

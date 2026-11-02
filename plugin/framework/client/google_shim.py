@@ -108,8 +108,6 @@ class GoogleShim(BaseProviderShim):
         return self._post(url, data, headers)
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
-        # ``image_completion`` already rejects a non-dict HTTP body. A direct
-        # caller passing a list used to raise AttributeError on ``.get``.
         if not isinstance(response_data, dict):
             return []
         out: list[str] = []

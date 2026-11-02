@@ -419,8 +419,8 @@ def test_run_trusted_vision_rejects_unimplemented_helper_before_export():
     ) as rpc:
         with pytest.raises(ToolExecutionError) as exc:
             run_trusted_vision(MagicMock(), MagicMock(), helper="detect_objects")
-    assert exc.value.code == "UNKNOWN_HELPER"
-    assert "not implemented" in str(exc.value).lower()
+    assert exc.value.code == "VISION_ERROR"
+    assert "unknown helper" in str(exc.value).lower()
     export.assert_not_called()
     rpc.assert_not_called()
 

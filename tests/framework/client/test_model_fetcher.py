@@ -38,15 +38,13 @@ class TestEndpointUrlSuitableForModelFetch:
 
 
 class TestFetchAvailableModelsCache:
-    '_model_fetch_cache is process-wide; same normalized endpoint hits HTTP once.'
+    '_catalog_memos is process-wide; same normalized endpoint hits HTTP once.'
 
     def teardown_method(self):
         import plugin.framework.client.model_fetcher as cfg
-        keys_to_del = [k for k in cfg._model_fetch_cache if any(sub in k for sub in (('127.0.0.1:5890'), 'openwebui.example', 'notopenwebui.example', '127.0.0.1:3000'))]
+        keys_to_del = [k for k in cfg._catalog_memos if any(sub in k for sub in (('127.0.0.1:5890'), 'openwebui.example', 'notopenwebui.example', '127.0.0.1:3000'))]
         for k in keys_to_del:
-            del cfg._model_fetch_cache[k]
-            cfg._model_fetch_image_cache.pop(k, None)
-            cfg._model_context_cache.pop(k, None)
+            cfg._catalog_memos.pop(k, None)
 
     def test_openwebui_host_catalog_url_strips_pasted_api(self):
         from plugin.framework.client.model_fetcher import fetch_available_models
@@ -113,15 +111,14 @@ class TestFetchAvailableModelsCache:
                 assert isinstance(headers, dict)
                 assert (headers.get('Authorization')) == ('Bearer secret-token')
 
-    def test_model_fetch_cache_key_differs_for_override(self):
+    def test_catalog_memo_key_differs_for_override(self):
         from plugin.framework.client import model_fetcher as cfg
-        url = 'http://127.0.0.1:58906/v1/models'
-        base = 'http://127.0.0.1:58906'
+        endpoint = 'http://127.0.0.1:58906'
         with patch.object(cfg, 'get_api_key_for_endpoint', return_value='saved'):
-            k_saved = cfg._model_fetch_cache_key(url, base, None)
-            k_a = cfg._model_fetch_cache_key(url, base, 'typed-a')
-            k_b = cfg._model_fetch_cache_key(url, base, 'typed-b')
-        assert k_saved.startswith(f'{url}\x1f')
+            k_saved = cfg._catalog_memo_key(endpoint, None)
+            k_a = cfg._catalog_memo_key(endpoint, 'typed-a')
+            k_b = cfg._catalog_memo_key(endpoint, 'typed-b')
+        assert k_saved.startswith(f'{endpoint}/v1\x1f')
         assert 'saved' not in k_saved
         assert 'typed-a' not in k_a
         assert 'typed-b' not in k_b
@@ -181,11 +178,9 @@ class TestTextModelPlaceholderGuards:
             with patch('plugin.framework.config.get_config_file_path', side_effect=mock_config_path):
                 from plugin.framework.config import reset_config_for_tests
                 reset_config_for_tests()
-                for k in list(cfg._model_fetch_cache):
+                for k in list(cfg._catalog_memos):
                     if ('58904' in k):
-                        del cfg._model_fetch_cache[k]
-                        cfg._model_fetch_image_cache.pop(k, None)
-                        cfg._model_context_cache.pop(k, None)
+                        cfg._catalog_memos.pop(k, None)
                 with patch('plugin.framework.client.requests.sync_request') as mock_sync:
                     mock_sync.return_value = {'data': [{'id': 'm1'}]}
                     r = cfg.fetch_available_models(endpoint, api_key_override='from-override')
@@ -211,11 +206,9 @@ class TestTextModelPlaceholderGuards:
             with patch('plugin.framework.config.get_config_file_path', side_effect=mock_config_path):
                 from plugin.framework.config import reset_config_for_tests
                 reset_config_for_tests()
-                for k in list(cfg._model_fetch_cache):
+                for k in list(cfg._catalog_memos):
                     if ('58905' in k):
-                        del cfg._model_fetch_cache[k]
-                        cfg._model_fetch_image_cache.pop(k, None)
-                        cfg._model_context_cache.pop(k, None)
+                        cfg._catalog_memos.pop(k, None)
                 with patch('plugin.framework.client.requests.sync_request') as mock_sync:
                     mock_sync.return_value = {'data': [{'id': 'x'}]}
                     cfg.fetch_available_models(endpoint)
@@ -259,24 +252,18 @@ class TestFetchAvailableImageModels:
         # Module caches live for the process. Under xdist, another file on this
         # worker (e.g. is_image_only_model → fetch_available_image_models) may
         # already have memoized OpenRouter; tearDown-only cleanup is too late.
-        self._clear_model_fetch_caches()
+        self._clear_catalog_memos()
 
     def teardown_method(self):
-        self._clear_model_fetch_caches()
+        self._clear_catalog_memos()
 
     @staticmethod
-    def _clear_model_fetch_caches():
+    def _clear_catalog_memos():
         import plugin.framework.client.model_fetcher as cfg
 
-        for k in list(cfg._model_fetch_image_cache):
+        for k in list(cfg._catalog_memos):
             if '58907' in k or '58908' in k or 'together.xyz' in k or 'openrouter.ai' in k:
-                cfg._model_fetch_image_cache.pop(k, None)
-        for k in list(cfg._model_fetch_cache):
-            if '58907' in k or '58908' in k or 'together.xyz' in k or 'openrouter.ai' in k:
-                del cfg._model_fetch_cache[k]
-        for k in list(cfg._model_context_cache):
-            if '58907' in k or '58908' in k or 'together.xyz' in k or 'openrouter.ai' in k:
-                cfg._model_context_cache.pop(k, None)
+                cfg._catalog_memos.pop(k, None)
 
     def test_openrouter_queries_dedicated_images_endpoint(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -391,15 +378,8 @@ class TestHasNativeVision:
         self._patch_main_thread = patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=False)
         self._patch_main_thread.start()
         import plugin.framework.client.model_fetcher as mf
-        mf._model_fetch_vision_cache.clear()
-        mf._ollama_show_cache.clear()
+        mf._catalog_memos.clear()
         mf._vision_in_flight.clear()
-        # A prior test may have memoized a failed OpenRouter GET as None.
-        # has_native_vision treats that as "already fetched" and will not HTTP again.
-        for cache in (mf._model_fetch_cache, mf._model_fetch_image_cache, mf._model_context_cache):
-            for key in list(cache):
-                if "openrouter.ai" in key or "together.xyz" in key:
-                    cache.pop(key, None)
 
     def teardown_method(self):
         self._patch_main_thread.stop()
@@ -431,15 +411,14 @@ class TestHasNativeVision:
             assert not (has_native_vision('my-custom-model', 'http://localhost:11434'))
 
     def test_openrouter_dynamic_modality_detection(self):
-        from plugin.framework.client.model_fetcher import has_native_vision, _model_fetch_vision_cache
+        from plugin.framework.client.model_fetcher import has_native_vision
         with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
              patch('plugin.framework.client.model_fetcher.get_config', return_value={}), \
              patch('plugin.framework.client.model_fetcher.set_config'):
-            
-            url = 'https://openrouter.ai/api/v1/models'
-            from plugin.framework.client.model_fetcher import _model_fetch_cache_key
-            ck = _model_fetch_cache_key(url, 'https://openrouter.ai/api')
-            _model_fetch_vision_cache[ck] = {'custom-openrouter-vision-model': True}
+
+            import plugin.framework.client.model_fetcher as mf
+            memo = mf._get_catalog_memo('https://openrouter.ai/api')
+            memo.vision_declarations = {'custom-openrouter-vision-model': True}
 
             assert (has_native_vision('custom-openrouter-vision-model', 'https://openrouter.ai/api'))
             assert not (has_native_vision('some-other-model', 'https://openrouter.ai/api'))
@@ -460,7 +439,7 @@ class TestHasNativeVision:
 
     def test_openrouter_cache_miss_fetches_modalities_for_uncatalogued_gemini(self):
         # google/gemini-3.8-flash is not a DEFAULT_MODELS row. The sidebar does
-        # not fill _model_fetch_vision_cache, so has_native_vision must GET
+        # not fill CatalogMemo.vision_declarations, so has_native_vision must GET
         # /v1/models once and read architecture.input_modalities.
         from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id
         from plugin.framework.client.model_fetcher import has_native_vision
@@ -643,12 +622,11 @@ class TestHasNativeVision:
     def test_warm_memo_answers_without_fetch(self):
         from plugin.framework.client import model_fetcher
 
-        saved = dict(model_fetcher._model_fetch_vision_cache)
-        model_fetcher._model_fetch_vision_cache.clear()
+        saved = dict(model_fetcher._catalog_memos)
+        model_fetcher._catalog_memos.clear()
         try:
-            url = "https://openrouter.ai/api/v1/models"
-            ck = model_fetcher._model_fetch_cache_key(url, "https://openrouter.ai/api")
-            model_fetcher._model_fetch_vision_cache[ck] = {"known-model": True}
+            memo = model_fetcher._get_catalog_memo("https://openrouter.ai/api")
+            memo.vision_declarations = {"known-model": True}
             with patch.object(model_fetcher, "get_config", return_value={}), \
                  patch.object(model_fetcher, "fetch_available_models") as fetch, \
                  patch.object(model_fetcher, "set_config"):
@@ -658,8 +636,8 @@ class TestHasNativeVision:
                 ) is True
                 fetch.assert_not_called()
         finally:
-            model_fetcher._model_fetch_vision_cache.clear()
-            model_fetcher._model_fetch_vision_cache.update(saved)
+            model_fetcher._catalog_memos.clear()
+            model_fetcher._catalog_memos.update(saved)
 
     def test_vision_support_map_is_a_config_field(self):
         from plugin.framework.config_schema import WriterAgentConfig, _resolve_default, is_known_config_key
@@ -750,9 +728,8 @@ class TestHasNativeVision:
             openrouter_job = scheduled_jobs[0]
             with patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=False):
                 def fake_fetch(ep, api_key_override=None):
-                    url = "https://openrouter.ai/api/v1/models"
-                    ck = model_fetcher._model_fetch_cache_key(url, "https://openrouter.ai/api", api_key_override)
-                    model_fetcher._model_fetch_vision_cache[ck] = {"google/gemini-3.8-flash": True}
+                    memo = model_fetcher._get_catalog_memo("https://openrouter.ai/api", api_key_override)
+                    memo.vision_declarations = {"google/gemini-3.8-flash": True}
                 mock_fetch.side_effect = fake_fetch
                 openrouter_job()
                 mock_fetch.assert_called_once()
@@ -795,11 +772,7 @@ class TestHasNativeVision:
 
         # 2. UI path: failed job clears in-flight key so next UI call schedules again
         import plugin.framework.client.model_fetcher as mf
-        mf._model_fetch_vision_cache.clear()
-        for cache in (mf._model_fetch_cache, mf._model_fetch_image_cache, mf._model_context_cache):
-            for key in list(cache):
-                if "openrouter.ai" in key:
-                    cache.pop(key, None)
+        mf._catalog_memos.clear()
 
         scheduled = []
         with patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True), \
@@ -852,22 +825,21 @@ class TestHasNativeVision:
         from plugin.framework.client import model_fetcher
         from plugin.framework.client.model_fetcher import clear_settings_catalog_cache, has_native_vision
 
-        url = "https://openrouter.ai/api/v1/models"
-        ck = model_fetcher._model_fetch_cache_key(url, "https://openrouter.ai/api")
-        model_fetcher._model_fetch_vision_cache[ck] = {"google/gemini-3.8-flash": True}
+        memo = model_fetcher._get_catalog_memo("https://openrouter.ai/api")
+        memo.vision_declarations = {"google/gemini-3.8-flash": True}
 
         ollama_ep = "http://localhost:11434"
-        ollama_key = f"{ollama_ep}@llava"
-        model_fetcher._ollama_show_cache[ollama_key] = {"capabilities": ["vision"]}
+        ollama_memo = model_fetcher._get_catalog_memo(ollama_ep)
+        ollama_memo.ollama_show["llava"] = {"capabilities": ["vision"]}
 
         assert has_native_vision("google/gemini-3.8-flash", "https://openrouter.ai/api") is True
         assert has_native_vision("llava", ollama_ep) is True
 
         clear_settings_catalog_cache("https://openrouter.ai/api")
-        assert ck not in model_fetcher._model_fetch_vision_cache
+        assert model_fetcher._catalog_memo_key("https://openrouter.ai/api") not in model_fetcher._catalog_memos
 
         clear_settings_catalog_cache(ollama_ep)
-        assert ollama_key not in model_fetcher._ollama_show_cache
+        assert model_fetcher._catalog_memo_key(ollama_ep) not in model_fetcher._catalog_memos
 
 
 class TestParseOllamaRuntimeNumCtx:
@@ -909,7 +881,7 @@ class TestParseOllamaRuntimeNumCtx:
     def test_query_reuses_show_cache_and_survives_missing_show(self):
         from plugin.framework.client import model_fetcher as mf
 
-        mf._ollama_show_cache.clear()
+        mf._catalog_memos.clear()
         show = {
             "capabilities": ["completion"],
             "parameters": "num_ctx 4096\n",
@@ -918,7 +890,7 @@ class TestParseOllamaRuntimeNumCtx:
         with patch("plugin.framework.client.requests.sync_request", return_value=show) as mock_sync:
             assert (mf.query_ollama_runtime_num_ctx("http://localhost:11434", "qwen2.5:7b")) == (4096)
             assert (mock_sync.call_count) == (1)
-        mf._ollama_show_cache.clear()
+        mf._catalog_memos.clear()
         with patch("plugin.framework.client.requests.sync_request", side_effect=OSError("down")):
             assert (mf.query_ollama_runtime_num_ctx("http://localhost:11434", "qwen2.5:7b")) is None
 
@@ -962,9 +934,8 @@ class TestV1ContextHarvest:
     def _clear(self):
         import plugin.framework.client.model_fetcher as mf
 
-        for store in (mf._model_fetch_cache, mf._model_fetch_image_cache, mf._model_context_cache):
-            for key in [k for k in store if "58923" in k or "openwebui.example" in k]:
-                store.pop(key, None)
+        for key in [k for k in list(mf._catalog_memos) if "58923" in k or "openwebui.example" in k]:
+            mf._catalog_memos.pop(key, None)
 
     def test_cached_v1_context_tokens_uses_override_across_openwebui_forms(self):
         from plugin.framework.client.model_fetcher import cached_v1_context_tokens, fetch_available_models
@@ -1077,13 +1048,7 @@ class TestFetchAvailableSpeechModels:
     def _clear():
         from plugin.framework.client import model_fetcher as cfg
 
-        for cache in (cfg._model_fetch_tts_cache, cfg._model_fetch_stt_cache):
-            for key in list(cache):
-                if "openrouter.ai" in key or "together.xyz" in key:
-                    cache.pop(key, None)
-        cfg._tts_supported_voices.clear()
-        cfg._tts_response_format.clear()
-        cfg._together_voices_fetch_cache.clear()
+        cfg._catalog_memos.clear()
 
     def test_openrouter_tts_queries_speech_modality(self):
         from plugin.framework.client import model_fetcher as cfg
@@ -1399,10 +1364,9 @@ def test_catalog_truncated_json_is_not_a_model_list():
 class TestAuthenticatedLocalModelsFetch:
     def teardown_method(self):
         import plugin.framework.client.model_fetcher as mf
-        for k in list(mf._model_fetch_cache):
+        for k in list(mf._catalog_memos):
             if "11434" in k or "1234" in k:
-                mf._model_fetch_cache.pop(k, None)
-        mf._ollama_show_cache.clear()
+                mf._catalog_memos.pop(k, None)
 
     def test_fetch_available_models_sends_bearer_key_for_ollama(self):
         from plugin.framework.client.model_fetcher import fetch_available_models
@@ -1450,9 +1414,9 @@ class TestAuthenticatedLocalModelsFetch:
 class TestMalformedArchitectureHandling:
     def teardown_method(self):
         import plugin.framework.client.model_fetcher as mf
-        for k in list(mf._model_fetch_cache):
+        for k in list(mf._catalog_memos):
             if "58999" in k:
-                mf._model_fetch_cache.pop(k, None)
+                mf._catalog_memos.pop(k, None)
 
     def test_parse_v1_models_response_handles_string_architecture(self):
         from plugin.framework.client.model_fetcher import _parse_v1_models_response
@@ -1491,13 +1455,12 @@ class TestMalformedArchitectureHandling:
 
 def test_peek_ollama_num_ctx_reads_show_cache_without_http():
     from unittest.mock import MagicMock
-    from plugin.framework.client.model_fetcher import _ollama_show_cache, peek_live_ollama_num_ctx
-    from plugin.framework.url_utils import normalize_endpoint_url
+    from plugin.framework.client.model_fetcher import _get_catalog_memo, clear_settings_catalog_cache, peek_live_ollama_num_ctx
 
     endpoint = "http://127.0.0.1:11434"
     model = "llama"
-    cache_key = f"{normalize_endpoint_url(endpoint)}@{model}"
-    _ollama_show_cache[cache_key] = {"capabilities": [], "num_ctx": 4096}
+    memo = _get_catalog_memo(endpoint)
+    memo.ollama_show[model] = {"capabilities": [], "num_ctx": 4096}
     client = MagicMock()
     client._get_provider.return_value = "ollama"
     client.config = {"model": model}
@@ -1508,4 +1471,4 @@ def test_peek_ollama_num_ctx_reads_show_cache_without_http():
             assert peek_live_ollama_num_ctx(MagicMock(_get_provider=MagicMock(return_value="ollama"), config={"model": "missing"}, _endpoint=MagicMock(return_value=endpoint))) is None
         show.assert_not_called()
     finally:
-        _ollama_show_cache.pop(cache_key, None)
+        clear_settings_catalog_cache(endpoint)

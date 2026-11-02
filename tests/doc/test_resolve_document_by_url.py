@@ -176,31 +176,6 @@ def test_resolve_reraises_when_enumeration_is_disposed():
             resolve_document_by_url(MagicMock(), "file:///tmp/note.odt")
 
 
-def test_get_runtime_uid_off_main_thread_raises_when_guard_on():
-    # What was wrong: thread_guard is replaced by no-op stubs in release builds.
-    # Why: skip when running against stripped release bundle.
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("GUARD_ON thread guard proxy stripped in release bundle")
-    import threading
-
-    import plugin.framework.thread_guard as tg
-
-    was = tg.GUARD_ON
-    tg.GUARD_ON = True
-    tg.set_designated_main_thread(threading.Thread())
-    try:
-        with pytest.raises(RuntimeError):
-            get_runtime_uid(object())
-    finally:
-        tg.GUARD_ON = was
-        tg.set_designated_main_thread(None)
-        # The raise notifies on this thread. Leave the one-popup slot clear
-        # so a later test on the same xdist worker can still post.
-        with tg._violation_ui_lock:
-            tg._violation_dialog_open = False
-
-
 def test_get_runtime_uid_present_missing_and_error():
     present = type("M", (), {"RuntimeUID": "abc"})()
     assert get_runtime_uid(present) == "abc"

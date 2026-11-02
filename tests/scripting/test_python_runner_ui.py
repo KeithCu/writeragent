@@ -82,8 +82,8 @@ def test_report_script_dialog_error_runtime_exception_live_doc_vs_none_doc():
     # doc=None is "no longer open"
     with patch.object(ui, "set_control_text") as mock_set_text:
         ui._report_script_dialog_error(ctx, dlg, MockRuntimeException("missing doc"), "Save", doc=None)
-    mock_set_text.assert_called_once()
-    assert "no longer open" in mock_set_text.call_args.args[1]
+    # A bare RuntimeException is not disposal even with no document.
+    mock_set_text.assert_called_once_with(lbl, "missing doc")
 
 
 def test_native_dialog_window_closing_does_not_dispose():

@@ -106,6 +106,22 @@ def test_commit_or_rollback_locked_or_missing_raises_undo_unavailable():
     mgr.enterUndoContext.assert_not_called()
 
 
+def test_commit_or_rollback_magicmock_islocked_enters_and_mutates():
+    from plugin.doc.undo import commit_or_rollback
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    # Bare MagicMock return value for isLocked is not bool True
+    assert mgr.isLocked() is not True
+    doc.getUndoManager.return_value = mgr
+
+    called = []
+    res = commit_or_rollback(doc, "Title", lambda: called.append(1))
+    assert res is None
+    assert called == [1]
+    mgr.enterUndoContext.assert_called_once_with("Title")
+
+
 def test_commit_or_rollback_error_dict_rolls_back():
     from plugin.doc.undo import commit_or_rollback
 

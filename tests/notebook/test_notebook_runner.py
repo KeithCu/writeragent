@@ -260,8 +260,8 @@ def test_run_cell_missing_code_field():
     assert "empty" not in result.message.lower()
 
 
-def test_run_cell_busy_guard_shares_url_key_across_wrappers():
-    """Two PyUNO wrappers of one saved doc (no RuntimeUID) must not both run."""
+def test_run_cell_busy_guard_shares_uid_key_across_wrappers():
+    """Two PyUNO wrappers of one doc must not both run."""
     from plugin.notebook.notebook_controls import _doc_key
 
     ctx = MagicMock()
@@ -270,9 +270,8 @@ def test_run_cell_busy_guard_shares_url_key_across_wrappers():
     doc1 = MagicMock()
     doc2 = MagicMock()
     for doc in (doc1, doc2):
-        doc.getRuntimeUID.return_value = ""
-        doc.getURL.return_value = "file:///tmp/same.odt"
-    assert _doc_key(doc1) == _doc_key(doc2) == "url:file:///tmp/same.odt"
+        doc.getRuntimeUID.return_value = "uid-same"
+    assert _doc_key(doc1) == _doc_key(doc2) == "uid:uid-same"
     nested: list[object] = []
 
     def _reenter(*_a: object, **_k: object) -> dict[str, object]:

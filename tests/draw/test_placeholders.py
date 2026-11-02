@@ -329,7 +329,9 @@ def test_scan_re_raises_disposal_from_shape_property():
             return ""
 
     page = _FakePage([_Disposed()])
-    with pytest.raises(DisposedException):
+    from plugin.framework.errors import DocumentDisposedError
+
+    with pytest.raises(DocumentDisposedError):
         _list_placeholders(page)
 
 

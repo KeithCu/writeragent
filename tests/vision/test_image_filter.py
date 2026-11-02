@@ -73,11 +73,9 @@ def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
     # answer returns None on UI thread and keeps get_image without GET /v1/models.
     import plugin.framework.client.model_fetcher as mf
 
-    mf._model_fetch_vision_cache.clear()
-    for cache in (mf._model_fetch_cache, mf._model_fetch_image_cache):
-        for key in list(cache):
-            if "openrouter.ai" in key:
-                cache.pop(key, None)
+    for key in list(mf._catalog_memos):
+        if "openrouter.ai" in key:
+            mf._catalog_memos.pop(key, None)
     with patch("plugin.framework.client.requests.sync_request") as sync, \
          patch("plugin.framework.client.model_fetcher.get_config", return_value={}), \
          patch("plugin.framework.client.model_fetcher.set_config"), \
@@ -96,7 +94,7 @@ def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
 def test_catalogued_text_only_model_drops_get_image_without_fetch():
     import plugin.framework.client.model_fetcher as mf
 
-    mf._model_fetch_vision_cache.clear()
+    mf._catalog_memos.clear()
     with patch("plugin.framework.client.model_fetcher.fetch_available_models") as fetch, \
          patch("plugin.framework.client.model_fetcher.get_config", return_value={}), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="openai/gpt-oss-20b"), \
@@ -119,7 +117,7 @@ def test_stored_vision_false_drops_get_image_without_fetch():
             return cache
         return {}
 
-    mf._model_fetch_vision_cache.clear()
+    mf._catalog_memos.clear()
     with patch("plugin.framework.client.model_fetcher.fetch_available_models") as fetch, \
          patch("plugin.framework.client.model_fetcher.get_config", side_effect=mock_get_config), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="google/gemini-3.8-flash"), \

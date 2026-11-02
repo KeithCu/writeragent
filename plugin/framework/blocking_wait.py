@@ -96,8 +96,7 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     ``=PROMPT()``) must not return to the VCL loop, and ``pump_idle=True``
     still has to block the caller until *func* returns.
 
-    Never runs *func* on the caller thread: a missing Toolkit used to fall back
-    to a synchronous call, which blocked recalc with no worker isolation.
+    Never runs *func* on the caller thread.
     """
     # crosshair: off
     q: queue.Queue[tuple[Any, BaseException | None]] = queue.Queue()

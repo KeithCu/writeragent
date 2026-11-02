@@ -361,9 +361,9 @@ def test_resolve_research_locale_reraises_disposed_document():
         with pytest.raises(DocumentDisposedError):
             resolve_research_locale(None, doc)
 
+    # A bare RuntimeException is a failed read, not disposal: fall back to english.
     with patch("plugin.framework.queue_executor.run_on_main", side_effect=RuntimeException("uno")):
-        with pytest.raises(RuntimeException):
-            resolve_research_locale(None, doc)
+        assert resolve_research_locale(None, doc) == ("en_US", "english")
 
     with patch("plugin.framework.queue_executor.run_on_main", side_effect=[AttributeError("CharLocale"), "fr_FR"]):
         assert resolve_research_locale(None, doc) == ("fr_FR", "french")

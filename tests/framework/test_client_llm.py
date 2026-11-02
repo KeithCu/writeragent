@@ -3132,7 +3132,7 @@ def test_http_500_does_not_call_ollama_show(mock_ctx, caplog):
     """A 500 formats from the body already in hand. It must not POST /api/show."""
     import logging
 
-    from plugin.framework.client.model_fetcher import _ollama_show_cache
+    from plugin.framework.client.model_fetcher import _catalog_memos
 
     prompt = "UNIQUE_PROMPT_BLOB_FOR_500_NO_SHOW"
     ollama = LlmClient(
@@ -3141,7 +3141,7 @@ def test_http_500_does_not_call_ollama_show(mock_ctx, caplog):
     )
     body = _http_500_diag_body(stream=True, tools=None, prompt=prompt, model="qwen2.5:7b")
     caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
-    _ollama_show_cache.clear()
+    _catalog_memos.clear()
     with (
         patch("plugin.framework.client.model_fetcher.query_ollama_show") as show,
         patch("plugin.framework.client.model_fetcher.query_ollama_runtime_num_ctx") as num_ctx,

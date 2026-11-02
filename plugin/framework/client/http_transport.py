@@ -243,10 +243,7 @@ class LlmHttpTransport:
         if not wait_host_gap(key, stop_checker, status_callback):
             raise _stopped_error()
         conn = self.get_connection()
-        # The timeout used to be stored only when the socket was opened.
-        # ``LlmClient._timeout`` reads ``request_timeout`` on every call, so a
-        # later change never reached a keep-alive connection. Connect still
-        # uses the short connect budget; read uses Settings request_timeout.
+        # Refresh read timeout from Settings on each request for keep-alive connections.
         read_timeout = self._timeout_getter()
         sock = getattr(conn, "sock", None)
         # Captured before connect(). A socket http.client already holds is a
