@@ -15,7 +15,7 @@ pytest.importorskip("sklearn")
 pytest.importorskip("scipy")
 
 import plugin.scripting.analysis as analysis
-from plugin.scripting.analysis import coerce_to_dataframe
+from plugin.scripting.analysis import grid_to_dataframe
 from plugin.scripting.calc_functions_common import ANALYSIS_MAX_TABLE_ROWS as MAX_TABLE_ROWS
 
 
@@ -56,7 +56,7 @@ REGRESSION_GRID = [["x", "y"], [1, 2], [2, 4], [3, 6], [4, 8]]
 
 
 def test_coerce_headers_and_currency():
-    result = coerce_to_dataframe(SALES_GRID, headers=True)
+    result = grid_to_dataframe(SALES_GRID, header_row=0, parse_strings=True)
     df = result.df
     assert list(df.columns) == ["Region", "Sales", "Units"]
     assert df.loc[0, "Sales"] == pytest.approx(1200.50)
@@ -69,7 +69,7 @@ def test_coerce_percent_and_empty_to_nan():
     import pandas as pd
 
     grid = [["Rate", "Label"], ["12%", "a"], ["", "b"], ["0.5", "c"]]
-    result = coerce_to_dataframe(grid, headers=True)
+    result = grid_to_dataframe(grid, header_row=0, parse_strings=True)
     series = result.df["Rate"]
     assert len(series) == 3
     assert series.iloc[0] == pytest.approx(0.12)
@@ -79,21 +79,21 @@ def test_coerce_percent_and_empty_to_nan():
 
 def test_coerce_records_dict_shape():
     records = [{"a": 1, "b": 2}, {"a": 3, "b": 4}]
-    result = coerce_to_dataframe(records, headers=True)
+    result = grid_to_dataframe(records, header_row=0, parse_strings=True)
     assert list(result.df.columns) == ["a", "b"]
     assert len(result.df) == 2
 
 
 def test_coerce_columns_rows_dict():
     payload = {"columns": ["x", "y"], "rows": [[1, 2], [3, 4]]}
-    result = coerce_to_dataframe(payload, headers=True)
+    result = grid_to_dataframe(payload, header_row=0, parse_strings=True)
     assert list(result.df.columns) == ["x", "y"]
     assert len(result.df) == 2
 
 
 def test_coerce_dedupes_header_names():
     grid = [["A", "A", "B"], [1, 2, 3]]
-    result = coerce_to_dataframe(grid, headers=True)
+    result = grid_to_dataframe(grid, header_row=0, parse_strings=True)
     assert list(result.df.columns) == ["A", "A_1", "B"]
 
 

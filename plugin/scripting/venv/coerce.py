@@ -391,12 +391,18 @@ def resolve_df(
         return data
     # DataFrame duck-type. Do not send it through grid_to_dataframe: that would
     # treat column names as a header row. CalcRange is unwrapped by
-    # _normalize_input_grid inside coerce_to_dataframe.
+    # _normalize_input_grid inside grid_to_dataframe.
     if hasattr(data, "columns") and hasattr(data, "index"):
         df = data.copy()
         return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=0))
     hint = (sheet_hint or data.address) if isinstance(data, CalcRange) else sheet_hint
-    return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=hint)
+    resolved_header: int | None = header_row if headers else None
+    return grid_to_dataframe(
+        data,
+        header_row=resolved_header,
+        parse_strings=True,
+        sheet_hint=hint,
+    )
 
 
 def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
@@ -889,35 +895,6 @@ def grid_to_dataframe(
     df = _coerce_column_types(df, parse_strings=parse_strings, date_cols=date_cols, date_origin=date_origin)
     df = _apply_index_col(df, index_col)
     return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=dropped_rows))
-
-
-def coerce_to_dataframe(
-    data: Any,
-    *,
-    headers: bool = True,
-    header_row: int = 0,
-    parse_strings: bool = True,
-    date_cols: list[str | int] | bool = False,
-    date_origin: str = "1899-12-30",
-    sheet_hint: str | None = None,
-    index_col: int | None = None,
-) -> CoerceResult:
-    """Compatibility wrapper: ``headers=False`` maps to ``header_row=None``.
-
-    Analysis tools historically defaulted to parsing currency/percent strings; keep
-    that default here so trusted helpers stay useful on pasted text sheets. User
-    ``CalcRange.to_pandas()`` defaults ``parse_strings=False``.
-    """
-    resolved_header: int | None = header_row if headers else None
-    return grid_to_dataframe(
-        data,
-        header_row=resolved_header,
-        index_col=index_col,
-        parse_strings=parse_strings,
-        date_cols=date_cols,
-        date_origin=date_origin,
-        sheet_hint=sheet_hint,
-    )
 
 
 def table_from_df(df: Any, *, name: str, max_rows: int = 50) -> dict[str, Any]:

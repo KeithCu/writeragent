@@ -16,7 +16,7 @@ from plugin.scripting.helper_registry import names
 
 _ANALYSIS_VENV_EXPORTS = names("analysis") | {"QuickStats", "run_analysis"}
 
-_ANALYSIS_COERCE_EXPORTS = frozenset({"CoerceResult", "coerce_to_dataframe", "grid_to_dataframe"})
+_ANALYSIS_COERCE_EXPORTS = frozenset({"CoerceResult", "grid_to_dataframe"})
 
 install_lazy_exports(
     globals(),

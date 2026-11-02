@@ -22,13 +22,7 @@ from plugin.scripting.venv import editor_main as em
 
 
 def _reset_state() -> None:
-    em._closed_for = None
-    em._shutting_down = False
-    em._gui_loop_entered = False
-    em._current_session_id = ""
-    em._current_mode = ""
-    em._current_target = {}
-    em._window = None
+    em.session.reset()
     while True:
         try:
             em._ui_queue.get_nowait()
@@ -39,11 +33,11 @@ def _reset_state() -> None:
 def test_reader_eof_before_gui_loop_skips_destroy_and_claim():
     _reset_state()
     mock_window = MagicMock()
-    em._window = mock_window
-    em._gui_loop_entered = False
+    em.session.window = mock_window
+    em.session.gui_loop_entered = False
     em._pipe_reader_loop(io.BytesIO())
     mock_window.destroy.assert_not_called()
-    assert em._shutting_down is True
+    assert em.session.shutting_down is True
     assert em._claim_gui_loop() is False
     mock_window.destroy.assert_not_called()
 
@@ -51,7 +45,7 @@ def test_reader_eof_before_gui_loop_skips_destroy_and_claim():
 def test_reader_eof_after_claim_destroys_the_window():
     _reset_state()
     mock_window = MagicMock()
-    em._window = mock_window
+    em.session.window = mock_window
     assert em._claim_gui_loop() is True
     em._pipe_reader_loop(io.BytesIO())
     mock_window.destroy.assert_called_once()
@@ -91,7 +85,7 @@ def test_reader_queues_parent_types_and_drops_unknown():
             break
     assert len(items) == 1
     assert items[0]["type"] == "saved"
-    assert em._shutting_down is True
+    assert em.session.shutting_down is True
 
     # Buffer with {"type": "closed"} followed by {"type": "saved"}
     _reset_state()
@@ -111,8 +105,8 @@ def test_reader_queues_parent_types_and_drops_unknown():
 
 def test_reader_load_publishes_identity_and_clears_closed():
     _reset_state()
-    em._closed_for = "old"
-    em._current_session_id = "old"
+    em.session.closed_for = "old"
+    em.session.session_id = "old"
 
     buf = io.BytesIO()
     write_message(buf, {
@@ -133,10 +127,10 @@ def test_reader_load_publishes_identity_and_clears_closed():
 
     assert len(items) == 1
     assert items[0]["type"] == "load"
-    assert em._current_session_id == "s9"
-    assert em._current_mode == "calc_cell"
-    assert em._current_target["cell_address"] == "C3"
-    assert em._closed_for is None
+    assert em.session.session_id == "s9"
+    assert em.session.mode == "calc_cell"
+    assert em.session.target["cell_address"] == "C3"
+    assert em.session.closed_for is None
 
 
 def test_reader_bad_pickle_finishes_and_destroys_only_after_claim():
@@ -144,19 +138,19 @@ def test_reader_bad_pickle_finishes_and_destroys_only_after_claim():
     bad_bytes = struct.pack("!I", 8) + b"notpickl"
 
     mock_window = MagicMock()
-    em._window = mock_window
-    em._gui_loop_entered = False
+    em.session.window = mock_window
+    em.session.gui_loop_entered = False
     em._pipe_reader_loop(io.BytesIO(bad_bytes))
     mock_window.destroy.assert_not_called()
     assert em._claim_gui_loop() is False
 
     _reset_state()
     mock_window2 = MagicMock()
-    em._window = mock_window2
+    em.session.window = mock_window2
     assert em._claim_gui_loop() is True
     em._pipe_reader_loop(io.BytesIO(bad_bytes))
     mock_window2.destroy.assert_called_once()
-    assert em._shutting_down is True
+    assert em.session.shutting_down is True
 
 
 def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch, caplog):
@@ -336,7 +330,7 @@ def test_poll_messages_load_restores_shows_and_focuses_window():
     api = em.MonacoEditorApi()
     mock_window = MagicMock()
     mock_window.on_top = False
-    em._window = mock_window
+    em.session.window = mock_window
 
     em._ui_queue.put({"type": "load", "title": "Editor Window"})
     batch = api.poll_messages()
@@ -363,7 +357,7 @@ def test_poll_messages_load_handles_missing_window_methods():
             self.shown = True
 
     bare = BareWindow()
-    em._window = bare
+    em.session.window = bare
 
     em._ui_queue.put({"type": "load", "title": "Bare Window"})
     batch = api.poll_messages()
