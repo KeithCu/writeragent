@@ -225,15 +225,6 @@ def enqueue_misses(
         )
 
 
-@dataclass(frozen=True)
-class _PendingGrammarDone:
-    text: str
-    result: str
-    elapsed_ms: int | None
-    preview_source: str | None
-    length_hint: int | None
-
-
 class GrammarWorkQueue:
     """Multi-worker queue for grammar LLM requests (stampede + per-key supersede).
 
@@ -248,17 +239,13 @@ class GrammarWorkQueue:
     keep the logic testable without wrapping the state.
     """
 
-    _lock: threading.Lock
-    _worker_count: int
-    _status_inflight: int
-
     def __init__(self) -> None:
         self._q: queue.Queue[GrammarWorkItem | None] = queue.Queue()
-        self._lock = threading.Lock()
+        self._lock: threading.Lock = threading.Lock()
         self._latest_seq: dict[str, int] = {}
-        self._worker_count = 0
-        self._status_inflight = 0
-        self._pending_done: _PendingGrammarDone | None = None
+        self._worker_count: int = 0
+        self._status_inflight: int = 0
+        self._pending_done: tuple[str, dict[str, Any]] | None = None
 
     def begin_status_cycle(self) -> None:
         """Mark one ``run_llm_and_cache_batch`` in flight (sidebar ``done`` is deferred)."""
@@ -276,11 +263,19 @@ class GrammarWorkQueue:
     ) -> None:
         """Remember the latest chunk result; emitted when the last in-flight batch finishes."""
         with self._lock:
-            self._pending_done = _PendingGrammarDone(text, result, elapsed_ms, preview_source, length_hint)
+            self._pending_done = (
+                text,
+                {
+                    "result": result,
+                    "elapsed_ms": elapsed_ms,
+                    "preview_source": preview_source,
+                    "length_hint": length_hint,
+                },
+            )
 
     def end_status_cycle(self) -> None:
         """Drop in-flight count; emit one terminal sidebar ``done`` when all parallel batches finish."""
-        pending: _PendingGrammarDone | None = None
+        pending: tuple[str, dict[str, Any]] | None = None
         with self._lock:
             had_cycle = self._status_inflight > 0
             if had_cycle:
@@ -290,14 +285,8 @@ class GrammarWorkQueue:
                 pending = self._pending_done
                 self._pending_done = None
         if pending is not None:
-            emit_grammar_status(
-                "done",
-                pending.text,
-                result=pending.result,
-                elapsed_ms=pending.elapsed_ms,
-                preview_source=pending.preview_source,
-                length_hint=pending.length_hint,
-            )
+            text, kw = pending
+            emit_grammar_status("done", text, **kw)
         elif had_cycle and last:
             emit_grammar_status("done", "batch", result="skipped")
 
@@ -349,7 +338,7 @@ class GrammarWorkQueue:
                     item.enqueue_seq,
                     prev_seq,
                 )
-            self._latest_seq[key] = max(prev_seq, item.enqueue_seq) if prev_seq is not None else item.enqueue_seq
+            self._latest_seq[key] = max(prev_seq or 0, item.enqueue_seq)
         grammar_obs(
             "queue_enqueue",
             sentences_queued=1,
@@ -390,18 +379,18 @@ class GrammarWorkQueue:
         put one ``None`` per drain thread, or extra workers block forever.
         """
         completes: dict[str, GrammarWorkItem] = {}
-        partials: dict[str, GrammarWorkItem] = {}
-        partial_deadlines: dict[str, float] = {}
+        partials: dict[str, tuple[float, GrammarWorkItem]] = {}
 
         def _absorb(item: GrammarWorkItem) -> None:
-            target = partials if item.partial_sentence else completes
-            prev = target.get(item.inflight_key)
-            if prev is None or item.enqueue_seq > prev.enqueue_seq:
-                target[item.inflight_key] = item
-                if item.partial_sentence:
-                    partial_deadlines[item.inflight_key] = (
-                        time.monotonic() + grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S
-                    )
+            if item.partial_sentence:
+                prev_partial = partials.get(item.inflight_key)
+                if prev_partial is None or item.enqueue_seq > prev_partial[1].enqueue_seq:
+                    deadline = time.monotonic() + grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S
+                    partials[item.inflight_key] = (deadline, item)
+            else:
+                prev = completes.get(item.inflight_key)
+                if prev is None or item.enqueue_seq > prev.enqueue_seq:
+                    completes[item.inflight_key] = item
 
         def _dispatch(batch: list[GrammarWorkItem]) -> None:
             if not batch:
@@ -427,27 +416,23 @@ class GrammarWorkQueue:
                 grammar_worker.run_llm_and_cache_batch(group_items, grammar_queue_instance=self)
 
         def _flush_and_stop() -> None:
-            remaining = list(completes.values()) + list(partials.values())
+            remaining = list(completes.values()) + [item for _dl, item in partials.values()]
             completes.clear()
             partials.clear()
-            partial_deadlines.clear()
             _dispatch(remaining)
 
         def _slurp(deadline: float | None = None) -> bool:
             while True:
                 if deadline is not None:
-                    remaining_wait = deadline - time.monotonic()
-                    if remaining_wait <= 0:
-                        return False
-                    try:
-                        nxt = self._q.get(timeout=remaining_wait)
-                    except queue.Empty:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
                         return False
                 else:
-                    try:
-                        nxt = self._q.get_nowait()
-                    except queue.Empty:
-                        return False
+                    remaining = 0
+                try:
+                    nxt = self._q.get(timeout=remaining)
+                except queue.Empty:
+                    return False
                 if nxt is None:
                     return True
                 _absorb(nxt)
@@ -456,18 +441,16 @@ class GrammarWorkQueue:
             try:
                 # 1. Dispatch partial sentences whose quiet period has expired.
                 now = time.monotonic()
-                ready_keys = [k for k, dl in partial_deadlines.items() if dl <= now]
+                ready_keys = [k for k, (dl, _it) in partials.items() if dl <= now]
                 if ready_keys:
-                    ready_items = [partials.pop(k) for k in ready_keys]
-                    for k in ready_keys:
-                        del partial_deadlines[k]
+                    ready_items = [partials.pop(k)[1] for k in ready_keys]
                     _dispatch(ready_items)
                     continue
 
                 # 2. Wait for incoming items if completes is empty.
                 if not completes:
-                    if partial_deadlines:
-                        wait_timeout = max(0.0, min(partial_deadlines.values()) - time.monotonic())
+                    if partials:
+                        wait_timeout = max(0.0, min(dl for dl, _it in partials.values()) - time.monotonic())
                     else:
                         wait_timeout = None
 

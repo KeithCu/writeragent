@@ -157,7 +157,7 @@ def _item_cache_identity(item: GrammarWorkItem) -> str | None:
     """Resolve cache checker_identity for a work item without persisting bare 'llm'."""
     if item.checker_identity:
         return item.checker_identity
-    if item.provider in ("harper", "languagetool", "vale"):
+    if item.provider in _SINGLE_SENTENCE_PROVIDERS:
         return item.provider
     return None
 
@@ -211,8 +211,6 @@ def process_grammar_results(
                 grammar_proofread_cache.cache_put_sentence(
                     original_bcp47, text, payload, ctx=ec.ctx, doc_id=item.doc_id, checker_identity=checker_ident
                 )
-            else:
-                log.debug("[grammar] No double caching: original=%s, detected=%s", original_bcp47, bcp47)
 
             summary.record(text, len(active_errors))
 
@@ -523,28 +521,28 @@ def build_grammar_system_prompt(
 def language_detect_llm_sync(ec: Any, messages: list[dict[str, str]], max_tokens: int) -> str:
     """Sync language-detect LLM call with one retry when the model returns empty content."""
     model = ec.model or None
-    content = ec.client.chat_completion_sync(
-        messages,
-        max_tokens=max_tokens,
-        model=model,
-        response_format={"type": "json_object"},
-        prepend_dev_build_system_prefix=False,
-    )
-    if (content or "").strip():
-        return content
-    grammar_obs("lang_detect_empty_response", model=model or "", max_tokens=max_tokens)
-    log.warning("[grammar] language detect returned empty content (max_tokens=%s model=%s); retrying with higher cap", max_tokens, model)
-    retry_cap = max(max_tokens * 2, grammar_proofread_locale.GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_SINGLE)
-    content = ec.client.chat_completion_sync(
-        messages,
-        max_tokens=retry_cap,
-        model=model,
-        response_format={"type": "json_object"},
-        prepend_dev_build_system_prefix=False,
-    )
-    if not (content or "").strip():
-        grammar_obs("lang_detect_empty_response", model=model or "", max_tokens=retry_cap, retry=True)
-        log.warning("[grammar] language detect still empty after retry (max_tokens=%s)", retry_cap)
+    caps = (max_tokens, max(max_tokens * 2, grammar_proofread_locale.GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_SINGLE))
+    content = ""
+    for idx, cap in enumerate(caps):
+        content = ec.client.chat_completion_sync(
+            messages,
+            max_tokens=cap,
+            model=model,
+            response_format={"type": "json_object"},
+            prepend_dev_build_system_prefix=False,
+        )
+        if (content or "").strip():
+            return content
+        if idx == 0:
+            grammar_obs("lang_detect_empty_response", model=model or "", max_tokens=cap)
+            log.warning(
+                "[grammar] language detect returned empty content (max_tokens=%s model=%s); retrying with higher cap",
+                cap,
+                model,
+            )
+        else:
+            grammar_obs("lang_detect_empty_response", model=model or "", max_tokens=cap, retry=True)
+            log.warning("[grammar] language detect still empty after retry (max_tokens=%s)", cap)
     return content or ""
 
 
@@ -665,30 +663,30 @@ def _detect_languages_via_langdetect(
 
 
 def _detect_via_llm_batch(
-    chunk: list[tuple[Any, str]],
+    texts: list[str],
     detect_lang_instruction: str,
     ec: Any,
 ) -> list[str | None]:
     """Run batch language detection via LLM and return canonical BCP47 or None per item."""
-    user_content = "\n".join(f"{idx+1}. {text}" for idx, (_it, text) in enumerate(chunk))
+    user_content = "\n".join(f"{idx+1}. {text}" for idx, text in enumerate(texts))
     detect_prompt = grammar_proofread_locale.LANGUAGE_DETECT_BATCH_SYSTEM_PROMPT.format(
         detect_lang_instruction=detect_lang_instruction
     )
     detect_messages = [{"role": "system", "content": detect_prompt}, {"role": "user", "content": user_content}]
-    detect_max_tok = grammar_proofread_locale.GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_PER_BATCH_ITEM * len(chunk)
+    detect_max_tok = grammar_proofread_locale.GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_PER_BATCH_ITEM * len(texts)
 
-    emit_grammar_status("request", f"Batch of {len(chunk)}", result="Detecting language")
+    emit_grammar_status("request", f"Batch of {len(texts)}", result="Detecting language")
     with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight()):
         detect_content = language_detect_llm_sync(ec, detect_messages, detect_max_tok)
 
     parsed_langs = grammar_proofread_json.parse_language_detect_batch_json(detect_content or "")
-    ok = len(parsed_langs) == len(chunk)
-    grammar_obs("lang_detect_batch_parse", chunk_len=len(chunk), parsed_len=len(parsed_langs), ok=ok)
+    ok = len(parsed_langs) == len(texts)
+    grammar_obs("lang_detect_batch_parse", chunk_len=len(texts), parsed_len=len(parsed_langs), ok=ok)
 
     results: list[str | None] = []
     if ok:
         for idx, d_lang in enumerate(parsed_langs):
-            text = chunk[idx][1]
+            text = texts[idx]
             if d_lang:
                 canon = normalize_detected_bcp47(d_lang) or d_lang
                 grammar_persistence.grammar_registry.put_cached_language(text, canon)
@@ -699,10 +697,10 @@ def _detect_via_llm_batch(
                 _obs_lang_detect_item(idx, "none", None, None, text)
     else:
         if detect_content:
-            log.warning("[grammar] language detect batch parse mismatch: chunk=%s parsed=%s", len(chunk), len(parsed_langs))
-        for idx in range(len(chunk)):
+            log.warning("[grammar] language detect batch parse mismatch: chunk=%s parsed=%s", len(texts), len(parsed_langs))
+        for idx, text in enumerate(texts):
             results.append(None)
-            _obs_lang_detect_item(idx, "none", None, None, chunk[idx][1])
+            _obs_lang_detect_item(idx, "none", None, None, text)
     return results
 
 
@@ -754,8 +752,7 @@ def detect_languages_for_chunk(
 
     pending = [(idx, text) for idx, (_item, text) in enumerate(chunk) if detected_langs[idx] is None]
     if len(pending) > 1:
-        pending_chunk = [(chunk[idx][0], text) for idx, text in pending]
-        batch_results = _detect_via_llm_batch(pending_chunk, detect_lang_instruction, ec)
+        batch_results = _detect_via_llm_batch([text for _idx, text in pending], detect_lang_instruction, ec)
         for (idx, _text), canon in zip(pending, batch_results):
             detected_langs[idx] = canon
     else:
@@ -804,7 +801,7 @@ def requeue_individual_item(
     ec.gq.enqueue(new_item)
 
 
-def _worker_batch_gates(ctx: Any, items: list[GrammarWorkItem]) -> bool:
+def _worker_batch_gates(items: list[GrammarWorkItem]) -> bool:
     """Return False when the batch should not run (grammar off or agent pause)."""
     item_provider = items[0].provider or ""
     if not item_provider and not is_grammar_enabled():
@@ -814,7 +811,7 @@ def _worker_batch_gates(ctx: Any, items: list[GrammarWorkItem]) -> bool:
     if pause_during_agent and send_cancellation.is_agent_active():
         # Local engines do not share the LLM request lane; only pause the LLM provider.
         active_prov = item_provider or get_grammar_provider()
-        if active_prov not in ("harper", "languagetool", "vale"):
+        if active_prov not in _SINGLE_SENTENCE_PROVIDERS:
             grammar_obs("worker_batch_skip", reason="pause_during_agent", item_count=len(items))
             return False
     return True
@@ -854,7 +851,6 @@ def _retarget_item_locale(
     item: GrammarWorkItem,
     text: str,
     target_bcp47: str,
-    grammar_bcp47: str,
     ec: GrammarWorkerContext,
 ) -> GrammarWorkItem | None:
     new_key = grammar_inflight_key(
@@ -874,7 +870,7 @@ def _retarget_item_locale(
         grammar_bcp47=target_bcp47,
         enqueue_seq=new_seq,
         inflight_key=new_key,
-        original_bcp47=item.original_bcp47 or grammar_bcp47,
+        original_bcp47=item.original_bcp47 or ec.grammar_bcp47,
     )
 
 
@@ -890,8 +886,7 @@ def _worker_process_chunk(
     if not current_chunk:
         grammar_obs("worker_chunk_skip", reason="empty_result_chunk", chunk_len=len(chunk))
         return
-    orig_bcp = original_bcp47
-    run_grammar_check(current_chunk, grammar_bcp47, orig_bcp, ec)
+    run_grammar_check(current_chunk, grammar_bcp47, original_bcp47, ec)
 
 
 def run_llm_and_cache_batch(
@@ -910,7 +905,7 @@ def run_llm_and_cache_batch(
 
     status_cycle_started = False
     try:
-        if not _worker_batch_gates(ctx, items):
+        if not _worker_batch_gates(items):
             return
 
         valid_items = _worker_ready_items(
@@ -928,7 +923,7 @@ def run_llm_and_cache_batch(
 
         provider = item0.provider or get_grammar_provider()
         # Local engines never need LlmClient / model_fetcher (and must not import framework.client package).
-        local_provider = provider in ("harper", "languagetool", "vale")
+        local_provider = provider in _SINGLE_SENTENCE_PROVIDERS
 
         max_tok = grammar_proofread_locale.grammar_max_tokens()
         model = ""
@@ -959,9 +954,8 @@ def run_llm_and_cache_batch(
         )
 
         def _chunkify(items_list: list[tuple[GrammarWorkItem, str]]) -> list[list[tuple[GrammarWorkItem, str]]]:
-            if len(items_list) > 1 and batch_size > 1:
-                return [items_list[i : i + batch_size] for i in range(0, len(items_list), batch_size)]
-            return [[it] for it in items_list]
+            step = max(1, batch_size)
+            return [items_list[i : i + step] for i in range(0, len(items_list), step)]
 
         plain_items: list[tuple[GrammarWorkItem, str]] = []
         detect_items: list[tuple[GrammarWorkItem, str]] = []
@@ -996,7 +990,7 @@ def run_llm_and_cache_batch(
                         dropped_none_count=0,
                     )
                     if target_bcp47 != grammar_bcp47:
-                        new_item = _retarget_item_locale(item, text, target_bcp47, grammar_bcp47, ec)
+                        new_item = _retarget_item_locale(item, text, target_bcp47, ec)
                         if new_item is not None:
                             items_by_target_locale[target_bcp47].append((new_item, text))
                     else:

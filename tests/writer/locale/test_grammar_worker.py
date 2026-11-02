@@ -295,7 +295,7 @@ def test_detect_via_llm_batch_success() -> None:
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
          patch("plugin.writer.locale.grammar_persistence.GrammarRegistry.put_cached_language") as mock_put:
-        res = _detect_via_llm_batch([(a, a.text), (b, b.text)], "Detect language", ec)
+        res = _detect_via_llm_batch([a.text, b.text], "Detect language", ec)
 
     assert res == ["en-US", "de-DE"]
     assert mock_put.call_count == 2
@@ -311,7 +311,7 @@ def test_detect_via_llm_batch_mismatch_returns_nones() -> None:
 
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"):
-        res = _detect_via_llm_batch([(a, a.text), (b, b.text)], "Detect language", ec)
+        res = _detect_via_llm_batch([a.text, b.text], "Detect language", ec)
 
     assert res == [None, None]
 
@@ -688,7 +688,7 @@ def test_inplace_locale_retarget_mints_seq_and_drops_older() -> None:
         grammar_bcp47="en-US",
         max_tok=64,
     )
-    retargeted = _retarget_item_locale(item, text, "fr-FR", "en-US", ec)
+    retargeted = _retarget_item_locale(item, text, "fr-FR", ec)
     assert retargeted is not None
     assert retargeted.grammar_bcp47 == "fr-FR"
     assert retargeted.inflight_key == new_key
@@ -707,7 +707,7 @@ def test_inplace_locale_retarget_mints_seq_and_drops_older() -> None:
         grammar_bcp47="en-US",
         max_tok=64,
     )
-    assert _retarget_item_locale(item, text, "fr-FR", "en-US", stale_ec) is None
+    assert _retarget_item_locale(item, text, "fr-FR", stale_ec) is None
     assert stale._latest_seq[new_key] == 10**9
 
 
@@ -1032,8 +1032,8 @@ def test_worker_batch_gates_provider_rules() -> None:
     item_empty = _item("Hello.", provider="")
 
     with patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=False):
-        assert _worker_batch_gates(None, [item_lt]) is True
-        assert _worker_batch_gates(None, [item_empty]) is False
+        assert _worker_batch_gates([item_lt]) is True
+        assert _worker_batch_gates([item_empty]) is False
 
 
 def test_worker_detection_superseded_drops_item() -> None:
@@ -1218,7 +1218,7 @@ def test_detect_languages_for_chunk_sends_only_unresolved_to_llm() -> None:
     mock_batch.assert_called_once()
     called_chunk = mock_batch.call_args[0][0]
     assert len(called_chunk) == 2
-    assert [t for _it, t in called_chunk] == [item_b.text, item_c.text]
+    assert called_chunk == [item_b.text, item_c.text]
 
 
 def test_requeue_and_retarget_agree_on_inflight_key_completeness() -> None:
@@ -1254,7 +1254,7 @@ def test_requeue_and_retarget_agree_on_inflight_key_completeness() -> None:
             grammar_bcp47="en-US",
             max_tok=64,
         )
-        retargeted_item = _retarget_item_locale(item, text, "fr-FR", "en-US", ec_retarget)
+        retargeted_item = _retarget_item_locale(item, text, "fr-FR", ec_retarget)
         assert retargeted_item is not None
         retargeted_key = retargeted_item.inflight_key
 
