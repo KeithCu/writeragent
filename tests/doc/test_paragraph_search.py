@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.doc.paragraph_search import (
-    confirm_paragraph_index,
+    _confirm_paragraph_index,
+    paragraph_index_for_anchor,
     find_paragraph_for_range,
     get_paragraph_ranges,
     search_paragraph_texts,
@@ -151,18 +152,22 @@ def test_confirm_paragraph_index_keeps_real_zero_and_rejects_unplaced():
     at_start = _Para(0, 0)
     past_end = _Para(100, 100)
     assert find_paragraph_for_range(at_start, elements, text) == 0
-    assert confirm_paragraph_index(text, at_start, elements, 0) == 0
+    assert _confirm_paragraph_index(text, at_start, elements, 0) == 0
+    assert paragraph_index_for_anchor(at_start, elements, text) == 0
     # The finder returns None when the point is past the last paragraph.
     assert find_paragraph_for_range(past_end, elements, text) is None
-    assert confirm_paragraph_index(text, past_end, elements, 0) is None
-    assert confirm_paragraph_index(text, past_end, elements, None) is None
-    assert confirm_paragraph_index(text, _Para(24, 24), elements, 1) == 1
+    assert _confirm_paragraph_index(text, past_end, elements, 0) is None
+    assert _confirm_paragraph_index(text, past_end, elements, None) is None
+    assert _confirm_paragraph_index(text, _Para(24, 24), elements, 1) == 1
+    assert paragraph_index_for_anchor(past_end, elements, text) is None
+    assert paragraph_index_for_anchor(_Para(24, 24), elements, text) == 1
 
     class _Broken:
         def getStart(self):
             raise RuntimeError("stale anchor")
 
-    assert confirm_paragraph_index(text, _Broken(), elements, 0) is None
+    assert _confirm_paragraph_index(text, _Broken(), elements, 0) is None
+    assert paragraph_index_for_anchor(_Broken(), elements, text) is None
 
 
 def test_find_paragraph_for_range_unplaced_returns_none():

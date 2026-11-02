@@ -27,7 +27,7 @@ from typing import Any
 from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import go_right, normalize_linebreaks as _normalize
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
-from . import field_restore, html_import_styles, html_ruby, image_placeholders
+from . import field_restore, html_import_styles, html_ruby, image_placeholders, record_changes
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 
@@ -595,7 +595,7 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> None:
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         cursor.gotoStart(False)
-        if not image_placeholders._is_recording_changes(model):
+        if not record_changes.is_recording_changes(model):
             _insert_mixed_or_plain_html(model, ctx, cursor, content)
             return
         # In review mode the deleted text stays in place, and an import at
@@ -616,14 +616,8 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> None:
             leftover.collapseToStart()
             leftover.goLeft(1, True)
             # Tip: a tracked delete of this break joins paragraphs ('initiativeproject'); delete it untracked.
-            was_rec = bool(model.getPropertyValue("RecordChanges"))
-            if was_rec:
-                model.setPropertyValue("RecordChanges", False)
-            try:
+            with record_changes.record_changes(model, False):
                 leftover.setString("")
-            finally:
-                if was_rec:
-                    model.setPropertyValue("RecordChanges", True)
 
 
 
@@ -676,7 +670,7 @@ def replace_single_range_with_content(
             # spans that struck text, converting its DELETE redline into a FORMAT redline -- so
             # accepting the change would keep BOTH the old and new text. The inline import does not
             # demote the style here, so skipping the restore keeps a clean Delete + Insert pair.
-            if not image_placeholders._is_recording_changes(model):
+            if not record_changes.is_recording_changes(model):
                 def restore_style() -> None:
                     restore = text_obj.createTextCursorByRange(anchor.getStart())
                     restore.gotoRange(cursor.getEnd(), True)
@@ -924,7 +918,7 @@ def replace_preserving_format(
     # character, which renders as a scrambled, un-reviewable mess (old and new text interleaved).
     # When recording, replace the whole range in one shot so the edit is a single tracked
     # Delete + Insert the user can accept (-> new text) or reject (-> old text) cleanly.
-    if image_placeholders._is_recording_changes(model):
+    if record_changes.is_recording_changes(model):
         cursor = text.createTextCursorByRange(target_range)
         if not (split_author and in_undo_context):
             # Single atomic path. Taken when split-author coloring is OFF, OR when the caller has NOT

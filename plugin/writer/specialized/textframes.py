@@ -23,7 +23,6 @@ nelson-mcp/plugin/writer/tools/frames.py
 import math
 from typing import Any
 
-from plugin.doc.paragraph_search import confirm_paragraph_index
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
@@ -124,8 +123,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
         if uno_same(anchor.getText(), text_obj):
             doc_svc = ctx.services.document
             para_ranges = doc_svc.get_paragraph_ranges(ctx.doc)
-            found = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
-            paragraph_index = confirm_paragraph_index(text_obj, anchor, para_ranges, found)
+            paragraph_index = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
 
         return {
             "status": "ok",
