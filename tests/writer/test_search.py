@@ -235,7 +235,9 @@ def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
     model.createSearchDescriptor.assert_called_once()
 
 
-def test_find_text_ranges_body_only_skips_other_xtext():
+# Offsets are measured on the visible text; these fakes have no tracked deletions.
+@patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=lambda r: r.getString())
+def test_find_text_ranges_body_only_skips_other_xtext(_visible):
     from plugin.writer.search import find_text_ranges
 
     class BodyTextObj:
@@ -799,3 +801,87 @@ def test_search_in_document_reads_each_hit_once():
     found.getString.assert_called_once()
 
 
+
+
+# ---- #1318: typographic quotes and pending tracked deletions ------------------
+
+def test_escape_for_lo_regex_matches_straight_and_typographic_quotes():
+    import re
+
+    from plugin.writer.search import escape_for_lo_regex
+
+    pattern = re.compile(escape_for_lo_regex('"Hi," she said. Don\'t'))
+    assert pattern.fullmatch('\u201cHi,\u201d she said. Don\u2019t')
+    assert pattern.fullmatch('"Hi," she said. Don\'t')
+    assert pattern.fullmatch('\u201eHi,\u201c she said. Don\u2018t')
+    # Model typed curly, document has straight.
+    assert re.compile(escape_for_lo_regex('\u201cHi,\u201d')).fullmatch('"Hi,"')
+    assert not pattern.fullmatch('Hi, she said. Dont')
+
+
+def test_chained_paragraph_compare_folds_quotes():
+    from plugin.writer.search import _paragraph_matches_part
+
+    assert _paragraph_matches_part('\u201cHi,\u201d she said.', '"Hi," she said.') == (True, None)
+    ok, _n = _paragraph_matches_part('\u201cHi,\u201d she said. More', '"Hi," she said.', head=True)
+    assert ok
+
+
+def test_shape_text_hits_folds_quotes_and_returns_document_text():
+    from plugin.writer.search import shape_text_hits
+
+    assert shape_text_hits('He said \u201cHi,\u201d', '"hi,"', False, False) == ['\u201cHi,\u201d']
+    assert shape_text_hits('He said \u201cHi,\u201d', '"Hi,"', False, True) == ['\u201cHi,\u201d']
+
+
+class _Pos:
+    """A text range at character positions [start, end] in *text*."""
+
+    def __init__(self, text, start, end=None):
+        self.text, self.start, self.end = text, start, start if end is None else end
+
+    def getText(self):
+        return self.text
+
+
+class _Text:
+    @staticmethod
+    def _cmp(a, b):
+        return (a > b) - (a < b)
+
+    def compareRegionStarts(self, a, b):
+        return self._cmp(b.start, a.start)
+
+    def compareRegionEnds(self, a, b):
+        return self._cmp(b.end, a.end)
+
+
+def test_inside_tracked_deletion_needs_the_hit_wholly_inside():
+    from plugin.writer.search import inside_tracked_deletion
+
+    text, other = _Text(), _Text()
+    # RedlineStart can be the later end of the deletion.
+    spans = [(_Pos(text, 20), _Pos(text, 10))]
+    with patch("plugin.writer.search.uno_same", side_effect=lambda a, b: a is b):
+        assert inside_tracked_deletion(_Pos(text, 12, 18), spans)
+        assert inside_tracked_deletion(_Pos(text, 10, 20), spans)
+        assert not inside_tracked_deletion(_Pos(text, 5, 15), spans)
+        assert not inside_tracked_deletion(_Pos(text, 21, 25), spans)
+        assert not inside_tracked_deletion(_Pos(other, 12, 18), spans)
+        assert not inside_tracked_deletion(_Pos(text, 12, 18), [])
+
+
+def test_edit_search_skips_hits_in_tracked_deletions():
+    """apply_document_content's search must not pick text the user deleted with Track Changes."""
+    from plugin.writer import search
+
+    doc = MagicMock()
+    deleted_hit, live_hit = MagicMock(), MagicMock()
+    deleted_hit.getString.return_value = live_hit.getString.return_value = "Para"
+    doc.findFirst.return_value = deleted_hit
+    doc.findNext.side_effect = [live_hit, None]
+    with patch.object(search, "tracked_deletion_spans", return_value=["span"]), \
+            patch.object(search, "inside_tracked_deletion", side_effect=lambda f, s: f is deleted_hit):
+        assert search.find_ranges_regex_case(doc, "Para", False, False, all_matches=False) is live_hit
+        doc.findNext.side_effect = [live_hit, None]
+        assert search.find_lo_regex_ranges(doc, "Para", all_matches=True) == [live_hit]

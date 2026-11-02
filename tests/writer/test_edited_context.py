@@ -194,3 +194,12 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     node = MagicMock()
     node.getPropertyValue.side_effect = lambda name: "Redline" if name == "TextPortionType" else (_ for _ in ()).throw(RuntimeException("uno"))
     assert _is_blocking_redline(node) is True
+
+
+def test_window_text_leaves_out_tracked_deletions():
+    """#1318: in review mode the replaced text is still in the document as a tracked deletion;
+    the echo reads the paragraphs without it, like the other reads."""
+    text = FakeText(["P0", "P1", "P2"])
+    with patch("plugin.writer.edit_review.get_string_without_tracked_deletions", return_value="visible") as visible:
+        assert paragraph_window_text(_anchor_at(text, 1)) == "visible"
+    assert visible.call_args[0][0].getString() == "P0\nP1\nP2"

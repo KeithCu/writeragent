@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterator
 
+from plugin.doc.text_helpers import skip_tracked_deletions
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.uno_context import uno_same
 from plugin.writer.math.math_mml_export import (
@@ -315,8 +316,10 @@ def _copy_visible_portions(
     cursor: Any,
     parent_el: Any,
     math_records: list[tuple[str, str, bool]] | None,
+    deletion_state: list[bool],
 ) -> None:
-    for portion, kind in _iter_portions(portions):
+    # Text a pending tracked change deleted is not copied, same as the other reads.
+    for portion, kind in skip_tracked_deletions(_iter_portions(portions), deletion_state):
         if kind == "TextField":
             field = _portion_field(portion)
             if field is None:
@@ -348,6 +351,7 @@ def _copy_cell_xtext(
         dest_cell.setString(src_cell.getString())
         return
     first_para = True
+    deletion_state = [False]
     while para_enum.hasMoreElements() is True:
         try:
             para = para_enum.nextElement()
@@ -372,7 +376,7 @@ def _copy_cell_xtext(
         except Exception:
             _fallback_insert_para_text(dest_cell, dest_cursor, para)
             continue
-        _copy_visible_portions(portions, dest_doc, dest_cell, dest_cursor, para, math_records)
+        _copy_visible_portions(portions, dest_doc, dest_cell, dest_cursor, para, math_records, deletion_state)
 
 
 def _writer_cell_position(name: str) -> tuple[int, int] | None:
@@ -514,6 +518,7 @@ def _copy_xtext_by_portions(
         dest_text.setString(src_text.getString())
         return
     first_para = True
+    deletion_state = [False]
     while enum.hasMoreElements() is True:
         try:
             el = enum.nextElement()
@@ -538,7 +543,7 @@ def _copy_xtext_by_portions(
         except Exception:
             _fallback_insert_para_text(dest_text, dest_cursor, el)
             continue
-        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records)
+        _copy_visible_portions(portions, dest_doc, dest_text, dest_cursor, el, math_records, deletion_state)
         _copy_para_properties_to_end(dest_text, dest_cursor, el)
 
 

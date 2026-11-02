@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Any, Iterator, NamedTuple, Sequence
 
-from plugin.doc.text_helpers import go_right
+from plugin.doc.text_helpers import go_right, skip_tracked_deletions
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 import plugin.writer.range_copy as range_copy
 
@@ -154,23 +154,13 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
     portion_enum = uno_read(lambda: para.createEnumeration(), range_copy._FAILED)
     if portion_enum is range_copy._FAILED:
         return
-    in_delete = False
     in_ruby = False
     reading = ""
     is_above = True
     base_parts: list[str] = []
     base_start = 0
     offset = 0
-    for portion, kind in range_copy._iter_portions(portion_enum):
-        if kind == "Redline":
-            try:
-                if str(portion.getPropertyValue("RedlineType")) == "Delete":
-                    in_delete = not in_delete
-            except Exception as exc:
-                log.debug("_iter_ruby_spans: RedlineType unreadable: %s", exc)
-            continue
-        if in_delete:
-            continue
+    for portion, kind in skip_tracked_deletions(range_copy._iter_portions(portion_enum)):
         if kind == "Ruby":
             if not in_ruby:
                 reading = uno_read(lambda: str(portion.getPropertyValue("RubyText") or ""), "")
