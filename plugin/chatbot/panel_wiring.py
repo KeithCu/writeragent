@@ -151,16 +151,15 @@ def setup_rich_control_ready(
 
     set_control_visible(controls.get("response"), False)
     log_rich_control_context(
-        panel.ctx,
         "hide_plain",
         ok=1,
         response=int(bool(controls.get("response"))),
     )
     if rl:
-        log_rich_scroll("on_ready_step", control=rich_control, step="relayout")
+        log_rich_scroll("on_ready_step", step="relayout")
         rl.relayout_now(root_window)
     try:
-        log_rich_scroll("on_ready_step", control=rich_control, step="history")
+        log_rich_scroll("on_ready_step", step="history")
         from plugin.chatbot.chat_sidebar_mode import greeting_for_sidebar_mode
 
         rich_greeting = greeting_for_sidebar_mode(initial_mode, model)
@@ -168,9 +167,9 @@ def setup_rich_control_ready(
     except Exception:
         log.exception("Initial RichTextControl render failed")
     if panel._rich_control_listener:
-        log_rich_scroll("on_ready_step", control=rich_control, step="sync_bounds")
+        log_rich_scroll("on_ready_step", step="sync_bounds")
         best_effort(panel._rich_control_listener._sync_bounds, "on_rich_control_ready sync bounds")
-    log_rich_scroll("on_ready_step", control=rich_control, step="reveal_caret")
+    log_rich_scroll("on_ready_step", step="reveal_caret")
     best_effort(lambda: widget.reveal_caret(reason="on_ready"), "on_rich_control_ready reveal caret")
 
 
@@ -422,7 +421,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
             self._rich_control_listener = rich_control_listener
             root_window.addWindowListener(rich_control_listener)
             log.info("[RICH-CONTROL] RichTextControlListener attached to root_window")
-            log_rich_control_context(self.ctx, "listener_attached", peer=int(bool(rich_control_listener._root_peer())))
+            log_rich_control_context("listener_attached", peer=int(bool(rich_control_listener._root_peer())))
             # GNOME sidebar deck: peer is often ready here but windowShown never fires — init
             # must not wait on the listener alone (KDE usually gets windowShown instead).
             rich_control_listener.try_eager_init()

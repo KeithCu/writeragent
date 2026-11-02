@@ -55,7 +55,7 @@ RICH_CONTROL_EDGE_INSET = 8
 RICH_SCROLL_VERBOSE_DEBUG = os.environ.get("WRITERAGENT_RICH_SCROLL_DEBUG") == "1"
 
 
-def log_rich_scroll(phase: str, *, control: Any = None, reason: str | None = None, **extra: Any) -> None:
+def log_rich_scroll(phase: str, *, reason: str | None = None, **extra: Any) -> None:
     """Structured log for RichTextControl viewport scroll diagnostics."""
     if not RICH_SCROLL_VERBOSE_DEBUG:
         return
@@ -67,7 +67,7 @@ def log_rich_scroll(phase: str, *, control: Any = None, reason: str | None = Non
     log.debug(" ".join(parts))
 
 
-def log_rich_control_context(_ctx: Any, phase: str, **extra: Any) -> None:
+def log_rich_control_context(phase: str, **extra: Any) -> None:
     """Structured INFO log for RichTextControl lifecycle."""
     parts = [f"[RICH-CONTROL] phase={phase}"]
     for key, value in extra.items():
@@ -124,14 +124,17 @@ class RichTextChatWidget:
 
             clear_cell_link_spans(self.control)
         self.control = new
-        self._shown = None
-        self._formatted_rows = 0
-        self._formatted_len = None
+        self._forget_formatted_state()
 
     def clear(self) -> None:
         """Clear the control contents."""
         clear_control(self.control)
         self._set_formatted_state([])
+
+    def _forget_formatted_state(self) -> None:
+        self._shown = None
+        self._formatted_rows = 0
+        self._formatted_len = None
 
     def _set_formatted_state(self, items: list[tuple[str, str]]) -> None:
         """Record that the control shows *items*, all formatted.
@@ -142,7 +145,7 @@ class RichTextChatWidget:
         """
         length = get_control_text_length(self.control)
         if length is None:
-            self._shown, self._formatted_rows, self._formatted_len = None, 0, None
+            self._forget_formatted_state()
             return
         self._shown = list(items)
         self._formatted_rows = len(items)
@@ -160,7 +163,7 @@ class RichTextChatWidget:
         """Ask EditView to show its caret (AUTOSCROLL); does not move the caret."""
         reveal_rich_control_caret(self.control, ctx=self.ctx, reason=reason, restore=self.query)
 
-    def append_chunk(self, text: str, auto_scroll: bool = True) -> None:
+    def append_chunk(self, text: str) -> None:
         """Append a plain text chunk (e.g. streaming tokens) using theme colors."""
         # Text outside the formatted prefix (the Stop banner). Record it as a
         # plain tail row: the next update then cuts the tail at the prefix end
@@ -171,7 +174,6 @@ class RichTextChatWidget:
         append_text_chunk(
             self.control,
             text,
-            auto_scroll=auto_scroll,
             style_window=self.style_window,
             ctx=self.ctx,
             restore_focus=self.restore_focus,
@@ -340,7 +342,7 @@ class RichTextChatWidget:
             elif len(new_s) > len(old_s):
                 theme = ChatTheme.resolve(style_window=self.style_window)
                 append_text_chunk(
-                    self.control, new_s[len(old_s):], auto_scroll=True, style_window=self.style_window,
+                    self.control, new_s[len(old_s):], style_window=self.style_window,
                     ctx=self.ctx,
                     char_color=theme.user_color if new_role == "user" else theme.assistant_color,
                     restore_focus=self.restore_focus,
@@ -378,11 +380,11 @@ class RichTextChatWidget:
             return False
         items = session_history_items(session, self._greeting)
         if not self._formatted_prefix_ok(items):
-            log_rich_scroll("turn_end_full_paint", control=self.control, rows=len(items))
+            log_rich_scroll("turn_end_full_paint", rows=len(items))
             self.paint_session(session)
             return True
         tail = items[self._formatted_rows:]
-        log_rich_scroll("turn_end_tail", control=self.control, rows=len(items), tail_rows=len(tail), cut=self._formatted_len)
+        log_rich_scroll("turn_end_tail", rows=len(items), tail_rows=len(tail), cut=self._formatted_len)
         # Cut the plain tail and append the same rows formatted. The
         # transcript above the cut is not wiped and refilled.
         rollback_rich_insert(self.control, self._formatted_len)
@@ -456,13 +458,13 @@ def _apply_rich_control_geometry(rich_control: Any, bx: int, by: int, bw: int, b
     return changed
 
 
-def _rich_control_needs_bounds(rich_control: Any, bx: int, by: int, bw: int, bh: int, tolerance: int = 2) -> bool:
+def _rich_control_needs_bounds(rich_control: Any, bx: int, by: int, bw: int, bh: int) -> bool:
     cur = rich_control.getPosSize()
     return (
-        abs(int(cur.X) - bx) > tolerance
-        or abs(int(cur.Y) - by) > tolerance
-        or abs(int(cur.Width) - bw) > tolerance
-        or abs(int(cur.Height) - bh) > tolerance
+        abs(int(cur.X) - bx) > 2
+        or abs(int(cur.Y) - by) > 2
+        or abs(int(cur.Width) - bw) > 2
+        or abs(int(cur.Height) - bh) > 2
     )
 
 
@@ -473,8 +475,7 @@ def _invalidate_peer(control: Any) -> None:
 
 
 def _model_text(control: Any) -> str:
-    model = control.getModel() if control is not None else None
-    return getattr(model, "Text", "") or "" if model is not None else ""
+    return getattr(control.getModel(), "Text", "") or ""
 
 
 def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None, restore_focus: Any = None) -> Any:
@@ -487,7 +488,7 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
         )
         bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh)
         if bounds_changed:
-            log_rich_scroll("sync_bounds", control=rich_control, rect=f"{bx},{by},{bw},{bh}")
+            log_rich_scroll("sync_bounds", rect=f"{bx},{by},{bw},{bh}")
             # Stock layoutWindow() SetVisArea(Point()) — every setPosSize jumps
             # to the top. C++ patch keeps old top-left. Stock: Hidden SelectAll, no reveal_caret.
             if _model_text(rich_control):
@@ -534,7 +535,7 @@ def refresh_rich_control_peer_layout(ctx: Any, rich_control: Any) -> None:
     """Ask VCL to apply bounds already set on the peer (GTK may paint ~2 lines until focus)."""
     if rich_control is None:
         return
-    log_rich_scroll("peer_refresh", control=rich_control)
+    log_rich_scroll("peer_refresh")
     process_events_to_idle(ctx, rounds=2, force=True)
     cur = rich_control.getPosSize()
     rich_control.setPosSize(int(cur.X), int(cur.Y), int(cur.Width), int(cur.Height), 15)
@@ -610,22 +611,20 @@ def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -
     theme = ChatTheme.resolve(style_window=style_window)
     _apply_control_surface_colors(control, theme.bg_color)
 
-    if hasattr(model, "createTextCursor"):
-        def _apply_cursor() -> None:
-            import uno
+    def _apply_cursor() -> None:
+        import uno
 
-            cursor = model.createTextCursor()
-            cursor.gotoStart(False)
-            text_len = len(model.Text or "")
-            if text_len > 0:
-                cursor.gotoEnd(True)
-            apply_chat_char_props(cursor, bg_color=theme.bg_color)
-            apply_rich_control_para_margins(cursor)
-            cursor.gotoEnd(False)
-            if hasattr(control, "setSelection"):
-                control.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", text_len, text_len))
+        cursor = model.createTextCursor()
+        cursor.gotoStart(False)
+        text_len = len(model.Text or "")
+        if text_len > 0:
+            cursor.gotoEnd(True)
+        apply_chat_char_props(cursor, bg_color=theme.bg_color)
+        apply_rich_control_para_margins(cursor)
+        cursor.gotoEnd(False)
+        control.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", text_len, text_len))
 
-        best_effort(_apply_cursor, "_apply_rich_control_style_defaults cursor")
+    best_effort(_apply_cursor, "_apply_rich_control_style_defaults cursor")
     log.info(
         "_apply_rich_control_style_defaults: font=%s %.1fpt",
         CHAT_FONT_NAME,
@@ -660,19 +659,15 @@ def _apply_control_surface_colors(control: Any, bg_color: int) -> None:
     """
     # We stop at the first property that sets, not set both, because
     # BackgroundColor and BackColor are alternative names for one color.
-    if hasattr(control, "setPropertyValue"):
-        for name in (
-            "BackgroundColor",
-            "BackColor",
-        ):
-            try:
-                control.setPropertyValue(name, bg_color)
-                return
-            except Exception as e:
-                log.debug("_apply_control_surface_colors %s failed: %s", name, e)
-    model = control.getModel()
-    if model is not None:
-        _set_model_property(model, "BackgroundColor", bg_color)
+    for name in (
+        "BackgroundColor",
+        "BackColor",
+    ):
+        try:
+            control.setPropertyValue(name, bg_color)
+            return
+        except Exception as e:
+            log.debug("_apply_control_surface_colors %s failed: %s", name, e)
 
 
 def _disable_rich_hscroll(control: Any) -> None:
@@ -682,14 +677,12 @@ def _disable_rich_hscroll(control: Any) -> None:
     ORichTextPeer::setProperty("HScroll") calls adjustTwoStateWinBit + StyleChanged
     which calls ensureScrollbars().
     """
-    if control is None:
-        return
     model = control.getModel()
-    if model is not None and hasattr(model, "setPropertyValue"):
+    if model is not None:
         for name in ("HScroll", "HardLineBreaks"):
             best_effort(lambda: model.setPropertyValue(name, False), f"_disable_rich_hscroll model.{name}")
-    peer = control.getPeer() if hasattr(control, "getPeer") else None
-    if peer is not None and hasattr(peer, "setProperty"):
+    peer = best_effort(lambda: control.getPeer(), "_disable_rich_hscroll getPeer")
+    if peer is not None:
         best_effort(lambda: peer.setProperty("HScroll", False), "_disable_rich_hscroll peer.setProperty(HScroll)")
 
 
@@ -714,11 +707,10 @@ def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: An
                     continue
                 try:
                     control.createPeer(toolkit, parent)
-                    if parent_window is not None:
-                        try:
-                            parent_window.addControl(RICH_CONTROL_NAME, control)
-                        except Exception as add_err:
-                            log.debug("create_sidebar_rich_text_control: addControl failed: %s", add_err)
+                    try:
+                        parent_window.addControl(RICH_CONTROL_NAME, control)
+                    except Exception as add_err:
+                        log.debug("create_sidebar_rich_text_control: addControl failed: %s", add_err)
                     log.info("create_sidebar_rich_text_control: peer via %s (%s)", service, label)
                     _disable_rich_hscroll(control)
                     return control
@@ -733,13 +725,6 @@ def _try_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, p
     """Insert field model via UnoControlDialogModel.createInstance (has PositionX)."""
     try:
         dlg_model = root_window.getModel()
-        if dlg_model is None:
-            log.debug("create_sidebar_rich_text_control: dialog-embedded skipped (no model)")
-            return None
-        if not hasattr(dlg_model, "createInstance"):
-            log.debug("create_sidebar_rich_text_control: dialog-embedded skipped (no createInstance)")
-            return None
-
         bx, by, bw, bh = _content_bounds_for_rich_control(
             placeholder_ctrl, placeholder_rect=placeholder_rect,
         )
@@ -823,12 +808,12 @@ class RichTextControlListener(BaseWindowListener):
             placeholder_rect=self._resolved_placeholder_rect(),
             restore_focus=self.restore_focus,
         )
-        if self.rich_control is not prev_ctrl and callable(self.on_replaced):
+        if self.rich_control is not prev_ctrl and self.on_replaced is not None:
             self.on_replaced(self.rich_control)
         refresh_rich_control_peer_layout(self.ctx, self.rich_control)
 
     def disposing(self, Source: Any) -> None:
-        log_rich_control_context(self.ctx, "disposing", initialized=self.initialized, had_control=bool(self.rich_control))
+        log_rich_control_context("disposing", initialized=self.initialized, had_control=bool(self.rich_control))
         self._disposed = True
         if self.rich_control is not None:
             from plugin.calc.navigation import clear_cell_link_spans
@@ -852,14 +837,13 @@ class RichTextControlListener(BaseWindowListener):
         """
         if self._disposed or self.initialized:
             log_rich_control_context(
-                self.ctx,
                 "eager_init",
                 skipped=1,
                 reason="disposed" if self._disposed else "initialized",
             )
             return
         peer = self._root_peer()
-        log_rich_control_context(self.ctx, "eager_init", peer=int(bool(peer)))
+        log_rich_control_context("eager_init", peer=int(bool(peer)))
         if peer:
             self._begin_deferred_init()
 
@@ -871,14 +855,13 @@ class RichTextControlListener(BaseWindowListener):
         ``initialized`` / ``_CONTROL_INIT_STARTED``.
         """
         if self._disposed:
-            log_rich_control_context(self.ctx, "window_shown", skipped=1, reason="disposed")
+            log_rich_control_context("window_shown", skipped=1, reason="disposed")
             return
         if self.initialized:
-            log_rich_control_context(self.ctx, "window_shown", skipped=1, reason="initialized")
+            log_rich_control_context("window_shown", skipped=1, reason="initialized")
             return
         peer = self._root_peer()
         log_rich_control_context(
-            self.ctx,
             "window_shown",
             peer=int(bool(peer)),
             initialized=int(self.initialized),
@@ -903,7 +886,7 @@ class RichTextControlListener(BaseWindowListener):
             return
         self.initialized = True
         _CONTROL_INIT_STARTED.add(parent_id)
-        log_rich_control_context(self.ctx, "deferred_init", action="begin")
+        log_rich_control_context("deferred_init", action="begin")
         from plugin.framework.queue_executor import post_to_main_thread
 
         post_to_main_thread(self._deferred_init)
@@ -921,7 +904,7 @@ class RichTextControlListener(BaseWindowListener):
             if not control:
                 self.initialized = False
                 _CONTROL_INIT_STARTED.discard(id(self.root_window))
-                log_rich_control_context(self.ctx, "deferred_init", result="control_fail")
+                log_rich_control_context("deferred_init", result="control_fail")
                 log.error("RichTextControlListener: failed to create sidebar RichText control")
                 from plugin.chatbot.dialogs import set_control_text
 
@@ -937,7 +920,6 @@ class RichTextControlListener(BaseWindowListener):
             pos = control.getPosSize()
             bounds = "%sx%s@%s,%s" % (int(pos.Width), int(pos.Height), int(pos.X), int(pos.Y))
             log_rich_control_context(
-                self.ctx,
                 "deferred_init",
                 result="control_ok",
                 visible=visible,
@@ -947,7 +929,7 @@ class RichTextControlListener(BaseWindowListener):
         except Exception:
             self.initialized = False
             _CONTROL_INIT_STARTED.discard(id(self.root_window))
-            log_rich_control_context(self.ctx, "deferred_init", result="exception")
+            log_rich_control_context("deferred_init", result="exception")
             log.exception("RichTextControlListener deferred init failed")
 
 
@@ -1098,7 +1080,7 @@ def _dispatch_rich_uno(control: Any, command: str) -> bool:
         if disp is None:
             return False
         disp.dispatch(url, ())
-        log_rich_scroll("dispatch", control=control, command=command)
+        log_rich_scroll("dispatch", command=command)
         return True
     except Exception as e:
         log.debug("_dispatch_rich_uno %s: %s", command, e)
@@ -1135,7 +1117,7 @@ def _scroll_rich_to_tail(control: Any, restore_focus: Any = None) -> None:
         _IN_SCROLL_TO_TAIL.discard(ctrl_id)
 
 
-def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None, char_color: int | None = None, restore_focus: Any = None) -> None:
+def append_text_chunk(control: Any, text: str, style_window: Any = None, ctx: Any = None, char_color: int | None = None, restore_focus: Any = None) -> None:
     """Append plain text during assistant streaming with theme assistant color.
 
     *char_color* overrides the assistant tint for the plain history fallback,
@@ -1143,7 +1125,7 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
     """
     if not control or not text:
         return
-    log_rich_scroll("append_chunk", control=control, chunk_len=len(text), auto_scroll=int(auto_scroll))
+    log_rich_scroll("append_chunk", chunk_len=len(text))
 
     try:
         theme = ChatTheme.resolve(style_window=style_window)
@@ -1159,13 +1141,12 @@ def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_w
         cursor.CharBackColor = theme.bg_color
         color = theme.assistant_color if char_color is None else char_color
         _insert_string_at_rich_cursor(model, cursor, text, color)
-        if auto_scroll:
-            # _scroll_rich_to_tail already restores before and after SelectAll.
-            # A third restore here repeated the second with nothing in between,
-            # and each one is a GrabFocus on this frame (release QA BUG A).
-            # Restore goes through *restore_focus*, which closes over the frame session.
-            _scroll_rich_to_tail(control, restore_focus=restore_focus)
-            process_events_to_idle(ctx, force=True)
+        # _scroll_rich_to_tail already restores before and after SelectAll.
+        # A third restore here repeated the second with nothing in between,
+        # and each one is a GrabFocus on this frame (release QA BUG A).
+        # Restore goes through *restore_focus*, which closes over the frame session.
+        _scroll_rich_to_tail(control, restore_focus=restore_focus)
+        process_events_to_idle(ctx, force=True)
     except Exception:
         log.exception("append_text_chunk (rich control) failed")
 
@@ -1244,7 +1225,7 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
     if not control:
         return
     log.debug("reveal_rich_control_caret reason=%s", reason)
-    log_rich_scroll("reveal_caret", control=control, reason=reason)
+    log_rich_scroll("reveal_caret", reason=reason)
 
     with focus_preserved(ctx, restore):
         model = control.getModel() if hasattr(control, "getModel") else None
