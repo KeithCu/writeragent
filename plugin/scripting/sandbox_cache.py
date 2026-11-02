@@ -25,11 +25,7 @@ from plugin.contrib.smolagents.local_python_executor import (
     is_forbidden_dunder_attribute,
 )
 from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
-    _profile,
-    ascii_bounded,
     deal,
     str_bounded,
 )
@@ -43,31 +39,15 @@ def _deal_sandbox_imports_ok_pytest(authorized_imports: object) -> bool:
     return all(isinstance(x, str) and "\0" not in x and str_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
 
 
-def _deal_sandbox_imports_ok_crosshair(authorized_imports: object) -> bool:
-    if not isinstance(authorized_imports, (list, tuple)):
-        return False
-    return (
-        len(authorized_imports) <= DEAL_MAX_CMD_ARGS
-        and all(ascii_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
-    )
-
-
-_deal_sandbox_imports_ok = _profile(_deal_sandbox_imports_ok_crosshair, _deal_sandbox_imports_ok_pytest)
+_deal_sandbox_imports_ok = _deal_sandbox_imports_ok_pytest
 
 
 def _deal_sandbox_code_ok_pytest(code: object) -> bool:
     # `_cache_key` joins with NUL; production =PY() scripts may be non-ASCII.
-    # =PY() source is longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before the cache key was built. NUL stays out:
-    # the key joins on NUL. CrossHair keeps the short ASCII source.
     return isinstance(code, str) and "\0" not in code
 
 
-def _deal_sandbox_code_ok_crosshair(code: object) -> bool:
-    return isinstance(code, str) and ascii_bounded(code, DEAL_MAX_SOURCE) and "\0" not in code
-
-
-_deal_sandbox_code_ok = _profile(_deal_sandbox_code_ok_crosshair, _deal_sandbox_code_ok_pytest)
+_deal_sandbox_code_ok = _deal_sandbox_code_ok_pytest
 
 
 def _deal_sandbox_policy_ok(authorized_imports: object, blocked_imports: object = None) -> bool:

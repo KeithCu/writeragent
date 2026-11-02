@@ -21,7 +21,6 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
-    UNDER_CROSSHAIR,
     ascii_bounded,
     deal,
     inverse_ensure,
@@ -32,7 +31,7 @@ from plugin.framework.deal_shim import (
 _RANGE_ADDR_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.!:'$_ \"")
 
 # Under pytest this is str_bounded (Unicode); under CrossHair it is ascii_bounded.
-_DEAL_ASCII_STR = ascii_bounded if UNDER_CROSSHAIR else str_bounded
+_DEAL_ASCII_STR = str_bounded
 
 
 def _deal_range_addr_ok(s: object) -> bool:

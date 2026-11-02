@@ -53,7 +53,6 @@ from scripts.crosshair_stream import (
     _TeeTextIO,
     cover_fqns_for_module,
     discover_deal_plugin_files,
-    enable_crosshair_deal_table,
     emit_tagged_line,
     run_crosshair,
 )
@@ -215,10 +214,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Also analyze CROSSHAIR_CHECK_ALL_SKIP modules (engine-crash hosts)",
     )
     args = parser.parse_args(argv)
-
-    # Child CrossHair processes import deal_shim; set this before any spawn so
-    # they bind the short @deal.pre table. Pytest / make test never set it.
-    enable_crosshair_deal_table()
 
     budget = resolve_check_budget(deep=args.deep)
 

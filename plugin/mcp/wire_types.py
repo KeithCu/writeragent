@@ -23,7 +23,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, cast
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, _profile, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, str_bounded, deal
 
 # Aligned with upstream python-sdk LATEST_PROTOCOL_VERSION.
 MCP_PROTOCOL_VERSION = "2025-11-25"
@@ -48,13 +48,8 @@ class ParsedJsonRpcRequest:
     req_id: int | str
 
 
-def _deal_jsonrpc_msg_ok_crosshair(msg: object) -> bool:
-    return not isinstance(msg, dict) or (
-        len(msg) <= DEAL_MAX_CMD_ARGS and all(type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) for k in msg)
-    )
-
-
-_deal_jsonrpc_msg_ok = _profile(_deal_jsonrpc_msg_ok_crosshair)
+def _deal_jsonrpc_msg_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 def _jsonrpc_parts(msg: object) -> tuple[str, dict[str, Any], Any] | None:
@@ -112,15 +107,11 @@ def jsonrpc_success(req_id: RequestId, result: dict[str, Any]) -> dict[str, Any]
 
 def _deal_jsonrpc_failure_ok_pytest(message: object, code: object) -> bool:
     # Tool errors are longer than DEAL_MAX_SOURCE. The body copies the
-    # string into the error object. CrossHair keeps the short message.
+    # string into the error object.
     return isinstance(message, str) and isinstance(code, int)
 
 
-def _deal_jsonrpc_failure_ok_crosshair(message: object, code: object) -> bool:
-    return str_bounded(message, DEAL_MAX_SOURCE) and isinstance(code, int)
-
-
-_deal_jsonrpc_failure_ok = _profile(_deal_jsonrpc_failure_ok_crosshair, _deal_jsonrpc_failure_ok_pytest)
+_deal_jsonrpc_failure_ok = _deal_jsonrpc_failure_ok_pytest
 
 
 @deal.pre(lambda req_id, code, message, data=None: _deal_jsonrpc_failure_ok(message, code))
@@ -177,15 +168,11 @@ def call_tool_result(text: str, *, is_error: bool = False) -> dict[str, Any]:
 
 def _deal_image_b64_ok_pytest(data_b64: object, mime_type: object = "image/png") -> bool:
     # A real image is far longer than DEAL_MAX_SOURCE. The body wraps the
-    # string. CrossHair keeps the short base64 domain.
+    # string.
     return isinstance(data_b64, str) and isinstance(mime_type, str) and len(mime_type) >= 1
 
 
-def _deal_image_b64_ok_crosshair(data_b64: object, mime_type: object = "image/png") -> bool:
-    return str_bounded(data_b64, DEAL_MAX_SOURCE) and ascii_bounded(mime_type, DEAL_MAX_TOKEN, min_len=1)
-
-
-_deal_image_b64_ok = _profile(_deal_image_b64_ok_crosshair, _deal_image_b64_ok_pytest)
+_deal_image_b64_ok = _deal_image_b64_ok_pytest
 
 
 @deal.pre(lambda data_b64, mime_type="image/png", is_error=False: _deal_image_b64_ok(data_b64, mime_type))

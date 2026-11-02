@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import subprocess
 import sys
@@ -15,7 +16,6 @@ import textwrap
 import pytest
 
 from plugin.framework.deal_shim import (
-    CROSSHAIR_ENV,
     DEAL_MAX_ARGV,
     DEAL_MAX_BACKOFF,
     DEAL_MAX_BACKOFF_FACTOR,
@@ -36,9 +36,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_TOKEN,
     DEAL_MAX_URL,
     DEAL_MAX_XL_EXPR,
-    UNDER_CROSSHAIR,
     _noop_contract,
-    _profile,
     ascii_bounded,
     deal,
     inverse_ensure,
@@ -84,7 +82,6 @@ def test_str_bounded_allows_unicode() -> None:
 
 def test_deal_shim_constants_match_pytest_profile() -> None:
     """Unset env / pytest binds the wide product-faithful table."""
-    assert os.environ.get(CROSSHAIR_ENV) != "1"
     assert DEAL_MAX_COL_LETTERS == 3
     assert DEAL_MAX_COL_INDEX == 26 + 26**2 + 26**3 - 1 == 18277
     assert DEAL_MAX_CELL_REF == 256
@@ -116,15 +113,20 @@ def test_noop_contract() -> None:
     assert _noop_contract(lambda result: True)(f) is f
 
 
-def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
-    """WRITERAGENT_CROSSHAIR=1 rebinds DEAL_MAX_* at import; pytest width must still work here."""
+def test_crosshair_domains_runner_hook_and_parent_width() -> None:
+    """Parent process retains product-faithful wide table; child with install() gets short bounds."""
+    from plugin.framework.ast_stmt_edit import is_name_call_expr
     from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
     from plugin.framework.i18n import _
     from plugin.mcp.cors import is_safe_origin, normalize_cors_origin
+    from plugin.scripting.payload_codec import is_image_payload
     from tests.harness.strip_bundle import deal_pre_present
 
-    # Pytest (no env): product-faithful widths stay live.
-    assert os.environ.get(CROSSHAIR_ENV) != "1"
+    # Parent process retains wide table
+    assert DEAL_MAX_COL_INDEX == 18277
+    assert DEAL_MAX_ROW_INDEX == 1_048_575
+    assert DEAL_MAX_CELL_REF == 256
+
     assert is_safe_origin("http://localhost:3000") is True
     assert normalize_cors_origin("https://localai.local/") == "https://localai.local"
     assert strip_html_tags("<b>ok</b>") == "ok"
@@ -135,7 +137,6 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
     assert len(product_origin) <= DEAL_MAX_ORIGIN
     is_safe_origin(product_origin)
     # Pytest origin ingest is total: a huge Origin is unsafe, not a contract error.
-    # The CrossHair subprocess below still rejects length 33.
     assert is_safe_origin("h" * (DEAL_MAX_ORIGIN + 1)) is False
     # feed() / strip_html_tags slice; overflow is per-slice on _feed_chunk.
     strip_html_tags("x" * (DEAL_MAX_HTML_CHUNK + 1))
@@ -144,10 +145,25 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
         StreamingHTMLStripper()._feed_chunk("x" * (DEAL_MAX_HTML_CHUNK + 1))
     strip_html_tags("x" * 256)
 
+    five_keys = {f"k{i}": i for i in range(5)}
+    five_names = frozenset(f"n{i}" for i in range(5))
+    node = ast.Expr(value=ast.Call(func=ast.Name(id="x", ctx=ast.Load()), args=[], keywords=[]))
+    assert is_image_payload(five_keys) is False
+    assert is_name_call_expr(node, five_names) is False
+    assert is_image_payload({f"k{i}": i for i in range(DEAL_MAX_SHAPE_DIM + 1)}) is False
+    with pytest.raises(deal.PreContractError):
+        is_name_call_expr(node, frozenset(f"n{i}" for i in range(DEAL_MAX_CMD_ARGS + 1)))
+    is_name_call_expr(node, frozenset({"xl"}))
+
     script = textwrap.dedent(
         """
-        import os
-        os.environ["WRITERAGENT_CROSSHAIR"] = "1"
+        import ast
+        import sys
+        from unittest.mock import patch
+        import deal
+        from scripts.crosshair_domains import install
+        install()
+
         from plugin.framework.deal_shim import (
             DEAL_MAX_ARGV,
             DEAL_MAX_BACKOFF,
@@ -191,13 +207,42 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
         assert DEAL_MAX_BACKOFF == 300.0, DEAL_MAX_BACKOFF
         assert DEAL_MAX_BACKOFF_FACTOR == 10.0, DEAL_MAX_BACKOFF_FACTOR
         assert DEAL_MAX_HTML_CHUNK == 16, DEAL_MAX_HTML_CHUNK
+
         def _f(x):
             return x + 1
         _wrapped = inverse_ensure(lambda x, result: False)(_f)
         assert _wrapped is _f and _wrapped(3) == 4
-        import deal
-        from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
-        from plugin.framework.i18n import _
+
+        from plugin.calc.address_utils import (
+            index_to_column,
+            format_address,
+            parse_address,
+        )
+        # address_utils 25/20/4
+        assert index_to_column(25) == "Z"
+        try:
+            index_to_column(26)
+        except deal.PreContractError:
+            pass
+        else:
+            raise SystemExit("col index 26 must fail under CrossHair table")
+
+        assert format_address(0, 20) == "A21"
+        try:
+            format_address(0, 21)
+        except deal.PreContractError:
+            pass
+        else:
+            raise SystemExit("row index 21 must fail under CrossHair table")
+
+        parse_address("A1")
+        try:
+            parse_address("A" * 5)
+        except deal.PreContractError:
+            pass
+        else:
+            raise SystemExit("cell ref len 5 must fail under CrossHair table")
+
         from plugin.mcp.cors import is_safe_origin
         try:
             is_safe_origin("h" * 33)
@@ -205,16 +250,17 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
             pass
         else:
             raise SystemExit("origin 33 must fail under CrossHair table")
-        strip_html_tags("x" * 16)
-        strip_html_tags("x" * 17)
-        StreamingHTMLStripper().feed("x" * 16)
-        StreamingHTMLStripper().feed("x" * 17)
+
+        from plugin.framework.html_stripper import StreamingHTMLStripper
+        strip_instance = StreamingHTMLStripper()
         try:
-            StreamingHTMLStripper()._feed_chunk("x" * 17)
+            strip_instance._feed_chunk("x" * 17)
         except deal.PreContractError:
             pass
         else:
             raise SystemExit("html _feed_chunk 17 must fail under CrossHair table")
+
+        from plugin.framework.i18n import _
         _("x" * 1024)
         try:
             _("x" * 1025)
@@ -222,53 +268,7 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
             pass
         else:
             raise SystemExit("msgid 1025 must still fail")
-        """
-    )
-    proc = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=os.getcwd(),
-        capture_output=True,
-        text=True,
-        env={**os.environ, "WRITERAGENT_CROSSHAIR": "1"},
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
 
-
-def test_crosshair_env_rejects_pytest_collection_width() -> None:
-    """CMD_ARGS stays product-wide here. CrossHair's short table rejects a 5-key image probe.
-
-    Envelope detectors are total on the pytest table: a plain dict wider than
-    SHAPE_DIM returns False. The CrossHair subprocess still caps them at 4.
-    """
-    import ast
-
-    from plugin.framework.ast_stmt_edit import is_name_call_expr
-    from plugin.scripting.payload_codec import is_image_payload
-    from tests.harness.strip_bundle import deal_pre_present
-
-    assert os.environ.get(CROSSHAIR_ENV) != "1"
-    five_keys = {f"k{i}": i for i in range(5)}
-    five_names = frozenset(f"n{i}" for i in range(5))
-    node = ast.Expr(value=ast.Call(func=ast.Name(id="x", ctx=ast.Load()), args=[], keywords=[]))
-    assert is_image_payload(five_keys) is False
-    assert is_name_call_expr(node, five_names) is False
-    if not deal_pre_present(is_image_payload):
-        return
-    assert is_image_payload({f"k{i}": i for i in range(DEAL_MAX_SHAPE_DIM + 1)}) is False
-    with pytest.raises(deal.PreContractError):
-        is_name_call_expr(node, frozenset(f"n{i}" for i in range(DEAL_MAX_CMD_ARGS + 1)))
-    is_name_call_expr(node, frozenset({"xl"}))
-
-    script = textwrap.dedent(
-        """
-        import ast
-        import os
-        os.environ["WRITERAGENT_CROSSHAIR"] = "1"
-        from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SHAPE_DIM
-        assert DEAL_MAX_SHAPE_DIM == 4, DEAL_MAX_SHAPE_DIM
-        assert DEAL_MAX_CMD_ARGS == 4, DEAL_MAX_CMD_ARGS
-        import deal
-        from plugin.framework.ast_stmt_edit import is_name_call_expr
         from plugin.scripting.payload_codec import is_image_payload
         five_keys = {f"k{i}": i for i in range(5)}
         try:
@@ -277,6 +277,8 @@ def test_crosshair_env_rejects_pytest_collection_width() -> None:
             pass
         else:
             raise SystemExit("5-key dict must fail under CrossHair SHAPE_DIM=4")
+
+        from plugin.framework.ast_stmt_edit import is_name_call_expr
         node = ast.Expr(value=ast.Call(func=ast.Name(id="x", ctx=ast.Load()), args=[], keywords=[]))
         five_names = frozenset(f"n{i}" for i in range(5))
         try:
@@ -285,6 +287,28 @@ def test_crosshair_env_rejects_pytest_collection_width() -> None:
             pass
         else:
             raise SystemExit("5 names must fail under CrossHair CMD_ARGS=4")
+
+        # Verify run_crosshair argv includes python -c with install() and sys.argv
+        import io
+        from scripts.crosshair_stream import StreamStats, run_crosshair
+        captured_cmd = []
+        def fake_popen(cmd, *a, **k):
+            captured_cmd.append(cmd)
+            class FakeProc:
+                stdout = io.StringIO("")
+                def poll(self): return 0
+                def wait(self): return 0
+            return FakeProc()
+
+        with patch("subprocess.Popen", side_effect=fake_popen), patch("scripts.crosshair_stream.stream_lines", return_value=StreamStats()):
+            run_crosshair("check", ["target.py"], mode="check", raw=True, quiet=True)
+        assert len(captured_cmd) == 1
+        cmd = captured_cmd[0]
+        assert cmd[0] == sys.executable
+        assert cmd[1] == "-c"
+        assert "crosshair_domains" in cmd[2]
+        assert "install" in cmd[2]
+        assert cmd[3:] == ["crosshair", "check", "target.py"]
         """
     )
     proc = subprocess.run(
@@ -292,80 +316,5 @@ def test_crosshair_env_rejects_pytest_collection_width() -> None:
         cwd=os.getcwd(),
         capture_output=True,
         text=True,
-        env={**os.environ, "WRITERAGENT_CROSSHAIR": "1"},
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
-
-
-def test_cover_all_and_check_all_main_set_crosshair_env(tmp_path, monkeypatch) -> None:
-    """Both sweep mains set CROSSHAIR_ENV before any CrossHair spawn (--list is enough)."""
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_check_all import main as check_all_main
-    from scripts.crosshair_cover_all import main as cover_all_main
-
-    monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
-    plugin = tmp_path / "plugin"
-    plugin.mkdir()
-    (plugin / "m.py").write_text(
-        "import deal\n@deal.post(lambda result: True)\ndef f():\n    return 1\n",
-        encoding="utf-8",
-    )
-    assert cover_all_main(["--list", "--plugin-root", str(plugin)]) == 0
-    assert os.environ.get(CROSSHAIR_ENV) == "1"
-    # Pop without a second monkeypatch.delenv — that would snapshot "1" as the
-    # restore value and leak the env into later pytest cases.
-    os.environ.pop(CROSSHAIR_ENV, None)
-    assert check_all_main(["--list", "--plugin-root", str(plugin)]) == 0
-    assert os.environ.get(CROSSHAIR_ENV) == "1"
-    os.environ.pop(CROSSHAIR_ENV, None)
-
-
-def test_cover_all_workers_bind_short_deal_table(monkeypatch) -> None:
-    """Cover-all pool workers must see the short CrossHair bind, not pytest's wide table.
-
-    Spawn (not fork): pytest has already imported deal_shim with the wide bind;
-    fork would copy that. Cover-all's initializer + worker_deal_maxima set
-    WRITERAGENT_CROSSHAIR=1 before the worker imports deal_shim.
-    """
-    import multiprocessing
-    from concurrent.futures import ProcessPoolExecutor
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_cover_all import enable_crosshair_deal_table, worker_deal_maxima
-    from scripts.crosshair_stream import CROSSHAIR_DEAL_ENV
-
-    monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
-    assert CROSSHAIR_DEAL_ENV == CROSSHAIR_ENV == "WRITERAGENT_CROSSHAIR"
-    assert os.environ.get(CROSSHAIR_ENV) != "1"
-    assert DEAL_MAX_COL_INDEX == 18277
-    assert DEAL_MAX_ROW_INDEX == 1_048_575
-    assert DEAL_MAX_CELL_REF == 256
-
-    ctx = multiprocessing.get_context("spawn")
-    with ProcessPoolExecutor(
-        max_workers=1,
-        mp_context=ctx,
-        initializer=enable_crosshair_deal_table,
-    ) as executor:
-        col_index, row_index, cell_ref = executor.submit(worker_deal_maxima).result(timeout=30)
-
-    assert (col_index, row_index, cell_ref) == (25, 20, 4)
-    # Parent pytest process must keep the wide table.
-    assert os.environ.get(CROSSHAIR_ENV) != "1"
-    assert DEAL_MAX_COL_INDEX == 18277
-    assert DEAL_MAX_ROW_INDEX == 1_048_575
-    assert DEAL_MAX_CELL_REF == 256
-
-
-def test_profile_argument_order_is_crosshair_then_pytest() -> None:
-    crosshair_sentinel = object()
-    pytest_sentinel = object()
-    chosen = _profile(crosshair_sentinel, pytest_sentinel)
-    if UNDER_CROSSHAIR:
-        assert chosen is crosshair_sentinel
-    else:
-        assert chosen is pytest_sentinel

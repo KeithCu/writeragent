@@ -25,7 +25,7 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ConfigError
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
 
 
 class AuthError(ConfigError):
@@ -87,11 +87,7 @@ def _deal_provider_id_ok_pytest(provider_id: object) -> bool:
     return provider_id is None or str_bounded(provider_id, DEAL_MAX_TOKEN)
 
 
-def _deal_provider_id_ok_crosshair(provider_id: object) -> bool:
-    return provider_id is None or provider_id in _PROVIDER_HINTS
-
-
-_deal_provider_id_ok = _deal_provider_id_ok_crosshair if UNDER_CROSSHAIR else _deal_provider_id_ok_pytest
+_deal_provider_id_ok = _deal_provider_id_ok_pytest
 
 
 @deal.pre(lambda provider_id: _deal_provider_id_ok(provider_id))

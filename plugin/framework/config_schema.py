@@ -44,7 +44,7 @@ import typing
 from typing import Any, Callable, Dict, Iterator, Mapping
 
 from plugin.framework.constants import get_plugin_dir
-from plugin.framework.deal_shim import UNDER_CROSSHAIR, deal
+from plugin.framework.deal_shim import deal
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
 from plugin.framework.url_utils import normalize_endpoint_url
@@ -107,13 +107,6 @@ _LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset({"model_lru", "prompt_
 @deal.post(lambda result: isinstance(result, bool))
 def as_bool(value: Any) -> bool:
     """Parse a value as boolean (handles str, int, float)."""
-    if UNDER_CROSSHAIR:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return value != 0
-        return False
-
     if type(value) is bool:
         return value
     if type(value) is str:
@@ -160,9 +153,6 @@ def parse_int_robust(val: Any) -> int:
         return int(val)
     if val is None:
         raise ValueError("Cannot parse None as int")
-
-    if UNDER_CROSSHAIR:
-        raise ValueError("Cannot parse symbolic type as int under CrossHair")
 
     s = str(val).strip()
     if not s:
@@ -222,9 +212,6 @@ def parse_float_robust(val: Any) -> float:
         return _float_or_value_error(val)
     if val is None:
         raise ValueError("Cannot parse None as float")
-
-    if UNDER_CROSSHAIR:
-        raise ValueError("Cannot parse symbolic type as float under CrossHair")
 
     s = str(val).strip()
     if not s:

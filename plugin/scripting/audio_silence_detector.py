@@ -12,7 +12,7 @@ import struct
 from collections import deque
 from dataclasses import dataclass
 
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, UNDER_CROSSHAIR, deal
+from plugin.framework.deal_shim import deal
 
 
 def _deal_pcm_ok_pytest(pcm: object) -> bool:
@@ -21,11 +21,7 @@ def _deal_pcm_ok_pytest(pcm: object) -> bool:
     return isinstance(pcm, (bytes, bytearray))
 
 
-def _deal_pcm_ok_crosshair(pcm: object) -> bool:
-    return isinstance(pcm, (bytes, bytearray)) and len(pcm) <= DEAL_MAX_ARGV
-
-
-_deal_pcm_ok = _deal_pcm_ok_crosshair if UNDER_CROSSHAIR else _deal_pcm_ok_pytest
+_deal_pcm_ok = _deal_pcm_ok_pytest
 
 log = logging.getLogger(__name__)
 
