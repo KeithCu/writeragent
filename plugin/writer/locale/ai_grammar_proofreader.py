@@ -131,6 +131,10 @@ def _is_text_document(model: Any) -> bool:
     return supports(_TEXT_DOCUMENT_SERVICE) is True
 
 
+def _current_component(desktop: Any) -> Any | None:
+    return desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
+
+
 def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
     """Writer model this proofreading call is for, or None.
 
@@ -160,7 +164,7 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
         if uid and uid == doc_id:
             return model
 
-    current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
+    current = _current_component(desktop)
     if _is_text_document(current):
         return current
 
@@ -415,11 +419,11 @@ def _obs_result_window(
     """
     if not log.isEnabledFor(logging.DEBUG):
         return
-    n_start = int(getattr(a_res, "nStartOfSentencePosition", 0) or 0)
-    n_behind = int(getattr(a_res, "nBehindEndOfSentencePosition", 0) or 0)
-    n_next = int(getattr(a_res, "nStartOfNextSentencePosition", 0) or 0)
+    n_start = int(a_res.nStartOfSentencePosition)
+    n_behind = int(a_res.nBehindEndOfSentencePosition)
+    n_next = int(a_res.nStartOfNextSentencePosition)
     cls = classify_errors_against_window(combined_errors, py_start, py_behind)
-    a_errors = getattr(a_res, "aErrors", ()) or ()
+    a_errors = a_res.aErrors
     fields: dict[str, Any] = {
         "doc_id": doc_id,
         "grammar_bcp47": loc_key,
@@ -820,7 +824,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             desktop = get_desktop(self.ctx)
             if desktop is None:
                 return None
-            current = desktop.getCurrentComponent() if hasattr(desktop, "getCurrentComponent") else None
+            current = _current_component(desktop)
             if current is not None:
                 uid = get_runtime_uid(current)
                 if uid and uid in self._doc_id_for_ignore:
