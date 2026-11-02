@@ -77,7 +77,7 @@ class TestGrammarPersistence:
             with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = DocumentPersistence("2", model=model)
-                hit = dp.get("fp_cached")
+                hit = dp.get("fp_cached", "")
             assert (hit) is not None
             assert (len(hit)) == (1)
             assert (dp._model) is (model)
@@ -101,7 +101,7 @@ class TestGrammarPersistence:
                 gp.grammar_registry.doc_persistence_instances["2"] = dp
                 assert (dp._model) is None
                 gp.get_persistence(ctx, "2", model=model)
-                hit = dp.get("fp_cached")
+                hit = dp.get("fp_cached", "")
 
             assert (hit) is not None
             assert (len(hit)) == (1)
@@ -116,10 +116,10 @@ class TestGrammarPersistence:
         model = MagicMock()
         with patch("plugin.doc.udprops.get_document_property", return_value=None):
             dp = DocumentPersistence("doc-x", model=model)
-        assert (dp.get("fp_missing")) is None
+        assert (dp.get("fp_missing", "en-US")) is None
         dp.put("fp1", "en-US", [{"n_error_start": 0, "n_error_length": 1}])
         dp.put("fp2", "en-US", [])
-        dp.get("fp1")
+        dp.get("fp1", "en-US")
         with patch("plugin.doc.udprops.set_document_property") as mock_set:
             dp._persist_to_udprops()
         assert (mock_set.called)
@@ -186,7 +186,7 @@ class TestGrammarPersistence:
             dp = gp.DocumentPersistence("doc-unload", model=model)
 
         dp.put("fp_x", "en-US", [])
-        assert (dp.get("fp_x")) is not None
+        assert (dp.get("fp_x", "en-US")) is not None
 
         listener = gp._GrammarDocumentEventListener(dp)
         unload_event = MagicMock()
@@ -194,7 +194,7 @@ class TestGrammarPersistence:
         listener.documentEventOccured(unload_event)
 
         assert (dp._teardown_done)
-        assert (dp.get("fp_x")) is None
+        assert (dp.get("fp_x", "en-US")) is None
 
     def test_document_event_on_unload_clears_locales_cache(self) -> None:
         """teardown must clear the document from doc_locales."""
@@ -259,9 +259,9 @@ class TestGrammarPersistence:
             assert (len(gp.grammar_registry.sentence_cache)) == (0)
 
             # Check that get() returns from _entries and doesn't pollute sentence_cache
-            hit_clean = dp.get("fp_clean")
+            hit_clean = dp.get("fp_clean", "")
             assert (hit_clean) == ([])
-            hit_err = dp.get("fp_err")
+            hit_err = dp.get("fp_err", "")
             assert (hit_err) is not None
             assert (len(hit_err)) == (1)
             assert (len(gp.grammar_registry.sentence_cache)) == (0)
@@ -298,9 +298,9 @@ class TestGrammarPersistence:
             with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = gp.DocumentPersistence("doc-v2-llm", model=model)
             assert (len(dp._entries)) == (2)
-            assert (dp.get("fp_err")) is None
+            assert (dp.get("fp_err", "")) is None
             dp.ensure_identity("llm:gpt-upgrade")
-            hit = dp.get("fp_err")
+            hit = dp.get("fp_err", "")
             assert (hit) is not None
             assert (len(hit)) == (1)
             assert (dp._blob_identity) == ("llm:gpt-upgrade")

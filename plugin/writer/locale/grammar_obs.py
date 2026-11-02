@@ -34,6 +34,7 @@ _ROUTINE_LIBREHARPER_STATUS_RESULTS = frozenset({
     "queued",
 })
 _ISSUE_COUNT_RESULT = re.compile(r"^\d+ issues?$", re.IGNORECASE)
+_DONE_PHASES = ("done", "complete")
 _TERMINAL_STATUS_PHASES = ("done", "complete", "failed")
 
 
@@ -115,20 +116,13 @@ def resolve_status_bar_frame(ctx: Any) -> Any | None:
     return _frame_from_existing_desktop_singleton(ctx)
 
 
-def _open_indicator(frame: Any, msg: str) -> Any:
-    indicator = frame.createStatusIndicator()
-    if indicator is not None:
-        indicator.start(msg, 100)
-    return indicator
-
-
 def update_libreoffice_status_bar(phase: str, result: str) -> None:
     """Update the LibreOffice window status bar using XStatusIndicator."""
     global _last_status_indicator
     routine = is_routine_libreharper_status(phase, result)
 
     msg = f"LibreHarper: {result or 'Checking...'}"
-    if phase in ("done", "complete"):
+    if phase in _DONE_PHASES:
         msg = "LibreHarper: Grammar check complete"
     elif phase == "failed":
         msg = f"LibreHarper: Failed ({result})" if result else "LibreHarper: Grammar check failed"
@@ -149,14 +143,17 @@ def update_libreoffice_status_bar(phase: str, result: str) -> None:
         if frame is None:
             return
 
-        if phase in ("done", "complete"):
+        if phase in _DONE_PHASES:
             if _last_status_indicator is not None:
                 _last_status_indicator.setText(msg)
                 _last_status_indicator.setValue(100)
                 _last_status_indicator.end()
                 _last_status_indicator = None
         elif _last_status_indicator is None:
-            _last_status_indicator = _open_indicator(frame, msg)
+            indicator = frame.createStatusIndicator()
+            if indicator is not None:
+                indicator.start(msg, 100)
+            _last_status_indicator = indicator
         else:
             # What was wrong: setText/setValue on a disposed indicator was
             # swallowed, so _last_status_indicator stayed set. Later
