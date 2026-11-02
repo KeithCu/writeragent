@@ -560,7 +560,11 @@ def test_non_sequence_row_raises_valueerror() -> None:
     Deal's pre rejects the grid before the body. The release build strips
     deal, and that path used to raise TypeError.
     """
-    from tests.harness.strip_bundle import expect_pre_or_body
+    import deal
+
+    from tests.contracts.scripting.payload_codec import (
+        host_pack_data as contract_host_pack_data,
+    )
 
     with pytest.raises(ValueError, match="not a list or tuple"):
         payload_codec._split_grid_row_width(3)
@@ -569,10 +573,14 @@ def test_non_sequence_row_raises_valueerror() -> None:
     with pytest.raises(ValueError, match="not a list or tuple"):
         payload_codec._validate_rectangular_grid([[1, 2], "ab"])
     for grid in ([[1, 2], 3], [[1, 2], "ab"]):
-        expect_pre_or_body(lambda grid=grid: host_pack_data(grid), body_exc=ValueError)
-        expect_pre_or_body(
-            lambda grid=grid: host_pack_data(grid, force="always"), body_exc=ValueError
-        )
+        with pytest.raises(ValueError):
+            host_pack_data(grid)
+        with pytest.raises(ValueError):
+            host_pack_data(grid, force="always")
+        with pytest.raises(deal.PreContractError):
+            contract_host_pack_data(grid)
+        with pytest.raises(deal.PreContractError):
+            contract_host_pack_data(grid, force="always")
 
 
 def test_child_unpack_non_sequence_row_raises_valueerror() -> None:
@@ -582,7 +590,11 @@ def test_child_unpack_non_sequence_row_raises_valueerror() -> None:
     did not hide the TypeError. is_numeric_grid's pre rejects the grid; the
     stripped body must still raise ValueError.
     """
-    from tests.harness.strip_bundle import expect_pre_or_body
+    import deal
+
+    from tests.contracts.scripting.payload_codec import (
+        is_numeric_grid as contract_is_numeric_grid,
+    )
 
     for grid in ([[1, 2], 3], [[1, 2], "ab"]):
         with pytest.raises(ValueError, match="not a list or tuple") as caught:
@@ -591,7 +603,10 @@ def test_child_unpack_non_sequence_row_raises_valueerror() -> None:
         with pytest.raises(ValueError, match="not a list or tuple") as counted:
             wire_cell_count(grid)
         assert type(counted.value) is ValueError
-        expect_pre_or_body(lambda grid=grid: is_numeric_grid(grid), body_exc=ValueError)
+        with pytest.raises(ValueError):
+            is_numeric_grid(grid)
+        with pytest.raises(deal.PreContractError):
+            contract_is_numeric_grid(grid)
 
 
 def test_split_grid_bad_b64_raises_valueerror() -> None:
@@ -978,9 +993,11 @@ def test_wide_sheet_above_shape_dim_unpacks() -> None:
     """Pack accepts real sheet widths; unpack must not cap columns at SHAPE_DIM."""
     import deal
 
-    from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX, DEAL_MAX_SHAPE_DIM
+    from tests.contracts.bounds import DEAL_MAX_COL_INDEX, DEAL_MAX_SHAPE_DIM
     from plugin.scripting.payload_codec import envelope_column_kinds
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.contracts.scripting.payload_codec import (
+        envelope_column_kinds as contract_envelope_column_kinds,
+    )
 
     ncols = DEAL_MAX_SHAPE_DIM + 1
     grid = [[float(i) for i in range(ncols)]]
@@ -1002,9 +1019,8 @@ def test_wide_sheet_above_shape_dim_unpacks() -> None:
     cap = DEAL_MAX_COL_INDEX + 1
     kinds = envelope_column_kinds({"column_kinds": ["float"] * cap}, ncols=cap)
     assert kinds == ["float"] * cap
-    if deal_pre_present(envelope_column_kinds):
-        with pytest.raises(deal.PreContractError):
-            envelope_column_kinds({}, ncols=cap + 1)
+    with pytest.raises(deal.PreContractError):
+        contract_envelope_column_kinds({}, ncols=cap + 1)
 
 
 def test_bool_cells_round_trip_in_numeric_grid() -> None:

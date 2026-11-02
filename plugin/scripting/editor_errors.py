@@ -10,43 +10,19 @@ import re
 import traceback
 from typing import Any
 
-from plugin.framework.deal_shim import (
-    DEAL_MAX_SOURCE,
-    _profile,
-    deal,
-    str_bounded,
-)
 
-
-_deal_text_ok = _profile(
-    lambda value: str_bounded(value, DEAL_MAX_SOURCE),
-    lambda value: isinstance(value, str),
-)
-
-
-_deal_optional_exc_ok = _profile(
-    lambda exc: exc is None,
-    lambda exc: exc is None or isinstance(exc, BaseException),
-)
-
-
-@deal.pre(lambda exc: isinstance(exc, BaseException))
 def exception_traceback(exc: BaseException) -> str:
     """Full traceback for *exc*.
 
     The pre is isinstance(exc, BaseException) on both profiles because a
     CrossHair domain of exc is None has no __traceback__; the callable
-    stays # crosshair: off so traceback.format_exception is not a
-    check/cover entry.
+    is not a check/cover entry.
     """
-    # crosshair: off
     return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
 
-@deal.pre(lambda detail=None, exc=None: (detail is None or _deal_text_ok(detail)) and _deal_optional_exc_ok(exc))
 def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Combine subprocess stderr, probe output, and/or an exception traceback."""
-    # crosshair: off
     chunks: list[str] = []
     detail_text = (detail or "").strip()
     if detail_text:
@@ -56,10 +32,8 @@ def failure_detail(*, detail: str | None = None, exc: BaseException | None = Non
     return "\n\n".join(chunks)
 
 
-@deal.pre(lambda summary, detail=None, exc=None: _deal_text_ok(summary) and (detail is None or _deal_text_ok(detail)) and _deal_optional_exc_ok(exc))
 def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Build a msgbox body: *summary* plus optional detail/traceback blocks."""
-    # crosshair: off
     body = failure_detail(detail=detail, exc=exc)
     if body:
         return f"{summary}\n\n{body}"

@@ -10,7 +10,7 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+from tests.contracts.bounds import DEAL_MAX_TOKEN
 from plugin.chatbot.chat_sidebar_mode import (
     SidebarModeFlags,
     sidebar_mode_flags_for_doc_type,

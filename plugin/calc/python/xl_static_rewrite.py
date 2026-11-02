@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 
 from plugin.calc.address_utils import MAX_COL, format_range, parse_range_string, split_sheet_prefix
 from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, str_bounded, deal
 
 # A1 endpoint shape gate only (1-3 letters, optional $). Bounds and the rest of the
 # validation come from plugin.calc.address_utils; unbounded letters would raise
@@ -187,8 +186,6 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
     return calls, issues, bare_spans
 
 
-@deal.pre(lambda code, existing_data_args=None: str_bounded(code, DEAL_MAX_SOURCE) and (existing_data_args is None or (isinstance(existing_data_args, list) and len(existing_data_args) <= DEAL_MAX_SHAPE_DIM and all(str_bounded(x, DEAL_MAX_SOURCE) for x in existing_data_args))))
-@deal.post(lambda result: isinstance(result, XlStaticRewriteResult) and isinstance(result.code, str) and isinstance(result.data_args, list))
 def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = None) -> XlStaticRewriteResult:
     """Lift static ``xl("A1")`` literals onto data args and rewrite to ``data`` / ``data[i]``.
 
@@ -196,8 +193,6 @@ def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = No
     Duplicate addresses share one binding. On any issue, *changed* is False and code is
     unchanged (caller should fail the save).
     """
-    # ast.parse + A1 regex hang under deep check even at DEAL_MAX_SOURCE.
-    # crosshair: off
     existing = [a.strip() for a in (existing_data_args or []) if a and str(a).strip()]
     calls, issues, bare_spans = _find_static_xl_literals(code)
     if issues or not calls:

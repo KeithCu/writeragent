@@ -47,7 +47,6 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     # config.py does ``from plugin.framework import config_schema`` at import time.
     "plugin/framework/config_schema.py",
     "plugin/framework/constants.py",
-    "plugin/framework/deal_shim.py",
     "plugin/framework/errors.py",
     "plugin/framework/grammar_rule_ids.py",
     "plugin/framework/json_utils.py",

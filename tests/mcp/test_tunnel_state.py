@@ -7,7 +7,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import deal
-from plugin.framework.deal_shim import DEAL_MAX_RETRY
+from tests.contracts.bounds import DEAL_MAX_RETRY
 from plugin.mcp.tunnel_state import (
     STABLE_CONNECTION_SECONDS,
     CancelRetryTimerEffect,
@@ -22,9 +22,6 @@ from plugin.mcp.tunnel_state import (
     compute_backoff_delay,
     next_state,
 )
-from tests.harness.strip_bundle import deal_pre_present
-
-
 def test_compute_backoff_delay_exponential_progression():
     assert compute_backoff_delay(0) == 1.0
     assert compute_backoff_delay(1) == 2.0
@@ -36,10 +33,10 @@ def test_compute_backoff_delay_exponential_progression():
 
 
 def test_compute_backoff_delay_overflow_pre_fails_closed():
-    if not deal_pre_present(compute_backoff_delay):
-        pytest.skip("@deal.pre stripped in release bundle")
+    from tests.contracts.mcp.tunnel_state import compute_backoff_delay as contract_compute_backoff_delay
+
     with pytest.raises(deal.PreContractError):
-        compute_backoff_delay(DEAL_MAX_RETRY + 1)
+        contract_compute_backoff_delay(DEAL_MAX_RETRY + 1)
 
 
 def test_compute_backoff_delay_custom_parameters():

@@ -25,7 +25,7 @@ from plugin.mcp.cors import (
     set_allow_private_origins,
     set_extra_allowed_origins,
 )
-from plugin.framework.deal_shim import DEAL_MAX_ORIGIN
+from tests.contracts.bounds import DEAL_MAX_ORIGIN
 from tests.harness.vhs_budget import vhs_max_examples
 
 CROSSHAIR_MODULE = "plugin/mcp/cors.py"

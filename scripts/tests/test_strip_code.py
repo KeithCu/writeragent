@@ -13,7 +13,6 @@ from scripts.strip_code import (
     should_skip_print_strip,
     should_skip_strip,
     strip_assert_statements,
-    strip_deal_decorators,
     strip_grammar_obs_calls,
     strip_log_debug_info_calls,
     strip_print_calls,
@@ -321,75 +320,6 @@ def test_strip_main_thread_only_decorators(tmp_path: Path) -> None:
     assert "async def get_active_document():" in stripped
 
 
-def test_strip_deal_decorators_multiline_keeps_shim_import(tmp_path: Path) -> None:
-    test_file = tmp_path / "mock_errors.py"
-    original_code = (
-        "from plugin.framework.deal_shim import deal\n"
-        "\n"
-        "@decorator_to_keep\n"
-        "@deal.post(lambda result: isinstance(result, dict) and result.get('status') == 'error')\n"
-        "@deal.ensure(\n"
-        "    lambda e, result: isinstance(e, Exception)\n"
-        "    or result.get('code') == 'INTERNAL_ERROR'\n"
-        ")\n"
-        "@deal.ensure(lambda e, result: result.get('code') == getattr(e, 'code', None))\n"
-        "def format_error_payload(e):\n"
-        "    return {'status': 'error', 'code': 'INTERNAL_ERROR'}\n"
-    )
-    test_file.write_text(original_code, encoding="utf-8")
-
-    strip_deal_decorators(str(tmp_path), dry_run=False)
-
-    stripped = test_file.read_text(encoding="utf-8")
-    ast.parse(stripped)
-    assert "from plugin.framework.deal_shim import deal" in stripped
-    assert "@deal." not in stripped
-    assert "deal.post" not in stripped
-    assert "deal.ensure" not in stripped
-    assert "@decorator_to_keep" in stripped
-    assert "def format_error_payload(e):" in stripped
-    assert "return {'status': 'error', 'code': 'INTERNAL_ERROR'}" in stripped
-
-
-def test_strip_deal_decorators_dry_run(tmp_path: Path) -> None:
-    test_file = tmp_path / "mock_file.py"
-    original_code = (
-        "from plugin.framework.deal_shim import deal\n"
-        "\n"
-        "@deal.post(lambda result: True)\n"
-        "def f():\n"
-        "    return 1\n"
-    )
-    test_file.write_text(original_code, encoding="utf-8")
-
-    strip_deal_decorators(str(tmp_path), dry_run=True)
-
-    assert test_file.read_text(encoding="utf-8") == original_code
-
-
-def test_strip_production_code_strips_deal(tmp_path: Path) -> None:
-    test_file = tmp_path / "mock_file.py"
-    original_code = (
-        "from plugin.framework.deal_shim import deal\n"
-        "\n"
-        "@deal.pre(lambda x: True)\n"
-        "def f(x):\n"
-        "    log.debug('d')\n"
-        "    return x\n"
-    )
-    test_file.write_text(original_code, encoding="utf-8")
-
-    strip_production_code(str(tmp_path), dry_run=False)
-
-    stripped = test_file.read_text(encoding="utf-8")
-    ast.parse(stripped)
-    assert "@deal." not in stripped
-    assert "log.debug" not in stripped
-    assert "from plugin.framework.deal_shim import deal" in stripped
-    assert "def f(x):" in stripped
-    assert "return x" in stripped
-
-
 def test_replace_thread_guard_implementation(tmp_path: Path) -> None:
     """thread_guard.py is overwritten with minimal no-op stubs."""
     from scripts.strip_code import replace_thread_guard_implementation
@@ -535,9 +465,6 @@ def test_strip_assert_dry_run(tmp_path: Path) -> None:
 def test_strip_production_code_strips_asserts(tmp_path: Path) -> None:
     test_file = tmp_path / "mock_file.py"
     original_code = (
-        "from plugin.framework.deal_shim import deal\n"
-        "\n"
-        "@deal.pre(lambda x: x > 0)\n"
         "def f(x):\n"
         "    assert x > 0\n"
         "    print('logging value', x)\n"
@@ -551,7 +478,6 @@ def test_strip_production_code_strips_asserts(tmp_path: Path) -> None:
     stripped = test_file.read_text(encoding="utf-8")
     tree = ast.parse(stripped)
     assert not any(isinstance(node, ast.Assert) for node in ast.walk(tree))
-    assert "@deal.pre" not in stripped
     assert "print(" not in stripped
     assert "log.debug" not in stripped
     compiled = compile(stripped, str(test_file), "exec")
@@ -565,9 +491,6 @@ def test_strip_production_code_compute_service_preserves_log_and_print(tmp_path:
     cs_dir.mkdir(parents=True)
     test_file = cs_dir / "server.py"
     original_code = (
-        "from plugin.framework.deal_shim import deal\n"
-        "\n"
-        "@deal.pre(lambda x: x > 0)\n"
         "def start_server(x):\n"
         "    assert x > 0\n"
         "    print('Starting CLI error fallback:', x)\n"
@@ -581,7 +504,6 @@ def test_strip_production_code_compute_service_preserves_log_and_print(tmp_path:
     stripped = test_file.read_text(encoding="utf-8")
     tree = ast.parse(stripped)
     assert not any(isinstance(node, ast.Assert) for node in ast.walk(tree))
-    assert "@deal.pre" not in stripped
     assert "print(" in stripped
     assert "log.info(" in stripped
 

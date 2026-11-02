@@ -18,7 +18,6 @@ import re
 from dataclasses import dataclass
 from typing import Any, cast
 
-from plugin.framework.deal_shim import deal
 from plugin.scripting.calc_range import CalcRange, ensure_rectangular_2d
 
 _LO_ERROR_TOKENS = frozenset(
@@ -52,7 +51,6 @@ class CoerceResult:
     metadata: dict[str, Any]
 
 
-@deal.post(lambda result: isinstance(result, list) and len(set(result)) == len(result))
 def _dedupe_column_names(names: list[str]) -> list[str]:
     """Unique labels, one per input, on the default ``CalcRange.to_pandas`` path.
 

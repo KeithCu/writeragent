@@ -18,13 +18,6 @@ from __future__ import annotations
 
 from typing import Any, IO, Mapping
 
-from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_TOKEN,
-    _profile,
-    ascii_bounded,
-    deal,
-)
 from plugin.scripting.ipc import (
     _write_all,
     DEFAULT_MAX_PAYLOAD_BYTES,
@@ -84,7 +77,6 @@ def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
     least one byte of a frame raises IpcFrameReadError.
     The child reader treats clean EOF as shutdown.
     """
-    # crosshair: off
     payload = read_frame_payload(
         stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES, frame_label="editor message"
     )
@@ -101,7 +93,6 @@ def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
 
 def write_message(stream: IO[bytes], message: dict[str, Any]) -> None:
     """Write one dict to *stream* as pickle protocol 5 with a 4-byte big-endian length prefix."""
-    # crosshair: off
     try:
         frame = pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     except IpcPayloadSizeError as exc:
@@ -117,40 +108,12 @@ def message_type(message: dict[str, Any]) -> str:
     return str(raw) if raw is not None else ""
 
 
-def _deal_ipc_dict_ok_pytest(msg: object) -> bool:
-    # Editor IPC carries script source, doc URLs, and stderr. The old pre
-    # capped every string at DEAL_MAX_TOKEN (64) and the dict at 32 keys, so
-    # stamp_session raised PreContractError before it copied the message.
-    # A Mapping of any size is in domain; the body reads the keys it knows.
-    # Mapping, not dict: the signatures are Mapping so dict[str, str] targets
-    # typecheck (pyright dict is invariant). A dict-only pre raised
-    # PreContractError for any other Mapping while LibreOffice, where deal is
-    # stubbed, accepted it. CrossHair stays type(msg) is dict.
-    return isinstance(msg, Mapping)
-
-
-def _deal_ipc_dict_ok_crosshair(msg: object, allow_nested: bool = True) -> bool:
-    return type(msg) is dict and len(msg) <= DEAL_MAX_CMD_ARGS and all(
-        type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) and (
-            v is None
-            or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN))
-            or (allow_nested and isinstance(v, dict) and _deal_ipc_dict_ok_crosshair(v, allow_nested=False))
-        )
-        for k, v in msg.items()
-    )
-
-
-_deal_ipc_dict_ok = _profile(_deal_ipc_dict_ok_crosshair, _deal_ipc_dict_ok_pytest)
-
-
-@deal.pre(lambda target: target is None or _deal_ipc_dict_ok(target))
 def normalize_target(target: Mapping[str, Any] | None) -> dict[str, str]:
     """Copy ``_TARGET_KEYS`` whose values are non-empty strings.
 
     Drop None, whitespace-only strings, and every non-str, including UNO
     objects. Do not stringify. Empty input returns ``{}``.
     """
-    # crosshair: off
     if not target:
         return {}
     out: dict[str, str] = {}
@@ -167,10 +130,8 @@ def normalize_target(target: Mapping[str, Any] | None) -> dict[str, str]:
     return out
 
 
-@deal.pre(lambda msg: _deal_ipc_dict_ok(msg))
 def target_from_load(msg: Mapping[str, Any]) -> dict[str, str]:
     """Build ``target`` from an explicit dict plus top-level load aliases."""
-    # crosshair: off
     raw = msg.get("target")
     target = normalize_target(raw if isinstance(raw, Mapping) else None)
     for dest in _TARGET_KEYS:
@@ -189,13 +150,8 @@ def target_from_load(msg: Mapping[str, Any]) -> dict[str, str]:
     return target
 
 
-@deal.pre(
-    lambda mode, target: ascii_bounded(mode, DEAL_MAX_TOKEN)
-    and (target is None or _deal_ipc_dict_ok(target))
-)
 def target_identity_key(mode: str, target: Mapping[str, str] | None) -> tuple[str, ...]:
     """Stable key so reopening the same cell/script reuses ``session_id``."""
-    # crosshair: off
     t = normalize_target(target)
     # One list. A hand-written tuple omitted script_origin, so a user script and
     # a document script with the same name shared a session_id and a save wrote
@@ -208,12 +164,6 @@ def session_id_of(message: Mapping[str, Any]) -> str:
     return str(raw).strip() if raw is not None else ""
 
 
-@deal.pre(
-    lambda msg, session_id, mode="", target=None: _deal_ipc_dict_ok(msg)
-    and ascii_bounded(session_id, DEAL_MAX_TOKEN)
-    and ascii_bounded(mode, DEAL_MAX_TOKEN)
-    and (target is None or _deal_ipc_dict_ok(target))
-)
 def stamp_session(
     msg: Mapping[str, Any],
     *,
@@ -227,7 +177,6 @@ def stamp_session(
     identity dict, which may be empty. ``mode`` is set only when *mode* or
     the copied message's ``mode`` is a non-empty string.
     """
-    # crosshair: off
     out = dict(msg)
     out["session_id"] = str(session_id or "")
     use_mode = str(mode or out.get("mode") or "")

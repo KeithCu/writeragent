@@ -46,7 +46,7 @@ def test_pcm_energy_tone_is_above_threshold():
 
 
 def test_pcm_energy_longer_than_argv_uses_every_sample():
-    from plugin.framework.deal_shim import DEAL_MAX_ARGV
+    from tests.contracts.bounds import DEAL_MAX_ARGV
 
     pcm = _pcm_silence(DEAL_MAX_ARGV) + _pcm_tone(1, amplitude=32000)
     _rms, peak = pcm_energy_int16(pcm)

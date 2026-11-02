@@ -24,73 +24,12 @@ from plugin.contrib.smolagents.local_python_executor import (
     _HANDLERS,
     is_forbidden_dunder_attribute,
 )
-from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_SOURCE,
-    DEAL_MAX_TOKEN,
-    _profile,
-    ascii_bounded,
-    deal,
-    str_bounded,
-)
 from plugin.scripting.sandbox import active_blocked_imports, import_authorized
-
-
-def _deal_sandbox_imports_ok_pytest(authorized_imports: object) -> bool:
-    # Production passes VENV_AUTHORIZED_IMPORTS (tuple, ~99 names), not a short list.
-    if not isinstance(authorized_imports, (list, tuple)):
-        return False
-    return all(isinstance(x, str) and "\0" not in x and str_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
-
-
-def _deal_sandbox_imports_ok_crosshair(authorized_imports: object) -> bool:
-    if not isinstance(authorized_imports, (list, tuple)):
-        return False
-    return (
-        len(authorized_imports) <= DEAL_MAX_CMD_ARGS
-        and all(ascii_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
-    )
-
-
-_deal_sandbox_imports_ok = _profile(_deal_sandbox_imports_ok_crosshair, _deal_sandbox_imports_ok_pytest)
-
-
-def _deal_sandbox_code_ok_pytest(code: object) -> bool:
-    # `_cache_key` joins with NUL; production =PY() scripts may be non-ASCII.
-    # =PY() source is longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before the cache key was built. NUL stays out:
-    # the key joins on NUL. CrossHair keeps the short ASCII source.
-    return isinstance(code, str) and "\0" not in code
-
-
-def _deal_sandbox_code_ok_crosshair(code: object) -> bool:
-    return isinstance(code, str) and ascii_bounded(code, DEAL_MAX_SOURCE) and "\0" not in code
-
-
-_deal_sandbox_code_ok = _profile(_deal_sandbox_code_ok_crosshair, _deal_sandbox_code_ok_pytest)
-
-
-def _deal_sandbox_policy_ok(authorized_imports: object, blocked_imports: object = None) -> bool:
-    if not _deal_sandbox_imports_ok(authorized_imports):
-        return False
-    if blocked_imports is None:
-        return True
-    if not isinstance(blocked_imports, (list, tuple, set, frozenset)):
-        return False
-    return all(
-        isinstance(x, str)
-        and "\0" not in x
-        and "\n" not in x
-        and str_bounded(x, DEAL_MAX_TOKEN)
-        for x in blocked_imports
-    )
 
 _DEFAULT_MAX_ENTRIES = 256
 _MAX_CACHED_SOURCE_CHARS = 65536
 
 
-@deal.pre(lambda module, authorized_imports, blocked_imports=None: _deal_sandbox_policy_ok(authorized_imports, blocked_imports))
-@deal.post(lambda result: result is None or isinstance(result, str))
 def validate_sandbox_ast(
     module: ast.Module,
     authorized_imports: Sequence[str],
@@ -98,7 +37,6 @@ def validate_sandbox_ast(
 ) -> str | None:
     """Return an error message if *module* violates sandbox policy, else ``None``."""
     # AST walk on a symbolic module hangs deep check.
-    # crosshair: off
     effective_blocked = tuple(blocked_imports) if blocked_imports is not None else tuple(active_blocked_imports())
 
     for node in ast.walk(module):
@@ -160,7 +98,6 @@ def _cache_key(
     code: str,
     authorized_imports: Sequence[str],
 ) -> str:
-    # crosshair: off
     blocked = active_blocked_imports()
     material = (
         code
@@ -173,7 +110,6 @@ def _cache_key(
 
 
 def _format_syntax_error(exc: SyntaxError) -> str:
-    # crosshair: off
     # offset is 1-based. Spacing by offset puts the caret one column to the
     # right of the token CPython underlines (ast.parse("def f(:") is offset 7,
     # the ':'). A null byte on 3.12+ is a SyntaxError with lineno/offset/text
@@ -223,13 +159,11 @@ def _build_entry(
         return HotEntry(module=None, error="Code parsing failed: expression is too deeply nested")
 
 
-@deal.pre(lambda code, authorized_imports: _deal_sandbox_policy_ok(authorized_imports) and _deal_sandbox_code_ok(code))
 def get_hot_entry(
     code: str,
     authorized_imports: Sequence[str],
 ) -> HotEntry:
     """Return cached or freshly built parse + static validation for *code*."""
-    # crosshair: off
     if len(code) > _MAX_CACHED_SOURCE_CHARS:
         return _build_entry(code, authorized_imports)
     key = _cache_key(code, authorized_imports)

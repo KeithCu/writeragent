@@ -19,7 +19,6 @@
 All custom exceptions should inherit from WriterAgentException.
 """
 
-# crosshair: off
 from __future__ import annotations
 
 import contextlib
@@ -31,7 +30,6 @@ from typing import Any, Callable, NoReturn, TypeVar, overload
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
-from plugin.framework.deal_shim import DEAL_MAX_MSGID, UNDER_CROSSHAIR, deal
 
 _FILESYSTEM_ERRNOS: frozenset[int] = frozenset(
     val
@@ -207,12 +205,9 @@ class WriterAgentException(Exception):
         # Runtime / interpolated strings are not in the gettext catalog; _() is a no-op
         # unless the exact source string was extracted. Long runtime text skips _()
         # to avoid deal.PreContractError (past DEAL_MAX_MSGID, not in catalog).
-        if UNDER_CROSSHAIR:
-            text = "mock"
-        else:
-            text = resolve_exception_message(message)
-            if len(text) <= DEAL_MAX_MSGID:
-                text = _(text)
+        text = resolve_exception_message(message)
+        if len(text) <= 1024:
+            text = _(text)
         super().__init__(text)
         self.message = text
         if code is not None:
@@ -244,9 +239,6 @@ class CalcError(WriterAgentException):
     code: str = "CALC_ERROR"
 
 
-@deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
-@deal.ensure(lambda e, result: isinstance(e, WriterAgentException) or (result.get("code") == "INTERNAL_ERROR" and isinstance(result.get("details"), dict) and "type" in result["details"]))
-@deal.ensure(lambda e, result: not isinstance(e, WriterAgentException) or result.get("code") == e.code)
 def format_error_payload(e: BaseException) -> dict[str, Any]:
     """Format an exception into the standard JSON error payload schema."""
     if isinstance(e, WriterAgentException):
@@ -256,12 +248,8 @@ def format_error_payload(e: BaseException) -> dict[str, Any]:
         return payload
 
     # For unexpected exceptions
-    if UNDER_CROSSHAIR:
-        err_type = "ValueError"
-        err_msg = "mock"
-    else:
-        err_type = type(e).__name__
-        err_msg = resolve_exception_message(e)
+    err_type = type(e).__name__
+    err_msg = resolve_exception_message(e)
     return {"status": "error", "code": "INTERNAL_ERROR", "message": err_msg, "details": {"type": err_type}}
 
 
@@ -289,7 +277,6 @@ def http_status_message(status: int) -> str | None:
     return None
 
 
-@deal.post(lambda result: isinstance(result, str))
 def format_error_message(e: BaseException) -> str:
     """Map common exceptions to user-friendly, localized advice.
 
@@ -300,7 +287,7 @@ def format_error_message(e: BaseException) -> str:
     import socket
     import urllib.error
 
-    msg = "mock" if UNDER_CROSSHAIR else resolve_exception_message(e)
+    msg = resolve_exception_message(e)
     if isinstance(e, ssl.SSLError):
         return _("TLS/SSL Error: {0}").format(msg)
     # Only HTTPError carries a status. RemoteDisconnected, BadStatusLine,
@@ -317,7 +304,7 @@ def format_error_message(e: BaseException) -> str:
             return mapped
         if code >= 500:
             return _("Server error ({0}). The AI provider is having issues.").format(code)
-        reason = "mock" if UNDER_CROSSHAIR else str(getattr(e, "reason", "") or "")
+        reason = str(getattr(e, "reason", "") or "")
         return _("HTTP Error {0}: {1}").format(code, reason)
 
     # Typed exceptions first. Substring checks below are last-resort for
@@ -337,9 +324,7 @@ def format_error_message(e: BaseException) -> str:
     else:
         reason_obj = e
 
-    if UNDER_CROSSHAIR:
-        reason = "mock"
-    elif reason_obj is not None:
+    if reason_obj is not None:
         reason = resolve_exception_message(reason_obj)
     else:
         reason = str(getattr(e, "reason", None) or e)
@@ -403,7 +388,6 @@ def format_error_for_display(e: Any) -> str:
     return _("Error: {0}").format(message)
 
 
-@deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
 def make_tool_error(message: Any, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
     """Central factory for all standardized tool error payloads.
 

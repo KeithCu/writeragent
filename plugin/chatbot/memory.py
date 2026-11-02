@@ -7,14 +7,6 @@ from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_SOURCE,
-    DEAL_MAX_TOKEN,
-    _profile,
-    str_bounded,
-    deal,
-)
 from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.tool import ToolBase
 
@@ -30,7 +22,6 @@ class MemoryStore:
     path: str
 
     def __init__(self) -> None:
-        # crosshair: off
         config_dir = user_config_dir()
         if config_dir is None:
             raise ConfigError("UNO context is required to resolve memory store path")
@@ -38,7 +29,6 @@ class MemoryStore:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
 
     def read(self) -> str:
-        # crosshair: off
         try:
             with open(self.path, "r", encoding="utf-8") as f:
                 return f.read()
@@ -46,11 +36,9 @@ class MemoryStore:
             return ""
 
     def write(self, content: str) -> None:
-        # crosshair: off
         atomic_write_text(self.path, content, prefix=".memory-", fsync=True)
 
     def upsert(self, key: str, content: Any) -> dict[str, Any]:
-        # crosshair: off
         """Insert, update, or delete a memory entry in USER.md JSON under _MEMORY_WRITE_LOCK.
 
         Returns a status dict: {"status": "ok", "message": ...} or {"status": "error", "message": ...}.
@@ -140,27 +128,7 @@ def user_profile_exists() -> bool:
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
-def _deal_memory_args_ok_crosshair(arguments: object) -> bool:
-    return (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE)) or (
-        isinstance(arguments, dict)
-        and len(arguments) <= DEAL_MAX_CMD_ARGS
-        and (not isinstance(arguments.get("key"), str) or str_bounded(arguments.get("key"), DEAL_MAX_TOKEN))
-        and (not isinstance(arguments.get("content"), str) or str_bounded(arguments.get("content"), DEAL_MAX_SOURCE))
-    )
-
-
-# Pytest stays total on this LLM/ingest boundary: smolagents can hand
-# the tool a non-dict, and isinstance(arguments, (str, dict)) raises
-# PreContractError on a list. The body already returns None unless the
-# value is a dict or a JSON object string. CrossHair keeps the short
-# domain.
-_deal_memory_args_ok = _profile(_deal_memory_args_ok_crosshair)
-
-
-@deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
-@deal.post(lambda result: result is None or isinstance(result, dict))
 def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
-    # crosshair: off
     """Normalize smolagents ToolCall.arguments (dict or JSON string) to a dict."""
     if isinstance(arguments, dict):
         return cast("dict[str, Any]", arguments)
@@ -172,27 +140,8 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     return None
 
 
-def _deal_memory_chat_line_ok_crosshair(arguments: object) -> bool:
-    if isinstance(arguments, str):
-        return str_bounded(arguments, DEAL_MAX_SOURCE)
-    get = getattr(arguments, "get", None)
-    if not callable(get):
-        return False
-    key = get("key")
-    content = get("content")
-    return (not isinstance(key, str) or str_bounded(key, DEAL_MAX_TOKEN)) and (
-        not isinstance(content, str) or str_bounded(content, DEAL_MAX_SOURCE)
-    )
-
-
-_deal_memory_chat_line_ok = _profile(_deal_memory_chat_line_ok_crosshair)
-
-
-@deal.pre(lambda arguments: _deal_memory_chat_line_ok(arguments))
-@deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line(arguments: object) -> str:
     """One-line chat preview when upsert_memory starts (main chat tool loop)."""
-    # crosshair: off
     if not isinstance(arguments, Mapping):
         arguments = upsert_memory_arguments_dict(arguments)
         if arguments is None:
@@ -225,7 +174,6 @@ class MemoryTool(ToolBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"key": {"type": "string", "description": "The key to update or insert (e.g., 'favorite_color')."}, "content": {"type": "string", "description": "The new value to associate with the key."}}, "required": ["key", "content"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # crosshair: off
         key = kwargs.get("key")
         if not isinstance(key, str) or not key.strip():
             return self._tool_error("Key is required.")

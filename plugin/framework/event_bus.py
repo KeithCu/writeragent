@@ -50,7 +50,6 @@ def _reentry_token(event: str, data: dict[str, Any]) -> str:
 
 class _Dispatching(threading.local):
     def __init__(self) -> None:
-        # crosshair: off
         # threading.local() is engine-hostile.
         self.events: set[str] = set()
 
@@ -84,7 +83,6 @@ class EventBus:
     _dispatching: _Dispatching
 
     def __init__(self) -> None:
-        # crosshair: off
         # threading.local() is engine-hostile.
         self._subscribers: dict[str, list[Any]] = {}  # event -> list of callback or weakref
         # Dead weak refs are dropped on the next locked subscribe, unsubscribe, or
@@ -93,7 +91,6 @@ class EventBus:
         self._dispatching = _Dispatching()
 
     def _deref(self, entry: Any) -> Any:
-        # crosshair: off
         if isinstance(entry, weakref.ref):
             return entry()
         return entry
@@ -125,7 +122,6 @@ class EventBus:
                       temporary bound method and the subscription would
                       die on the next GC.
         """
-        # crosshair: off
         # threading.local() is engine-hostile.
         entry: Any
         if weak:
@@ -150,7 +146,6 @@ class EventBus:
 
     def unsubscribe(self, event: str, callback: Any) -> None:
         """Remove *callback* from *event*."""
-        # crosshair: off
         # threading.local() is engine-hostile.
         with self._lock:
             if not self._subscribers.get(event):
@@ -171,7 +166,6 @@ class EventBus:
         The event name is positional-only so a payload may contain keys named
         'event' or 'self'. Exceptions in subscribers are logged and swallowed.
         """
-        # crosshair: off
         with self._lock:
             live = self._subscribers.get(event)
             if not live:

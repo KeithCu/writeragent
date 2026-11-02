@@ -31,7 +31,6 @@ import json
 from collections.abc import Sequence
 from typing import Any, TypeVar
 
-from plugin.framework.deal_shim import deal
 
 
 _SCALAR_TYPES = frozenset({"integer", "number", "boolean", "string"})
@@ -231,7 +230,6 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
     return out
 
 
-@deal.ensure(lambda prop_schema, result: not isinstance(prop_schema, dict) or isinstance(result, dict))
 def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any]:
     """Add null to optional scalar property types (strict providers reject bare null otherwise).
 
@@ -239,7 +237,6 @@ def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any
     appended; the other members stay. ``["string", "number"]`` must not
     become ``["string", "null"]``.
     """
-    # crosshair: off
     if not isinstance(prop_schema, dict):
         return prop_schema
     raw = prop_schema.get("type")
@@ -256,8 +253,6 @@ def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any
     return out
 
 
-@deal.ensure(lambda params, result: (not isinstance(params, dict) or not params) or isinstance(result, dict))
-@deal.ensure(lambda params, result: not isinstance(result, dict) or result.get("required") != [])
 def _normalize_schema_for_strict_providers(params: Any) -> Any:
     """Normalize JSON Schema for strict upstream validators (Gemini, Groq, etc.).
 
@@ -267,7 +262,6 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     - ``properties`` is walked whenever it is a dict, even with no ``type``.
       ``items`` is kept when ``type`` is missing or includes ``array``.
     """
-    # crosshair: off
     if type(params) is not dict or len(params) == 0:
         return params
     # Bugfix: #2594 removed this copy, so normalization mutated the caller's
@@ -316,9 +310,6 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     return params
 
 
-@deal.pre(lambda tool, **kwargs: getattr(tool, "name", None) is not None)
-@deal.post(lambda result: isinstance(result, dict) and result.get("type") == "function" and isinstance(result.get("function"), dict))
-@deal.ensure(lambda tool, doc_type=None, result=None, **kwargs: result is not None and isinstance(result, dict) and result.get("function", {}).get("name") == tool.name)
 def to_openai_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
     """Convert a ToolBase instance to an OpenAI function-calling schema.
 
@@ -334,7 +325,6 @@ def to_openai_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any
         }
     """
     # Host Tool + deepcopy of nested JSON Schema; pytest still checks @deal.
-    # crosshair: off
     params = copy.copy(tool.get_parameters(doc_type) or {})
     params.setdefault("type", "object")
     params = _normalize_schema_for_strict_providers(params)
@@ -343,9 +333,6 @@ def to_openai_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any
     return {"type": "function", "function": {"name": tool.name, "description": desc, "parameters": params}}
 
 
-@deal.pre(lambda tool, **kwargs: getattr(tool, "name", None) is not None)
-@deal.post(lambda result: isinstance(result, dict) and "inputSchema" in result and result.get("name") is not None)
-@deal.ensure(lambda tool, doc_type=None, result=None, **kwargs: result is not None and isinstance(result, dict) and result.get("name") == tool.name)
 def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
     """Convert a ToolBase instance to an MCP tools/list schema.
 
@@ -358,7 +345,6 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
         }
     """
     # Host Tool + deepcopy of nested JSON Schema; pytest still checks @deal.
-    # crosshair: off
     input_schema = copy.deepcopy(tool.get_parameters(doc_type) or {})
     input_schema.setdefault("type", "object")
     props = input_schema.setdefault("properties", {})

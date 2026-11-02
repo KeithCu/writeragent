@@ -25,7 +25,6 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ConfigError
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
 
 
 class AuthError(ConfigError):
@@ -80,30 +79,12 @@ PROVIDERS: dict[str, ProviderConfig] = {
 }
 
 
-_PROVIDER_HINTS = frozenset(PROVIDERS)
-
-
-def _deal_provider_id_ok_pytest(provider_id: object) -> bool:
-    return provider_id is None or str_bounded(provider_id, DEAL_MAX_TOKEN)
-
-
-def _deal_provider_id_ok_crosshair(provider_id: object) -> bool:
-    return provider_id is None or provider_id in _PROVIDER_HINTS
-
-
-_deal_provider_id_ok = _deal_provider_id_ok_crosshair if UNDER_CROSSHAIR else _deal_provider_id_ok_pytest
-
-
-@deal.pre(lambda provider_id: _deal_provider_id_ok(provider_id))
-@deal.post(lambda result: isinstance(result, bool))
 def provider_requires_api_key(provider_id: str | None) -> bool:
     """True when a known provider expects an API key (Bearer / x-api-key), not local/anonymous."""
     cfg = PROVIDERS.get(provider_id or "")
     return bool(cfg and provider_id != "custom" and cfg.header_style != "none")
 
 
-@deal.pre(lambda provider_id: _deal_provider_id_ok(provider_id))
-@deal.post(lambda result: isinstance(result, bool))
 def provider_requires_slug_model_id(provider_id: str | None) -> bool:
     """True when combobox / LRU entries must use org/model slugs (OpenRouter, Together)."""
     cfg = PROVIDERS.get(provider_id or "")
@@ -134,7 +115,6 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
         "headers": { ... provider-specific static headers ... },
       }
     """
-    # crosshair: off
     endpoint_raw = str(api_config.get("endpoint") or "")
     is_owu = api_config.get("is_openwebui", False)
     endpoint = normalize_endpoint_url(endpoint_raw, is_openwebui=is_owu)
@@ -168,7 +148,6 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     the responsibility of the caller, so they can be shared between API and
     other HTTP clients).
     """
-    # crosshair: off
     headers: dict[str, str] = {}
     # Coerce: callers/CrossHair may pass non-str header_style (e.g. int 2).
     style = str(auth_info.get("header_style") or "bearer").lower().strip()

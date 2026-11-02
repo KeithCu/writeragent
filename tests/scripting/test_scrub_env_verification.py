@@ -17,19 +17,18 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import deal
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH
+from tests.contracts.bounds import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH
 from plugin.scripting.sandbox import (
     _BLOCKED_ENV_EXACT as _BLOCKED_EXACT,
     _env_name_is_credential,
     scrub_subprocess_env,
     wrap_command_for_sandbox,
 )
-from tests.harness.strip_bundle import deal_pre_present
 from tests.harness.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
-_CROSSHAIR_TARGET = "plugin.scripting.sandbox.scrub_subprocess_env"
-_CROSSHAIR_TARGET_WRAP = "plugin.scripting.sandbox.wrap_command_for_sandbox"
+_CROSSHAIR_TARGET = "tests.contracts.scripting.sandbox.scrub_subprocess_env"
+_CROSSHAIR_TARGET_WRAP = "tests.contracts.scripting.sandbox.wrap_command_for_sandbox"
 
 
 def _find_crosshair() -> str | None:
@@ -67,12 +66,14 @@ def test_wrap_command_for_sandbox_basic() -> None:
 
 
 def test_wrap_command_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(wrap_command_for_sandbox):
-        pytest.skip("@deal.pre stripped in release bundle")
+    from tests.contracts.scripting.sandbox import (
+        wrap_command_for_sandbox as contract_wrap_command,
+    )
+
     with pytest.raises(deal.PreContractError):
-        wrap_command_for_sandbox(["python3", "x" * (DEAL_MAX_ARGV + 1)])
+        contract_wrap_command(["python3", "x" * (DEAL_MAX_ARGV + 1)])
     with pytest.raises(deal.PreContractError):
-        wrap_command_for_sandbox(["x"] * (DEAL_MAX_CMD_ARGS + 1))
+        contract_wrap_command(["x"] * (DEAL_MAX_CMD_ARGS + 1))
     # Argv may be longer than filesystem DEAL_MAX_PATH (venv -c probes).
     assert wrap_command_for_sandbox(["python3", "x" * (DEAL_MAX_PATH + 1)])[-1] == "x" * (DEAL_MAX_PATH + 1)
 

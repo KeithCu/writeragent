@@ -13,14 +13,13 @@ from hypothesis import strategies as st
 import deal
 import pytest
 
-from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
+from tests.contracts.bounds import DEAL_MAX_HTML_CHUNK
 from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
 from plugin.framework.client.auth import (
     build_auth_headers,
     provider_requires_api_key,
     provider_requires_slug_model_id,
 )
-from tests.harness.strip_bundle import deal_pre_present
 
 
 @given(text=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=DEAL_MAX_HTML_CHUNK))
@@ -49,13 +48,15 @@ def test_strip_html_tags_streaming_equivalence() -> None:
 
 
 def test_strip_html_tags_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(StreamingHTMLStripper._feed_chunk):
-        pytest.skip("@deal.pre stripped in release bundle")
+    from tests.contracts.framework.html_stripper import (
+        StreamingHTMLStripper as ContractStreamingHTMLStripper,
+    )
+
     # Public feed() slices like strip_html_tags; overflow is per-slice on _feed_chunk.
     strip_html_tags("x" * (DEAL_MAX_HTML_CHUNK + 1))
     StreamingHTMLStripper().feed("x" * (DEAL_MAX_HTML_CHUNK + 1))
     with pytest.raises(deal.PreContractError):
-        StreamingHTMLStripper()._feed_chunk("x" * (DEAL_MAX_HTML_CHUNK + 1))
+        ContractStreamingHTMLStripper()._feed_chunk("x" * (DEAL_MAX_HTML_CHUNK + 1))
     # Pytest 4096 still reaches the 256-char tag-flush path.
     assert "<" in strip_html_tags("<" + ("a" * 256))
 

@@ -527,7 +527,7 @@ def test_threshold_zero_forces_block_on_word_change():
 
 
 def test_split_change_long_text_does_not_precontract():
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+    from tests.contracts.bounds import DEAL_MAX_SOURCE
     from plugin.writer.word_diff_split import split_change
 
     old = "word " * (DEAL_MAX_SOURCE // 4)

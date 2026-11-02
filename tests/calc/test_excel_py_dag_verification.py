@@ -14,21 +14,22 @@ from hypothesis import given, strategies as st
 import deal
 from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel, SheetInfo
 from plugin.calc.excel_py_convert.to_dag import (
-    _deal_convert_cell_ok,
-    _deal_convert_scripts_ok,
-    _deal_excel_src_ok,
     _find_xl_calls,
     _normalize_bindings,
     _normalize_excel_placeholders,
     _placeholder_to_data_index,
-    _skip_string,
     _xl_binding_expr,
     convert_cell_to_dag,
     convert_model_to_dag,
 )
+from tests.contracts.calc.excel_py_convert.to_dag import (
+    _deal_convert_cell_ok,
+    _deal_convert_scripts_ok,
+    _deal_excel_src_ok,
+)
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_PLACEHOLDER_INDEX, DEAL_MAX_SOURCE, DEAL_MAX_XL_EXPR
-from tests.harness.strip_bundle import deal_pre_present
+from tests.contracts.bounds import DEAL_MAX_CMD_ARGS, DEAL_MAX_PLACEHOLDER_INDEX, DEAL_MAX_SOURCE, DEAL_MAX_XL_EXPR
+from tests.contracts.calc.excel_py_convert import to_dag as contract_to_dag
 
 
 def test_xl_binding_expr_header_mode_annotation_is_str() -> None:
@@ -83,33 +84,29 @@ def test_normalize_lo_formula_for_parse_invariants(formula: str) -> None:
 
 
 def test_placeholder_index_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(_placeholder_to_data_index):
-        pytest.skip("@deal.pre stripped in release bundle")
     with pytest.raises(deal.PreContractError):
-        _placeholder_to_data_index(2 + DEAL_MAX_PLACEHOLDER_INDEX + 1)
+        contract_to_dag._placeholder_to_data_index(2 + DEAL_MAX_PLACEHOLDER_INDEX + 1)
     with pytest.raises(deal.PreContractError):
-        _xl_binding_expr(DEAL_MAX_PLACEHOLDER_INDEX + 1, "omit")
+        contract_to_dag._xl_binding_expr(DEAL_MAX_PLACEHOLDER_INDEX + 1, "omit")
     assert _placeholder_to_data_index(2 + DEAL_MAX_PLACEHOLDER_INDEX) == DEAL_MAX_PLACEHOLDER_INDEX
     assert '"%P' in _xl_binding_expr(DEAL_MAX_PLACEHOLDER_INDEX, "omit")
 
 
 def test_dag_wrapper_overflow_pre_fails_closed() -> None:
     """Callee bounds do not stop CrossHair covering wrappers; wrappers must pre themselves."""
-    if not deal_pre_present(_find_xl_calls):
-        pytest.skip("@deal.pre stripped in release bundle")
     too_long = "x" * (DEAL_MAX_SOURCE + 1)
     with pytest.raises(deal.PreContractError):
-        _find_xl_calls(too_long)
+        contract_to_dag._find_xl_calls(too_long)
     with pytest.raises(deal.PreContractError):
-        _skip_string("ab", -1)
+        contract_to_dag._skip_string("ab", -1)
     with pytest.raises(deal.PreContractError):
-        _skip_string("ab", 2)
+        contract_to_dag._skip_string("ab", 2)
     with pytest.raises(deal.PreContractError):
-        convert_model_to_dag(
+        contract_to_dag.convert_model_to_dag(
             ExcelWorkbookModel(scripts=["x"] * (DEAL_MAX_CMD_ARGS + 1), cells=[])
         )
     with pytest.raises(deal.PreContractError):
-        convert_model_to_dag(
+        contract_to_dag.convert_model_to_dag(
             ExcelWorkbookModel(
                 scripts=[],
                 cells=[

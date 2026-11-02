@@ -20,7 +20,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
+from tests.contracts.bounds import DEAL_MAX_SHAPE_DIM
 from plugin.framework.client.stream_normalizer import (
     ThinkTagStreamSplitter,
     _merge_reasoning_details,
@@ -201,10 +201,9 @@ def test_normalize_stream_delta_unwraps_choices() -> None:
 
 
 def test_accumulate_streaming_thinking_rejects_invalid_source() -> None:
-    """CrossHair found ensure false for meta source=''; pre + body guard reject/clear it.
-
-    With deal installed (dev venv), pre raises; under LibreOffice deal_shim the body
-    clears source to None. Either way ensure-equivalent invariant holds.
+    """CrossHair found ensure false for meta source=''; contract pre + body guard reject/clear it.
+    Under production code without contracts, the body clears source to None.
+    Either way ensure-equivalent invariant holds.
     """
     text_parts: list[str] = []
     meta_bad: dict[str, object] = {"source": ""}
@@ -398,4 +397,3 @@ def test_stream_normalizer_hot_sinks_off_cover_all() -> None:
     assert not any(f.endswith(".ThinkTagStreamSplitter.feed") for f in fqns), 'ThinkTagStreamSplitter.feed'
     assert not any(f.endswith(".strip_think_tags") for f in fqns), 'strip_think_tags'
     assert any(f.endswith(".normalize_delta") for f in fqns)
-    assert any("new_streaming_thinking_meta" in f for f in fqns)

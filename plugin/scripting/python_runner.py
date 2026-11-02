@@ -339,6 +339,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
     bindings: dict[str, Any] | None = None
     if is_calc(doc):
         binding = str(data_range).strip() if data_range else ""
+        drs: list[str] | None
         if binding:
             drs = parse_data_binding_text(binding) or [binding]
         else:

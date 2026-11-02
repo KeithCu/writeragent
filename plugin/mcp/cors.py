@@ -25,16 +25,6 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("writeragent.mcp.cors")
 
-from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_ORIGIN,
-    UNDER_CROSSHAIR,
-    _profile,
-    ascii_bounded,
-    deal,
-    inverse_ensure,
-)
-
 _PRIVATE_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".intern")
 
 _extra_allowed_origins: frozenset[str] = frozenset()
@@ -58,62 +48,7 @@ _HEADER_LIST_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV
 PREFLIGHT_MAX_AGE = "86400"
 
 
-def _deal_origin_ok_pytest(origin: object) -> bool:
-    # Browser Origin headers are not limited to DEAL_MAX_ORIGIN or the
-    # URL-safe alphabet. A junk or huge Origin used to raise
-    # PreContractError out of send_cors_headers (HTTP 500). The body
-    # returns False / None. CrossHair keeps the closed alphabet.
-    return isinstance(origin, str)
-
-
-def _deal_origin_ok_crosshair(origin: object) -> bool:
-    """Closed Origin domain: URL-safe alphabet, DEAL_MAX_ORIGIN length."""
-    return isinstance(origin, str) and len(origin) <= DEAL_MAX_ORIGIN and all(c in _ORIGIN_CHARS for c in origin)
-
-
-_deal_origin_ok = _deal_origin_ok_crosshair if UNDER_CROSSHAIR else _deal_origin_ok_pytest
-
-
-def _deal_allow_headers_ok_pytest(value: object) -> bool:
-    # Access-Control-Request-Headers from a browser can be long and can
-    # contain characters outside the token alphabet. The body unions them.
-    return isinstance(value, str)
-
-
-def _deal_allow_headers_ok_crosshair(value: object) -> bool:
-    """Preflight header-list domain: ascii tokens, few commas (not 32-char junk)."""
-    if not isinstance(value, str) or not ascii_bounded(value, DEAL_MAX_ORIGIN):
-        return False
-    if value.count(",") > DEAL_MAX_CMD_ARGS:
-        return False
-    return all(c in _HEADER_LIST_CHARS for c in value)
-
-
-_deal_allow_headers_ok = (
-    _deal_allow_headers_ok_crosshair if UNDER_CROSSHAIR else _deal_allow_headers_ok_pytest
-)
-
-
-def _deal_origins_config_ok_crosshair(value: object) -> bool:
-    return (
-        value is None
-        or (isinstance(value, str) and _deal_origin_ok(value))
-        or (
-            isinstance(value, list)
-            and len(value) <= DEAL_MAX_CMD_ARGS
-            and all(_deal_origin_ok(item) for item in value)
-        )
-    )
-
-
-# Raw user config: accept anything; the body drops what it cannot use.
-_deal_origins_config_ok = _profile(_deal_origins_config_ok_crosshair)
-
-
-@deal.pre(lambda value: value is None or _deal_origin_ok(value))
-@deal.post(lambda result: result is None or (isinstance(result, str) and (result.lower().startswith("http://") or result.lower().startswith("https://")) and not result.endswith("/")))
 def normalize_cors_origin(value: str | None) -> str | None:
-    # crosshair: off
     """Return a canonical origin URL or None if empty/invalid."""
     if value is None:
         return None
@@ -151,12 +86,7 @@ def normalize_cors_origin(value: str | None) -> str | None:
     return f"{scheme}://{netloc}"
 
 
-# Nested unique-length ensure is skipped under CrossHair; cheap list/str posts stay.
-@deal.pre(lambda value: _deal_origins_config_ok(value))
-@deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
-@inverse_ensure(lambda value, result: len(result) == len(set(result)))
 def normalize_origins_list(value: Any) -> list[str]:
-    # crosshair: off
     """Coerce config value to a deduped list of normalized origin strings."""
     if isinstance(value, str):
         value = [value]
@@ -166,10 +96,7 @@ def normalize_origins_list(value: Any) -> list[str]:
     return list(dict.fromkeys(origin for origin in normalized if origin))
 
 
-@deal.pre(lambda origin: _deal_origin_ok(origin))
-@deal.post(lambda result: isinstance(result, bool))
 def is_private_browser_origin(origin: str) -> bool:
-    # crosshair: off
     """True when Origin is http(s) with a LAN-style hostname or private/link-local IP."""
     normalized = normalize_cors_origin(origin)
     if normalized is None:
@@ -187,9 +114,7 @@ def is_private_browser_origin(origin: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local
 
 
-@deal.pre(lambda origins: _deal_origins_config_ok(origins))
 def set_extra_allowed_origins(origins: Any) -> None:
-    # crosshair: off
     """Update explicit-origin cache used by is_safe_origin (HTTP threads, no ctx)."""
     global _extra_allowed_origins
     _extra_allowed_origins = frozenset(normalize_origins_list(origins))
@@ -208,17 +133,13 @@ def set_allow_private_origins(allow: bool) -> None:
     _allow_private_origins = bool(allow)
 
 
-@deal.pre(lambda origin: _deal_origin_ok(origin))
-@deal.post(lambda result: isinstance(result, bool))
 def is_extra_allowed_origin(origin: str) -> bool:
-    # crosshair: off
     normalized = normalize_cors_origin(origin)
     return normalized is not None and normalized in _extra_allowed_origins
 
 
 def reload_cors_policy_from_config(services: Any) -> None:
     """Refresh CORS caches from mcp config (explicit list + private-origin JSON setting)."""
-    # crosshair: off
     # ConfigService.get returns the caller default on ConfigError. A raise
     # here is a broken config service. The old except cleared the explicit
     # origin list and forced allow-private off, so the bug never surfaced.
@@ -233,10 +154,7 @@ def reload_cors_policy_from_config(services: Any) -> None:
     log.debug("MCP CORS allow private/local browser origins: %s", _allow_private_origins)
 
 
-@deal.pre(lambda origin: _deal_origin_ok(origin))
-@deal.post(lambda result: isinstance(result, bool))
 def is_safe_origin(origin: str) -> bool:
-    # crosshair: off
     """True when Origin may receive Access-Control-Allow-Origin reflection."""
     normalized = normalize_cors_origin(origin)
     if normalized is None:
@@ -254,14 +172,12 @@ def is_safe_origin(origin: str) -> bool:
 def origin_is_forbidden(handler: Any) -> bool:
     """True when Origin is present and not on the allow list.
 
-    Missing Origin is allowed (CLI / curl / most MCP clients). Do not call
-    ``is_safe_origin`` until the value passes ``_deal_origin_ok`` — junk or
-    huge Origins would raise ``deal.PreContractError`` into a 500.
+    Missing Origin is allowed (CLI / curl / most MCP clients).
     """
     origin = handler.headers.get("Origin")
     if not origin:
         return False
-    if not _deal_origin_ok(origin):
+    if not isinstance(origin, str):
         return True
     return not is_safe_origin(origin)
 
@@ -387,11 +303,7 @@ def reject_forbidden_host(handler: Any) -> bool:
     return True
 
 
-@deal.pre(lambda access_control_request_headers: access_control_request_headers is None or _deal_allow_headers_ok(access_control_request_headers))
-@deal.post(lambda result: isinstance(result, str))
-@inverse_ensure(lambda access_control_request_headers, result: "Content-Type" in result)
 def merge_allow_headers(access_control_request_headers: str | None) -> str:
-    # crosshair: off
     """Build Access-Control-Allow-Headers: base list union preflight request list."""
     merged: dict[str, str] = {header.lower(): header for header in _BASE_ALLOW_HEADERS}
     for raw in (access_control_request_headers or "").split(","):
@@ -404,7 +316,6 @@ def merge_allow_headers(access_control_request_headers: str | None) -> str:
 
 def send_cors_headers(handler: Any, *, preflight: bool = False) -> None:
     """Apply CORS headers to an HTTP request handler (GenericRequestHandler or MCP raw handler)."""
-    # crosshair: off
     origin = handler.headers.get("Origin")
     if origin and is_safe_origin(origin):
         handler.send_header("Access-Control-Allow-Origin", origin)

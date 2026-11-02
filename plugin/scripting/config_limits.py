@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import Callable
 
-from plugin.framework.deal_shim import deal
 
 _TIMEOUT_CONFIG_KEY = "scripting.python_exec_timeout"
 # Fallbacks duplicate module.yaml so an OXT can import without plugin._manifest.
@@ -97,7 +96,6 @@ def _bounds(field_name: str) -> tuple[int, int]:
     return lo, hi
 
 
-@deal.ensure(lambda field_name, value, result: isinstance(result, int) and _bounds(field_name)[0] <= result <= _bounds(field_name)[1])
 def _clamp(field_name: str, value: int) -> int:
     lo, hi = _bounds(field_name)
     return max(lo, min(hi, value))
@@ -120,7 +118,6 @@ def _timeout_int(value: object, fallback: int) -> int:
         return fallback
 
 
-@deal.post(lambda result: isinstance(result, int) and _bounds("python_exec_timeout")[0] <= result <= _bounds("python_exec_timeout")[1])
 def resolve_python_exec_timeout(
     timeout_sec: object,
     *,

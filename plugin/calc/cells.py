@@ -21,7 +21,6 @@ Each tool is a ToolBase subclass that instantiates CalcBridge,
 CellInspector, and CellManipulator per call using ``ctx.doc``.
 """
 
-# crosshair: off
 from __future__ import annotations
 
 import logging

@@ -174,7 +174,6 @@ def test_collect_libreharper_plugin_paths() -> None:
     assert "plugin/doc/udprops.py" in paths
     assert "plugin/writer/locale/grammar_worker.py" in paths
     assert not any("llm_client" in p for p in paths)
-    assert "plugin/framework/deal_shim.py" in paths
     assert "plugin/chatbot/extension_update_check.py" in paths
     assert "plugin/chatbot/dialogs.py" in paths
     assert "plugin/framework/client/requests.py" in paths

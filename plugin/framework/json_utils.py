@@ -25,7 +25,6 @@ import logging
 import re
 from typing import Any
 
-from plugin.framework.deal_shim import deal
 
 log = logging.getLogger(__name__)
 
@@ -172,7 +171,6 @@ _SILENT_CORRUPTIONS = {
 
 def _repair_latex_clashes(text: str) -> str:
     """Escape backslashes for LaTeX commands that conflict with JSON escapes."""
-    # crosshair: off
     # 1. Double a single backslash on a LaTeX clash word (`\nabla` -> `\\nabla`)
     # so json.loads keeps the command. `\ne.g.` stays a newline.
     text = _LATEX_CLASH_RE.sub(_double_latex_clash, text)
@@ -191,7 +189,6 @@ def _repair_latex_clashes(text: str) -> str:
 
 def _replace_control_token(text: str, corrupted: str, repaired: str) -> str:
     """Replace *corrupted* only when it is not the prefix of a longer word."""
-    # crosshair: off
     pieces: list[str] = []
     start = 0
     while True:
@@ -230,7 +227,6 @@ def repair_json(text: str) -> str:
     Returns:
         The repaired JSON string.
     """
-    # crosshair: off
     if not isinstance(text, str):
         return str(text)
     stripped = text.strip()
@@ -244,8 +240,6 @@ def repair_json(text: str) -> str:
     return str(json_repair.repair_json(stripped, return_objects=False))
 
 
-@deal.ensure(lambda text, default=None, strict=False, result=None: isinstance(text, (str, bytes, bytearray)) or result is default)
-@deal.ensure(lambda text, default=None, strict=False, result=None: not (isinstance(text, str) and text.strip() == "") or result is default)
 def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any:
     """Safely parse a JSON string into a Python object with optional robust repair logic.
 
@@ -266,7 +260,6 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
     Returns:
         The parsed Python object or the default value if an error occurs.
     """
-    # crosshair: off
     if not isinstance(text, (str, bytes, bytearray)):
         return default
 
@@ -350,7 +343,6 @@ def safe_python_literal_eval(text: Any, default: Any = None) -> Any:
     Returns:
         The parsed Python object or the default value if an error occurs.
     """
-    # crosshair: off
     if not isinstance(text, (str, bytes, bytearray)):
         return default
 

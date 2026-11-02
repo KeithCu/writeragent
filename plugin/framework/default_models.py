@@ -17,10 +17,7 @@ from plugin.framework.client.provider_detection import get_provider_from_endpoin
 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
 
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
 
-
-@deal.post(lambda result: result is None or isinstance(result, str))
 def resolve_model_id(model: dict[str, Any], provider: str | None) -> str | None:
     """Resolve the effective model ID for a given provider.
 
@@ -32,8 +29,6 @@ def resolve_model_id(model: dict[str, Any], provider: str | None) -> str | None:
         The resolved model ID string, or None if the model is not
         available for this provider.
     """
-    # CrossHair TypeError on typing.Literal['a','b','rc'] when proxying ids.get (FV §8.1 D).
-    # crosshair: off
     ids = model.get("ids", {})
     if not isinstance(ids, dict):
         return None
@@ -51,8 +46,6 @@ def _row_is_stt(model: dict[str, Any]) -> bool:
 
 
 # FIXME, this should be a list, stored with the other endpoint pre-configured params
-@deal.pre(lambda provider: not provider or str_bounded(provider, DEAL_MAX_TOKEN))
-@deal.post(lambda result: isinstance(result, dict))
 def get_provider_defaults(provider: str | None) -> dict[str, str]:
     """Return default models mapped per provider based on boolean flags in DEFAULT_MODELS."""
     if not provider:

@@ -6,26 +6,7 @@
 
 from __future__ import annotations
 
-import os
-
 from plugin.calc.python.formula_edit import normalize_formula_string
-from plugin.framework.deal_shim import CROSSHAIR_ENV, DEAL_MAX_SOURCE, str_bounded, deal, inverse_ensure
-
-# Quote-machine / typical formula alphabet. Pytest keeps Unicode (curly quotes);
-# CrossHair uses this closed set.
-_LO_FORMULA_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789=();,\"'<>:+-*/^&%$.!_[]{}# \t\n")
-_PREPROCESS_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
-
-
-def _deal_lo_formula_ok_pytest(formula: object) -> bool:
-    return str_bounded(formula, DEAL_MAX_SOURCE)
-
-
-def _deal_lo_formula_ok_crosshair(formula: object) -> bool:
-    return isinstance(formula, str) and len(formula) <= DEAL_MAX_SOURCE and all(c in _LO_FORMULA_CHARS for c in formula)
-
-
-_deal_lo_formula_ok = _deal_lo_formula_ok_crosshair if _PREPROCESS_CROSSHAIR else _deal_lo_formula_ok_pytest
 
 
 # What was wrong: only "..." was tracked, so a ';' in a quoted sheet name
@@ -63,12 +44,6 @@ def _scan_quotes(s: str) -> str:
     return "".join(out)
 
 
-# Two nested ensures (curly-quote scan + unquoted semicolon scan) skip
-# under CrossHair; cheap str post and the implementation loop stay.
-@deal.pre(lambda formula: _deal_lo_formula_ok(formula))
-@deal.post(lambda result: isinstance(result, str))
-@inverse_ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result)
-@inverse_ensure(lambda formula, result: _scan_quotes(result) == result)
 def normalize_lo_formula_for_parse(formula: str) -> str:
     """Map LO ``;`` argument separators to ``,`` for parse-only backends.
 

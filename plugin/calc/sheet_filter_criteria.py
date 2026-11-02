@@ -18,7 +18,6 @@ from __future__ import annotations
 import math
 from typing import Any, NamedTuple
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, _profile, ascii_bounded, deal
 from plugin.framework.errors import UnoObjectError
 
 # Stable table of FilterOperator2 labels (for tool JSON schemas); the IDL code is the index.
@@ -54,33 +53,6 @@ class FilterCriterion(NamedTuple):
     string_value: str
 
 
-# Dual-profile: Closed FilterOperator2 labels under CrossHair.
-def _deal_filter_op_name_ok_pytest(name: object) -> bool:
-    # An unknown or non-ASCII operator from the model must raise
-    # UnoObjectError, not PreContractError. The body does that.
-    # CrossHair stays on the closed FilterOperator2 labels.
-    return isinstance(name, str)
-
-
-def _deal_filter_op_name_ok_crosshair(name: object) -> bool:
-    return isinstance(name, str) and name in FILTER_OPERATOR2_LABELS
-
-
-_deal_filter_op_name_ok = _profile(_deal_filter_op_name_ok_crosshair, _deal_filter_op_name_ok_pytest)
-
-
-def _deal_filter_connection_ok_pytest(name: object) -> bool:
-    # Same as operator names: a bad connection is UnoObjectError.
-    return name is None or isinstance(name, str)
-
-
-def _deal_filter_connection_ok_crosshair(name: object) -> bool:
-    return name is None or name in ("AND", "OR", "and", "or", "")
-
-
-_deal_filter_connection_ok = _profile(_deal_filter_connection_ok_crosshair, _deal_filter_connection_ok_pytest)
-
-
 def _normalize_operator_name(name: str) -> str:
     return name.strip().upper().replace("-", "_")
 
@@ -89,9 +61,6 @@ _OPS_NO_VALUE = frozenset(("EMPTY", "NOT_EMPTY"))
 _OPS_FORCE_NUMERIC = frozenset(("TOP_VALUES", "TOP_PERCENT", "BOTTOM_VALUES", "BOTTOM_PERCENT"))
 
 
-@deal.pre(lambda name: _deal_filter_connection_ok(name))
-@deal.post(lambda result: result in (0, 1))
-@deal.raises(UnoObjectError)
 def filter_connection_code(name: str | None) -> int:
     """Map ``AND`` / ``OR`` to UNO ``FilterConnection`` (0 / 1 per IDL)."""
     if not name:
@@ -104,9 +73,6 @@ def filter_connection_code(name: str | None) -> int:
     raise UnoObjectError(f"Invalid filter connection: {name!r} (use AND or OR).")
 
 
-@deal.pre(lambda operator: _deal_filter_op_name_ok(operator))
-@deal.post(lambda result: isinstance(result, int) and result >= 0)
-@deal.raises(UnoObjectError)
 def resolve_filter_operator_code(operator: str) -> int:
     """Resolve ``FilterOperator2`` name to numeric code."""
     code = _NAME_TO_CODE.get(_normalize_operator_name(operator))
@@ -115,21 +81,6 @@ def resolve_filter_operator_code(operator: str) -> int:
     return code
 
 
-def _deal_filter_criterion_ok_crosshair(raw: object) -> bool:
-    return (
-        isinstance(raw, dict)
-        and len(raw) <= DEAL_MAX_CMD_ARGS
-        and (not isinstance(raw.get("operator"), str) or ascii_bounded(raw.get("operator"), DEAL_MAX_TOKEN))
-        and (not isinstance(raw.get("connection"), str) or ascii_bounded(raw.get("connection"), DEAL_MAX_TOKEN))
-    )
-
-
-_deal_filter_criterion_ok = _profile(_deal_filter_criterion_ok_crosshair)
-
-
-@deal.pre(lambda raw, is_first: _deal_filter_criterion_ok(raw))
-@deal.post(lambda result: isinstance(result, FilterCriterion))
-@deal.raises(UnoObjectError)
 def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
     """Return ``FilterCriterion`` (Field, Operator, Connection, IsNumeric, NumericValue, StringValue).
 
@@ -138,7 +89,6 @@ def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
     Later rows: missing ``connection`` defaults to AND; ``OR`` links this row to the
     previous condition only (linear chain — not arbitrary parentheses).
     """
-    # crosshair: off
     if not isinstance(raw, dict):
         raise UnoObjectError("Each criterion must be an object.")
 

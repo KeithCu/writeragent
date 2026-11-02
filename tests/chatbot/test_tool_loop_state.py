@@ -366,7 +366,7 @@ def test_truncate_delegate_task_accepts_long_ascii_and_unicode():
         _truncate_delegate_task,
         format_delegate_running_chat_line,
     )
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+    from tests.contracts.bounds import DEAL_MAX_SOURCE
 
     long_ascii = "Fix the chart legend and axis labels. " * 80
     assert DELEGATE_TASK_CHAT_MAX < len(long_ascii) <= DEAL_MAX_SOURCE
@@ -427,7 +427,7 @@ def test_next_tool_delegate_keeps_full_task_on_spawn():
 def test_truncate_delegate_task_past_source_cap_truncates():
     """A specialize task longer than DEAL_MAX_SOURCE is previewed, not a contract error."""
     from plugin.chatbot.tool_loop_actions import DELEGATE_TASK_CHAT_MAX, _truncate_delegate_task
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+    from tests.contracts.bounds import DEAL_MAX_SOURCE
 
     preview = _truncate_delegate_task("A" * (DEAL_MAX_SOURCE + 1))
     assert preview.endswith("...")

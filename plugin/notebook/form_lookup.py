@@ -27,14 +27,12 @@ _local = threading.local()
 
 
 def _current_control_index() -> ControlIndex | None:
-    # crosshair: off  # threading.local() is engine-hostile
     return getattr(_local, "index", None)
 
 
 @contextlib.contextmanager
 def control_lookup_scope(doc: Any) -> Generator[None, None, None]:
     """Hold a draw-page control index for *doc* on this thread across nested calls."""
-    # crosshair: off  # threading.local() is engine-hostile
     if doc is None:
         yield
         return

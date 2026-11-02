@@ -12,14 +12,13 @@ Release / ``--strip`` / ``--no-tests`` OXT assembly removes:
 * ``grammar_obs(...)`` / ``_grammar_obs(...)`` expression statements
 * Logger ``.debug(...)`` / ``.info(...)`` expression statements
 * ``print(...)`` / ``pprint(...)`` expression statements (except a keep-list)
-* ``@deal.*`` decorators (keep ``deal_shim`` imports)
 * ``@main_thread_only`` decorators
 * Full ``thread_guard.py`` → no-op stubs
 
 Retail keeps ``warning`` / ``error`` / ``exception`` (and keep-listed prints).
 Checkout / ``make build`` (no strip) is unchanged.
 
-Tests that assert ``deal.PreContractError`` or ``log.debug``/``log.info`` output must
+Tests that assert ``log.debug``/``log.info`` output must
 accept the stripped tree: see ``tests/harness/strip_bundle.py`` (dual-path body guards;
 skip log-line asserts when call sites are gone). ``make release`` pytest runs
 against a stripped temp tree (``tempfile.mkdtemp``, typically under ``/tmp``) after this stripper.
@@ -30,10 +29,8 @@ Why bother (measured 2026-08-10 under ``plugin/``, excluding tests):
 * ``.info`` — ~292 call sites, ~29 KB
 * ``print`` / ``pprint`` — ~49 call sites, ~3 KB (small now; still strip for quiet retail;
   keep-list preserves stderr fallbacks, subprocess IPC, and CLI UX)
-* ``@deal.*`` — ~364 decorators, ~34 KB (shim already no-ops; strip skips def-time wrappers)
 
-Imports, logger setup, ``grammar_obs.py``, ``emit_grammar_status``, and
-``from plugin.framework.deal_shim import deal`` stay intact.
+Imports, logger setup, ``grammar_obs.py``, and ``emit_grammar_status`` stay intact.
 
 Line edits / empty-suite ``pass`` live in
 [`plugin.framework.ast_stmt_edit`](../plugin/framework/ast_stmt_edit.py) (shared with
@@ -305,16 +302,6 @@ def strip_print_calls(bundle_path: str, dry_run: bool = False) -> None:
     )
 
 
-def _is_deal_decorator(node: ast.expr) -> bool:
-    """True if *node* is a decorator under the ``deal`` namespace (e.g. ``@deal.pre``)."""
-    curr: ast.AST = node
-    if isinstance(curr, ast.Call):
-        curr = curr.func
-    while isinstance(curr, ast.Attribute):
-        curr = curr.value
-    return isinstance(curr, ast.Name) and curr.id == "deal"
-
-
 def _strip_matching_decorators(
     bundle_path: str,
     *,
@@ -422,22 +409,6 @@ def strip_main_thread_only_decorators(bundle_path: str, dry_run: bool = False) -
         label="main_thread_only decorators",
         needle="main_thread_only",
         should_remove=lambda dec: isinstance(dec, ast.Name) and dec.id == "main_thread_only",
-        dry_run=dry_run,
-    )
-
-
-def strip_deal_decorators(bundle_path: str, dry_run: bool = False) -> None:
-    """Remove ``@deal.*`` decorators; keep ``deal_shim`` imports.
-
-    Measured 2026-08-10: ~364 decorators / ~34 KB under ``plugin/`` (excluding tests).
-    Retail already no-ops via ``deal_shim``; stripping skips def-time wrapper application
-    and shrinks the OXT. Does not strip ``deal_shim.py`` or bare ``import deal``.
-    """
-    _strip_matching_decorators(
-        bundle_path,
-        label="@deal.* decorators (~364 sites / ~34 KB as of 2026-08-10)",
-        needle="deal.",
-        should_remove=_is_deal_decorator,
         dry_run=dry_run,
     )
 
@@ -600,13 +571,12 @@ def omit_sidebar_test_hooks(bundle_path: str, dry_run: bool = False) -> None:
 
 
 def strip_production_code(bundle_path: str, dry_run: bool = False) -> None:
-    """Release-bundle entry point: strip asserts/obs/debug/info/print/deal, ``main_thread_only``, stub ``thread_guard``, omit sidebar test hooks."""
+    """Release-bundle entry point: strip asserts/obs/debug/info/print, ``main_thread_only``, stub ``thread_guard``, omit sidebar test hooks."""
     strip_assert_statements(bundle_path, dry_run=dry_run)
     strip_grammar_obs_calls(bundle_path, dry_run=dry_run)
     strip_log_debug_info_calls(bundle_path, dry_run=dry_run)
     strip_print_calls(bundle_path, dry_run=dry_run)
     strip_main_thread_only_decorators(bundle_path, dry_run=dry_run)
-    strip_deal_decorators(bundle_path, dry_run=dry_run)
     replace_thread_guard_implementation(bundle_path, dry_run=dry_run)
     omit_sidebar_test_hooks(bundle_path, dry_run=dry_run)
 

@@ -28,14 +28,12 @@ def test_luminance_contracts(color: int) -> None:
 
 def test_luminance_pre_rejects_unbounded_and_bool() -> None:
     import deal
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.contracts.framework.appearance import _luminance as contract_luminance
 
-    if not deal_pre_present(_luminance):
-        pytest.skip("@deal.pre stripped in release bundle")
     with pytest.raises(deal.PreContractError):
-        _luminance(0x1000000)
+        contract_luminance(0x1000000)
     with pytest.raises(deal.PreContractError):
-        _luminance(True)  # type: ignore[arg-type]
+        contract_luminance(True)  # type: ignore[arg-type]
     assert 0.0 <= _luminance(0xFFFFFF) <= 255.0
     assert _luminance(0) == 0.0
 

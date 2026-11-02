@@ -81,7 +81,7 @@ def test_normalize_empty_and_non_str() -> None:
 
 
 def test_url_helpers_long_and_odd_do_not_precontract() -> None:
-    from plugin.framework.deal_shim import DEAL_MAX_URL
+    from tests.contracts.bounds import DEAL_MAX_URL
     from plugin.framework.url_utils import get_url_hostname, is_pdf_url
 
     too_long = "https://example.com/" + ("a" * DEAL_MAX_URL)

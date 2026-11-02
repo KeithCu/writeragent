@@ -18,11 +18,9 @@
 from __future__ import annotations
 
 import dataclasses
-import math
 from enum import Enum, auto
 from typing import Any, Optional
 
-from plugin.framework.deal_shim import DEAL_MAX_BACKOFF, DEAL_MAX_BACKOFF_FACTOR, DEAL_MAX_RETRY, deal
 from plugin.framework.service import BaseState, FsmTransition
 
 DEFAULT_INITIAL_BACKOFF: float = 1.0
@@ -120,22 +118,6 @@ class NotifyUrlAcquiredEffect:
 # ── Pure Backoff Calculator ───────────────────────────────────────────
 
 
-@deal.pre(
-    lambda retry_count, initial=DEFAULT_INITIAL_BACKOFF, factor=DEFAULT_BACKOFF_FACTOR, max_backoff=DEFAULT_MAX_BACKOFF: (
-        isinstance(retry_count, int)
-        and 0 <= retry_count <= DEAL_MAX_RETRY
-        and isinstance(initial, (int, float))
-        and math.isfinite(initial)
-        and 0 <= initial <= DEAL_MAX_BACKOFF
-        and isinstance(factor, (int, float))
-        and math.isfinite(factor)
-        and 1.0 <= factor <= DEAL_MAX_BACKOFF_FACTOR
-        and isinstance(max_backoff, (int, float))
-        and math.isfinite(max_backoff)
-        and initial <= max_backoff <= DEAL_MAX_BACKOFF
-    )
-)
-@deal.post(lambda result: result >= 0)
 def compute_backoff_delay(retry_count: int, initial: float = DEFAULT_INITIAL_BACKOFF, factor: float = DEFAULT_BACKOFF_FACTOR, max_backoff: float = DEFAULT_MAX_BACKOFF) -> float:
     """Compute exponential backoff delay capped at max_backoff."""
     delay = float(initial) * (float(factor) ** retry_count)
@@ -151,7 +133,6 @@ def _event_float(data: dict[str, Any], key: str) -> Optional[float]:
 
 
 def _event_int(data: dict[str, Any], key: str, fallback: int) -> int:
-    # crosshair: off
     """Parse an optional int from event data; empty / invalid strings keep *fallback*.
 
     CrossHair can put ``''`` in ``port`` / ``max_retries``; ``int('')`` raises.
@@ -175,13 +156,8 @@ def _event_int(data: dict[str, Any], key: str, fallback: int) -> int:
 # ── Pure State Transition Function ────────────────────────────────────
 
 
-@deal.ensure(lambda state, event, result: event.kind != TunnelEventKind.STOP_REQUESTED or (result.state.status == TunnelStatus.STOPPED and not result.state.desired_running and any(isinstance(e, CancelRetryTimerEffect) for e in result.effects)))
-@deal.ensure(lambda state, event, result: event.kind != TunnelEventKind.URL_ACQUIRED or (result.state.status == TunnelStatus.CONNECTED and result.state.retry_count == state.retry_count and any(isinstance(e, NotifyUrlAcquiredEffect) for e in result.effects)))
-@deal.ensure(lambda state, event, result: event.kind != TunnelEventKind.PROCESS_EXITED or result.state.status != TunnelStatus.RECONNECTING or (result.state.desired_running and any(isinstance(e, ScheduleRetryTimerEffect) for e in result.effects)))
 def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelState]:
     """Pure transition function for the MCP tunnel lifecycle and reconnection."""
-    # event.data is dict[str, Any] (tokens, URLs); Hypothesis covers transitions.
-    # crosshair: off
     # Captured before any replace. START overwrites provider and port on
     # TunnelState before effects run; post_stop must still see these.
     terminate = TerminateProcessEffect(provider=state.provider, port=state.port)

@@ -237,7 +237,7 @@ def test_null_byte_source_is_parse_error() -> None:
 def test_blocked_entries_fit_cache_key() -> None:
     from plugin.contrib.smolagents.local_python_executor import DANGEROUS_MODULES
     from plugin.contrib.smolagents.utils import BASE_BUILTIN_MODULES as SMOL_BASE_BUILTIN_MODULES
-    from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+    from tests.contracts.bounds import DEAL_MAX_TOKEN
     from plugin.scripting.sandbox import (
         FILE_BLOCKED_MODULES,
         NETWORK_BLOCKED_MODULES,

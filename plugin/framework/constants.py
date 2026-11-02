@@ -21,7 +21,6 @@ from enum import IntFlag
 import os
 from typing import Any
 
-from plugin.framework.deal_shim import deal
 
 APP_REFERER = "https://github.com/KeithCu/writeragent"
 APP_TITLE = "WriterAgent"
@@ -173,7 +172,6 @@ AUTO_IMPORTS: dict[str, str] = {
 # -------------------------------------------------
 
 
-@deal.post(lambda result: isinstance(result, _dt.datetime) and result.tzinfo is not None)
 def now_aware() -> _dt.datetime:
     """Return the current local time as a timezone-aware datetime."""
     return _dt.datetime.now().astimezone()

@@ -26,14 +26,11 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_bounded, deal
-
-
-@deal.pre(lambda node, names: isinstance(names, frozenset) and len(names) <= DEAL_MAX_CMD_ARGS and all(ascii_bounded(n, DEAL_MAX_TOKEN) for n in names))
-@deal.post(lambda result: isinstance(result, bool))
 def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
     """True if *node* is an expression-statement call to one of *names*."""
-    # crosshair: off
+
+
+
     # getattr: CrossHair may synthesize Expr() without .value; real ast.Expr always has it.
     value = getattr(node, "value", None) if isinstance(node, ast.Expr) else None
     if not isinstance(value, ast.Call):
@@ -99,7 +96,6 @@ def _cut_same_line_span(raw: str, start: int, end: int) -> str:
 
 def _get_container(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> list[ast.stmt] | None:
     """Suite (``body`` / ``orelse`` / ``finalbody``, including ExceptHandler and match_case)."""
-    # crosshair: off
     parent = parent_map[node]
     for attr in ("body", "orelse", "finalbody"):
         container = getattr(parent, attr, None)
@@ -108,7 +104,6 @@ def _get_container(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> list[as
     return None
 
 
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], int) and result[1] >= 0)
 def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *, pass_comment: str = "") -> tuple[str, int]:
     """Remove matching statement nodes from *source*.
 
@@ -117,8 +112,6 @@ def remove_statements(source: str, should_remove: Callable[[ast.stmt], bool], *,
     Dry-run callers use ``iter``; edit callers use this. One matching path.
     Returns ``(new_source, removed_count)``.
     """
-    # Callable argument plus a parse loop hangs deep check.
-    # crosshair: off
     src = source or ""
     nodes_to_remove, parent_map = _discover_statements(src, should_remove)
     if not nodes_to_remove:

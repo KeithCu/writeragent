@@ -63,16 +63,16 @@ def test_parse_worker_dict_result_non_dict_result(bad_result: object) -> None:
 def test_parse_worker_dict_result_overflow_pre_fails_closed() -> None:
     import deal
 
-    from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.contracts.bounds import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
+    from tests.contracts.scripting.trusted_rpc import (
+        parse_worker_dict_result as contract_parse_worker_dict_result,
+    )
 
-    if not deal_pre_present(parse_worker_dict_result):
-        pytest.skip("@deal.pre stripped in release bundle")
     too_many = {f"k{i}": i for i in range(DEAL_MAX_SHAPE_DIM + 1)}
     with pytest.raises(deal.PreContractError):
-        parse_worker_dict_result(too_many, error_code="ERR", error_label="Test")
+        contract_parse_worker_dict_result(too_many, error_code="ERR", error_label="Test")
     with pytest.raises(deal.PreContractError):
-        parse_worker_dict_result(
+        contract_parse_worker_dict_result(
             {"status": "ok", "result": {}},
             error_code="E" * (DEAL_MAX_TOKEN + 1),
             error_label="Test",

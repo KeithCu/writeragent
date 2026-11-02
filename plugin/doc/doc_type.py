@@ -115,7 +115,6 @@ def doc_type_family_label(doc_type: DocumentType) -> DocTypeFamily:
 
 def doc_type_str_from_doc(doc: Any) -> str | None:
     """Map UNO document model to tool context doc_type string."""
-    # crosshair: off
     if doc is None:
         return None
     try:

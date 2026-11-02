@@ -49,33 +49,25 @@ _TRAILING_EMPTY_P_RE = re.compile(
 )
 _BODY_AUTOSTYLE_RE = re.compile(r"\bparagraph-P\d+(?![A-Za-z0-9_\-])")
 
-from plugin.framework.deal_shim import deal
 
-
-@deal.post(lambda result: isinstance(result, str))
 def decode_lo_css_class_suffix(suffix: str) -> str:
     """Reverse ODF URL-style encoding in a CSS class suffix (``Heading_20_1`` -> ``Heading 1``)."""
     # re.sub on unbounded suffix hangs deep check.
-    # crosshair: off
     # Plain str only — CrossHair LazyIntSymbolicStr is isinstance(str) but breaks re.sub.
     if type(suffix) is not str:
         return ""
     return re.sub(r"_([0-9a-fA-F]{2})_", lambda m: chr(int(m.group(1), 16)), suffix)
 
 
-@deal.post(lambda result: isinstance(result, str) and " " not in result)
 def compact_lo_style_name(uno_name: str) -> str:
     """Agent-facing token: drop spaces (``Heading 1`` -> ``Heading1``)."""
-    # crosshair: off
     if type(uno_name) is not str:
         return ""
     return uno_name.replace(" ", "")
 
 
-@deal.post(lambda result: isinstance(result, bool))
 def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
     """True when body contains at least one paragraph-P<digits> autostyle class."""
-    # crosshair: off
     if type(xhtml) is not str:
         return False
     match = _BODY_RE.search(xhtml)
@@ -126,7 +118,6 @@ _FODT_PARA_STYLE_RE = re.compile(
 
 def _fodt_override_css(style_block: str) -> str:
     """CSS-ish ``prop: value`` list for one flat-ODF automatic paragraph style's own attributes."""
-    # crosshair: off
     parts = []
     seen = set()
     for odf_attr, css_name in _FODT_OVERRIDE_ATTRS:
@@ -146,7 +137,6 @@ def _fodt_override_css(style_block: str) -> str:
 
 
 def _parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]:  # pyright: ignore[reportUnusedFunction]
-    # crosshair: off
     # FODT autostyle extraction over unbounded XML.
     parents: dict[str, str] = {}
     overrides: dict[str, str] = {}
@@ -166,7 +156,6 @@ def _parse_fodt_autostyles(fodt: str) -> tuple[dict[str, str], dict[str, str]]: 
     return parents, overrides
 
 
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], dict) and isinstance(result[1], dict))
 def parse_style_block(xhtml: str) -> tuple[dict[str, str], dict[str, str]]:
     """Return ``(raw_map, norm_map)`` for every class rule in the ``<style>`` block(s).
 
@@ -174,7 +163,6 @@ def parse_style_block(xhtml: str) -> tuple[dict[str, str], dict[str, str]]:
     ``norm_map[class] = "decl;decl"`` (sorted) is used to fingerprint autostyles.
     """
     # Style-block regex on unbounded XHTML hangs deep check.
-    # crosshair: off
     raw_map = {}
     norm_map = {}
     text = xhtml if type(xhtml) is str else ""
@@ -188,7 +176,6 @@ def parse_style_block(xhtml: str) -> tuple[dict[str, str], dict[str, str]]:
 
 def _drop_trailing_empty_paragraphs(html: str) -> str:
     """Drop whitespace/``&nbsp;``-only ``<p>`` blocks at the very end (LO export ghost paras)."""
-    # crosshair: off
     while True:
         new = _TRAILING_EMPTY_P_RE.sub("", html)
         if new == html:
@@ -198,7 +185,6 @@ def _drop_trailing_empty_paragraphs(html: str) -> str:
 
 def _inject_attr(start_tag: str, attr: str) -> str:
     """Insert *attr* (e.g. ``' data-lo-style="X"'``) just before the closing ``>`` of a tag."""
-    # crosshair: off
     if start_tag.endswith("/>"):
         return start_tag[:-2].rstrip() + attr + "/>"
     if start_tag.endswith(">"):
@@ -207,7 +193,6 @@ def _inject_attr(start_tag: str, attr: str) -> str:
 
 
 def _attr_value(attrs: list[tuple[str, str | None]], key: str) -> str:
-    # crosshair: off
     for k, v in attrs:
         if k == key:
             return v or ""
@@ -219,25 +204,20 @@ class _HtmlPassthroughParser(HTMLParser):
     _out: list[str]
 
     def __init__(self) -> None:
-        # crosshair: off
         HTMLParser.__init__(self, convert_charrefs=False)
         self._table_depth = 0
         self._out = []
 
     def handle_data(self, data: str) -> None:
-        # crosshair: off
         self._out.append(data)
 
     def handle_entityref(self, name: str) -> None:
-        # crosshair: off
         self._out.append("&%s;" % name)
 
     def handle_charref(self, name: str) -> None:
-        # crosshair: off
         self._out.append("&#%s;" % name)
 
     def handle_comment(self, data: str) -> None:
-        # crosshair: off
         self._out.append("<!--%s-->" % data)
 
 
@@ -260,7 +240,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
     _norm: dict[str, str]
 
     def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None) -> None:
-        # crosshair: off
         super().__init__()
         self._raw = raw_map
         self._autostyle_parents = autostyle_parents or {}
@@ -302,7 +281,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
         spans. Whole-paragraph Para* overrides do not round-trip (the write path cannot restore
         Para* when applying a named style).
         """
-        # crosshair: off
         if _AUTOSTYLE_RE.match(suffix):
             # Authoritative: the flat-ODF parent of this autostyle (Pn -> named base).
             parent = self._autostyle_parents.get(suffix)
@@ -322,7 +300,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
         return token
 
     def _rewrite_block(self, raw: str, attrs: list[tuple[str, str | None]]) -> str:
-        # crosshair: off
         classes = _attr_value(attrs, "class")
         para_classes = _PARA_CLASS_RE.findall(classes)
         token = None
@@ -346,7 +323,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
         return raw
 
     def _rewrite_span(self, raw: str, attrs: list[tuple[str, str | None]]) -> str:
-        # crosshair: off
         classes = _attr_value(attrs, "class")
         names = classes.split()
         text_names = [c for c in names if c.startswith("text-")]
@@ -364,7 +340,6 @@ class _SemanticTransformer(_HtmlPassthroughParser):
         return _inject_attr(raw, ins) if ins else raw
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        # crosshair: off
         raw = self.get_starttag_text() or ("<%s>" % tag)
         t = tag.lower()
         if t == "table":
@@ -381,23 +356,19 @@ class _SemanticTransformer(_HtmlPassthroughParser):
             self._out.append(raw)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        # crosshair: off
         self._out.append(self.get_starttag_text() or ("<%s/>" % tag))
 
     def handle_endtag(self, tag: str) -> None:
-        # crosshair: off
         if tag.lower() == "table" and self._table_depth > 0:
             self._table_depth -= 1
         self._out.append("</%s>" % tag)
 
     def result(self) -> str:
-        # crosshair: off
         return "".join(self._out)
 
 
 def _strip_class_names(start_tag: str) -> str:
     """Remove class names matching _PARA_CLASS_RE from a start tag; drop the attr if it empties."""
-    # crosshair: off
     def _sub(m: Any) -> str:
         kept = [c for c in m.group(2).split() if not _PARA_CLASS_RE.fullmatch(c)]
         return (" class=%s%s%s" % (m.group(1), " ".join(kept), m.group(1))) if kept else ""
@@ -417,7 +388,6 @@ def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | 
     index. Recovers the base style **name** after StarWriter write→read when CSS fingerprint
     fails; does not recover whole-paragraph Para* overrides (v1 limitation — see plan doc).
     """
-    # crosshair: off
     raw_map, norm_map = parse_style_block(full_xhtml)
     m = _BODY_RE.search(full_xhtml or "")
     body = m.group(1).strip() if m else (full_xhtml or "")

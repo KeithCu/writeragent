@@ -12,7 +12,7 @@ import datetime as dt
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+from tests.contracts.bounds import DEAL_MAX_TOKEN
 from plugin.framework.openrouter_model_id import (
     _split_suffix,
     resolve_openrouter_catalog_id,

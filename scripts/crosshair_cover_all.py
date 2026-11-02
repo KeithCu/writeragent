@@ -129,16 +129,16 @@ _COVER_ALL_SCHEDULE_RANK: dict[str, int] = {rel: i for i, rel in enumerate(COVER
 
 
 def worker_deal_maxima() -> tuple[int, int, int]:
-    """Enable the CrossHair env, then return deal_shim's import-time col/row/cell maxima.
+    """Enable the CrossHair env, then return deal bounds import-time col/row/cell maxima.
 
     Picklable pool-worker entry. Spawn workers re-import this module without
     inheriting pytest's already-bound wide table; the env must be set *before*
-    ``import plugin.framework.deal_shim``. Production cover workers call
-    ``enable_crosshair_deal_table`` the same way and leave deal_shim to the
+    ``import tests.contracts.bounds``. Production cover workers call
+    ``enable_crosshair_deal_table`` the same way and leave bounds to the
     CrossHair child process.
     """
     enable_crosshair_deal_table()
-    from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX
+    from tests.contracts.bounds import DEAL_MAX_CELL_REF, DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX
 
     return DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX, DEAL_MAX_CELL_REF
 
@@ -486,7 +486,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    # Child CrossHair processes (and pool workers) import deal_shim; set this
+    # Child CrossHair processes (and pool workers) import tests.contracts.bounds; set this
     # before ProcessPoolExecutor so fork *and* spawn inherit the short @deal.pre
     # table. Pytest / make test never set it. Same helper as check-all.
     enable_crosshair_deal_table()

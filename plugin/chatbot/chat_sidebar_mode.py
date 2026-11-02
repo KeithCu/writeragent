@@ -14,7 +14,6 @@ from dataclasses import dataclass
 import logging
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -43,8 +42,6 @@ class SidebarModeFlags:
     include_deep_research: bool = False
 
 
-@deal.pre(lambda doc_type_label: str_bounded(doc_type_label, DEAL_MAX_TOKEN))
-@deal.post(lambda result: isinstance(result, SidebarModeFlags))
 def sidebar_mode_flags_for_doc_type(doc_type_label: str) -> SidebarModeFlags:
     """Writer gets brainstorming, writing plan, and deep research; Draw and Impress get PPT-Master; Calc and every other label get the shared modes only (Chat, Image, Web Research, Librarian)."""
     if doc_type_label == "writer":
@@ -118,17 +115,13 @@ def _modes_for(flags: SidebarModeFlags) -> tuple[str, ...]:
     return tuple(s.key for s in _MODE_SPECS if not s.flag_attr or getattr(flags, s.flag_attr))
 
 
-@deal.post(lambda result: isinstance(result, tuple) and len(result) >= 4)
 def get_mode_labels(flags: SidebarModeFlags = SidebarModeFlags()) -> tuple[str, ...]:
     """Translated combobox labels in the same order as ``_modes_for``."""
     return tuple(_SPEC_BY_KEY[mode].label_fn() for mode in _modes_for(flags))
 
 
-@deal.pre(lambda label, flags=SidebarModeFlags(): str_bounded(label, DEAL_MAX_TOKEN))
-@deal.post(lambda result: result in _SPEC_BY_KEY)
 def mode_from_label(label: str, flags: SidebarModeFlags = SidebarModeFlags()) -> str:
     """Map a combobox display label to a mode constant."""
-    # crosshair: off
     text = str(label or "").strip()
     for mode, item_label in zip(_modes_for(flags), get_mode_labels(flags)):
         if text == item_label:
@@ -144,7 +137,6 @@ def mode_from_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> str:
     selected index is Librarian (last ``addItems`` entry). Send then ran the
     librarian path despite the visible label.
     """
-    # crosshair: off
     if not ctrl:
         return CHAT_MODE_CHAT
     modes = _modes_for(flags)
@@ -167,7 +159,6 @@ def mode_from_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> str:
 
 def _set_combobox_items(ctrl: Any, labels: tuple[str, ...]) -> None:
     """Populate a sidebar ComboBox the same way as other working selectors (model StringItemList + addItems)."""
-    # crosshair: off
     model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
     if model is not None and hasattr(model, "StringItemList"):
         model.StringItemList = labels
@@ -203,7 +194,6 @@ def populate_mode_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> Non
 
 def set_selector_mode_with_flags(ctrl: Any, mode: str, flags: SidebarModeFlags) -> None:
     """Set combobox selection by mode constant."""
-    # crosshair: off
     if not ctrl or mode not in _SPEC_BY_KEY:
         return
     modes = _modes_for(flags)

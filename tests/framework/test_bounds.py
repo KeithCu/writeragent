@@ -14,7 +14,7 @@ import textwrap
 
 import pytest
 
-from plugin.framework.deal_shim import (
+from tests.contracts.bounds import (
     CROSSHAIR_ENV,
     DEAL_MAX_ARGV,
     DEAL_MAX_BACKOFF,
@@ -118,10 +118,10 @@ def test_noop_contract() -> None:
 
 def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
     """WRITERAGENT_CROSSHAIR=1 rebinds DEAL_MAX_* at import; pytest width must still work here."""
-    from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
-    from plugin.framework.i18n import _
+    from plugin.framework.html_stripper import strip_html_tags
+    from tests.contracts.framework.html_stripper import StreamingHTMLStripper
+    from tests.contracts.framework.i18n import _
     from plugin.mcp.cors import is_safe_origin, normalize_cors_origin
-    from tests.harness.strip_bundle import deal_pre_present
 
     # Pytest (no env): product-faithful widths stay live.
     assert os.environ.get(CROSSHAIR_ENV) != "1"
@@ -130,8 +130,7 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
     assert strip_html_tags("<b>ok</b>") == "ok"
     assert _("✓ Copied!") == "✓ Copied!"
     product_origin = "http://" + ("a" * 200)
-    if not deal_pre_present(is_safe_origin):
-        return
+    from tests.contracts.framework.html_stripper import StreamingHTMLStripper as contract_StreamingHTMLStripper
     assert len(product_origin) <= DEAL_MAX_ORIGIN
     is_safe_origin(product_origin)
     # Pytest origin ingest is total: a huge Origin is unsafe, not a contract error.
@@ -141,14 +140,14 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
     strip_html_tags("x" * (DEAL_MAX_HTML_CHUNK + 1))
     StreamingHTMLStripper().feed("x" * (DEAL_MAX_HTML_CHUNK + 1))
     with pytest.raises(deal.PreContractError):
-        StreamingHTMLStripper()._feed_chunk("x" * (DEAL_MAX_HTML_CHUNK + 1))
+        contract_StreamingHTMLStripper()._feed_chunk("x" * (DEAL_MAX_HTML_CHUNK + 1))
     strip_html_tags("x" * 256)
 
     script = textwrap.dedent(
         """
         import os
         os.environ["WRITERAGENT_CROSSHAIR"] = "1"
-        from plugin.framework.deal_shim import (
+        from tests.contracts.bounds import (
             DEAL_MAX_ARGV,
             DEAL_MAX_BACKOFF,
             DEAL_MAX_BACKOFF_FACTOR,
@@ -196,9 +195,13 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
         _wrapped = inverse_ensure(lambda x, result: False)(_f)
         assert _wrapped is _f and _wrapped(3) == 4
         import deal
-        from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
-        from plugin.framework.i18n import _
-        from plugin.mcp.cors import is_safe_origin
+        from plugin.framework.html_stripper import (
+            StreamingHTMLStripper as ProdStreamingHTMLStripper,
+            strip_html_tags,
+        )
+        from tests.contracts.framework.html_stripper import StreamingHTMLStripper
+        from tests.contracts.framework.i18n import _
+        from tests.contracts.mcp.cors import is_safe_origin
         try:
             is_safe_origin("h" * 33)
         except deal.PreContractError:
@@ -207,8 +210,8 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
             raise SystemExit("origin 33 must fail under CrossHair table")
         strip_html_tags("x" * 16)
         strip_html_tags("x" * 17)
-        StreamingHTMLStripper().feed("x" * 16)
-        StreamingHTMLStripper().feed("x" * 17)
+        ProdStreamingHTMLStripper().feed("x" * 16)
+        ProdStreamingHTMLStripper().feed("x" * 17)
         try:
             StreamingHTMLStripper()._feed_chunk("x" * 17)
         except deal.PreContractError:
@@ -242,9 +245,8 @@ def test_crosshair_env_rejects_pytest_collection_width() -> None:
     """
     import ast
 
-    from plugin.framework.ast_stmt_edit import is_name_call_expr
-    from plugin.scripting.payload_codec import is_image_payload
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.contracts.framework.ast_stmt_edit import is_name_call_expr
+    from tests.contracts.scripting.payload_codec import is_image_payload
 
     assert os.environ.get(CROSSHAIR_ENV) != "1"
     five_keys = {f"k{i}": i for i in range(5)}
@@ -252,11 +254,10 @@ def test_crosshair_env_rejects_pytest_collection_width() -> None:
     node = ast.Expr(value=ast.Call(func=ast.Name(id="x", ctx=ast.Load()), args=[], keywords=[]))
     assert is_image_payload(five_keys) is False
     assert is_name_call_expr(node, five_names) is False
-    if not deal_pre_present(is_image_payload):
-        return
+    from tests.contracts.framework.ast_stmt_edit import is_name_call_expr as contract_is_name_call_expr
     assert is_image_payload({f"k{i}": i for i in range(DEAL_MAX_SHAPE_DIM + 1)}) is False
     with pytest.raises(deal.PreContractError):
-        is_name_call_expr(node, frozenset(f"n{i}" for i in range(DEAL_MAX_CMD_ARGS + 1)))
+        contract_is_name_call_expr(node, frozenset(f"n{i}" for i in range(DEAL_MAX_CMD_ARGS + 1)))
     is_name_call_expr(node, frozenset({"xl"}))
 
     script = textwrap.dedent(
@@ -264,12 +265,12 @@ def test_crosshair_env_rejects_pytest_collection_width() -> None:
         import ast
         import os
         os.environ["WRITERAGENT_CROSSHAIR"] = "1"
-        from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SHAPE_DIM
+        from tests.contracts.bounds import DEAL_MAX_CMD_ARGS, DEAL_MAX_SHAPE_DIM
         assert DEAL_MAX_SHAPE_DIM == 4, DEAL_MAX_SHAPE_DIM
         assert DEAL_MAX_CMD_ARGS == 4, DEAL_MAX_CMD_ARGS
         import deal
-        from plugin.framework.ast_stmt_edit import is_name_call_expr
-        from plugin.scripting.payload_codec import is_image_payload
+        from tests.contracts.framework.ast_stmt_edit import is_name_call_expr
+        from tests.contracts.scripting.payload_codec import is_image_payload
         five_keys = {f"k{i}": i for i in range(5)}
         try:
             is_image_payload(five_keys)

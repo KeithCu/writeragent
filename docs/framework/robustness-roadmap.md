@@ -225,14 +225,14 @@ This is a high priority because it improves confidence over time while keeping r
 
 ### Shipped Contract Infrastructure
 
-WriterAgent has broadly adopted Design-by-Contract using `deal` (and `plugin/framework/deal_shim.py`) across 57+ modules in `plugin/`:
+WriterAgent has broadly adopted Design-by-Contract using `deal` (and `tests/contracts/` sidecars) across 57+ modules:
 
 - **Pure logic and serialization**: `payload_codec.py` (`is_split_grid`, `is_multi_data`, array pack/unpack), `calc_range.py`, `cells.py`, `address_utils.py`.
 - **Protocol and State Machines**: MCP wire types (`wire_types.py`), MCP SSE tunnel (`tunnel_state.py`), chat send state (`send_state.py`), tool loop state (`tool_loop_state.py`).
 - **Parsing and normalization**: `stream_normalizer.py`, `response_normalizers.py`, `html_stripper.py`, `url_utils.py`, `json_utils.py`.
 - **AST and Scripting**: `ast_stmt_edit.py`, `import_policy.py`, `editor_ipc.py`, `sandbox.py`.
 
-The lightweight `deal_shim.py` ensures that contracts are fully enforced during development, testing, and static analysis without adding runtime overhead to LibreOffice extension release builds.
+The `tests/contracts/` sidecars ensure that contracts are fully enforced during development, testing, and static analysis without adding runtime overhead or external dependencies to LibreOffice extension release builds.
 
 ### Concolic Execution and SMT Solving
 
@@ -397,7 +397,7 @@ This section should guide actual work and triage.
 - [x] Rewrite task priorities around practical recovery and graceful degradation
 - [x] Document the main failure modes and preferred recovery paths
 - [x] Identify pure helpers and boundary functions that are good candidates for `deal` contracts or invariant checks
-- [x] Reuse an existing contract library such as `deal` (`plugin/framework/deal_shim.py`) instead of building custom decorator infrastructure
+- [x] Reuse an existing contract library such as `deal` (`tests/contracts/` sidecars) instead of building custom decorator infrastructure
 - [x] Tighten validation on a small set of critical boundaries (config schema, MCP schemas, tool schemas, payload codec)
 - [x] Standardize bounded retry policy for network hot paths (`request_controls.py`, `http_transport.py`, `llm_client.py`, `tunnel_state.py`)
 - [x] Improve logging consistency for retry exhaustion, backoff attempts, and degraded-mode fallbacks

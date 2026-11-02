@@ -99,7 +99,6 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     Never runs *func* on the caller thread: a missing Toolkit used to fall back
     to a synchronous call, which blocked recalc with no worker isolation.
     """
-    # crosshair: off
     q: queue.Queue[tuple[Any, BaseException | None]] = queue.Queue()
 
     def worker() -> None:

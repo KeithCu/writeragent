@@ -19,7 +19,6 @@ import logging
 import re
 from typing import Any, cast
 
-from plugin.framework.deal_shim import deal
 
 __all__ = ["LLM_DEV_BUILD_SYSTEM_PREFIX", "extract_and_strip_images_from_message", "normalize_multimodal_messages", "prepare_chat_messages", "prepend_dev_build_system_prefix_to_messages", "should_prepend_dev_llm_system_prefix", "strip_leaked_chat_template_control_tokens"]
 
@@ -63,7 +62,6 @@ def _text_of(value: object) -> str:
 
 def normalize_message_content(raw: Any) -> str | None:
     """Return a single string from API message content (string or list of parts)."""
-    # crosshair: off
     if raw is None:
         return None
     if isinstance(raw, str):
@@ -95,40 +93,14 @@ def _record_image(extracted: list[dict[str, Any]], ext: str, raw_b64: str) -> st
     return "[Image Ref]"
 
 
-def _extracted_images_well_formed(result: list[dict[str, Any]]) -> bool:
-    return isinstance(result, list) and all(
-        isinstance(x, dict)
-        and (
-            (isinstance(x.get("mime_type"), str) and isinstance(x.get("data"), str))
-            or isinstance(x.get("url"), str)
-        )
-        for x in result
-    )
-
-
-def _string_content_has_no_data_uri(message: dict[str, Any]) -> bool:
-    content = message.get("content")
-    if not isinstance(content, str):
-        return True
-    return _DATA_URI_IMAGE_RE.search(content) is None
-
-
-@deal.post(lambda result: isinstance(result, str))
-@deal.ensure(lambda content, result: _CHAT_TEMPLATE_CONTROL_TOKEN_RE.search(result) is None)
-@deal.ensure(lambda content, result: len(result) <= len(content or ""))
 def strip_leaked_chat_template_control_tokens(content: str | None) -> str:
     """Remove ``<|name|>`` chat-template tokens that models sometimes emit in plain text."""
     # Greedy ``<|…|>`` regex on unbounded ASCII hangs deep check.
-    # crosshair: off
     if not content:
         return ""
     return _CHAT_TEMPLATE_CONTROL_TOKEN_RE.sub("", content).strip()
 
 
-# Optional strip_structured_image_blocks is often omitted; deal forwards provided args + result=.
-@deal.pre(lambda *args, **kwargs: bool(args) and isinstance(args[0], dict))
-@deal.post(lambda result: _extracted_images_well_formed(result))
-@deal.ensure(lambda *args, result=None, **kwargs: _string_content_has_no_data_uri(args[0]))
 def extract_and_strip_images_from_message(message: dict[str, Any], strip_structured_image_blocks: bool = True) -> list[dict[str, Any]]:
     """Scan message content, extract base64 images, and replace them with markers.
 
@@ -136,7 +108,6 @@ def extract_and_strip_images_from_message(message: dict[str, Any], strip_structu
         [{"mime_type": "image/png", "data": "<base64>"}, {"url": "<http(s) url>"}]
     """
     # Greedy data:image/…;base64 regex hangs deep check; pytest keeps product sizes.
-    # crosshair: off
     extracted_images: list[dict[str, Any]] = []
     content = message.get("content")
     if not content:

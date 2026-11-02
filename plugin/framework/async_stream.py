@@ -57,7 +57,6 @@ from plugin.framework.stream_batch import (
     split_stream_item,
     wait_for_timer_deadline,
 )
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
 from plugin.framework.async_drain_guard import (
     NestedDrainOwnerError,
@@ -76,17 +75,11 @@ from plugin.framework.queue_executor import (
 log = logging.getLogger(__name__)
 
 
-@deal.pre(lambda prefix, data: ascii_bounded(prefix, DEAL_MAX_TOKEN, min_len=1))
-@deal.post(lambda result: isinstance(result, str) and result.startswith("\n") and result.endswith("\n"))
-@deal.ensure(lambda prefix, data, result=None: result is not None and prefix in result)
 def _format_agent_tool_stream_line(prefix: str, data: Any) -> str:
     """Serialize ACP tool_call / tool_result payloads for chat display."""
     # data: Any (json.dumps / str) is an unbounded payload; prefix is already capped.
-    # crosshair: off
     try:
-        if UNDER_CROSSHAIR:
-            body = str(data)
-        elif isinstance(data, (dict, list)):
+        if isinstance(data, (dict, list)):
             body = json.dumps(data, ensure_ascii=False)
         else:
             body = str(data) if data is not None else ""
@@ -119,13 +112,11 @@ class _DrainState:
     error_callback_entered: bool = False
 
     def close_thinking(self) -> None:
-        # crosshair: off
         if self.thinking_open:
             self.apply_chunk_fn(" /thinking\n", True)
             self.thinking_open = False
 
     def flush_buffers(self) -> None:
-        # crosshair: off
         if self.current_thinking:
             if not self.thinking_open:
                 self.apply_chunk_fn("[Thinking] ", True)
@@ -143,7 +134,6 @@ class _DrainState:
         Terminal handlers use this. ``flush_buffers`` alone leaves thinking
         open so the next batch can continue the same block.
         """
-        # crosshair: off
         self.flush_buffers()
         self.close_thinking()
 
@@ -163,7 +153,6 @@ def _drain_ready(q: queue.Queue[Any], max_items: int | None = 50) -> list[Any]:
     A blocking ``get`` here would sit inside the VCL callback and hold
     SolarMutex for the whole timeout. See :func:`run_stream_drain_loop`.
     """
-    # crosshair: off
     items: list[Any] = []
     try:
         while max_items is None or len(items) < max_items:
@@ -175,7 +164,6 @@ def _drain_ready(q: queue.Queue[Any], max_items: int | None = 50) -> list[Any]:
 
 def _drain_batch(q: queue.Queue[Any], timeout: float) -> list[Any]:
     """Block up to *timeout* for one item, then drain any immediately available extras."""
-    # crosshair: off
     try:
         first = q.get(timeout=timeout)
     except queue.Empty:
@@ -192,7 +180,6 @@ def _append_stream_text(
     *,
     is_tool: bool = False,
 ) -> None:
-    # crosshair: off
     if is_tool and not state.show_search_thinking:
         return
     if getattr(state, other_attr):
@@ -203,13 +190,11 @@ def _append_stream_text(
 
 
 def _handle_status(state: _DrainState, data: Any, _item: Any) -> None:
-    # crosshair: off
     if state.on_status_fn:
         state.on_status_fn(data)
 
 
 def _handle_stream_done_like(state: _DrainState, _data: Any, item: Any) -> None:
-    # crosshair: off
     state.finish_display()
     if state.on_stream_done(item):
         state.job_done[0] = True
@@ -227,13 +212,11 @@ def _handle_next_tool(state: _DrainState, _data: Any, item: Any) -> None:
     so the tail runs in this drain instead of being dropped for a later one.
     A false return leaves ``job_done`` clear and the loop keeps pumping.
     """
-    # crosshair: off
     state.finish_display()
     state.defer_next_tool_exit = bool(state.on_stream_done(item))
 
 
 def _append_tool_line(prefix: str, state: _DrainState, data: Any, _item: Any) -> None:
-    # crosshair: off
     state.finish_display()
     state.apply_chunk_fn(_format_agent_tool_stream_line(prefix, data), False)
 
@@ -249,7 +232,6 @@ def _set_approval_event(item: Any) -> None:
 
 
 def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None:
-    # crosshair: off
     state.finish_display()
     if not state.on_approval_required:
         # There is no dialog to answer. Set the event so the worker sees
@@ -272,7 +254,6 @@ def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None
 
 
 def _handle_stopped(state: _DrainState, _data: Any, _item: Any) -> None:
-    # crosshair: off
     state.finish_display()
     # Mark the drain finished first. A raise is logged and is not turned
     # into on_error. Running on_stopped before job_done lets that raise
@@ -282,7 +263,6 @@ def _handle_stopped(state: _DrainState, _data: Any, _item: Any) -> None:
 
 
 def _handle_error(state: _DrainState, data: Any, _item: Any) -> None:
-    # crosshair: off
     state.finish_display()
     # Mark the callback as entered first. A raising on_error falls into
     # _process_batch's except, which would call on_error again with that
@@ -326,7 +306,6 @@ def _apply_display_item(state: _DrainState, item: Any) -> None:
     here would turn Stop into a failure. An approval event in the tail is
     set so the worker is not left in ``wait_for_approval``.
     """
-    # crosshair: off
     raw_kind, data = split_stream_item(item)
     if not isinstance(raw_kind, StreamQueueKind):
         return
@@ -348,7 +327,6 @@ def _apply_queued_display(state: _DrainState) -> None:
     batcher never reached the sidebar. Control items from the stopped attempt
     (STREAM_DONE, ERROR) are discarded with the get. An approval event is set.
     """
-    # crosshair: off
     while True:
         try:
             item = state.q.get_nowait()
@@ -369,7 +347,6 @@ def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None
     item. Control items in the tail are not dispatched. An approval event
     in that tail is set.
     """
-    # crosshair: off
     if pending_items:
         for item in pending_items:
             _apply_display_item(state, item)
@@ -388,7 +365,6 @@ def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None
 
 
 def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[[], bool] | None, flush_pending: Callable[[], None] | None = None) -> None:
-    # crosshair: off
     # Trailing flush_buffers() must still raise on the success path (outer catch
     # / test_stream_drain_loop_processing_error). Skip it after stop and after
     # an inner handler failure: those paths already flushed, and a second raise
@@ -514,7 +490,6 @@ def clear_drain_capture() -> None:
     nested-owner refusal) and then defer its completion onto document A's
     drain, so B's buttons and status wait for A to finish.
     """
-    # crosshair: off
     global _event_drain
     _event_drain = None
 
@@ -528,7 +503,6 @@ def defer_until_drain_done(fn: Callable[[], None]) -> None:
     (``abort_turn``, ``SEND_COMPLETED``) has to go through here or it runs
     while tokens are still arriving.
     """
-    # crosshair: off
     session = _event_drain
     if session is None or session.closed:
         fn()
@@ -554,7 +528,6 @@ class _IdleRearmThread:
     _stopped: bool
 
     def __init__(self) -> None:
-        # crosshair: off
         self._cv = threading.Condition()
         self._deadline = None
         self._fire = None
@@ -565,7 +538,6 @@ class _IdleRearmThread:
         self._stopped = False
 
     def arm(self, delay: float, fire: Callable[[], None], on_give_up: Callable[[], None] | None = None) -> None:
-        # crosshair: off
         with self._cv:
             if self._stopped:
                 return
@@ -580,7 +552,6 @@ class _IdleRearmThread:
             self._cv.notify()
 
     def cancel(self) -> None:
-        # crosshair: off
         with self._cv:
             self._generation += 1
             self._failures = 0
@@ -590,7 +561,6 @@ class _IdleRearmThread:
             self._cv.notify()
 
     def stop(self) -> None:
-        # crosshair: off
         with self._cv:
             self._stopped = True
             self._deadline = None
@@ -599,7 +569,6 @@ class _IdleRearmThread:
             self._cv.notify()
 
     def _run(self) -> None:
-        # crosshair: off
         while True:
             with self._cv:
                 deadline = wait_for_timer_deadline(self._cv, self)
@@ -662,7 +631,6 @@ class _IdleRearmThread:
 
 def _new_xcallback(fn: Callable[[], None]) -> Any:
     """UNO ``XCallback`` whose ``notify`` runs *fn* on the main thread."""
-    # crosshair: off
     import unohelper
     from com.sun.star.awt import XCallback
 
@@ -697,7 +665,6 @@ class _AsyncCallbackRearm:
     _on_idle_give_up: Callable[[], None] | None
 
     def __init__(self, service: Any) -> None:
-        # crosshair: off
         self._service = service
         self._lock = threading.Lock()
         self._pending = []
@@ -722,7 +689,6 @@ class _AsyncCallbackRearm:
         generation mismatch, and nothing re-armed. The drain kept the pump
         owner. One slot, two writers.
         """
-        # crosshair: off
         with self._lock:
             if self._closed:
                 return
@@ -744,7 +710,6 @@ class _AsyncCallbackRearm:
             raise
 
     def _notify(self) -> None:
-        # crosshair: off
         with self._lock:
             if not self._pending:
                 return
@@ -758,7 +723,6 @@ class _AsyncCallbackRearm:
                 self._poke()
 
     def _poke(self) -> None:
-        # crosshair: off
         # The idle timer thread can poke while close() runs on the main
         # thread; read both under the lock so a closed rearm is a no-op.
         with self._lock:
@@ -769,16 +733,13 @@ class _AsyncCallbackRearm:
         service.addCallback(callback, None)
 
     def post(self, fn: Callable[[], None]) -> None:
-        # crosshair: off
         self._timer.cancel()
         self._enqueue(fn)
 
     def post_after(self, delay: float, fn: Callable[[], None]) -> None:
-        # crosshair: off
         self._timer.arm(delay, lambda: self._enqueue(fn), on_give_up=self._on_idle_give_up)
 
     def close(self) -> None:
-        # crosshair: off
         self._timer.stop()
         with self._lock:
             self._closed = True
@@ -815,7 +776,6 @@ class _EventDrain:
         flush_pending: Callable[[], None] | None,
         on_started: Callable[[], None] | None = None,
     ) -> None:
-        # crosshair: off
         self._state = state
         self._scheduler = scheduler
         self._stop_checker = stop_checker
@@ -829,7 +789,6 @@ class _EventDrain:
 
     def start(self) -> None:
         """Take the pump owner and arm the first slice. Does not process items."""
-        # crosshair: off
         global _event_drain
         acquire_drain_owner("stream")
         self._held = True
@@ -862,13 +821,11 @@ class _EventDrain:
         self._fail(RuntimeError("event drain idle re-arm failed %d times" % _IDLE_REARM_MAX_FAILURES))
 
     def _fail(self, exc: BaseException) -> None:
-        # crosshair: off
         self._report_slice_error(exc)
         self._state.job_done[0] = True
         self._finish()
 
     def _schedule_next(self, delay: float | None = None) -> None:
-        # crosshair: off
         if self.closed:
             return
         self._generation += 1
@@ -886,7 +843,6 @@ class _EventDrain:
             self._scheduler.post(_run)
 
     def _report_slice_error(self, exc: BaseException) -> None:
-        # crosshair: off
         try:
             self._state.on_error(format_error_payload(exc))
         except Exception:
@@ -910,7 +866,6 @@ class _EventDrain:
         returning, and the executor's own ``AsyncCallback`` runs marshaled UNO
         once this callback has returned.
         """
-        # crosshair: off
         if self.closed:
             return
         state = self._state
@@ -958,7 +913,6 @@ class _EventDrain:
 
     def _finish(self) -> None:
         """Release the pump owner, then run epilogues. Later slices are no-ops."""
-        # crosshair: off
         global _event_drain
         if self.closed:
             return
@@ -1000,7 +954,6 @@ def _notify_drain_failure(
     called ``on_error`` outside a try. A raising handler then hit the outer
     except and was reported again.
     """
-    # crosshair: off
     if level == logging.WARNING:
         log.warning("%s: %s", log_message, exc)
     else:
@@ -1073,7 +1026,6 @@ def run_stream_drain_loop(
     - (TOOL_CALL, payload): Agent-backend tool block; shown as text via apply_chunk_fn.
     - (TOOL_RESULT, payload): Agent-backend tool result block; shown as text via apply_chunk_fn.
     """
-    # crosshair: off
     state = _DrainState(q=q, apply_chunk_fn=apply_chunk_fn, on_stream_done=on_stream_done, on_stopped=on_stopped, on_error=on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, show_search_thinking=show_search_thinking, job_done=job_done)
     log.debug("run_stream_drain_loop start %s", _marshal_thread_tag())
     # Deferrals after this call belong to this drain (or run now if it is
@@ -1126,7 +1078,6 @@ def set_drain_scheduler_override(factory: Callable[[], Any | None] | None) -> Ca
 
 def _make_drain_rearm() -> _AsyncCallbackRearm | None:
     """Production re-arm, or None when the blocking loop must be used."""
-    # crosshair: off
     if _drain_scheduler_override is not None:
         return _drain_scheduler_override()
     service = async_callback_for_drain_rearm()
@@ -1151,7 +1102,6 @@ def _run_stream_drain_blocking(
     Unit tests and the eval harness have no VCL callback to return to.
     Do not use this loop when ``addCallback`` works. See :meth:`_EventDrain._slice`.
     """
-    # crosshair: off
     q = state.q
     job_done = state.job_done
     on_error = state.on_error
@@ -1249,20 +1199,17 @@ class StreamQueue(queue.Queue[Any]):
     _terminal_flags: list[list[bool]]
 
     def __init__(self, maxsize: int = 0) -> None:
-        # crosshair: off
         super().__init__(maxsize)
         self._terminal_lock = threading.Lock()
         self._terminal_flags = []
 
     def subscribe_terminal(self) -> list[bool]:
-        # crosshair: off
         flag = [False]
         with self._terminal_lock:
             self._terminal_flags.append(flag)
         return flag
 
     def unsubscribe_terminal(self, flag: list[bool]) -> None:
-        # crosshair: off
         with self._terminal_lock:
             for index, existing in enumerate(self._terminal_flags):
                 if existing is flag:
@@ -1270,7 +1217,6 @@ class StreamQueue(queue.Queue[Any]):
                     break
 
     def put(self, item: Any, block: bool = True, timeout: float | None = None) -> None:
-        # crosshair: off
         if self._terminal_flags:
             kind, _data = split_stream_item(item)
             if kind in _TERMINAL_WATCH_KINDS:
@@ -1288,7 +1234,6 @@ def _producer_batch(q: Any) -> tuple[queue.Queue[Any], Callable[[], None] | None
     A plain ``queue.Queue`` has neither ``raw`` nor ``flush``, so Stop and
     the worker finally leave it alone.
     """
-    # crosshair: off
     raw = getattr(q, "raw", None)
     flush = getattr(q, "flush", None)
     if isinstance(raw, queue.Queue) and callable(flush):
@@ -1331,7 +1276,6 @@ def run_async_worker_with_drain(
     ``on_done_fn`` or a no-op so the drain loop never fails on a missing
     handler.
     """
-    # crosshair: off
     if q is None:
         q = StreamQueue()
     job_done = [False]
@@ -1471,7 +1415,6 @@ def run_stream_completion_async(
     stop_checker: Callable[[], bool] | None = None,
 ) -> None:
     """High-level helper for simple non-tool streams (always chat completions)."""
-    # crosshair: off
     # Batch CHUNK/THINKING so Extend/Edit selection does not wake the drain
     # per token. STATUS still flushes (BatchingStreamQueue boundary).
     batched = BatchingStreamQueue(StreamQueue(), batch_interval=0.25)

@@ -23,7 +23,7 @@ from plugin.calc.excel_py_convert.resolve_refs import (
     ResolvedDep,
     resolve_dep,
 )
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+from tests.contracts.bounds import DEAL_MAX_TOKEN
 from plugin.framework.errors import UnoObjectError
 
 

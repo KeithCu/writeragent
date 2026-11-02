@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import plugin.mcp.mcp_session as mcp_session
-from plugin.framework.deal_shim import DEAL_MAX_ORIGIN
+from tests.contracts.bounds import DEAL_MAX_ORIGIN
 from plugin.mcp.cors import (
     get_allow_private_origins,
     get_extra_allowed_origins,

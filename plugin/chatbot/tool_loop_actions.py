@@ -68,7 +68,6 @@ _EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX = 120
 
 
 def _describe_empty_response_content(content: Any) -> str:
-    # crosshair: off
     if content is None:
         return "None"
     if content == "":
@@ -82,7 +81,6 @@ def _describe_empty_response_content(content: Any) -> str:
 
 
 def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
-    # crosshair: off
     if tool_calls is None:
         return "none"
     if isinstance(tool_calls, list):
@@ -92,7 +90,6 @@ def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
 
 def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any]) -> str:
     """Compact API summary for sidebar when STREAM_DONE has no content and no tools."""
-    # crosshair: off
     calls_note = _describe_empty_response_tool_calls(response.get("tool_calls"))
     parts = [
         f"round={round_num}",
@@ -110,7 +107,6 @@ def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any
 
 
 def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
-    # crosshair: off
     domain = func_args.get("domain")
     if isinstance(domain, str) and domain.strip():
         return domain.strip()
@@ -118,7 +114,6 @@ def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
 
 
 def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) -> str:
-    # crosshair: off
     # Display-only helper. Chat may show 120 chars; specialize still gets
     # kwargs["task"] intact (specialized_base.execute).
     one_line = task.replace("\n", " ").replace("\r", " ").strip()
@@ -129,7 +124,6 @@ def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) ->
 
 def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when a delegate gateway tool starts."""
-    # crosshair: off
     domain = domain_from_delegate_args(func_args)
     raw_task = func_args.get("task")
     task_preview = "" if raw_task is None else _truncate_delegate_task(str(raw_task))
@@ -145,13 +139,11 @@ def _result_note(result_data: Mapping[str, Any]) -> str:
     key is present and null. A null or empty message falls through to
     Unknown error, status, or done.
     """
-    # crosshair: off
     status = result_data.get("status")
     return result_data.get("message") or ("Unknown error" if status == "error" else status or "done")
 
 
 def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
-    # crosshair: off
     """Completion line for delegate gateway tools (domain shown; success is short)."""
     domain = domain_from_delegate_args(func_args)
     status = result_data.get("status")
@@ -164,7 +156,6 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
 
 def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tuple[str, str]:
     """Status bar text and chat run-line when a tool starts executing."""
-    # crosshair: off
     if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
         return f"Running: delegate ({domain_from_delegate_args(func_args)})", format_delegate_running_chat_line(func_args)
     if func_name == "upsert_memory":
@@ -174,7 +165,6 @@ def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tupl
 
 def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
     """Chat append body for a tool result (error or success); does not mutate *result_data*."""
-    # crosshair: off
     status = result_data.get("status")
     if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
         detailed_text = format_delegate_result_chat_line(func_args, result_data)
@@ -202,14 +192,12 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
 
 def format_replaced_zero_debug_line(func_args_str: str) -> str:
     """Preview parameters when apply_document_content finds 0 occurrences."""
-    # crosshair: off
     params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
     return f"[Debug: params {params_display}]\n"
 
 
 def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
     """True when apply_document_content reported zero replacements (structured or legacy message)."""
-    # crosshair: off
     # Plain dict/str only — isinstance(str) is true for CrossHair LazyIntSymbolicStr.
     # Only a real int zero counts. ``replaced_count == 0`` is also true
     # for False, which would append the debug params line.

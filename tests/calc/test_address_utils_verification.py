@@ -26,10 +26,10 @@ from plugin.calc.address_utils import (
     parse_address,
     parse_range_string,
 )
-from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX
+from tests.contracts.bounds import DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX
 from tests.harness.vhs_budget import vhs_max_examples
 
-CROSSHAIR_MODULE = "plugin/calc/address_utils.py"
+CROSSHAIR_MODULE = "tests/contracts/calc/address_utils.py"
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 
 # Bound column width so Hypothesis stays fast (Excel max is wider; invariant holds generally).
@@ -76,12 +76,10 @@ def test_hypothesis_format_parse_round_trip(col: int, row: int) -> None:
 
 def test_format_address_row_overflow_pre_fails_closed() -> None:
     import deal
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.contracts.calc.address_utils import format_address as contract_format_address
 
-    if not deal_pre_present(format_address):
-        pytest.skip("@deal.pre stripped in release bundle")
     with pytest.raises(deal.PreContractError):
-        format_address(0, DEAL_MAX_ROW_INDEX + 1)
+        contract_format_address(0, DEAL_MAX_ROW_INDEX + 1)
     assert format_address(0, DEAL_MAX_ROW_INDEX) == f"A{DEAL_MAX_ROW_INDEX + 1}"
 
 
@@ -118,14 +116,6 @@ def test_hypothesis_parse_address_row_non_negative_or_raises(s: str) -> None:
 
 @pytest.mark.slow
 def test_crosshair_address_utils_if_available() -> None:
-    from tests.harness.strip_bundle import deal_pre_present
-
-    # make release strips @deal.pre but keeps @inverse_ensure; CrossHair then
-    # reports pre-violations (e.g. column_to_index('\x00'), format_address(-1, 0))
-    # as post/inverse failures. Same skip pattern as overflow pre test above.
-    if not deal_pre_present(format_address) or not deal_pre_present(column_to_index):
-        pytest.skip("@deal.pre stripped in release bundle; CrossHair needs @deal.pre preconditions")
-
     crosshair_path = _find_crosshair()
     if not crosshair_path:
         pytest.skip("CrossHair concolic execution engine is not installed.")
@@ -148,12 +138,9 @@ def test_format_address_post_avoids_regex() -> None:
     """format_address postcondition stays regex-free to avoid concolic solver slowdowns."""
     import inspect
 
-    from plugin.calc.address_utils import format_address
+    import tests.contracts.calc.address_utils as contract_mod
 
-    # deal.post lives on the decorator stack; inspect the module region above the def.
-    mod_src = inspect.getsource(inspect.getmodule(format_address))
-    # The format_address deal.post block must not use re.match/re.fullmatch.
-    # Grep the decorator region above def format_address.
-    idx = mod_src.index("def format_address")
-    region = mod_src[max(0, idx - 500) : idx]
+    mod_src = inspect.getsource(contract_mod)
+    idx = mod_src.index("format_address =")
+    region = mod_src[idx : idx + 500]
     assert "re.match" not in region and "re.fullmatch" not in region

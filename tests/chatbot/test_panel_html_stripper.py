@@ -14,7 +14,7 @@ import threading
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
-from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
+from tests.contracts.bounds import DEAL_MAX_HTML_CHUNK
 from plugin.framework.html_stripper import StreamingHTMLStripper
 
 

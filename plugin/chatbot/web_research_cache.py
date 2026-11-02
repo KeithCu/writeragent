@@ -6,7 +6,6 @@
 """Web research cache: query fluff plus Snowball/Jaccard matching, and the SQLite/embedding lookups over the shared web_cache table."""
 
 
-# crosshair: off
 from __future__ import annotations
 
 import logging
@@ -19,7 +18,6 @@ from typing import Any, cast, TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.framework.deal_shim import deal
 from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
 
 log = logging.getLogger("writeragent.web_research_cache")
@@ -74,7 +72,6 @@ def stem_word(snowball_lang: str, token: str) -> str:
         return token
 
 
-@deal.post(lambda result: isinstance(result, str) and result in _SNOWBALL_LANGS)
 def snowball_lang_from_locale_tag(tag: str) -> str:
     iso = str(tag or "").replace("-", "_").split("_")[0].lower()
     return _ISO_TO_SNOWBALL.get(iso) or "english"
@@ -203,7 +200,6 @@ def _same_mode_and_lang(raw_key: str, *, mode: str, snowball_lang: str) -> str |
     return word_key
 
 
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2)
 def parse_research_cache_key(raw_key: str) -> tuple[str, str]:
     """Return (snowball_lang, word_key). Legacy unprefixed keys are english.
 
@@ -221,7 +217,6 @@ def parse_research_cache_key(raw_key: str) -> tuple[str, str]:
     return "english", key
 
 
-@deal.post(lambda result: isinstance(result, str))
 def format_research_cache_key(snowball_lang: str, word_key: str, *, mode: str = "") -> str:
     """Storage key. ``mode='deep'`` is ``deep|{lang}|{words}`` in the same file.
 
@@ -248,7 +243,6 @@ def stem_set_from_word_key(word_key: str, snowball_lang: str) -> set[str]:
     return stems
 
 
-@deal.post(lambda result: isinstance(result, float) and 0.0 <= result <= 1.0)
 def research_cache_similarity(query_stems: set[str], stored_stems: set[str]) -> float:
     """Similarity for fuzzy gate: max(union Jaccard, overlap/min-size).
 

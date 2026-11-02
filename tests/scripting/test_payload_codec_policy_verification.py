@@ -17,7 +17,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import deal
-from plugin.framework.deal_shim import (
+from tests.contracts.bounds import (
     DEAL_MAX_COL_INDEX,
     DEAL_MAX_ROW_INDEX,
     DEAL_MAX_SHAPE_DIM,
@@ -44,19 +44,18 @@ from plugin.scripting.payload_codec import (
     should_use_binary_envelope,
     wire_cell_count,
 )
-from tests.harness.strip_bundle import deal_pre_present
 from tests.harness.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
-    "plugin.scripting.payload_codec.is_numeric_grid",
-    "plugin.scripting.payload_codec.cell_count",
-    "plugin.scripting.payload_codec.should_use_binary_envelope",
-    "plugin.scripting.payload_codec.is_split_grid",
-    "plugin.scripting.payload_codec.is_multi_data",
-    "plugin.scripting.payload_codec.is_image_payload",
-    "plugin.scripting.payload_codec.is_dataframe_payload",
-    "plugin.scripting.payload_codec.is_calc_range_payload",
+    "tests.contracts.scripting.payload_codec.is_numeric_grid",
+    "tests.contracts.scripting.payload_codec.cell_count",
+    "tests.contracts.scripting.payload_codec.should_use_binary_envelope",
+    "tests.contracts.scripting.payload_codec.is_split_grid",
+    "tests.contracts.scripting.payload_codec.is_multi_data",
+    "tests.contracts.scripting.payload_codec.is_image_payload",
+    "tests.contracts.scripting.payload_codec.is_dataframe_payload",
+    "tests.contracts.scripting.payload_codec.is_calc_range_payload",
 )
 # wire_cell_count: deal+Hypothesis only (# crosshair: off — envelope Literal/proxy crashes)
 
@@ -105,21 +104,25 @@ def test_zero_dim_shape_cell_count() -> None:
 
 
 def test_cell_count_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(cell_count):
-        pytest.skip("@deal.pre stripped in release bundle")
+    from tests.contracts.scripting.payload_codec import (
+        cell_count as contract_cell_count,
+        is_numeric_grid as contract_is_numeric_grid,
+        should_use_binary_envelope as contract_should_use_binary_envelope,
+    )
+
     # Shape dims follow Calc row bound (AFC (300, 1) must pass), not SHAPE_DIM.
     assert cell_count((300, 1)) == 300
     with pytest.raises(deal.PreContractError):
-        cell_count((DEAL_MAX_ROW_INDEX + 2,))
+        contract_cell_count((DEAL_MAX_ROW_INDEX + 2,))
     with pytest.raises(deal.PreContractError):
-        cell_count(tuple([1] * (DEAL_MAX_SHAPE_RANK + 1)))
+        contract_cell_count(tuple([1] * (DEAL_MAX_SHAPE_RANK + 1)))
     # min_cells is a cell-count threshold, not a shape side. SHAPE_DIM+1 and
     # the bench flag 1000 must pack. One past a full Calc column still fails.
     assert should_use_binary_envelope((1,), min_cells=1000) is False
     assert should_use_binary_envelope((1,), min_cells=DEAL_MAX_SHAPE_DIM + 1) is False
     assert host_pack_data([[1.0]], min_cells=1000) == [[1.0]]
     with pytest.raises(deal.PreContractError):
-        should_use_binary_envelope((1,), min_cells=DEAL_MAX_ROW_INDEX + 2)
+        contract_should_use_binary_envelope((1,), min_cells=DEAL_MAX_ROW_INDEX + 2)
     # Product grid uses sheet bounds; SHAPE_DIM+1 stays legal (Population A1:H1517).
     assert is_numeric_grid([0] * (DEAL_MAX_SHAPE_DIM + 1)) is True
     assert is_numeric_grid([[0] * (DEAL_MAX_SHAPE_DIM + 1)]) is True
@@ -133,9 +136,9 @@ def test_cell_count_overflow_pre_fails_closed() -> None:
             return DEAL_MAX_COL_INDEX + 2
 
     with pytest.raises(deal.PreContractError):
-        is_numeric_grid(_OverRow([0]))
+        contract_is_numeric_grid(_OverRow([0]))
     with pytest.raises(deal.PreContractError):
-        is_numeric_grid([_OverCol([0])])
+        contract_is_numeric_grid([_OverCol([0])])
 
 
 def test_host_pack_split_grid_empty() -> None:

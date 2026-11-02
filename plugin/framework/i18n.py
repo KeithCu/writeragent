@@ -35,7 +35,6 @@ import os
 from typing import Any, Optional
 
 from plugin.framework.constants import get_plugin_dir
-from plugin.framework.deal_shim import DEAL_MAX_MSGID, deal, str_bounded
 
 log = logging.getLogger("writeragent.i18n")
 
@@ -61,7 +60,6 @@ def reset_i18n() -> None:
     _active_locale = _DEFAULT_LOCALE
 
 
-@deal.post(lambda result: isinstance(result, str) and len(result) > 0)
 def get_active_locale() -> str:
     """Return the locale tag for the gettext catalog loaded by init_i18n()."""
     return _active_locale
@@ -73,7 +71,6 @@ def get_lo_locale(ctx: Any | None = None) -> str:
     Reads ``/org.openoffice.Setup/L10N`` → ``ooLocale``. On failure or empty
     value, returns ``en_US`` so gettext still loads a predictable catalog.
     """
-    # crosshair: off
     try:
         import uno
 
@@ -105,7 +102,6 @@ def get_lo_locale(ctx: Any | None = None) -> str:
 
 
 def _mo_candidates(localedir: str, lang: str) -> list[str]:
-    # crosshair: off
     """Likely ``.mo`` paths for *lang* (exact tag, then language stem)."""
     stem = lang.split(".")[0]
     # First-seen order is the search order: exact tag, text before '.', language before '_'.
@@ -114,7 +110,6 @@ def _mo_candidates(localedir: str, lang: str) -> list[str]:
 
 
 def load_translation(languages: list[str], localedir: str | None = None, *, fallback: bool = True) -> gettext.NullTranslations:
-    # crosshair: off
     """Load domain ``writeragent`` for *languages*.
 
     ``gettext.find`` expands tags via ``locale.normalize``. On Windows that
@@ -146,7 +141,6 @@ def init_i18n(ctx: Any | None = None) -> None:
     no ``ctx`` returns without installing a catalog so a later UI-thread
     ``init_i18n(ctx)`` can still load the office locale.
     """
-    # crosshair: off
     global _translation, _active_locale
 
     if _translation is not None:
@@ -179,11 +173,8 @@ def init_i18n(ctx: Any | None = None) -> None:
 # CrossHair-on with msgid=1024 wanders for hours. Shrinking DEAL_MAX_MSGID would
 # reject real UI _() strings at import under WRITERAGENT_CROSSHAIR=1. Pytest
 # still checks the contract; check-all skips this wrapper.
-@deal.pre(lambda message: str_bounded(message, DEAL_MAX_MSGID))
-@deal.post(lambda result: isinstance(result, str))
 def _(message: str) -> str:
     """Translate English msgid *message* via gettext. Must be :class:`str`."""
-    # crosshair: off
     if not isinstance(message, str):
         raise TypeError("gettext msgid must be str")
 

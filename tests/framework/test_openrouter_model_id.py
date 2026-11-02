@@ -73,7 +73,7 @@ def test_openrouter_equivalent_dropped_from_check_all_fqns() -> None:
 
 
 def test_catalog_larger_than_shape_dim_resolves() -> None:
-    from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
+    from tests.contracts.bounds import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
     from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
 
     model = "vendor/" + ("m" * (DEAL_MAX_TOKEN + 1))

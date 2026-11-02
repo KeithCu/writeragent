@@ -13,7 +13,7 @@ from plugin.calc.python.formula_edit import (
     _parts_result_ok,
     _quoted_parse_result_ok,
 )
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
+from tests.contracts.bounds import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
 
 
 def test_deal_range_addr_ok() -> None:

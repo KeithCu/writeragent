@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    # Child CrossHair processes import deal_shim; set this before any spawn so
+    # Child CrossHair processes import tests.contracts.bounds; set this before any spawn so
     # they bind the short @deal.pre table. Pytest / make test never set it.
     enable_crosshair_deal_table()
 

@@ -33,7 +33,6 @@ check itself, before coercion: a load repair uses the field fallback
 (``chat_max_tokens`` -1 becomes 16384, not the inclusive minimum 0).
 """
 
-# crosshair: off
 from __future__ import annotations
 
 import dataclasses
@@ -44,7 +43,6 @@ import typing
 from typing import Any, Callable, Dict, Iterator, Mapping
 
 from plugin.framework.constants import get_plugin_dir
-from plugin.framework.deal_shim import UNDER_CROSSHAIR, deal
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
 from plugin.framework.url_utils import normalize_endpoint_url
@@ -104,16 +102,8 @@ set_manifest_modules(_imported_modules)  # type: ignore[arg-type]
 _LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset({"model_lru", "prompt_lru", "image_model_lru", "audio_model_lru", "tts_model_lru", "endpoint_lru", "image_base_size_lru", "slash_command_lru"})
 
 
-@deal.post(lambda result: isinstance(result, bool))
 def as_bool(value: Any) -> bool:
     """Parse a value as boolean (handles str, int, float)."""
-    if UNDER_CROSSHAIR:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return value != 0
-        return False
-
     if type(value) is bool:
         return value
     if type(value) is str:
@@ -142,7 +132,6 @@ def _normalize_comma_number(s: str) -> str | None:
     return head + "." + tail
 
 
-@deal.raises(ValueError)
 def parse_int_robust(val: Any) -> int:
     """Robustly parse an integer value from a string, float, or other type,
     handling locale-specific decimal commas (like "8765,0" in German)."""
@@ -160,9 +149,6 @@ def parse_int_robust(val: Any) -> int:
         return int(val)
     if val is None:
         raise ValueError("Cannot parse None as int")
-
-    if UNDER_CROSSHAIR:
-        raise ValueError("Cannot parse symbolic type as int under CrossHair")
 
     s = str(val).strip()
     if not s:
@@ -213,8 +199,6 @@ def _float_or_value_error(val: Any) -> float:
         raise ValueError(f"Could not robustly parse float from {val!r}") from exc
 
 
-@deal.post(lambda result: isinstance(result, float))
-@deal.raises(ValueError)
 def parse_float_robust(val: Any) -> float:
     """Robustly parse a float value from a string, int, or other type,
     handling locale-specific decimal commas (like "1,5" in German)."""
@@ -222,9 +206,6 @@ def parse_float_robust(val: Any) -> float:
         return _float_or_value_error(val)
     if val is None:
         raise ValueError("Cannot parse None as float")
-
-    if UNDER_CROSSHAIR:
-        raise ValueError("Cannot parse symbolic type as float under CrossHair")
 
     s = str(val).strip()
     if not s:

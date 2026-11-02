@@ -543,7 +543,7 @@ class TestConfigSyncFileIO:
     def test_long_malformed_config_repair_falls_through(self):
         """A body over DEAL_MAX_SOURCE must not raise PreContractError out of config load."""
         from plugin.framework.config import _try_repair_config_dict
-        from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+        from tests.contracts.bounds import DEAL_MAX_SOURCE
 
         body = '{ "text_model": "' + ("x" * (DEAL_MAX_SOURCE + 1))
         # The pytest pre is total, so repair runs (same as a stripped OXT).

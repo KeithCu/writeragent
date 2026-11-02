@@ -26,10 +26,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_COL_INDEX, DEAL_MAX_COL_LETTERS, DEAL_MAX_ROW_INDEX, ascii_bounded, deal, inverse_ensure
 
 # Calc grid limits (0-based: col 0..16383 is A..XFD, row 0..1048575 is 1..1048576).
-# These are physical Calc sheet limits, not the reduced bounds in deal_shim.
+# These are physical Calc sheet limits.
 MAX_COL = 16383
 MAX_ROW = 1_048_575
 
@@ -43,10 +42,6 @@ A1_CELL_RE = re.compile(
 _A1_RE = re.compile(r"^\$?([A-Z]+)\$?([0-9]+)$")
 
 
-# Pre must cap the int: `index >= 0` with no max lets CrossHair feed a giant
-# value into `while index > 0: divmod(..., 26)`, and deep check never returns.
-@deal.pre(lambda index: isinstance(index, int) and 0 <= index <= DEAL_MAX_COL_INDEX)
-@deal.post(lambda result: isinstance(result, str) and 1 <= len(result) <= DEAL_MAX_COL_LETTERS)
 def index_to_column(index: int) -> str:
     """Convert 0-based column index to column letter.
 
@@ -56,7 +51,6 @@ def index_to_column(index: int) -> str:
     Returns:
         Column letter (e.g. "A", "AB").
     """
-    # crosshair: off
     result = []
     index += 1
     while index > 0:
@@ -65,12 +59,6 @@ def index_to_column(index: int) -> str:
     return "".join(reversed(result))
 
 
-# Cap letters so CrossHair cannot chase an unbounded inverse. Nested
-# index_to_column is skipped under CrossHair (import-time inverse_ensure
-# no-op); cheap @deal.post still runs so the function is analyzed.
-@deal.pre(lambda col_str: ascii_bounded(col_str, DEAL_MAX_COL_LETTERS, min_len=1) and col_str.isalpha())
-@deal.post(lambda result: isinstance(result, int) and result >= 0)
-@inverse_ensure(lambda col_str, result: index_to_column(result) == col_str.upper())
 def column_to_index(col_str: str) -> int:
     """Convert column letter to 0-based index.
 
@@ -116,7 +104,6 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     >>> split_sheet_prefix("A1:C5")
     (None, 'A1:C5')
     """
-    # crosshair: off
     if not ref:
         return None, ref
     match = _SHEET_PREFIX.match(ref)
@@ -176,7 +163,6 @@ def split_sheet_and_name(ref: str, sheet_name: str | None) -> tuple[str, str | N
 
 
 def _reject_sheet_prefix(ref: str, kind: str) -> str:
-    # crosshair: off — _SHEET_PREFIX hangs under deep check (same as the callers).
     # Reject prefixes here so callers that need the sheet go through
     # split_sheet_prefix / CalcBridge.resolve instead of silently dropping it.
     sheet, rest = split_sheet_prefix(ref)
@@ -185,9 +171,6 @@ def _reject_sheet_prefix(ref: str, kind: str) -> str:
     return rest
 
 
-@deal.pre(lambda address: ascii_bounded(address, DEAL_MAX_CELL_REF, min_len=1))
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and result[0] >= 0 and result[1] >= 0)
-@deal.raises(ValueError)
 def parse_address(address: str) -> tuple[int, int]:
     """Convert cell address to column and row indices.
 
@@ -201,14 +184,9 @@ def parse_address(address: str) -> tuple[int, int]:
     Raises:
         ValueError: Invalid cell address, or a sheet prefix was left on.
     """
-    # Sheet-prefix + A1 regex hang under deep check.
-    # crosshair: off
     return _parse_a1(_reject_sheet_prefix(address, "Cell address"), "cell address")
 
 
-@deal.pre(lambda range_str: ascii_bounded(range_str, DEAL_MAX_CELL_REF, min_len=1))
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and all(isinstance(p, tuple) and len(p) == 2 and p[0] >= 0 and p[1] >= 0 for p in result))
-@deal.raises(ValueError)
 def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]]:
     """Convert cell range string to column/row indices.
 
@@ -224,8 +202,6 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     Raises:
         ValueError: Invalid range format, or a sheet prefix was left on.
     """
-    # Sheet-prefix + A1 regex hang under deep check.
-    # crosshair: off
     range_str = _reject_sheet_prefix(range_str, "Range")
     cleaned = range_str.strip().upper()
     start_str, has_sep, end_str = cleaned.partition(":")
@@ -240,11 +216,6 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     return start_pt, end_pt
 
 
-# Nested parse_address is skipped under CrossHair (import-time inverse_ensure
-# no-op); cheap @deal.post still runs so the function is analyzed.
-@deal.pre(lambda col, row: isinstance(col, int) and 0 <= col <= DEAL_MAX_COL_INDEX and isinstance(row, int) and 0 <= row <= DEAL_MAX_ROW_INDEX)
-@deal.post(lambda result: isinstance(result, str) and bool(result) and result[0].isalpha() and result.isascii() and result[-1].isdigit())
-@inverse_ensure(lambda col, row, result: parse_address(result) == (col, row))
 def format_address(col: int, row: int) -> str:
     """Create cell address from column and row indices.
 

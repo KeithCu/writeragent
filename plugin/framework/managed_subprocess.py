@@ -682,7 +682,6 @@ def optimize_pipe(pipe_fd: int) -> None:
     larger kernel ring buffer so host and child block less. No-op on macOS/Windows
     (no supported API). Silently no-ops when caps deny resize.
     """
-    # crosshair: off
     if sys.platform != "linux":
         return
     import fcntl
@@ -698,7 +697,6 @@ def optimize_pipe(pipe_fd: int) -> None:
 
 def optimize_popen_pipes(proc: subprocess.Popen[Any]) -> None:
     """Apply :func:`optimize_pipe` to stdin/stdout/stderr of a piped child process."""
-    # crosshair: off
     for stream in (proc.stdin, proc.stdout, proc.stderr):
         if stream is None:
             continue

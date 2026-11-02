@@ -4,8 +4,6 @@ from typing import Optional, assert_never
 
 from plugin.framework.service import BaseState, FsmTransition
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
-
 
 class AudioStatus(str, Enum):
     IDLE = "idle"
@@ -72,30 +70,6 @@ AudioRecorderEffect = InitializeDeviceEffect | StartRecordingEffect | StopRecord
 # --- Pure Transition Function ---
 
 
-def _audio_transition_invariants(
-    state: AudioRecorderState,
-    event: AudioRecorderEvent,
-    result: FsmTransition[AudioRecorderState],
-) -> bool:
-    # crosshair: off
-    if result.state.status not in _VALID_AUDIO_STATUSES:
-        return False
-    if isinstance(event, ErrorOccurredEvent):
-        if result.state.status != "error":
-            return False
-        if not any(isinstance(e, ReportErrorEffect) for e in result.effects):
-            return False
-    return True
-
-
-@deal.pre(
-    lambda state, event: state.status in _VALID_AUDIO_STATUSES
-    and (
-        not isinstance(event, ErrorOccurredEvent)
-        or str_bounded(event.error_message, DEAL_MAX_SOURCE)
-    )
-)
-@deal.ensure(_audio_transition_invariants)
 def next_state(state: AudioRecorderState, event: AudioRecorderEvent) -> FsmTransition[AudioRecorderState]:
     """Pure state transition for the audio recorder - NO SIDE EFFECTS"""
 

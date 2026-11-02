@@ -246,7 +246,7 @@ def test_rps_insert_failed_outcome_logs_type_str_repr(caplog):
 
 
 def test_parse_run_import_call_accepts_long_script():
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+    from tests.contracts.bounds import DEAL_MAX_SOURCE
     from plugin.scripting.helper_domain import parse_run_import_call_spec
 
     code = "x = 1\n" * (DEAL_MAX_SOURCE // 4)

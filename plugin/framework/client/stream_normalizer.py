@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, Mapping, cast
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, deal
 from .response_normalizers import _text_of
 
 log = logging.getLogger(__name__)
@@ -63,16 +62,10 @@ def _truncate_reasoning_string(value: str) -> str:
     return value[:max_len]
 
 
-@deal.pre(
-    # Streaming can exceed DEAL_MAX_SHAPE_DIM (grid side); chunk count is not a shape dim.
-    lambda text_parts, meta, delta: isinstance(text_parts, list) and type(meta) is dict and (meta.get("source") is None or meta.get("source") in _STREAMING_SOURCE_VALUES)
-)
-@deal.ensure(lambda text_parts, meta, delta, result: meta.get("source") is None or meta.get("source") in _STREAMING_SOURCE_VALUES)
 def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], delta: Mapping[str, Any]) -> None:
     """Append thinking text as each SSE delta arrives; meta records replay shape (first non-empty delta picks the source, and a later reasoning.encrypted fragment forces reasoning_details because that blob has to be echoed)."""
     # delta string fields are product-sized (up to PRESERVE_REASONING_MAX_CHARS);
     # cannot shrink without a new DEAL_MAX split. Pytest still runs @deal.
-    # crosshair: off
     # Plain dict only — CrossHair AttrDict is isinstance(dict) but field access can crash.
     if type(meta) is not dict:
         return
@@ -113,13 +106,9 @@ def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], d
             meta["index"] = item.get("index")
 
 
-@deal.pre(lambda entries: isinstance(entries, list))
-@deal.post(lambda result: isinstance(result, list))
-@deal.ensure(lambda entries, result: len(result) <= sum(1 for e in entries if type(e) is dict))
 def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
     """Merge streaming fragments (same type + index) for sync/non-stream replay."""
     # deepcopy of dict fragments with unbounded string fields.
-    # crosshair: off
     if not entries:
         return []
     merged: dict[tuple[Any, Any], dict[str, Any]] = {}
@@ -151,18 +140,16 @@ def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
     return [merged[k] for k in order] + extra
 
 
-@deal.post(lambda result: isinstance(result, dict) and set(result.keys()) <= {"reasoning", "reasoning_content", "reasoning_details"})
 def _streaming_replay(text: str, meta: Mapping[str, Any]) -> dict[str, Any]:
     # Bugfix: Previously _streaming_replay called _truncate_reasoning_string(text) upfront.
     # When source was "reasoning_details", the truncated text was attached alongside the
     # full original signature in reasoning.text, causing Anthropic via OpenRouter to reject
     # the replay with a signature mismatch. Truncation must only apply to raw string fields
     # (reasoning / reasoning_content), leaving signed reasoning_details blocks untruncated.
-    # crosshair: off
     encrypted_raw = meta.get("encrypted_fragments")
     encrypted_fragments: list[Any] = encrypted_raw if isinstance(encrypted_raw, list) else []
     # Bugfix: The DEAL_MAX_SHAPE_DIM slice existed so the @deal.pre length cap would pass;
-    # that cap is a contract domain (plugin/framework/deal_shim.py), not a product limit;
+    # that cap is a contract domain (tests/contracts/bounds.py), not a product limit;
     # truncating encrypted fragments corrupts the blob the next request must echo.
     # The pre no longer caps length, so the slice is gone.
     merged_encrypted = _merge_reasoning_details(encrypted_fragments)
@@ -194,7 +181,6 @@ def _streaming_replay(text: str, meta: Mapping[str, Any]) -> dict[str, Any]:
 
 def extract_reasoning_replay_from_response(streaming_text: str | None = None, streaming_meta: Mapping[str, Any] | None = None, sync_message: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Build one consolidated reasoning block for the next API request. See docs/framework/streaming-and-threading.md §3.4."""
-    # crosshair: off
     if not PRESERVE_REASONING_IN_SESSION:
         return {}
     if streaming_text is not None:
@@ -214,7 +200,6 @@ def extract_reasoning_replay_from_response(streaming_text: str | None = None, st
 
 def reasoning_replay_from_assistant_response(response: Mapping[str, Any] | None) -> dict[str, Any]:
     """Pick reasoning replay keys already merged onto an assistant API response dict."""
-    # crosshair: off
     if not PRESERVE_REASONING_IN_SESSION or not response:
         return {}
     return extract_reasoning_replay_from_response(sync_message=response)
@@ -240,10 +225,8 @@ def iterate_sse(stream: Any) -> Iterator[str]:
             yield line_str.decode("utf-8", errors="replace").strip()
 
 
-@deal.post(lambda result: isinstance(result, dict))
 def _normalize_stream_delta(chunk_or_delta: object) -> dict[str, Any]:
     """Return choices[0].delta for a chat completion chunk, else the dict as-is (bare delta)."""
-    # crosshair: off
     # Plain dict only — CrossHair AttrDict / Literal TypedDict heap crashes on isinstance paths.
     if type(chunk_or_delta) is not dict:
         return {}
@@ -259,12 +242,9 @@ def _normalize_stream_delta(chunk_or_delta: object) -> dict[str, Any]:
     return chunk
 
 
-@deal.pre(lambda delta: isinstance(delta, dict))
-@deal.post(lambda result: isinstance(result, str))
-def _thinking_text_from_delta(delta: dict[str, Any]) -> str:
+def _thinking_text_from_delta(delta: Mapping[str, Any]) -> str:
     """Extract thinking from a normalized delta (no choices wrapper)."""
     # Nested reasoning_details + unbounded reasoning strings (32k product).
-    # crosshair: off
     # Ollama /v1 often uses "reasoning", not "reasoning_content" (Qwen-Agent #789, ollama#12628).
     for field in _THINKING_STRING_FIELDS:
         thinking = delta.get(field)
@@ -299,9 +279,8 @@ def extract_thinking_from_delta(chunk_or_delta: object) -> str:
     return result
 
 
-def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
+def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:  # pyright: ignore[reportUnusedFunction]
     """Postcondition helper: Mistral/Azure null type/arguments repaired on dict tool_calls."""
-    # crosshair: off
     tool_calls = delta.get("tool_calls")
     if type(tool_calls) is not list:
         return True
@@ -316,9 +295,6 @@ def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
     return True
 
 
-@deal.pre(lambda delta: type(delta) is not dict or (len(delta) <= DEAL_MAX_SHAPE_DIM and (not isinstance(delta.get("tool_calls"), list) or len(delta["tool_calls"]) <= DEAL_MAX_SHAPE_DIM)))
-@deal.ensure(lambda delta, result: type(delta) is not dict or "role" not in delta or delta.get("role") is not None)
-@deal.ensure(lambda delta, result: type(delta) is not dict or _normalize_delta_tool_calls_ok(delta))
 def normalize_delta(delta: object) -> None:
     """Normalize delta for Mistral/Azure compat before accumulate_delta.
     LiteLLM: streaming_handler.py ~L847 (role), ~L853 (type), ~L820 (arguments).
@@ -362,7 +338,6 @@ class ThinkTagStreamSplitter:
 
     def feed(self, chunk: str) -> list[tuple[bool, str]]:
         """Process incoming text chunk and return list of (is_thinking, text_segment)."""
-        # crosshair: off
         if not chunk:
             return []
 
@@ -470,12 +445,9 @@ _THINK_TAG_BLOCK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 _THINK_UNCLOSED_RE = re.compile(r"<think>(.*)", re.DOTALL)
 
 
-@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and (result[1] is None or isinstance(result[1], str)))
-@deal.ensure(lambda text, result: _THINK_TAG_BLOCK_RE.search(result[0]) is None)
 def strip_think_tags(text: str | None) -> tuple[str, str | None]:
     """Strip <think>...</think> tags from text, returning (clean_content, extracted_thinking)."""
     # DOTALL greedy <think> regex hangs deep check even on short ASCII.
-    # crosshair: off
     if not text:
         return "", None
     thoughts: list[str] = []

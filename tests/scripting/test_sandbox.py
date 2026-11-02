@@ -441,7 +441,7 @@ def test_wrap_does_not_mutate_original():
 
 def test_scrub_env_accepts_long_values() -> None:
     """PATH and workspace paths are longer than the old deal caps."""
-    from plugin.framework.deal_shim import DEAL_MAX_ARGV
+    from tests.contracts.bounds import DEAL_MAX_ARGV
     from plugin.scripting.sandbox import scrub_subprocess_env
 
     env = scrub_subprocess_env({"PATH": "p" * (DEAL_MAX_ARGV + 1), "HOME": "/tmp"})

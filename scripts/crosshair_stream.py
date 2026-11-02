@@ -33,15 +33,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, TextIO
 
-# Must match plugin.framework.deal_shim.CROSSHAIR_ENV. Do not import deal_shim
+# Must match tests.contracts.bounds.CROSSHAIR_ENV. Do not import bounds
 # here — that would bind DEAL_MAX_* before WRITERAGENT_CROSSHAIR is set.
 CROSSHAIR_DEAL_ENV = "WRITERAGENT_CROSSHAIR"
 
 
 def enable_crosshair_deal_table() -> None:
-    """Set ``WRITERAGENT_CROSSHAIR=1`` before CrossHair / pool workers import deal_shim.
+    """Set ``WRITERAGENT_CROSSHAIR=1`` before CrossHair / pool workers import bounds.
 
-    Import-time only: deal_shim binds ``DEAL_MAX_*`` from this env when the module
+    Import-time only: bounds binds ``DEAL_MAX_*`` from this env when the module
     loads. Pytest / make test never call this — they keep the wide table.
     Check-all and cover-all (including ProcessPoolExecutor workers) call this
     so fork/spawn both see the short table. ``run_crosshair`` also injects the
@@ -438,35 +438,68 @@ def find_crosshair() -> str:
 
 
 def discover_deal_plugin_files(plugin_root: Path | None = None) -> list[Path]:
-    """Return ``plugin/**/*.py`` files that contain ``@deal.`` (instrumented modules)."""
-    root = plugin_root if plugin_root is not None else Path("plugin")
-    if not root.is_dir():
-        raise SystemExit(f"plugin root not found: {root}")
-    files: list[Path] = []
-    for path in sorted(root.rglob("*.py")):
-        if path.name == "__init__.py" and path.stat().st_size == 0:
+    """Return files that contain deal contracts (sidecars or custom roots)."""
+    if plugin_root is not None and plugin_root != Path("plugin"):
+        root = plugin_root
+        if not root.is_dir():
+            raise SystemExit(f"plugin root not found: {root}")
+        files: list[Path] = []
+        for path in sorted(root.rglob("*.py")):
+            if path.name == "__init__.py" and path.stat().st_size == 0:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if "@deal." in text or "deal." in text:
+                files.append(path)
+        return files
+
+    contracts_root = Path("tests/contracts")
+    if not contracts_root.is_dir():
+        return []
+    files = []
+    for path in sorted(contracts_root.rglob("*.py")):
+        if path.name in ("__init__.py", "bounds.py"):
             continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if "@deal." in text:
-            files.append(path)
+        files.append(path)
     return files
 
 
 def plugin_path_to_module_fqn(path: Path) -> str:
-    """Map ``plugin/foo/bar.py`` (or abs path under ``.../plugin/``) to ``plugin.foo.bar``."""
+    """Map a path to a module FQN."""
     rel = path.as_posix()
-    marker = "/plugin/"
-    idx = rel.rfind(marker)
-    if idx >= 0:
-        rel = "plugin/" + rel[idx + len(marker) :]
-    if not rel.startswith("plugin/"):
-        rel = path.as_posix()
+    for marker in ("/tests/contracts/", "tests/contracts/", "/plugin/", "plugin/"):
+        idx = rel.rfind(marker)
+        if idx >= 0:
+            rel = marker.strip("/") + "/" + rel[idx + len(marker) :]
+            break
     if rel.endswith(".py"):
         rel = rel[: -len(".py")]
     return rel.replace("/", ".")
+
+
+def _sidecar_targets_for_path(path: Path) -> list[str] | None:
+    """If *path* corresponds to a sidecar in tests/contracts, return its TARGETS list."""
+    rel = path.as_posix()
+    sidecar_mod: str | None = None
+    if "/tests/contracts/" in rel or rel.startswith("tests/contracts/"):
+        sidecar_mod = plugin_path_to_module_fqn(path)
+    elif "/plugin/" in rel or rel.startswith("plugin/"):
+        idx = rel.find("plugin/")
+        sub = rel[idx + len("plugin/") :]
+        if sub.endswith(".py"):
+            sub = sub[: -len(".py")]
+        sidecar_mod = "tests.contracts." + sub.replace("/", ".")
+
+    if sidecar_mod is not None:
+        try:
+            import importlib
+            mod = importlib.import_module(sidecar_mod)
+            return list(getattr(mod, "TARGETS", []))
+        except (ImportError, AttributeError):
+            pass
+    return None
 
 
 def source_has_crosshair_off(source: str) -> bool:
@@ -484,18 +517,11 @@ def module_has_crosshair_off(source: str) -> bool:
 
 
 def cover_fqns_for_module(path: Path, *, require_deal: bool = False) -> list[str]:
-    """Top-level functions/methods in *path* suitable for ``crosshair cover``, excluding offs.
+    """Top-level functions/methods in *path* suitable for CrossHair."""
+    targets = _sidecar_targets_for_path(path)
+    if targets is not None:
+        return targets
 
-    Upstream ``cover`` walks every top-level callable and ignores ``# crosshair: off``.
-    Cover-all uses this list so hostile hosts marked off are not entry points, while
-    sibling pure helpers in the same file still get covered.
-
-    Names starting with ``_deal_`` are skipped: they are contract predicates, and
-    covering the pytest-wide ``object`` variants is circular.
-
-    A column-0 module ``# crosshair: off`` yields an empty list (same as check skipping the file).
-    ``require_deal=True`` keeps only callables that have ``@deal.`` (check-all).
-    """
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -507,7 +533,7 @@ def cover_fqns_for_module(path: Path, *, require_deal: bool = False) -> list[str
     except SyntaxError:
         return []
     module_fqn = plugin_path_to_module_fqn(path)
-    targets: list[str] = []
+    result: list[str] = []
 
     def _has_deal_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         for dec in node.decorator_list:
@@ -524,7 +550,7 @@ def cover_fqns_for_module(path: Path, *, require_deal: bool = False) -> list[str
             return
         if require_deal and not _has_deal_decorator(node):
             return
-        targets.append(qual)
+        result.append(qual)
 
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -533,7 +559,7 @@ def cover_fqns_for_module(path: Path, *, require_deal: bool = False) -> list[str
             for item in node.body:
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     _maybe_add(f"{module_fqn}.{node.name}.{item.name}", item)
-    return targets
+    return result
 
 
 class _TeeTextIO:

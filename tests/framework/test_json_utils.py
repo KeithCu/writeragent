@@ -43,7 +43,7 @@ def test_strict_json_does_not_log_a_stage(monkeypatch) -> None:
 
 def test_safe_json_loads_long_malformed_returns_default() -> None:
     """A body over DEAL_MAX_SOURCE must not raise deal.PreContractError."""
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+    from tests.contracts.bounds import DEAL_MAX_SOURCE
 
     filler = "x" * (DEAL_MAX_SOURCE + 1)
     payload = '{"a": ' + filler

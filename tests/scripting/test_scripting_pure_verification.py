@@ -10,7 +10,7 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
+from tests.contracts.bounds import DEAL_MAX_ARGV, DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
 
 from plugin.scripting.import_policy import (
     PYTHON_VENV_SANDBOX_CONTEXT_PREFIX,

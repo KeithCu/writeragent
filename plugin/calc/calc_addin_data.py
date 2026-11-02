@@ -16,7 +16,6 @@ A bare column ``((1.0,), (2.0,))`` is one range; two 1×1 varargs
 decides; do not "simplify" it away.
 """
 
-# crosshair: off
 from __future__ import annotations
 
 from typing import Any
@@ -25,7 +24,6 @@ from plugin.scripting.calc_range import ensure_rectangular_2d, pack_calc_range_e
 from plugin.scripting.payload_codec import ForceBinary, host_pack_data, PAYLOAD_MULTI_DATA, wire_cell_count
 
 
-from plugin.framework.deal_shim import deal
 from plugin.framework.errors import CalcError, reraise_if_disposed
 
 
@@ -63,7 +61,6 @@ def _is_row_sequence(value: Any) -> bool:
     return type(value) is list or type(value) is tuple
 
 
-@deal.post(lambda result: result is None or isinstance(result, list))
 def finalize_python_data(raw: Any) -> list[list[Any]] | None:
     """Normalize tool/API ``data`` that may already be a nested list from the LLM."""
     if raw is None:
@@ -118,7 +115,6 @@ def calc_addin_args_from_split(args: list[Any]) -> list[list[Any]] | list[list[l
     return [calc_addin_data_to_python(arg) or [] for arg in args]
 
 
-@deal.post(lambda result: result is None or isinstance(result, list))
 def calc_addin_data_to_python(value: Any) -> list[list[Any]] | None:
     """Convert a Calc ``=PYTHON()`` second argument into a rectangular 2D grid.
 

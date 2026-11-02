@@ -87,17 +87,19 @@ def test_accumulate_delta_errors():
 def test_accumulate_delta_rejects_non_plain_dict():
     """Mapping subclasses that isinstance(dict) must be rejected (plain dict only)."""
     from collections import UserDict
-
-    from tests.harness.strip_bundle import expect_pre_or_body
-
-    expect_pre_or_body(
-        lambda: accumulate_delta(UserDict({"a": 1}), {"a": 2}),  # type: ignore[arg-type]
-        body_exc=TypeError,
+    import deal
+    from tests.contracts.framework.stream_delta import (
+        accumulate_delta as contract_accumulate_delta,
     )
-    expect_pre_or_body(
-        lambda: accumulate_delta({"a": 1}, UserDict({"a": 2})),  # type: ignore[arg-type]
-        body_exc=TypeError,
-    )
+
+    with pytest.raises(TypeError):
+        accumulate_delta(UserDict({"a": 1}), {"a": 2})  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        accumulate_delta({"a": 1}, UserDict({"a": 2}))  # type: ignore[arg-type]
+    with pytest.raises(deal.PreContractError):
+        contract_accumulate_delta(UserDict({"a": 1}), {"a": 2})  # type: ignore[arg-type]
+    with pytest.raises(deal.PreContractError):
+        contract_accumulate_delta({"a": 1}, UserDict({"a": 2}))  # type: ignore[arg-type]
 
 
 def test_coalesce_split_tool_calls_merges_empty_name_continuation():

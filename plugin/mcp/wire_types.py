@@ -23,8 +23,6 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, cast
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, _profile, ascii_bounded, str_bounded, deal
-
 # Aligned with upstream python-sdk LATEST_PROTOCOL_VERSION.
 MCP_PROTOCOL_VERSION = "2025-11-25"
 
@@ -48,15 +46,6 @@ class ParsedJsonRpcRequest:
     req_id: int | str
 
 
-def _deal_jsonrpc_msg_ok_crosshair(msg: object) -> bool:
-    return not isinstance(msg, dict) or (
-        len(msg) <= DEAL_MAX_CMD_ARGS and all(type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) for k in msg)
-    )
-
-
-_deal_jsonrpc_msg_ok = _profile(_deal_jsonrpc_msg_ok_crosshair)
-
-
 def _jsonrpc_parts(msg: object) -> tuple[str, dict[str, Any], Any] | None:
     # Validate common JSON-RPC 2.0 structure for requests and notifications.
     if not isinstance(msg, dict):
@@ -75,8 +64,6 @@ def _jsonrpc_parts(msg: object) -> tuple[str, dict[str, Any], Any] | None:
     return (method, dict(params), raw.get("id"))
 
 
-@deal.pre(lambda msg: _deal_jsonrpc_msg_ok(msg))
-@deal.post(lambda result: result is None or isinstance(result, ParsedJsonRpcRequest))
 def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | None:
     """Parse and validate a single JSON-RPC request object.
 
@@ -84,8 +71,7 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | None:
     treat ``req_id is None`` before calling this; a notification is a valid message with
     a missing or null id, and is_jsonrpc_notification uses the same validation.
     """
-    # crosshair: off
-    # Do not sniff sys.modules["crosshair"] (deal_shim): that returned a parse error for every valid request.
+    # Do not sniff sys.modules["crosshair"]: that returned a parse error for every valid request.
     parts = _jsonrpc_parts(msg)
     if parts is None:
         return None
@@ -95,36 +81,17 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | None:
     return ParsedJsonRpcRequest(method=method, params=params, req_id=req_id)
 
 
-@deal.post(lambda result: isinstance(result, bool))
 def is_jsonrpc_notification(msg: object) -> bool:
     """True when *msg* is a JSON-RPC notification (no response expected)."""
     # CrossHair TypeError on typing.Literal['a','b','rc'] (FV §8.1 D).
-    # crosshair: off
     parts = _jsonrpc_parts(msg)
     return parts is not None and parts[2] is None
 
 
-@deal.pre(lambda req_id, result: isinstance(result, dict) and len(result) <= DEAL_MAX_CMD_ARGS)
-@deal.post(lambda result: isinstance(result, dict) and result.get("jsonrpc") == "2.0" and "result" in result)
 def jsonrpc_success(req_id: RequestId, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": req_id, "result": result}
 
 
-def _deal_jsonrpc_failure_ok_pytest(message: object, code: object) -> bool:
-    # Tool errors are longer than DEAL_MAX_SOURCE. The body copies the
-    # string into the error object. CrossHair keeps the short message.
-    return isinstance(message, str) and isinstance(code, int)
-
-
-def _deal_jsonrpc_failure_ok_crosshair(message: object, code: object) -> bool:
-    return str_bounded(message, DEAL_MAX_SOURCE) and isinstance(code, int)
-
-
-_deal_jsonrpc_failure_ok = _profile(_deal_jsonrpc_failure_ok_crosshair, _deal_jsonrpc_failure_ok_pytest)
-
-
-@deal.pre(lambda req_id, code, message, data=None: _deal_jsonrpc_failure_ok(message, code))
-@deal.post(lambda result: isinstance(result, dict) and result.get("jsonrpc") == "2.0" and "error" in result)
 def jsonrpc_failure(req_id: RequestId, code: int, message: str, data: Any | None = None) -> dict[str, Any]:
     err: dict[str, Any] = {"code": code, "message": message}
     if data is not None:
@@ -132,14 +99,6 @@ def jsonrpc_failure(req_id: RequestId, code: int, message: str, data: Any | None
     return {"jsonrpc": "2.0", "id": req_id, "error": err}
 
 
-@deal.pre(
-    lambda protocol_version, server_version, instructions: (
-        (not isinstance(protocol_version, str) or str_bounded(protocol_version, DEAL_MAX_TOKEN))
-        and str_bounded(server_version, DEAL_MAX_TOKEN)
-        and str_bounded(instructions, DEAL_MAX_SOURCE)
-    )
-)
-@deal.post(lambda result: isinstance(result, dict) and "protocolVersion" in result and "capabilities" in result)
 def initialize_result(*, protocol_version: str, server_version: str, instructions: str) -> dict[str, Any]:
     return {
         "protocolVersion": protocol_version,
@@ -156,7 +115,6 @@ class CallToolRequestParams:
 
     @classmethod
     def from_params(cls, params: dict[str, Any]) -> CallToolRequestParams:
-        # crosshair: off
         name = params.get("name")
         if not isinstance(name, str) or not name:
             raise ValueError("tools/call requires params.name")
@@ -175,21 +133,6 @@ def call_tool_result(text: str, *, is_error: bool = False) -> dict[str, Any]:
     return out
 
 
-def _deal_image_b64_ok_pytest(data_b64: object, mime_type: object = "image/png") -> bool:
-    # A real image is far longer than DEAL_MAX_SOURCE. The body wraps the
-    # string. CrossHair keeps the short base64 domain.
-    return isinstance(data_b64, str) and isinstance(mime_type, str) and len(mime_type) >= 1
-
-
-def _deal_image_b64_ok_crosshair(data_b64: object, mime_type: object = "image/png") -> bool:
-    return str_bounded(data_b64, DEAL_MAX_SOURCE) and ascii_bounded(mime_type, DEAL_MAX_TOKEN, min_len=1)
-
-
-_deal_image_b64_ok = _profile(_deal_image_b64_ok_crosshair, _deal_image_b64_ok_pytest)
-
-
-@deal.pre(lambda data_b64, mime_type="image/png", is_error=False: _deal_image_b64_ok(data_b64, mime_type))
-@deal.post(lambda result: isinstance(result, dict) and "content" in result)
 def call_tool_result_image(data_b64: str, mime_type: str = "image/png", *, is_error: bool = False) -> dict[str, Any]:
     """Tool result carrying an IMAGE content block (MCP image type) instead of text.
 

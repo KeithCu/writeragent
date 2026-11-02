@@ -19,16 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-from plugin.framework.deal_shim import (
-    DEAL_MAX_ARGV,
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_PATH,
-    DEAL_MAX_TOKEN,
-    UNDER_CROSSHAIR,
-    deal,
-    inverse_ensure,
-    ascii_bounded, str_bounded,
-)
+
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
@@ -249,7 +240,6 @@ def import_authorized(
     3. non-public writeragent.* alias is rejected;
     4. otherwise rejected if name matches active blocklist.
     """
-    # crosshair: off
     if not name:
         return False
     extras = tuple(authorized_imports) if authorized_imports else tuple(active_extra_imports())
@@ -588,53 +578,6 @@ _BLOCKED_ENV_EXACT = {
 }
 
 
-# scrub_subprocess_env: keep pytest wide.
-_DEAL_SCRUB_DICT = 1 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
-_DEAL_SCRUB_KEY = 2 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
-_DEAL_SCRUB_VAL = 4 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
-
-
-def _deal_scrub_env_ok_pytest(base: object) -> bool:
-    # os.environ values (PATH) exceed DEAL_MAX_ARGV and names can exceed
-    # a token. The old cap raised PreContractError before secrets were
-    # dropped. Values must stay str so the post (str→str) holds.
-    # CrossHair keeps the one-entry domain.
-    if base is None:
-        return True
-    return isinstance(base, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in base.items())
-
-
-def _deal_scrub_env_ok_crosshair(base: object) -> bool:
-    return base is None or (
-        isinstance(base, dict)
-        and len(base) <= _DEAL_SCRUB_DICT
-        and all(
-            isinstance(k, str)
-            and str_bounded(k, _DEAL_SCRUB_KEY)
-            and isinstance(v, str)
-            and str_bounded(v, _DEAL_SCRUB_VAL)
-            for k, v in base.items()
-        )
-    )
-
-
-_deal_scrub_env_ok = _deal_scrub_env_ok_crosshair if UNDER_CROSSHAIR else _deal_scrub_env_ok_pytest
-
-
-def _deal_path_ok_pytest(path: object) -> bool:
-    # Real venv and workspace paths are longer than DEAL_MAX_PATH (256).
-    # The cap raised PreContractError instead of the body's bool/strip.
-    return isinstance(path, str)
-
-
-def _deal_path_ok_crosshair(path: object) -> bool:
-    return str_bounded(path, DEAL_MAX_PATH)
-
-
-_deal_path_ok = _deal_path_ok_crosshair if UNDER_CROSSHAIR else _deal_path_ok_pytest
-
-# basename: ASCII short under CrossHair.
-_DEAL_BASENAME_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_PATH
 
 
 def _env_name_is_credential(name: str) -> bool:
@@ -663,18 +606,6 @@ def _env_name_is_credential(name: str) -> bool:
     return any(token in _BLOCKED_ENV_TOKENS for token in tokens)
 
 
-@deal.pre(lambda base: _deal_scrub_env_ok(base))
-@deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
-@inverse_ensure(lambda base, result: all(k.upper() not in _BLOCKED_ENV_EXACT for k in result))
-@inverse_ensure(lambda base, result: all(not _env_name_is_credential(k) for k in result))
-@deal.ensure(
-    lambda base, result: base is None
-    or (
-        result.get("PYTHONIOENCODING") == "utf-8"
-        and result.get("PYTHONUTF8") == "1"
-        and result.get("PYTHONDONTWRITEBYTECODE") == "1"
-    )
-)
 def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
     """Drop likely-secret vars and LO Python overrides from the environment passed to venv Python.
 
@@ -717,7 +648,6 @@ def detect_sandbox() -> str | None:
 
     The result is cached because sandbox status cannot change at runtime.
     """
-    # crosshair: off
     if os.path.exists("/.flatpak-info") or os.environ.get("FLATPAK_ID"):
         return "flatpak"
     if os.environ.get("SNAP_NAME"):
@@ -725,27 +655,6 @@ def detect_sandbox() -> str | None:
     return None
 
 
-# Hypothesis and venv-path tests pass Unicode argv/paths; ascii_bounded would reject them.
-# Argv uses DEAL_MAX_ARGV (venv -c probes are longer than DEAL_MAX_PATH filesystem caps).
-@deal.pre(
-    lambda cmd, env=None, cwd=None, watch_bus=False: isinstance(cmd, list)
-    and len(cmd) <= DEAL_MAX_CMD_ARGS
-    and all(str_bounded(x, DEAL_MAX_ARGV) for x in cmd)
-    and (
-        env is None
-        or (
-            isinstance(env, dict)
-            and all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())
-        )
-    )
-    and (cwd is None or isinstance(cwd, str))
-)
-@deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
-@deal.ensure(
-    lambda cmd, env=None, cwd=None, watch_bus=False, result=None: isinstance(result, list)
-    and len(result) >= len(cmd)
-    and (result[-len(cmd):] == cmd if cmd else True)
-)
 def wrap_command_for_sandbox(
     cmd: list[str],
     *,
@@ -786,7 +695,6 @@ def wrap_command_for_sandbox(
 
 def _path_from_file_url(raw: str) -> str | None:
     """Convert a ``file://`` / ``file:/`` URL to a filesystem path (stdlib only)."""
-    # crosshair: off
     # Bugfix: The old startswith("file:/") was case-sensitive while
     # _normalize_venv_path_input accepted file: in any case, so FILE:///tmp/x
     # was used as a literal path; and file://localhost/C:/x became
@@ -825,7 +733,6 @@ def _path_from_file_url(raw: str) -> str | None:
 
 def _normalize_venv_path_input(venv_dir: str) -> str:
     """Strip quotes, convert file URLs, then expand ``~`` and env vars."""
-    # crosshair: off
     s = venv_dir.strip()
     if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
         cleaned = s[1:-1].strip()
@@ -837,7 +744,6 @@ def _normalize_venv_path_input(venv_dir: str) -> str:
     return os.path.expanduser(os.path.expandvars(cleaned))
 
 
-@deal.pre(lambda base: ascii_bounded(base, _DEAL_BASENAME_LEN))
 def _is_acceptable_python_basename(base: str) -> bool:
     """True for python, python3, python3.X, python.bin, and those plus .exe.
 
@@ -868,7 +774,6 @@ def _is_acceptable_python_basename(base: str) -> bool:
 
 
 def _is_usable_python_file(path: str) -> bool:
-    # crosshair: off
     """True when *path* is a usable console Python interpreter file."""
     if not os.path.isfile(path):
         return False
@@ -881,7 +786,6 @@ def _is_usable_python_file(path: str) -> bool:
 
 
 def _python_beside_soffice(soffice_path: str) -> str | None:
-    # crosshair: off
     """Office-bundled interpreter next to soffice (not checkout ``.venv``).
 
     Windows ``sys.executable`` is often ``soffice.exe``; Darwin is empty or
@@ -906,7 +810,6 @@ def _python_beside_soffice(soffice_path: str) -> str | None:
 
 
 def _bundled_lo_python_candidates() -> list[str]:
-    # crosshair: off
     """Install-layout fallbacks when ``sys.executable`` is empty (Darwin soffice)."""
     out: list[str] = []
     if os.name == "nt":
@@ -956,7 +859,6 @@ def resolve_libreoffice_python() -> str | None:
     — look next to that binary and at the install layouts before giving up.
     Callers still surface an error so the user can set a venv.
     """
-    # crosshair: off
     exe = (getattr(sys, "executable", None) or "").strip()
     if exe and os.path.isfile(exe):
         if _is_usable_python_file(exe):
@@ -968,14 +870,12 @@ def resolve_libreoffice_python() -> str | None:
 
 
 def _python_candidates_at_env_root(env_dir: str) -> list[str]:
-    # crosshair: off
     """Return interpreter candidates at the env root (conda / pyenv-win layout)."""
     names = ("python.exe", "python", "python3") if os.name == "nt" else ("python", "python3")
     return [os.path.join(env_dir, name) for name in names]
 
 
 def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
-    # crosshair: off
     """Return candidate interpreter paths under a venv ``bin/`` or ``Scripts/`` directory."""
     candidates = _python_candidates_at_env_root(bin_dir)
     # os.listdir raises OSError on a race or an unreadable directory. Same
@@ -991,7 +891,6 @@ def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
 
 
 def _first_executable_python(candidates: list[str]) -> str | None:
-    # crosshair: off
     for candidate in candidates:
         if _is_usable_python_file(candidate):
             return candidate
@@ -1006,7 +905,6 @@ def resolve_venv_python(venv_dir: str) -> str | None:
     layouts with ``python.exe`` at the env root. Strips surrounding quotes and
     converts ``file://`` URLs from pasted paths.
     """
-    # crosshair: off
     if not venv_dir or not venv_dir.strip():
         return None
     expanded = _normalize_venv_path_input(venv_dir)

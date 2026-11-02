@@ -360,7 +360,7 @@ class LlmClient:
         return normalize_endpoint_url(raw, is_openwebui=self.config.get("is_openwebui", False))
 
     def _api_path(self) -> str:
-        return get_api_version_suffix(self._endpoint(), is_openwebui=self.config.get("is_openwebui"))
+        return get_api_version_suffix(self._endpoint(), is_openwebui=bool(self.config.get("is_openwebui", False)))
 
     def _headers(self) -> dict[str, str]:
         """

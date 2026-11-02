@@ -137,7 +137,7 @@ def test_call_tool_request_params_missing_name():
 
 def test_wire_ingest_accepts_long_image_and_odd_tool_args():
     """Image bytes and tool arguments are external. They must not PreContract."""
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+    from tests.contracts.bounds import DEAL_MAX_SOURCE
 
     payload = wire_types.call_tool_result_image("A" * (DEAL_MAX_SOURCE + 8), mime_type="image/png")
     assert payload["content"][0]["data"].startswith("A")

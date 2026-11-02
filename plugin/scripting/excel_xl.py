@@ -17,7 +17,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, deal
 from plugin.scripting.calc_range import CalcRange
 
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
@@ -26,10 +25,6 @@ _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 _HEADERS_OMIT = object()
 
 
-@deal.pre(
-    lambda ranges: ranges is None
-    or (isinstance(ranges, (list, tuple)) and len(ranges) <= DEAL_MAX_SHAPE_DIM)
-)
 def make_xl(ranges: tuple[Any, ...] | list[Any] | None) -> Any:
     """Return an Excel-shaped ``xl(ref, headers=…)`` closed over *ranges*."""
     # Avoid `ranges or ()` — CrossHair returns SymbolicBool from __bool__ on empty tuples.

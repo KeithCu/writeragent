@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW
 from plugin.calc.excel_py_convert.parse_excel_ooxml import letters_to_col_index
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
 
 _ANCHOR_RE = re.compile(r"^(?:_xlfn\.)?ANCHORARRAY\((.+)\)$", re.IGNORECASE)
 _TABLE_ALL_RE = re.compile(r"^([A-Za-z_][\w.]*)\[#All\]$", re.IGNORECASE)
@@ -48,7 +47,6 @@ class ResolvedDep:
     note: str = ""
 
 
-@deal.pre(lambda model, anchor, sheet_hint="": str_bounded(anchor, DEAL_MAX_SOURCE) and str_bounded(sheet_hint, DEAL_MAX_SOURCE))
 def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "") -> str | None:
     """Find an array/spill snapshot for *anchor* (bare or Sheet!A1)."""
     cleaned = anchor.strip()
@@ -109,11 +107,9 @@ def _anchor_snapshot(
     return _unresolved(raw, note=f"{label} snapshot unavailable")
 
 
-@deal.pre(lambda dep, model, sheet_hint="": str_bounded(dep, DEAL_MAX_SOURCE) and str_bounded(sheet_hint, DEAL_MAX_SOURCE))
 def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") -> ResolvedDep:
     """Map one PY trailing arg to an A1 address for DAG ``data`` args."""
     # Table/ANCHORARRAY/A1 regex hang under deep check (same class as parse_address).
-    # crosshair: off
     raw = (dep or "").strip()
     if not raw:
         return _unresolved(raw, note="empty dep")

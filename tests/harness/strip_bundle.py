@@ -13,14 +13,9 @@ logger ``.debug`` / ``.info`` call sites.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
-import deal
 import pytest
-
-_MISSING = object()
 
 
 def module_source_contains(obj: object, needle: str) -> bool:
@@ -36,56 +31,13 @@ def module_source_contains(obj: object, needle: str) -> bool:
     return needle in source
 
 
-def _decorator_header(source: str) -> str:
-    """Decorator lines from ``inspect.getsource`` through the ``def`` line."""
-    header: list[str] = []
-    for line in source.splitlines(keepends=True):
-        header.append(line)
-        stripped = line.lstrip()
-        if stripped.startswith("def ") or stripped.startswith("async def "):
-            break
-    return "".join(header)
-
-
-def deal_pre_present(obj: object) -> bool:
-    """True when ``@deal.pre`` remains on *obj*'s definition (unstripped).
-
-    Must not scan the whole module or function body: a comment that mentions
-    ``@deal.pre`` (e.g. ``stream_normalizer._streaming_replay``) would look
-    like the decorator survived ``strip_code``.
-    """
-    target: object = obj
-    if inspect.isfunction(obj) or inspect.ismethod(obj):
-        target = inspect.unwrap(obj)
+def asserts_enabled() -> bool:
+    """Return True if Python assert statements are active."""
     try:
-        source = inspect.getsource(target)  # type: ignore[arg-type]
-    except (OSError, TypeError):
-        return module_source_contains(obj, "@deal.pre")
-    return "@deal.pre" in _decorator_header(source)
-
-
-def expect_pre_or_body(
-    call: Callable[[], Any],
-    *,
-    body_result: Any = _MISSING,
-    body_exc: type[BaseException] | tuple[type[BaseException], ...] = (),
-) -> Any:
-    """Run *call*: deal pre raises, or stripped/shim body returns *body_result* / *body_exc*.
-
-    Must not leak IndexError or other unguarded crashes either way.
-    """
-    if isinstance(body_exc, type):
-        body_exc = (body_exc,)
-    try:
-        result = call()
-    except deal.PreContractError:
-        return None
-    except body_exc:
-        return None
-    if body_result is not _MISSING:
-        assert result == body_result
-        return result
-    pytest.fail("expected deal.PreContractError or a body guard, got %r" % (result,))
+        assert False
+        return False
+    except AssertionError:
+        return True
 
 
 def is_release_build() -> bool:
@@ -112,8 +64,6 @@ def asserts_stripped() -> bool:
     if not __debug__:
         return True
     try:
-        from plugin.framework.deal_shim import asserts_enabled
-
         if not asserts_enabled():
             return True
     except Exception:

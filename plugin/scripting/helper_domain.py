@@ -18,21 +18,6 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
-
-
-def _deal_user_code_ok_pytest(code: object, run_name: object = "") -> bool:
-    # User scripts are longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before ast.parse could return None. run_name is
-    # our helper token. CrossHair keeps the short source.
-    return isinstance(code, str) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
-
-
-def _deal_user_code_ok_crosshair(code: object, run_name: object = "") -> bool:
-    return str_bounded(code, DEAL_MAX_SOURCE) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
-
-
-_deal_user_code_ok = _deal_user_code_ok_crosshair if UNDER_CROSSHAIR else _deal_user_code_ok_pytest
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.scripting")
@@ -52,8 +37,6 @@ class HelperScriptMeta:
     params: dict[str, Any]
 
 
-@deal.pre(lambda tag: str_bounded(tag, DEAL_MAX_TOKEN, min_len=1))
-@deal.post(lambda result: isinstance(result, str) and result.startswith("# writeragent:"))
 def header_prefix(tag: str) -> str:
     """Return ``# writeragent:<tag>`` (no trailing space)."""
     return f"# writeragent:{tag}"
@@ -67,7 +50,6 @@ def _header_re(tag: str) -> re.Pattern[str]:
     )
 
 
-@deal.post(lambda result: result is None or isinstance(result, HelperScriptMeta))
 def parse_helper_script_header(
     code: str,
     *,
@@ -78,7 +60,6 @@ def parse_helper_script_header(
 
     *helper_names*: when set, unknown helpers return None.
     """
-    # crosshair: off
     prefix = header_prefix(tag)
     if prefix not in code:
         return None
@@ -204,16 +185,11 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
     return {"helper": helper, "params": params}
 
 
-@deal.pre(lambda code, run_name="": _deal_user_code_ok(code, run_name))
-@deal.post(lambda result: result is None or isinstance(result, dict))
 def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
     """Return the first positional spec dict from ``run_name({...}, ...)`` or a writeragent helper call."""
     if not code:
         return None
 
-    # CrossHair timing/contract switch, not a test leak.
-    if UNDER_CROSSHAIR:
-        return None
     try:
         tree = ast.parse(code)
     except (SyntaxError, TypeError, ValueError):
@@ -417,8 +393,6 @@ def format_elapsed_time(seconds: float) -> str:
 
 def _elapsed_since(t0: float) -> float:
     """Seconds since *t0*, or 0 while CrossHair is loaded."""
-    if UNDER_CROSSHAIR:
-        return 0.0
     return time.perf_counter() - t0
 
 
@@ -545,7 +519,6 @@ class DomainFacadeConfig:
     leading_data: bool = False
     invoke: str = "direct"
 
-    # crosshair: off
     def _template_body(self, helper: str) -> str:
         desc = self.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
         pos = self.positional_args.get(helper, ()) if self.positional_args else ()
@@ -563,12 +536,10 @@ class DomainFacadeConfig:
             invoke=self.invoke,
         )
 
-    # crosshair: off
     def get_templates(self) -> dict[str, str]:
         shipped = self.shipped_templates if self.shipped_templates is not None else self.helper_names
         return {h: self._template_body(h) for h in sorted(shipped & self.helper_names)}
 
-    # crosshair: off
     def parse_header(self, code: str) -> HelperScriptMeta | None:
         return parse_helper_script_header(
             code,
@@ -576,7 +547,6 @@ class DomainFacadeConfig:
             helper_names=self.helper_names,
         )
 
-    # crosshair: off
     def template_for(self, helper: str) -> str | None:
         if helper not in self.helper_names:
             return None

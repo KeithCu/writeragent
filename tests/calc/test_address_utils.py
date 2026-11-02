@@ -44,12 +44,6 @@ def test_address_utils():
 
     import pytest
 
-    try:
-        import deal
-        pre_err = (ValueError, deal.PreContractError)
-    except Exception:
-        pre_err = (ValueError,)
-
     # Valid cases
     assert parse_address("AA100") == (26, 99)
 
@@ -58,20 +52,24 @@ def test_address_utils():
         with pytest.raises(ValueError):
             parse_address(ascii_invalid)
 
-    # Non-ASCII addresses raise ValueError (or PreContractError when deal pre is active)
+    # Non-ASCII addresses raise ValueError
     for non_ascii_invalid in ("A🯰", "Ａ１", "A١"):
-        with pytest.raises(pre_err):
+        with pytest.raises(ValueError):
             parse_address(non_ascii_invalid)
 
-        # 18278 is past ZZZ; @deal.pre raises when the decorator is still on
-    # the function. After make release strip, the body still formats AAAA.
-    from tests.harness.strip_bundle import deal_pre_present
+    # 18278 is past ZZZ; production formats AAAA, contract raises PreContractError
+    assert index_to_column(18278) == "AAAA"
+    assert format_address(18278, 0) == "AAAA1"
+    import deal
 
-    if deal_pre_present(index_to_column):
-        with pytest.raises(pre_err):
-            index_to_column(18278)
-        with pytest.raises(pre_err):
-            format_address(18278, 0)
+    from tests.contracts.calc.address_utils import (
+        format_address as contract_format_address,
+        index_to_column as contract_index_to_column,
+    )
+    with pytest.raises(deal.PreContractError):
+        contract_index_to_column(18278)
+    with pytest.raises(deal.PreContractError):
+        contract_format_address(18278, 0)
 
     assert parse_range_string("A1:B2") == ((0, 0), (1, 1))
     assert parse_range_string("C3") == ((2, 2), (2, 2))

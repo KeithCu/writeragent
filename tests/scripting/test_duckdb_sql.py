@@ -989,7 +989,7 @@ def test_format_sql_for_calc_shows_truncation_note():
 
 
 def test_is_sql_result_long_message_is_bool():
-    from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+    from tests.contracts.bounds import DEAL_MAX_TOKEN
     from plugin.scripting.duckdb_sql import is_sql_result, parse_sql_script_header
 
     message = "Catalog Error: " + ("x" * (DEAL_MAX_TOKEN + 1))

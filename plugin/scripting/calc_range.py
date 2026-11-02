@@ -17,17 +17,8 @@ from __future__ import annotations
 import logging
 import math
 import operator
-from typing import Any, Callable, ClassVar, Iterator, cast
+from typing import Any, Callable, ClassVar, Iterator
 
-from plugin.framework.deal_shim import (
-    DEAL_MAX_SHAPE_DIM,
-    DEAL_MAX_TOKEN,
-    UNDER_CROSSHAIR,
-    _profile,
-    ascii_bounded,
-    deal,
-    str_bounded,
-)
 from plugin.scripting.payload_codec import (
     PAYLOAD_CALC_RANGE,
     is_calc_range_payload,
@@ -36,12 +27,6 @@ from plugin.scripting.payload_codec import (
 )
 
 log = logging.getLogger(__name__)
-
-# Cover: 1×1 grid, int 0, 1-char ascii.
-_DEAL_GRID_DIM = 1 if UNDER_CROSSHAIR else DEAL_MAX_SHAPE_DIM
-_DEAL_CELL_INT_ABS = 0 if UNDER_CROSSHAIR else 8
-_DEAL_CELL_STR_LEN = 1 if UNDER_CROSSHAIR else 4
-_DEAL_COL_NAME_LEN = _DEAL_CELL_STR_LEN if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 
 
 def _assert_rectangular(grid: list[list[Any]]) -> None:
@@ -52,7 +37,6 @@ def _assert_rectangular(grid: list[list[Any]]) -> None:
     assert all(isinstance(row, list) and len(row) == width for row in grid), "Grid must be rectangular list[list]"
 
 
-@deal.post(lambda result: isinstance(result, list))
 def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
     """Normalize any scalar / 1D / 2D input into a rectangular ``list[list]``.
 
@@ -60,7 +44,6 @@ def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
     column stays ``[[a], [b], [c]]``; a scalar becomes ``[[v]]``. A ``str`` or
     ``bytes`` row is one cell, not a sequence of characters.
     """
-    # crosshair: off
     if grid is None:
         return []
     # Plain list/tuple only — namedtuple subclasses tuple; treating them as grids
@@ -78,7 +61,6 @@ def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
     return [list(grid)]
 
 
-@deal.post(lambda result: isinstance(result, dict) and is_calc_range_payload(result))
 def pack_calc_range_envelope(
     grid: Any,
     *,
@@ -89,7 +71,6 @@ def pack_calc_range_envelope(
     A scalar, a flat sequence, or a 2D grid is accepted; ``ensure_rectangular_2d``
     runs once here.
     """
-    # crosshair: off
     rows = ensure_rectangular_2d(grid)
     nrows = len(rows)
     ncols = len(rows[0]) if rows else 0
@@ -101,49 +82,6 @@ def pack_calc_range_envelope(
     if address:
         envelope["address"] = address
     return envelope
-
-
-def _deal_grid_values_ok(values: object) -> bool:
-    return (
-        isinstance(values, list)
-        and len(values) <= _DEAL_GRID_DIM
-        and all(
-            isinstance(row, list)
-            and len(row) <= _DEAL_GRID_DIM
-            and all(_deal_inner_grid_cell_ok(c) for c in row)
-            for row in values
-        )
-    )
-
-
-def _deal_calc_range_other_ok_crosshair(other: object) -> bool:
-    # cover-all: unbounded int/str on binary ops exploded CrossHair the same way
-    # inner grid cells did; keep a tiny numeric/ascii slice under the engine.
-    if other is None or isinstance(other, bool):
-        return True
-    if isinstance(other, int):
-        return -_DEAL_CELL_INT_ABS <= other <= _DEAL_CELL_INT_ABS
-    if isinstance(other, float):
-        return True
-    if isinstance(other, str):
-        return ascii_bounded(other, _DEAL_CELL_STR_LEN)
-    return isinstance(other, CalcRange) and _deal_grid_values_ok(other._values)
-
-
-def _deal_calc_range_other_ok_pytest(other: object) -> bool:
-    if other is None or isinstance(other, (bool, int, float, str)):
-        return True
-    return isinstance(other, CalcRange) and _deal_grid_values_ok(other._values)
-
-
-_deal_calc_range_other_ok = _profile(
-    _deal_calc_range_other_ok_crosshair,
-    _deal_calc_range_other_ok_pytest,
-)
-
-_deal_binary_op_pre = _profile(
-    lambda self, other: _deal_grid_values_ok(self._values) and _deal_calc_range_other_ok(other)
-)
 
 
 def _whole_floats_to_int(grid: list[list[Any]]) -> list[list[Any]]:
@@ -178,9 +116,7 @@ def _arith_operand(value: Any, op: Any) -> Any:
 
 def _binop(op: Any, reverse: bool = False) -> Any:
     """Factory for binary operator dunders delegating to _binary_op."""
-    @deal.pre(_deal_binary_op_pre)
     def method(self: Any, other: Any) -> Any:
-        # crosshair: off
         return self._binary_op(other, op, is_reverse=reverse)
 
     return method
@@ -200,7 +136,6 @@ class CalcRange:
     _address: str | None
 
     def __init__(self, values: Any, *, address: str | None = None) -> None:
-        # crosshair: off
         # ensure_rectangular_2d treats a non-list/tuple as a scalar, so an
         # ndarray or DataFrame became a 1x1 range. _materialize_inner_grid
         # unpacks those, and nested structures, into a rectangular 2D list.
@@ -212,60 +147,49 @@ class CalcRange:
 
     @property
     def values(self) -> list[list[Any]]:
-        # crosshair: off
         """Live 2D cells. ``None`` is a blank. These lists are the range's storage; writing into them changes the range."""
         return self._values
 
     @property
     def address(self) -> str | None:
-        # crosshair: off
         return self._address
 
     @property
     def shape(self) -> tuple[int, int]:
-        # crosshair: off
         nrows = len(self._values)
         ncols = len(self._values[0]) if self._values else 0
         return (nrows, ncols)
 
     @property
     def nrows(self) -> int:
-        # crosshair: off
         return self.shape[0]
 
     @property
     def ncols(self) -> int:
-        # crosshair: off
         return self.shape[1]
 
     def __repr__(self) -> str:
-        # crosshair: off
         r, c = self.shape
         addr = f" address={self._address!r}" if self._address else ""
         return f"CalcRange({r}x{c}{addr})"
 
     def __len__(self) -> int:
-        # crosshair: off
         return self.nrows
 
     def __iter__(self) -> Iterator[list[Any]]:
-        # crosshair: off
         """Iterate rows (each a list). Does not flatten to cells."""
         return iter(self._values)
 
     def __getitem__(self, key: Any) -> Any:
-        # crosshair: off
         """Row access (``data[0]``) or slice of rows — not cell flattening."""
         return self._values[key]
 
     def __array__(self, dtype: Any = None, copy: bool | None = None) -> Any:
-        # crosshair: off
         # NumPy 2's __array__ protocol passes copy=. Forward it to to_numpy
         # or the call warns.
         return self.to_numpy(dtype=dtype, copy=copy)
 
     def to_numpy(self, *, dtype: Any = None, copy: bool | None = None) -> Any:
-        # crosshair: off
         """NumPy view of the cells.
 
         With no ``dtype``, a grid of ``None`` and real numbers (``int`` / ``float``,
@@ -329,7 +253,6 @@ class CalcRange:
                 serials/date strings to datetime64.
             date_origin: Base epoch for serial numbers (default '1899-12-30').
         """
-        # crosshair: off
         from plugin.scripting.venv.coerce import grid_to_dataframe
 
         return grid_to_dataframe(
@@ -347,7 +270,6 @@ class CalcRange:
     __hash__: None = None  # type: ignore[assignment]  # pyright: ignore[reportAssignmentType, reportGeneralTypeIssues, reportIncompatibleMethodOverride]  # CalcRange is mutable / unhashable like ndarray
 
     def __bool__(self) -> bool:
-        # crosshair: off
         if self.shape == (1, 1):
             return bool(self._values[0][0])
         if not self._values:
@@ -358,19 +280,16 @@ class CalcRange:
         )
 
     def __str__(self) -> str:
-        # crosshair: off
         if self.shape == (1, 1):
             return str(self._values[0][0])
         return self.__repr__()
 
     def __format__(self, format_spec: str) -> str:
-        # crosshair: off
         if self.shape == (1, 1):
             return format(self._values[0][0], format_spec)
         return format(str(self), format_spec)
 
     def _scalar(self, what: str, *, none_message: str | None = None) -> Any:
-        # crosshair: off
         if self.shape != (1, 1):
             raise TypeError(f"Only 1x1 CalcRange can be {what}, got shape {self.shape}")
         val = self._values[0][0]
@@ -380,34 +299,27 @@ class CalcRange:
 
     # Scalar conversions
     def __float__(self) -> float:
-        # crosshair: off
         return float(self._scalar("converted to float", none_message="Cannot convert empty cell (None) to float"))
 
     def __int__(self) -> int:
-        # crosshair: off
         return int(self._scalar("converted to int", none_message="Cannot convert empty cell (None) to int"))
 
     def __index__(self) -> int:
-        # crosshair: off
         return operator.index(self._scalar("used as an index"))
 
     def __round__(self, ndigits: int | None = None) -> Any:
-        # crosshair: off
         val = self._scalar("rounded", none_message="Cannot round empty cell (None)")
         return round(val, ndigits) if ndigits is not None else round(val)
 
     def __trunc__(self) -> int:
-        # crosshair: off
         return math.trunc(self.__float__())
 
     # Dispatchers
     def _binary_op(self, other: Any, op: Any, *, is_reverse: bool = False) -> Any:
-        # crosshair: off
         val, other_v = _arith_operand(self, op), _arith_operand(other, op)
         return op(other_v, val) if is_reverse else op(val, other_v)
 
     def _unary_op(self, op: Any) -> Any:
-        # crosshair: off
         return op(_arith_operand(self, op))
 
     # Binary arithmetic
@@ -428,15 +340,12 @@ class CalcRange:
 
     # Unary
     def __neg__(self) -> Any:
-        # crosshair: off
         return self._unary_op(operator.neg)
 
     def __pos__(self) -> Any:
-        # crosshair: off
         return self._unary_op(operator.pos)
 
     def __abs__(self) -> Any:
-        # crosshair: off
         return self._unary_op(operator.abs)
 
     # Rich comparisons (aligned through _binary_op: 1x1 returns bool; multi-cell returns bool ndarray)
@@ -450,7 +359,6 @@ class CalcRange:
 
 def materialize_calc_range(wire: Any) -> CalcRange:
     """Build a :class:`CalcRange` from a ``calc_range`` envelope or raw grid/split_grid."""
-    # crosshair: off
     if isinstance(wire, CalcRange):
         return wire
     if is_calc_range_payload(wire):
@@ -467,53 +375,6 @@ def materialize_calc_range(wire: Any) -> CalcRange:
     return CalcRange(wire)
 
 
-_deal_inner_grid_cell_ok = _profile(
-    lambda c: (
-        c is None
-        or (-_DEAL_CELL_INT_ABS <= c <= _DEAL_CELL_INT_ABS if isinstance(c, int) else False)
-        or (ascii_bounded(c, _DEAL_CELL_STR_LEN) if isinstance(c, str) else False)
-    ),
-    pytest_fn=lambda c: isinstance(c, (str, int, float, bool, type(None))) or hasattr(c, "dtype"),
-)
-
-
-def _deal_json_list_of_grids_arg_ok_crosshair(obj: object) -> bool:
-    if not isinstance(obj, (list, tuple)) or len(obj) > _DEAL_GRID_DIM:
-        return False
-    for item in obj:
-        if not isinstance(item, (list, tuple)) or len(item) > _DEAL_GRID_DIM:
-            return False
-        for row in item:
-            if isinstance(row, (list, tuple)):
-                if len(row) > _DEAL_GRID_DIM:
-                    return False
-                if not all(_deal_inner_grid_cell_ok(c) for c in row):
-                    return False
-            elif not _deal_inner_grid_cell_ok(row):
-                return False
-    return True
-
-
-_deal_json_list_of_grids_arg_ok = _profile(_deal_json_list_of_grids_arg_ok_crosshair)
-
-
-def _deal_materialize_inner_ok_crosshair(inner: object) -> bool:
-    if type(inner) is not list and type(inner) is not tuple:
-        return True
-    rows = cast("list[Any] | tuple[Any, ...]", inner)
-    return len(rows) <= _DEAL_GRID_DIM and all(
-        type(r) not in (list, tuple)
-        or (
-            len(r) <= _DEAL_GRID_DIM
-            and all(_deal_inner_grid_cell_ok(c) for c in r)
-        )
-        for r in rows
-    )
-
-
-_deal_materialize_inner_ok = _profile(_deal_materialize_inner_ok_crosshair)
-
-
 def _is_pandas_frame_or_series(obj: Any) -> bool:
     """True for a pandas DataFrame or Series, including subclasses, without importing pandas.
 
@@ -527,10 +388,8 @@ def _is_pandas_frame_or_series(obj: Any) -> bool:
     return False
 
 
-@deal.pre(lambda inner: _deal_materialize_inner_ok(inner))
 def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     """Unpack split_grid / ndarray / DataFrame / nested lists to a rectangular ``list[list]``."""
-    # crosshair: off
     from plugin.scripting.payload_codec import (
         _numpy_scalar_item,
         child_unpack_data,
@@ -588,7 +447,6 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
     - bare grid / list → single CalcRange
     - ``None`` → empty tuple
     """
-    # crosshair: off
     if wire is None:
         return ()
     selected: Any = None
@@ -603,9 +461,7 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
     return (materialize_calc_range(wire),)
 
 
-@deal.pre(lambda obj: _deal_json_list_of_grids_arg_ok(obj))
 def _is_json_list_of_grids(obj: Any) -> bool:
-    # crosshair: off
     """True when *obj* is a JSON array of 2D grids (Online =PY multi-range without multi_data).
 
     A normal 2D sheet block ``[[1, 2], [3, 4]]`` has scalar cells — not a list of grids.
@@ -620,42 +476,10 @@ def _is_json_list_of_grids(obj: Any) -> bool:
 
 
 
-def _deal_labeled_grid_ok_crosshair(
-    columns: object, data: object = None
-) -> bool:
-    return (
-        type(columns) is list
-        and len(columns) <= _DEAL_GRID_DIM
-        and all(str_bounded(c, _DEAL_COL_NAME_LEN) for c in columns)
-        and (
-            data is None
-            or (
-                type(data) is list
-                and len(data) <= _DEAL_GRID_DIM
-                and all(
-                    (
-                        type(row) is list
-                        and len(row) <= _DEAL_GRID_DIM
-                        and all(_deal_inner_grid_cell_ok(c) for c in row)
-                    )
-                    if type(row) is list
-                    else _deal_inner_grid_cell_ok(row)
-                    for row in data
-                )
-            )
-        )
-    )
-
-
-_deal_labeled_grid_ok = _profile(_deal_labeled_grid_ok_crosshair)
-
-
-@deal.pre(lambda columns, data=None, **__: _deal_labeled_grid_ok(columns, data))
 def dataframe_to_labeled_grid(
     columns: list[str],
     data: list[list[Any]] | list[Any] | None,
 ) -> list[list[Any]]:
-    # crosshair: off
     """Build a Calc-ready grid from a dataframe envelope (starts with header row)."""
     body: list[list[Any]]
     if not isinstance(data, list) or not data:

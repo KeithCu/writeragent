@@ -28,15 +28,13 @@ from plugin.calc.python.formula_edit import (
     parse_data_binding_text,
     parse_python_formula,
     rebuild_python_formula,
-    rebuild_python_formula_with_data,
-    format_excel_data_range,
-    format_py_data_range,
-    build_data_suffix,
     PythonFormulaParts,
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
-from tests.harness.strip_bundle import deal_pre_present, expect_pre_or_body, skip_if_release_build
+from tests.contracts.bounds import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
+from tests.contracts.calc.python import formula_edit as contract_fe
+from tests.contracts.calc.spreadsheet_import import preprocess as contract_preprocess
+from tests.harness.strip_bundle import skip_if_release_build
 from tests.harness.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
@@ -144,14 +142,14 @@ def test_hypothesis_quoted_string_bounds(body: str) -> None:
 def test_parse_quoted_string_rejects_negative_start() -> None:
     """CrossHair found IndexError on start=-1; pre + body guard now reject negatives.
 
-    With deal installed (dev venv), pre raises; under LibreOffice deal_shim the body
-    returns None. Either way we must not IndexError.
+    Production body returns None without IndexError. Sidecar contract raises PreContractError.
     """
-    expect_pre_or_body(lambda: _parse_quoted_string('""', -1), body_result=None)
+    assert _parse_quoted_string('""', -1) is None
     assert _parse_quoted_string('"x"', 0) == ("x", 3)
-    if deal_pre_present(_parse_quoted_string):
-        with pytest.raises(deal.PreContractError):
-            _parse_quoted_string('"x"', DEAL_MAX_SOURCE + 1)
+    with pytest.raises(deal.PreContractError):
+        contract_fe._parse_quoted_string('""', -1)
+    with pytest.raises(deal.PreContractError):
+        contract_fe._parse_quoted_string('"x"', DEAL_MAX_SOURCE + 1)
 
 
 def test_parse_rebuild_preserves_code_and_data_suffix() -> None:
@@ -190,45 +188,43 @@ def test_data_binding_format_and_parse() -> None:
 
 
 def test_formula_edit_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(rebuild_python_formula_with_data):
-        pytest.skip("@deal.pre stripped in release bundle")
     too_long = "x" * (DEAL_MAX_SOURCE + 1)
     # rebuild_* / sanitize / escape allow DEAL_MAX_SOURCE+256 slack (dtype=float growth).
     rebuild_too_long = "x" * (DEAL_MAX_SOURCE + 256 + 1)
     with pytest.raises(deal.PreContractError):
-        rebuild_python_formula_with_data(rebuild_too_long, [])
+        contract_fe.rebuild_python_formula_with_data(rebuild_too_long, [])
     with pytest.raises(deal.PreContractError):
-        escape_code_for_formula(rebuild_too_long)
+        contract_fe.escape_code_for_formula(rebuild_too_long)
     with pytest.raises(deal.PreContractError):
-        rebuild_python_formula(PythonFormulaParts("=PY(", "x", ")"), rebuild_too_long)
+        contract_fe.rebuild_python_formula(PythonFormulaParts("=PY(", "x", ")"), rebuild_too_long)
     with pytest.raises(deal.PreContractError):
-        format_data_binding_display(too_long)
+        contract_fe.format_data_binding_display(too_long)
     with pytest.raises(deal.PreContractError):
-        normalize_formula_string(too_long)
+        contract_fe.normalize_formula_string(too_long)
     with pytest.raises(deal.PreContractError):
-        parse_python_formula(too_long)
+        contract_fe.parse_python_formula(too_long)
     with pytest.raises(deal.PreContractError):
-        normalize_lo_formula_for_parse(too_long)
+        contract_preprocess.normalize_lo_formula_for_parse(too_long)
     with pytest.raises(deal.PreContractError):
-        parse_data_binding_text(too_long)
+        contract_fe.parse_data_binding_text(too_long)
     with pytest.raises(deal.PreContractError):
-        format_data_binding_display("A1\u00a0")
+        contract_fe.format_data_binding_display("A1\u00a0")
     with pytest.raises(deal.PreContractError):
-        parse_data_binding_text("A1\u00a0")
+        contract_fe.parse_data_binding_text("A1\u00a0")
     range_too_long = "A" * (DEAL_MAX_TOKEN + 1)
     with pytest.raises(deal.PreContractError):
-        format_py_data_range(range_too_long)
+        contract_fe.format_py_data_range(range_too_long)
     with pytest.raises(deal.PreContractError):
-        format_excel_data_range(range_too_long)
+        contract_fe.format_excel_data_range(range_too_long)
     with pytest.raises(deal.PreContractError):
-        format_py_data_range("A1\x00")
+        contract_fe.format_py_data_range("A1\x00")
     with pytest.raises(deal.PreContractError):
-        format_excel_data_range("A1\x00")
+        contract_fe.format_excel_data_range("A1\x00")
     too_many = ["A1"] * (DEAL_MAX_SHAPE_DIM + 1)
     with pytest.raises(deal.PreContractError):
-        format_data_binding_text(too_many)
+        contract_fe.format_data_binding_text(too_many)
     with pytest.raises(deal.PreContractError):
-        build_data_suffix(too_many)
+        contract_fe.build_data_suffix(too_many)
 
 
 @given(suffix=_ASCII_BINDING)

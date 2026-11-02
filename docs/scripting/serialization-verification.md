@@ -10,9 +10,9 @@ This is the reference implementation for Tier-0 (pure Python) contract + CrossHa
 
 | Item | State |
 |------|--------|
-| `deal` contracts | Pack/unpack, policy helpers, envelope detectors (see list below) |
+| `deal` contracts | Pack/unpack, policy helpers, envelope detectors in [`tests/contracts/scripting/payload_codec.py`](../../tests/contracts/scripting/payload_codec.py) |
 | Dev dependencies | `deal`, `crosshair-tool` in [`pyproject.toml`](../../pyproject.toml) |
-| Release strip | [`scripts/strip_code.py`](../../scripts/strip_code.py) removes `@deal.*` decorators (keeps `deal_shim` imports) |
+| Production code | Zero contracts or deal imports; sidecar in `tests/contracts/` |
 | Pytest hooks | [`tests/scripting/test_serialization_verification.py`](../../tests/scripting/test_serialization_verification.py), [`tests/scripting/test_payload_codec_policy_verification.py`](../../tests/scripting/test_payload_codec_policy_verification.py) |
 | Makefile targets | `make verify` (`pytest tests/ -k verification`); `make crosshair-check` / `make crosshair-cover` on `payload_codec` |
 | Status tracking | [`verification_status.json`](../verification_status.json) (`modules.scripting.payload_codec.py`, status **partial**) |
@@ -81,12 +81,9 @@ flowchart LR
   dev --> strip
 ```
 
-### Release no-ops (zero runtime cost in LibreOffice)
+### Zero runtime cost in LibreOffice
 
-**Two-layer safety:**
-
-1. **Guarded import** — production uses [`plugin/framework/deal_shim.py`](../../plugin/framework/deal_shim.py) (no-op when `deal` is missing). Source uses `from plugin.framework.deal_shim import deal`.
-2. **Build-time stripping** — [`scripts/strip_code.py`](../../scripts/strip_code.py) removes `@deal.*` decorators from the production bundle (keeps `from plugin.framework.deal_shim import deal`). Tests in [`scripts/tests/test_strip_code.py`](../../scripts/tests/test_strip_code.py).
+Contracts live in a separate test sidecar ([`tests/contracts/`](../../tests/contracts/)) and are never imported or shipped in production code. Production code contains zero `@deal.*` decorators and zero `deal` dependencies. Tests and CrossHair import from the `tests/contracts/` sidecar.
 
 ``make release`` and ``make release-verify`` run [`scripts/release_verify.py`](../../scripts/release_verify.py), running pytest against that stripped tree in a temp dir (typically ``/tmp``, not ``build/bundle``). The following UNO test runner (``plugin.testing_runner``) keeps cwd on that tree (``PYTHONPATH=.``) with ``WRITERAGENT_PROJECT_ROOT`` pointing to the checkout. Contract tests that expect ``deal.PreContractError`` must also accept the body-guard outcome (return sentinel or ``TypeError``) via [`tests/harness/strip_bundle.py`](../../tests/harness/strip_bundle.py); ``deal_pre_present`` inspects the function's own source so a nearby comment mentioning ``@deal.pre`` does not look like the decorator survived. Logger ``.debug``/``.info`` assertions skip when those call sites are gone. Checkout ``make test-run`` still exercises the real deal wrappers and log lines. Tests that read ``Makefile``, ``scripts/``, or ``extension/`` / ``extension-core/`` skip when those paths are absent from the stripped tree. CrossHair subprocess checks that need live ``@deal.pre`` (short ``WRITERAGENT_CROSSHAIR`` table) return early when the decorator is stripped.
 

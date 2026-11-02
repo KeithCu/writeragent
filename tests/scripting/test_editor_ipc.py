@@ -160,7 +160,7 @@ def test_target_from_load_does_not_stringify_aliases():
 
 def test_stamp_session_accepts_long_text():
     """Script source is longer than the old deal caps."""
-    from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+    from tests.contracts.bounds import DEAL_MAX_TOKEN
 
     code = "x" * (DEAL_MAX_TOKEN + 50)
     msg = stamp_session({"type": "save", "code": code}, session_id="abc", mode="run_script")

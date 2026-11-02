@@ -49,7 +49,6 @@ COMPUTE_PLUGIN_FILES = (
     "plugin/doc/doc_type.py",
     "plugin/framework/__init__.py",
     "plugin/framework/constants.py",
-    "plugin/framework/deal_shim.py",
     "plugin/framework/errors.py",
     "plugin/framework/i18n.py",
     "plugin/framework/json_utils.py",
@@ -143,7 +142,7 @@ def assemble_compute_bundle(
     # Slim smolagents __init__.py for local_python_executor
     slim_librepy_smolagents_init(os.path.join(dest_path, "plugin"))
 
-    # Production code strip (asserts, deal decorators, thread_guard stub, etc.)
+    # Production code strip (asserts, thread_guard stub, etc.)
     if strip:
         strip_production_code(dest_path, dry_run=False)
 

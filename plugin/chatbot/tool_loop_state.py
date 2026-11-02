@@ -18,13 +18,11 @@ from enum import Enum, StrEnum, auto
 from typing import Any, Dict, List, Optional, NamedTuple, TypeVar, assert_never, cast
 
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
-from plugin.framework.deal_shim import deal
 from plugin.framework.service import BaseState, FsmTransition
 
 
 def object_dict_or_empty(value: object) -> dict[str, Any]:
     """Return *value* when it is a dict; otherwise ``{}`` (post-JSON coerce)."""
-    # crosshair: off
     # Plain dict only — CrossHair AttrDict is isinstance(dict) but .get/items can crash.
     return cast("dict[str, Any]", value) if type(value) is dict else {}
 
@@ -35,7 +33,6 @@ def _non_blank_name(value: object) -> str:
 
 def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
     """Normalize a pending tool-call entry to ``(func_name, func_args_str, call_id)``."""
-    # crosshair: off
     tc_dict = object_dict_or_empty(tc)
     func_data = object_dict_or_empty(tc_dict.get("function"))
     func_name = _non_blank_name(func_data.get("name"))
@@ -50,7 +47,6 @@ def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
 
 def with_tool_call_ids(tool_calls: List[Any], round_num: int) -> List[Any]:
     """Copy *tool_calls*, giving each dict with a missing or blank id ``call_<round>_<index>``."""
-    # crosshair: off
     out: List[Any] = []
     for index, tc in enumerate(tool_calls):
         if type(tc) is dict:
@@ -194,7 +190,6 @@ def stopped_effects_exclude_tool_spawns(state: object, effects: object) -> bool:
     stop may still append pending and emit ``TriggerNextToolEffect`` — the
     interpreter queues NEXT_TOOL; that NEXT_TOOL exits instead of spawning.
     """
-    # crosshair: off
     if not getattr(state, "is_stopped", False):
         return True
     if type(effects) is not list and type(effects) is not tuple:
@@ -203,9 +198,12 @@ def stopped_effects_exclude_tool_spawns(state: object, effects: object) -> bool:
     return not any(isinstance(e, banned) for e in effects)
 
 
-def _transition_invariants(state: ToolLoopState, event: ToolLoopEvent, result: FsmTransition[ToolLoopState]) -> bool:
+def _transition_invariants(  # pyright: ignore[reportUnusedFunction]
+    state: ToolLoopState,
+    event: ToolLoopEvent,
+    result: FsmTransition[ToolLoopState],
+) -> bool:
     """Stop latch, pending monotonicity, spawn exclusion, and the round bound."""
-    # crosshair: off
     if result.state.round_num < 0:
         return False
     if result.state.round_num > max(state.round_num + 1, state.max_rounds):
@@ -256,11 +254,8 @@ def _assistant_text_effects(content: str, payload: dict[str, Any]) -> list[Any]:
 
 
 # --- State Machine Transition ---
-@deal.pre(lambda state, event: isinstance(state.max_rounds, int) and state.max_rounds > 0 and state.round_num >= 0)
-@deal.ensure(_transition_invariants)
 def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[ToolLoopState]:
     """Pure transition function for the tool-calling loop."""
-    # crosshair: off
     # Omitted event data is None. Reads below need a dict.
     event_data = event.data if event.data is not None else {}
     effects: List[Any] = []

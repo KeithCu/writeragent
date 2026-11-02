@@ -199,7 +199,7 @@ def test_extend_selection_fails_when_setString_fails(mock_create_client, mock_st
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_on_error_long_error_does_not_raise_contract_error(mock_create_client, mock_stream_completion, mock_msgbox):
-    from plugin.framework.deal_shim import DEAL_MAX_MSGID
+    from tests.contracts.bounds import DEAL_MAX_MSGID
     from plugin.framework.errors import format_error_message
 
     set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
@@ -223,7 +223,7 @@ def test_extend_selection_on_error_long_error_does_not_raise_contract_error(mock
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_edit_selection_on_error_long_error_does_not_raise_contract_error(mock_create_client, mock_stream_completion, mock_msgbox):
-    from plugin.framework.deal_shim import DEAL_MAX_MSGID
+    from tests.contracts.bounds import DEAL_MAX_MSGID
     from plugin.framework.errors import format_error_message
 
     set_configs({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})

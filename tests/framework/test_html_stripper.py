@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 
-from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
+from tests.contracts.bounds import DEAL_MAX_HTML_CHUNK
 from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
 
 

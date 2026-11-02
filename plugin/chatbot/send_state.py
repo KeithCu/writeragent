@@ -6,7 +6,6 @@ from enum import Enum, auto
 from typing import Any, assert_never
 
 from plugin.framework.service import BaseState, FsmTransition
-from plugin.framework.deal_shim import deal
 
 
 # --- Button Actions ---
@@ -186,18 +185,15 @@ def _return_idle(
     return FsmTransition(new_state, effects)
 
 
-def _send_ui_invariants(
+def _send_ui_invariants(  # pyright: ignore[reportUnusedFunction]
     state: SendButtonState,
     event: SendEvent,
     result: FsmTransition[SendButtonState],
 ) -> bool:
     """Send and stop button invariants.
 
-    One predicate, still enforced by a single ``@deal.ensure``. The
-    Hypothesis oracles call this function so the contract and the tests
-    cannot drift.
+    The Hypothesis oracles call this function.
     """
-    # crosshair: off
     for effect in result.effects:
         if isinstance(effect, UpdateUIEffect):
             if effect.send_enabled and effect.stop_enabled and not result.state.is_recording:
@@ -216,10 +212,8 @@ def _send_ui_invariants(
 # Stop off during every take, a hands-free loop has no exit between turns
 # (Stop Rec sends and keeps the lock). The contracts below allow exactly
 # that state and nothing else.
-@deal.ensure(_send_ui_invariants)
 def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendButtonState]:
     """Pure state transition for the Send button."""
-    # crosshair: off
     match event.kind:
         case SendEventKind.TEXT_UPDATED:
             assert event.has_text is not None

@@ -3184,7 +3184,7 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     assemble_compute_bundle(str(repo), str(app), strip=True)
 
     framework = app / "plugin" / "framework"
-    for name in ("worker_pool.py", "errors.py", "i18n.py", "json_utils.py", "managed_subprocess.py", "process_worker.py", "thread_guard.py", "constants.py", "deal_shim.py"):
+    for name in ("worker_pool.py", "errors.py", "i18n.py", "json_utils.py", "managed_subprocess.py", "process_worker.py", "thread_guard.py", "constants.py"):
         assert (framework / name).is_file(), name
     for name in ("queue_executor.py", "uno_context.py", "logging.py"):
         assert not (framework / name).exists(), name

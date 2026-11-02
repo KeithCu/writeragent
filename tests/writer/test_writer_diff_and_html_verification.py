@@ -14,7 +14,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+from tests.contracts.bounds import DEAL_MAX_SOURCE
 from plugin.writer.word_diff_split import (
     SplitResult,
     Token,

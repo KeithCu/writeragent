@@ -7,7 +7,6 @@
 WriterAgent configuration service. There is no per-instance path.
 """
 
-# crosshair: off
 from __future__ import annotations
 
 from typing import Any

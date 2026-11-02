@@ -315,7 +315,7 @@ def test_tall_sheet_materialize_and_arithmetic_do_not_precontract():
     """A column past SHAPE_DIM is a Calc range. Deal must not assert."""
     import deal
 
-    from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
+    from tests.contracts.bounds import DEAL_MAX_SHAPE_DIM
     from plugin.scripting.calc_range import CalcRange, materialize_inputs
 
     rows = [[i] for i in range(DEAL_MAX_SHAPE_DIM + 1)]

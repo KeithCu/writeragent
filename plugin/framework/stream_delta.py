@@ -24,7 +24,6 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from plugin.framework.deal_shim import deal
 
 # ── Streaming Delta Accumulation (OpenAI-Compatible) ───────────────
 
@@ -34,19 +33,13 @@ from plugin.framework.deal_shim import deal
 # License: Apache 2.0 (https://github.com/openai/openai-python/blob/main/LICENSE)
 
 
-@deal.pre(lambda acc, delta: type(acc) is dict and type(delta) is dict)
-@deal.post(lambda result: isinstance(result, dict))
-@deal.raises(TypeError, RuntimeError)
-def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> dict[object, object]:
+def accumulate_delta(acc: dict[Any, Any], delta: dict[Any, Any]) -> dict[Any, Any]:
     """Merge a streaming chunk delta into an accumulated message/snapshot.
 
     Required for tool-calling: used in stream_request_with_tools to build the full
     assistant message from SSE chunks. Content and tool_calls (with partial
     function.arguments) are merged by index; strings are concatenated.
     """
-    # Recursive merge of unbounded nested dicts/strings hangs deep check even with
-    # a top-level len cap. Pytest still runs @deal; check-all skips this entry.
-    # crosshair: off
     if type(acc) is not dict or type(delta) is not dict:
         raise TypeError("accumulate_delta requires plain dict acc and delta")
     for key, delta_value in delta.items():

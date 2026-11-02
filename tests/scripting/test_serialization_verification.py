@@ -32,7 +32,6 @@ from plugin.scripting.payload_codec import (
     SPLIT_GRID_WIRE_DTYPE,
     _flatten_grid_to_components,
     child_unpack_split_grid,
-    host_pack_data,
     host_pack_split_grid,
     host_unpack_data,
     host_unpack_split_grid,
@@ -160,14 +159,14 @@ def test_should_use_binary_envelope_force_contracts() -> None:
 
 def test_host_pack_data_force_min_cells_preconditions() -> None:
     """Pack entrypoints share should_use_binary_envelope force/min_cells pre so CrossHair cannot invent bad kwargs."""
-    from tests.harness.strip_bundle import deal_pre_present
+    from tests.contracts.scripting.payload_codec import (
+        host_pack_data as contract_host_pack_data,
+    )
 
-    if not deal_pre_present(host_pack_data):
-        pytest.skip("@deal.pre stripped in release bundle; body does not re-check force/min_cells")
     with pytest.raises(deal.PreContractError):
-        host_pack_data([[1.0]], min_cells=-1)
+        contract_host_pack_data([[1.0]], min_cells=-1)
     with pytest.raises(deal.PreContractError):
-        host_pack_data([[1.0]], force="")
+        contract_host_pack_data([[1.0]], force="")
 
 
 def test_host_unpack_data_plain_dict_recurses() -> None:

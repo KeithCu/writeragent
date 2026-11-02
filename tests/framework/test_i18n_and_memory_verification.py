@@ -10,7 +10,7 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.framework.deal_shim import DEAL_MAX_MSGID, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
+from tests.contracts.bounds import DEAL_MAX_MSGID, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
 from plugin.framework.i18n import _, get_active_locale
 from plugin.chatbot.memory import (
     format_upsert_memory_chat_line,

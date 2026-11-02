@@ -54,7 +54,6 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.framework.thread_guard import assert_main_thread, on_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework.tool_schema import (
     call_properties as call_properties,
     coerce_call_args as coerce_call_args,
@@ -74,7 +73,6 @@ _READ_PREFIXES = ("get_", "read_", "list_", "find_", "search_", "count_")
 _READ_NAME_TOKENS = frozenset({"list", "get", "read", "find", "search", "count", "info", "stats", "overview", "summary", "children", "surroundings", "tree", "outline", "recent"})
 
 
-@deal.pre(lambda name: isinstance(name, str) and ascii_bounded(name, DEAL_MAX_TOKEN))
 def _name_looks_readonly(name: str) -> bool:
     """True when the tool name implies a non-mutating read (prefix or domain_verb)."""
     if name.startswith(_READ_PREFIXES):
@@ -167,7 +165,6 @@ class ToolContext:
         send_cancellation: Any = None,
         uno_services_supported: Any = None,
     ) -> None:
-        # crosshair: off
         self.doc = doc
         self.ctx = ctx
         self.doc_type = doc_type
@@ -365,7 +362,6 @@ class ToolBase(_ToolErrorMixin, ABC):
         Returns:
             dict with at least ``{"status": "ok"|"error", ...}``.
         """
-        # crosshair: off
 
     def is_async(self) -> bool:
         """Returns True if this tool should execute asynchronously in the background. Defaults to False."""
@@ -373,7 +369,6 @@ class ToolBase(_ToolErrorMixin, ABC):
 
     def execute_safe(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         """Execute with simple error containment."""
-        # crosshair: off
         try:
             # Defense in depth: ToolRegistry.execute marshals sync tools to the main thread;
             # this assert still catches direct execute_safe calls from background workers.
@@ -596,7 +591,6 @@ class ToolRegistry:
 
     def register(self, tool: ToolBase) -> None:
         """Register a single ToolBase instance."""
-        # crosshair: off
         # Validate tool schema
         if not tool.name or not isinstance(tool.name, str):
             log.error("Failed to register tool '%s': missing or invalid name.", type(tool).__name__)
@@ -631,7 +625,6 @@ class ToolRegistry:
 
     def auto_discover_package(self, package_name: str, skip: frozenset[str] = frozenset()) -> None:
         """Automatically discover and register ToolBase subclasses in all submodules of a package."""
-        # crosshair: off
         import importlib
         import pkgutil
 
@@ -651,7 +644,6 @@ class ToolRegistry:
 
     def auto_discover(self, module: Any) -> None:
         """Automatically discover and register ToolBase subclasses in a module."""
-        # crosshair: off
         # ToolBaseDummy disables a tool without deleting it. Defined-in-module
         # avoids double registration from imports. Abstract classes and classes
         # without ``name`` are not tools.
@@ -696,7 +688,6 @@ class ToolRegistry:
                 ``required_core_tools`` whose tier is ``core`` or ``specialized``.
             ctx: Optional ToolContext or context used to filter vision specialized tools.
         """
-        # crosshair: off
         tools: Any = self._tools.values()
 
         # Doc-type probe is main-thread-only because get_document_type accesses UNO.
@@ -778,7 +769,6 @@ class ToolRegistry:
             active_domain: Optional active specialized domain.
             **kwargs: Filters passed to get_tools().
         """
-        # crosshair: off
         # An unknown protocol must not call get_tools, which probes the document on the main thread.
         if protocol not in ("openai", "mcp"):
             raise ValueError(f"Unknown protocol: {protocol}")
@@ -843,7 +833,6 @@ class ToolRegistry:
         cancel the send: the caller still has to deliver the ``TOOL_TIMEOUT``
         dict (the drain turns that into ``TOOL_DONE``).
         """
-        # crosshair: off
         if timeout <= 0:
             return func()
 
@@ -934,7 +923,6 @@ class ToolRegistry:
         Returns:
             dict: Result from the tool execution (status ``ok`` or ``error``).
         """
-        # crosshair: off
         # A model could send an argument named bypass_thread_guard. Drop it so
         # only execute_unguarded() can skip the main-thread marshal.
         kwargs.pop("bypass_thread_guard", None)
@@ -946,7 +934,6 @@ class ToolRegistry:
         Used only by ``scripts/prompt_optimization/tools_lo`` where UNO runs on a dedicated
         LibreOffice worker thread (not Python's ``main_thread()``).
         """
-        # crosshair: off
         return self._execute_impl(tool_name, ctx, True, kwargs)
 
     def _execute_impl(self, tool_name: str, ctx: ToolContext, bypass_thread_guard: bool, tool_kwargs: dict[str, Any]) -> dict[str, Any]:

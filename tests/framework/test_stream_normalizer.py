@@ -348,7 +348,7 @@ def test_strip_think_tags_no_tags():
     assert thinking is None
 
 def test_streaming_replay_keeps_encrypted_fragments_past_shape_dim():
-    from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
+    from tests.contracts.bounds import DEAL_MAX_SHAPE_DIM
 
     n = DEAL_MAX_SHAPE_DIM + 1
     meta = {
@@ -364,7 +364,7 @@ def test_streaming_replay_keeps_encrypted_fragments_past_shape_dim():
 
 
 def test_streaming_replay_merges_same_index_past_shape_dim():
-    from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
+    from tests.contracts.bounds import DEAL_MAX_SHAPE_DIM
 
     n = DEAL_MAX_SHAPE_DIM + 1
     meta = {

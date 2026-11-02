@@ -10,7 +10,6 @@ HTTP / LLM endpoint helpers live below. Filesystem ``file:`` conversion is a
 separate section — do not fold it into ``normalize_endpoint_url``.
 """
 
-# crosshair: off
 from __future__ import annotations
 
 import os
@@ -18,7 +17,6 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from plugin.framework.deal_shim import deal
 
 
 def matches_extension_dispatch_url(url: Any, extension_id: str) -> bool:
@@ -50,7 +48,6 @@ def host_matches(host: str, *domains: str) -> bool:
     return any(h == domain or h.endswith("." + domain) for domain in domains)
 
 
-@deal.post(lambda result: isinstance(result, str) and result.startswith("/"))
 def get_api_version_suffix(url: Any, is_openwebui: bool = False) -> str:
     """Return the API version suffix (e.g. '/v1', '/v4', '/api/paas/v4') for a given endpoint URL."""
     if is_openwebui:
@@ -67,8 +64,6 @@ def get_api_version_suffix(url: Any, is_openwebui: bool = False) -> str:
     return "/v1"
 
 
-@deal.post(lambda result: isinstance(result, str))
-@deal.ensure(lambda url, is_openwebui=False, result="": bool(isinstance(url, str) and url.strip()) or result == "")
 def normalize_endpoint_url(url: Any, is_openwebui: bool = False) -> str:
     """Clean up endpoint URL: strip whitespace, trailing slashes, and domain-specific version suffixes."""
     if type(url) is not str or not url.strip():
@@ -97,31 +92,26 @@ def _parse(url: Any) -> urllib.parse.ParseResult:
         return urllib.parse.urlparse("")
 
 
-@deal.post(lambda result: isinstance(result, str))
 def get_url_hostname(url: Any) -> str:
     """Return hostname from URL safely."""
     return _parse(url).hostname or ""
 
 
-@deal.post(lambda result: isinstance(result, str))
 def get_url_domain(url: Any) -> str:
     """Return 'example.com' from 'https://api.example.com/v1'."""
     return ".".join(get_url_hostname(url).split(".")[-2:])
 
 
-@deal.post(lambda result: isinstance(result, str))
 def get_url_path(url: Any) -> str:
     """Return path from URL safely."""
     return _parse(url).path
 
 
-@deal.post(lambda result: isinstance(result, dict))
 def get_url_query_dict(url: Any) -> dict[str, list[str]]:
     """Return query parameters as dict (values are lists)."""
     return urllib.parse.parse_qs(_parse(url).query)
 
 
-@deal.post(lambda result: isinstance(result, str))
 def get_url_path_and_query(url: Any) -> str:
     """Return path + query string from URL."""
     parsed = _parse(url)
@@ -129,7 +119,6 @@ def get_url_path_and_query(url: Any) -> str:
     return f"{path}?{parsed.query}" if parsed.query else path
 
 
-@deal.post(lambda result: isinstance(result, bool))
 def is_pdf_url(url: Any) -> bool:
     """Check for .pdf in the URL path safely."""
     return _parse(url).path.lower().endswith(".pdf")

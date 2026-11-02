@@ -314,7 +314,7 @@ class TestSafeJsonLoads:
         What was wrong: WriterAgentException passed that text through i18n._(),
         whose deal pre rejects strings longer than DEAL_MAX_MSGID.
         """
-        from plugin.framework.deal_shim import DEAL_MAX_MSGID
+        from tests.contracts.bounds import DEAL_MAX_MSGID
         from plugin.framework.errors import NetworkError, make_tool_error
 
         text = "provider body " + ("x" * (DEAL_MAX_MSGID + 50))

@@ -235,7 +235,7 @@ def test_stream_completion_tasks_waits_for_existing_owner():
 
 def test_prompt_for_edit_instructions_long_error_does_not_raise_contract_error():
     from plugin.chatbot.selection import prompt_for_edit_instructions
-    from plugin.framework.deal_shim import DEAL_MAX_MSGID
+    from tests.contracts.bounds import DEAL_MAX_MSGID
     from plugin.framework.errors import format_error_message
 
     long_err = ValueError("x" * (DEAL_MAX_MSGID + 50))

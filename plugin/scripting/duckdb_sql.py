@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, deal, str_bounded
 from plugin.scripting._lazy_venv import install_lazy_exports, venv_attr
 from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, is_status_helper_result, parse_helper_script_header
 
@@ -69,10 +68,7 @@ def _sql_row_cap_note() -> str:
 
 def _template_body(helper: str, params: dict[str, Any]) -> str:
     note = _sql_row_cap_note()
-    if UNDER_CROSSHAIR:
-        params_json = "{}"
-    else:
-        params_json = json.dumps(params, separators=(",", ":"))
+    params_json = json.dumps(params, separators=(",", ":"))
     desc = _HELPER_DESCRIPTIONS.get(helper, helper)
     if helper == "query_sheet_sql":
         how_to = "# Set the Data range in the toolbar (or select cells), then Run.\n"
@@ -101,66 +97,18 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
     )
 
 
-def _deal_sql_code_ok_pytest(code: object) -> bool:
-    # User SQL is longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before the header parser returned None.
-    return isinstance(code, str)
-
-
-def _deal_sql_code_ok_crosshair(code: object) -> bool:
-    return str_bounded(code, DEAL_MAX_SOURCE)
-
-
-_deal_sql_code_ok = _deal_sql_code_ok_crosshair if UNDER_CROSSHAIR else _deal_sql_code_ok_pytest
-
-
-@deal.post(lambda result: isinstance(result, dict) and "query_folder_sql" in result and "query_sheet_sql" in result)
 def get_sql_script_templates() -> dict[str, str]:
     """Return built-in SQL helper templates for the Run Python Script picker."""
     return {helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {}))) for helper in sorted(SQL_HELPER_NAMES)}
 
 
-@deal.pre(lambda code: _deal_sql_code_ok(code))
-@deal.post(lambda result: result is None or isinstance(result, HelperScriptMeta))
 def parse_sql_script_header(code: str) -> HelperScriptMeta | None:
     """Parse machine header from SQL script template."""
     # Header regex ``params=({.*})`` hangs deep check even via this thin wrapper.
-    # crosshair: off
     return parse_helper_script_header(code, tag="sql", helper_names=SQL_HELPER_NAMES)
 
 
 
-# Dual-profile closed dict for is_sql_result.
-_DEAL_SQL_RESULT_KEYS = 4 if UNDER_CROSSHAIR else 32
-_DEAL_SQL_RESULT_STR = 8 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
-
-
-def _deal_sql_result_value_ok_pytest(value: object) -> bool:
-    # A SQL error string is longer than a token. The cap raised
-    # PreContractError instead of is_sql_result returning a bool.
-    # ``value`` is unused. CrossHair keeps the short dict.
-    return True
-
-
-def _deal_sql_result_value_ok_crosshair(value: object) -> bool:
-    if not isinstance(value, dict):
-        return True
-    if len(value) > _DEAL_SQL_RESULT_KEYS:
-        return False
-    for k, v in value.items():
-        if not isinstance(k, str) or not str_bounded(k, _DEAL_SQL_RESULT_STR):
-            return False
-        if isinstance(v, str) and not str_bounded(v, _DEAL_SQL_RESULT_STR):
-            return False
-    return True
-
-
-_deal_sql_result_value_ok = (
-    _deal_sql_result_value_ok_crosshair if UNDER_CROSSHAIR else _deal_sql_result_value_ok_pytest
-)
-
-
-@deal.pre(lambda value: _deal_sql_result_value_ok(value))
 def is_sql_result(value: Any) -> bool:
     """True when *value* matches the compact DuckDB SQL helper result contract."""
     return is_status_helper_result(value, SQL_RESULT_HELPERS, SQL_RESULT_ERROR_CODES)

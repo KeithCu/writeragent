@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import List, Any, NamedTuple
 
 from plugin.framework.errors import format_error_for_display
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.service import BaseState, FsmTransition
 
 # 1. Define State (frozen dataclass)
@@ -92,7 +91,6 @@ class EffectInterpreter:
         self.handler = handler_mixin
 
     def interpret(self, effect: SendHandlerEffect) -> None:
-        # crosshair: off
         match effect:
             case SendHandlerUIEffect("append", text, is_thinking, role):
                 # Pass is_thinking through. StreamChunkEvent already carries
@@ -129,7 +127,6 @@ _SPAWN_EFFECT_TYPE_NAMES = frozenset(
 )
 
 
-@deal.post(lambda result: type(result) is bool)
 def stop_effects_exclude_spawns(effects: object) -> bool:
     """True when *effects* contain no image/agent/web spawn workers (STOP invariant)."""
     if type(effects) is not list and type(effects) is not tuple:
@@ -140,11 +137,6 @@ def stop_effects_exclude_spawns(effects: object) -> bool:
     return True
 
 
-@deal.pre(
-    lambda handler_type, err_msg: str_bounded(handler_type, DEAL_MAX_TOKEN)
-    and str_bounded(err_msg, DEAL_MAX_SOURCE)
-)
-@deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def ui_lines_for_handler_error(handler_type: str, err_msg: str) -> str:
     """Append chat line for a send-handler error (string message, not Exception)."""
     if handler_type == "web":
@@ -152,16 +144,6 @@ def ui_lines_for_handler_error(handler_type: str, err_msg: str) -> str:
     return f"\n[Operation failed: {err_msg}]\n"
 
 
-@deal.pre(
-    lambda handler_type, query_text, model, doc_type_str, mode="": (
-        handler_type in ("image", "agent", "web")
-        and str_bounded(handler_type, DEAL_MAX_TOKEN)
-        and str_bounded(query_text, DEAL_MAX_SOURCE)
-        and str_bounded(doc_type_str, DEAL_MAX_TOKEN)
-        and str_bounded(mode, DEAL_MAX_TOKEN)
-    )
-)
-@deal.post(lambda result: isinstance(result, list))
 def spawn_effects_for_start(
     handler_type: str,
     query_text: str,
@@ -195,7 +177,6 @@ def spawn_effects_for_start(
 
 def handle_error(state: SendHandlerState, event: ErrorEvent) -> FsmTransition[SendHandlerState]:
     """Simple error handling - transition to error state"""
-    # crosshair: off
     effects: List[SendHandlerEffect] = []
 
     err_msg = format_error_for_display(event.error)
@@ -209,10 +190,8 @@ def handle_error(state: SendHandlerState, event: ErrorEvent) -> FsmTransition[Se
     return FsmTransition(new_state, effects)
 
 
-@deal.ensure(lambda state, event, result: (not isinstance(event, StopRequestedEvent)) or stop_effects_exclude_spawns(result.effects))
 def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransition[SendHandlerState]:
     """Pure state transition - NO SIDE EFFECTS"""
-    # crosshair: off
     if state.status == "error":
         return FsmTransition(state, [])
 

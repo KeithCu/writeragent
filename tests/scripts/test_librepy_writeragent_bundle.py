@@ -43,8 +43,6 @@ def test_librepy_bundle_includes_settings_fields():
     [
         # Still on the LibrePy allowlist. No plugin module imports it; strip_code does at build time.
         pytest.param("plugin/framework/ast_stmt_edit.py", id="test_librepy_bundle_includes_ast_stmt_edit"),
-        # constants and other framework modules import deal via deal_shim; must ship in LibrePy.oxt.
-        pytest.param("plugin/framework/deal_shim.py", id="test_librepy_bundle_includes_deal_shim"),
     ],
 )
 def test_librepy_bundle_includes_ast_stmt_edit(value):

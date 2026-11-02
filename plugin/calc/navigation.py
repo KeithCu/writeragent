@@ -76,7 +76,7 @@ def normalize_cell_address(raw: str) -> str | None:
     if not text:
         return None
     sheet, a1 = split_sheet_prefix(text)
-    # parse_address has a @deal.pre string bound; a long or non-ASCII href
+    # parse_address expects a clean cell ref; a long or non-ASCII href
     # is external input and must return None, not raise, under pytest.
     if not a1 or not a1.isascii() or len(a1) > 32:
         return None

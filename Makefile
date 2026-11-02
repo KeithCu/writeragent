@@ -827,7 +827,7 @@ test:
 	@$(MAKE) test-run
 	@$(MAKE) excel-py-roundtrip
 
-CROSSHAIR_MODULE = plugin/scripting/payload_codec.py
+CROSSHAIR_MODULE = tests.contracts.scripting.payload_codec.cell_count tests.contracts.scripting.payload_codec.should_use_binary_envelope
 
 verify:
 	@echo "=== Running All Formal Verification Unit Tests ==="

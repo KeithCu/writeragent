@@ -74,7 +74,6 @@ module is path, cache, and JSON I/O only. Do not import this file from
 ``config_schema.py``.
 """
 
-# crosshair: off
 from __future__ import annotations
 
 import copy

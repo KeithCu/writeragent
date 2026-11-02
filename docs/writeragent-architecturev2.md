@@ -45,7 +45,7 @@ Previously these paths mixed implicit instance-field state with threads, UNO, an
 
 #### Formal Verification of State Invariants
 
-The FSMs are not merely hand-tested; they carry **design-by-contract** assertions verified with **Hypothesis** (property-based) and **CrossHair** (concolic execution). Contracts use `@deal.pre` / `@deal.post` / `@deal.ensure` (via a no-op `deal_shim.py` at LibreOffice runtime, the real `deal` under pytest). Examples of shipped `@deal.ensure` contracts on `next_state`:
+The FSMs are not merely hand-tested; they carry **design-by-contract** assertions verified with **Hypothesis** (property-based) and **CrossHair** (concolic execution). Contracts use `@deal.pre` / `@deal.post` / `@deal.ensure` defined in `tests/contracts/` sidecars (with zero production overhead). Examples of shipped `@deal.ensure` contracts on `next_state`:
 
 - `STOP_REQUESTED` must always produce an `ExitLoopEffect` and set `is_stopped`.
 - `is_stopped` is **sticky**; pending tools never shrink while stopped, and never spawn a `SpawnToolWorkerEffect` after stop.

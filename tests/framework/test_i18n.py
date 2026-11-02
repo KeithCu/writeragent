@@ -4,7 +4,7 @@ from gettext import NullTranslations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import deal
-from plugin.framework.deal_shim import DEAL_MAX_MSGID
+from tests.contracts.bounds import DEAL_MAX_MSGID
 from plugin.framework.i18n import _, get_lo_locale
 import plugin.framework.i18n as i18n_module
 import sys
@@ -62,13 +62,11 @@ class TestI18n:
         assert (_("")) == ("")
 
     def test_i18n_msgid_rejects_over_deal_max_msgid(self):
-        from tests.harness.strip_bundle import deal_pre_present
+        from tests.contracts.framework.i18n import _ as contract_i18n
 
-        if not deal_pre_present(_):
-            pytest.skip("@deal.pre stripped in release bundle")
         i18n_module._translation = NullTranslations()
         with pytest.raises(deal.PreContractError):
-            _("x" * (DEAL_MAX_MSGID + 1))
+            contract_i18n("x" * (DEAL_MAX_MSGID + 1))
 
     def test_locale_detection_uno(self):
         """Test locale detection uses LibreOffice ooLocale via UNO."""

@@ -73,8 +73,6 @@ from dataclasses import dataclass
 import difflib
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, str_bounded, deal
-
 _MAX_DIFF_WORDS = 4000
 _DEFAULT_THRESHOLD = 0.6
 
@@ -144,19 +142,15 @@ class SplitResult:
 
     @property
     def is_surgical(self) -> bool:
-        # crosshair: off
         return self.mode == "surgical"
 
 
-
-@deal.post(lambda result: isinstance(result, list))
 def tokenize(s: str) -> list[Token]:
     """Split *s* into alternating word/separator :class:`Token` runs.
 
     Concatenating ``t.text`` for the returned tokens reproduces *s* exactly, and each
     token's ``[start:end]`` indexes back into *s*. An empty string yields ``[]``.
     """
-    # crosshair: off
     tokens = []
     n = len(s)
     i = 0
@@ -171,7 +165,6 @@ def tokenize(s: str) -> list[Token]:
 
 
 def _common_word_affix(old_words: list[Token], new_words: list[Token]) -> tuple[int, int]:
-    # crosshair: off
     n = min(len(old_words), len(new_words))
     prefix = 0
     while prefix < n and old_words[prefix].text == new_words[prefix].text:
@@ -188,7 +181,6 @@ def _opcodes_with_affix(
     prefix: int,
     suffix: int,
 ) -> list[Any]:
-    # crosshair: off
     old_len = len(old_words)
     new_len = len(new_words)
     mid_old = old_words[prefix : old_len - suffix]
@@ -208,7 +200,6 @@ def _opcodes_with_affix(
     return opcodes
 
 
-@deal.post(lambda result: isinstance(result, SplitResult) and 0.0 <= result.fraction_changed <= 1.0)
 def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> SplitResult:
     """Decide block-vs-surgical and compute the edits to turn *old* into *new*.
 
@@ -223,7 +214,6 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
         :class:`SplitResult`. See the module docstring for the exact change-fraction
         definition and boundary semantics.
     """
-    # crosshair: off
     # What was wrong: identical strings over the word cap fell back to a whole-block redline.
     # How it happened: _MAX_DIFF_WORDS cap was evaluated before checking if old == new.
     # Why this change fixes it: return early with zero sub-edits when old == new before word capping.
@@ -277,17 +267,6 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
     return SplitResult("surgical", fraction, sub_edits)
 
 
-# Selection text in pytest and production is longer than DEAL_MAX_SOURCE,
-# and that profile must not raise PreContractError. CrossHair bounds inputs.
-if UNDER_CROSSHAIR:
-    split_change = deal.pre(
-        lambda old, new, threshold=_DEFAULT_THRESHOLD: (
-            not isinstance(old, str) or str_bounded(old, DEAL_MAX_SOURCE)
-        )
-        and (not isinstance(new, str) or str_bounded(new, DEAL_MAX_SOURCE))
-    )(split_change)
-
-
 def _build_surgical_edits(old: str, new: str, old_words: list[Token], new_words: list[Token], opcodes: list[Any]) -> list[SubEdit]:
     """Build surgical :class:`SubEdit`s that reconstruct *new* from *old* EXACTLY.
 
@@ -316,7 +295,6 @@ def _build_surgical_edits(old: str, new: str, old_words: list[Token], new_words:
 
     Returns sub-edits sorted by ``old_start`` (non-overlapping by construction).
     """
-    # crosshair: off
     sub_edits: list[SubEdit] = []
 
     prev_old = 0          # char offset in old where the current segment begins
@@ -339,7 +317,6 @@ def _build_surgical_edits(old: str, new: str, old_words: list[Token], new_words:
 
 def _emit_segment(out: list[SubEdit], old: str, new: str, old_lo: int, old_hi: int, new_lo: int, new_hi: int) -> None:
     """Append a (possibly trimmed) :class:`SubEdit` for one segment, if it changed."""
-    # crosshair: off
     old_seg = old[old_lo:old_hi]
     new_seg = new[new_lo:new_hi]
     if old_seg == new_seg:

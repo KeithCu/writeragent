@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.deal_shim import UNDER_CROSSHAIR, deal
 from plugin.framework.uno_context import get_desktop
 
 log = logging.getLogger(__name__)
@@ -38,7 +37,7 @@ def _container_window(frame: Any) -> Any | None:
 
 
 def _window_from_doc(doc: Any) -> Any | None:
-    if UNDER_CROSSHAIR or doc is None:
+    if doc is None:
         return None
     try:
         controller = doc.getCurrentController()
@@ -50,7 +49,7 @@ def _window_from_doc(doc: Any) -> Any | None:
 
 
 def _window_from_desktop(ctx: Any) -> Any | None:
-    if UNDER_CROSSHAIR or ctx is None:
+    if ctx is None:
         return None
     try:
         desktop = get_desktop(ctx)
@@ -78,21 +77,7 @@ def get_style_window(doc: Any = None, style_window: Any = None, ctx: Any = None)
     return _window_from_doc(doc) or _window_from_desktop(ctx)
 
 
-# CrossHair: two RGB samples. Pytest keeps 0.94 — light _resolve_style uses it.
-_DEAL_THEME_COLORS = (0, 0xFFFFFF)
-_DEAL_DARKEN_FACTORS = (0.0, 1.0) if UNDER_CROSSHAIR else (0.0, 0.5, 0.94, 1.0)
-
-
-def _deal_theme_color_ok(color: object) -> bool:
-    if UNDER_CROSSHAIR:
-        return type(color) is int and color in _DEAL_THEME_COLORS
-    return type(color) is int and 0 <= color <= 0xFFFFFF
-
-
-@deal.pre(lambda color: _deal_theme_color_ok(color))
-@deal.post(lambda result: isinstance(result, float) and 0.0 <= result <= 255.0)
 def _luminance(color: int) -> float:
-    # crosshair: off
     # ``type(color) is int`` rejects bool; 24-bit RGB.
     r = (color >> 16) & 0xFF
     g = (color >> 8) & 0xFF
@@ -100,9 +85,7 @@ def _luminance(color: int) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
-@deal.pre(lambda color, factor: _deal_theme_color_ok(color) and factor in _DEAL_DARKEN_FACTORS)
 def _darken(color: int, factor: float) -> int:
-    # crosshair: off
     r = int(((color >> 16) & 0xFF) * factor)
     g = int(((color >> 8) & 0xFF) * factor)
     b = int((color & 0xFF) * factor)
@@ -111,7 +94,7 @@ def _darken(color: int, factor: float) -> int:
 
 def _resolve_style(win: Any) -> tuple[bool, int]:
     """Return (is_dark, bg) from VCL StyleSettings, or fallback light gray."""
-    if UNDER_CROSSHAIR or win is None or not hasattr(win, "StyleSettings"):
+    if win is None or not hasattr(win, "StyleSettings"):
         return False, _FALLBACK_BG
     style_settings = win.StyleSettings
     if not style_settings:
@@ -154,7 +137,6 @@ def get_theme_colors(doc: Any = None, style_window: Any = None, ctx: Any = None)
     return bg, _FALLBACK_USER, _FALLBACK_ASSISTANT
 
 
-@deal.post(lambda result: isinstance(result, dict) and "monaco" in result and "is_dark" in result and "bg" in result)
 def get_monaco_theme_info(doc: Any = None, style_window: Any = None, ctx: Any = None) -> dict[str, Any]:
     """Return theme descriptor for the Python Monaco editor.
 
@@ -165,8 +147,6 @@ def get_monaco_theme_info(doc: Any = None, style_window: Any = None, ctx: Any = 
     We keep the decision in one place with the chat sidebar.
     Richer palette (hex colors etc.) can be added later without protocol break.
     """
-    # UNO StyleSettings host; Any args have no finite domain.
-    # crosshair: off
     is_dark, bg = _resolve_theme(
         doc=doc,
         style_window=style_window,
