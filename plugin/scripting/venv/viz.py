@@ -12,7 +12,9 @@ import logging
 from typing import Any, cast
 
 from plugin.scripting.venv.coerce import (
+    column_by_label,
     parse_date_column,
+    resolve_columns,
     resolve_df as _resolve_df,
 )
 from plugin.scripting.venv.trusted_dispatch import (
@@ -35,28 +37,6 @@ _MAX_SVG_BYTES = 8 * 1024 * 1024
 
 
 # --- Core Helper Implementations (Venv Execution Path) ---
-
-
-def _column_by_label(df: Any, name: Any) -> Any:
-    # What was wrong: integer column 0 was reported as NON_NUMERIC_COLUMN
-    # because the requested or stringified name was looked up on an Index
-    # with integer labels.
-    # How it happened: resolve_df keeps DataFrame column labels as-is, but
-    # numeric_columns and caller lookups stringified the names.
-    # Why this change: resolve a requested name against actual Index labels:
-    # exact membership first, otherwise the first column whose str(col) == str(name).
-    if name is None:
-        return None
-    try:
-        if name in df.columns:
-            return name
-    except Exception:
-        pass
-    name_str = str(name)
-    for col in df.columns:
-        if str(col) == name_str:
-            return col
-    return None
 
 
 def _figure_payload(fig: Any) -> dict[str, Any]:
@@ -102,33 +82,6 @@ def _open_figure(plt: Any, figsize: tuple[int, int]) -> Iterator[tuple[Any, Any]
             log.debug("failed to close viz figure", exc_info=True)
 
 
-def _non_numeric_column(df: Any, name: Any, *, helper: str) -> dict[str, Any] | None:
-    # numeric_columns returns a requested name that exists and does not check
-    # dtype. quick_plot and plot_data then called Series.astype(float), and a
-    # text column raised ValueError. The worker reported that as a generic
-    # VIZ_ERROR. select_dtypes(include="number") is the same test as
-    # analysis._reject_non_numeric, so bool is not numeric.
-    if name not in set(df.select_dtypes(include="number").columns):
-        return _error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {name}", helper=helper)
-    return None
-
-
-def _resolve_y_column(df: Any, y_col: Any, *, helper: str) -> Any:
-    # quick_plot and plot_data both fell back to the first numeric column when
-    # y named nothing. A typo plotted another series instead of reporting it.
-    if y_col is not None:
-        name = _column_by_label(df, y_col)
-        if name is None:
-            return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {y_col}", helper=helper)
-    else:
-        numeric = list(df.select_dtypes(include="number").columns)
-        if not numeric:
-            return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper=helper)
-        name = numeric[0]
-    rejected = _non_numeric_column(df, name, helper=helper)
-    return rejected if rejected is not None else name
-
-
 def _require_matplotlib() -> Any | None:
     try:
         import matplotlib.pyplot as plt
@@ -162,11 +115,18 @@ def quick_plot(
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    y_name = _resolve_y_column(df, y_col, helper="quick_plot")
-    if isinstance(y_name, dict):
-        return y_name
+    if y_col is not None:
+        resolved_y = resolve_columns(df, [y_col], numeric=True, helper="quick_plot")
+        if isinstance(resolved_y, dict):
+            return resolved_y
+        y_name = resolved_y[0]
+    else:
+        numeric = resolve_columns(df, None, numeric=True)
+        if isinstance(numeric, dict) or not numeric:
+            return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper="quick_plot")
+        y_name = numeric[0]
 
-    resolved_x = _column_by_label(df, x_col)
+    resolved_x = column_by_label(df, x_col)
 
     with _open_figure(plt, (8, 4)) as (fig, ax):
         y_float = df[y_name].astype(float)
@@ -235,17 +195,24 @@ def plot_data(
     # coloring series. Nothing in the tool schema passes it. Ignore the key.
     title = str(spec.get("title") or "Plot")
 
-    y_name = _resolve_y_column(df, y_col, helper="plot_data")
-    if isinstance(y_name, dict):
-        return y_name
+    if y_col is not None:
+        resolved_y = resolve_columns(df, [y_col], numeric=True, helper="plot_data")
+        if isinstance(resolved_y, dict):
+            return resolved_y
+        y_name = resolved_y[0]
+    else:
+        numeric = resolve_columns(df, None, numeric=True)
+        if isinstance(numeric, dict) or not numeric:
+            return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper="plot_data")
+        y_name = numeric[0]
 
-    resolved_x = _column_by_label(df, x_col)
+    resolved_x = column_by_label(df, x_col)
 
     scatter_x: Any = None
     if chart_type == "scatter":
         if resolved_x is not None:
-            rejected_x = _non_numeric_column(df, resolved_x, helper="plot_data")
-            if rejected_x is not None:
+            rejected_x = resolve_columns(df, [resolved_x], numeric=True, helper="plot_data")
+            if isinstance(rejected_x, dict):
                 return rejected_x
             scatter_x = resolved_x
         else:

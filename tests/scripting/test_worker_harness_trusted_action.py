@@ -371,7 +371,7 @@ def test_heartbeat_result_id_beats_resp_id() -> None:
 
     fake_err = {"id": "from-exception", "status": "error", "message": "boom", "traceback": "tb"}
     with (
-        patch("plugin.scripting.venv.worker_harness._error_response", return_value=fake_err),
+        patch("plugin.scripting.venv.worker_harness.error_result", return_value=fake_err),
         patch(
             "plugin.embeddings.venv.embeddings_index_dispatch.dispatch_trusted",
             side_effect=RuntimeError("boom"),

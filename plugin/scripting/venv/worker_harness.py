@@ -17,7 +17,6 @@ from functools import partial
 import logging
 import os
 import sys
-import traceback
 from typing import Any, BinaryIO
 
 # Standalone entry (venv python worker_harness.py): repo root must be on sys.path for plugin.* imports.
@@ -56,17 +55,11 @@ if __name__ == "__main__":
 from plugin.framework.uno_bootstrap import register_alias_importer
 register_alias_importer()
 
+from plugin.scripting.venv.trusted_dispatch import error_result
+
 log = logging.getLogger("worker_harness")
 # The sandbox imports this module; sys.modules lookup avoids a second import on every request.
 _LPE_MODULE = "plugin.contrib.smolagents.local_python_executor"
-
-
-def _error_response(exc: BaseException) -> dict[str, Any]:
-    return {
-        "status": "error",
-        "message": str(exc),
-        "traceback": traceback.format_exc(),
-    }
 
 
 def _clean_str(val: Any) -> str | None:
@@ -107,7 +100,7 @@ def _handle_trusted_action(
     try:
         wiring = get_trusted_action_wiring(domain)
         if wiring is None:
-            resp = {"status": "error", "message": f"Unknown trusted action domain: {domain}"}
+            resp = error_result(message=f"Unknown trusted action domain: {domain}")
         else:
             heartbeat_fn = None
             if emit_result_frame and wiring.supports_heartbeat:
@@ -115,7 +108,7 @@ def _handle_trusted_action(
             result = wiring.dispatch(data, heartbeat_fn=heartbeat_fn)
             resp = {"status": "ok", "result": result}
     except Exception as exc:
-        resp = _error_response(exc)
+        resp = error_result(message=str(exc), with_traceback=True)
 
     if emit_result_frame:
         assert stdout is not None
@@ -138,8 +131,7 @@ def _handle_trusted_action(
                 stdout,
                 {
                     "id": req_id,
-                    "status": "error",
-                    "message": f"Result exceeds maximum payload size: {exc}",
+                    **error_result(message=f"Result exceeds maximum payload size: {exc}"),
                 },
             )
         return None
@@ -152,12 +144,12 @@ def _action_ppt_master_turn(request: dict[str, Any]) -> dict[str, Any] | None:
 
     data = request.get("data")
     if not isinstance(data, dict):
-        return {"status": "error", "message": "ppt_master_turn requires data dict."}
+        return error_result(message="ppt_master_turn requires data dict.")
     try:
         result = run_turn(data)
         return {"status": "ok", "result": result}
     except Exception as exc:
-        return _error_response(exc)
+        return error_result(message=str(exc), with_traceback=True)
 
 
 def _action_execute(request: dict[str, Any]) -> dict[str, Any] | None:
@@ -165,7 +157,7 @@ def _action_execute(request: dict[str, Any]) -> dict[str, Any] | None:
 
     code = request.get("code")
     if not isinstance(code, str) or not code.strip():
-        return {"status": "error", "message": "No code provided."}
+        return error_result(message="No code provided.")
     bindings = request.get("bindings")
     bindings_dict = bindings if isinstance(bindings, dict) else None
     init_script = request.get("init_script")
@@ -193,16 +185,16 @@ def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> di
 
         session_id = _clean_str(request.get("session_id"))
         if not session_id:
-            return {"status": "error", "message": "No session_id provided."}
+            return error_result(message="No session_id provided.")
         return reset_sandbox_session(session_id)
     if action == "ppt_master_turn":
         return _action_ppt_master_turn(request)
     if action == "run_trusted_action":
         data = request.get("data")
         if not isinstance(data, dict):
-            return {"status": "error", "message": "run_trusted_action requires data dict."}
+            return error_result(message="run_trusted_action requires data dict.")
         return _handle_trusted_action(request, data, stdout=stdout)
-    return {"status": "error", "message": f"Unknown action: {action!r}"}
+    return error_result(message=f"Unknown action: {action!r}")
 
 
 def _init_logging() -> None:
@@ -279,7 +271,7 @@ def main() -> None:
             break
         except ValueError as e:
             log.warning("Invalid pickle request: %s", e)
-            bad_req_frame = {"id": "", "status": "error", "message": f"Invalid pickle request: {e}"}
+            bad_req_frame = {"id": "", **error_result(message=f"Invalid pickle request: {e}")}
             try:
                 write_pickle_frame(stdout, bad_req_frame)
             except Exception:
@@ -322,14 +314,10 @@ def main() -> None:
             # Sandbox returns this as a dict. This is the backstop when Stop
             # is raised outside that path, so the process still writes a
             # terminal frame instead of dying without one.
-            response = {
-                "status": "error",
-                "code": "USER_STOPPED",
-                "message": str(e) or "Stopped by user.",
-            }
+            response = error_result(code="USER_STOPPED", message=str(e) or "Stopped by user.")
         except IpcPayloadSizeError as e:
             log.exception("IPC payload size error handling request id=%s", req_id)
-            response = _error_response(e)
+            response = error_result(message=str(e), with_traceback=True)
         except IpcFrameError as e:
             # Genuine read-side desync (e.g. from exchange_tool_call reading host replies).
             # Do not write an error frame to a corrupted stream.
@@ -337,7 +325,7 @@ def main() -> None:
             break
         except Exception as e:
             log.exception("Exception handling request id=%s", req_id)
-            response = _error_response(e)
+            response = error_result(message=str(e), with_traceback=True)
         except BaseException as e:
             # SystemExit and KeyboardInterrupt are BaseException. After
             # EXEC_STARTED a process death with no terminal frame is not
@@ -345,7 +333,7 @@ def main() -> None:
             # The sandbox returns these as an error dict; this writes that
             # frame when they escape _handle_request, then reads the next request.
             log.exception("BaseException handling request id=%s", req_id)
-            response = _error_response(e)
+            response = error_result(message=str(e), with_traceback=True)
 
         if response is None:
             continue
@@ -354,7 +342,7 @@ def main() -> None:
         try:
             write_pickle_frame(stdout, response)
         except Exception as e:
-            err_response = {"id": req_id, "status": "error", "message": f"Pickle serialization failed: {e}"}
+            err_response = {"id": req_id, **error_result(message=f"Pickle serialization failed: {e}")}
             try:
                 write_pickle_frame(stdout, err_response)
             except Exception:

@@ -250,6 +250,22 @@ def _is_date_like_column_name(name: str) -> bool:
     return any(tok in _DATE_NAME_TOKENS for tok in tokens)
 
 
+def date_column(df: Any) -> Any:
+    """Find the first column in *df* whose name looks like a date/time token."""
+    return next(
+        (col for col in df.columns if _is_date_like_column_name(str(col))),
+        None,
+    )
+
+
+def flat_label(col: Any) -> str:
+    """Flatten a pandas column label. MultiIndex tuples become ``A / x`` with empty levels skipped."""
+    if isinstance(col, tuple):
+        parts = [str(part).strip() for part in col if part is not None and str(part).strip() != ""]
+        return " / ".join(parts) if parts else "value"
+    return str(col)
+
+
 def _coerce_column_types(
     df: Any,
     *,
@@ -328,7 +344,7 @@ def _coerce_column_types(
 
 def _column_labels(df: Any) -> list[str]:
     """Return DataFrame columns as a list of string labels."""
-    return [str(c) for c in df.columns]
+    return [flat_label(c) for c in df.columns]
 
 
 def _build_metadata(df: Any, *, sheet_hint: str | None, dropped_rows: int) -> dict[str, Any]:
@@ -697,17 +713,97 @@ def auto_numeric(
     return kept
 
 
-def numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:
+def column_by_label(df: Any, name: Any) -> Any:
+    """Resolve a column label in *df*, matching exact label first, then str(col) == str(name)."""
+    if name is None:
+        return None
+    try:
+        if name in df.columns:
+            return name
+    except Exception:
+        pass
+    name_str = str(name)
+    for col in df.columns:
+        if str(col) == name_str:
+            return col
+    return None
+
+
+def resolve_columns(
+    df: Any,
+    requested: Any = None,
+    *,
+    numeric: bool = False,
+    helper: str | None = None,
+) -> list[Any] | dict[str, Any]:
+    """Resolve requested column names against *df*.
+
+    Matches by exact label first, then by str(col) == str(name).
+    When numeric=True, rejects non-numeric columns.
+    Returns a list of matching column labels in *df*, or an error dict.
+    """
+    if requested is None:
+        if numeric:
+            return list(df.select_dtypes(include="number").columns)
+        return list(df.columns)
+
+    if isinstance(requested, (str, int, float)):
+        req_list = [requested]
+    elif isinstance(requested, (list, tuple)):
+        req_list = list(requested)
+    else:
+        req_list = list(requested)
+
+    if not req_list:
+        return []
+
+    matched: list[Any] = []
+    missing: list[str] = []
+    for req in req_list:
+        col = column_by_label(df, req)
+        if col is None:
+            missing.append(str(req))
+        else:
+            matched.append(col)
+
+    if missing:
+        from plugin.scripting.venv.trusted_dispatch import error_result
+
+        return error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper=helper)
+
+    if numeric:
+        num_set = set(df.select_dtypes(include="number").columns)
+        bad = [str(c) for c in matched if c not in num_set]
+        if bad:
+            from plugin.scripting.venv.trusted_dispatch import error_result
+
+            return error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}", helper=helper)
+
+    return matched
+
+
+def numeric_columns(df: Any, columns: Any = None) -> list[Any]:
     """Return *columns* when given (an empty list returns []), else all numeric column names. Unknown names raise."""
-    if isinstance(columns, str):
+    # What was wrong: with no explicit columns, numeric_columns returned
+    # stringified labels via _column_labels(), so int-labelled frames returned "0" instead of 0.
+    # How it happened: _column_labels str() wraps each column name when selecting numeric types.
+    # Why this change: return list(df.select_dtypes(include="number").columns) directly so column
+    # labels preserve their original type, matching column_by_label resolution.
+    if columns is None:
+        return list(df.select_dtypes(include="number").columns)
+    if isinstance(columns, (str, int, float)):
         columns = [columns]
-    existing_labels = set(_column_labels(df))
-    if columns is not None:
-        missing = [c for c in columns if c not in existing_labels and c not in df.columns]
-        if missing:
-            raise ValueError(f"Unknown columns: {', '.join(missing)}")
-        return list(columns)
-    return _column_labels(df.select_dtypes(include="number"))
+    matched: list[Any] = []
+    missing: list[str] = []
+    for c in columns:
+        col = column_by_label(df, c)
+        if col is None:
+            missing.append(str(c))
+        else:
+            matched.append(col)
+    if missing:
+        raise ValueError(f"Unknown columns: {', '.join(missing)}")
+    return matched
 
 
 def _apply_index_col(df: Any, index_col: int | None) -> Any:

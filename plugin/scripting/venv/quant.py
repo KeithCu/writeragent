@@ -13,6 +13,8 @@ from typing import Any
 
 from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.venv.coerce import (
+    date_column,
+    flat_label,
     is_missing_value as _is_missing_value,
     parse_date_column,
     resolve_df as _resolve_df,
@@ -27,7 +29,6 @@ from plugin.scripting.venv.trusted_dispatch import (
 log = logging.getLogger(__name__)
 
 _INDICATOR_NAMES = ("macd", "rsi", "bbands")
-_DATE_COLUMN_NAMES = frozenset({"date", "datetime", "timestamp"})
 
 
 def _flatten_tickers(raw_tickers: Any) -> list[str]:
@@ -60,13 +61,6 @@ def _flatten_tickers(raw_tickers: Any) -> list[str]:
     return clean
 
 
-def _date_column(df: Any) -> Any:
-    return next(
-        (col for col in df.columns if str(col).strip().lower() in _DATE_COLUMN_NAMES),
-        None,
-    )
-
-
 def _order_by_date(df: Any) -> Any:
     """Sort ascending on a date column. Sheet order stays when there is none.
 
@@ -74,7 +68,7 @@ def _order_by_date(df: Any) -> Any:
     so the path was reversed and the indicators were silently wrong. The date
     text itself is not rewritten.
     """
-    col = _date_column(df)
+    col = date_column(df)
     if col is None:
         return df
     # What was wrong: pd.to_datetime on a mixed object column interpreted numeric
@@ -107,25 +101,11 @@ def _stringify_datetimes(df: Any) -> None:
         df[col] = df[col].astype(str)
 
 
-def _column_label(col: Any) -> str:
-    """Flatten a MultiIndex label. ``("Close", "AAPL")`` becomes ``Close / AAPL``.
-
-    ``multi_level_index=False`` only drops the ticker level for a single
-    ticker. Several tickers stay a MultiIndex, and keeping ``c[0]`` made
-    every Close column the same name. ``reset_index`` pads the index name
-    with an empty level, so blank parts are skipped.
-    """
-    if isinstance(col, tuple):
-        parts = [str(part).strip() for part in col if str(part).strip()]
-        return " / ".join(parts)
-    return str(col)
-
-
 def _returns_frame_from_df(df: Any) -> tuple[Any, Any]:
     """Extract date column if present and coerce remaining columns to numeric returns."""
     import pandas as pd
 
-    date_col = _date_column(df)
+    date_col = date_column(df)
     dates = None
     if date_col is not None:
         # What was wrong: pd.to_datetime interpreted Calc serial numbers (e.g. 45292)
@@ -201,7 +181,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
         data = data.reset_index()
         _stringify_datetimes(data)
 
-        columns = [_column_label(col) for col in data.columns]
+        columns = [flat_label(col) for col in data.columns]
         records = data.values.tolist()
 
         return _ok_result(
