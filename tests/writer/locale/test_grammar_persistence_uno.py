@@ -36,7 +36,6 @@ def test_apply_language_change_retags_only_matching_paragraph(ctx: Any, doc: Any
 
         # Apply language change targeting the duplicate sentence in paragraph 2
         success = apply_language_change(
-            ctx,
             doc_id,
             "This is a duplicate sentence.",
             "fr-FR",

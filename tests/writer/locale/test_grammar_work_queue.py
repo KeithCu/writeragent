@@ -16,10 +16,8 @@ from plugin.writer.locale.grammar_work_queue import (
     enqueue_misses,
     filter_stale_and_group,
     inflight_superseded,
-    should_replace_for_key,
 )
 from unittest.mock import MagicMock, patch
-import pytest
 
 
 def _grammar_obs_call_sites_present() -> bool:
@@ -37,10 +35,10 @@ def _grammar_obs_call_sites_present() -> bool:
     return "grammar_obs(" in source
 
 
-def _item(seq: int, key: str = "d|en-US|k1", *, partial: bool = False) -> GrammarWorkItem:
+def _item(seq: int, key: str = "d|en-US|k1", *, partial: bool = False, text: str = "x") -> GrammarWorkItem:
     return GrammarWorkItem(
         ctx=None,
-        text="x",
+        text=text,
         grammar_bcp47="en-US",
         partial_sentence=partial,
         doc_id="d",
@@ -98,7 +96,8 @@ def test_drain_loop_dispatches_highest_seq_for_same_key() -> None:
     key = "doc1|en-US|k1"
     items = [
         _item(1, key=key, partial=False),
-        _item(3, key=key, partial=False),
+        _item(3, key=key, partial=False, text="first 3"),
+        _item(3, key=key, partial=False, text="second 3"),
         _item(2, key=key, partial=False),
     ]
     drained: list[list[GrammarWorkItem]] = []
@@ -114,12 +113,13 @@ def test_drain_loop_dispatches_highest_seq_for_same_key() -> None:
 
     with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
          patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S", 0.01):
-        q._ensure_workers(None)
+        q._ensure_workers()
         assert drain_done.wait(timeout=2.0)
 
     assert len(drained) == 1
     assert len(drained[0]) == 1
     assert drained[0][0].enqueue_seq == 3
+    assert drained[0][0].text == "first 3"
 
 
 def test_drain_loop_distinct_keys_both_dispatch() -> None:
@@ -160,7 +160,7 @@ def test_drain_loop_distinct_keys_both_dispatch() -> None:
 
     with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
          patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S", 0.01):
-        q._ensure_workers(None)
+        q._ensure_workers()
         assert drain_done.wait(timeout=2.0)
 
     assert len(drained) == 1
@@ -233,7 +233,7 @@ def test_drain_loop_collapses_same_key_items_during_burst() -> None:
     with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
          patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 0.05), \
          patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S", 0.01):
-        q._ensure_workers(None)
+        q._ensure_workers()
         assert drain_done.wait(timeout=2.0), "drain loop did not run both batches"
 
     assert len(drained) == 2
@@ -268,7 +268,7 @@ def test_drain_loop_complete_latency_under_one_second() -> None:
     start_time = time.monotonic()
     with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run):
         # Leave real GRAMMAR_WORKER_PAUSE_TIMEOUT_S (1.0s) in place
-        q._ensure_workers(None)
+        q._ensure_workers()
         q.enqueue(_item(1, key="doc1|en-US|complete-1", partial=False))
         assert done_evt.wait(timeout=2.0)
     elapsed = time.monotonic() - start_time
@@ -294,7 +294,7 @@ def test_drain_loop_partial_debounces_until_quiet_period() -> None:
     key = "doc1|en-US|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
     with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
          patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 0.2):
-        q._ensure_workers(None)
+        q._ensure_workers()
         # Send 3 partial enqueues spaced by 50ms (total 100ms < 200ms pause)
         for seq in (1, 2, 3):
             q.enqueue(_item(seq, key=key, partial=True))
@@ -330,7 +330,7 @@ def test_drain_loop_complete_dispatched_while_partial_pending() -> None:
 
     with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
          patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_WORKER_PAUSE_TIMEOUT_S", 0.4):
-        q._ensure_workers(None)
+        q._ensure_workers()
         q.enqueue(_item(1, key=incomplete_key, partial=True))
         time.sleep(0.02)
         q.enqueue(_item(2, key=complete_key, partial=False))
@@ -365,7 +365,7 @@ def test_drain_loop_exception_resilience() -> None:
 
     with patch("plugin.writer.locale.grammar_worker.run_llm_and_cache_batch", side_effect=fake_run), \
          patch("plugin.writer.locale.grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S", 0.01):
-        q._ensure_workers(None)
+        q._ensure_workers()
         q.enqueue(_item(1, key="k1", partial=False))
         assert first_failed.wait(timeout=2.0)
         q.enqueue(_item(2, key="k2", partial=False))
@@ -414,7 +414,6 @@ def test_done_status_deferred_until_last_parallel_batch() -> None:
 
 def test_ensure_workers_spawns_up_to_config() -> None:
     q = GrammarWorkQueue()
-    ctx = MagicMock()
     started: list[str] = []
 
     def track_thread(*_args, **kwargs):
@@ -429,38 +428,17 @@ def test_ensure_workers_spawns_up_to_config() -> None:
     with patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_in_flight", return_value=3), \
          patch("plugin.writer.locale.grammar_work_queue.threading.Thread", side_effect=track_thread), \
          patch("plugin.writer.locale.grammar_work_queue.time.sleep", side_effect=sleep_unlocked) as sleep_mock:
-        q._ensure_workers(ctx)
+        q._ensure_workers()
     assert sleep_mock.call_count == 0
     assert q._worker_count == 3
     assert started == ["writeragent-grammar-queue-0", "writeragent-grammar-queue-1", "writeragent-grammar-queue-2"]
     # Idempotent: second call does not spawn more when count already matches desired.
     with patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_in_flight", return_value=3), \
          patch("plugin.writer.locale.grammar_work_queue.threading.Thread", side_effect=track_thread):
-        q._ensure_workers(ctx)
+        q._ensure_workers()
     assert q._worker_count == 3
     assert len(started) == 3
 
-
-# ---------------------------------------------------------------------------
-# Tests for should_replace_for_key (TD4 extraction)
-# ---------------------------------------------------------------------------
-
-def test_should_replace_for_key_first_item_always_replaces() -> None:
-    """Missing existing (None) means the incoming item is the first for this key."""
-    assert should_replace_for_key(None, _item(1)) is True
-
-
-@pytest.mark.parametrize(
-    "value, value_2, expected",
-    [
-        pytest.param(3, 5, True, id="test_should_replace_for_key_newer_wins"),
-        pytest.param(5, 3, False, id="test_should_replace_for_key_older_loses"),
-        # Same seq does not replace — only strictly newer wins.
-        pytest.param(4, 4, False, id="test_should_replace_for_key_equal_seq_loses"),
-    ],
-)
-def test_should_replace_for_key_newer_wins(value, value_2, expected) -> None:
-    assert should_replace_for_key(_item(value), _item(value_2)) is expected
 
 # ---------------------------------------------------------------------------
 # Tests for filter_stale_and_group (TD4 extraction)

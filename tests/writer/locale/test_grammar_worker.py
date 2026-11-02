@@ -99,7 +99,7 @@ def test_call_grammar_llm_single() -> None:
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
-         patch("plugin.writer.locale.grammar_worker.get_active_ignored_reasons", return_value=set()):
+         patch("plugin.writer.locale.grammar_ignore_rules.collect_ignored_reasons", return_value=set()):
         results, elapsed = call_grammar_llm([(item, item.text)], "en-US", ec)
     assert len(results) == 1
     assert elapsed >= 0
@@ -114,7 +114,7 @@ def test_call_grammar_llm_batch() -> None:
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
-         patch("plugin.writer.locale.grammar_worker.get_active_ignored_reasons", return_value=set()):
+         patch("plugin.writer.locale.grammar_ignore_rules.collect_ignored_reasons", return_value=set()):
         results, _ = call_grammar_llm([(a, a.text), (b, b.text)], "en-US", ec)
     assert len(results) == 2
     args, kwargs = client.chat_completion_sync.call_args
@@ -129,7 +129,7 @@ def test_call_grammar_llm_passes_minimal_reasoning() -> None:
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
-         patch("plugin.writer.locale.grammar_worker.get_active_ignored_reasons", return_value=set()):
+         patch("plugin.writer.locale.grammar_ignore_rules.collect_ignored_reasons", return_value=set()):
         call_grammar_llm([(item, item.text)], "en-US", ec)
     _, kwargs = client.chat_completion_sync.call_args
     assert kwargs.get("chat_extra") == {"reasoning": {"effort": "minimal"}}
@@ -142,7 +142,7 @@ def test_call_grammar_llm_empty_single_returns_clean_result() -> None:
     ec = _ec(client)
     with patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
-         patch("plugin.writer.locale.grammar_worker.get_active_ignored_reasons", return_value=set()):
+         patch("plugin.writer.locale.grammar_ignore_rules.collect_ignored_reasons", return_value=set()):
         results, _ = call_grammar_llm([(item, item.text)], "en-US", ec)
     assert len(results) == 1
     assert results[0] == []
@@ -207,7 +207,6 @@ def test_grammar_check_equivalent_tags_no_locale_change() -> None:
         gq=gq,
         detect_lang_mode="off",
         grammar_bcp47="ja-JP",
-        original_bcp47="ja",
     )
     chunk = [(item, item.text)]
     gq.inflight_superseded.return_value = False
@@ -469,7 +468,7 @@ def test_locale_mismatch_proceeds_and_double_caches(
         # Track execution order
         call_order = []
         mock_cache_put.side_effect = lambda *args, **kwargs: call_order.append(("cache_put", args[0]))
-        mock_apply.side_effect = lambda *args, **kwargs: call_order.append(("apply", args[3]))
+        mock_apply.side_effect = lambda *args, **kwargs: call_order.append(("apply", args[2]))
 
         item = GrammarWorkItem(
             ctx=ctx,
@@ -484,7 +483,7 @@ def test_locale_mismatch_proceeds_and_double_caches(
         run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
     
         # 1. Verify document update was triggered with paragraph_text and failure was observed
-        mock_apply.assert_called_once_with(ctx, "doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP", start_pos=0, paragraph_text="")
+        mock_apply.assert_called_once_with("doc123", "\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", "ja-JP", start_pos=0, paragraph_text="")
         mock_obs.assert_any_call("apply_language_change_skip", doc_id="doc123", sentence="\u65e5\u672c\u8a9e\u3067\u66f8\u3044\u3066\u3044\u307e\u3059\u3002", bcp47="ja-JP")
     
         # 2. Verify grammar check was done with ja-JP
@@ -524,7 +523,6 @@ def test_language_detect_skips_llm_when_persisted_grammar_exists() -> None:
         client=MagicMock(),
         gq=None,
         model="m",
-        original_bcp47="en-US",
         grammar_bcp47="en-US",
         max_tok=100,
     )
@@ -557,7 +555,6 @@ def test_language_detect_calls_llm_when_no_persisted_grammar() -> None:
         client=mock_client,
         gq=None,
         model="m",
-        original_bcp47="en-US",
         grammar_bcp47="en-US",
         max_tok=100,
     )
@@ -596,7 +593,7 @@ def test_worker_chunk_skip_empty_result_chunk_obs() -> None:
     with patch("plugin.writer.locale.grammar_worker.grammar_obs") as mock_obs, \
          patch("plugin.writer.locale.grammar_worker._worker_ready_items", return_value=[]), \
          patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_grammar:
-        _worker_process_chunk([(item, item.text)], ec, "en-US")
+        _worker_process_chunk([(item, item.text)], ec, "en-US", original_bcp47="en-US")
     mock_grammar.assert_not_called()
     mock_obs.assert_any_call("worker_chunk_skip", reason="empty_result_chunk", chunk_len=1)
 
@@ -614,7 +611,6 @@ def test_grammar_empty_single_response_caches_clean() -> None:
         gq=gq,
         detect_lang_mode="off",
         grammar_bcp47="en-US",
-        original_bcp47="en-US",
     )
     chunk = [(item, item.text)]
     gq.inflight_superseded.return_value = False
@@ -648,7 +644,6 @@ def test_grammar_batch_empty_response_emits_failed_no_requeue() -> None:
         gq=gq,
         detect_lang_mode="off",
         grammar_bcp47="en-US",
-        original_bcp47="en-US",
     )
     chunk = [(a, a.text), (b, b.text)]
     with patch("plugin.writer.locale.grammar_worker.call_grammar_llm", return_value=([], 50)), \
@@ -690,7 +685,6 @@ def test_inplace_locale_retarget_mints_seq_and_drops_older() -> None:
         client=MagicMock(),
         gq=q,
         model="m",
-        original_bcp47="en-US",
         grammar_bcp47="en-US",
         max_tok=64,
     )
@@ -710,7 +704,6 @@ def test_inplace_locale_retarget_mints_seq_and_drops_older() -> None:
         client=MagicMock(),
         gq=stale,
         model="m",
-        original_bcp47="en-US",
         grammar_bcp47="en-US",
         max_tok=64,
     )
@@ -731,7 +724,6 @@ def test_grammar_mismatch_requeue_skips_cache_placeholder() -> None:
         gq=MagicMock(),
         detect_lang_mode="off",
         grammar_bcp47="en-US",
-        original_bcp47="en-US",
     )
     chunk = [(a, a.text), (b, b.text)]
     with patch("plugin.writer.locale.grammar_worker.call_grammar_llm", return_value=([[]], 50)), \
@@ -757,7 +749,6 @@ def test_grammar_check_routes_to_languagetool() -> None:
         gq=MagicMock(),
         detect_lang_mode="off",
         grammar_bcp47="en-US",
-        original_bcp47="en-US",
     )
     chunk = [(a, a.text)]
 
@@ -785,7 +776,6 @@ def test_grammar_check_routes_to_vale() -> None:
         gq=MagicMock(),
         detect_lang_mode="off",
         grammar_bcp47="en-US",
-        original_bcp47="en-US",
     )
     chunk = [(a, a.text)]
 
@@ -814,7 +804,6 @@ def test_grammar_check_routes_to_harper() -> None:
         gq=MagicMock(),
         detect_lang_mode="off",
         grammar_bcp47="en-AU",
-        original_bcp47="en-AU",
     )
     chunk = [(a, a.text)]
 
@@ -937,7 +926,6 @@ def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status()
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[norm_err]),
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"agr"}),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
-        patch("plugin.writer.locale.grammar_worker.emit_done_status") as mock_done,
     ):
         process_grammar_results([(item, item.text)], [errors], "en-US", "en-GB", 100, ec)
 
@@ -951,8 +939,8 @@ def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status()
         assert payload2[0]["rule_identifier"] == "wa_g_rule||agr"
 
         # Status text summary excludes the ignored rule (0 issues)
-        mock_done.assert_called_once()
-        assert "0 issues" in mock_done.call_args[1]["result"]
+        ec.gq.record_done_status.assert_called_once()
+        assert "0 issues" in ec.gq.record_done_status.call_args[1]["result"]
 def test_call_grammar_llm_and_cache_cap_prefix() -> None:
     """Keeper 1: LLM boundaries prompt and cache checked prefix while apply_language_change gets full text."""
     from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
@@ -997,7 +985,7 @@ def test_call_grammar_llm_and_cache_cap_prefix() -> None:
         assert not any(call.args[1] == full_text for call in mock_cache_put.call_args_list)
 
         mock_apply.assert_called_once()
-        assert mock_apply.call_args[0][2] == full_text
+        assert mock_apply.call_args[0][1] == full_text
 
 
 def test_worker_runs_model_from_checker_identity() -> None:
@@ -1105,7 +1093,7 @@ def test_worker_detection_cache_hit_applies_locale_without_grammar_call() -> Non
         run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
 
     mock_run_grammar.assert_not_called()
-    mock_apply.assert_called_once_with(ctx, "d1", item.text, "fr-FR", start_pos=0, paragraph_text="")
+    mock_apply.assert_called_once_with("d1", item.text, "fr-FR", start_pos=0, paragraph_text="")
 
 
 def test_detect_once_per_group_eight_items_batch_1() -> None:
@@ -1249,7 +1237,6 @@ def test_requeue_and_retarget_agree_on_inflight_key_completeness() -> None:
             client=MagicMock(),
             gq=mock_gq,
             model="m",
-            original_bcp47="en-US",
             grammar_bcp47="en-US",
             max_tok=64,
         )
@@ -1264,7 +1251,6 @@ def test_requeue_and_retarget_agree_on_inflight_key_completeness() -> None:
             client=MagicMock(),
             gq=real_gq,
             model="m",
-            original_bcp47="en-US",
             grammar_bcp47="en-US",
             max_tok=64,
         )

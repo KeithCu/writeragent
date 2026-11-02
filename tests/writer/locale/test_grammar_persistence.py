@@ -422,7 +422,6 @@ class TestGrammarPersistence:
         from plugin.writer.locale import grammar_persistence as gp
         from plugin.writer.locale.grammar_worker import apply_language_change
 
-        ctx = MagicMock()
         model = MagicMock()
         ctrl = MagicMock()
         view_cursor = MagicMock()
@@ -443,7 +442,7 @@ class TestGrammarPersistence:
         doc_cursor.getString.return_value = "Hola."
 
         # Test start_pos=5
-        apply_language_change(ctx, "test-doc", "Hola.", "es-ES", start_pos=5)
+        apply_language_change("test-doc", "Hola.", "es-ES", start_pos=5)
 
         text_obj.createTextCursorByRange.assert_called_once_with(view_start)
         doc_cursor.gotoStartOfParagraph.assert_called_once_with(False)
@@ -463,7 +462,6 @@ class TestGrammarPersistence:
         from plugin.writer.locale import grammar_persistence as gp
         from plugin.writer.locale.grammar_worker import apply_language_change
 
-        ctx = MagicMock()
         model = MagicMock()
         ctrl = MagicMock()
         view_cursor = MagicMock()
@@ -482,7 +480,7 @@ class TestGrammarPersistence:
             doc_cursor.goRight = MagicMock(return_value=True)
             doc_cursor.getString.return_value = "Hola."
 
-            apply_language_change(ctx, "test-doc-zero", "Hola.", "es-ES", start_pos=0)
+            apply_language_change("test-doc-zero", "Hola.", "es-ES", start_pos=0)
 
             text_obj.createTextCursorByRange.assert_called_once_with(view_start)
             doc_cursor.gotoStartOfParagraph.assert_called_once_with(False)
@@ -498,7 +496,6 @@ class TestGrammarPersistence:
         from plugin.writer.locale import grammar_persistence as gp
         from plugin.writer.locale.grammar_worker import apply_language_change
 
-        ctx = MagicMock()
         model = MagicMock()
         ctrl = MagicMock()
         view_cursor = MagicMock()
@@ -518,7 +515,7 @@ class TestGrammarPersistence:
             doc_cursor.getString.return_value = "Other."
             model.findAll.return_value = None
 
-            res = apply_language_change(ctx, "test-doc-miss", "Hola.", "es-ES", start_pos=0)
+            res = apply_language_change("test-doc-miss", "Hola.", "es-ES", start_pos=0)
 
             assert res is False
             model.findNext.assert_not_called()
@@ -532,7 +529,6 @@ class TestGrammarPersistence:
         from plugin.writer.locale import grammar_persistence as gp
         from plugin.writer.locale.grammar_worker import apply_language_change
 
-        ctx = MagicMock()
         model = MagicMock()
         ctrl = MagicMock()
         view_cursor = MagicMock()
@@ -562,7 +558,7 @@ class TestGrammarPersistence:
             para_cursor.getString.return_value = "Target paragraph."
             text_obj.createTextCursorByRange.side_effect = [doc_cursor, para_cursor, para_cursor]
 
-            res = apply_language_change(ctx, "test-doc-ambig", "Sentence.", "es-ES", start_pos=0, paragraph_text="Target paragraph.")
+            res = apply_language_change("test-doc-ambig", "Sentence.", "es-ES", start_pos=0, paragraph_text="Target paragraph.")
             assert res is False
             hit1.setPropertyValue.assert_not_called()
             hit2.setPropertyValue.assert_not_called()
@@ -574,7 +570,6 @@ class TestGrammarPersistence:
         from plugin.writer.locale import grammar_persistence as gp
         from plugin.writer.locale.grammar_worker import apply_language_change
 
-        ctx = MagicMock()
         model = MagicMock()
         ctrl = MagicMock()
         view_cursor = MagicMock()
@@ -607,7 +602,7 @@ class TestGrammarPersistence:
 
             text_obj.createTextCursorByRange.side_effect = [doc_cursor, tc1, tc2]
 
-            res = apply_language_change(ctx, "test-doc-one", "Sentence.", "es-ES", start_pos=0, paragraph_text="Target paragraph.")
+            res = apply_language_change("test-doc-one", "Sentence.", "es-ES", start_pos=0, paragraph_text="Target paragraph.")
             assert res is True
             hit1.setPropertyValue.assert_called_once()
             assert hit1.setPropertyValue.call_args[0][0] == "CharLocale"
