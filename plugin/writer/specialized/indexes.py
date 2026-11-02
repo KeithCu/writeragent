@@ -31,6 +31,7 @@ from typing import Any, Callable, cast
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import create_property_value
 
+from plugin.writer.format import content_has_markup
 from plugin.writer.specialized_base import (
     ToolWriterIndexBase,
     enum_param,
@@ -144,7 +145,6 @@ _BIB_TYPE_MAX = max(_BIB_TYPE_NAMES.values())
 
 _BIB_CITE_SERVICE = "com.sun.star.text.textfield.Bibliography"
 _BIB_CITE_SERVICE_ALT = "com.sun.star.text.TextField.Bibliography"
-_IGNORED_CITE_KWARGS = frozenset({"zotero_key", "citekey", "locator", "csl_style"})
 
 
 def canonicalize_bibliography_field_name(name: str) -> str | None:
@@ -224,24 +224,21 @@ def fields_sequence_to_dict(raw: Any) -> dict[str, Any]:
 def index_kind_from_uno(idx: Any) -> str:
     """Prefer getServiceName(); fall back to the old SwX* remaps."""
     # A missing service name falls through; a closed document must not list as "unknown".
-    raw = uno_read(lambda: idx.getServiceName(), None)
-    service = raw if isinstance(raw, str) else ""
+    service = uno_read(lambda: idx.getServiceName() or "", "")
     kind = _INDEX_SERVICE_TO_KIND.get(service)
     if kind:
         return kind
 
-    raw = uno_read(lambda: idx.getImplementationName(), None)
-    impl = raw if isinstance(raw, str) else ""
+    impl = uno_read(lambda: idx.getImplementationName() or "", "")
     return _INDEX_IMPL_TO_KIND.get(impl) or impl or service or "unknown"
 
 
 def is_bibliography_text_field(field: Any) -> bool:
     """True for native Writer bibliography cite fields (not the index table)."""
-    if hasattr(field, "supportsService"):
-        for service in (_BIB_CITE_SERVICE, _BIB_CITE_SERVICE_ALT):
-            # supportsService does not throw on a live field.
-            if field.supportsService(service):
-                return True
+    for service in (_BIB_CITE_SERVICE, _BIB_CITE_SERVICE_ALT):
+        # supportsService does not throw on a live field.
+        if field.supportsService(service):
+            return True
     return False
 
 
@@ -323,14 +320,6 @@ def _entry_before(found: Any, content: str) -> tuple[str, str]:
     return entry[:160], after[:160]
 
 
-def _paragraph_string(cursor: Any) -> str:
-    """Visible text of the paragraph that contains *cursor*."""
-    try:
-        return (_select_paragraph(cursor).getString() or "")[:160]
-    except Exception:
-        return ""
-
-
 def _enum_has_more(enum: Any) -> bool:
     """True only when ``hasMoreElements()`` is True.
 
@@ -396,15 +385,6 @@ def toc_match(doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple
     return inside[pick], None
 
 
-def _toc_hit(
-    tool: Any, doc: Any, anchor: Any, old_content: Any, occurrence: Any
-) -> tuple[Any, dict[str, Any] | None]:
-    found, find_error = toc_match(doc, anchor, str(old_content).strip(), occurrence)
-    if find_error:
-        return None, tool._tool_error(find_error, code="NOT_FOUND")
-    return found, None
-
-
 def _locate_toc_entry(
     tool: Any, doc: Any, old_content: Any, index: Any, occurrence: Any
 ) -> tuple[Any, Any, Any, dict[str, Any] | None]:
@@ -414,9 +394,9 @@ def _locate_toc_entry(
     idx, anchor, _pos, err = _resolve_toc_target(tool, doc, index)
     if err is not None:
         return None, None, None, err
-    found, err = _toc_hit(tool, doc, anchor, old_content, occ)
-    if err is not None:
-        return None, None, None, err
+    found, find_error = toc_match(doc, anchor, str(old_content).strip(), occ)
+    if find_error:
+        return None, None, None, tool._tool_error(find_error, code="NOT_FOUND")
     return idx, anchor, found, None
 
 
@@ -504,11 +484,6 @@ def _one_line(text: str, repl: str) -> str:
 def _copy_hyperlink_report(target: dict[str, Any], report: dict[str, Any]) -> None:
     for key in ("hyperlink_url", "hyperlink_url_after", "hyperlink_updated"):
         target[key] = report[key]
-
-
-def _reject_markup(text: str) -> bool:
-    from ..format import content_has_markup
-    return content_has_markup(text)
 
 
 # Generated TOC rows use paragraph styles "Contents 1" … "Contents 10"
@@ -846,7 +821,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         if not old_content.strip():
             return self._tool_error("old_content must be a non-empty string.", code="INVALID_PARAM")
         content = _one_line(content, " ")
-        if _reject_markup(content):
+        if content_has_markup(content):
             return self._tool_error(
                 "indexes_refresh_toc_entry takes plain text so the entry's formatting stays.",
                 code="INVALID_PARAM")
@@ -925,7 +900,10 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             point = collapsed_anchor(found)
             replace_preserving_format(
                 doc, found, content, ctx.ctx, in_undo_context=True, split_author=False)
-            lived = _paragraph_string(point)
+            try:
+                lived = (_select_paragraph(point).getString() or "")[:160]
+            except Exception:
+                lived = ""
             if lived:
                 preview["text_after"] = lived
             if snapshot.links or snapshot.preserve_url:
@@ -973,7 +951,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
         old_content: str = kwargs["old_content"]
         if not old_content.strip():
             return self._tool_error("old_content must be a non-empty string.", code="INVALID_PARAM")
-        if _reject_markup(old_content):
+        if content_has_markup(old_content):
             return self._tool_error(
                 "indexes_delete_toc_entry takes plain text so the entry match stays a substring.",
                 code="INVALID_PARAM")
@@ -1013,7 +991,7 @@ def _page_text(raw: Any) -> tuple[str | None, str | None]:
     if not isinstance(raw, str) or not raw.strip():
         return None, "page must be plain text."
     page = _one_line(raw.strip(), " ")
-    if _reject_markup(page):
+    if content_has_markup(page):
         return None, "page must be plain text."
     return page, None
 
@@ -1076,7 +1054,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if not content.strip():
             return self._tool_error("content must be a non-empty string.", code="INVALID_PARAM")
         content = _one_line(content.strip(), " ")
-        if _reject_markup(content):
+        if content_has_markup(content):
             return self._tool_error(
                 "indexes_insert_toc_entry takes plain text so the new entry's formatting can be cloned.",
                 code="INVALID_PARAM")
@@ -1108,7 +1086,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                 return self._tool_error(
                     "old_content is required when position is before or after.",
                     code="INVALID_PARAM")
-            if _reject_markup(old_content):
+            if content_has_markup(old_content):
                 return self._tool_error(
                     "old_content must be plain text.",
                     code="INVALID_PARAM")
@@ -1128,9 +1106,9 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             ]
             ref = entries[-1] if entries else (paragraphs[-1] if paragraphs else None)
         else:
-            found, err = _toc_hit(self, doc, anchor, old_content, occurrence)
-            if err is not None:
-                return err
+            found, find_error = toc_match(doc, anchor, str(old_content).strip(), occurrence)
+            if find_error:
+                return self._tool_error(find_error, code="NOT_FOUND")
             ref = _paragraph_element(found)
         if ref is None:
             return self._tool_error(
@@ -1348,10 +1326,10 @@ class IndexesCreate(ToolWriterIndexBase):
         service_name = _INDEX_KIND_TO_SERVICE[index_kind]
 
         index = doc.createInstance(service_name)
-        if title is not None and hasattr(index, "Title"):
+        if title is not None:
             index.Title = title
 
-        if index_kind == "toc" and hasattr(index, "CreateFromOutline"):
+        if index_kind == "toc":
             index.CreateFromOutline = create_from_outline
 
         try:
@@ -1465,7 +1443,6 @@ class IndexesAddMark(ToolWriterIndexBase):
         return {"status": "ok", "message": f"Added '{index_kind}' index mark for '{mark_text}'"}
 
     def _insert_bibliography_cite(self, doc: Any, cursor: Any, kwargs: Any) -> dict[str, Any]:
-        unused_reserved = [key for key in _IGNORED_CITE_KWARGS if kwargs.get(key) not in (None, "")]
         pairs = collect_bibliography_field_pairs(kwargs)
         identifier = str(pairs.get("Identifier") or "")
         if not identifier:
@@ -1481,13 +1458,10 @@ class IndexesAddMark(ToolWriterIndexBase):
         set_bibliography_field_values(field, pairs)
         text = cursor.getText()
         text.insertTextContent(cursor, field, False)
-        payload: dict[str, Any] = {
+        return {
             "status": "ok",
             "message": "Added bibliography cite '%s'" % identifier,
             "kind": "bibliography",
             "identifier": identifier,
             "fields": dict(pairs),
         }
-        if unused_reserved:
-            payload["ignored"] = unused_reserved
-        return payload
