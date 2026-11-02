@@ -24,6 +24,7 @@ from compute_service.formula_pool import (
     shutdown_formula_pool,
 )
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
+from compute_service.worker_base import Deadline
 from compute_service.vision import get_vision_pool, shutdown_vision_pool
 import plugin.framework.process_worker as process_worker
 from tests.compute_service.conftest import get_free_port
@@ -1278,14 +1279,13 @@ class TestFormulaPoolSupervisor:
             owner = pool.live_session_worker("doc-keep")
             assert owner is not None and owner.process is not None
             pid = owner.process.pid
-            # timeout_sec is the original 30s budget. The deadline is only
-            # about a second from now, which is what the child must honor.
+            # The budget is the original 30s. The deadline is only about a
+            # second from now, which is what the child must honor.
             hung = pool.execute(
                 code="import time\ntime.sleep(8)\nresult = 1",
                 session_id="doc-hang",
                 mode="shared",
-                timeout_sec=30,
-                deadline=time.monotonic() + 1.2,
+                deadline=Deadline.from_absolute(30.0, time.monotonic() + 1.2),
                 req_id="budget-hang",
             )
             assert hung.get("status") == "error"
@@ -1588,7 +1588,7 @@ class TestFormulaHttpEndpoint:
             setattr(worker, "execute", spy_execute)
             res = pool.execute(
                 code="result = 42",
-                deadline=time.monotonic() + 0.5,
+                deadline=Deadline.from_absolute(30.0, time.monotonic() + 0.5),
                 req_id="subsecond-test",
             )
             assert res.get("code") == "QUEUE_TIMEOUT"
@@ -2119,7 +2119,7 @@ class TestFormulaHttpEndpoint:
                 code="result = 2",
                 session_id="budget-sid",
                 mode="shared",
-                deadline=time.monotonic() + 0.05,
+                deadline=Deadline.from_absolute(30.0, time.monotonic() + 0.05),
             )
             assert res.get("code") == "QUEUE_TIMEOUT"
             assert called == []
@@ -2162,7 +2162,7 @@ def test_idle_ttl_zero_or_none_does_not_start_reaper() -> None:
 
 def test_run_execution_alarm_keeps_full_remaining_second(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression: a 2 s budget must arm a 2 s child alarm, not int() floor it to 1 s."""
-    from compute_service.worker_base import BaseProcessWorker, Deadline
+    from compute_service.worker_base import BaseProcessWorker
     from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
@@ -2191,7 +2191,7 @@ def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.Monkey
     The pickle frame was already consumed, so killing the child would drop
     shared sessions for a bad inner blob.
     """
-    from compute_service.worker_base import BaseProcessWorker, Deadline
+    from compute_service.worker_base import BaseProcessWorker
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
@@ -2615,3 +2615,29 @@ def test_check_dependencies_does_not_import_packages(tmp_path: Any, monkeypatch:
     missing = _handle_request({"id": "deps-2", "action": "check_dependencies", "packages": ["nonexistent_pkg_xyz_12345", "nonexistent_parent_xyz.child"]})
     assert missing["code"] == "MISSING_DEPENDENCIES"
     assert missing["missing"] == ["nonexistent_pkg_xyz_12345", "nonexistent_parent_xyz.child"]
+
+
+def test_run_execution_lifts_one_second_budget_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A one-second request with 0.3s left still arms a 1 s child alarm: run_for() is the only lift."""
+    from compute_service.worker_base import BaseProcessWorker
+    from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    seen: dict[str, Any] = {}
+
+    def _capture(payload: dict[str, Any], timeout_sec: float, *, req_id: Any = None) -> dict[str, Any]:
+        seen["alarm"] = payload["timeout_sec"]
+        seen["host"] = timeout_sec
+        return {"status": "ok", "result": 1, "id": req_id}
+
+    worker.execute = _capture  # type: ignore[method-assign]
+    pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0)
+    try:
+        clock = Deadline.from_absolute(1.0, time.monotonic() + 0.3)
+        assert clock.usable() is not None
+        pool._run_execution(worker, {}, clock, "t", False)
+        assert seen["alarm"] == 1
+        assert seen["host"] == 1 + HOST_IPC_READ_GRACE_SEC
+    finally:
+        pool.shutdown()

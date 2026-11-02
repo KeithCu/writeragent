@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import time
 from typing import Any
 
 # Ensure repo root is on sys.path
@@ -26,7 +25,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import MIN_REQUEST_SEC, BaseProcessPool, Deadline, PoolSingleton, error_dict, resolve_override, run_compute_worker
+from compute_service.worker_base import BaseProcessPool, Deadline, PoolSingleton, error_dict, resolve_override, run_compute_worker
 
 log = logging.getLogger("compute_service.vision")
 
@@ -58,9 +57,13 @@ class VisionProcessPool(BaseProcessPool):
         timeout_sec: int | None = None,
         req_id: str | None = None,
         allow_paths: tuple[str, ...] | list[str] | None = None,
-        deadline: float | None = None,
+        deadline: Deadline | None = None,
     ) -> dict[str, Any]:
         """Execute a vision task on an available worker process.
+
+        *deadline* is the HTTP admission clock, or *timeout_sec* from now.
+        It is checked once before the lease and once after. A lease miss is
+        ``VISION_POOL_BUSY``.
 
         The HTTP handler returns 400 for a denied path. The worker checks
         again before ``open``, so this layer does not add a third answer.
@@ -69,35 +72,16 @@ class VisionProcessPool(BaseProcessPool):
             return error_dict("VISION_SERVICE_DISABLED", "Vision / OCR service is not enabled on this instance (ocr_workers=0).", req_id=req_id)
 
         # Only None means "use the default". Zero is an explicit timeout.
-        eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
+        clock = deadline if deadline is not None else Deadline(float(self.default_timeout_sec if timeout_sec is None else timeout_sec))
         prefixes = () if allow_paths is None else tuple(str(p) for p in allow_paths)
         payload = {"id": req_id, "helper": helper, "image_bytes": image, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
 
-        # Queue until a worker is free. The caller's timeout/deadline is the bound;
-        # VISION_POOL_BUSY means that wait expired, not that the pool was busy
-        # at the moment the request arrived.
-        if deadline is None:
-            deadline = time.monotonic() + eff_timeout
-
-        # Under one second requested, or a longer budget that has already
-        # fallen under one second, do not lease. A 0.01s floor used to start
-        # OCR on a deadline that had already passed. A one-second request
-        # still leases: the clock moves before this check.
-        clock = Deadline.from_absolute(eff_timeout, deadline)
         if clock.usable() is None:
             return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
-        lease_budget = max(deadline - time.monotonic(), 0.0)
-        with self.leased(timeout_sec=lease_budget) as worker:
-            # Time passes while waiting for the lease. Recheck the same clock.
-            run_for = None if worker is None else clock.usable()
-            if worker is None or run_for is None:
+        with self.leased(timeout_sec=max(clock.left(), 0.0)) as worker:
+            if worker is None or clock.usable() is None:
                 return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
-
-            # A one-second OCR request can already be under a second.
-            # execute builds a new clock from this timeout, and a budget
-            # under one second is refused. The lift stays here.
-            execute_for = run_for if run_for >= MIN_REQUEST_SEC else MIN_REQUEST_SEC
-            return worker.execute(payload, timeout_sec=execute_for, req_id=req_id)
+            return worker.execute(payload, timeout_sec=clock.run_for(), req_id=req_id)
 
 
 # Global singleton per server process

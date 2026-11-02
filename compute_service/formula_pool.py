@@ -29,7 +29,7 @@ from typing import Any, Generator
 
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, canonical_execute_mode, validate_session_id
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, Deadline, MIN_REQUEST_SEC, PoolSingleton, error_dict, resolve_override
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, Deadline, PoolSingleton, error_dict, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")
@@ -365,23 +365,13 @@ class FormulaProcessPool(BaseProcessPool):
             return self._pick_new_shared_worker()
 
     def _run_execution(self, leased: BaseProcessWorker, payload: dict[str, Any], clock: Deadline, req_id: str | None, decode_result: bool, expect_namespace: bool = False) -> dict[str, Any]:
-        """Send execution payload to leased worker and format response."""
-        # Give the child the remaining budget, and wait at least alarm +
-        # grace. The original full timeout would let signal.alarm lose to
-        # this read, so a normal sleep became SIGKILL and dropped every
-        # shared session on that process.
-        # usable() is the true remainder, or None when the request must
-        # not start. A one-second request can already be under a second.
-        # int() of that remainder is 0, and alarm(0) cancels the child's
-        # alarm. The lift to one second is here, next to the alarm, so the
-        # host wait is not shorter than the alarm.
-        run_for = clock.usable()
-        if run_for is None:
-            return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
-        if run_for < MIN_REQUEST_SEC:
-            run_for = MIN_REQUEST_SEC
-        # ceil, not int: int() turned a 2000 ms budget into a 1 s alarm.
-        child_alarm = math.ceil(run_for)
+        """Send execution payload to leased worker and format response.
+
+        The caller already checked *clock* after the lease. The child alarm is
+        the remaining budget rounded up, and the host waits alarm + grace so
+        the alarm, not a SIGKILL, ends a long cell.
+        """
+        child_alarm = math.ceil(clock.run_for())
         payload["timeout_sec"] = child_alarm
         if expect_namespace:
             payload["expect_namespace"] = True
@@ -475,9 +465,13 @@ class FormulaProcessPool(BaseProcessPool):
         req_id: str | None = None,
         data_json: bytes | None = None,
         decode_result: bool = True,
-        deadline: float | None = None,
+        deadline: Deadline | None = None,
     ) -> dict[str, Any]:
         """Execute formula code on an appropriate worker subprocess.
+
+        *deadline* is the HTTP admission clock. Without one the clock is
+        *timeout_sec* (or the default) from now. It is checked once before
+        the lease and once after.
 
         The one payload is raw ``data_json`` bytes. The worker dumps the
         result once. The HTTP server sets ``decode_result=False`` so it can
@@ -502,29 +496,16 @@ class FormulaProcessPool(BaseProcessPool):
             return error_dict("INVALID_REQUEST", str(exc), req_id=req_id)
 
         # Only None means "use the default". Zero is an explicit timeout.
-        eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
-        # The HTTP handler passes the accept-time deadline. A fresh clock
-        # here would give the child the original full timeout after the
-        # request had already waited in the queue.
-        if deadline is None:
-            deadline = time.monotonic() + eff_timeout
-        if time.monotonic() >= deadline:
+        clock = deadline if deadline is not None else Deadline(float(self.default_timeout_sec if timeout_sec is None else timeout_sec))
+        # Before select, so a miss does not reserve a session or consume the
+        # lost-session marker.
+        if clock.usable() is None:
             return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
 
         try:
             payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, mode=mode, init_script=init_script, req_id=req_id)
         except ExecuteRequestError as exc:
             return error_dict("INVALID_REQUEST", str(exc), req_id=req_id)
-
-        clock = Deadline.from_absolute(eff_timeout, deadline)
-        # A budget under one second, or a longer one that has already fallen
-        # under one second, does not lease. A 0.01s floor used to lease
-        # anyway and then give the child a 1s alarm. A one-second request
-        # still leases: the clock moves before this check. This is before
-        # select so a miss does not reserve a session or consume the
-        # lost-session marker.
-        if clock.usable() is None:
-            return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
 
         gate = self._session_gate(session_id) if mode == "shared" and session_id else nullcontext()
         with gate:
@@ -536,7 +517,7 @@ class FormulaProcessPool(BaseProcessPool):
                 target_worker = self._select_shared_worker(session_id)
                 if target_worker is None:
                     return error_dict("SERVICE_SHUTDOWN", "Formula compute pool is shutting down.", req_id=req_id)
-                lease_budget = max(deadline - time.monotonic(), 0.0)
+                lease_budget = max(clock.left(), 0.0)
                 leased = self.lease_specific(target_worker, timeout_sec=lease_budget)
                 if leased is not None:
                     with self._cond:
@@ -545,7 +526,7 @@ class FormulaProcessPool(BaseProcessPool):
                             assert row.worker is leased, "shared session row worker must match leased worker"
                 busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
             else:
-                lease_budget = max(deadline - time.monotonic(), 0.0)
+                lease_budget = max(clock.left(), 0.0)
                 leased = self.lease_any(timeout_sec=lease_budget)
                 busy_err = "All formula workers are currently busy and request timed out waiting for worker lease."
 
@@ -554,7 +535,7 @@ class FormulaProcessPool(BaseProcessPool):
 
             result: dict[str, Any] | None = None
             try:
-                # Time passes while waiting for the lease. Recheck the same clock.
+                # The lease wait spent part of the clock.
                 if clock.usable() is None:
                     result = error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
                     return result
