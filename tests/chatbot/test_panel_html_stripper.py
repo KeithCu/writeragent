@@ -26,7 +26,8 @@ def _make_plain_send_listener():
     send.rich_text_widget = None
     send.response_control = MagicMock()
     send.response_control.getModel.return_value = MagicMock()
-    send.session = None
+    send.session = MagicMock()
+    send.session.messages = []
     send._scroll_response_to_bottom = MagicMock()
     begin_send_turn(send)
     return send
