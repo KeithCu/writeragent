@@ -9,6 +9,8 @@
 
 from typing import Any
 
+from plugin.draw.base import DRAW_AND_IMPRESS
+
 from plugin.draw.transform_engine import SlideCommandEngine
 from plugin.draw.transform_schema import COLLABORA_TRANSFORM_DSL_URL, TRANSFORM_PARAM_DESCRIPTION, parse_transform_argument
 from plugin.framework.tool import ToolBase, ToolBaseDummy, ToolContext
@@ -28,7 +30,7 @@ class TransformDocumentStructure(ToolBase, ToolBaseDummy):  # type: ignore[misc]
     name: str | None = "transform_document_structure"
     tier: str = "core"
     is_mutation: bool | None = True
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     description: str = ("Transform the currently-open document's structure using a JSON command sequence. Supports Impress slide operations (navigation, layouts, text, formatting) and document-level UNO commands. Canonical DSL: %s\n\n%s") % (COLLABORA_TRANSFORM_DSL_URL, TRANSFORM_PARAM_DESCRIPTION)
     parameters: dict[str, Any] | None = {
         "type": "object",

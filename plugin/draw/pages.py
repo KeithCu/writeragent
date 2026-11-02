@@ -19,8 +19,10 @@
 import logging
 from typing import Any
 
+from plugin.doc.doc_type import is_impress
+from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.bridge import resolve_page_and_bridge
-from plugin.draw.masters import _master_pages
+from plugin.draw.masters import iter_masters
 from plugin.framework.errors import is_real_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import uno_same
@@ -30,13 +32,6 @@ log = logging.getLogger("writeragent.draw.pages")
 
 # Impress Title + Content (title + body). Not "title" (id 0 = title+subtitle).
 _DEFAULT_IMPRESS_LAYOUT = "text"
-
-_DRAW_UNO = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-
-
-def _is_impress_doc(doc: Any) -> bool:
-    """True for Impress. Draw shares add_slide; PyUNO hasattr is unreliable."""
-    return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
 
 
 def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> str:
@@ -95,12 +90,13 @@ class AddSlide(ToolBase):
         },
         "required": [],
     }
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
-        from plugin.draw.transitions import apply_slide_layout, available_layout_names, layout_id
+        from plugin.draw.layouts import available_layout_names, layout_id
+        from plugin.draw.transitions import apply_slide_layout
 
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs.get("page")
@@ -108,7 +104,7 @@ class AddSlide(ToolBase):
         switch_view = bool(activate if activate is not None else True)
 
         layout_name: str | None = None
-        if _is_impress_doc(ctx.doc):
+        if is_impress(ctx.doc):
             raw = kwargs.get("layout")
             layout_name = _DEFAULT_IMPRESS_LAYOUT if raw is None or (isinstance(raw, str) and not raw.strip()) else str(raw).strip().lower()
             # Validate before insert so a bad name does not leave a stray page.
@@ -171,7 +167,7 @@ class AddSlide(ToolBase):
 
 
 class _SlideMutationTool(ToolBase):
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     is_mutation: bool | None = True
 
 
@@ -211,7 +207,7 @@ class ListPages(ToolBase):
     name: str | None = "list_pages"
     description: str = "Lists all pages (slides). Each entry is that page's Name, or \"Page N\" when Name is missing or blank. The list position is the 0-based page index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
 
@@ -232,12 +228,12 @@ class ReadSlideText(ToolBase):
     name: str | None = "read_slide_text"
     description: str = "Read all text content from a slide (shapes text) and speaker notes. Returns structured text per shape."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (default: active slide)."}}, "required": []}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge, find_notes_shape
-        from plugin.framework.errors import is_disposed_exception, uno_probe
+        from plugin.draw.bridge import DrawBridge, notes_text
+        from plugin.framework.errors import is_disposed_exception
 
         _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
         page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
@@ -253,12 +249,10 @@ class ReadSlideText(ToolBase):
                 if is_disposed_exception(exc):
                     raise
 
-        notes_shape = find_notes_shape(uno_probe(lambda: page.getNotesPage(), None))
-        notes_text = ""
-        if notes_shape is not None:
-            notes_text = uno_probe(lambda: notes_shape.getString() or "", "")
+        nt = notes_text(page)
+        notes_str = "" if nt is None else nt
 
-        return {"status": "ok", "page": actual_idx, "texts": texts, "notes": notes_text}
+        return {"status": "ok", "page": actual_idx, "texts": texts, "notes": notes_str}
 
 
 class GetPresentationInfo(ToolBase):
@@ -267,7 +261,7 @@ class GetPresentationInfo(ToolBase):
     name: str | None = "get_presentation_info"
     description: str = "Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -284,18 +278,18 @@ class GetPresentationInfo(ToolBase):
             height_mm = p.Height // 100
 
         # Master pages
-        masters = [m.Name if hasattr(m, "Name") else "Master_%d" % i for i, m in enumerate(_master_pages(doc))]
+        masters = [name or ("Master_%d" % i) for i, _m, name in iter_masters(doc)]
 
         _bridge, active_idx = resolve_page_and_bridge(ctx, {})
 
-        return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": _is_impress_doc(doc), "active_page_index": active_idx}
+        return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress(doc), "active_page_index": active_idx}
 
 
 class SetActivePage(ToolBase):
     name: str | None = "set_active_page"
     description: str = "Changes the currently active slide (page) in Draw/Impress."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     # View change only. None would still detect a mutation: the name
     # set_active_page is not a read prefix. read_only_target and the MCP
     # document lock both follow detects_mutation.

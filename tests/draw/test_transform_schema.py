@@ -4,16 +4,14 @@
 
 import json
 
+from plugin.draw.layouts import layout_id
 from plugin.draw.transform_schema import (
-    AUTOLAYOUT_BY_NAME,
-    AUTOLAYOUT_ID,
     COLLABORA_TRANSFORM_DSL_URL,
     coerce_int,
     get_slide_commands,
     is_deferred_command_key,
     parse_slide_index_token,
     parse_transform_argument,
-    resolve_layout_id,
     split_uno_command,
     TRANSFORM_PARAM_DESCRIPTION,
     validate_slide_commands,
@@ -27,58 +25,58 @@ def test_collabora_dsl_url_is_https():
 
 
 def test_resolve_layout_autolayout_and_alias():
-    assert resolve_layout_id("AUTOLAYOUT_TITLE") == 0
-    assert resolve_layout_id("autolayout_title_content") == 1
-    assert resolve_layout_id("AUTOLAYOUT_NONE") == 20
-    assert resolve_layout_id("blank") is None
-    assert resolve_layout_id(19) == 19
+    assert layout_id("AUTOLAYOUT_TITLE") == 0
+    assert layout_id("autolayout_title_content") == 1
+    assert layout_id("AUTOLAYOUT_NONE") == 20
+    assert layout_id("blank") == 20
+    assert layout_id(19) == 19
 
 
 def test_resolve_layout_id_comprehensive():
     # Integers
-    assert resolve_layout_id(0) == 0
-    assert resolve_layout_id(19) == 19
-    assert resolve_layout_id(-1) == -1
+    assert layout_id(0) == 0
+    assert layout_id(19) == 19
+    assert layout_id(-1) == -1
 
     # Floats with/without integer equivalence
-    assert resolve_layout_id(19.0) == 19
-    assert resolve_layout_id(0.0) == 0
-    assert resolve_layout_id(19.5) is None
-    assert resolve_layout_id(float("nan")) is None
+    assert layout_id(19.0) == 19
+    assert layout_id(0.0) == 0
+    assert layout_id(19.5) is None
+    assert layout_id(float("nan")) is None
 
     # Booleans (should return None because bool inherits from int in Python)
-    assert resolve_layout_id(True) is None
-    assert resolve_layout_id(False) is None
+    assert layout_id(True) is None
+    assert layout_id(False) is None
 
     # Non-string / non-numeric types
-    assert resolve_layout_id(None) is None
-    assert resolve_layout_id([]) is None
-    assert resolve_layout_id({}) is None
+    assert layout_id(None) is None
+    assert layout_id([]) is None
+    assert layout_id({}) is None
 
     # Strings: empty or whitespace
-    assert resolve_layout_id("") is None
-    assert resolve_layout_id("   ") is None
+    assert layout_id("") is None
+    assert layout_id("   ") is None
 
     # Strings: AUTOLAYOUT names (case insensitivity and whitespace handling)
-    assert resolve_layout_id("AUTOLAYOUT_TITLE") == 0
-    assert resolve_layout_id("  autolayout_title_2content  ") == 3
-    assert resolve_layout_id("autolayout_title_only") == 19
+    assert layout_id("AUTOLAYOUT_TITLE") == 0
+    assert layout_id("  autolayout_title_2content  ") == 3
+    assert layout_id("autolayout_title_only") == 19
 
-    # Transform DSL names are AUTOLAYOUT_*; friendly names go through layout_id.
-    assert resolve_layout_id("title") is None
-    assert resolve_layout_id("  BLANK  ") is None
-    assert resolve_layout_id("two_column_text") is None
+    # Friendly names and aliases resolve through layout_id
+    assert layout_id("title") == 0
+    assert layout_id("  BLANK  ") == 20
+    assert layout_id("two_column_text") == 3
 
     # Strings: Numeric strings
-    assert resolve_layout_id("19") == 19
-    assert resolve_layout_id("  12  ") == 12
-    assert resolve_layout_id("0") == 0
-    assert resolve_layout_id("-5") == -5
+    assert layout_id("19") == 19
+    assert layout_id("  12  ") == 12
+    assert layout_id("0") == 0
+    assert layout_id("-5") == -5
 
     # Strings: Invalid / non-matching names or non-integer numbers
-    assert resolve_layout_id("invalid_layout_name") is None
-    assert resolve_layout_id("AUTOLAYOUT_NON_EXISTENT") is None
-    assert resolve_layout_id("12.34") is None
+    assert layout_id("invalid_layout_name") is None
+    assert layout_id("AUTOLAYOUT_NON_EXISTENT") is None
+    assert layout_id("12.34") is None
 
 
 def test_parse_transform_valid():
@@ -117,14 +115,13 @@ def test_deferred_keys():
 
 
 def test_autolayout_map_matches_collabora_ids():
-    assert AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_ONLY"] == 19
-    assert AUTOLAYOUT_BY_NAME["AUTOLAYOUT_NONE"] == 20
-    assert AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_2CONTENT"] == AUTOLAYOUT_ID["AUTOLAYOUT_TITLE_2CONTENT"] == 3
+    assert layout_id("AUTOLAYOUT_TITLE_ONLY") == 19
+    assert layout_id("AUTOLAYOUT_NONE") == 20
+    assert layout_id("AUTOLAYOUT_TITLE_2CONTENT") == 3
     # Historic ids the Collabora subset omits. set_slide_layout still uses them.
-    assert AUTOLAYOUT_ID["AUTOLAYOUT_CHART"] == 2
-    assert AUTOLAYOUT_ID["AUTOLAYOUT_TAB"] == 8
-    assert AUTOLAYOUT_ID["AUTOLAYOUT_OBJ"] == 11
-    assert AUTOLAYOUT_ID["AUTOLAYOUT_TITLE_ONLY"] == AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_ONLY"]
+    assert layout_id("AUTOLAYOUT_CHART") == 2
+    assert layout_id("AUTOLAYOUT_TAB") == 8
+    assert layout_id("AUTOLAYOUT_OBJ") == 11
 
 
 def test_collabora_fixtures_load_from_tests_package():
@@ -138,8 +135,10 @@ def test_collabora_fixtures_load_from_tests_package():
 
 
 def test_all_autolayout_by_name_appear_in_transform_description():
-    for name, layout_id in AUTOLAYOUT_BY_NAME.items():
-        expected = f"{name} (id={layout_id})"
+    from plugin.draw.transform_schema import _COLLABORA_AUTOLAYOUT_NAMES
+
+    for name in _COLLABORA_AUTOLAYOUT_NAMES:
+        expected = f"{name} (id={layout_id(name)})"
         assert expected in TRANSFORM_PARAM_DESCRIPTION
 
 
