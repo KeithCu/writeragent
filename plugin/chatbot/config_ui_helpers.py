@@ -7,6 +7,8 @@ from plugin.framework.config import (
     set_configs,
     get_current_endpoint,
     get_api_key_for_endpoint,
+    get_reasoning_effort_for_endpoint,
+    set_reasoning_effort_for_endpoint,
 )
 from plugin.framework.client.auth import provider_requires_api_key, provider_requires_slug_model_id
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
@@ -97,12 +99,6 @@ def _is_incompatible_model_for_provider(model_id: str, provider: str | None) -> 
 
 def _filter_models_for_provider(models: list[str], provider: str | None) -> list[str]:
     return [mid for mid in models if not _is_incompatible_model_for_provider(mid, provider)]
-
-
-def _effective_api_key(endpoint: str, api_key_override: str | None) -> str:
-    if api_key_override is not None:
-        return str(api_key_override).strip()
-    return str(get_api_key_for_endpoint(endpoint) or "").strip()
 
 
 # These getters are bound at import time, so patching get_text_model/get_stt_model/
@@ -212,7 +208,11 @@ def populate_combobox_with_lru(
         if "audio" in lru_key.lower() or "stt" in lru_key.lower()
         else "text"
     )
-    effective_key = _effective_api_key(endpoint, api_key_override)
+    effective_key = (
+        str(api_key_override).strip()
+        if api_key_override is not None
+        else str(get_api_key_for_endpoint(endpoint) or "").strip()
+    )
     auth_blocked = bool(provider and provider_requires_api_key(provider) and not effective_key and remote_models is None)
 
     fetch_succeeded = False
@@ -316,7 +316,7 @@ def populate_combobox_with_lru(
 
     display_val = _resolve_display_model_for_combobox(curr_val_str, is_incompatible, to_show, provider, req_cap)
     _paint_combo(ctrl, to_show, display_val)
-    return display_val if display_val else ""
+    return display_val
 
 
 def _sync_sidebar_model(
@@ -492,8 +492,6 @@ def populate_reasoning_effort_selector(ctrl: Any, endpoint: str | None = None) -
             for item in REASONING_EFFORT_DISPLAY_LABELS:
                 ctrl.addItem(item, 0)
 
-    from plugin.framework.config import get_current_endpoint, get_reasoning_effort_for_endpoint
-
     target_endpoint = endpoint if endpoint is not None else get_current_endpoint()
     stored_effort = get_reasoning_effort_for_endpoint(target_endpoint)
     display_label = reasoning_effort_to_display(stored_effort)
@@ -504,7 +502,6 @@ def sync_sidebar_reasoning_effort(ctrl: Any) -> None:
     """Read the sidebar reasoning effort selector and persist changes for the current endpoint."""
     if ctrl is None:
         return
-    from plugin.framework.config import get_current_endpoint, get_reasoning_effort_for_endpoint, set_reasoning_effort_for_endpoint
 
     endpoint = get_current_endpoint()
     display_val = get_reasoning_effort_selector_value(ctrl)

@@ -41,27 +41,21 @@ def find_module_manifest(module_name: str) -> dict[str, Any] | None:
 def call_options_provider(provider_path: str) -> Any:
     """Import a module and call a function to get options (``module:func`` path)."""
     log.debug("call_options_provider: %s", provider_path)
+    module_path, func_name = provider_path.rsplit(":", 1)
+    import importlib
+
+    mod = importlib.import_module(module_path)
+    func = getattr(mod, func_name)
+
+    services = None
     try:
-        module_path, func_name = provider_path.rsplit(":", 1)
-        import importlib
+        from plugin.main import get_services
 
-        mod = importlib.import_module(module_path)
-        func = getattr(mod, func_name)
-
-        services = None
-        try:
-            from plugin.main import get_services
-
-            services = get_services()
-        except ImportError:
-            # LibrePy does not ship plugin.main; providers that need services skip.
-            pass
-        options = func(services)
-        log.debug("call_options_provider success: %s options returned", len(options))
-        return options
-    except Exception as e:
-        # _resolve_field_options logs this failure. Do not log it again here.
-        raise ConfigError(f"Options provider {provider_path} failed: {e}") from e
+        services = get_services()
+    except ImportError:
+        # LibrePy does not ship plugin.main; providers that need services skip.
+        pass
+    return func(services)
 
 
 def _display_label_for_stored_value(opts: Any, val: Any) -> Any:
@@ -226,8 +220,6 @@ def _commit_spin_peer_value(ctrl: Any) -> float | None:
         current = None
     if current == live:
         return None
-    if not hasattr(ctrl, "setValue"):
-        return float(live)
     try:
         ctrl.setValue(float(live))
     except Exception:
@@ -345,6 +337,10 @@ def _config_assignment_matches(
     return coerced == current
 
 
+def spec_save_key(spec: dict[str, Any], name: str) -> str:
+    return str(spec.get("config_key") or name.replace("__", "."))
+
+
 def apply_field_specs_result(result: dict[str, Any], field_specs: list[dict[str, Any]]) -> None:
     """Persist dialog values using each spec's ``config_key`` (or name with ``__`` → ``.``).
 
@@ -359,7 +355,7 @@ def apply_field_specs_result(result: dict[str, Any], field_specs: list[dict[str,
         spec = by_name.get(key)
         if spec is None:
             continue
-        save_key = str(spec.get("config_key") or key.replace("__", "."))
+        save_key = spec_save_key(spec, key)
         pending[save_key] = stored_select_value(val, spec.get("options"))
     # One write, and only keys that differ from disk or from an omitted default.
     pending = changed_config_values(pending, get_config)

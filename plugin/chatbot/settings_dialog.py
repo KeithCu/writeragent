@@ -24,17 +24,23 @@ from plugin.framework.config import (
     get_config_float,
     get_config_str,
 )
-from plugin.framework.client.model_fetcher import get_image_model, get_text_model
+from plugin.framework.client.model_fetcher import (
+    _sanitize_stored_model_value,
+    get_image_model,
+    get_text_model,
+)
 from plugin.framework.i18n import N_, _
 from plugin.framework.url_utils import normalize_endpoint_url
 
 from typing import Any, cast
-import logging
 
-from plugin.chatbot.settings_fields import build_module_field_specs
+from plugin.chatbot.settings_fields import (
+    build_module_field_specs,
+    changed_config_values,
+    spec_save_key,
+    stored_select_value,
+)
 from plugin.chatbot.settings_tab_order import iter_settings_field_modules
-
-log = logging.getLogger(__name__)
 
 # English labels stored in image_default_aspect and mapped to image-tool enums.
 # Marked with N_() so gettext extracts them while values remain English strings.
@@ -75,7 +81,6 @@ def canonical_aspect_label(displayed: str) -> str:
 
 def get_settings_field_specs(ctx: Any) -> list[dict[str, Any]]:
     """Return field specs for Settings dialog (single source for dialog and apply keys)."""
-    log.debug("get_settings_field_specs entry")
     current_endpoint = get_current_endpoint()
     
     field_specs = []
@@ -99,7 +104,7 @@ def _get_core_field_specs(current_endpoint: str) -> list[dict[str, Any]]:
 
 
 def _get_image_field_specs() -> list[dict[str, Any]]:
-    stored_aspect = canonical_aspect_label(get_config_str("image_default_aspect") or "Square")
+    stored_aspect = canonical_aspect_label(get_config_str("image_default_aspect"))
     # The combo shows the translated label; option values stay English so Apply
     # maps the caption back to the stored string (apply_settings_result).
     aspect_options = [
@@ -178,7 +183,6 @@ def endpoint_for_api_key_write(
     target_endpoint: str,
     saved_key: str,
     target_key: str,
-    user_edited_key: bool | None = None,
 ) -> str | None:
     """Normalized endpoint to store *typed_key* under, or None for no write.
 
@@ -191,10 +195,10 @@ def endpoint_for_api_key_write(
     pasted and then a one-character URL correction. An unchanged key for
     the same endpoint is not a write.
     """
-    eff_key = effective_api_key(typed_key, saved_endpoint, target_endpoint, saved_key, target_key, user_edited_key)
-    if eff_key == str(target_key or ""):
+    eff_key = effective_api_key(typed_key, saved_endpoint, target_endpoint, saved_key, target_key)
+    if eff_key == target_key:
         return None
-    return normalize_endpoint_url(target_endpoint or "")
+    return normalize_endpoint_url(target_endpoint)
 
 
 def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[dict[str, Any]] | None = None) -> None:
@@ -212,8 +216,6 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
     sidebar mode combo.
     """
     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
-    from plugin.chatbot.settings_fields import stored_select_value
-    from plugin.framework.client.model_fetcher import _sanitize_stored_model_value
 
     field_specs = field_specs if field_specs is not None else get_settings_field_specs(ctx)
     field_specs_by_name = {f["name"]: f for f in field_specs}
@@ -238,7 +240,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             continue
 
         spec = field_specs_by_name[key]
-        save_key = str(spec.get("config_key") or key.replace("__", "."))
+        save_key = spec_save_key(spec, key)
 
         opts = spec.get("options")
         if isinstance(opts, list):
@@ -344,8 +346,6 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
         )
         if slot is not None:
             pending["api_keys_by_endpoint"] = {slot: typed_key}
-
-    from plugin.chatbot.settings_fields import changed_config_values
 
     # One set_configs, and only keys that differ from disk or from the
     # schema default of a missing key. Passing the whole dialog made a
