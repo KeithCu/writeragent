@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, ClassVar
+from typing import Any, ClassVar, final
 
 from plugin.framework.errors import reraise_if_disposed, uno_read
 
@@ -30,12 +30,11 @@ def _strip_data_lo_style(start_tag: str) -> str:
 
 
 
+@final
 class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
     """Collect data-lo-style per TOP-LEVEL block (document order) and strip the attribute
     from the HTML, so the StarWriter import sees clean markup and we apply the named styles
     ourselves afterwards. Content inside <table> is left to the import (avoids order desync)."""
-
-    _table_depth: int
 
     # Paragraph-level blocks cannot contain blocks: a new one closes the open one (<p>a<p>b).
     _PARA_LEVEL: ClassVar[frozenset[str]] = frozenset({"p", "pre", "h1", "h2", "h3", "h4", "h5", "h6"})
@@ -64,7 +63,7 @@ class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
         # block's first child block is that same paragraph -- it shares
         # the slot, and its own style wins when it has one.
         parent = self._open[-1] if self._open else None
-        if parent is not None and parent[1] is False and self.styles:
+        if parent is not None and parent[1] is False:
             parent[1] = True
             if val is not None:
                 self.styles[-1] = val
