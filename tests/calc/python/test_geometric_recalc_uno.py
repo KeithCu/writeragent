@@ -889,7 +889,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
     """§9.3 / §10: Isolated + flag on — no Shared globals; strip with the caller doc.
 
     UI load/repair keys the map with ``geometric_workbook_key`` (``calc:`` +
-    ``_workbook_session_key``, never empty); eval strips with the same key
+    ``mint_document_key``, never empty); eval strips with the same key
     read from the caller document.
     """
     from plugin.calc.python.geometric_recalc import (

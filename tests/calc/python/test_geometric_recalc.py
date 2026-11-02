@@ -894,7 +894,7 @@ def _reset_geo(monkeypatch=None):
 
 
 def test_isolated_workbook_key_never_empty():
-    """Isolated UI load/repair keys on calc:+_workbook_session_key (same string eval reads)."""
+    """Isolated UI load/repair keys on calc:+mint_document_key (same string eval reads)."""
     from plugin.scripting import session_manager as sm
     from plugin.tests.testing_utils import CalcDocStub
 
@@ -917,7 +917,7 @@ def test_unsaved_workbook_key_is_never_empty():
     _reset_geo()
     doc = CalcDocStub(url="")
     with patch(
-        "plugin.scripting.session_manager._workbook_session_key",
+        "plugin.scripting.session_manager.mint_document_key",
         return_value="unsaved-stable-id",
     ):
         sid = geometric_workbook_key(doc)

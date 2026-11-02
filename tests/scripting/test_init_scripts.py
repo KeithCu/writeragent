@@ -317,7 +317,7 @@ def test_build_python_eval_init_kwargs():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     set_calc_init_script(doc, "import pandas as pd")
-    with patch("plugin.scripting.session_manager._workbook_session_key", return_value="doc-1"):
+    with patch("plugin.scripting.session_manager.mint_document_key", return_value="doc-1"):
         kw = build_python_eval_init_kwargs(doc)
     assert kw["init_script"] == "import pandas as pd"
     assert kw["init_session_id"] == "calc:doc-1:init"
@@ -333,7 +333,7 @@ def test_run_code_forwards_init_kwargs():
     set_calc_init_script(doc, "x = 1")
     with (
         patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr,
-        patch("plugin.scripting.session_manager._workbook_session_key", return_value="k"),
+        patch("plugin.scripting.session_manager.mint_document_key", return_value="k"),
     ):
         manager = MagicMock()
         mock_mgr.return_value = (manager, None)

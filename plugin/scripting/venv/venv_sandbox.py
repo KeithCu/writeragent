@@ -42,6 +42,11 @@ from plugin.contrib.smolagents.local_python_executor import (
     get_file_os_proxy,
     print_outputs_from_state,
 )
+from plugin.scripting.session_key import (
+    INIT_SUFFIX,
+    SessionKey,
+    SessionKind,
+)
 from plugin.scripting.payload_codec import (
     ForceBinary,
     describe_wire_value,
@@ -514,10 +519,11 @@ def _get_or_create_session_executor(
 
 
 def _clear_init_session_unlocked(init_session_id: str) -> None:
-    cell_sid = init_session_id[:-len(":init")] if init_session_id.endswith(":init") else None
+    key = SessionKey.parse(init_session_id)
+    cell_sid = init_session_id[: -len(INIT_SUFFIX)] if key.endswith_init() else None
     _SESSION_EXECUTORS.pop(init_session_id, None)
     _INIT_SCRIPT_HASH.pop(init_session_id, None)
-    if init_session_id.startswith("isolated:"):
+    if key.kind is SessionKind.ISOLATED:
         _ISOLATED_INIT_LRU.pop(init_session_id, None)
     _reset_session_duckdb(init_session_id)
     if cell_sid:
@@ -530,12 +536,13 @@ def _clear_init_session_unlocked(init_session_id: str) -> None:
 def _drop_session_unlocked(session_id: str) -> None:
     # Desktop workbooks use calc:… and compute uses the raw Online session id;
     # both store the init executor at {id}:init. Reset drops both.
-    if session_id.endswith(":init"):
+    key = SessionKey.parse(session_id)
+    if key.endswith_init():
         _clear_init_session_unlocked(session_id)
     else:
         _SESSION_EXECUTORS.pop(session_id, None)
         _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
-        _clear_init_session_unlocked(f"{session_id}:init")
+        _clear_init_session_unlocked(key.with_init_suffix().wire())
 
 
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
@@ -734,7 +741,7 @@ def _ensure_init_executed(
         ):
             _clear_init_session_unlocked(init_session_id)
         elif prior == script_digest and init_session_id in _SESSION_EXECUTORS:
-            if init_session_id.startswith("isolated:"):
+            if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
                 _record_isolated_init_access_unlocked(init_session_id)
             return None
 
@@ -757,7 +764,7 @@ def _ensure_init_executed(
 
     with _SESSION_LOCK:
         _INIT_SCRIPT_HASH[init_session_id] = script_digest
-        if init_session_id.startswith("isolated:"):
+        if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
             _record_isolated_init_access_unlocked(init_session_id)
     return None
 
