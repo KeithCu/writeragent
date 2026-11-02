@@ -11,9 +11,9 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from .anthropic_shim import AnthropicShim
+from .shim_helpers import _openai_model_leaf
 from .base_provider_shim import (
     BaseProviderShim,
-    _openai_model_leaf,
     canonical_aspect_ratio,
     canonical_resolution,
     coerce_image_data_url,

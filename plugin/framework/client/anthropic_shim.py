@@ -12,11 +12,9 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
+from .shim_helpers import _dict_parts, _normalize_usage, _system_text
 from .base_provider_shim import (
     BaseProviderShim,
-    _dict_parts,
-    _normalize_usage,
-    _system_text,
     coerce_raw_b64,
     effort_payload,
     inline_image_mime,

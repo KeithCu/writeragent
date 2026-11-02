@@ -89,6 +89,8 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/client/errors.py",
     # errors.py does ``from .responses_shim import responses_failed_message``.
     "plugin/framework/client/responses_shim.py",
+    # responses_shim.py imports its pure helpers from shim_helpers.py.
+    "plugin/framework/client/shim_helpers.py",
     "plugin/framework/client/ssl_helpers.py",
     "plugin/framework/client/provider_detection.py",
     "plugin/chatbot/dialogs.py",

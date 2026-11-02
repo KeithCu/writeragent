@@ -36,7 +36,7 @@ import logging
 from typing import Any
 
 from plugin.framework.errors import NetworkError
-from .base_provider_shim import _normalize_usage, _openai_model_leaf, _system_text
+from .shim_helpers import _normalize_usage, _openai_model_leaf, _system_text
 
 log = logging.getLogger(__name__)
 
