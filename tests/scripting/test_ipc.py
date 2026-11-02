@@ -1835,3 +1835,40 @@ class TestReadFramePayloadWithTimeoutNoFd:
             read_frame_payload(broken, timeout_sec=2.0)
 
 
+def test_host_pickle_leaf_types():
+    import datetime
+    import decimal
+    from plugin.scripting.ipc import (
+        HOST_PICKLE_LEAF_TYPES,
+        PICKLE_PROTOCOL,
+        _SAFE_PICKLE_BUILTINS,
+        _SafeUnpickler,
+    )
+
+    assert _SAFE_PICKLE_BUILTINS == frozenset({"complex"})
+
+    sample_values = [
+        None,
+        True,
+        False,
+        42,
+        3.14,
+        "hello",
+        b"bytes",
+        bytearray(b"bytearray"),
+        1 + 2j,
+    ]
+    for val in sample_values:
+        assert isinstance(val, HOST_PICKLE_LEAF_TYPES)
+        frame = pickle.dumps(val, protocol=PICKLE_PROTOCOL)
+        loaded = _SafeUnpickler(io.BytesIO(frame)).load()
+        assert loaded == val
+        assert type(loaded) is type(val)
+
+    for rejected in [datetime.datetime(2026, 8, 13), decimal.Decimal("1.5")]:
+        frame = pickle.dumps(rejected, protocol=PICKLE_PROTOCOL)
+        with pytest.raises(pickle.UnpicklingError):
+            _SafeUnpickler(io.BytesIO(frame)).load()
+
+
+
