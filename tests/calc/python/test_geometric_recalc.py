@@ -11,6 +11,7 @@ from unittest.mock import patch
 from plugin.calc.calc_addin_data import split_python_addin_data_args
 from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.address_utils import local_a1
 from plugin.calc.python.geometric_recalc import (
     CONFIG_KEY,
     GEOMETRIC_REGISTRY_PROP,
@@ -24,7 +25,6 @@ from plugin.calc.python.geometric_recalc import (
     ensure_geometric_strip_index_for_eval,
     geometric_workbook_key,
     load_geometric_registry_for_doc,
-    local_a1,
     maybe_geometric_on_document_open,
     maybe_strip_geometric_eval_args,
     notify_geometric_cap_hit,

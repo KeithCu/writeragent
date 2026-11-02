@@ -16,8 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ExcelWorkbookModel
 
-from plugin.calc.address_utils import MAX_COL, MAX_ROW
-from plugin.calc.excel_py_convert.parse_excel_ooxml import letters_to_col_index
+from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
 
 _ANCHOR_RE = re.compile(r"^(?:_xlfn\.)?ANCHORARRAY\((.+)\)$", re.IGNORECASE)
@@ -84,7 +83,7 @@ def _a1_in_bounds(span: str) -> bool:
         part = part.replace("$", "")
         letters = part.rstrip("0123456789")
         digits = part[len(letters):]
-        if letters and letters_to_col_index(letters) > MAX_COL + 1:
+        if letters and (len(letters) > 3 or column_to_index(letters) > MAX_COL):
             return False
         if digits and not 1 <= int(digits) <= MAX_ROW + 1:
             return False

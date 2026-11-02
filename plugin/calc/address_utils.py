@@ -288,3 +288,94 @@ def format_range_address(addr: Any, *, collapse_single: bool = False) -> str:
         collapse_single=collapse_single,
     )
 
+
+def canonical(ref: str) -> str:
+    """Canonicalize a cell or range address: strip $, uppercase cell part, preserve sheet case and quotes.
+
+    >>> canonical("a1")
+    'A1'
+    >>> canonical("$A$1")
+    'A1'
+    >>> canonical("$a$1:$b$2")
+    'A1:B2'
+    >>> canonical("Sheet1.$a$1")
+    'Sheet1.A1'
+    >>> canonical("'My Sheet'!$A$1")
+    \"'My Sheet'!A1\"
+    >>> canonical("'O''Brien'.a1")
+    \"'O''Brien'.A1\"
+    """
+    s = (ref or "").strip()
+    if not s:
+        return ""
+    sheet, cell = split_sheet_prefix(s)
+    cell_part = cell.replace("$", "").upper()
+    if sheet is None:
+        return cell_part
+    sep = "!" if "!" in s else "."
+    clean_s = s.lstrip("$")
+    if clean_s.startswith("'") or quote_sheet_name(sheet) != sheet:
+        sheet_part = "'" + sheet.replace("'", "''") + "'"
+    else:
+        sheet_part = sheet
+    return f"{sheet_part}{sep}{cell_part}"
+
+
+_CELL_TOKEN_RE = re.compile(r"^\$?([A-Za-z]{1,3})\$?([0-9]{1,7})$")
+
+
+def is_cell_token(s: str) -> bool:
+    """True when *s* is a single A1 cell reference token (optional $, col A..XFD, row 1..1048576)."""
+    if not isinstance(s, str) or not s:
+        return False
+    m = _CELL_TOKEN_RE.match(s.strip())
+    if not m:
+        return False
+    row_num = int(m.group(2))
+    if row_num < 1 or row_num > MAX_ROW + 1:
+        return False
+    return column_to_index(m.group(1)) <= MAX_COL
+
+
+def local_a1(address: str) -> str:
+    """Return local cell/range address without sheet prefix: 'Sheet1.$A$1' -> 'A1'."""
+    _sheet, rest = split_sheet_prefix(address or "")
+    return canonical(rest)
+
+
+def parse_local(address: str) -> tuple[int, int] | None:
+    """Parse cell address ignoring any sheet prefix, returning 0-based (col, row) or None."""
+    try:
+        _sheet, rest = split_sheet_prefix(address or "")
+        return parse_address(rest)
+    except (ValueError, TypeError):
+        return None
+
+
+def range_shape(range_str: str) -> tuple[int, int, int] | None:
+    """Return ``(cell_count, rows, cols)`` for an A1 range, or None for invalid refs."""
+    try:
+        _unused_sheet, local = split_sheet_prefix(range_str)
+        (c0, r0), (c1, r1) = parse_range_string(local)
+    except (ValueError, TypeError):
+        return None
+    cols = abs(c1 - c0) + 1
+    rows = abs(r1 - r0) + 1
+    return cols * rows, rows, cols
+
+
+def split_axis(address: str) -> tuple[str, str, str] | None:
+    """Split whole column or row range (e.g. 'A:B' or '1:10') into ('col'|'row', start, end) or None."""
+    address = address.replace("$", "")
+    start, has_sep, end = address.partition(":")
+    if not has_sep or not start or not end:
+        return None
+    if not (start.isascii() and end.isascii()):
+        return None
+    if start.isalpha() and end.isalpha():
+        return "col", start.upper(), end.upper()
+    if start.isdigit() and end.isdigit():
+        return "row", start, end
+    return None
+
+

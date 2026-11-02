@@ -113,6 +113,7 @@ def test_address_utils():
     assert parse_address("A$1") == (0, 0)
     assert parse_range_string("$A$1:$B$2") == ((0, 0), (1, 1))
     assert parse_range_string("A$1:B$2") == ((0, 0), (1, 1))
+
     assert split_sheet_prefix("$Sheet1.$A$1:$B$2") == ("Sheet1", "$A$1:$B$2")
     assert split_sheet_prefix("'$Prices'.$A$1") == ("$Prices", "$A$1")
     assert split_sheet_prefix("$'Data Sheet'.$A$1") == ("Data Sheet", "$A$1")
@@ -222,3 +223,85 @@ def test_parse_address_rejects_misplaced_dollar_signs():
     assert parse_address("$A1") == (0, 0)
     assert parse_range_string("$A$1:$B$2") == ((0, 0), (1, 1))
     assert parse_range_string("A$1:B$2") == ((0, 0), (1, 1))
+
+
+def test_canonical():
+    from plugin.calc.address_utils import canonical
+
+    assert canonical("a1") == "A1"
+    assert canonical("$A$1") == "A1"
+    assert canonical("$h$4") == "H4"
+    assert canonical("$a$1:$b$2") == "A1:B2"
+    assert canonical("Sheet1.$a$1") == "Sheet1.A1"
+    assert canonical("sheet1.a1") == "sheet1.A1"
+    assert canonical("'My Sheet'!$A$1") == "'My Sheet'!A1"
+    assert canonical("'O''Brien'.a1") == "'O''Brien'.A1"
+    assert canonical("$'My Sheet'.$A$1") == "'My Sheet'.A1"
+    assert canonical("$Sheet1.$A$1") == "Sheet1.A1"
+    assert canonical("Sheet1!$a$1") == "Sheet1!A1"
+    assert canonical("") == ""
+
+
+def test_is_cell_token():
+    from plugin.calc.address_utils import is_cell_token
+
+    for valid in ("A1", "a1", "$A$1", "$a$1", "A$1", "$A1", "XFD1048576"):
+        assert is_cell_token(valid), f"{valid} should be valid cell token"
+
+    for invalid in (
+        "XFE1",
+        "ZZZ1",
+        "A0",
+        "A1048577",
+        "Sales2024",
+        "Table1",
+        "A1:B2",
+        "Sheet1.A1",
+        "",
+        None,
+        "A$1$",
+        "R1C1",
+        "TaxRate",
+    ):
+        assert not is_cell_token(invalid), f"{invalid} should not be valid cell token"
+
+
+def test_local_a1():
+    from plugin.calc.address_utils import local_a1
+
+    assert local_a1("A1") == "A1"
+    assert local_a1("$A$1") == "A1"
+    assert local_a1("Sheet1.A1") == "A1"
+    assert local_a1("Sheet1.$B$2") == "B2"
+    assert local_a1("'My Sheet'!$C$3") == "C3"
+
+
+def test_parse_local():
+    from plugin.calc.address_utils import parse_local
+
+    assert parse_local("Sheet1.A1") == (0, 0)
+    assert parse_local("$B$2") == (1, 1)
+    assert parse_local("invalid") is None
+    assert parse_local("A0") is None
+
+
+def test_range_shape():
+    from plugin.calc.address_utils import range_shape
+
+    assert range_shape("C2:C9") == (8, 8, 1)
+    assert range_shape("Sheet1.C2:C9") == (8, 8, 1)
+    assert range_shape("A1:B1") == (2, 1, 2)
+    assert range_shape("A1") == (1, 1, 1)
+    assert range_shape("SalesData") is None
+
+
+def test_split_axis():
+    from plugin.calc.address_utils import split_axis
+
+    assert split_axis("A:B") == ("col", "A", "B")
+    assert split_axis("F:F") == ("col", "F", "F")
+    assert split_axis("1:10") == ("row", "1", "10")
+    assert split_axis("$A:$B") == ("col", "A", "B")
+    assert split_axis("A1:B2") is None
+    assert split_axis("invalid") is None
+

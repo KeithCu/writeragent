@@ -21,7 +21,13 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.address_utils import MAX_COL, column_to_index, format_address, format_range_address, parse_address, split_sheet_prefix
+from plugin.calc.address_utils import (
+    format_address,
+    format_range_address,
+    is_cell_token,
+    parse_address,
+    split_sheet_prefix,
+)
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, find_named_range, is_agent_visible_sheet
 from plugin.framework.errors import UnoObjectError, uno_read
@@ -89,10 +95,6 @@ def _format_flags(flag_mask: int) -> list[str]:
 _NAME_BAD_STRING = "Invalid name. It must start with a letter (excluding c, C, r, or R followed by a number) or underscore. Only letters, numbers, and underscores are permitted."
 _NAME_CELL_REF = "Invalid name. Reference to a cell, or a range of cells not allowed."
 
-# Column ceiling is Calc's jumbo XFD (index 16383). IsNameValid treats any
-# ScAddress::Parse result other than ScRefFlags::ZERO as a cell, including a
-# partial row, so a positive row with a column inside that ceiling is rejected.
-_A1_CELL_NAME = re.compile(r"^([A-Za-z]{1,3})([0-9]+)$")
 # R1C1 forms that use only name characters (brackets are not Name chars).
 # RC is the current cell. Bare R or C is not a reference.
 _R1C1_CELL_NAME = re.compile(r"^(?:R[0-9]*C[0-9]*|R[0-9]+|C[0-9]+)$", re.IGNORECASE)
@@ -115,14 +117,7 @@ def _is_calc_cell_ref_name(name: str) -> bool:
     """True when *name* is an A1 or R1C1 address under IsNameValid's parse check."""
     if _R1C1_CELL_NAME.match(name):
         return True
-    match = _A1_CELL_NAME.match(name)
-    if not match:
-        return False
-    row = int(match.group(2))
-    # Row 0 does not parse. Any positive row counts: a partial parse is not ScRefFlags::ZERO.
-    if row < 1:
-        return False
-    return column_to_index(match.group(1)) <= MAX_COL
+    return is_cell_token(name)
 
 
 def _defined_name_error(name: str) -> str | None:

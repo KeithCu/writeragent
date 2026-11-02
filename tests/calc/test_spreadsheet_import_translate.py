@@ -176,7 +176,7 @@ def test_translate_p2_logical_trig_date_functions():
 def test_translate_cross_sheet_references():
     res = translate_formula("=Sheet2.A1")
     assert res.ok
-    assert res.data_ranges == ["SHEET2.A1"]
+    assert res.data_ranges == ["Sheet2.A1"]
 
 
 def test_translate_and_exec_new_functions():

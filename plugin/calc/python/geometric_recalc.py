@@ -26,6 +26,7 @@ from plugin.calc.python.cell_discovery import (
     discover_python_cells_on_sheet,
 )
 from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.address_utils import local_a1, parse_local
 from plugin.calc.python.geometric_recalc_core import (
     CONFIG_KEY,
     FEATURE_TITLE,
@@ -34,10 +35,8 @@ from plugin.calc.python.geometric_recalc_core import (
     GeometricCell,
     GeometricPatch,
     GeometricRecord,
-    _parse_local,
     compute_eval_index,
     compute_sheet_repair,
-    local_a1,
 )
 from plugin.framework.errors import best_effort, is_disposed_exception, uno_probe
 from plugin.framework.i18n import _
@@ -323,7 +322,7 @@ def _sheet_of_cell(cell: Any, doc: Any) -> Any | None:
 
 
 def _cell_on_sheet(sheet: Any, address: str) -> Any | None:
-    parsed = _parse_local(address)
+    parsed = parse_local(address)
     if parsed is None:
         return None
     col, row = parsed

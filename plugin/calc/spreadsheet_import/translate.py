@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 from plugin.contrib.calc_formula_parser import FunctionNode, OperandNode, OperatorNode, RangeNode, parse_formula
 from plugin.calc.spreadsheet_import.models import TranslationResult
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
-from plugin.calc.address_utils import parse_address, parse_range_string, split_sheet_prefix
+from plugin.calc.address_utils import canonical, parse_address, parse_range_string, split_sheet_prefix
 
 
 class TranslationError(ValueError):
@@ -35,7 +35,7 @@ class _CodegenState:
         self._ranges: dict[str, int] = {}
 
     def add_range(self, addr: str) -> int:
-        key = _canonical_range(addr)
+        key = canonical(addr)
         if key not in self._ranges:
             self._ranges[key] = len(self._ranges)
         return self._ranges[key]
@@ -45,29 +45,6 @@ class _CodegenState:
         if len(self._ranges) == 1:
             return "data"
         return f"data[{idx}]"
-
-
-def _canonical_range(addr: str) -> str:
-    s = str(addr).strip()
-    # Keep the quotes and the sheet name's case. Strip $ from the reference
-    # and uppercase the cell address. Uppercasing the whole address turned
-    # 'My Sheet'.A1 into MY SHEET.A1.
-    sheet, cell = split_sheet_prefix(s)
-    if sheet is not None:
-        clean_s = s.lstrip("$")
-        if clean_s.startswith("'"):
-            end_quote = clean_s.find("'", 1)
-            while end_quote != -1 and end_quote + 1 < len(clean_s) and clean_s[end_quote + 1] == "'":
-                end_quote = clean_s.find("'", end_quote + 2)
-            if end_quote != -1:
-                quoted_sheet = clean_s[:end_quote + 1]
-                rest = clean_s[end_quote + 1:].lstrip()
-                sep = rest[0] if rest and rest[0] in (".", "!") else "."
-                cell_part = rest[1:].strip().replace("$", "").upper()
-                return f"{quoted_sheet}{sep}{cell_part}"
-        sep = "!" if "!" in s else "."
-        return f"{sheet.upper()}{sep}{cell.replace('$', '').upper()}"
-    return s.replace("$", "").upper()
 
 
 def _emit_operand(node: OperandNode) -> str:

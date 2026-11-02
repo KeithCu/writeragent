@@ -124,7 +124,7 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
 
 
 def _pred(formula: str) -> str | None:
-    from plugin.calc.python.geometric_recalc import local_a1
+    from plugin.calc.address_utils import local_a1
     from plugin.calc.python.geometric_recalc_core import formula_data_args
 
     args = formula_data_args(formula)

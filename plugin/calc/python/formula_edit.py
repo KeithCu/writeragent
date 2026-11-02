@@ -27,6 +27,7 @@ from plugin.framework.deal_shim import (
     inverse_ensure,
     str_bounded,
 )
+from plugin.calc.address_utils import is_cell_token, split_sheet_prefix
 
 # Sheet/A1 range tokens. Space and ``"`` are product (``My Sheet.A1``, quoted sheets).
 _RANGE_ADDR_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.!:'$_ \"")
@@ -297,32 +298,6 @@ def _is_ascii_letter(c: str) -> bool:
 
 
 @deal.pre(lambda s: _DEAL_ASCII_STR(s, DEAL_MAX_TOKEN))
-def _is_a1_cell_prefix(s: str) -> bool:
-    """Optional ``$`` + 1–3 letters + optional ``$`` + a digit.
-
-    Replaces ``re.match(r'^\\$?[A-Z]{1,3}\\$?\\d', s, re.I)``. CrossHair's relib
-    raises ``TypeError: ord() expected a character, but string of length 0``
-    on NUL/control ASCII in that pattern.
-    """
-    i = 0
-    n = len(s)
-    if i < n and s[i] == "$":
-        i += 1
-    letters = 0
-    while i < n and _is_ascii_letter(s[i]):
-        letters += 1
-        i += 1
-    if letters == 0:
-        return False
-    # Max column letters in Calc / Excel is XFD (3 letters).
-    if letters > 3:
-        return False
-    if i < n and s[i] == "$":
-        i += 1
-    return i < n and "0" <= s[i] <= "9"
-
-
-@deal.pre(lambda s: _DEAL_ASCII_STR(s, DEAL_MAX_TOKEN))
 def _is_sheet_identifier(s: str) -> bool:
     """``[A-Za-z_][A-Za-z0-9_]*`` without regex."""
     if not s:
@@ -336,53 +311,27 @@ def _is_sheet_identifier(s: str) -> bool:
     return True
 
 
-def _split_sheet_range(range_addr: str) -> tuple[str, str] | None:
-    """Split a sheet-qualified range into (unquoted_or_escaped_sheet, rest), or None if not qualified.
-
-    A quoted sheet may contain `.` and `!`; `''` inside quotes is one apostrophe;
-    an unquoted left side that looks like an A1 cell (`A1.B5`, but not `Sheet1.A1`
-    whose column letters exceed 3) is not a sheet
-    on the dot form; this function does not call `split_sheet_prefix` (regex, drops
-    `$`, rejects `O'Brien.A1`).
-    """
-    addr = str(range_addr).strip()
-    if addr.startswith("'"):
-        n = len(addr)
-        end = _skip_quoted(addr, 0, "'")
-        if end is not None:
-            j = end
-            while j < n and addr[j].isspace():
-                j += 1
-            if j < n and addr[j] in (".", "!"):
-                j += 1
-                while j < n and addr[j].isspace():
-                    j += 1
-                rest = addr[j:]
-                if rest:
-                    return addr[1 : end - 1], rest
-            return None
-    if "!" in addr:
-        sheet, _unused, rest = addr.partition("!")
-        return sheet.strip("'\""), rest
-    if "." in addr:
-        sheet, _unused, rest = addr.partition(".")
-        if sheet and rest and not _is_a1_cell_prefix(sheet.replace("$", "")):
-            return sheet.strip("'\""), rest
-    return None
-
-
 def _format_qualified_range(range_addr: str, *, separator: str) -> str:
-    split = _split_sheet_range(range_addr)
-    if split is None:
-        return str(range_addr).strip()
-    sheet, rest = split
-    # Calc absolute-sheet '$' (e.g. $Sheet1) is intentionally preserved.
+    addr = str(range_addr).strip()
+    sheet, rest = split_sheet_prefix(addr)
+    if sheet is None and addr.startswith("!"):
+        sheet, rest = "", addr[1:].strip()
+    elif sheet is None and "!" in addr:
+        sheet, _unused, rest = addr.partition("!")
+        sheet = sheet.strip("'\"")
+    elif sheet is None and "." in addr:
+        cand_sheet, _unused, cand_rest = addr.partition(".")
+        if cand_sheet and cand_rest and not is_cell_token(cand_sheet.replace("$", "")):
+            sheet, rest = cand_sheet.strip("'\""), cand_rest
+    if sheet is None or is_cell_token(sheet.replace("$", "")):
+        return addr
     clean_sheet = sheet.replace("$", "")
     needs_quotes = not _is_sheet_identifier(clean_sheet) if separator == "." else (bool(clean_sheet) and not _is_sheet_identifier(clean_sheet))
+    dollar = "$" if addr.startswith("$") else ""
     if needs_quotes:
-        s = sheet.replace("''", "'").replace("'", "''")
-        return f"'{s}'{separator}{rest}"
-    return f"{sheet}{separator}{rest}"
+        s = clean_sheet.replace("''", "'").replace("'", "''")
+        return f"{dollar}'{s}'{separator}{rest}"
+    return f"{dollar}{clean_sheet}{separator}{rest}"
 
 
 @deal.pre(lambda range_addr: _deal_range_addr_ok(range_addr))
