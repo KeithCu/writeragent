@@ -15,29 +15,6 @@ from plugin.framework.logging import init_logging
 log = logging.getLogger(__name__)
 
 
-def _measure_button_max_width(ctrl: Any, labels: list[str]) -> int | None:
-    """Stabilize width when a button's label toggles (Send/Record, Stop/Change, Clear/Reject)."""
-    if not ctrl or not hasattr(ctrl, "getModel") or not labels:
-        return None
-    with suppress_disposed("measure button width", logger=log):
-        m = ctrl.getModel()
-        saved = m.Label
-        try:
-            wmax = ctrl.getPosSize().Width
-            for lab in labels:
-                # Live labels are _(effect.send_label). Measuring the English
-                # string let a longer translation change width before the pin.
-                m.Label = _(lab)
-                wmax = max(wmax, ctrl.getPosSize().Width)
-            return wmax if wmax > 0 else None
-        finally:
-            # Restore the label here. A failed width read otherwise leaves
-            # the last candidate on the button, and suppress_disposed swallows
-            # the error before a restore after the loop.
-            m.Label = saved
-    return None
-
-
 _LEAVE_QUERY_CONTROL_NAMES: tuple[str, ...] = (
     "stop",
     "clear",
@@ -80,12 +57,28 @@ def _install_frame_session_listeners(
 
 def _pin_button_width(ctrl: Any, labels: list[str]) -> None:
     """Measure and pin control width across toggle labels."""
-    if not ctrl:
+    if not ctrl or not hasattr(ctrl, "getModel") or not labels:
         return
-    w = _measure_button_max_width(ctrl, labels)
-    if w:
+    wmax = 0
+    with suppress_disposed("measure button width", logger=log):
+        m = ctrl.getModel()
+        saved = m.Label
+        try:
+            cur = ctrl.getPosSize().Width
+            for lab in labels:
+                # Live labels are _(effect.send_label). Measuring the English
+                # string let a longer translation change width before the pin.
+                m.Label = _(lab)
+                cur = max(cur, ctrl.getPosSize().Width)
+            wmax = cur
+        finally:
+            # Restore the label here. A failed width read otherwise leaves
+            # the last candidate on the button, and suppress_disposed swallows
+            # the error before a restore after the loop.
+            m.Label = saved
+    if wmax > 0:
         r = ctrl.getPosSize()
-        ctrl.setPosSize(r.X, r.Y, w, r.Height, 15)
+        ctrl.setPosSize(r.X, r.Y, wmax, r.Height, 15)
 
 
 def setup_rich_control_ready(
@@ -186,35 +179,32 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
         log.error("_wireControls: root_window has no getControl, aborting")
         return
 
-    def get_optional(name: str) -> Any:
-        return get_optional_control(root_window, name)
-
     translate_dialog(root_window)
 
     controls = {
         "send": root_window.getControl("send"),
         "query": root_window.getControl("query"),
         "response": root_window.getControl("response"),
-        "stop": get_optional("stop"),
-        "clear": get_optional("clear"),
-        "chk_voice": get_optional("chk_voice"),
-        "image_model_selector": get_optional("image_model_selector"),
-        "model_selector": get_optional("model_selector"),
-        "reasoning_effort_selector": get_optional("reasoning_effort_selector"),
-        "model_label": get_optional("model_label"),
-        "status": get_optional("status"),
-        "chat_mode_selector": get_optional("chat_mode_selector"),
-        "aspect_ratio_selector": get_optional("aspect_ratio_selector"),
-        "base_size_input": get_optional("base_size_input"),
-        "base_size_label": get_optional("base_size_label"),
-        "btn_settings": get_optional("btn_settings"),
-        "btn_python": get_optional("btn_python"),
-        "btn_latex": get_optional("btn_latex"),
-        "btn_search": get_optional("btn_search"),
-        "btn_hamburger": get_optional("btn_hamburger"),
-        "query_label": get_optional("query_label"),
-        "backend_indicator": get_optional("backend_indicator"),
-        "slash_popup": get_optional("slash_popup"),
+        "stop": get_optional_control(root_window, "stop"),
+        "clear": get_optional_control(root_window, "clear"),
+        "chk_voice": get_optional_control(root_window, "chk_voice"),
+        "image_model_selector": get_optional_control(root_window, "image_model_selector"),
+        "model_selector": get_optional_control(root_window, "model_selector"),
+        "reasoning_effort_selector": get_optional_control(root_window, "reasoning_effort_selector"),
+        "model_label": get_optional_control(root_window, "model_label"),
+        "status": get_optional_control(root_window, "status"),
+        "chat_mode_selector": get_optional_control(root_window, "chat_mode_selector"),
+        "aspect_ratio_selector": get_optional_control(root_window, "aspect_ratio_selector"),
+        "base_size_input": get_optional_control(root_window, "base_size_input"),
+        "base_size_label": get_optional_control(root_window, "base_size_label"),
+        "btn_settings": get_optional_control(root_window, "btn_settings"),
+        "btn_python": get_optional_control(root_window, "btn_python"),
+        "btn_latex": get_optional_control(root_window, "btn_latex"),
+        "btn_search": get_optional_control(root_window, "btn_search"),
+        "btn_hamburger": get_optional_control(root_window, "btn_hamburger"),
+        "query_label": get_optional_control(root_window, "query_label"),
+        "backend_indicator": get_optional_control(root_window, "backend_indicator"),
+        "slash_popup": get_optional_control(root_window, "slash_popup"),
     }
 
     # Overlay completion menu — hide until `/` is typed (not a permanent widget).
@@ -343,8 +333,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
             _pin_button_width(controls.get("stop"), ["Stop", "Change", "Reject"])
             _pin_button_width(controls.get("clear"), ["Clear", "Reject"])
 
-    _frame_session = self.frame_session
-    _restore_focus = _frame_session.restore_focus if _frame_session is not None else None
+    _restore_focus = self.frame_session.restore_focus if self.frame_session is not None else None
     _resize: Any = None
     try:
         log.debug("Attaching _PanelResizeListener to root_window; controls=%s" % (sorted(k for k, v in controls.items() if v)))

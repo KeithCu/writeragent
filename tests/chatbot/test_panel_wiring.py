@@ -46,7 +46,7 @@ def test_install_other_errors_stay_a_debug_log(caplog: pytest.LogCaptureFixture)
 
 def test_measure_send_width_restores_label_when_pos_size_fails() -> None:
     """A width read must not leave the button on the last candidate label."""
-    from plugin.chatbot.panel_wiring import _measure_button_max_width
+    from plugin.chatbot.panel_wiring import _pin_button_width
 
     def _ctrl(original: str) -> MagicMock:
         ctrl = MagicMock()
@@ -65,12 +65,14 @@ def test_measure_send_width_restores_label_when_pos_size_fails() -> None:
         return ctrl
 
     send = _ctrl("Keep send")
-    assert _measure_button_max_width(send, ["Send", "Accept"]) is None
+    _pin_button_width(send, ["Send", "Accept"])
     assert send.getModel.return_value.Label == "Keep send"
+    send.setPosSize.assert_not_called()
 
     aux = _ctrl("Keep aux")
-    assert _measure_button_max_width(aux, ["Stop", "Change"]) is None
+    _pin_button_width(aux, ["Stop", "Change"])
     assert aux.getModel.return_value.Label == "Keep aux"
+    aux.setPosSize.assert_not_called()
 
 
 def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() -> None:
