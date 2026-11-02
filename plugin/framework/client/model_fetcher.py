@@ -91,8 +91,6 @@ class CatalogMemo:
     context_tokens: dict[str, int] = field(default_factory=dict)
     tts_ids: list[str] | None = None
     stt_ids: list[str] | None = None
-    voices: dict[str, list[str]] = field(default_factory=dict)
-    response_format: dict[str, str] = field(default_factory=dict)
     together_voices: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     ollama_show: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -110,6 +108,21 @@ class CatalogMemo:
 
 
 _catalog_memos: dict[str, CatalogMemo] = {}
+
+# Per speech model id, process lifetime, outside CatalogMemo so Test Connection keeps them.
+# OpenRouter supported_voices and Together /v1/voices both fill the voice map.
+_tts_supported_voices: dict[str, list[str]] = {}
+# Learned response_format (mp3 / pcm / wav); Gemini-class models reject mp3.
+_tts_response_format: dict[str, str] = {}
+
+
+def _model_key(table: dict[str, Any], model_id: str) -> str:
+    """Existing key that case-folds to *model_id*, else *model_id*."""
+    folded = model_id.casefold()
+    for existing in table:
+        if existing.casefold() == folded:
+            return existing
+    return model_id
 # Keys in flight for background vision capability resolution (UI thread schedule guard).
 _vision_in_flight_lock = threading.Lock()
 _vision_in_flight: set[str] = set()
@@ -683,7 +696,8 @@ def settings_catalog_is_warm(endpoint: str, api_key_override: str | None = None)
 def clear_settings_catalog_cache(endpoint: str, api_key_override: str | None = None) -> None:
     """Drop this endpoint+key's memo so the next fetch hits the network.
 
-    Test Connection uses this. Other endpoints and keys stay cached.
+    Test Connection uses this. Other endpoints and keys stay cached, and so do
+    the per-model speech voices and response formats.
     """
     key = _catalog_memo_key(endpoint, api_key_override)
     if key:
@@ -699,15 +713,7 @@ def cached_tts_supported_voices(model_id: str) -> list[str]:
     mid = str(model_id or "").strip()
     if not mid:
         return []
-    folded = mid.casefold()
-    for memo in _catalog_memos.values():
-        direct = memo.voices.get(mid)
-        if direct:
-            return list(direct)
-        for key, voices in list(memo.voices.items()):
-            if key.casefold() == folded and voices:
-                return list(voices)
-    return []
+    return list(_tts_supported_voices.get(_model_key(_tts_supported_voices, mid), []))
 
 
 def cached_tts_response_format(model_id: str) -> str | None:
@@ -719,38 +725,26 @@ def cached_tts_response_format(model_id: str) -> str | None:
     mid = str(model_id or "").strip()
     if not mid:
         return None
-    folded = mid.casefold()
-    for memo in _catalog_memos.values():
-        direct = memo.response_format.get(mid)
-        if direct in _TTS_RESPONSE_FORMATS:
-            return direct
-        for key, fmt in list(memo.response_format.items()):
-            if key.casefold() == folded and fmt in _TTS_RESPONSE_FORMATS:
-                return fmt
-    return None
+    fmt = _tts_response_format.get(_model_key(_tts_response_format, mid))
+    return fmt if fmt in _TTS_RESPONSE_FORMATS else None
 
 
 def remember_tts_response_format(model_id: str, fmt: str) -> None:
-    """Remember a speech ``response_format`` until this process exits."""
+    """Remember a speech ``response_format`` for this model until the process exits.
+
+    Process-level, not per endpoint: Test Connection does not clear it.
+    """
     mid = str(model_id or "").strip()
     clean = str(fmt or "").strip().lower()
     if not mid or clean not in _TTS_RESPONSE_FORMATS:
         return
-    if not _catalog_memos:
-        _catalog_memos[""] = CatalogMemo()
-    for memo in _catalog_memos.values():
-        key = mid
-        folded = mid.casefold()
-        for existing in list(memo.response_format):
-            if existing.casefold() == folded:
-                key = existing
-                break
-        memo.response_format[key] = clean
+    _tts_response_format[_model_key(_tts_response_format, mid)] = clean
 
 
 def remember_tts_supported_voices(model_id: str, voices: list[str]) -> None:
     """Store speech voice tokens for ``model_id`` until this process exits.
 
+    Process-level, not per endpoint: Test Connection does not clear them.
     Empty input does not erase a previous list. A later successful harvest
     replaces the row. Case-insensitive ids share one key so a Together
     ``Kokoro-82M`` row does not hide an earlier ``kokoro-82m`` entry.
@@ -765,16 +759,7 @@ def remember_tts_supported_voices(model_id: str, voices: list[str]) -> None:
             clean.append(token)
     if not clean:
         return
-    if not _catalog_memos:
-        _catalog_memos[""] = CatalogMemo()
-    for memo in _catalog_memos.values():
-        key = mid
-        folded = mid.casefold()
-        for existing in list(memo.voices):
-            if existing.casefold() == folded:
-                key = existing
-                break
-        memo.voices[key] = clean
+    _tts_supported_voices[_model_key(_tts_supported_voices, mid)] = clean
 
 
 def _together_voice_token(model_id: str, row: Any) -> str:

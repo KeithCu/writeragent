@@ -92,6 +92,8 @@ def test_speech_headers():
 
 def test_provider_detection_openrouter_isolation():
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     cfg._get_catalog_memo("https://openrouter.ai/api").tts_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
 
     calls: list[str] = []
@@ -114,6 +116,8 @@ def test_provider_detection_openrouter_isolation():
             assert calls[-1] == "hexgrad/kokoro-82m"
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_caplog_redacts_credentials(caplog):
@@ -131,6 +135,8 @@ def test_caplog_redacts_credentials(caplog):
 @patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_speak_endpoint_payload():
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
 
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake-audio-bytes", "audio/mpeg")) as mock_sync:
         with patch("plugin.audio.tts_service._play_audio_file") as mock_play:
@@ -150,6 +156,8 @@ def test_speak_endpoint_payload():
 def test_download_endpoint_speech_payload_cold_openrouter_empty_voice():
     """Cold OpenRouter with empty voice must omit the voice key from the payload."""
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
 
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake", "audio/mpeg")) as mock_sync:
         _download_endpoint_speech(
@@ -167,6 +175,8 @@ def test_download_endpoint_speech_payload_cold_openrouter_empty_voice():
 
 def test_speak_endpoint_prefers_cached_openrouter_speech_id():
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     cfg._get_catalog_memo("https://openrouter.ai/api").tts_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
     try:
         with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake-audio-bytes", "audio/mpeg")) as mock_sync:
@@ -184,12 +194,16 @@ def test_speak_endpoint_prefers_cached_openrouter_speech_id():
             assert payload["voice"] == "af_bella"
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 @patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_pcm_failure_is_remembered_and_wrapped():
     model = "google/gemini-2.5-flash-preview-tts"
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     pcm = b"\x01\x00\x02\x00"
     body = '{"error":{"message":"response_format must be pcm"}}'
     calls: list[dict] = []
@@ -243,6 +257,8 @@ def test_endpoint_pcm_failure_is_remembered_and_wrapped():
         assert [item["response_format"] for item in calls] == ["pcm"]
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_pcm_wrap_defaults_to_24khz():
@@ -263,6 +279,8 @@ def test_pcm_wrap_defaults_to_24khz():
 def test_endpoint_wav_error_retries_wav():
     model = "vendor/wav-only"
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     calls: list[dict] = []
     wav_bytes = b"RIFF" + b"\x00" * 40
 
@@ -292,12 +310,16 @@ def test_endpoint_wav_error_retries_wav():
         assert clip.audio.startswith(b"RIFF")
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 @patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
 def test_endpoint_mp3_success_does_not_cache_format():
     model = "x-ai/grok-voice-tts-1.0"
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     calls: list[dict] = []
 
     def fake_sync(url, data=None, headers=None, parse_json=True, method=None, **kwargs):
@@ -322,11 +344,15 @@ def test_endpoint_mp3_success_does_not_cache_format():
         assert cfg.cached_tts_response_format(fmt_key) == "mp3"
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_two_origins_one_model_learned_format():
     model = "vendor/shared-model"
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     calls_a: list[dict] = []
     calls_b: list[dict] = []
 
@@ -353,10 +379,14 @@ def test_two_origins_one_model_learned_format():
         assert calls_b[0]["response_format"] == "mp3"
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_retry_status_gates():
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     # 401 with wav body is one POST and remembers nothing
     with patch("plugin.framework.client.requests.sync_request", side_effect=_speech_http_error(401, "error with wav")):
         clip = _download_endpoint_speech("Hi", "https://host.com/v1", "k", model="m", voice="v")
@@ -437,6 +467,8 @@ def test_sniff_and_pcm_treatments():
 
 def test_endpoint_http_error_is_reported_to_status():
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     statuses: list[str] = []
 
     def fake_sync(url, data=None, headers=None, parse_json=True, method=None, **kwargs):
@@ -460,6 +492,8 @@ def test_endpoint_http_error_is_reported_to_status():
         assert cfg.cached_tts_response_format("tts-1") is None
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_speech_http_error_redacts_api_key(caplog):
@@ -468,6 +502,8 @@ def test_speech_http_error_redacts_api_key(caplog):
 
     secret = "sk-speech-unique-secret"
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     reset_host_pacing_for_tests()
     response = MagicMock()
     response.status = 401
@@ -494,6 +530,8 @@ def test_speech_http_error_redacts_api_key(caplog):
         assert "<redacted>" in statuses[0]
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_default_endpoint_format_is_wav_on_windows_only():
@@ -533,6 +571,8 @@ def test_endpoint_retry_remembers_format_without_content_type():
     """A successful retry with a generic Content-Type must stick for the next clip."""
     model = "vendor/wav-generic"
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     calls: list[dict] = []
     wav_bytes = b"RIFF" + b"\x00\x00\x00\x00" + b"WAVE" + b"\x00" * 16
 
@@ -564,6 +604,8 @@ def test_endpoint_retry_remembers_format_without_content_type():
         assert [item["response_format"] for item in calls] == ["wav"]
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_speak_endpoint_chunks_long_text():
@@ -713,6 +755,8 @@ def test_speak_endpoint_prefetch_pipeline_overlap():
 def test_endpoint_empty_body_is_failure_not_a_file():
     statuses: list[str] = []
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     try:
         with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"", "audio/pcm;rate=24000")), \
              patch("plugin.audio.tts_service._new_speech_temp") as mock_new_temp:
@@ -731,6 +775,8 @@ def test_endpoint_empty_body_is_failure_not_a_file():
             assert cfg.cached_tts_response_format(_tts_format_key("https://api.example", "m")) is None
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_speak_endpoint_later_chunk_failure_still_reports_status():

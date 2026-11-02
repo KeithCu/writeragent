@@ -1203,6 +1203,10 @@ def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:
 
     cfg._catalog_memos.clear()
 
+    cfg._tts_supported_voices.clear()
+
+    cfg._tts_response_format.clear()
+
     def get_optional_side_effect(d, name):
         if name in ("audio__tts_model", "tts_model"):
             return tts_ctrl
@@ -1245,6 +1249,8 @@ def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:
         assert cfg.cached_tts_supported_voices("hexgrad/Kokoro-82M") == ["af_bella", "af_heart"]
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_bg_fetch_together_warms_voices() -> None:
@@ -1344,6 +1350,8 @@ def test_warm_openrouter_catalog_does_not_http_until_test_connection() -> None:
     finally:
         cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_close_cancels_catalog_fetch_that_has_not_started() -> None:
@@ -1398,6 +1406,10 @@ def test_tts_settings_listener_together_cache_miss_does_not_http() -> None:
         return None
 
     cfg._catalog_memos.clear()
+
+    cfg._tts_supported_voices.clear()
+
+    cfg._tts_response_format.clear()
     try:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
@@ -1408,6 +1420,8 @@ def test_tts_settings_listener_together_cache_miss_does_not_http() -> None:
         voice_ctrl.setText.assert_not_called()
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_tts_settings_listener_together_voices_replace_alloy() -> None:
@@ -1442,6 +1456,8 @@ def test_tts_settings_listener_together_voices_replace_alloy() -> None:
 
     stored: dict[str, str] = {}
     cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     cfg.remember_tts_supported_voices("cartesia/sonic-2", ["voice-uuid-2", "voice-uuid-1"])
     try:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
@@ -1459,6 +1475,8 @@ def test_tts_settings_listener_together_voices_replace_alloy() -> None:
         assert cfg.cached_tts_supported_voices("cartesia/sonic-2") == ["voice-uuid-2", "voice-uuid-1"]
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_tts_settings_listener_sync():
@@ -1582,6 +1600,8 @@ def test_tts_settings_listener_uses_cached_openrouter_voices():
         assert "audio.tts_voice" not in stored
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_tts_settings_listener_prefers_aoede_for_gemini():
@@ -1664,6 +1684,8 @@ def test_tts_settings_listener_prefers_aoede_for_gemini():
         assert stored.get("audio.tts_voice_openrouter") == "alloy"
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 
 def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
@@ -1706,6 +1728,8 @@ def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
         assert stored.get("audio.tts_voice_openrouter") == "Puck"
     finally:
         cfg._catalog_memos.clear()
+        cfg._tts_supported_voices.clear()
+        cfg._tts_response_format.clear()
 
 def test_tts_test_voice_progress_uses_modeless_box_not_msgbox():
     from plugin.chatbot.dialog_views import TtsTestVoiceListener, _TtsTestStatusSink
