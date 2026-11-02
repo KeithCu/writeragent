@@ -85,7 +85,6 @@ def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
     with (
         patch("plugin.calc.analyzer.CalcBridge", return_value=MagicMock()),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-        patch("plugin.calc.analyzer.check_disposed"),
     ):
         text = get_calc_context_for_chat(model, ctx=object())
     assert "Sheets: ['Sheet1']" in text

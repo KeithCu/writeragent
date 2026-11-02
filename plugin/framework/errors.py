@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import contextlib
 import errno
-from functools import wraps
 import logging
 from typing import Any, Callable, NoReturn, TypeVar, overload
 
@@ -53,42 +52,17 @@ _FILESYSTEM_CLASSES: tuple[type[BaseException], ...] = (
 )
 
 
-def is_disposed_exception(exc: BaseException) -> bool:
-    """Return True if exc represents a UNO object disposal or runtime teardown exception.
+def is_disposal(exc: BaseException) -> bool:
+    """Return True if exc represents a UNO object disposal."""
+    return isinstance(exc, DocumentDisposedError) or "DisposedException" in type(exc).__name__
 
-    Matching ``RuntimeException`` in the type name is a deliberate heuristic:
-    ``com.sun.star.uno.RuntimeException`` (and name-alikes in mocks) is how
-    bridge teardown often surfaces. Do not narrow this so UI lifecycle can
-    still use :class:`suppress_disposed` without crashing the host. The check
-    is the type name, not ``isinstance(..., RuntimeException)``:
-    ``IllegalArgumentException`` subclasses ``RuntimeException`` and must stay
-    a normal error. Genuine failures belong outside those blocks, not in a
-    tighter name check here.
-    Tool chat mapping uses :func:`is_tool_document_disposed` so a live-doc
-    bare RuntimeException is not reported as DOCUMENT_DISPOSED.
-    `reraise_if_disposed` uses `is_real_disposal` and must not call this function.
-    """
-    return is_real_disposal(exc) or "RuntimeException" in type(exc).__name__
+
+def _looks_like_teardown(exc: BaseException) -> bool:
+    """Return True if exc looks like bridge teardown or disposal."""
+    return is_disposal(exc) or "RuntimeException" in type(exc).__name__
 
 
 _T = TypeVar("_T")
-
-
-def uno_probe(fn: Callable[[], _T], default: _T) -> _T:
-    """Return ``fn()``, or *default* when it raises a non-disposal ``Exception``.
-
-    Disposal re-raises the original exception, judged by the broad
-    :func:`is_disposed_exception` (RuntimeException name match included). That
-    is the inline form of ``except Exception: if is_disposed_exception(e): raise;
-    return default``. :func:`safe_uno_call` differs: it re-raises only real
-    disposal, wrapped as ``DocumentDisposedError``, and logs at DEBUG.
-    """
-    try:
-        return fn()
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return default
 
 
 @overload
@@ -146,7 +120,7 @@ class suppress_disposed(contextlib.ContextDecorator):
 
         log_obj = self.logger or logging.getLogger("writeragent.errors")
 
-        if is_disposed_exception(exc_val):
+        if _looks_like_teardown(exc_val):
             log_obj.debug("%s skipped (likely disposed): %s", self.action, exc_val, exc_info=self.exc_info)
             return True
 
@@ -457,54 +431,6 @@ class AgentParsingError(WriterAgentException):
     code: str = "PARSE_ERROR"
 
 
-def check_disposed(model: Any, context_name: str = "Object") -> None:
-    """Raise UnoObjectError if *model* is None.
-
-    Null guard only. Live disposal is ``DisposedException``,
-    :func:`is_document_disposed`, or :func:`safe_uno_call`. Probing UNO here
-    would add document-model calls to LibrePy-light helpers that only need None.
-    """
-    if model is None:
-        raise UnoObjectError(f"{context_name} is null", code="UNO_NULL_OBJECT")
-
-
-def is_real_disposal(exc: BaseException) -> bool:
-    """True only for DisposedException / DocumentDisposedError.
-
-    A bare UNO RuntimeException on a live document is a real error. Mapping it
-    to DocumentDisposedError made is_tool_document_disposed skip the live-doc
-    check and report "Document was closed".
-    """
-    return isinstance(exc, DocumentDisposedError) or "DisposedException" in type(exc).__name__
-
-
-def is_document_disposed(doc: Any) -> bool:
-    """Safely check if a UNO document or component is disposed or invalid."""
-    if doc is None:
-        return True
-    try:
-        impl_fn = getattr(doc, "getImplementationName", None)
-        if callable(impl_fn):
-            impl_fn()
-        return False
-    except Exception as exc:
-        return is_real_disposal(exc)
-
-
-def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
-    """True when ``execute_safe`` should report DOCUMENT_DISPOSED.
-
-    ``is_disposed_exception`` is the UI-lifecycle heuristic and matches any
-    ``RuntimeException``. A bare RuntimeException from a still-live document
-    is a real UNO error — e.g. ``createTextCursorByRange(ViewCursor)`` on a
-    Writer body — not a closed document. Do not map that to the lying
-    "Document was closed or disposed by LibreOffice" chat string.
-    """
-    if not is_disposed_exception(exc):
-        return False
-    return is_real_disposal(exc) or doc is None or is_document_disposed(doc)
-
-
 def _uno_disposal_message(exc: BaseException) -> str:  # pyright: ignore[reportUnusedFunction]  # imported by uno_context.py and scratch_writer.py
     """Resolve exception text, falling back to standard UNO disposal sentence."""
     msg = resolve_exception_message(exc)
@@ -519,29 +445,15 @@ def reraise_if_disposed(
     *,
     object_type: str = "document",
 ) -> None:
-    """Disposed UNO is a closed document or component, not a generic tool failure.
-
-    Only DisposedException and DocumentDisposedError become DocumentDisposedError.
-    An existing DocumentDisposedError is re-raised unchanged.
-    A bare RuntimeException must remain the original exception because wrapping
-    it makes is_tool_document_disposed skip the live-document probe.
-    """
+    """Disposed UNO is a closed document or component, not a generic tool failure."""
     if isinstance(exc, DocumentDisposedError):
         raise exc
-    if is_real_disposal(exc):
+    if is_disposal(exc):
         raise DocumentDisposedError(message, object_type=object_type) from exc
 
 
 def uno_read(fn: Callable[[], _T], default: _T, *, object_type: str = "document") -> _T:
-    """Return ``fn()``, or *default* when it raises an ordinary ``Exception``.
-
-    The call form of ``except Exception as e: reraise_if_disposed(e); return
-    default``: only real disposal (:func:`is_real_disposal`) leaves, wrapped
-    as ``DocumentDisposedError`` exactly as :func:`reraise_if_disposed` does.
-    A bare UNO ``RuntimeException`` returns *default*, as in
-    :func:`safe_uno_call`. *object_type* is passed to ``reraise_if_disposed``.
-    :func:`uno_probe` is the broad-predicate variant.
-    """
+    """Return fn(), or default when it raises an ordinary Exception."""
     try:
         return fn()
     except Exception as exc:
@@ -549,10 +461,6 @@ def uno_read(fn: Callable[[], _T], default: _T, *, object_type: str = "document"
         return default
 
 
-
-# safe_uno_call is for probes (any failure returns default, except real disposal).
-# safe_call wraps real operations; treats only DisposedException as disposal.
-# suppress_disposed still uses the broad is_disposed_exception heuristic.
 def _raise_disposed_during(name: str, exc: BaseException) -> NoReturn:
     raise DocumentDisposedError(
         f"UNO object disposed during {name}",
@@ -561,57 +469,16 @@ def _raise_disposed_during(name: str, exc: BaseException) -> NoReturn:
     ) from exc
 
 
-def safe_uno_call(default: Any = None) -> Any:
-    """Decorator to safely call UNO methods with automatic error handling, returning default on failure (disposal exceptions re-raised).
-
-    A UNO ``RuntimeException`` is not disposal: probes return ``default``, and
-    :func:`safe_call` wraps it as ``UnoObjectError``. Re-raise only
-    ``DisposedException`` / ``DocumentDisposedError``.
-    See ``docs/framework/uno-thread-safety.md`` and
-    ``test_safe_uno_call_returns_default_on_runtime_error``.
-    """
-
-    def decorator(func: Any) -> Any:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                # Do not add "RuntimeException": that is a probe failure, not disposal.
-                if is_real_disposal(e):
-                    # Bugfix: details used to store str(args) and str(kwargs); a probe
-                    # argument can be document text or a UNO proxy, and stringifying
-                    # it during teardown is large and can touch the dead object;
-                    # the message already names func.__name__.
-                    _raise_disposed_during(func.__name__, e)
-                logging.getLogger("writeragent.errors").debug("safe_uno_call: %s failed (%s), returning default %r", func.__name__, e, default)
-                return default
-
-        return wrapper
-
-    return decorator
-
-
-def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
-    """Safely call a UNO method. If it raises any exception (e.g., DisposedException), wrap it in UnoObjectError or DocumentDisposedError."""
+def uno_call(fn: Callable[[], _T], what: str) -> _T:
+    """Safely call a zero-argument UNO function, wrapping disposal or failures."""
     try:
-        return fn(*args, **kwargs)
+        return fn()
     except WriterAgentException:
-        # Bugfix: safe_call previously caught all Exception instances and wrapped them
-        # in UnoObjectError, converting WriterAgentException subclasses (like
-        # ConfigError) into generic UNO errors and losing their error codes.
-        # Catching WriterAgentException first preserves specific domain exceptions.
         raise
     except Exception as e:
-        # Only DisposedException is disposal. Treating RuntimeException as
-        # disposal makes a live document look closed. Other UNO failures
-        # stay UnoObjectError.
-        if is_real_disposal(e):
-            _raise_disposed_during(context_name, e)
-
-        # Catch Exception; current PyUNO errors subclass Exception;
-        # KeyboardInterrupt and SystemExit propagate. We immediately wrap it.
+        if is_disposal(e):
+            _raise_disposed_during(what, e)
         text = resolve_exception_message(e)
-        raise UnoObjectError(f"{context_name} failed: {text}", details={"operation": context_name, "type": type(e).__name__}) from e
+        raise UnoObjectError(f"{what} failed: {text}", details={"operation": what, "type": type(e).__name__}) from e
 
 

@@ -56,6 +56,7 @@ if TYPE_CHECKING:
 
 from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
+from plugin.framework.tool import _document_is_disposed
 from plugin.framework.i18n import N_, _
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
@@ -715,9 +716,7 @@ class EditReviewSession:
                 # execute_safe skips the pre-execute disposed probe when is_async() (review-wait
                 # runs off the main thread). This loop is that probe. Do not add assert_main_thread
                 # here and do not force the execute_safe check onto async tools.
-                from plugin.framework.errors import is_document_disposed
-
-                if run(lambda: is_document_disposed(self.doc)):
+                if run(lambda: _document_is_disposed(self.doc)):
                     # Dead doc, not a user-timeout. Unreliable getRedlines() is a *different*
                     # signal (incomplete enum on a live doc) — never treat that as complete
                     # (would resolve the user's own redlines) and never equate it with dispose.

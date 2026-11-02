@@ -345,7 +345,7 @@ def test_set_slide_transition_disposal_still_raises():
     page = MagicMock()
     page.setPropertyValue.side_effect = RuntimeError("boom")
     with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
-         patch("plugin.draw.transitions.is_real_disposal", return_value=True):
+         patch("plugin.draw.transitions.is_disposal", return_value=True):
         with pytest.raises(RuntimeError):
             SetSlideTransition().execute(ctx, page=0, effect="dissolve")
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from plugin.draw.bridge import DrawBridge, find_notes_shape
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import is_disposal
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
                     shape.setString(str(notes))
                     applied += 1
             except Exception as exc:
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
                 failures.append(f"slide {idx} notes: {exc}")
                 log.warning("apply enhancement notes failed on slide %s: %s", idx, exc)
@@ -66,7 +66,7 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
                 applied += 1
             except Exception as exc:
                 # A dead document must not look like a successful apply.
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
                 failures.append(f"slide {idx} transition: {exc}")
                 log.warning("apply enhancement transition failed on slide %s: %s", idx, exc)

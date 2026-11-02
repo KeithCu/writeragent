@@ -34,7 +34,7 @@ import uno
 from com.sun.star.awt import Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener, BaseDocumentEventListener
@@ -406,7 +406,7 @@ def _doc_key(doc: Any) -> str:
     uid = _read_runtime_uid(doc)
     if uid:
         return f"uid:{uid}"
-    url = uno_probe(lambda: doc.getURL(), "")
+    url = uno_read(lambda: doc.getURL(), "")
     if isinstance(url, str) and url:
         return f"url:{url}"
     return f"id:{id(doc)}"
@@ -485,7 +485,7 @@ class NotebookFormRunListener(BaseActionListener):
     def __init__(self, ctx: Any, doc: Any) -> None:
         self._ctx = ctx
         self._doc_key_val = _doc_key(doc)
-        self._doc_url = str(uno_probe(lambda: doc.getURL(), "") or "")
+        self._doc_url = str(uno_read(lambda: doc.getURL(), "") or "")
         # _doc_key already stored RuntimeUID in the uid: prefix. Untitled docs
         # have an empty URL. Hidden native tests (and a notebook that is not
         # Desktop.getCurrentComponent) then failed get_active_document; PyUNO
@@ -494,7 +494,7 @@ class NotebookFormRunListener(BaseActionListener):
         self._runtime_uid = self._doc_key_val[4:] if self._doc_key_val.startswith("uid:") else ""
         import weakref
 
-        self._doc_weak = uno_probe(lambda: weakref.ref(doc), None)
+        self._doc_weak = uno_read(lambda: weakref.ref(doc), None)
         self._attached_names = set()
 
     def _resolve_doc(self) -> Any | None:
@@ -819,7 +819,7 @@ def _install_doc_event_listener(ctx: Any) -> None:
                         return
 
                     if doc is not None:
-                        is_text_doc = uno_probe(
+                        is_text_doc = uno_read(
                             lambda: bool(doc.supportsService("com.sun.star.text.TextDocument")),
                             True,
                         )

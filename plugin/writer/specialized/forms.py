@@ -34,7 +34,7 @@ from plugin.doc.text_helpers import clone_text_range
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state, control_snapshot, readable_control_type
 from plugin.framework import thread_guard
-from plugin.framework.errors import format_error_payload, ToolExecutionError, is_real_disposal, reraise_if_disposed
+from plugin.framework.errors import format_error_payload, ToolExecutionError, is_disposal, reraise_if_disposed
 from plugin.framework.queue_executor import run_on_main
 from plugin.framework.uno_context import uno_same
 
@@ -72,7 +72,7 @@ def _resolve_form_page(doc: Any, page: Any = None) -> Any:
                 raise ToolExecutionError(f"Page index {page_idx} is out of range (document has {n} pages).")
             return pages.getByIndex(page_idx)
         except Exception as exc:
-            if is_real_disposal(exc) or isinstance(exc, ToolExecutionError):
+            if is_disposal(exc) or isinstance(exc, ToolExecutionError):
                 raise
             return None
     return get_active_draw_page(doc)
@@ -493,7 +493,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         }
 
     except Exception as e:
-        if is_real_disposal(e):
+        if is_disposal(e):
             raise
         log.exception("Error creating form control")
         return format_error_payload(ToolExecutionError(f"Error creating form control: {str(e)}"))
@@ -626,7 +626,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             return run_on_main(self._process_form_content, ctx, content)
 
         except Exception as e:
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             if getattr(e, "code", None) == "USER_STOPPED":
                 return format_error_payload(e)

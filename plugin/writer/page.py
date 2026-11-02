@@ -27,8 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import (
     best_effort,
-    is_disposed_exception,
-    is_real_disposal,
+    is_disposal,
     make_tool_error,
     resolve_exception_message,
 )
@@ -97,7 +96,7 @@ def _in_text_table(cursor: Any) -> bool:
     try:
         return cursor.getPropertyValue("TextTable") is not None
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         return False
 
@@ -252,7 +251,7 @@ def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) ->
                 if _region_holds_content(doc, text_obj):
                     held.append(region)
             except Exception as e:
-                if is_real_disposal(e):
+                if is_disposal(e):
                     raise
                 log.warning("page: cannot read %s to check it is empty", region, exc_info=True)
                 return (
@@ -813,7 +812,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
                     style.setPropertyValue("Height", h_snap)
                 updated.append("is_landscape")
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 return fail("is_landscape", e)
 
@@ -823,7 +822,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
                 style.setPropertyValue(uno_prop, val)
                 updated.append(label)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 return fail(label, e)
 
@@ -1032,7 +1031,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             flag_style_unreviewed(result)
             return result
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             # What was wrong: a failed HTML import left a previously disabled region half-enabled.
             # How it happened: is_on was set True before replace_xtext_with_html was called.

@@ -36,7 +36,7 @@ from plugin.chatbot.slash_commands import (
     run_slash_command,
     slash_typed_prefix,
 )
-from plugin.framework.errors import best_effort, suppress_disposed, uno_probe
+from plugin.framework.errors import best_effort, suppress_disposed, uno_read
 from plugin.framework.uno_listeners import BaseKeyListener, BaseMouseListener
 
 log = logging.getLogger("writeragent.slash_popup")
@@ -100,7 +100,7 @@ def _list_height(ctrl: Any, rows: int) -> int:
     """
     n = min(max(rows, 1), _POPUP_MAX_ROWS)
     fn = getattr(ctrl, "getMinimumSize", None)
-    size = uno_probe(lambda: fn(0, n), None) if callable(fn) else None
+    size = uno_read(lambda: fn(0, n), None) if callable(fn) else None
     height = getattr(size, "Height", None)
     if isinstance(height, int) and height > 0:
         return height
@@ -135,11 +135,11 @@ def _location_on_screen(obj: Any) -> tuple[int, int] | None:
     get_acc = getattr(obj, "getAccessibleContext", None)
     if not callable(get_acc):
         return None
-    acc = uno_probe(get_acc, None)
+    acc = uno_read(get_acc, None)
     fn = getattr(acc, "getLocationOnScreen", None) if acc is not None else None
     if not callable(fn):
         return None
-    pt = uno_probe(fn, None)
+    pt = uno_read(fn, None)
     if pt is None:
         return None
     x = getattr(pt, "X", None)
@@ -179,7 +179,7 @@ def _overlay_offset(host: Any, ask: Any, qr: Any, ctx: Any = None) -> tuple[int,
     VCL's accessible screen location, so the difference holds even where
     absolute screen coordinates are not real (Wayland).
     """
-    origin = uno_probe(lambda: _host_origin(host, ctx), None)
+    origin = uno_read(lambda: _host_origin(host, ctx), None)
     ask_xy = _location_on_screen(ask)
     if origin is None or ask_xy is None:
         return None
@@ -222,12 +222,12 @@ def _query_peer(query_control: Any) -> Any:
     if not callable(get_peer):
         _ovlog("getPeer missing query=%s", type(query_control).__name__)
         return None
-    return uno_probe(get_peer, None)
+    return uno_read(get_peer, None)
 
 
 def _toolkit_for_peer(peer: Any) -> Any:
     if peer is not None and hasattr(peer, "getToolkit"):
-        return uno_probe(peer.getToolkit, None)
+        return uno_read(peer.getToolkit, None)
     return None
 
 
@@ -704,7 +704,7 @@ class SlashPopupController:
         if not callable(get_controller):
             _ovlog("frame key handler: no controller")
             return
-        controller = uno_probe(get_controller, None)
+        controller = uno_read(get_controller, None)
         handler = self._attach_key_handler(controller, "frame")
         if handler is not None:
             self._key_handlers["frame"] = (controller, handler)

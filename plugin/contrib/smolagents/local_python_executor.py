@@ -2599,13 +2599,13 @@ def evaluate_python_code(
                     sig_name = type(e).__name__.replace("Exception", "").lower()
                 raise InterpreterError(f"'{sig_name}' outside function")
             except Exception as e:
-                from plugin.framework.errors import is_disposed_exception
+                from plugin.framework.errors import is_disposal
 
                 # lp() used to catch DisposedException, wrap it as CALC_READ_ERROR,
                 # and this handler then wrapped that as InterpreterError, so a closed
                 # document became PYTHON_EXECUTION_ERROR. Re-raising here lets
                 # execute_with_return see the disposal.
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 # Bugfix: What was wrong: evaluate_name was changed to raise NameError so
                 # scripts could catch missing names via `except NameError`. However, uncaught

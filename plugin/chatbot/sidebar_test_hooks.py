@@ -37,7 +37,7 @@ from plugin.chatbot.panel import (
 from plugin.chatbot.rich_text_control import _debug_env_active
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger("writeragent.sidebar_test_hooks")
@@ -1360,7 +1360,7 @@ def _debug_sidebar_query(op: str, uid: str = "") -> str:
 def _doc_frame(doc: Any) -> Any:
     if doc is None:
         return None
-    return uno_probe(lambda: doc.getCurrentController().getFrame() if doc.getCurrentController() is not None else None, None)
+    return uno_read(lambda: doc.getCurrentController().getFrame() if doc.getCurrentController() is not None else None, None)
 
 
 def execute_debug_sidebar_op(op: str, *, ctx: Any = None, doc: Any = None) -> dict[str, Any]:
@@ -1530,7 +1530,7 @@ def _frames_match(left: Any, right: Any) -> bool:
         return False
     from plugin.framework.uno_context import uno_same
 
-    return uno_probe(lambda: bool(uno_same(left, right)), False)
+    return uno_read(lambda: bool(uno_same(left, right)), False)
 
 
 def _listener_torn_down(listener: Any) -> bool:
@@ -1565,7 +1565,7 @@ def _current_frame() -> Any:
     """
     from plugin.framework.uno_context import get_ctx
 
-    return uno_probe(lambda: _doc_frame(current_component(_HOOK_CTX or get_ctx())), None)
+    return uno_read(lambda: _doc_frame(current_component(_HOOK_CTX or get_ctx())), None)
 
 
 def sidebar_panel(frame: Any = None, *, uid: str = "") -> Any:
@@ -1623,7 +1623,7 @@ def component_is_calc(doc: Any) -> bool:
     _require_debug()
     if doc is None:
         return False
-    return uno_probe(lambda: bool(doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")), False)
+    return uno_read(lambda: bool(doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")), False)
 
 
 def iter_desktop_components(ctx: Any) -> list[Any]:
@@ -1828,7 +1828,7 @@ def sidebar_deck_names(doc: Any) -> list[str]:
                 return [str(n) for n in decks.getElementNames()]
         return []
 
-    return uno_probe(_read, [])
+    return uno_read(_read, [])
 
 
 def _panel_root_window(panel: Any) -> Any:
@@ -1837,7 +1837,7 @@ def _panel_root_window(panel: Any) -> Any:
     for attr in ("getDialog", "getWindow"):
         getter = getattr(panel, attr, None)
         if callable(getter):
-            win = uno_probe(getter, None)
+            win = uno_read(getter, None)
             if win is not None:
                 return win
     return getattr(panel, "Window", None) or getattr(panel, "PanelWindow", None)
@@ -1937,7 +1937,7 @@ def _listener_for_current_doc() -> Any:
     """SendButtonListener for the current component (Packet K inflate)."""
     from plugin.framework.uno_context import get_ctx
 
-    sl = uno_probe(lambda: send_listener_for_doc(current_component(_HOOK_CTX or get_ctx())), None)
+    sl = uno_read(lambda: send_listener_for_doc(current_component(_HOOK_CTX or get_ctx())), None)
     return sl if sl is not None else send_listener()
 
 
@@ -2004,7 +2004,7 @@ def _writeragent_deck(provider: Any) -> Any:
                 return decks.getByName(deck_name)
         return None
 
-    return uno_probe(_find, None)
+    return uno_read(_find, None)
 
 
 def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
@@ -2085,7 +2085,7 @@ def control_enabled(control: Any) -> bool | None:
     _require_debug()
     if control is None:
         return None
-    return uno_probe(lambda: bool(getattr(control.getModel(), "Enabled", None)), None)
+    return uno_read(lambda: bool(getattr(control.getModel(), "Enabled", None)), None)
 
 
 def send_listener_for_doc(doc: Any) -> Any:
@@ -2135,7 +2135,7 @@ def send_listener_for_uid(uid: str) -> Any:
         def _model(f: Any = frame) -> Any:
             return f.getController().getModel()
 
-        model = uno_probe(_model, None)
+        model = uno_read(_model, None)
         if model is not None and str(get_runtime_uid(model) or "") == token:
             return sl
     return None
@@ -2321,7 +2321,7 @@ def _slash_control_near_query(query: Any) -> Any:
         getter = getattr(query, getter_name, None)
         if not callable(getter):
             continue
-        cur = uno_probe(getter, None)
+        cur = uno_read(getter, None)
         hops = 0
         while cur is not None and hops < 6:
             hops += 1
@@ -2331,7 +2331,7 @@ def _slash_control_near_query(query: Any) -> Any:
                 def _slash_ctrl(gc: Any = get_control) -> Any:
                     return gc("slash_popup")
 
-                ctrl = uno_probe(_slash_ctrl, None)
+                ctrl = uno_read(_slash_ctrl, None)
                 if ctrl is not None:
                     return ctrl
             parent = getattr(cur, "getParent", None)
@@ -2898,7 +2898,7 @@ def pump_until(pred: Callable[[], bool], timeout: float = 30.0, *, ctx: Any = No
         sl = send_listener()
         uno_ctx = getattr(sl, "ctx", None) if sl is not None else None
         if uno_ctx is None:
-            uno_ctx = uno_probe(get_ctx, None)
+            uno_ctx = uno_read(get_ctx, None)
     while time.monotonic() <= deadline:
         if pred():
             return True
@@ -2986,13 +2986,13 @@ def list_redlines(doc: Any) -> list[dict[str, Any]]:
                 cur.gotoRange(end, True)
                 return cur.getString() or ""
 
-            txt = uno_probe(_get_range_text, "")
+            txt = uno_read(_get_range_text, "")
         if not txt:
             def _get_rt_text() -> str:
                 rt = rl.getPropertyValue("RedlineText")
                 return (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
 
-            txt = uno_probe(_get_rt_text, "")
+            txt = uno_read(_get_rt_text, "")
         entry["text"] = txt
         redlines.append(entry)
     return redlines

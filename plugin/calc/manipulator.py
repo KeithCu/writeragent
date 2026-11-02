@@ -57,7 +57,7 @@ from plugin.calc.datetime_wire import (
     match_iso_temporal,
     should_preserve_temporal_format,
 )
-from plugin.framework.errors import CalcError, safe_json_loads, is_disposed_exception, uno_probe
+from plugin.framework.errors import CalcError, safe_json_loads, best_effort, is_disposal, uno_read
 from plugin.framework.uno_context import get_ctx
 
 
@@ -139,7 +139,7 @@ def _quiet_probe_cleanup(action: Callable[[], None], what: str) -> None:
     try:
         action()
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         log.debug("%s failed during array probe cleanup", what, exc_info=True)
 
@@ -327,7 +327,7 @@ class CellManipulator:
             obj.setPropertyValue("RightBorder2", line)
             return True
 
-        if uno_probe(borders2, False):
+        if uno_read(borders2, False):
             return
 
         line = BorderLine()
@@ -399,7 +399,7 @@ class CellManipulator:
                 self._set_number_format(target, number_format)
             log.info("%s %s style updated.", "Range" if is_range else "Cell", address_or_range.upper())
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             log.exception("Style application failed for %s", address_or_range)
             # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
@@ -416,7 +416,7 @@ class CellManipulator:
             if language:
                 return locale
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             log.debug("CharLocale unavailable; using en-US fallback", exc_info=True)
         return uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
@@ -449,7 +449,7 @@ class CellManipulator:
         except CalcError:
             raise
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             log.exception("Range clear failed for %s", range_str)
             # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
@@ -471,7 +471,7 @@ class CellManipulator:
                 cell_range.setPropertyValue("HoriJustify", CENTER)
                 cell_range.setPropertyValue("VertJustify", V_CENTER)
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             log.exception("Cell merge failed for %s", range_str)
             # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
@@ -521,7 +521,7 @@ class CellManipulator:
             log.info("Range %s sorted %s by column %d.", range_str.upper(), direction, sort_column)
             return f"Range {range_str} sorted {direction} by column {sort_column}."
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             if isinstance(e, CalcError):
                 raise
@@ -550,7 +550,7 @@ class CellManipulator:
         try:
             return int(formats.getFormatIndex(43, locale))
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             log.debug("getFormatIndex(43) failed; falling back to queryKey", exc_info=True)
         key = formats.queryKey("[HH]:MM:SS", locale, False)
@@ -603,7 +603,7 @@ class CellManipulator:
             try:
                 serial = duration_serial_from_iso(stripped)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 log.debug("Duration convert failed for %r: %s", stripped, e)
                 return _CellWrite(value, "", "text", None, None)
@@ -616,7 +616,7 @@ class CellManipulator:
                 serial = formatter.convertStringToNumber(std_key, stripped)
                 return _CellWrite(float(serial), "", "temporal", input_category, int(detected_key))
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 # NotNumericException and peers → ordinary text fallback (S4).
                 if "NotNumeric" not in type(e).__name__:
@@ -653,7 +653,7 @@ class CellManipulator:
             min_r = max(0, scan_start_row - 100)
             for r in range(start_r, min_r - 1, -1):
                 # An unreadable cell reads as key 0 and is skipped like a General cell.
-                key = uno_probe(lambda: int(sheet.getCellByPosition(col, r).getPropertyValue("NumberFormat")), 0)
+                key = uno_read(lambda: int(sheet.getCellByPosition(col, r).getPropertyValue("NumberFormat")), 0)
                 if key == 0:
                     continue
                 if key not in category_cache or key not in format_code_cache:
@@ -666,7 +666,7 @@ class CellManipulator:
                             format_code_cache[key] = props.getPropertyValue("FormatString")
                         return True
 
-                    if not uno_probe(read_format, False):
+                    if not uno_read(read_format, False):
                         category_cache.setdefault(key, None)
                         format_code_cache.setdefault(key, None)
                 cat = category_cache[key]
@@ -909,12 +909,12 @@ class CellManipulator:
                     cell_metas.append(cell_write)
                     if cell_write.kind == "text" or cell_write.kind == "temporal":
                         cell = sheet.getCellByPosition(col, row)
-                        key = uno_probe(lambda: int(cell.getPropertyValue("NumberFormat")), 0)
+                        key = uno_read(lambda: int(cell.getPropertyValue("NumberFormat")), 0)
                         if cell_write.kind == "text":
                             s29_snapshots.append((col, row, key))
                         if cell_write.kind == "temporal":
                             if key not in category_cache:
-                                category_cache[key] = uno_probe(lambda: format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
+                                category_cache[key] = uno_read(lambda: format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
                             dest_cat = category_cache[key]
                             dest_categories[(col, row)] = dest_cat
                             if dest_cat is None and col not in cols_needing:
@@ -989,7 +989,7 @@ class CellManipulator:
                 try:
                     self._apply_temporal_format_runs(sheet, start, decisions)
                 except Exception as e:
-                    if is_disposed_exception(e):
+                    if is_disposal(e):
                         raise
                     log.exception("Date/time format pass failed for range %s", range_str)
                     # S30: count cells that needed apply, not preserve-only temporals.
@@ -1019,7 +1019,7 @@ class CellManipulator:
             # not a write-path fault.
             raise
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             # Check if this cell intersects an array formula
             try:
@@ -1088,7 +1088,7 @@ class CellManipulator:
                 sizes.append(int(round(cell.getValue())))
         finally:
             for row in (row0, row0 + 1):
-                uno_probe(lambda: _clear_array_range(sheet.getCellRangeByPosition(col, row, col, row)), None)
+                best_effort(lambda: _clear_array_range(sheet.getCellRangeByPosition(col, row, col, row)), "clear measurement array cell")
         return sizes[0], sizes[1]
 
     @staticmethod
@@ -1102,7 +1102,7 @@ class CellManipulator:
             rng = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
             return addr if rng.getArrayFormula() else None
 
-        return uno_probe(block, None)
+        return uno_read(block, None)
 
     def _write_array_formula(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int], measure_only: bool = False, premeasured_array_size: tuple[int, int] | None = None) -> dict[str, Any]:
         """Enter *formula* as an array formula so its whole result shows.
@@ -1164,7 +1164,7 @@ class CellManipulator:
         rng.setArrayFormula(formula)
         anchor = sheet.getCellByPosition(target.left, target.top)
         if int(anchor.Error):
-            uno_probe(lambda: _clear_array_range(rng), None)
+            best_effort(lambda: _clear_array_range(rng), "clear rejected array formula")
             raise CalcError("The formula returns an error (%s, code %d)." % (anchor.getString() or "error", int(anchor.Error)))
         preview_max_c = min(target.right, target.left + _ARRAY_PREVIEW_COLS - 1)
         preview_max_r = min(target.bottom, target.top + _ARRAY_PREVIEW_ROWS - 1)
@@ -1206,7 +1206,7 @@ class CellManipulator:
             log.info("%s", msg)
             return {"message": msg, "rows_copied": rows, "cols_copied": cols}
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             msg = str(e) or getattr(e, "Message", None) or type(e).__name__
             log.exception("Range copy failed from %s onto %s", source_str, dest_str)
@@ -1236,7 +1236,7 @@ class CellManipulator:
             log.info("%d %s(s) deleted starting from %s %s.", count, kind, kind, where)
             return f"{count} {kind}(s) deleted starting from {kind} {where}."
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
             log.exception("%s deletion failed", "Row" if structure_type == "rows" else "Column")

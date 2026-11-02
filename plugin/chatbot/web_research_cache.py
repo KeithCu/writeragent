@@ -98,7 +98,7 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
 
 
 def _run_on_main_or_none(fn: Callable[[], Any], what: str, *, reraise_disposed: bool = False) -> Any | None:
-    from plugin.framework.errors import is_disposed_exception
+    from plugin.framework.errors import is_disposal
     from plugin.framework.queue_executor import run_on_main
     from plugin.framework.send_cancellation import SendCancelled
 
@@ -109,7 +109,7 @@ def _run_on_main_or_none(fn: Callable[[], Any], what: str, *, reraise_disposed: 
     except TimeoutError:
         log.warning("research cache: %s timed out on main thread", what)
     except Exception as e:
-        if reraise_disposed and is_disposed_exception(e):
+        if reraise_disposed and is_disposal(e):
             raise
         log.debug("research cache: %s failed: %s", what, e)
     return None

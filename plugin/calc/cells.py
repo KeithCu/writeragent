@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception, is_real_disposal, uno_probe
+from plugin.framework.errors import ToolExecutionError, is_disposal, uno_call, uno_read
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -155,20 +155,19 @@ def _undo_action_count(doc: Any) -> int:
         titles = doc.getUndoManager().getAllUndoActionTitles()
         return len(titles) if titles is not None else 0
 
-    return uno_probe(_do, 0)
+    return uno_read(_do, 0)
 
 
 def _undo_titled_group(doc: Any, title: str, prev_count: int = 0) -> bool:
     """Undo the group we just closed, only when its title is the newest one and count grew."""
-    def _do_undo() -> bool:
-        um = doc.getUndoManager()
-        titles = um.getAllUndoActionTitles()
-        if titles and len(titles) > prev_count and titles[0] == title:
-            um.undo()
-            return True
+    um = uno_read(lambda: doc.getUndoManager(), None)
+    if um is None:
         return False
-
-    return uno_probe(_do_undo, False)
+    titles = uno_read(lambda: um.getAllUndoActionTitles(), ())
+    if titles and len(titles) > prev_count and titles[0] == title:
+        uno_call(lambda: um.undo(), "undo titled group")
+        return True
+    return False
 
 
 def _mutate_ranges(
@@ -203,7 +202,7 @@ def _mutate_ranges(
             return {"status": "ok", "message": single}
         return {"status": "ok", "message": done_message}
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         entered = group.entered
         undone = _undo_titled_group(doc, undo_title, prev_count) if entered else False
@@ -246,7 +245,7 @@ def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
             "start_row": sr,
         }
     except Exception as e:
-        if is_real_disposal(e):
+        if is_disposal(e):
             raise
         raise ToolExecutionError(f"Could not size range {range_name}: {e}")
 
@@ -330,7 +329,7 @@ def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, A
                 entry["scanned_rows"] = _DISTINCT_PEEK_MAX_ROWS
         return peek
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         log.exception("Could not compute column distinct peek for %s", range_name)
         return None
@@ -429,7 +428,7 @@ class ReadCellRange(ToolBase):
                 payload["column_distincts"] = distincts
             return payload
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             log.exception("Failed to read range %s", range_name)
             return {"status": "error", "range": range_name, "message": str(exc) or type(exc).__name__}
@@ -864,6 +863,6 @@ class DeleteStructure(ToolBase):
             # except turned that into a tool error.
             # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
             # Any other failure stays on the existing error path.
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             return self._tool_error(str(e))

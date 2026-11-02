@@ -47,7 +47,7 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> dict[str, Any] | No
     Rolls back on error dict or exception from mutate, and re-raises real disposal.
     `mutate` returns an error dict or None; any dict is treated as an error.
     """
-    from plugin.framework.errors import is_real_disposal, reraise_if_disposed
+    from plugin.framework.errors import is_disposal, reraise_if_disposed
 
     try:
         mgr = _get_undo_manager(doc)
@@ -83,7 +83,7 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> dict[str, Any] | No
             mgr.leaveUndoContext()
             left = True
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 exc_cause = exc
             elif error is None and exc_cause is None:
                 error = {
@@ -124,7 +124,7 @@ def commit_or_rollback_mutation(
     **extra_error: Any,
 ) -> dict[str, Any] | None:
     """Execute mutate inside an undo transaction, reporting tool errors on failure."""
-    from plugin.framework.errors import is_real_disposal
+    from plugin.framework.errors import is_disposal
 
     try:
         return commit_or_rollback(doc, undo_title, mutate)
@@ -134,7 +134,7 @@ def commit_or_rollback_mutation(
             code="UNDO_UNAVAILABLE",
         )
     except Exception as e:
-        if is_real_disposal(e):
+        if is_disposal(e):
             raise
         err = tool._tool_error(
             f"{rollback_msg} ({e}).",

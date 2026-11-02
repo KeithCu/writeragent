@@ -3,7 +3,7 @@ import json
 import pytest
 
 from plugin.framework.client.base_provider_shim import BaseProviderShim, coerce_image_data_url, coerce_raw_b64
-from plugin.framework.client.llm_client import adjust_image_body_for_rejection
+from plugin.framework.client.errors import adjust_image_body_for_rejection
 
 def test_adjust_image_body_for_rejection_drops_resolution():
     # Trailing JSON used to be captured into the replacement token. resolution

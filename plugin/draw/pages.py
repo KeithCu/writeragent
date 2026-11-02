@@ -21,7 +21,7 @@ from typing import Any
 
 from plugin.draw.bridge import resolve_page_and_bridge
 from plugin.draw.masters import _master_pages
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import uno_same
 
@@ -73,11 +73,11 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
             return master.Name if hasattr(master, "Name") else ""
         except Exception as exc:
             # Prefer the previous slide, then the following one. Returning
-            # here stopped on the first failure. is_real_disposal only:
+            # here stopped on the first failure. is_disposal only:
             # a live-doc RuntimeException must try the next neighbor.
-            # is_disposed_exception treats that name as disposal, and
+            # is_disposal treats that name as disposal, and
             # add_slide would then delete the new slide.
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
     return ""
@@ -142,16 +142,16 @@ class AddSlide(ToolBase):
                 # is AUTOLAYOUT_OBJ and grew a title plus an OLE placeholder.
                 result["layout"] = apply_slide_layout(new_page, layout_name)
         except Exception as exc:
-            # What was wrong: is_disposed_exception matched bare RuntimeException by name, skipping cleanup on live documents.
-            # How it happened: is_disposed_exception checks _has_runtime_teardown_name which matches RuntimeException.
-            # Why this change: use is_real_disposal so only real disposal skips cleanup, while live RuntimeException removes new_page.
-            if is_real_disposal(exc):
+            # What was wrong: is_disposal matched bare RuntimeException by name, skipping cleanup on live documents.
+            # How it happened: is_disposal checks _has_runtime_teardown_name which matches RuntimeException.
+            # Why this change: use is_disposal so only real disposal skips cleanup, while live RuntimeException removes new_page.
+            if is_disposal(exc):
                 raise
             cleanup_failed = False
             try:
                 bridge.get_pages().remove(new_page)
             except Exception as rm_exc:
-                if is_real_disposal(rm_exc):
+                if is_disposal(rm_exc):
                     raise
                 cleanup_failed = True
                 log.debug("add_slide cleanup remove failed", exc_info=True)
@@ -237,7 +237,7 @@ class ReadSlideText(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge, find_notes_shape
-        from plugin.framework.errors import is_disposed_exception, uno_probe
+        from plugin.framework.errors import is_disposal, uno_read
 
         _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
         page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
@@ -250,13 +250,13 @@ class ReadSlideText(ToolBase):
                 if txt and txt.strip():
                     texts.append({"index": i, "text": txt, "shape_name": shape.Name})
             except Exception as exc:
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
 
-        notes_shape = find_notes_shape(uno_probe(lambda: page.getNotesPage(), None))
+        notes_shape = find_notes_shape(uno_read(lambda: page.getNotesPage(), None))
         notes_text = ""
         if notes_shape is not None:
-            notes_text = uno_probe(lambda: notes_shape.getString() or "", "")
+            notes_text = uno_read(lambda: notes_shape.getString() or "", "")
 
         return {"status": "ok", "page": actual_idx, "texts": texts, "notes": notes_text}
 

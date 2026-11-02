@@ -23,7 +23,7 @@ import logging
 from types import SimpleNamespace
 from typing import Any, cast, Type, ClassVar
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
 from plugin.framework.prompts import (
     _catalog_entries_from_base,
@@ -100,7 +100,7 @@ def _main_thread_or_warn(fn: Any, what: str) -> Any:
     try:
         return queue_executor.execute_on_main_thread(fn)
     except Exception as e:
-        if is_real_disposal(e):
+        if is_disposal(e):
             raise
         log.warning("Failed to get %s for sub-agent: %s", what, e)
         return ""

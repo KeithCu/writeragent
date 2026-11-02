@@ -20,14 +20,13 @@ from plugin.framework import thread_guard
 from plugin.framework.errors import (
     DocumentDisposedError,
     UnoObjectError,
-    check_disposed,
     reraise_if_disposed,
-    safe_call,
+    uno_call,
 )
 
 log = logging.getLogger(__name__)
 
-# GHA 33763078357: hang dump named safe_call at getDocumentProperties. When
+# GHA 33763078357: hang dump named uno_call at getDocumentProperties. When
 # True, each UNO step is also printed to stderr so the last line names the
 # exact call. _clear_writeragent_udprops turns this on for insert_cell_html
 # teardown only (production saves stay quiet).
@@ -57,15 +56,17 @@ def _user_defined_properties(model: Any) -> Any:
     guard proxy; unwrap the model then talk to the raw PropertyBag.
     """
     raw_model = thread_guard._unwrap_uno(model)
-    check_disposed(raw_model, "Document Model")
+    if raw_model is None:
+        raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
     if not hasattr(raw_model, "getDocumentProperties"):
         return None
-    doc_props = safe_call(raw_model.getDocumentProperties, "Get document properties")
+    doc_props = uno_call(raw_model.getDocumentProperties, "Get document properties")
     if doc_props is None:
         return None
     props = thread_guard._unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
     if props is not None:
-        check_disposed(props, "UserDefinedProperties")
+        if props is None:
+            raise UnoObjectError("UserDefinedProperties is null", code="UNO_NULL_OBJECT")
     return props
 
 
@@ -80,7 +81,7 @@ def get_document_property(model: Any, name: str, default: Any = None) -> Any:
         if props is None:
             return default
         if _user_defined_property_exists(props, name):
-            return safe_call(props.getPropertyValue, "Get property value", name)
+            return uno_call(lambda: props.getPropertyValue(name), "Get property value")
         return default
     except UnoObjectError:
         if name in ("WriterAgentSessionID", "WriterAgentPythonSessionId"):
@@ -110,14 +111,14 @@ def set_document_property(model: Any, name: str, value: Any) -> bool:
             if not hasattr(props, "setPropertyValue"):
                 return False
             _udprops_step("set_document_property: setPropertyValue start name=%s" % name)
-            safe_call(props.setPropertyValue, "Set property value", name, str(value))
+            uno_call(lambda: props.setPropertyValue(name, str(value)), "Set property value")
             _udprops_step("set_document_property: setPropertyValue done")
         else:
             if not hasattr(props, "addProperty"):
                 return False
             REMOVABLE = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.REMOVABLE")
             _udprops_step("set_document_property: addProperty start name=%s" % name)
-            safe_call(props.addProperty, "Add property", name, REMOVABLE, str(value))
+            uno_call(lambda: props.addProperty(name, REMOVABLE, str(value)), "Add property")
             _udprops_step("set_document_property: addProperty done")
         return True
 
@@ -142,7 +143,7 @@ def remove_document_property(doc: Any, name: str) -> bool:
         props = _user_defined_properties(doc)
         if props is None or not _user_defined_property_exists(props, name):
             return True
-        safe_call(props.removeProperty, "Remove property", name)
+        uno_call(lambda: props.removeProperty(name), "Remove property")
         return not _user_defined_property_exists(props, name)
     except Exception as exc:
         reraise_if_disposed(exc)

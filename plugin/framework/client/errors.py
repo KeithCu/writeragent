@@ -150,6 +150,91 @@ def is_image_unsupported_error(e: Any) -> bool:
     return ("image" in msg or "vision" in msg) and ("not supported" in msg or "unsupported" in msg)
 
 
+def _accepted_value_lists(param: str, error_text: str) -> list[list[str]] | None:
+    """Accepted-value lists for one rejected param, or None when the error does not name it.
+
+    A line with no ``Accepted:`` list is an empty list. Trailing JSON punctuation
+    is excluded so ``Accepted: 1:1"}`` does not become part of the token.
+    """
+    pattern = rf"\b{param}\b: not supported\.(?: Accepted: ([^|}}\n\"]+))?"
+    matches = list(re.finditer(pattern, error_text))
+    if not matches:
+        return None
+    lists: list[list[str]] = []
+    for match in matches:
+        accepted_str = match.group(1)
+        if accepted_str:
+            lists.append([item.strip() for item in accepted_str.split(",") if item.strip()])
+        else:
+            lists.append([])
+    return lists
+
+
+def _common_accepted(lists: list[list[str]]) -> list[str]:
+    """Values every non-empty Accepted list shares, in the first list's order.
+
+    A line that names no values is ignored when another line does, so one
+    provider omitting the list does not erase the other's hint. An empty
+    result means the lists disagree or nobody named a value.
+    """
+    named = [items for items in lists if items]
+    if not named:
+        return []
+    common = set(named[0])
+    for items in named[1:]:
+        common.intersection_update(items)
+    return [item for item in named[0] if item in common]
+
+
+def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | None:
+    """Adjust an image request after ``param: not supported``.
+
+    ``resolution``, ``size``, and ``output_format`` are dropped. Remapping
+    ``512`` to the first ``Accepted:`` token could pick ``4K`` or ``webp``
+    (Flux Klein rejects webp). The provider default is the value that works
+    (``1K`` for gemini-3.1-flash-lite-image).
+
+    ``aspect_ratio`` is remapped to the closest accepted ratio. Dropping it
+    turns a 16:9 request into a square. Unknown tokens and disagreeing lists
+    delete the field instead.
+
+    Returns the new body bytes, or None if nothing changed.
+    """
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    from .base_provider_shim import closest_named_aspect
+
+    changed = False
+    # Example: "resolution: not supported. Accepted: 1K | Google AI Studio: resolution: not supported. Accepted: 1K"
+    for param in ("resolution", "aspect_ratio", "size", "output_format"):
+        if param not in data:
+            continue
+        accepted_lists = _accepted_value_lists(param, error_text)
+        if accepted_lists is None:
+            continue
+        if param != "aspect_ratio":
+            del data[param]
+            changed = True
+            continue
+        # Keep list order so an equal distance uses the earlier accepted token.
+        new_val = closest_named_aspect(str(data.get(param) or ""), _common_accepted(accepted_lists))
+        if new_val and new_val != data.get(param):
+            data[param] = new_val
+        else:
+            # Same value, or no known ratio: a retry of the rejected body would 400 again.
+            del data[param]
+        changed = True
+
+    if changed:
+        return json.dumps(data).encode("utf-8")
+    return None
+
+
 def stream_error_message(chunk: dict[str, Any]) -> str | None:
     """Provider error carried inside an HTTP 200 SSE object, or None.
 
@@ -171,6 +256,98 @@ def stream_error_message(chunk: dict[str, Any]) -> str | None:
             return message.strip()
         return str(event_type)
     return None
+
+
+# 529 is Anthropic "overloaded". A 200 SSE body that says overload is
+# already retried; the HTTP status was not, so that path never ran.
+RETRYABLE_HTTP_STATUS = frozenset({429, 503, 529})
+
+# We match structured codes first and only narrow phrases here, not bare
+# "too many" / "unavailable", because those also match fatal errors such as
+# "too many tokens" (context overflow) or "model unavailable", which a retry
+# cannot fix. The full HTTP reason phrases for 429 and 503 stay.
+_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many requests", "service unavailable")
+
+# Explicit HTTP status indicator (e.g. "HTTP 429", "status 503", "HTTP status 429", "error code 503").
+# Bare 429 or 503 (such as "limit is 503 tokens" or "4290 tokens") must never match.
+# Bugfix: previously _OVERLOAD_STATUS_RE matched any bare \b(?:429|503)\b, which caused non-overload
+# errors like "limit is 503 tokens" to be wrongly identified as overload and retried until timeout.
+# We fix this by checking structured error codes (including OpenRouter error.code) and explicit
+# HTTP status indicators first, while the text fallback matches only phrases.
+_HTTP_STATUS_OVERLOAD_RE = re.compile(
+    r"\b(?:https?|status(?:\s+code)?|http\s+error|error\s+code)\s*(?:is\s*|:\s*)?(?:429|503)\b",
+    re.IGNORECASE,
+)
+
+
+def _error_code_is_overload(value: Any) -> bool:
+    """True when a structured provider code is itself an overload signal."""
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value in RETRYABLE_HTTP_STATUS
+    text = str(value).strip().lower()
+    if text in {"429", "503", "529"}:
+        return True
+    return any(marker in text for marker in _OVERLOAD_TEXT_MARKERS)
+
+
+def _structured_error_is_overload(chunk: dict[str, Any]) -> bool:
+    """Prefer error.code / type / status over scanning the message text."""
+    if any(_error_code_is_overload(chunk.get(key)) for key in ("code", "status")):
+        return True
+    err = chunk.get("error")
+    if isinstance(err, dict):
+        if any(_error_code_is_overload(err.get(key)) for key in ("code", "type", "status")):
+            return True
+        metadata = err.get("metadata")
+        if isinstance(metadata, dict) and any(_error_code_is_overload(metadata.get(key)) for key in ("code", "status", "http_status")):
+            return True
+    elif _error_code_is_overload(err):
+        return True
+    return False
+
+
+def _text_is_overload(message: Any) -> bool:
+    """Check if an error indicates an overload/rate-limit condition.
+
+    Checks HTTP status / structured error code (including OpenRouter error.code
+    in the body) first; the text fallback matches only phrases like 'overloaded' /
+    'rate limit', no bare 429/503.
+    """
+    if not message or not isinstance(message, str):
+        return False
+
+    # Check for embedded JSON with structured error code (e.g. OpenRouter error payload)
+    if "{" in message and "}" in message:
+        try:
+            start = message.find("{")
+            end = message.rfind("}")
+            parsed = json.loads(message[start : end + 1])
+            if isinstance(parsed, dict) and _structured_error_is_overload(parsed):
+                return True
+        except (ValueError, TypeError):
+            pass
+
+    # Check for explicit HTTP status indicator in text (e.g. "HTTP 429", "status 503")
+    if _HTTP_STATUS_OVERLOAD_RE.search(message):
+        return True
+
+    # Text fallback: matches only phrases like 'overloaded'/'rate limit', no bare 429/503
+    low = message.lower()
+    return any(marker in low for marker in _OVERLOAD_TEXT_MARKERS)
+
+
+def stream_error_is_overload(chunk: dict[str, Any]) -> bool:
+    """True when a mid-stream error is worth one retry before any UI text.
+
+    A structured code (429, 503, rate_limit_exceeded, overloaded_error) wins.
+    Otherwise explicit HTTP status or phrases match; bare numbers like 503 tokens do not.
+    """
+    if _structured_error_is_overload(chunk):
+        return True
+    message = stream_error_message(chunk) or ""
+    return _text_is_overload(message)
 
 
 def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:

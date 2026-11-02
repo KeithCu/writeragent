@@ -37,7 +37,7 @@ from plugin.calc.python.formula_edit import (
 from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.config import get_config
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import guard_uno, main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
@@ -78,7 +78,7 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     if f:
         out.append(str(f))
     for prop in ("FormulaLocal", "Formula"):
-        val = uno_probe(lambda: cell.getPropertyValue(prop), None)
+        val = uno_read(lambda: cell.getPropertyValue(prop), None)
         if val and str(val) not in out:
             out.append(str(val))
     if content is None:
@@ -179,7 +179,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     # no cell was selected.
     sheet_idx = int(addr.Sheet)
     sheets = model.getSheets()
-    sheet = uno_probe(lambda: sheets.getByIndex(sheet_idx), None)
+    sheet = uno_read(lambda: sheets.getByIndex(sheet_idx), None)
     if sheet is None:
         log.warning("python_editor: selection sheet missing")
         return None

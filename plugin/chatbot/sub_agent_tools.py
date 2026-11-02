@@ -19,11 +19,9 @@ from plugin.framework.errors import (
     ToolExecutionError,
     WriterAgentException,
     format_error_payload,
-    is_real_disposal,
-    is_tool_document_disposed,
     resolve_exception_message,
 )
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolBase, is_tool_document_disposed
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
 if TYPE_CHECKING:
@@ -154,8 +152,7 @@ class SubAgentSessionToolBase(ToolBase):
             # This except is the boundary for subagent runners. log.exception
             # records the traceback; the payload keeps the exception text only.
             log.exception("%s execution failed", self.agent_label)
-            doc = ctx.doc
-            if is_real_disposal(e) or (doc is not None and is_tool_document_disposed(e, doc)):
+            if is_tool_document_disposed(e):
                 raise
 
             msg = resolve_exception_message(e)

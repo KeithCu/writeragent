@@ -31,9 +31,8 @@ from plugin.doc import doc_type as _doc_type
 from plugin.framework.errors import (
     DocumentDisposedError,
     UnoObjectError,
-    check_disposed,
     reraise_if_disposed,
-    safe_call,
+    uno_call,
     uno_read,
 )
 from plugin.framework.thread_guard import main_thread_only
@@ -100,17 +99,19 @@ def _writer_char_count(model: Any) -> int:
     ``get_document_length`` walk) until the next edit instead of walking every call.
     """
     try:
-        text = safe_call(model.getText, "Get document text")
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
+        text = uno_call(model.getText, "Get document text")
+        cursor = uno_call(text.createTextCursor, "Create text cursor")
+        uno_call(lambda: cursor.gotoStart(False), "Cursor gotoStart")
         count = 0
         step = _GO_RIGHT_CHUNK
         while step:
-            probe = safe_call(text.createTextCursorByRange, "Create probe cursor",
-                              safe_call(cursor.getStart, "Cursor getStart"))
+            probe = uno_call(
+                lambda: text.createTextCursorByRange(uno_call(cursor.getStart, "Cursor getStart")),
+                "Create probe cursor",
+            )
             # A goRight that cannot go the full distance still moves to the end and returns
             # False, so retry a smaller step from the last position it fully reached.
-            if safe_call(probe.goRight, "Cursor goRight", step, False) is True:
+            if uno_call(lambda: probe.goRight(step, False), "Cursor goRight") is True:
                 cursor = probe
                 count += step
             else:
@@ -125,8 +126,8 @@ def _position_text_is_body(model: Any, position: Any, step_label: str) -> bool:
     get_pos_text = getattr(position, "getText", None)
     if not callable(get_pos_text):
         return True
-    pos_text = safe_call(get_pos_text, step_label)
-    body = safe_call(model.getText, "Get document text")
+    pos_text = uno_call(get_pos_text, step_label)
+    body = uno_call(model.getText, "Get document text")
     return uno_same(pos_text, body)
 
 
@@ -140,23 +141,20 @@ def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int
     if doc_len <= 0:
         return 0
     try:
-        text = safe_call(model.getText, "Get document text")
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
+        text = uno_call(model.getText, "Get document text")
+        cursor = uno_call(text.createTextCursor, "Create text cursor")
+        uno_call(lambda: cursor.gotoStart(False), "Cursor gotoStart")
         lo, hi = 0, doc_len
         while lo <= hi:
             mid = (lo + hi) // 2
-            probe = safe_call(
-                text.createTextCursorByRange,
+            probe = uno_call(
+                lambda: text.createTextCursorByRange(uno_call(cursor.getStart, "Cursor getStart")),
                 "Create probe cursor",
-                safe_call(cursor.getStart, "Cursor getStart"),
             )
-            safe_call(probe.goRight, "Cursor goRight", mid, False)
-            cmp = safe_call(
-                text.compareRegionStarts,
+            uno_call(lambda: probe.goRight(mid, False), "Cursor goRight")
+            cmp = uno_call(
+                lambda: text.compareRegionStarts(target_start, uno_call(probe.getStart, "Cursor getStart")),
                 "compareRegionStarts",
-                target_start,
-                safe_call(probe.getStart, "Cursor getStart"),
             )
             if cmp == 0:
                 return mid
@@ -238,15 +236,16 @@ def selected_text_range(controller: Any) -> Any:
 def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
     """Return (text, sel_start_pos, sel_end_pos) or None when selection unavailable."""
     try:
-        check_disposed(model, "Document Model")
-        controller = safe_call(model.getCurrentController, "Get current controller")
+        if model is None:
+            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
+        controller = uno_call(model.getCurrentController, "Get current controller")
         rng = selected_text_range(controller)
         if not rng:
-            rng = safe_call(controller.getViewCursor, "Get view cursor") if controller else None
+            rng = uno_call(controller.getViewCursor, "Get view cursor") if controller else None
         if not rng or not hasattr(rng, "getStart") or not hasattr(rng, "getEnd"):
             return None
-        text = safe_call(rng.getText, "Get range text")
-        return text, safe_call(rng.getStart, "Get range start"), safe_call(rng.getEnd, "Get range end")
+        text = uno_call(rng.getText, "Get range text")
+        return text, uno_call(rng.getStart, "Get range start"), uno_call(rng.getEnd, "Get range end")
     except UnoObjectError:
         return None
 
@@ -259,7 +258,8 @@ def get_selection_range(model: Any, doc_len: int | None = None) -> tuple[int, in
     selection is in a table cell, frame, or header. A closed document raises
     DocumentDisposedError."""
     try:
-        check_disposed(model, "Document Model")
+        if model is None:
+            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         sel_positions = _get_writer_selection_positions(model)
         if sel_positions is None:
             return (0, 0)
@@ -269,8 +269,9 @@ def get_selection_range(model: Any, doc_len: int | None = None) -> tuple[int, in
         start_offset = _char_offset_of_position(model, sel_start_pos, doc_len)
         equal = sel_start_pos == sel_end_pos or uno_same(sel_start_pos, sel_end_pos)
         if not equal and hasattr(_text, "compareRegionStarts"):
-            equal = safe_call(
-                _text.compareRegionStarts, "compareRegionStarts", sel_start_pos, sel_end_pos,
+            equal = uno_call(
+                lambda: _text.compareRegionStarts(sel_start_pos, sel_end_pos),
+                "compareRegionStarts",
             ) == 0
         if equal:
             end_offset = start_offset
@@ -536,7 +537,8 @@ def get_document_path(model: Any) -> str | None:
 def build_heading_tree(model: Any, elements: list[Any] | None = None) -> HeadingTreeNode:
     """Build a hierarchical heading tree. Single pass enumeration."""
     try:
-        check_disposed(model, "Document Model")
+        if model is None:
+            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         root: HeadingTreeNode = {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
         stack: list[HeadingTreeNode] = [root]
 
@@ -544,16 +546,16 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
             if elements is not None:
                 yield from elements
             else:
-                text = safe_call(model.getText, "Get document text")
-                enum = safe_call(text.createEnumeration, "Create enumeration")
-                while safe_call(enum.hasMoreElements, "Check more elements"):
-                    yield safe_call(enum.nextElement, "Get next element")
+                text = uno_call(model.getText, "Get document text")
+                enum = uno_call(text.createEnumeration, "Create enumeration")
+                while uno_call(enum.hasMoreElements, "Check more elements"):
+                    yield uno_call(enum.nextElement, "Get next element")
 
         for para_index, element in enumerate(_iter_elements()):
-            if safe_call(element.supportsService, "Check supportsService Paragraph", "com.sun.star.text.Paragraph"):
+            if uno_call(lambda: element.supportsService("com.sun.star.text.Paragraph"), "Check supportsService Paragraph"):
                 outline_level = 0
                 try:
-                    outline_level = safe_call(element.getPropertyValue, "Get OutlineLevel", "OutlineLevel")
+                    outline_level = uno_call(lambda: element.getPropertyValue("OutlineLevel"), "Get OutlineLevel")
                 except UnoObjectError as e:
                     log.debug("build_heading_tree could not get OutlineLevel: %s", e)
 
@@ -574,7 +576,7 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
                     stack.append(node)
                 else:
                     stack[-1]["body_paragraphs"] += 1
-            elif safe_call(element.supportsService, "Check supportsService TextTable", "com.sun.star.text.TextTable"):
+            elif uno_call(lambda: element.supportsService("com.sun.star.text.TextTable"), "Check supportsService TextTable"):
                 stack[-1]["body_paragraphs"] += 1
         return root
     except UnoObjectError:
@@ -593,8 +595,9 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
 def get_selection_text(model: Any) -> str | None:
     """Return the selected text or None if selection is empty/unavailable/fails. Handles Writer, Calc, Draw."""
     try:
-        check_disposed(model, "Document Model")
-        controller = safe_call(model.getCurrentController, "Get current controller")
+        if model is None:
+            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
+        controller = uno_call(model.getCurrentController, "Get current controller")
         if not controller:
             return None
 
@@ -603,28 +606,28 @@ def get_selection_text(model: Any) -> str | None:
         if doc_type == _doc_type.DocumentType.WRITER:
             rng = selected_text_range(controller)
             if not rng:
-                vc = safe_call(controller.getViewCursor, "Get view cursor")
+                vc = uno_call(controller.getViewCursor, "Get view cursor")
                 if vc:
-                    return safe_call(vc.getString, "Get view cursor string")
+                    return uno_call(vc.getString, "Get view cursor string")
             else:
-                return safe_call(rng.getString, "Get selection string")
+                return uno_call(rng.getString, "Get selection string")
         elif doc_type == _doc_type.DocumentType.CALC:
-            selection = safe_call(controller.getSelection, "Get selection")
+            selection = uno_call(controller.getSelection, "Get selection")
             if selection and hasattr(selection, "getString"):
-                return safe_call(selection.getString, "Get selection string")
+                return uno_call(selection.getString, "Get selection string")
         elif doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
-            selection = safe_call(controller.getSelection, "Get selection")
+            selection = uno_call(controller.getSelection, "Get selection")
             if selection and hasattr(selection, "getCount"):
-                count = safe_call(selection.getCount, "Get selection count")
+                count = uno_call(selection.getCount, "Get selection count")
                 parts = []
                 for i in range(count):
-                    shape = safe_call(selection.getByIndex, "Get selection shape", i)
+                    shape = uno_call(lambda: selection.getByIndex(i), "Get selection shape")
                     if shape and hasattr(shape, "getString"):
-                        parts.append(safe_call(shape.getString, "Get shape string"))
+                        parts.append(uno_call(shape.getString, "Get shape string"))
                 if parts:
                     return "\n".join(parts)
     except DocumentDisposedError:
-        # safe_call maps disposal to DocumentDisposedError; do not swallow it.
+        # uno_call maps disposal to DocumentDisposedError; do not swallow it.
         raise
     except Exception as exc:
         log.debug("get_selection_text failed (%s)", type(exc).__name__)
@@ -659,12 +662,13 @@ def get_document_length(model: Any) -> int:
     Returns 0 for a non-Writer document or on error.
     """
     try:
-        check_disposed(model, "Document Model")
+        if model is None:
+            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         if _doc_type.get_document_type(model) == _doc_type.DocumentType.WRITER:
-            body = safe_call(model.getText, "Get document text")
-            whole = safe_call(body.createTextCursor, "Create text cursor")
-            safe_call(whole.gotoStart, "Cursor gotoStart", False)
-            safe_call(whole.gotoEnd, "Cursor gotoEnd", True)
+            body = uno_call(model.getText, "Get document text")
+            whole = uno_call(body.createTextCursor, "Create text cursor")
+            uno_call(lambda: whole.gotoStart(False), "Cursor gotoStart")
+            uno_call(lambda: whole.gotoEnd(True), "Cursor gotoEnd")
             return len(normalize_linebreaks(get_string_without_tracked_deletions(whole)))
         return 0
     except UnoObjectError:
@@ -752,7 +756,8 @@ def get_text_cursor_at_range_reached(model: Any, start_offset: int, end_offset: 
     fully_reached is false when any goRight returns false (e.g. past document end).
     """
     try:
-        check_disposed(model, "Document Model")
+        if model is None:
+            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         # Offsets are not clamped here. Writer callers use visible-text offsets
         # (get_document_length) or cursor-step offsets (_writer_char_count);
         # either way goRight stops at the end of the text on its own.
@@ -760,15 +765,15 @@ def get_text_cursor_at_range_reached(model: Any, start_offset: int, end_offset: 
         end_offset = max(0, end_offset)
         if start_offset > end_offset:
             start_offset, end_offset = end_offset, start_offset
-        text = safe_call(model.getText, "Get document text")
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
+        text = uno_call(model.getText, "Get document text")
+        cursor = uno_call(text.createTextCursor, "Create text cursor")
+        uno_call(lambda: cursor.gotoStart(False), "Cursor gotoStart")
         # Move to start_offset in chunks. A goRight that runs out of text stops at the end and
         # returns False: stop there, or an offset like 10**12 runs millions of UNO calls.
         remaining = start_offset
         while remaining > 0:
             n = min(remaining, _GO_RIGHT_CHUNK)
-            if safe_call(cursor.goRight, "Cursor goRight", n, False) is False:
+            if uno_call(lambda: cursor.goRight(n, False), "Cursor goRight") is False:
                 return cursor, False
             remaining -= n
         # Expand selection by (end_offset - start_offset)
@@ -776,7 +781,7 @@ def get_text_cursor_at_range_reached(model: Any, start_offset: int, end_offset: 
         remaining = end_offset - start_offset
         while remaining > 0:
             n = min(remaining, _GO_RIGHT_CHUNK)
-            if safe_call(cursor.goRight, "Cursor goRight", n, True) is False:
+            if uno_call(lambda: cursor.goRight(n, True), "Cursor goRight") is False:
                 fully_reached = False
                 break
             remaining -= n

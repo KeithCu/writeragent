@@ -51,8 +51,8 @@ from plugin.framework.constants import (
 from plugin.framework.errors import (
     _uno_disposal_message,
     reraise_if_disposed,
-    safe_call,
     suppress_disposed,
+    uno_call,
 )
 from plugin.framework.thread_guard import main_thread_only, on_main_thread
 from plugin.framework.vcl_pumping import (
@@ -354,11 +354,11 @@ def get_active_document(ctx: Any | None = None) -> Any:
         desktop = get_desktop(ctx)
         if desktop is None:
             return None
-        doc = safe_call(desktop.getCurrentComponent, "Desktop component resolution")
+        doc = uno_call(desktop.getCurrentComponent, "Desktop component resolution")
         return _guard_returned_uno(doc)
     except Exception as e:
         # DisposedException from get_desktop() is a plain Exception, so a
-        # dying desktop looks like nothing open. safe_call already re-raises
+        # dying desktop looks like nothing open. uno_call already re-raises
         # disposal from getCurrentComponent.
         reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
         log.exception("get_active_document unexpected exception")
@@ -637,7 +637,7 @@ def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
 
 def iter_desktop_models(ctx: Any, *, label: str = "session_manager") -> Generator[Any, None, None]:
     """Yield all valid open models from desktop component enumeration."""
-    from plugin.framework.errors import check_disposed
+    from plugin.framework.errors import UnoObjectError
     from plugin.framework.thread_guard import _unwrap_uno
 
     desktop = get_desktop(ctx)
@@ -665,7 +665,8 @@ def iter_desktop_models(ctx: Any, *, label: str = "session_manager") -> Generato
                 model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
         if model is not None:
             try:
-                check_disposed(_unwrap_uno(model))
+                if _unwrap_uno(model) is None:
+                    raise UnoObjectError("Object is null", code="UNO_NULL_OBJECT")
                 getattr(model, "getCurrentController", lambda: None)()
                 yield model
             except Exception:

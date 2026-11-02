@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.draw.base import ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
 from plugin.draw.bridge import DrawBridge, resolve_page_and_bridge
 from plugin.draw.transform_schema import AUTOLAYOUT_ID
-from plugin.framework.errors import is_real_disposal, uno_read
+from plugin.framework.errors import is_disposal, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -256,7 +256,7 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
                 page.setPropertyValue(prop, val)
                 updated.append(label)
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             return self._tool_error("Could not update slide transition: %s" % exc)
 

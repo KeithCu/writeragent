@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 from plugin.framework.tool import ToolBase
 
@@ -223,7 +223,7 @@ class ProtectSheet(ToolCalcSheetBase):
             else:
                 sheet.unprotect("")
         except Exception as e:
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             if should_protect:
                 return self._tool_error(f"Could not protect sheet '{actual_name}': {e}")

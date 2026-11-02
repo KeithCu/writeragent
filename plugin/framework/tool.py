@@ -43,9 +43,7 @@ from typing import Any, Callable, ClassVar, NamedTuple, cast
 from plugin.framework.errors import (
     WriterAgentException,
     format_error_payload,
-    is_document_disposed,
-    is_real_disposal,
-    is_tool_document_disposed,
+    is_disposal,
     make_tool_error,
     resolve_exception_message,
     safe_json_loads,
@@ -256,6 +254,24 @@ class _ToolErrorMixin:
         return make_tool_error(message, code=code, **details)
 
 
+def is_tool_document_disposed(exc: BaseException) -> bool:
+    """True when execute_safe should report DOCUMENT_DISPOSED."""
+    return is_disposal(exc)
+
+
+def _document_is_disposed(doc: Any) -> bool:
+    """Safely check if a UNO document or component is disposed or invalid."""
+    if doc is None:
+        return True
+    try:
+        impl_fn = getattr(doc, "getImplementationName", None)
+        if callable(impl_fn):
+            impl_fn()
+        return False
+    except Exception as exc:
+        return is_disposal(exc)
+
+
 class ToolBase(_ToolErrorMixin, ABC):
     """Abstract base for every tool exposed to LLM agents and MCP clients.
 
@@ -382,7 +398,7 @@ class ToolBase(_ToolErrorMixin, ABC):
             if not self.is_async():
                 assert_main_thread(self.name or "synchronous tool")
                 if self.requires_document and ctx is not None and getattr(ctx, "doc", None) is not None:
-                    if is_document_disposed(ctx.doc):
+                    if _document_is_disposed(ctx.doc):
                         return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED")
             # Async / review-wait tools skip this probe so wait can run off the main thread.
             # EditReviewSession.wait_for_review must detect dispose itself. Do not "fix" by
@@ -392,21 +408,7 @@ class ToolBase(_ToolErrorMixin, ABC):
 
         except Exception as e:
             _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")
-            doc = getattr(ctx, "doc", None) if ctx is not None else None
-            # Bugfix: The pre-execute probe is skipped for async tools so review-wait can
-            # run off the UI thread, but the exception handler still called getImplementationName
-            # via is_tool_document_disposed on background worker threads. Marshaling that probe
-            # to the main thread deadlocks when the UI thread is inside _execute_with_timeout's join(),
-            # while running it directly off-thread violates UNO thread safety.
-            # When off the main thread, check only for real disposal exceptions (DisposedException /
-            # DocumentDisposedError) without probing the document model, letting a bare
-            # RuntimeException fall through to TOOL_EXECUTION_ERROR.
-            if on_main_thread():
-                disposed = is_tool_document_disposed(e, doc)
-            else:
-                disposed = is_real_disposal(e)
-
-            if disposed:
+            if is_disposal(e):
                 # UNO DisposedException often has an empty str() and the text in .Message; use the same resolver as the branch below.
                 return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED", original_error=resolve_exception_message(e), error_type=type(e).__name__)
             # Returning _tool_error() already keeps the code. Raising

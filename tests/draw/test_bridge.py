@@ -10,8 +10,7 @@ from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 
 
 def test_get_draw_context_for_chat_disposed_returns_fallback():
-    with patch("plugin.draw.bridge.check_disposed", side_effect=UnoObjectError("gone")):
-        out = get_draw_context_for_chat(MagicMock())
+    out = get_draw_context_for_chat(None)
     assert "Unable to read Draw/Impress context" in out
 
 
@@ -39,9 +38,8 @@ def test_get_draw_context_for_chat_summarizes_active_page():
     bridge.get_shapes.return_value = [("0", shape)]
 
     with (
-        patch("plugin.draw.bridge.check_disposed"),
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
-        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+        patch("plugin.draw.bridge.uno_call", side_effect=lambda fn, _msg: fn()),
     ):
         out = get_draw_context_for_chat(model, 8000)
 
@@ -57,7 +55,6 @@ def test_get_draw_context_for_chat_keeps_going_when_one_shape_cannot_be_read():
     pages.getByIndex.return_value = page
 
     bad_shape = MagicMock()
-    from plugin.framework.errors import UnoObjectError
     bad_shape.getShapeType.side_effect = UnoObjectError("boom")
     bad_shape.getPosition.side_effect = UnoObjectError("boom")
     bad_shape.getSize.side_effect = UnoObjectError("boom")
@@ -81,9 +78,8 @@ def test_get_draw_context_for_chat_keeps_going_when_one_shape_cannot_be_read():
     bridge.get_shapes.return_value = [("0", bad_shape), ("1", good_shape)]
 
     with (
-        patch("plugin.draw.bridge.check_disposed"),
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
-        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+        patch("plugin.draw.bridge.uno_call", side_effect=lambda fn, _msg: fn()),
     ):
         out = get_draw_context_for_chat(model, 8000)
 
@@ -117,9 +113,8 @@ def test_get_draw_context_for_chat_keeps_notes_when_shapes_exceed_budget():
     bridge.get_shapes.return_value = [("0", shape)]
 
     with (
-        patch("plugin.draw.bridge.check_disposed"),
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
-        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+        patch("plugin.draw.bridge.uno_call", side_effect=lambda fn, _msg: fn()),
     ):
         out = get_draw_context_for_chat(model, 200)
 
@@ -151,9 +146,8 @@ def test_get_draw_context_for_chat_truncates_to_max_context():
     bridge.get_shapes.return_value = [("0", shape)]
 
     with (
-        patch("plugin.draw.bridge.check_disposed"),
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
-        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+        patch("plugin.draw.bridge.uno_call", side_effect=lambda fn, _msg: fn()),
     ):
         out = get_draw_context_for_chat(model, 80)
 
@@ -187,9 +181,8 @@ def test_get_draw_context_for_chat_negative_max_context_is_empty_prefix():
     bridge.get_shapes.return_value = [("0", shape)]
 
     with (
-        patch("plugin.draw.bridge.check_disposed"),
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
-        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+        patch("plugin.draw.bridge.uno_call", side_effect=lambda fn, _msg: fn()),
     ):
         out = get_draw_context_for_chat(model, -5)
 
@@ -248,9 +241,8 @@ def test_get_draw_context_for_chat_blank_page_includes_speaker_notes():
     bridge.get_shapes.return_value = []
 
     with (
-        patch("plugin.draw.bridge.check_disposed"),
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
-        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+        patch("plugin.draw.bridge.uno_call", side_effect=lambda fn, _msg: fn()),
     ):
         out = get_draw_context_for_chat(model, 8000)
 
@@ -849,9 +841,8 @@ def test_get_draw_context_for_chat_uses_uno_same_when_wrappers_differ():
         return isinstance(left, _DistinctPage) and isinstance(right, _DistinctPage) and left.key == right.key
 
     with (
-        patch("plugin.draw.bridge.check_disposed"),
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
-        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+        patch("plugin.draw.bridge.uno_call", side_effect=lambda fn, _msg: fn()),
         patch("uno.isSame", _issame),
     ):
         out = get_draw_context_for_chat(model, 8000)
@@ -1295,9 +1286,8 @@ def test_get_draw_context_for_chat_renders_group_child_path():
     bridge.get_shapes.return_value = [("2", group), ("2.0.1", star)]
 
     with (
-        patch("plugin.draw.bridge.check_disposed"),
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
-        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+        patch("plugin.draw.bridge.uno_call", side_effect=lambda fn, _msg: fn()),
     ):
         out = get_draw_context_for_chat(model, 8000)
 

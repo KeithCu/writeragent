@@ -29,7 +29,7 @@ from urllib.parse import unquote, urlparse
 from ..specialized_base import ToolWriterMailMergeBase, enum_param, target_params
 from ..target_resolver import resolve_target_cursor
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.framework.errors import is_real_disposal, reraise_if_disposed
+from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.uno_context import get_service_manager, resolve_uno_context
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
@@ -393,7 +393,7 @@ class InsertField(ToolWriterMailMergeBase):
             try:
                 cursor.getText().insertTextContent(cursor, field, False)
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 return self._tool_error(f"Failed to insert merge field: {exc}")
 

@@ -29,7 +29,7 @@ from typing import Any, cast
 
 from plugin.calc.navigation import WRITERAGENT_CELL_URL_PREFIX, normalize_cell_address
 from plugin.framework.appearance import get_theme_colors
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.html_stripper import strip_html_tags, text_has_real_html_tag
 from plugin.framework.i18n import _
 
@@ -72,7 +72,7 @@ CHAT_PARA_SIDE_MARGIN = 250
 
 def _set_props(obj: Any, pairs: tuple[tuple[str, Any], ...]) -> None:
     for name, val in pairs:
-        uno_probe(cast("Any", lambda n=name, v=val: setattr(obj, n, v)), None)
+        best_effort(cast("Any", lambda n=name, v=val: setattr(obj, n, v)), f"set {name}")
 
 
 def apply_chat_char_props(target: Any, *, bg_color: int | None = None) -> None:
@@ -183,7 +183,7 @@ def _tighten_list_indent(body_range: Any) -> None:
     processed_levels = set()
     while enum.hasMoreElements():
         para = enum.nextElement()
-        if not uno_probe(lambda: para.getPropertyValue("NumberingIsNumber"), False):
+        if not uno_read(lambda: para.getPropertyValue("NumberingIsNumber"), False):
             continue
 
         level = para.getPropertyValue("NumberingLevel")

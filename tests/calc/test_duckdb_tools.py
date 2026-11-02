@@ -22,7 +22,7 @@ from plugin.calc.duckdb_tools import (
     resolve_table_source_a1,
 )
 from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry, write_sidecar_meta, source_stat
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 import pytest
 
 
@@ -978,7 +978,7 @@ def test_sql_path_uses_cache_on_second_query(
 
 
 class _DisposedException(Exception):
-    """Name must contain DisposedException so is_disposed_exception matches."""
+    """Name must contain DisposedException so is_disposal matches."""
 
 
 @patch("plugin.scripting.client.run_folder_sql")
@@ -1103,7 +1103,7 @@ def test_open_workbook_probe_reraises_disposal(mock_resolve):
     mock_resolve.side_effect = _DisposedException("gone")
     try:
         _source_is_open_workbook(object(), "/tmp/budget.xlsx")
-    except _DisposedException:
+    except (DocumentDisposedError, _DisposedException):
         return
     raise AssertionError("open-workbook probe swallowed disposal")
 

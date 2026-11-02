@@ -26,9 +26,9 @@ from typing import TYPE_CHECKING, Any
 from plugin.framework.errors import (
     ToolExecutionError,
     UnoObjectError,
-    is_disposed_exception,
+    is_disposal,
     reraise_if_disposed,
-    uno_probe,
+    uno_read,
 )
 from plugin.framework.tool import ToolBaseDummy
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
@@ -139,7 +139,7 @@ class GoalSeekTool(ToolBaseDummy):
             # as ToolExecutionError makes execute_safe report
             # TOOL_EXECUTION_ERROR, and the native runner keeps going on a
             # dead document.
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             raise ToolExecutionError(str(e)) from e
 
@@ -196,7 +196,7 @@ class SolverTool(ToolBaseDummy):
 
             def _try_solver_service(svc: str) -> bool:
                 nonlocal solver, selected_engine_label
-                instance = uno_probe(lambda: smgr.createInstanceWithContext(svc, ctx.ctx), None)
+                instance = uno_read(lambda: smgr.createInstanceWithContext(svc, ctx.ctx), None)
                 if not instance or _should_reject_solver_for_headless(engine_name, instance):
                     return False
                 solver = instance
@@ -236,7 +236,7 @@ class SolverTool(ToolBaseDummy):
                             impl_name = _solver_impl_name(el)
                             if _impl_name_is_java_nlp_headless_unsafe(impl_name):
                                 continue
-                            s = uno_probe(lambda: el.createInstanceWithContext(ctx.ctx), None)
+                            s = uno_read(lambda: el.createInstanceWithContext(ctx.ctx), None)
                             if not s or _should_reject_solver_for_headless(engine_name, s):
                                 continue
                             solver = s
@@ -288,7 +288,7 @@ class SolverTool(ToolBaseDummy):
 
         except Exception as e:
             # Same dispose guard as Goal Seek: do not wrap a dead document.
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             raise ToolExecutionError(str(e)) from e
 

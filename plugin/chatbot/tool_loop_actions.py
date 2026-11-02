@@ -44,13 +44,12 @@ from plugin.framework.errors import (
     ToolExecutionError,
     best_effort,
     format_error_payload,
-    is_tool_document_disposed,
     resolve_exception_message,
 )
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.send_cancellation import capture_send_stop
-from plugin.framework.tool import ToolContext
+from plugin.framework.tool import ToolContext, is_tool_document_disposed
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
@@ -666,7 +665,7 @@ def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: B
     A closed document is not a normal tool error. Turning every exception
     into a JSON payload and queuing ``TOOL_DONE`` lets the loop continue.
     ``is_tool_document_disposed`` is the tool-boundary check;
-    ``is_disposed_exception`` also matches a bare ``RuntimeException``
+    ``is_disposal`` also matches a bare ``RuntimeException``
     from a live document.
 
     Classify against ``model``, the document closed over at spawn. Reading
@@ -676,7 +675,7 @@ def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: B
     The same capture keeps the tool from running on the new send.
     """
     formatted = format_error_payload(exc)
-    if is_tool_document_disposed(exc, model):
+    if is_tool_document_disposed(exc):
         put_for_turn(turn, (StreamQueueKind.ERROR, formatted))
         return
     put_for_turn(turn, (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(formatted, default=str)))
@@ -958,7 +957,7 @@ class ToolLoopEffectInterpreter:
             turn.session.refresh_document_context(doc, host.ctx)
             return False
         except Exception as exc:
-            if is_tool_document_disposed(exc, doc):
+            if is_tool_document_disposed(exc):
                 log.debug("Tool loop: document disposed during context refresh", exc_info=True)
                 return _fail("\n[Document closed or unavailable.]\n")
             log.exception("Tool loop: failed to refresh document context after mutating tool")

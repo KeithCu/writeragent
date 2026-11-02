@@ -39,7 +39,8 @@ from plugin.calc.address_utils import format_range_address, parse_address, split
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-from plugin.framework.errors import DocumentDisposedError, is_disposed_exception, is_document_disposed, is_real_disposal, is_tool_document_disposed
+from plugin.framework.errors import is_disposal
+from plugin.framework.tool import is_tool_document_disposed
 from plugin.framework.uno_context import get_ctx, get_desktop, process_events_to_idle, uno_same
 import uno
 
@@ -69,7 +70,7 @@ def supportsService(obj: Any, service_name: str) -> bool:
         # except turned that into a missing chart or an empty list.
         # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
         # Any other failure stays on the existing error path.
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return False
 
@@ -148,7 +149,7 @@ def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
     try:
         raw = getattr(host, "CLSID", None)
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         raw = None
 
@@ -162,7 +163,7 @@ def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
             if chart_doc is not None and hasattr(chart_doc, "getDiagram"):
                 return chart_doc.getDiagram() is not None
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
     return False
 
@@ -196,7 +197,7 @@ def _chart_document_from_host(host: Any) -> Any | None:
         # except turned that into a missing chart.
         # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
         # Any other failure stays on the existing error path.
-        if is_real_disposal(e):
+        if is_disposal(e):
             raise
         log.debug("_chart_document_from_host getEmbeddedObject failed: %s", e)
 
@@ -209,7 +210,7 @@ def _chart_document_from_host(host: Any) -> Any | None:
         if c is not None:
             return c
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
 
     return None
@@ -472,7 +473,7 @@ def _chart_step(warnings: list[str], label: str, fn: Callable[[], None]) -> None
     try:
         fn()
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         msg = _format_chart_exception_msg(exc)
         warnings.append(f"Failed to set {label}: {msg}")
@@ -622,7 +623,7 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
                                     s.setPropertyValue(prop, color_val)
                         except Exception as exc:
                             # Skip a disposed series and keep coloring the rest.
-                            if is_disposed_exception(exc):
+                            if is_disposal(exc):
                                 log.debug("Skipping disposed chart series %d", idx)
                                 continue
                             raise
@@ -686,7 +687,7 @@ def _remove_writer_chart(doc: Any, chart_obj: Any, name: str) -> None:
         chart_obj.getAnchor().getText().removeTextContent(chart_obj)
         return
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         log.debug("chart anchor removal failed for '%s'; using embedded objects", name, exc_info=True)
     objects = doc.getEmbeddedObjects()
@@ -709,7 +710,7 @@ def _format_chart_exception_msg(e: Exception) -> str:
 
 def _chart_op_error(tool: Any, exc: Exception, *, prefix: str, log_msg: str | None = None, code: str = "TOOL_EXECUTION_ERROR") -> dict[str, Any]:
     # Closed-document disposal must stay DOCUMENT_DISPOSED, not a chart error code.
-    if is_real_disposal(exc):
+    if is_disposal(exc):
         raise exc
     if log_msg is not None:
         log.exception(log_msg)
@@ -727,19 +728,19 @@ def _with_warnings(out: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
 def _chart_list_failure(doc: Any, exc: Exception, errors: list[dict[str, Any]], **where: Any) -> None:
     """Record one chart-list read failure, or re-raise when *doc* is closed.
 
-    Calc used to re-raise only is_disposed_exception and then return status ok
+    Calc used to re-raise only is_disposal and then return status ok
     with the charts appended before the failure. Draw/Writer skipped disposal
     and raised other errors, so one bad shape aborted the list. A closed
     document propagates. A live-document failure is appended to *errors*.
     """
-    if is_tool_document_disposed(exc, doc):
+    if is_tool_document_disposed(exc):
         raise exc
     errors.append({**where, "message": _format_chart_exception_msg(exc)})
 
 
 def _chart_container_failure(tool: Any, doc: Any, exc: Exception) -> dict[str, Any]:
     # Real disposal propagates even when the document probe still answers.
-    if is_tool_document_disposed(exc, doc):
+    if is_tool_document_disposed(exc):
         raise exc
     return tool._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
 
@@ -752,7 +753,7 @@ def _get_all_calc_chart_names(doc: Any) -> set[str]:
         for name in sheets.getElementNames():
             names.update(sheets.getByName(name).getCharts().getElementNames())
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
     return names
 
@@ -778,7 +779,7 @@ def _find_calc_chart_and_sheet(doc: Any, chart_name: str, sheet_name: str | None
             if charts.hasByName(chart_name):
                 return charts.getByName(chart_name), sheet
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
     return None, None
 
@@ -790,10 +791,8 @@ def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> It
     try:
         count = container.getCount()
     except Exception as exc:
-        if is_disposed_exception(exc):
-            if doc is not None and is_document_disposed(doc):
-                raise
-            return
+        if is_disposal(exc):
+            raise
         raise
 
     current_parent = parent if parent is not None else container
@@ -802,20 +801,16 @@ def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> It
         try:
             shape = container.getByIndex(i)
         except Exception as exc:
-            if is_disposed_exception(exc):
-                if doc is not None and is_document_disposed(doc):
-                    raise
-                continue
+            if is_disposal(exc):
+                raise
             raise
 
         try:
             shape_type = shape.getShapeType()
         except Exception as exc:
-            if is_disposed_exception(exc):
-                if doc is not None and is_document_disposed(doc):
-                    raise
-                continue
-            shape_type = exc
+            if is_disposal(exc):
+                raise
+            raise
 
         yield shape, current_parent, shape_type
 
@@ -836,7 +831,7 @@ def _collect_page_shape_names(page: Any, doc: Any, existing: set[str], skip: Any
             if nm:
                 existing.add(nm)
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 continue
             raise
 
@@ -857,7 +852,7 @@ def _named_ole_chart_ref(
         if listed_name and listed_name == name and _is_chart_host(shape, is_embed=False):
             return ChartRef(shape, parent, "draw_page", page_index)
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             return None
         raise
     return None
@@ -884,7 +879,7 @@ def _lookup_chart(
                 if _is_chart_host(obj, is_embed=True):
                     return ChartLookup(ref=ChartRef(obj, objects, "writer_embed", None))
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
         page_obj = doc.getDrawPage()
         for shape, parent, shape_type in _iter_page_shapes(page_obj, doc):
@@ -936,11 +931,6 @@ class ListCharts(ToolBaseDummy):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        # supportsService swallows DisposedException, so a closed document
-        # matched no branch and list_charts returned status ok with charts=[].
-        # Probe first and surface disposal instead of an empty success.
-        if is_document_disposed(doc):
-            raise DocumentDisposedError("Document was closed or disposed by LibreOffice", object_type="document")
         result = []
         errors: list[dict[str, Any]] = []
 
@@ -1045,7 +1035,7 @@ class ListCharts(ToolBaseDummy):
             # here still returned the chart and list_charts finished status ok
             # after the document closed. Real disposal propagates; the caller
             # re-raises only when the document itself is disposed.
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("list_charts summary failed for %s: %s", name, exc)
         return entry
@@ -1074,7 +1064,7 @@ class GetChartInfo(ToolBaseDummy):
                 # except turned that into a partial chart.
                 # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
                 # Any other failure stays on the existing error path.
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 info["data_ranges"] = []
 
@@ -1100,11 +1090,11 @@ class GetChartInfo(ToolBaseDummy):
                                 if text is not None:
                                     info[key] = text
                             except Exception as exc:
-                                if is_real_disposal(exc):
+                                if is_disposal(exc):
                                     raise
 
         except Exception as e:
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             log.debug("get_chart_info error: %s", e)
 
@@ -1234,7 +1224,7 @@ class UpsertChart(ToolBaseDummy):
                 # except turned that into a missing sheet.
                 # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
                 # Any other failure stays on the existing error path.
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 return self._tool_error(f"Sheet '{target_sheet_name}' not found in document.")
         else:
@@ -1258,7 +1248,7 @@ class UpsertChart(ToolBaseDummy):
                 rect.X = cell_pos.X
                 rect.Y = cell_pos.Y
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 return self._tool_error(f"Invalid position '{pos_str}': {_format_chart_exception_msg(exc)}")
 
@@ -1308,13 +1298,13 @@ class UpsertChart(ToolBaseDummy):
             # except turned that into a chart configure or insert error.
             # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
             # Any other failure stays on the existing error path.
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             cursor = text.createTextCursor()
             try:
                 cursor.gotoEnd(False)
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
 
         # 2. Collect existing names across embeds and draw page
@@ -1323,7 +1313,7 @@ class UpsertChart(ToolBaseDummy):
             embeds = doc.getEmbeddedObjects()
             existing_names.update(embeds.getElementNames())
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
         page = doc.getDrawPage()
         _collect_page_shape_names(page, doc, existing_names)
@@ -1361,7 +1351,7 @@ class UpsertChart(ToolBaseDummy):
             text.insertTextContent(cursor, chart_obj, False)
             log.info("Successfully inserted chart object into text.")
         except Exception as e:
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             # Fallback: Try AT_PARAGRAPH
             log.debug("First insertion attempt failed (%s). Trying AT_PARAGRAPH anchor...", e)

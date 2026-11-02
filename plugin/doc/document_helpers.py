@@ -46,8 +46,7 @@ from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.errors import (
     ToolExecutionError,
     DocumentDisposedError, UnoObjectError,
-    check_disposed,
-    safe_call,
+    uno_call,
 )
 from plugin.framework.service import ServiceBase
 from plugin.framework.thread_guard import main_thread_only
@@ -135,12 +134,12 @@ def _writer_excerpt_overlaps_selection(
         # Different XText (table, frame, header). compareRegionStarts
         # against the body raises and used to fail the whole chat context.
         return False
-    text = safe_call(model.getText, "Get document text")
-    exc_start = safe_call(exc_cursor.getStart, "Excerpt getStart")
-    exc_end = safe_call(exc_cursor.getEnd, "Excerpt getEnd")
-    if safe_call(text.compareRegionStarts, "compareRegionStarts sel_end exc_start", sel_end_pos, exc_start) > 0:
+    text = uno_call(model.getText, "Get document text")
+    exc_start = uno_call(exc_cursor.getStart, "Excerpt getStart")
+    exc_end = uno_call(exc_cursor.getEnd, "Excerpt getEnd")
+    if uno_call(lambda: text.compareRegionStarts(sel_end_pos, exc_start), "compareRegionStarts sel_end exc_start") > 0:
         return False
-    if safe_call(text.compareRegionStarts, "compareRegionStarts exc_end sel_start", exc_end, sel_start_pos) > 0:
+    if uno_call(lambda: text.compareRegionStarts(exc_end, sel_start_pos), "compareRegionStarts exc_end sel_start") > 0:
         return False
     return True
 
@@ -183,7 +182,8 @@ def get_document_context_for_chat(
         # in getString(); we only hint to call get_document_content.
         if doc_type == _doc_type.DocumentType.WRITER:
             try:
-                check_disposed(model, "Document Model")
+                if model is None:
+                    raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
                 doc_len = _text_helpers._writer_char_count(model)
             except UnoObjectError:
                 logging.getLogger(__name__).exception("get_document_context_for_chat Writer failed, trying fallback to selection-only")
@@ -638,7 +638,8 @@ class DocumentService(ServiceBase):
         Uses with_view_cursor_left_body_locked to leave nested XText and prevent visible viewport jumping.
         """
         # See text_helpers.with_view_cursor_left_body_locked.
-        check_disposed(model, "Document Model")
+        if model is None:
+            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         element = self.find_paragraph_element(model, para_index)
         if element is None:
             raise ToolExecutionError("Paragraph index %d not found in document" % para_index)
@@ -646,24 +647,24 @@ class DocumentService(ServiceBase):
         get_anchor = getattr(element, "getAnchor", None)
         anchor = get_anchor() if callable(get_anchor) else element
 
-        controller = safe_call(model.getCurrentController, "Get current controller")
-        vc = safe_call(controller.getViewCursor, "Get view cursor")
+        controller = uno_call(model.getCurrentController, "Get current controller")
+        vc = uno_call(controller.getViewCursor, "Get view cursor")
 
         def _resolve_page() -> int:
-            safe_call(vc.gotoRange, "View cursor gotoRange", anchor, False)
-            page = safe_call(vc.getPage, "Get page")
+            uno_call(lambda: vc.gotoRange(anchor, False), "View cursor gotoRange")
+            page = uno_call(vc.getPage, "Get page")
             if page == 0:
                 # Layout stall for tables/frames under lockControllers.
                 has_locked = getattr(model, "hasControllersLocked", None)
                 was_locked = has_locked() if callable(has_locked) else True
                 if was_locked:
-                    safe_call(model.unlockControllers, "Unlock controllers")
+                    uno_call(model.unlockControllers, "Unlock controllers")
                 try:
-                    safe_call(vc.gotoRange, "View cursor gotoRange", anchor, False)
-                    page = safe_call(vc.getPage, "Get page")
+                    uno_call(lambda: vc.gotoRange(anchor, False), "View cursor gotoRange")
+                    page = uno_call(vc.getPage, "Get page")
                 finally:
                     if was_locked:
-                        safe_call(model.lockControllers, "Lock controllers")
+                        uno_call(model.lockControllers, "Lock controllers")
             if page == 0:
                 raise ToolExecutionError(
                     "Cannot resolve page for paragraph %d: getPage returned 0" % para_index
@@ -676,13 +677,14 @@ class DocumentService(ServiceBase):
         """Return page count of a Writer document."""
         # See text_helpers.with_view_cursor_left_body_locked.
         try:
-            check_disposed(model, "Document Model")
-            controller = safe_call(model.getCurrentController, "Get current controller")
-            vc = safe_call(controller.getViewCursor, "Get view cursor")
+            if model is None:
+                raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
+            controller = uno_call(model.getCurrentController, "Get current controller")
+            vc = uno_call(controller.getViewCursor, "Get view cursor")
 
             def _get_count() -> int:
-                safe_call(vc.jumpToLastPage, "Jump to last page")
-                return safe_call(vc.getPage, "Get page")
+                uno_call(vc.jumpToLastPage, "Jump to last page")
+                return uno_call(vc.getPage, "Get page")
 
             return _text_helpers.with_view_cursor_left_body_locked(model, vc, _get_count)
         except (UnoObjectError, ToolExecutionError):

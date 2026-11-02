@@ -13,7 +13,7 @@ import hashlib
 from typing import Any
 
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.framework.errors import is_real_disposal, reraise_if_disposed
+from plugin.framework.errors import is_disposal, reraise_if_disposed
 
 from ..edit_review import next_agent_edit_undo_title
 from ..specialized_base import ToolWriterFieldBase, target_params
@@ -35,7 +35,7 @@ def _is_annotation(field: Any) -> bool:
     try:
         return field.supportsService("com.sun.star.text.textfield.Annotation") is True
     except Exception as e:
-        if is_real_disposal(e):
+        if is_disposal(e):
             raise
         return False
 
@@ -313,7 +313,7 @@ class FieldsInsert(ToolWriterFieldBase):
                 field.setPropertyValue(key, value)
             except Exception as e:
                 # A closed document still reaches execute_safe as DOCUMENT_DISPOSED.
-                if is_real_disposal(e):
+                if is_disposal(e):
                     raise
                 return self._tool_error(f"Failed to set property '{key}' to '{value}': {e}")
 
@@ -342,7 +342,7 @@ class FieldsInsert(ToolWriterFieldBase):
                 text = cursor.getText()
                 text.insertTextContent(cursor, field, False)
             except Exception as e:
-                if is_real_disposal(e):
+                if is_disposal(e):
                     raise
                 return self._tool_error(f"Failed to insert field: {e}")
 

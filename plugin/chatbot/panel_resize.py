@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.uno_listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
@@ -356,7 +356,7 @@ def _clamp_to_column(x: int, w: int, width: int, right_margin: int) -> tuple[int
 
 def _measure(ctrl: Any, method: str) -> tuple[int, int] | None:
     """(width, height) from XLayoutConstrains on a control, or None."""
-    size: Any = uno_probe(getattr(ctrl, method, None), None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyright: ignore[reportArgumentType]
+    size: Any = uno_read(getattr(ctrl, method, None), None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyright: ignore[reportArgumentType]
     if size is None:
         return None
     w, h = getattr(size, "Width", 0), getattr(size, "Height", 0)
@@ -497,7 +497,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         # container, which fires windowResized with a larger height and
         # repeats (test_e12).
         if self._parent_window is not None:
-            pr = uno_probe(self._parent_window.getPosSize, None)
+            pr = uno_read(self._parent_window.getPosSize, None)
             if pr is not None and pr.Height > 0 and h > pr.Height:
                 h = int(pr.Height)
         if h > 3000:

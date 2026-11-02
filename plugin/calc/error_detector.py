@@ -27,7 +27,7 @@ from typing import Any
 
 from plugin.calc.address_utils import A1_CELL_RE, format_address, parse_address, parse_range_string, qualify_a1
 from plugin.calc.bridge import used_range_address
-from plugin.framework.errors import reraise_if_disposed, uno_probe
+from plugin.framework.errors import reraise_if_disposed, uno_read
 
 try:
     from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR  # type: ignore
@@ -200,7 +200,7 @@ class ErrorDetector:
 
         # Bare refs live on the error cell's sheet, not the active one.
         precedent_details = [
-            uno_probe(
+            uno_read(
                 lambda: self.inspector.read_cell(qualify_a1(sheet_name, prec_addr)),
                 {"address": prec_addr, "value": "UNREADABLE", "type": "unknown"},
             )

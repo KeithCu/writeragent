@@ -910,7 +910,7 @@ class TestSendDispose:
 
 
 class _MockDisposedException(Exception):
-    """Name must include DisposedException so is_disposed_exception matches."""
+    """Name must include DisposedException so is_disposal matches."""
 
 
 class _ConsumeEvent:

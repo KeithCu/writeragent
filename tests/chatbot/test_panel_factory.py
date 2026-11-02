@@ -81,7 +81,7 @@ def test_send_and_tool_loop_refresh_via_session_not_builder():
 
 
 class _MockDisposedException(Exception):
-    """Name must include DisposedException so is_disposed_exception matches."""
+    """Name must include DisposedException so is_disposal matches."""
 
 
 def _thin_panel_element():

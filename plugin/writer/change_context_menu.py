@@ -32,7 +32,7 @@ from typing import Any
 import unohelper
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.uno_listeners import _controller_alive, install_view_doc_listener
 
 log = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def _is_writer(model: Any) -> bool:
         # and returning False skipped registration as if the model were not Writer.
         # Re-raise real disposal so the doc-event wrapper can surface it.
         # Any other failure still means not Writer.
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return False
 
@@ -206,7 +206,7 @@ def _register_controller(controller: Any) -> None:
         # except logged "register failed" and returned. The doc-event wrapper never
         # saw it. Re-raise real disposal. Other failures stay a warning so install
         # can skip one controller.
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         # WARNING, not debug: a silent registration failure looks identical to "menu ignored".
         log.warning("change_context_menu: register failed", exc_info=True)

@@ -15,7 +15,7 @@ from plugin.calc.address_utils import format_range_address, qualify_a1, split_sh
 from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
-from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception, uno_probe
+from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposal, uno_read
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import (
@@ -268,7 +268,7 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
 def _container_element_names(container: Any) -> list[str]:
     if container is None or not hasattr(container, "getElementNames"):
         return []
-    return uno_probe(lambda: [str(n) for n in container.getElementNames()], [])
+    return uno_read(lambda: [str(n) for n in container.getElementNames()], [])
 
 
 def _available_named_sources(doc: Any) -> str:
@@ -300,10 +300,10 @@ def _range_address_to_qualified_a1(doc: Any, addr: Any) -> str:
 
 
 def _named_object_to_qualified_a1(doc: Any, obj: Any, *, label: str) -> str:
-    cells = uno_probe(lambda: obj.getReferredCells(), None)
+    cells = uno_read(lambda: obj.getReferredCells(), None)
     addr = cells.getRangeAddress() if cells is not None and hasattr(cells, "getRangeAddress") else None
     if addr is None:
-        addr = uno_probe(lambda: obj.getDataArea(), None)
+        addr = uno_read(lambda: obj.getDataArea(), None)
     if addr is None:
         raise ToolExecutionError(f"{label} does not refer to a cell range", code="DUCKDB_SQL_ERROR")
     return _range_address_to_qualified_a1(doc, addr)
@@ -393,7 +393,7 @@ def _source_is_open_workbook(ctx: Any, full_path: str) -> bool:
     from plugin.framework.uno_context import resolve_document_by_url
 
     url = uno.systemPathToFileUrl(os.path.normpath(os.path.abspath(full_path)))
-    return uno_probe(lambda: resolve_document_by_url(ctx, url)[0] is not None, False)
+    return uno_read(lambda: resolve_document_by_url(ctx, url)[0] is not None, False)
 
 
 def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
@@ -510,7 +510,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
     except ToolExecutionError:
         raise
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         raise _sibling_office_error(full_path, f"failed to read used range: {exc}") from exc
     finally:

@@ -13,7 +13,7 @@ from typing import Any
 import uno
 import unohelper
 
-from plugin.framework.errors import is_real_disposal, uno_probe
+from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import _controller_alive, install_view_doc_listener
@@ -48,8 +48,8 @@ def _edit_python_cell_url() -> str:
 def _is_calc_controller(controller: Any) -> bool:
     if controller is None:
         return False
-    model = uno_probe(controller.getModel, None)
-    return bool(model and uno_probe(lambda: model.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False))
+    model = uno_read(controller.getModel, None)
+    return bool(model and uno_read(lambda: model.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False))
 
 
 def _looks_like_cell_context_menu(container: Any) -> bool:
@@ -143,7 +143,7 @@ def _register_controller(controller: Any) -> None:
             _registered_controllers.append(controller)
         log.debug("python_editor_context_menu: registered on Calc controller")
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         log.warning("python_editor_context_menu: register failed", exc_info=True)
 
@@ -172,7 +172,7 @@ def install_calc_cell_context_menu(ctx: Any) -> None:
                 for i in range(frames.getCount()):
                     try:
                         frame = frames.getByIndex(i)
-                        controller = uno_probe(frame.getController, None)
+                        controller = uno_read(frame.getController, None)
                         _register_controller(controller)
                     except Exception:
                         log.debug("python_editor_context_menu: frame %s skipped", i, exc_info=True)

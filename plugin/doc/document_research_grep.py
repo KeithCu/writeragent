@@ -29,7 +29,7 @@ from plugin.doc.document_research import (
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
-from plugin.framework.errors import uno_probe, user_stopped_payload
+from plugin.framework.errors import uno_read, user_stopped_payload
 
 log = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ def _grep_text_in_writer(
             para_texts.append(get_string_without_tracked_deletions(para))
         elif para.supportsService("com.sun.star.text.TextTable"):
             cell_texts = [
-                uno_probe(lambda: get_string_without_tracked_deletions(para.getCellByName(name)), "")
+                uno_read(lambda: get_string_without_tracked_deletions(para.getCellByName(name)), "")
                 for name in (para.getCellNames() or ())
             ]
             para_texts.append("\n".join(c for c in cell_texts if c))
@@ -293,12 +293,12 @@ def _grep_shapes_on_page(
 
         shape_path = f"{path_prefix}{i}" if path_prefix else str(i)
 
-        text = str(uno_probe(lambda: shape.getString(), "") or "").strip()
+        text = str(uno_read(lambda: shape.getString(), "") or "").strip()
         if text and _shape_text_matches_pattern(text, pattern, regex=regex, case_sensitive=case_sensitive, compiled=compiled):
             snippet = _snippet(text)
             matches.append({"page_index": page_index, "shape_index": shape_path, "text": snippet})
 
-        if "GroupShape" in str(uno_probe(lambda: shape.getShapeType(), "")):
+        if "GroupShape" in str(uno_read(lambda: shape.getShapeType(), "")):
             group_matches, shapes_visited, group_partial = _grep_shapes_on_page(
                 shape,
                 page_index,
