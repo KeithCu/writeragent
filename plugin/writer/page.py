@@ -647,6 +647,10 @@ _STYLE_PROPERTY = {
     "type": "string",
     "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'.",
 }
+_COLUMNS_STYLE_PROPERTY = {
+    "type": "string",
+    "description": "The name of the page style. Defaults to 'Standard'.",
+}
 
 
 def _resolve_page_style_target(tool: ToolWriterPageBase, doc: Any, style_name: str) -> Any | dict[str, Any]:
@@ -1439,7 +1443,7 @@ class PageGetColumns(ToolWriterPageBase):
 
     name: str | None = "page_get_columns"
     description: str = "Get the column layout for a page style. Column widths are relative weights, not millimetres. Margins are millimetres."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": _COLUMNS_STYLE_PROPERTY}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs.get("style", "Standard")
@@ -1476,7 +1480,7 @@ class PageSetColumns(ToolWriterPageBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."},
+            "style": _COLUMNS_STYLE_PROPERTY,
             "column_count": {"type": "integer", "description": "Number of columns (e.g., 2)."},
             "spacing_mm": {"type": "number", "description": "Spacing between columns in mm. Defaults to 0."},
         },
