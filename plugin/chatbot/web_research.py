@@ -187,12 +187,19 @@ def _write_research_cache(
 from plugin.contrib.smolagents.tools import Tool
 
 
+_VISIT_WEBPAGE_DESCRIPTION = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
+
+
+def _visit_webpage_inputs() -> dict[str, dict[str, str | type[Any] | bool]]:
+    return {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+
+
 class _VisitWebpageDedupTool(Tool):
     """Wraps visit_webpage and skips URLs already read in this deep-research run."""
 
     name: str = "visit_webpage"
-    description: str = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+    description: str = _VISIT_WEBPAGE_DESCRIPTION
+    inputs: dict[str, dict[str, str | type[Any] | bool]] = _visit_webpage_inputs()
     output_type: str = "string"
     _inner: Tool
     _visited_urls: _VisitedUrls
@@ -314,8 +321,8 @@ def _finish_cdp_browser() -> None:
 
 class VisitWebpageCdpTool(Tool):
     name: str = "visit_webpage"
-    description: str = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+    description: str = _VISIT_WEBPAGE_DESCRIPTION
+    inputs: dict[str, dict[str, str | type[Any] | bool]] = _visit_webpage_inputs()
     output_type: str = "string"
     cdp_url: str
     stop_checker: Callable[[], bool] | None
@@ -475,6 +482,10 @@ def _run_web_agent(
             return _user_stopped_payload()
         status_msg = ""
         if step.name == "web_search":
+            def echo(q: str) -> None:
+                if params.chat_append_callback:
+                    params.chat_append_callback(web_search_engine_step_chat_text(q))
+
             args = _coerce_args_dict(step.arguments)
             q = str(args.get("query", ""))
             if params.append_thinking_callback:
@@ -483,8 +494,7 @@ def _run_web_agent(
             if params.approval_callback:
                 # Show the engine query before blocking on Accept/Change/Reject so the sidebar
                 # transcript matches what the user is approving (skip outer-query dedup).
-                if params.chat_append_callback:
-                    params.chat_append_callback(web_search_engine_step_chat_text(q))
+                echo(q)
                 approval_result = params.approval_callback(q, "web_search", step.arguments)
                 proceed, query_override = _unpack_approval(approval_result)
 
@@ -494,14 +504,12 @@ def _run_web_agent(
                     args["query"] = query_override
                     step.arguments = args
                     q = query_override
-                    if params.chat_append_callback:
-                        params.chat_append_callback(web_search_engine_step_chat_text(q))
+                    echo(q)
             else:
                 q_norm = _norm_research_query(q)
                 query_norm = _norm_research_query(params.outer_query)
                 if not (web_search_step_index == 0 and q_norm == query_norm):
-                    if params.chat_append_callback:
-                        params.chat_append_callback(web_search_engine_step_chat_text(q))
+                    echo(q)
 
             web_search_step_index += 1
             status_msg = f"Search: {q[:25]}"
@@ -672,10 +680,8 @@ class WebResearchTool(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        query = kwargs.get("query")
         history_text = kwargs.get("history_text")
-
-        query_str = str(query or "")
+        query_str = str(kwargs.get("query") or "")
         from plugin.chatbot.web_research_cache import resolve_research_locale
 
         stem_lang = resolve_research_locale(ctx.ctx, ctx.doc)[1]
