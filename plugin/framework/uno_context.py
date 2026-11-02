@@ -577,70 +577,16 @@ def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  
     return _desktop_enum_value_continues(has_more, seen, label=label)
 
 
-def iter_open_models(
-    desktop_or_ctx: Any,
-    *,
-    strict: bool = True,
-    label: str = "iter_open_models",
-) -> Generator[Any, None, None]:
+def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_open_models") -> Generator[Any, None, None]:
     """Iterate open document models from desktop components enumeration.
 
-    When *strict* is True (the default), handles frame controller unwrapping,
-    guards against truthy mock loops, stops on nextElement failure, and
-    re-raises real disposal. *desktop_or_ctx* is the Desktop instance.
-
-    When *strict* is False, swallows disposal and element errors, and probes
-    each model via ``check_disposed`` and ``getCurrentController``.
-    *desktop_or_ctx* is the ComponentContext (or Desktop).
+    Handles frame controller unwrapping and guards against truthy mock loops.
+    An element that fails to resolve is skipped; an enumeration failure ends
+    the walk. With *strict* a real disposal is re-raised; without it the walk
+    also skips models whose ``getCurrentController`` raises.
     """
-    if desktop_or_ctx is None:
-        return
-    if strict:
-        desktop = desktop_or_ctx
-    else:
-        desktop = get_desktop(desktop_or_ctx)
-        if desktop is None and hasattr(desktop_or_ctx, "getComponents"):
-            desktop = desktop_or_ctx
     if desktop is None:
         return
-    if not strict:
-        from plugin.framework.errors import check_disposed
-        from plugin.framework.thread_guard import _unwrap_uno
-
-        comps = desktop.getComponents() if hasattr(desktop, "getComponents") else None
-        if comps is None or not hasattr(comps, "createEnumeration"):
-            return
-        try:
-            enum = comps.createEnumeration()
-        except Exception:
-            return
-        if enum is None:
-            return
-        seen = 0
-        while True:
-            if not _enumeration_should_continue(enum, seen, label=label):
-                break
-            seen += 1
-            try:
-                elem = enum.nextElement()
-            except Exception:
-                break
-            model = None
-            if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
-                model = elem
-            elif hasattr(elem, "getController"):
-                ctrl = elem.getController()
-                if ctrl:
-                    model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-            if model is not None:
-                try:
-                    check_disposed(_unwrap_uno(model))
-                    getattr(model, "getCurrentController", lambda: None)()
-                    yield model
-                except Exception:
-                    log.debug("%s: skipping broken model", label, exc_info=True)
-        return
-
     try:
         comps = desktop.getComponents()
         if comps is None:
@@ -665,13 +611,16 @@ def iter_open_models(
                     controller = elem.getController()
                     if controller is not None and hasattr(controller, "getModel"):
                         model = controller.getModel()
-                if model is not None:
-                    yield model
+                if model is not None and not strict:
+                    getattr(model, "getCurrentController", lambda: None)()
             except Exception as e:
                 log.debug("%s element error: %s", label, type(e).__name__)
                 continue
+            if model is not None:
+                yield model
     except Exception as e:
-        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
+        if strict:
+            reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
         return
 
 
