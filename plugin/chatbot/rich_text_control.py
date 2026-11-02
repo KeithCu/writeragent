@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 from typing import Any, cast
 
 from plugin.framework.errors import best_effort
@@ -48,7 +47,6 @@ def _debug_env_active() -> bool:  # pyright: ignore[reportUnusedFunction]
 
 _CONTROL_INIT_STARTED: set[int] = set()
 _IN_SCROLL_TO_TAIL: set[int] = set()
-_ENV_SNAPSHOT_LOGGED = False
 RICH_CONTROL_NAME = "response_rich"
 # Dialog units (AppFont) — inset RichTextControl inside the response placeholder so glyphs are not clipped.
 RICH_CONTROL_EDGE_INSET = 8
@@ -57,78 +55,23 @@ RICH_CONTROL_EDGE_INSET = 8
 RICH_SCROLL_VERBOSE_DEBUG = os.environ.get("WRITERAGENT_RICH_SCROLL_DEBUG") == "1"
 
 
-_RICH_SCROLL_SEQ = 0
-
-
 def log_rich_scroll(phase: str, *, control: Any = None, reason: str | None = None, **extra: Any) -> None:
     """Structured log for RichTextControl viewport scroll diagnostics."""
     if not RICH_SCROLL_VERBOSE_DEBUG:
         return
-    global _RICH_SCROLL_SEQ
-    _RICH_SCROLL_SEQ += 1
-    parts = [f"[RICH-SCROLL] seq={_RICH_SCROLL_SEQ} phase={phase}"]
+    parts = [f"[RICH-SCROLL] phase={phase}"]
     if reason:
         parts.append(f"reason={reason}")
-    if control is not None:
-        parts.append(f"text_len={get_control_text_length(control)}")
-    parts.append(f"main={int(threading.current_thread() is threading.main_thread())}")
-    if control is not None:
-        parts.append(_rich_scrollbar_snapshot(control))
     for key, value in extra.items():
         parts.append(f"{key}={value}")
     log.debug(" ".join(parts))
 
 
-def _rich_scrollbar_snapshot(control: Any) -> str:
-    """Vertical scrollbar of the rich peer via accessibility (verbose scroll log only).
-
-    sb_val is the view top (VisArea.Top, twips) and sb_max is the content
-    height the EditEngine reports (GetTextHeight). A layout that disagrees
-    with that height is the blank-transcript bug, so the log records both.
-    """
-    try:
-        peer = control.getPeer()
-        stack = [peer.getAccessibleContext()] if peer is not None else []
-        seen = 0
-        while stack and seen < 64:
-            acc_ctx = stack.pop()
-            seen += 1
-            if acc_ctx is None:
-                continue
-            if acc_ctx.getAccessibleRole() == 50:  # AccessibleRole.SCROLL_BAR
-                return "sb_val=%s sb_max=%s" % (acc_ctx.getCurrentValue(), acc_ctx.getMaximumValue())
-            for i in range(acc_ctx.getAccessibleChildCount()):
-                child = acc_ctx.getAccessibleChild(i)
-                stack.append(child.getAccessibleContext() if child is not None else None)
-        return "sb=none"
-    except Exception as e:
-        return "sb_err=%s" % type(e).__name__
-
-
-def log_rich_control_context(ctx: Any, phase: str, **extra: Any) -> None:
-    """Structured INFO log for RichTextControl lifecycle (includes one-time DE/env snapshot)."""
-    global _ENV_SNAPSHOT_LOGGED
+def log_rich_control_context(_ctx: Any, phase: str, **extra: Any) -> None:
+    """Structured INFO log for RichTextControl lifecycle."""
     parts = [f"[RICH-CONTROL] phase={phase}"]
     for key, value in extra.items():
         parts.append(f"{key}={value}")
-    if not _ENV_SNAPSHOT_LOGGED:
-        _ENV_SNAPSHOT_LOGGED = True
-        env_bits: list[str] = []
-        for env_key in ("XDG_SESSION_DESKTOP", "XDG_CURRENT_DESKTOP", "WAYLAND_DISPLAY", "DISPLAY", "DESKTOP_SESSION"):
-            env_val = os.environ.get(env_key)
-            if env_val:
-                env_bits.append(f"{env_key.lower()}={env_val}")
-        def _get_work_area() -> None:
-            from plugin.framework.uno_context import get_toolkit
-
-            toolkit = get_toolkit(ctx)
-            if toolkit is not None and hasattr(toolkit, "getWorkArea"):
-                work_area = toolkit.getWorkArea()
-                env_bits.append("work_area=%sx%s" % (int(work_area.Width), int(work_area.Height)))
-
-        best_effort(_get_work_area, "log_rich_control_context work_area")
-        if env_bits:
-            parts.append("env=" + " ".join(env_bits))
     log.info(" ".join(parts))
 
 
@@ -143,7 +86,6 @@ class RichTextChatWidget:
     style_window: Any
     query: Any
     restore_focus: Any
-    model: Any
 
     def __init__(self, ctx: Any, control: Any, style_window: Any = None, query: Any = None, restore_focus: Any = None) -> None:
         self.ctx = ctx
@@ -153,7 +95,6 @@ class RichTextChatWidget:
         # Closes over this panel's frame session. Stream chunks must not
         # restore whichever Ask field was pinned for the process.
         self.restore_focus = restore_focus
-        self.model = control.getModel() if control else None
         # Debug-only: Packet M (mock sidebar) reads these through the SNAPSHOT
         # hook to prove streaming appends instead of repainting.
         self._debug_paint_session_count: int = 0
@@ -183,7 +124,6 @@ class RichTextChatWidget:
 
             clear_cell_link_spans(self.control)
         self.control = new
-        self.model = new.getModel() if new is not None and hasattr(new, "getModel") else None
         self._shown = None
         self._formatted_rows = 0
         self._formatted_len = None
@@ -474,8 +414,6 @@ class RichTextChatWidget:
 
 def _is_automatic_char_color(color: Any) -> bool:
     """True for LO automatic / unset character colors (COL_AUTO)."""
-    if color is None:
-        return True
     if not isinstance(color, int):
         return True
     return color < 0 or color == 0xFFFFFFFF
@@ -534,40 +472,34 @@ def _invalidate_peer(control: Any) -> None:
         peer.invalidate(0)
 
 
-def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None, control_out: Any = None, restore_focus: Any = None) -> bool:
-    """Position the rich control over the response area without exceeding the button row width.
+def _model_text(control: Any) -> str:
+    model = control.getModel() if control is not None else None
+    return getattr(model, "Text", "") or "" if model is not None else ""
 
-    When ``control_out`` is a one-element list, it may be replaced after dialog reinsert.
-    """
+
+def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None, restore_focus: Any = None) -> Any:
+    """Position the rich control over the response area without exceeding the button row width."""
     if rich_control is None or placeholder_ctrl is None:
-        return False
+        return rich_control
     try:
         bx, by, bw, bh = _content_bounds_for_rich_control(
             placeholder_ctrl, placeholder_rect=placeholder_rect,
         )
         bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh)
-        text: str | None = None
         if bounds_changed:
             log_rich_scroll("sync_bounds", control=rich_control, rect=f"{bx},{by},{bw},{bh}")
             # Stock layoutWindow() SetVisArea(Point()) — every setPosSize jumps
             # to the top. C++ patch keeps old top-left. Stock: Hidden SelectAll, no reveal_caret.
-            model = rich_control.getModel()
-            text = getattr(model, "Text", "") or "" if model is not None else ""
-            if text:
+            if _model_text(rich_control):
                 _invalidate_peer(rich_control)
                 _scroll_rich_to_tail(rich_control, restore_focus=restore_focus)
         needs_bounds = _rich_control_needs_bounds(rich_control, bx, by, bw, bh)
         if needs_bounds:
             # Dialog-embedded: model resize after insert fails (-1); reinsert when transcript empty.
-            if text is None:
-                model = rich_control.getModel()
-                text = getattr(model, "Text", "") or "" if model is not None else ""
-            if not text:
+            if not _model_text(rich_control):
                 new_ctrl = _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
                 if new_ctrl is not None:
                     rich_control = new_ctrl
-                    if control_out is not None:
-                        control_out[0] = new_ctrl
                     new_ctrl.setVisible(True)
                     log.info(
                         "[RICH-CONTROL] reinserted dialog control at %dx%d@%d,%d",
@@ -576,7 +508,6 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                         bx,
                         by,
                     )
-                    needs_bounds = _rich_control_needs_bounds(rich_control, bx, by, bw, bh)
             else:
                 log.warning(
                     "[RICH-CONTROL] bounds mismatch but transcript non-empty (h=%s want=%s); peer path preferred",
@@ -593,10 +524,10 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                 int(cur.X),
                 int(cur.Y),
             )
-        return not needs_bounds
+        return rich_control
     except Exception as e:
         log.debug("sync_rich_control_bounds failed: %s", e)
-        return False
+        return rich_control
 
 
 def refresh_rich_control_peer_layout(ctx: Any, rich_control: Any) -> None:
@@ -729,17 +660,17 @@ def _apply_control_surface_colors(control: Any, bg_color: int) -> None:
     """
     # We stop at the first property that sets, not set both, because
     # BackgroundColor and BackColor are alternative names for one color.
-    for name, val in (
-        ("BackgroundColor", bg_color),
-        ("BackColor", bg_color),
-    ):
-        try:
-            if hasattr(control, "setPropertyValue"):
-                control.setPropertyValue(name, val)
+    if hasattr(control, "setPropertyValue"):
+        for name in (
+            "BackgroundColor",
+            "BackColor",
+        ):
+            try:
+                control.setPropertyValue(name, bg_color)
                 return
-        except Exception as e:
-            log.debug("_apply_control_surface_colors %s failed: %s", name, e)
-    model = getattr(control, "getModel", lambda: None)()
+            except Exception as e:
+                log.debug("_apply_control_surface_colors %s failed: %s", name, e)
+    model = control.getModel()
     if model is not None:
         _set_model_property(model, "BackgroundColor", bg_color)
 
@@ -768,12 +699,6 @@ def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: An
     if hasattr(parent_window, "getPeer"):
         parent_peer = parent_window.getPeer()
 
-    peer_attempts: list[tuple[str, tuple[Any, Any]]] = []
-    if parent_peer is not None:
-        peer_attempts.append(("toolkit+peer", (toolkit, parent_peer)))
-    if parent_window is not None:
-        peer_attempts.append(("toolkit+window", (toolkit, parent_window)))
-
     for service in (
         "com.sun.star.form.control.RichTextControl",
         "com.sun.star.form.control.TextField",
@@ -784,9 +709,11 @@ def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: An
             if control is None:
                 continue
             control.setModel(field_model)
-            for label, args in peer_attempts:
+            for label, parent in (("toolkit+peer", parent_peer), ("toolkit+window", parent_window)):
+                if parent is None:
+                    continue
                 try:
-                    control.createPeer(args[0], args[1])
+                    control.createPeer(toolkit, parent)
                     if parent_window is not None:
                         try:
                             parent_window.addControl(RICH_CONTROL_NAME, control)
@@ -797,8 +724,6 @@ def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: An
                     return control
                 except Exception as e:
                     log.debug("create_sidebar_rich_text_control: %s %s failed: %s", service, label, e)
-            if peer_attempts:
-                log.debug("create_sidebar_rich_text_control: %s all peer attempts failed", service)
         except Exception as e:
             log.debug("create_sidebar_rich_text_control: %s setup failed: %s", service, e)
     return None
@@ -891,16 +816,13 @@ class RichTextControlListener(BaseWindowListener):
         if self._disposed or not self.rich_control or not self.placeholder_ctrl:
             return
         prev_ctrl = self.rich_control
-        out = [self.rich_control]
-        sync_rich_control_bounds(
+        self.rich_control = sync_rich_control_bounds(
             self.rich_control,
             self.root_window,
             self.placeholder_ctrl,
             placeholder_rect=self._resolved_placeholder_rect(),
-            control_out=out,
             restore_focus=self.restore_focus,
         )
-        self.rich_control = out[0]
         if self.rich_control is not prev_ctrl and callable(self.on_replaced):
             self.on_replaced(self.rich_control)
         refresh_rich_control_peer_layout(self.ctx, self.rich_control)
@@ -954,20 +876,13 @@ class RichTextControlListener(BaseWindowListener):
         if self.initialized:
             log_rich_control_context(self.ctx, "window_shown", skipped=1, reason="initialized")
             return
-        parent_id = id(self.root_window)
-        if parent_id in _CONTROL_INIT_STARTED:
-            log.warning(
-                "[RICH-CONTROL] phase=window_shown duplicate parent_id=%s init_started=1",
-                parent_id,
-            )
-            return
         peer = self._root_peer()
         log_rich_control_context(
             self.ctx,
             "window_shown",
             peer=int(bool(peer)),
             initialized=int(self.initialized),
-            init_started=int(parent_id in _CONTROL_INIT_STARTED),
+            init_started=int(id(self.root_window) in _CONTROL_INIT_STARTED),
         )
         if not peer:
             log.warning("[RICH-CONTROL] phase=window_shown peer=0 (eager_init should have run at wiring time)")
