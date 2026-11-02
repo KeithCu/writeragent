@@ -58,7 +58,7 @@ import time
 import weakref
 from http.server import BaseHTTPRequestHandler
 from typing import TYPE_CHECKING, Any, ClassVar, cast
-from plugin.framework.url_utils import get_url_path, get_url_query_dict
+from plugin.framework.url_utils import get_url_path
 from plugin.framework.errors import AgentParsingError, WriterAgentException, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
@@ -335,16 +335,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            if route.raw:
-                route.handler(self)
-            else:
-                body = self._read_body()
-                if body is None:
-                    return  # _read_body already sent error response
-                query = get_url_query_dict(self.path)
-                result = route.handler(body, self.headers, query)
-                status, data = cast("tuple[int, Any]", result)
-                write_http_json(self, status, data)
+            route.handler(self)
         except ConnectionError:
             # Peer went away (RST/EPIPE) during the body read or a write.
             # That is a closed request, not a server bug: no 500, no traceback.

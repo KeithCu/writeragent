@@ -342,6 +342,7 @@ def _bare_generic_handler(headers, body=b""):
     handler.client_address = ("127.0.0.1", 9)
     handler.requestline = "POST /mcp HTTP/1.0"
     handler.request_version = "HTTP/1.0"
+    handler.close_connection = False
     return handler
 
 
@@ -522,7 +523,7 @@ def test_dispatch_does_not_write_second_response_after_start():
     handler = _bare_generic_handler({})
     handler.path = "/boom"
     handler.command = "GET"
-    route = MagicMock(raw=True)
+    route = MagicMock()
 
     def _half_written(h):
         h._response_started = True
@@ -775,7 +776,7 @@ def test_http_server_stop_joins_threads_within_deadline():
 
 def test_dispatch_resets_response_started_for_subsequent_requests():
     from http.client import HTTPMessage
-    from plugin.mcp.routes import HttpRouteRegistry
+    from plugin.mcp.routes import HttpRouteRegistry, json_route
     from plugin.mcp.server import GenericRequestHandler
 
     registry = HttpRouteRegistry()
@@ -788,7 +789,7 @@ def test_dispatch_resets_response_started_for_subsequent_requests():
             return 200, {"status": "first"}
         raise RuntimeError("second request failure")
 
-    registry.add("POST", "/test", _handler)
+    registry.add("POST", "/test", json_route(_handler))
     server = MagicMock()
     server.route_registry = registry
 
@@ -838,7 +839,7 @@ def test_dispatch_client_disconnect_is_not_a_500():
     handler.headers.add_header("Content-Length", "2")
     handler.path = "/mcp"
     handler.command = "POST"
-    route = MagicMock(raw=False)
+    route = MagicMock()
     route.handler.side_effect = ConnectionResetError(104, "Connection reset by peer")
     handler.server = MagicMock()
     handler.server.route_registry.match.return_value = route
@@ -867,9 +868,15 @@ def test_dispatch_body_read_reset_does_not_write_a_500():
         del n
         raise ConnectionResetError(104, "Connection reset by peer")
 
+    from plugin.mcp.routes import Route
+
+    def _reset_on_read(handler: Any) -> None:
+        del handler
+        raise ConnectionResetError(104, "Connection reset by peer")
+
     handler.rfile.read = _reset
     handler.server = MagicMock()
-    handler.server.route_registry.match.return_value = MagicMock(raw=False)
+    handler.server.route_registry.match.return_value = Route(handler=_reset_on_read)
 
     with patch("plugin.mcp.server.log") as mock_log:
         handler._dispatch("POST")
