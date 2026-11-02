@@ -13,10 +13,10 @@ from plugin.writer.locale.grammar_proofread_cache import _normalize_for_sentence
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    gc.cache_clear()
+    gc.grammar_registry.clear_all()
     gc.ignore_rules_clear()
     yield
-    gc.cache_clear()
+    gc.grammar_registry.clear_all()
     gc.ignore_rules_clear()
 
 def test_sentence_cache_roundtrip() -> None:
@@ -214,7 +214,7 @@ def test_sentence_cache_key_prefix_and_identity_fp() -> None:
     ident = gc.resolve_checker_identity().replace("|", "/")
     assert gc.sentence_cache_key_prefix("en-US") == f"sent|en-US|{ident}|"
     fp = gc.sentence_identity_fp("Hello.")
-    assert gc.make_sentence_key("en-US", "Hello.") == f"{gc.sentence_cache_key_prefix('en-US')}{fp}"
+    assert gc._sentence_l1_key("en-US", None, fp) == f"{gc.sentence_cache_key_prefix('en-US')}{fp}"
 
 def test_should_evict_incomplete_prefix_predecessor() -> None:
     errors = [{"n_error_start": 0, "n_error_length": 2}]
@@ -229,12 +229,12 @@ def test_should_evict_incomplete_prefix_predecessor() -> None:
 
 def test_whitespace_normalization_cache_key() -> None:
     """Test cache key normalization: whitespace + trailing punctuation after first terminator."""
-    key1 = gc.make_sentence_key("en-US", "Hello.")
-    key2 = gc.make_sentence_key("en-US", "Hello. ")
-    key3 = gc.make_sentence_key("en-US", "Hello.\n")
-    key4 = gc.make_sentence_key("en-US", "Hello...")
-    key5 = gc.make_sentence_key("en-US", "Hello?...")
-    key6 = gc.make_sentence_key("en-US", "Hello?")
+    key1 = gc.sentence_identity_fp("Hello.")
+    key2 = gc.sentence_identity_fp("Hello. ")
+    key3 = gc.sentence_identity_fp("Hello.\n")
+    key4 = gc.sentence_identity_fp("Hello...")
+    key5 = gc.sentence_identity_fp("Hello?...")
+    key6 = gc.sentence_identity_fp("Hello?")
     assert key1 == key2 == key3 == key4
     assert key5 == key6
     assert key1 != key6
@@ -339,14 +339,6 @@ def test_l1_hit_records_session_accessed_for_doc() -> None:
         assert got == []
         fp = gc.sentence_identity_fp("Track me.")
         assert ("en-US", fp) in dp._session_accessed
-
-
-def test_cache_clear_does_not_register_empty_persistence() -> None:
-    """clear_all must not be followed by get_persistence, which would register a model-less instance."""
-    from plugin.writer.locale.grammar_persistence import grammar_registry
-
-    gc.cache_clear()
-    assert "phantom-doc" not in grammar_registry.doc_persistence_instances
 
 
 def test_dump_grammar_cache_for_recheck_clears_l1_and_active_l2_only() -> None:

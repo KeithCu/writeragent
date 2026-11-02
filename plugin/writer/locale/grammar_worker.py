@@ -197,7 +197,7 @@ def process_grammar_results(
             continue
         if idx < len(results):
             errors = results[idx]
-            norm_errors = grammar_proofread_text.normalize_errors_for_text(text, 0, len(text), errors, ec.ctx, bcp47)
+            norm_errors = grammar_proofread_text.normalize_errors_for_text(text, errors, ec.ctx, bcp47)
 
             active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
             payload = [asdict(e) for e in norm_errors]

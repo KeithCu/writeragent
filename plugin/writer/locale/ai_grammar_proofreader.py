@@ -648,7 +648,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 return
             emit_grammar_status("request", sent_text, result="Harper check")
             errors = res.get("errors", [])
-            norm_errors = normalize_errors_for_text(sent_text, 0, len(sent_text), errors, self.ctx, loc_key)
+            norm_errors = normalize_errors_for_text(sent_text, errors, self.ctx, loc_key)
             active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
             payload = [asdict(e) for e in norm_errors]
             issue_count += len(active_errors)
