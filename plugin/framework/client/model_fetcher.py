@@ -27,6 +27,7 @@ clears the memo with ``clear_settings_catalog_cache``.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import hashlib
 import urllib.parse
 import json
@@ -77,41 +78,38 @@ ENDPOINT_PRESETS = [
 ]
 
 
-# GET {base}/v1/models — memoized for the lifetime of this Python process (LibreOffice
-# session). Key is normalized URL plus a hash of the API key (same host, different
-# keys must not share cache; the raw key is not stored). Value is model id list or None after failure.
-_model_fetch_cache: dict[str, list[str] | None] = {}
-_model_fetch_image_cache: dict[str, list[str] | None] = {}
-# Successful /v1/models vision memo. A dict is id -> accepts image, and only
-# ids whose row listed input_modalities are present. None is not stored: a
-# failed GET must be retried.
-_model_fetch_vision_cache: dict[str, dict[str, bool] | None] = {}
-# OpenRouter GET /v1/models?output_modalities=speech|transcription. Separate from
-# the unfiltered catalog: that list does not mark TTS, and output_modalities=audio
-# is music / gpt-audio, not the Speech-tab TTS combo.
-_model_fetch_tts_cache: dict[str, list[str] | None] = {}
-_model_fetch_stt_cache: dict[str, list[str] | None] = {}
-# Speech voice tokens, keyed by the API model id (process lifetime).
-# OpenRouter fills this from supported_voices on the speech model list.
-# Together fills it from GET /v1/voices. Same map — not a second voice cache.
-_tts_supported_voices: dict[str, list[str]] = {}
-# response_format that worked for that model (mp3 / pcm / wav). Same lifetime
-# as the voice list: learned while speaking, not written to writeragent.json.
-# Gemini-class speech models reject mp3; remembering pcm skips that 400 next time.
-# Together uses this too: _download_endpoint_speech learns the format per model id.
-_tts_response_format: dict[str, str] = {}
 _TTS_RESPONSE_FORMATS = ("mp3", "pcm", "wav")
-# GET /v1/voices response memo (URL+key -> model->tokens, or None after failure).
-# The Voice combo reads _tts_supported_voices, not this dict. It only stops a
-# dialog refresh from repeating the same GET.
-_together_voices_fetch_cache: dict[str, dict[str, list[str]] | None] = {}
-# Same key as _model_fetch_cache. Per-id context tokens harvested from /v1/models
-# (context_length or context_window only). None after a failed fetch. Lookup
-# never HTTP — compact reads this; Settings/sidebar populate it.
-_model_context_cache: dict[str, dict[str, int] | None] = {}
-# POST /api/show, once per process. Value is {capabilities: list[str], num_ctx: int|None}.
-# Vision probes and the #570 crash sentence share this so the first probe pays for both.
-_ollama_show_cache: dict[str, dict[str, Any]] = {}
+
+
+@dataclass
+class CatalogMemo:
+    """Catalog metadata memoized for one endpoint-plus-key slot."""
+
+    ids: list[str] | None = None
+    image_ids: list[str] | None = None
+    vision_declarations: dict[str, bool] | None = None
+    context_tokens: dict[str, int] = field(default_factory=dict)
+    tts_ids: list[str] | None = None
+    stt_ids: list[str] | None = None
+    voices: dict[str, list[str]] = field(default_factory=dict)
+    response_format: dict[str, str] = field(default_factory=dict)
+    together_voices: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    ollama_show: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def is_warm(self, provider: str | None) -> bool:
+        """True when this memo has the catalogs Settings would show."""
+        if self.ids is None or self.image_ids is None:
+            return False
+        if provider == "openrouter":
+            if self.tts_ids is None:
+                return False
+            return self.stt_ids is not None
+        if provider == "together":
+            return bool(self.together_voices)
+        return True
+
+
+_catalog_memos: dict[str, CatalogMemo] = {}
 # Keys in flight for background vision capability resolution (UI thread schedule guard).
 _vision_in_flight_lock = threading.Lock()
 _vision_in_flight: set[str] = set()
@@ -126,7 +124,7 @@ _OLLAMA_NUM_CTX_LINE = re.compile(r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\s*
 # - OpenAI-compatible (Ollama, LM Studio, most hosted chat APIs): {data: [{id}, ...]}; image models
 #   are not typed — the image memo for those hosts is the slug keyword filter
 #   (flux, sdxl, …), the same list fetch_available_image_models returns.
-# Image-output IDs are stored at fetch time in _model_fetch_image_cache. Settings
+# Image-output IDs are stored at fetch time in CatalogMemo.image_ids. Settings
 # reads that memo (once per startup). Test Connection clears it.
 
 
@@ -252,19 +250,6 @@ def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], dict[str
     return models, image_models, _vision_declarations_from_v1_entries(entries)
 
 
-def _store_model_fetch_caches(cache_key: str, models: list[str] | None, image_models: list[str] | None, vision_models: dict[str, bool] | None = None, context_tokens: dict[str, int] | None = None) -> None:
-    # A failed fetch must not stick for the process lifetime. The next caller retries.
-    if models is None:
-        return
-    _model_fetch_cache[cache_key] = models
-    _model_fetch_image_cache[cache_key] = image_models
-    if isinstance(vision_models, dict):
-        _model_fetch_vision_cache[cache_key] = dict(vision_models)
-    else:
-        _model_fetch_vision_cache[cache_key] = None
-    _model_context_cache[cache_key] = dict(context_tokens) if context_tokens else {}
-
-
 def _resolved_openwebui(endpoint: str) -> bool:
     # Resolve Open WebUI by host or explicit setting matching LlmClient._api_path.
     return is_openwebui_endpoint(endpoint, explicit_is_openwebui=get_config_bool_safe("is_openwebui"))
@@ -308,20 +293,33 @@ def _catalog_base(endpoint: str) -> str:
     return _key_slot_base(endpoint)
 
 
-def _model_fetch_cache_key(url: str, base: str, api_key_override: str | None = None) -> str:
-    """Cache key for endpoint model list memoization.
+def _catalog_memo_key(endpoint: str, api_key_override: str | None = None) -> str:
+    """Cache key for endpoint catalog memoization.
 
     Both the override and the saved key are stripped so they match the key
     ``build_auth_headers`` sends.
     """
+    if not endpoint or not isinstance(endpoint, str):
+        return ""
+    base = _v1_prefix(endpoint) or normalize_endpoint_url(endpoint)
+    if not base:
+        return ""
+    key_slot = _key_slot_base(endpoint)
     if api_key_override is not None:
         key = str(api_key_override).strip()
     else:
-        key = str(get_api_key_for_endpoint(base) or "").strip()
-    # Hash, not the raw key: these dicts live for the process and get logged
-    # in diagnostics. Two keys on one URL must still miss each other.
+        key = str(get_api_key_for_endpoint(key_slot) or "").strip()
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
-    return f"{url}\x1f{digest}"
+    return f"{base}\x1f{digest}"
+
+
+def _get_catalog_memo(endpoint: str = "", api_key_override: str | None = None) -> CatalogMemo:
+    key = _catalog_memo_key(endpoint, api_key_override)
+    memo = _catalog_memos.get(key)
+    if memo is None:
+        memo = CatalogMemo()
+        _catalog_memos[key] = memo
+    return memo
 
 
 def _v1_models_request(endpoint: str, api_key_override: str | None = None) -> tuple[str, str, str] | None:
@@ -329,15 +327,7 @@ def _v1_models_request(endpoint: str, api_key_override: str | None = None) -> tu
     if not url:
         return None
     key_slot = _key_slot_base(endpoint)
-    return key_slot, url, _model_fetch_cache_key(url, key_slot, api_key_override)
-
-
-def _cached_id_list(cache: dict[str, list[str] | None], key: str) -> list[str] | None:
-    """A stored list is success, including empty. Missing or a failed ``None`` is a miss."""
-    found = cache.get(key)
-    if isinstance(found, list):
-        return list(found)
-    return None
+    return key_slot, url, _catalog_memo_key(endpoint, api_key_override)
 
 
 def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
@@ -402,17 +392,17 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     ``get_api_key_for_endpoint(base)``. Pass ``api_key_override`` (including ``""``)
     to use a key not yet saved to config (e.g. Settings dialog typing order: URL then API key).
 
-    Successful responses are cached in ``_model_fetch_cache`` for the process
+    Successful responses are cached in the endpoint's ``CatalogMemo`` for the process
     lifetime. Failed lookups are not cached, so the next Settings open retries.
     Settings skips the request when ``settings_catalog_is_warm`` is already true.
     """
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return None
-    key_slot, url, cache_key = built
-    cached = _cached_id_list(_model_fetch_cache, cache_key)
-    if cached is not None:
-        return cached
+    key_slot, url, _ = built
+    memo = _get_catalog_memo(endpoint, api_key_override)
+    if memo.ids is not None:
+        return list(memo.ids)
 
     is_openwebui = _resolved_openwebui(endpoint)
     # Hostname equality, same rule as get_provider_from_endpoint. A path that
@@ -440,7 +430,11 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
             # /v1/images/models, not this slice.
             if provider not in ("together", "openrouter"):
                 image_models = _filter_fetched_models(models, "image")
-            _store_model_fetch_caches(cache_key, models, image_models, vision_declared, _context_tokens_from_v1_entries(entries))
+            memo.ids = list(models)
+            if provider != "openrouter":
+                memo.image_ids = list(image_models) if image_models is not None else None
+            memo.vision_declarations = dict(vision_declared) if isinstance(vision_declared, dict) else None
+            memo.context_tokens = _context_tokens_from_v1_entries(entries)
             return list(models)
         log.warning("fetch_available_models unexpected body structure for %s: %s", url, type(data).__name__)
     except NetworkError as e:
@@ -491,16 +485,15 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return None
-    key_slot, _url, cache_key = built
+    key_slot, _url, _ = built
+    memo = _get_catalog_memo(endpoint, api_key_override)
     provider = get_provider_from_endpoint(key_slot)
 
     if provider == "openrouter":
-        url = _v1_url(endpoint, "/images/models")
-        or_cache_key = _model_fetch_cache_key(url, key_slot, api_key_override)
-        if or_cache_key in _model_fetch_image_cache:
-            found = _model_fetch_image_cache[or_cache_key]
-            return list(found) if isinstance(found, list) else None
+        if memo.image_ids is not None:
+            return list(memo.image_ids)
 
+        url = _v1_url(endpoint, "/images/models")
         entries = _fetch_openrouter_entries(
             endpoint, key_slot, api_key_override, url, "fetch_available_image_models openrouter"
         )
@@ -509,19 +502,15 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
             for m in entries:
                 if isinstance(m, dict) and m.get("id"):
                     image_models.append(str(m["id"]))
-            _model_fetch_image_cache[or_cache_key] = image_models
+            memo.image_ids = list(image_models)
             return list(image_models)
         return None
 
     all_models = fetch_available_models(endpoint, api_key_override=api_key_override)
     if all_models is None:
         return None
-    stored = _model_fetch_image_cache.get(cache_key)
-    # Together declares image models with type=image. A slug heuristic would
-    # mis-classify (google/flash-image-2.5 has no "flux"; a chat FLUX row is not
-    # an image model). Other hosts' memo is the keyword list written above.
-    if isinstance(stored, list):
-        return list(stored)
+    if isinstance(memo.image_ids, list):
+        return list(memo.image_ids)
     if provider == "together":
         return []
     return _filter_fetched_models(all_models, "image")
@@ -574,7 +563,7 @@ def _modality_ids_from_entries(entries: list[Any], modality: str) -> tuple[list[
     return ids, voices
 
 
-def _fetch_openrouter_modality_models(endpoint: str, modality: str, cache: dict[str, list[str] | None], api_key_override: str | None) -> list[str] | None:
+def _fetch_openrouter_modality_models(endpoint: str, modality: str, api_key_override: str | None) -> list[str] | None:
     """OpenRouter ``GET /v1/models?output_modalities=`` list, memoized like other fetches.
 
     Together's ``/v1/models`` type enum has no speech or transcription value, so
@@ -591,23 +580,27 @@ def _fetch_openrouter_modality_models(endpoint: str, modality: str, cache: dict[
     if get_provider_from_endpoint(key_slot) != "openrouter":
         return None
 
+    memo = _get_catalog_memo(endpoint, api_key_override)
+    cached = memo.tts_ids if modality == "speech" else memo.stt_ids
+    if cached is not None:
+        return list(cached)
+
     url = _v1_url(endpoint, "/models", output_modalities=modality)
     if not url:
         return None
-    cache_key = _model_fetch_cache_key(url, key_slot, api_key_override)
-    if cache_key in cache:
-        found = cache[cache_key]
-        return list(found) if isinstance(found, list) else found
 
     entries = _fetch_openrouter_entries(
         endpoint, key_slot, api_key_override, url, f"fetch openrouter {modality} models"
     )
     if entries is not None:
         model_ids, voices = _modality_ids_from_entries(entries, modality)
-        if modality == "speech" and voices:
-            for speech_id, speech_voices in voices.items():
-                remember_tts_supported_voices(speech_id, speech_voices)
-        cache[cache_key] = model_ids
+        if modality == "speech":
+            if voices:
+                for speech_id, speech_voices in voices.items():
+                    remember_tts_supported_voices(speech_id, speech_voices)
+            memo.tts_ids = list(model_ids)
+        else:
+            memo.stt_ids = list(model_ids)
         return list(model_ids)
     return None
 
@@ -617,12 +610,12 @@ def fetch_available_tts_models(endpoint: str, api_key_override: str | None = Non
 
     Do not use ``output_modalities=audio`` — that is Lyria / gpt-audio, not this combo.
     """
-    return _fetch_openrouter_modality_models(endpoint, "speech", _model_fetch_tts_cache, api_key_override)
+    return _fetch_openrouter_modality_models(endpoint, "speech", api_key_override)
 
 
 def fetch_available_stt_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
     """OpenRouter STT model ids: ``GET /v1/models?output_modalities=transcription``."""
-    return _fetch_openrouter_modality_models(endpoint, "transcription", _model_fetch_stt_cache, api_key_override)
+    return _fetch_openrouter_modality_models(endpoint, "transcription", api_key_override)
 
 
 def cached_text_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
@@ -630,7 +623,8 @@ def cached_text_models(endpoint: str, api_key_override: str | None = None) -> li
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return None
-    return _cached_id_list(_model_fetch_cache, built[2])
+    memo = _get_catalog_memo(endpoint, api_key_override)
+    return list(memo.ids) if isinstance(memo.ids, list) else None
 
 
 def cached_image_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
@@ -644,68 +638,26 @@ def cached_image_models(endpoint: str, api_key_override: str | None = None) -> l
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return None
-    key_slot, _url, cache_key = built
-    if get_provider_from_endpoint(key_slot) == "openrouter":
-        url = _v1_url(endpoint, "/images/models")
-        if not url:
-            return None
-        return _cached_id_list(_model_fetch_image_cache, _model_fetch_cache_key(url, key_slot, api_key_override))
-    return _cached_id_list(_model_fetch_image_cache, cache_key)
-
-
-def _cached_modality_models(
-    endpoint: str,
-    api_key_override: str | None,
-    modality: str,
-    cache: dict[str, Any],
-) -> list[str] | None:
-    base = _catalog_base(endpoint)
-    if not base or get_provider_from_endpoint(base) != "openrouter":
-        return None
-    url = _v1_url(endpoint, "/models", output_modalities=modality)
-    if not url:
-        return None
-    key = _model_fetch_cache_key(url, base, api_key_override)
-    return _cached_id_list(cache, key)
+    memo = _get_catalog_memo(endpoint, api_key_override)
+    return list(memo.image_ids) if isinstance(memo.image_ids, list) else None
 
 
 def cached_tts_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
     """Memoized OpenRouter speech ids, or None. Does not HTTP."""
-    return _cached_modality_models(endpoint, api_key_override, "speech", _model_fetch_tts_cache)
+    base = _catalog_base(endpoint)
+    if not base or get_provider_from_endpoint(base) != "openrouter":
+        return None
+    memo = _get_catalog_memo(endpoint, api_key_override)
+    return list(memo.tts_ids) if isinstance(memo.tts_ids, list) else None
 
 
 def cached_stt_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
     """Memoized OpenRouter transcription ids, or None. Does not HTTP."""
-    return _cached_modality_models(endpoint, api_key_override, "transcription", _model_fetch_stt_cache)
-
-
-def _together_voices_cache_keys(base: str, api_key_override: str | None) -> list[str]:
-    """List-all and ``?model=`` memo keys for this endpoint+key."""
-    root = _v1_url(base, "/voices")
-    sample = _model_fetch_cache_key(root, base, api_key_override)
-    digest = sample.split("\x1f", 1)[1]
-    found: list[str] = []
-    for key in list(_together_voices_fetch_cache):
-        url, sep, key_digest = key.partition("\x1f")
-        if sep and key_digest == digest and (url == root or url.startswith(root + "?")):
-            found.append(key)
-    return found
-
-
-def _together_voices_list_cached(endpoint: str, api_key_override: str | None) -> bool:
-    """True after a successful ``GET /v1/voices`` for this endpoint+key.
-
-    List-all and ``?model=`` are different URLs. Either memo means the Speech
-    tab has something to read. A stored dict is success, including empty.
-    A failure is not stored.
-    """
     base = _catalog_base(endpoint)
-    if not base:
-        return False
-    for key in _together_voices_cache_keys(base, api_key_override):
-        if isinstance(_together_voices_fetch_cache.get(key), dict):
-            return True
-    return False
+    if not base or get_provider_from_endpoint(base) != "openrouter":
+        return None
+    memo = _get_catalog_memo(endpoint, api_key_override)
+    return list(memo.stt_ids) if isinstance(memo.stt_ids, list) else None
 
 
 def settings_catalog_is_warm(endpoint: str, api_key_override: str | None = None) -> bool:
@@ -721,22 +673,11 @@ def settings_catalog_is_warm(endpoint: str, api_key_override: str | None = None)
     base = _catalog_base(endpoint)
     if not base:
         return False
-    provider = get_provider_from_endpoint(base)
-    if cached_text_models(endpoint, api_key_override) is None:
+    key = _catalog_memo_key(endpoint, api_key_override)
+    memo = _catalog_memos.get(key)
+    if memo is None:
         return False
-    if cached_image_models(endpoint, api_key_override) is None:
-        return False
-    if provider == "openrouter":
-        if cached_tts_models(endpoint, api_key_override) is None:
-            return False
-        return cached_stt_models(endpoint, api_key_override) is not None
-    if provider == "together":
-        return _together_voices_list_cached(endpoint, api_key_override)
-    # Ollama, Groq, and custom hosts keep text ids and the keyword image ids
-    # (flux, sdxl, …) in the one /v1/models memo checked above. That memo is
-    # the catalog Settings shows. A warm memo must not look cold, or opening
-    # Settings refetches.
-    return True
+    return memo.is_warm(get_provider_from_endpoint(base))
 
 
 def clear_settings_catalog_cache(endpoint: str, api_key_override: str | None = None) -> None:
@@ -744,34 +685,9 @@ def clear_settings_catalog_cache(endpoint: str, api_key_override: str | None = N
 
     Test Connection uses this. Other endpoints and keys stay cached.
     """
-    # Vision answers live in these memos, so Test Connection re-asks too.
-    show_prefix = _ollama_show_key(endpoint, "")
-    for show_key in [k for k in _ollama_show_cache if k.startswith(show_prefix)]:
-        del _ollama_show_cache[show_key]
-    built = _v1_models_request(endpoint, api_key_override)
-    if built is None:
-        return
-    key_slot, _url, text_key = built
-    for cache in (
-        _model_fetch_cache,
-        _model_fetch_image_cache,
-        _model_fetch_vision_cache,
-        _model_context_cache,
-    ):
-        cache.pop(text_key, None)
-    image_url = _v1_url(endpoint, "/images/models")
-    image_key = _model_fetch_cache_key(image_url, key_slot, api_key_override)
-    _model_fetch_image_cache.pop(image_key, None)
-    tts_url = _v1_url(endpoint, "/models", output_modalities="speech")
-    tts_key = _model_fetch_cache_key(tts_url, key_slot, api_key_override)
-    stt_url = _v1_url(endpoint, "/models", output_modalities="transcription")
-    stt_key = _model_fetch_cache_key(stt_url, key_slot, api_key_override)
-    _model_fetch_tts_cache.pop(tts_key, None)
-    _model_fetch_stt_cache.pop(stt_key, None)
-    # ?model= is a different memo from list-all. Test Connection must drop both
-    # or the next Speech fetch returns the stale scoped body without HTTP.
-    for voices_key in _together_voices_cache_keys(key_slot, api_key_override):
-        _together_voices_fetch_cache.pop(voices_key, None)
+    key = _catalog_memo_key(endpoint, api_key_override)
+    if key:
+        _catalog_memos.pop(key, None)
 
 
 def cached_tts_supported_voices(model_id: str) -> list[str]:
@@ -783,28 +699,15 @@ def cached_tts_supported_voices(model_id: str) -> list[str]:
     mid = str(model_id or "").strip()
     if not mid:
         return []
-    direct = _tts_supported_voices.get(mid)
-    if direct:
-        return list(direct)
     folded = mid.casefold()
-    for key, voices in list(_tts_supported_voices.items()):
-        if key.casefold() == folded and voices:
-            return list(voices)
+    for memo in _catalog_memos.values():
+        direct = memo.voices.get(mid)
+        if direct:
+            return list(direct)
+        for key, voices in list(memo.voices.items()):
+            if key.casefold() == folded and voices:
+                return list(voices)
     return []
-
-
-def _tts_meta_key(model_id: str, table: dict[str, str]) -> str | None:
-    """Exact or case-insensitive key already stored for ``model_id``."""
-    mid = str(model_id or "").strip()
-    if not mid:
-        return None
-    if mid in table:
-        return mid
-    folded = mid.casefold()
-    for key in list(table):
-        if key.casefold() == folded:
-            return key
-    return None
 
 
 def cached_tts_response_format(model_id: str) -> str | None:
@@ -813,12 +716,17 @@ def cached_tts_response_format(model_id: str) -> str | None:
     Absent means the caller should try ``mp3``. Lookup matches the voice cache:
     ``hexgrad/Kokoro-82M`` and ``hexgrad/kokoro-82m`` share one entry.
     """
-    key = _tts_meta_key(model_id, _tts_response_format)
-    if key is None:
+    mid = str(model_id or "").strip()
+    if not mid:
         return None
-    fmt = _tts_response_format.get(key) or ""
-    if fmt in _TTS_RESPONSE_FORMATS:
-        return fmt
+    folded = mid.casefold()
+    for memo in _catalog_memos.values():
+        direct = memo.response_format.get(mid)
+        if direct in _TTS_RESPONSE_FORMATS:
+            return direct
+        for key, fmt in list(memo.response_format.items()):
+            if key.casefold() == folded and fmt in _TTS_RESPONSE_FORMATS:
+                return fmt
     return None
 
 
@@ -828,8 +736,16 @@ def remember_tts_response_format(model_id: str, fmt: str) -> None:
     clean = str(fmt or "").strip().lower()
     if not mid or clean not in _TTS_RESPONSE_FORMATS:
         return
-    key = _tts_meta_key(mid, _tts_response_format) or mid
-    _tts_response_format[key] = clean
+    if not _catalog_memos:
+        _catalog_memos[""] = CatalogMemo()
+    for memo in _catalog_memos.values():
+        key = mid
+        folded = mid.casefold()
+        for existing in list(memo.response_format):
+            if existing.casefold() == folded:
+                key = existing
+                break
+        memo.response_format[key] = clean
 
 
 def remember_tts_supported_voices(model_id: str, voices: list[str]) -> None:
@@ -849,13 +765,16 @@ def remember_tts_supported_voices(model_id: str, voices: list[str]) -> None:
             clean.append(token)
     if not clean:
         return
-    key = mid
-    folded = mid.casefold()
-    for existing in list(_tts_supported_voices):
-        if existing.casefold() == folded:
-            key = existing
-            break
-    _tts_supported_voices[key] = clean
+    if not _catalog_memos:
+        _catalog_memos[""] = CatalogMemo()
+    for memo in _catalog_memos.values():
+        key = mid
+        folded = mid.casefold()
+        for existing in list(memo.voices):
+            if existing.casefold() == folded:
+                key = existing
+                break
+        memo.voices[key] = clean
 
 
 def _together_voice_token(model_id: str, row: Any) -> str:
@@ -911,7 +830,7 @@ def _voices_from_together_body(data: Any, requested_model: str | None) -> dict[s
 
 
 def fetch_together_tts_voices(endpoint: str, model_id: str | None = None, api_key_override: str | None = None) -> dict[str, list[str]] | None:
-    """GET Together ``/v1/voices`` and copy tokens into ``_tts_supported_voices``.
+    """GET Together ``/v1/voices`` and copy tokens into ``voices``.
 
     ``model_id`` set: ``GET /v1/voices?model=``. Omitted: list every model.
     Unauthenticated listing often works; a saved or dialog key is still sent.
@@ -927,15 +846,14 @@ def fetch_together_tts_voices(endpoint: str, model_id: str | None = None, api_ke
         return None
 
     requested = str(model_id or "").strip()
+    memo = _get_catalog_memo(endpoint, api_key_override)
+    if requested in memo.together_voices:
+        stored = memo.together_voices[requested]
+        return {k: list(v) for k, v in stored.items()}
+
     url = _v1_url(endpoint, "/voices", model=requested)
     if not url:
         return None
-    cache_key = _model_fetch_cache_key(url, key_slot, api_key_override)
-    if cache_key in _together_voices_fetch_cache:
-        stored = _together_voices_fetch_cache[cache_key]
-        if isinstance(stored, dict):
-            return {k: list(v) for k, v in stored.items()}
-        return stored
 
     req_headers = _model_fetch_auth_headers(key_slot, api_key_override, url, is_openwebui=_resolved_openwebui(endpoint), is_openrouter=False, log_label="fetch together voices")
     if req_headers is None:
@@ -949,7 +867,7 @@ def fetch_together_tts_voices(endpoint: str, model_id: str | None = None, api_ke
         for speech_id, speech_voices in found.items():
             remember_tts_supported_voices(speech_id, speech_voices)
         stored_copy = {k: list(v) for k, v in found.items()}
-        _together_voices_fetch_cache[cache_key] = stored_copy
+        memo.together_voices[requested] = stored_copy
         return {k: list(v) for k, v in stored_copy.items()}
     except Exception as e:
         log.warning("fetch together voices failed for %s: %s", url, e)
@@ -967,10 +885,10 @@ def preferred_openrouter_tts_model_id(model_id: str) -> str:
     if not mid:
         return mid
     folded = mid.casefold()
-    for ids in list(_model_fetch_tts_cache.values()):
-        if not ids:
+    for memo in _catalog_memos.values():
+        if not memo.tts_ids:
             continue
-        for api_id in ids:
+        for api_id in memo.tts_ids:
             if api_id.casefold() == folded:
                 return api_id
     return mid
@@ -1189,10 +1107,6 @@ def _vision_support_key(endpoint: Any, model_id: Any) -> str:
     return f"{endpoint_str}@{model_str.casefold()}"
 
 
-def _ollama_show_key(endpoint: str, model_id: str) -> str:
-    return f"{normalize_endpoint_url(endpoint)}@{model_id}"
-
-
 def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, api_key_override: str | None) -> tuple[bool, bool | None]:
     """(memo is warm, answer) from the in-process provider memos. No I/O.
 
@@ -1201,15 +1115,22 @@ def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, ap
     if provider in ("openrouter", "together"):
         # Uses the normalized request triple and api_key_override matching catalog fetch.
         built = _v1_models_request(endpoint, api_key_override)
-        if built is None or built[2] not in _model_fetch_vision_cache:
-            return built is None, None
-        # A row that omitted input_modalities is not a "no": it stays unknown.
-        memo = _model_fetch_vision_cache[built[2]]
-        if not isinstance(memo, dict):
+        if built is None:
             return True, None
-        return True, _declared_vision_flag(provider, memo, model_id)
+        key = _catalog_memo_key(endpoint, api_key_override)
+        memo = _catalog_memos.get(key)
+        if memo is None or (memo.ids is None and memo.vision_declarations is None):
+            return False, None
+        # A row that omitted input_modalities is not a "no": it stays unknown.
+        if not isinstance(memo.vision_declarations, dict):
+            return True, None
+        return True, _declared_vision_flag(provider, memo.vision_declarations, model_id)
     if provider == "ollama":
-        cached_show = _ollama_show_cache.get(_ollama_show_key(endpoint, model_id))
+        key = _catalog_memo_key(endpoint)
+        memo = _catalog_memos.get(key)
+        if memo is None:
+            return False, None
+        cached_show = memo.ollama_show.get(model_id)
         if cached_show is None:
             return False, None
         show_caps = cached_show.get("capabilities") or []
@@ -1351,9 +1272,9 @@ def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
     """
     if not endpoint or not model_id:
         return None
-    cache_key = _ollama_show_key(endpoint, model_id)
     endpoint = normalize_endpoint_url(endpoint)
-    cached = _ollama_show_cache.get(cache_key)
+    memo = _get_catalog_memo(endpoint)
+    cached = memo.ollama_show.get(model_id)
     if cached is not None:
         return cached
 
@@ -1384,7 +1305,7 @@ def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
                         break
 
             info = {"capabilities": caps, "num_ctx": parse_ollama_runtime_num_ctx(res)}
-            _ollama_show_cache[cache_key] = info
+            memo.ollama_show[model_id] = info
             return info
     except Exception as e:
         log.debug("query_ollama_show failed: %s", e)
@@ -1419,7 +1340,11 @@ def peek_live_ollama_num_ctx(client: Any) -> int | None:
         if not model_name:
             return None
         endpoint = str(client._endpoint() or "")
-        cached = _ollama_show_cache.get(_ollama_show_key(endpoint, model_name))
+        key = _catalog_memo_key(endpoint)
+        memo = _catalog_memos.get(key)
+        if memo is None:
+            return None
+        cached = memo.ollama_show.get(model_name)
         if not isinstance(cached, dict):
             return None
         num_ctx = cached.get("num_ctx")
@@ -1443,7 +1368,8 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return None
-    lengths = _model_context_cache.get(built[2])
+    memo = _get_catalog_memo(endpoint, api_key_override)
+    lengths = memo.context_tokens
     if not isinstance(lengths, dict) or not lengths:
         return None
     mid = str(model_id).strip()

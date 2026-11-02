@@ -81,18 +81,17 @@ def test_scoped_voice_family_validation():
     }
     with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: store.get(k, d)):
         with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"):
-            cfg._tts_supported_voices["openai/tts-1"] = ["alloy", "echo", "nova"]
+            cfg.remember_tts_supported_voices("openai/tts-1", ["alloy", "echo", "nova"])
             try:
                 # Should fall back to valid voice from supported voices or family default
                 voice = get_scoped_tts_voice("endpoint", "openai/tts-1")
                 assert voice in ("alloy", "echo", "nova")
             finally:
-                cfg._tts_supported_voices.pop("openai/tts-1", None)
+                cfg._catalog_memos.clear()
 
 
 def test_together_voice_options_read_the_cache_and_do_not_fetch():
-    cfg._tts_supported_voices.clear()
-    cfg._together_voices_fetch_cache.clear()
+    cfg._catalog_memos.clear()
     cfg.remember_tts_supported_voices(
         "canopylabs/orpheus-3b-0.1-ft",
         ["tara", "leah"],
@@ -123,8 +122,7 @@ def test_together_voice_options_read_the_cache_and_do_not_fetch():
         assert any(opt["value"] == "af_bella" for opt in local)
         assert any(opt["label"] == "US Female - Bella" for opt in local)
     finally:
-        cfg._tts_supported_voices.clear()
-        cfg._together_voices_fetch_cache.clear()
+        cfg._catalog_memos.clear()
 
 
 def test_scoped_tts_voice_persistence():
@@ -382,13 +380,9 @@ def test_settings_voice_options_match_catalog_for_provider():
 def test_endpoint_voice_options_follow_cached_openrouter_voices():
     gemini = "google/gemini-2.5-flash-preview-tts"
     grok = "x-ai/grok-voice-tts-1.0"
-    cfg._tts_supported_voices.pop(gemini, None)
-    cfg._tts_supported_voices.pop(grok, None)
-    cfg._tts_supported_voices.pop("hexgrad/Kokoro-82M", None)
-    cfg._tts_supported_voices.pop("hexgrad/kokoro-82m", None)
-    cfg._model_fetch_tts_cache.clear()
+    cfg._catalog_memos.clear()
     try:
-        cfg._tts_supported_voices[gemini] = ["Zephyr", "Puck", "Kore"]
+        cfg.remember_tts_supported_voices(gemini, ["Zephyr", "Puck", "Kore"])
         assert get_voice_family("endpoint", gemini) == "openrouter"
         assert get_voice_family("endpoint", "hexgrad/Kokoro-82M") == "kokoro"
         assert get_voice_family("kokoro") == "kokoro"
@@ -403,7 +397,7 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
         assert voice_options_for_provider("endpoint", "hexgrad/Kokoro-82M") == get_voice_catalog("kokoro")
         kokoro_labels = [row["label"] for row in get_voice_catalog("kokoro", "en_US")]
         assert kokoro_labels != sorted(kokoro_labels, key=str.casefold)
-        cfg._tts_supported_voices["case-model"] = ["nova", "Alloy", "echo"]
+        cfg.remember_tts_supported_voices("case-model", ["nova", "Alloy", "echo"])
         assert [row["label"] for row in voice_options_for_provider("endpoint", "case-model")] == [
             "Alloy",
             "echo",
@@ -423,11 +417,12 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
             store["audio.tts_voice_openrouter"] = "Puck"
             assert get_scoped_tts_voice("endpoint", gemini) == "Puck"
 
-        cfg._tts_supported_voices.pop(gemini, None)
+        for m in cfg._catalog_memos.values():
+            m.voices.pop(gemini, None)
         assert voice_options_for_provider("endpoint", grok, endpoint="https://openrouter.ai/api") == []
         assert get_voice_family("endpoint", grok, endpoint="https://openrouter.ai/api") == "openrouter"
 
-        cfg._model_fetch_tts_cache.clear()
+        cfg._catalog_memos.clear()
         with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"):
             assert voice_options_for_provider("endpoint", gemini) == []
         with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"), \
@@ -443,11 +438,7 @@ def test_endpoint_voice_options_follow_cached_openrouter_voices():
             assert labels[0].startswith("alloy")
             assert get_voice_family("endpoint", "openai/tts-1") == "openai"
     finally:
-        cfg._tts_supported_voices.pop(gemini, None)
-        cfg._tts_supported_voices.pop(grok, None)
-        cfg._tts_supported_voices.pop("case-model", None)
-        cfg._model_fetch_tts_cache.clear()
-        cfg._together_voices_fetch_cache.clear()
+        cfg._catalog_memos.clear()
 
 
 def test_preferred_harvested_voice_prefers_aoede_for_gemini():
@@ -460,13 +451,11 @@ def test_preferred_harvested_voice_prefers_aoede_for_gemini():
     assert _preferred_harvested_voice(grok, advertised) == "Achernar"
     assert _preferred_harvested_voice("canopylabs/orpheus-3b-0.1-ft", ["tara", "leah"]) == "leah"
 
-    cfg._tts_supported_voices.pop(gemini, None)
-    cfg._tts_supported_voices.pop(grok, None)
+    cfg._catalog_memos.clear()
     folded = "models/Gemini-2.5-flash-preview-tts"
-    cfg._tts_supported_voices.pop(folded, None)
     try:
-        cfg._tts_supported_voices[gemini] = list(advertised)
-        cfg._tts_supported_voices[grok] = list(advertised)
+        cfg.remember_tts_supported_voices(gemini, list(advertised))
+        cfg.remember_tts_supported_voices(grok, list(advertised))
 
         def _run(model: str, store: dict[str, str]) -> str:
             with patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: store.get(key, default)):
@@ -481,15 +470,13 @@ def test_preferred_harvested_voice_prefers_aoede_for_gemini():
         assert _run(gemini, {"audio.tts_voice_openrouter": "Zephyr", "audio.tts_voice": "alloy"}) == "Zephyr"
         assert _run(gemini, {"audio.tts_voice_openrouter": "alloy", "audio.tts_voice": "Zephyr"}) == "Zephyr"
 
-        cfg._tts_supported_voices[gemini] = ["Zephyr", "Puck", "Kore"]
+        cfg.remember_tts_supported_voices(gemini, ["Zephyr", "Puck", "Kore"])
         assert _run(gemini, missing) == "Kore"
 
-        cfg._tts_supported_voices[folded] = ["Puck", "aoede"]
+        cfg.remember_tts_supported_voices(folded, ["Puck", "aoede"])
         assert _run(folded, {"audio.tts_voice_openrouter": "alloy", "audio.tts_voice": ""}) == "aoede"
     finally:
-        cfg._tts_supported_voices.pop(gemini, None)
-        cfg._tts_supported_voices.pop(grok, None)
-        cfg._tts_supported_voices.pop(folded, None)
+        cfg._catalog_memos.clear()
 
 
 def test_all_writeragent_locales_have_piper_model_mapping():
@@ -508,8 +495,7 @@ def test_all_writeragent_locales_have_piper_model_mapping():
 
 def test_cold_openrouter_gemini_no_alloy():
     gemini = "google/gemini-2.5-flash-preview-tts"
-    cfg._tts_supported_voices.pop(gemini, None)
-    cfg._model_fetch_tts_cache.clear()
+    cfg._catalog_memos.clear()
     with patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"), \
          patch("plugin.framework.config.get_config", return_value=""):
         ctx = resolve_voice_context("endpoint", gemini, endpoint="https://openrouter.ai/api")
@@ -531,7 +517,7 @@ def test_unsaved_endpoint_uses_passed_endpoint():
 
 
 def test_together_kokoro_returns_kokoro_catalog():
-    cfg._tts_supported_voices.pop("hexgrad/Kokoro-82M", None)
+    cfg._catalog_memos.clear()
     with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"):
         ctx = resolve_voice_context("endpoint", "hexgrad/Kokoro-82M", endpoint="https://api.together.xyz")
         assert ctx.family == "kokoro"
@@ -540,7 +526,7 @@ def test_together_kokoro_returns_kokoro_catalog():
 
 def test_together_non_kokoro_no_voices_is_editable_and_empty():
     cartesia = "cartesia/sonic"
-    cfg._tts_supported_voices.pop(cartesia, None)
+    cfg._catalog_memos.clear()
     with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.together.xyz"), \
          patch("plugin.framework.config.get_config", return_value=""):
         ctx = resolve_voice_context("endpoint", cartesia, endpoint="https://api.together.xyz")
@@ -620,12 +606,12 @@ def test_shown_saved_spoken_consistency():
 def test_canonical_voice_id_and_match_voice_id():
     # Saved mixed-case harvested aOeDe against ["Zephyr", "Achernar", "Aoede"] returns Aoede (for a non-Gemini model too)
     assert match_voice_id("aOeDe", ["Zephyr", "Achernar", "Aoede"]) == "Aoede"
-    cfg._tts_supported_voices["non-gemini-model"] = ["Zephyr", "Achernar", "Aoede"]
+    cfg.remember_tts_supported_voices("non-gemini-model", ["Zephyr", "Achernar", "Aoede"])
     try:
         with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: "aOeDe" if "openrouter" in k else d):
             assert get_scoped_tts_voice("endpoint", "non-gemini-model", endpoint="https://openrouter.ai/api") == "Aoede"
     finally:
-        cfg._tts_supported_voices.pop("non-gemini-model", None)
+        cfg._catalog_memos.clear()
 
     # Kokoro case canonicalization
     assert canonical_voice_id("kokoro", "AF_BELLA") == "af_bella"

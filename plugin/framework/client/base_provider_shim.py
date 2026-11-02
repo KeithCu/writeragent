@@ -15,6 +15,8 @@ from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
 from plugin.framework.url_utils import get_url_path_and_query
 
+from .shim_helpers import _dict_parts
+
 # Keys WriterAgent builds; openrouter_chat_extra must not replace these.
 # Lives here so chat payload assembly does not import llm_client (that
 # module imports this package's registry at load time).
@@ -337,18 +339,6 @@ def inline_image_mime(image_url: str | None = None, source_image: str | None = N
         if mime:
             return mime
     return "image/png"
-
-
-def _dict_parts(content: Any) -> list[dict[str, Any]]:
-    """Content blocks that are dicts. Null, a string, or a non-dict part is skipped.
-
-    Calling ``.get`` on sync ``content: null`` or a non-dict part raises
-    TypeError / AttributeError. The Google image path already treats null
-    content as no blocks.
-    """
-    if not isinstance(content, list):
-        return []
-    return [part for part in content if isinstance(part, dict)]
 
 
 class BaseProviderShim:
