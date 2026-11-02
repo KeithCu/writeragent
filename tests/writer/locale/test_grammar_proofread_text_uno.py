@@ -57,7 +57,7 @@ def test_overlap_thai_native(ctx: Any) -> None:
     full = "ผมไปที่ร้านค้า"
     # use a correction that isn't a no-op after expansion.
     items = [{"wrong": "ไป", "correct": "เดินไปที่", "type": "grammar"}]
-    norms_native = gt.normalize_errors_for_text(full, 0, len(full), items, ctx=ctx, loc_key="th-TH")
+    norms_native = gt.normalize_errors_for_text(full, items, ctx=ctx, loc_key="th-TH")
     assert len(norms_native) == 1
     err = norms_native[0]
     assert full[err.n_error_start : err.n_error_start + err.n_error_length] == "ไปที่"

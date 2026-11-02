@@ -52,7 +52,7 @@ def mock_bi():
 def test_normalize_errors_for_text() -> None:
     full = "Hello they is here."
     items = [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}]
-    norms = gt.normalize_errors_for_text(full, 0, len(full), items)
+    norms = gt.normalize_errors_for_text(full, items)
     assert len(norms) == 1
     assert full[norms[0].n_error_start : norms[0].n_error_start + norms[0].n_error_length] == "they is"
 
@@ -68,7 +68,7 @@ def test_normalize_errors_preserves_harper_rule_identifier() -> None:
             "rule_identifier": "harper||SentenceCapitalization",
         }
     ]
-    norms = gt.normalize_errors_for_text(full, 0, len(full), items)
+    norms = gt.normalize_errors_for_text(full, items)
     assert len(norms) == 1
     assert norms[0].rule_identifier == "harper||SentenceCapitalization"
     assert norms[0].rule_identifier != "wa_g_rule||Start with a capital letter."
@@ -127,7 +127,7 @@ def test_normalize_harper_errors_uses_native_offsets_and_explains_blank_fixes() 
         },
     ]
 
-    norms = gt.normalize_errors_for_text(text, 0, len(text), items)
+    norms = gt.normalize_errors_for_text(text, items)
 
     assert [(item.n_error_start, item.n_error_length) for item in norms] == [(6, 4), (30, 1), (17, 4), (10, 6)]
     assert norms[0].suggestions == (" ",)
@@ -154,7 +154,7 @@ def test_provider_span_wrong_mismatch_falls_back_to_substring() -> None:
     ]
     # Offsets claim "xx " but wrong is "they is" → mismatch → fall back.
     assert gt._provider_error_span(full, items[0], "they is") is None
-    norms = gt.normalize_errors_for_text(full, 0, len(full), items)
+    norms = gt.normalize_errors_for_text(full, items)
     assert len(norms) == 1
     assert norms[0].n_error_start == 3
     assert norms[0].n_error_length == 7
@@ -165,7 +165,7 @@ def test_provider_span_missing_offsets_falls_back() -> None:
     full = "xx they is yy"
     items = [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agreement"}]
     assert gt._provider_error_span(full, items[0], "they is") is None
-    norms = gt.normalize_errors_for_text(full, 0, len(full), items)
+    norms = gt.normalize_errors_for_text(full, items)
     assert len(norms) == 1
     assert norms[0].n_error_start == 3
     assert full[3:10] == "they is"
@@ -186,30 +186,6 @@ def test_provider_span_rejects_out_of_bounds() -> None:
     assert gt._provider_error_span("hello", {"n_error_start": -1, "n_error_length": 0}, "") is None
     assert gt._provider_error_span("hello", {"n_error_start": 6, "n_error_length": 0}, "") is None
     assert gt._provider_error_span("hello", {"n_error_start": 0, "n_error_length": -1}, "") is None
-
-
-def test_provider_span_respects_slice_start() -> None:
-    """Native offsets are relative to the proofread window; results are absolute in full_text."""
-    full = "xx they is yy"
-    # Window is "they is" at [3, 10).
-    items = [
-        {
-            "wrong": "they is",
-            "correct": "they are",
-            "n_error_start": 0,
-            "n_error_length": 7,
-            "type": "grammar",
-            "reason": "agreement",
-            "short_comment": "agreement",
-            "full_comment": "agreement",
-            "rule_identifier": "harper||Agreement",
-            "suggestions": ["they are"],
-        }
-    ]
-    norms = gt.normalize_errors_for_text(full, 3, 10, items)
-    assert len(norms) == 1
-    assert norms[0].n_error_start == 3
-    assert norms[0].n_error_length == 7
 
 
 def test_provider_span_overlapping_second_dropped() -> None:
@@ -241,7 +217,7 @@ def test_provider_span_overlapping_second_dropped() -> None:
             "suggestions": ["Hello "],
         },
     ]
-    norms = gt.normalize_errors_for_text(text, 0, len(text), items)
+    norms = gt.normalize_errors_for_text(text, items)
     assert len(norms) == 1
     assert norms[0].n_error_start == 0
     assert norms[0].n_error_length == 5
@@ -268,7 +244,7 @@ def test_provider_span_zero_width_kept() -> None:
     assert gt._provider_error_span(text, items[0], "") == (5, 0)
     assert gt._provider_error_span(text, {"n_error_start": 0, "n_error_length": 0}, "") == (0, 0)
     assert gt._provider_error_span("hello", {"n_error_start": 5, "n_error_length": 0}, "") == (5, 0)
-    norms = gt.normalize_errors_for_text(text, 0, len(text), items)
+    norms = gt.normalize_errors_for_text(text, items)
     assert len(norms) == 1
     assert norms[0].n_error_start == 5
     assert norms[0].n_error_length == 0
@@ -287,7 +263,7 @@ def test_provider_span_zero_width_kept() -> None:
         "rule_identifier": "harper||Punctuation",
         "suggestions": ["!"],
     }
-    at_end = gt.normalize_errors_for_text("Hello", 0, 5, [end_insert])
+    at_end = gt.normalize_errors_for_text("Hello", [end_insert])
     assert len(at_end) == 1
     assert at_end[0].n_error_start == 5
     assert at_end[0].n_error_length == 0
@@ -295,11 +271,11 @@ def test_provider_span_zero_width_kept() -> None:
     assert at_end[0].rule_identifier == "harper||Punctuation"
 
     # No native offsets: empty ``wrong`` still cannot be anchored.
-    assert gt.normalize_errors_for_text("Hello", 0, 5, [{"wrong": "", "correct": " "}]) == []
-    assert gt.normalize_errors_for_text(text, 0, len(text), [{**items[0], "n_error_start": -1}]) == []
-    assert gt.normalize_errors_for_text(text, 0, len(text), [{**items[0], "n_error_start": len(text) + 1}]) == []
-    assert gt.normalize_errors_for_text(text, 0, len(text), [{**items[0], "n_error_start": True}]) == []
-    assert gt.normalize_errors_for_text(text, 0, len(text), [{**items[0], "n_error_length": "0"}]) == []
+    assert gt.normalize_errors_for_text("Hello", [{"wrong": "", "correct": " "}]) == []
+    assert gt.normalize_errors_for_text(text, [{**items[0], "n_error_start": -1}]) == []
+    assert gt.normalize_errors_for_text(text, [{**items[0], "n_error_start": len(text) + 1}]) == []
+    assert gt.normalize_errors_for_text(text, [{**items[0], "n_error_start": True}]) == []
+    assert gt.normalize_errors_for_text(text, [{**items[0], "n_error_length": "0"}]) == []
 
 
 def test_zero_width_point_does_not_drop_positive_span() -> None:
@@ -329,19 +305,12 @@ def test_zero_width_point_does_not_drop_positive_span() -> None:
         "rule_identifier": "harper||Capitalization",
         "suggestions": ["hello"],
     }
-    norms = gt.normalize_errors_for_text(text, 0, len(text), [point, word])
+    norms = gt.normalize_errors_for_text(text, [point, word])
     assert [(item.n_error_start, item.n_error_length) for item in norms] == [(2, 0), (0, 5)]
     assert norms[0].suggestions == (" ",)
     assert norms[0].rule_identifier == "harper||MissingSpace"
     assert norms[1].rule_identifier == "harper||Capitalization"
 
-
-def test_normalize_errors_respects_slice() -> None:
-    full = "xx they is yy"
-    items = [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": ""}]
-    norms = gt.normalize_errors_for_text(full, 3, 12, items)
-    assert len(norms) == 1
-    assert norms[0].n_error_start >= 3
 
 def test_normalize_errors_duplicate_wrong_two_occurrences_ordered() -> None:
     full = "bob x bob"
@@ -349,7 +318,7 @@ def test_normalize_errors_duplicate_wrong_two_occurrences_ordered() -> None:
         {"wrong": "bob", "correct": "Bob", "type": "spelling", "reason": ""},
         {"wrong": "bob", "correct": "Bob", "type": "spelling", "reason": ""},
     ]
-    norms = gt.normalize_errors_for_text(full, 0, len(full), items)
+    norms = gt.normalize_errors_for_text(full, items)
     assert len(norms) == 2
     assert norms[0].n_error_start == 0
     assert norms[1].n_error_start == 6
@@ -568,10 +537,10 @@ def test_split_into_sentences_thai_text_on_non_thai_locale() -> None:
 def test_overlap_forward_expansion() -> None:
     full = "I went to the store."
     items = [{"wrong": "to", "correct": "to the", "type": "grammar"}]
-    norms = gt.normalize_errors_for_text(full, 0, len(full), items)
+    norms = gt.normalize_errors_for_text(full, items)
     assert len(norms) == 0, "Should be dropped as a no-op"
     items2 = [{"wrong": "to", "correct": "into the", "type": "grammar"}]
-    norms2 = gt.normalize_errors_for_text(full, 0, len(full), items2)
+    norms2 = gt.normalize_errors_for_text(full, items2)
     assert len(norms2) == 1
     err = norms2[0]
     assert full[err.n_error_start : err.n_error_start + err.n_error_length] == "to the"
@@ -579,10 +548,10 @@ def test_overlap_forward_expansion() -> None:
 def test_overlap_backward_expansion() -> None:
     full = "He is a good man."
     items = [{"wrong": "good", "correct": "a good", "type": "grammar"}]
-    norms = gt.normalize_errors_for_text(full, 0, len(full), items)
+    norms = gt.normalize_errors_for_text(full, items)
     assert len(norms) == 0, "Should be dropped as a no-op"
     items2 = [{"wrong": "good", "correct": "a very good", "type": "grammar"}]
-    norms2 = gt.normalize_errors_for_text(full, 0, len(full), items2)
+    norms2 = gt.normalize_errors_for_text(full, items2)
     assert len(norms2) == 1
     assert full[norms2[0].n_error_start : norms2[0].n_error_start + norms2[0].n_error_length] == "a good"
 
@@ -592,16 +561,16 @@ def test_split_into_sentences_trailing_whitespace() -> None:
     assert gt.split_into_sentences(None, "en-US", "word") == [(0, "word")]
 
 def test_anchor_wrong_in_window() -> None:
-    res = gt.normalize_errors_for_text("hello bob there", 0, 15, [{"wrong": "bob"}])
+    res = gt.normalize_errors_for_text("hello bob there", [{"wrong": "bob"}])
     assert len(res) == 1
     assert res[0].n_error_start == 6
 
-    res = gt.normalize_errors_for_text("bob x bob", 0, 9, [{"wrong": "bob"}, {"wrong": "bob"}])
+    res = gt.normalize_errors_for_text("bob x bob", [{"wrong": "bob"}, {"wrong": "bob"}])
     assert len(res) == 2
     assert res[0].n_error_start == 0
     assert res[1].n_error_start == 6
 
-    assert gt.normalize_errors_for_text("", 0, 0, [{"wrong": "x"}]) == []
+    assert gt.normalize_errors_for_text("", [{"wrong": "x"}]) == []
 
 
 def test_calculate_covered_span_end() -> None:
@@ -662,7 +631,7 @@ def test_active_spans_from_paragraph_n_start_zero_keeps_all() -> None:
         gt.candidate_sentence_spans_for_proofreading(ctx, loc, text)
     )
     assert len(paragraph) == 3
-    active = gt.active_spans_from_paragraph(paragraph, text, 0, 10)
+    active = gt.resolve_work_spans("doc1", loc, text, 0, 10, paragraph)
     assert active == list(paragraph)
 
 
@@ -672,12 +641,12 @@ def test_filter_sentence_spans_for_overlap_matches_incremental_candidate() -> No
     loc = "en-US"
     paragraph = gt.candidate_sentence_spans_for_proofreading(ctx, loc, text)
     # Incremental mode: overlap with "Sentence two." (bounds ~ 14 to 27): [15, 20)
-    assert gt.active_spans_from_paragraph(paragraph, text, 15, 20) == [paragraph[1]]
+    assert gt.resolve_work_spans("doc1", loc, text, 15, 20, paragraph) == [paragraph[1]]
     # Span overlap with first and second sentence [10, 15)
-    assert gt.active_spans_from_paragraph(paragraph, text, 10, 15) == [paragraph[0], paragraph[1]]
+    assert gt.resolve_work_spans("doc1", loc, text, 10, 15, paragraph) == [paragraph[0], paragraph[1]]
     # Clamping and out of bounds
-    assert gt.active_spans_from_paragraph(paragraph, text, -5, 5) == [paragraph[0]]
-    assert gt.active_spans_from_paragraph(paragraph, text, 100, 110) == []
+    assert gt.resolve_work_spans("doc1", loc, text, -5, 5, paragraph) == [paragraph[0]]
+    assert gt.resolve_work_spans("doc1", loc, text, 100, 110, paragraph) == []
 
 
 def test_active_spans_overlap_after_threshold_drops_short_fragments() -> None:
@@ -689,7 +658,7 @@ def test_active_spans_overlap_after_threshold_drops_short_fragments() -> None:
     filtered = gl.filter_sentence_spans_for_thresholds(spans)
     assert [t for _s, _e, t in filtered] == ["Sentence one. ", "Sentence three."]
     text = "x" * 40
-    active = gt.active_spans_from_paragraph(filtered, text, 14, 30)
+    active = gt.resolve_work_spans("doc1", "en-US", text, 14, 30, filtered)
     assert [t for _s, _e, t in active] == ["Sentence three."]
 
 
@@ -832,7 +801,7 @@ def test_normalize_errors_harper_skips_break_iterator_creation() -> None:
         }
     ]
     with patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale") as mock_get_bi:
-        norms = gt.normalize_errors_for_text(text, 0, len(text), items, ctx=MagicMock(), loc_key="en-US")
+        norms = gt.normalize_errors_for_text(text, items, ctx=MagicMock(), loc_key="en-US")
         assert len(norms) == 1
         mock_get_bi.assert_not_called()
 
@@ -847,7 +816,7 @@ def test_normalize_errors_anchor_only_calls_break_iterator_once() -> None:
         ctx = MagicMock()
         mock_bi_inst = FakeBI()
         with patch.object(ctx.ServiceManager, "createInstanceWithContext", return_value=mock_bi_inst):
-            norms = gt.normalize_errors_for_text(text, 0, len(text), items, ctx=ctx, loc_key="en-US")
+            norms = gt.normalize_errors_for_text(text, items, ctx=ctx, loc_key="en-US")
             assert len(norms) == 2
             # Called only on the first item that expands, reused for the second
             assert mock_get_bi.call_count == 1
@@ -920,21 +889,6 @@ def test_split_abbreviation_before_closing_quote() -> None:
         assert 'Dr." Smith' in chunks[0][1]
 
 
-def test_expansion_clamped_to_slice() -> None:
-    full = "aaa bbb ccc"
-    # Probe 1: expansion walks outside window [4, 7) into full_text, clamp keeps it inside [4, 7)
-    items1 = [{"wrong": "bbb", "correct": "aaa bbb ddd"}]
-    norms1 = gt.normalize_errors_for_text(full, 4, 7, items1)
-    assert len(norms1) == 1
-    assert (norms1[0].n_error_start, norms1[0].n_error_length) == (4, 3)
-
-    # Probe 2: correct="aaa bbb", previously expanded out and dropped as no-op; now clamped to (4, 3)
-    items2 = [{"wrong": "bbb", "correct": "aaa bbb"}]
-    norms2 = gt.normalize_errors_for_text(full, 4, 7, items2)
-    assert len(norms2) == 1
-    assert (norms2[0].n_error_start, norms2[0].n_error_length) == (4, 3)
-
-
 @given(_HYP_TEXT, st.integers(0, 10), st.integers(0, 10), st.text(min_size=1, max_size=8))
 @settings(max_examples=50, deadline=None)
 def test_hypothesis_normalize_spans_stay_inside_slice(text: str, a: int, b: int, correct: str) -> None:
@@ -942,10 +896,10 @@ def test_hypothesis_normalize_spans_stay_inside_slice(text: str, a: int, b: int,
     hi = max(a, b)
     if lo >= hi or hi > len(text):
         return
-    norms = gt.normalize_errors_for_text(text, lo, hi, [{"wrong": text[lo:hi], "correct": correct, "type": "grammar"}])
+    norms = gt.normalize_errors_for_text(text, [{"wrong": text[lo:hi], "correct": correct, "type": "grammar"}])
     for err in norms:
-        assert lo <= err.n_error_start
-        assert err.n_error_start + err.n_error_length <= hi
+        assert 0 <= err.n_error_start
+        assert err.n_error_start + err.n_error_length <= len(text)
 
 
 @given(_HYP_TEXT, st.integers(0, 30), st.integers(0, 30))
@@ -978,8 +932,6 @@ def test_hypothesis_split_into_sentences_tiles_text(text: str) -> None:
 def test_normalize_null_type_and_reason_do_not_leak_none() -> None:
     norms = gt.normalize_errors_for_text(
         "Hello",
-        0,
-        5,
         [{"wrong": "Hello", "correct": "hello", "type": None, "reason": None}],
     )
     assert len(norms) == 1

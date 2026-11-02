@@ -151,11 +151,6 @@ def test_trailing_closers_cover_unicode_pe_pf() -> None:
     )
     assert missing == []
 
-def test_partial_threshold_counts_nonspace_chars() -> None:
-    assert gl.count_nonspace_chars("a b c") == 3
-    assert gl.count_nonspace_chars("too short") < gl.GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
-    assert gl.count_nonspace_chars("this is long enough") >= gl.GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
-
 
 def test_tricky_terminator_regex_escaping() -> None:
     """Test that _sterm_class handles tricky chars like ] - \\ ^."""
@@ -222,8 +217,8 @@ def test_grammar_batch_sentences_defaults_and_clamping() -> None:
 
 
 def test_grammar_max_tokens_and_chars_are_fixed() -> None:
-    assert gl.grammar_max_tokens() == gl.GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
-    assert gl.grammar_max_chars() == gl.GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS
+    assert gl.grammar_max_tokens() == 3072
+    assert gl.grammar_max_chars() == 8192
 
 
 def test_clamped_int_config_keys_exist_in_doc_module_yaml() -> None:
@@ -272,6 +267,11 @@ def test_filter_sentence_spans_for_thresholds() -> None:
     assert filtered[1][2] == "This is a much longer sentence."
     assert filtered[2][2] == "This is an incomplete but very long fragment"
     assert gl.filter_sentence_spans_for_thresholds([(0, 1, "."), (1, 4, "   ")]) == [(0, 1, ".")]
+
+    inc_14 = "x" * 14 + " " * 20
+    inc_15 = "x" * 15 + " " * 20
+    assert gl.filter_sentence_spans_for_thresholds([(0, len(inc_14), inc_14)]) == []
+    assert gl.filter_sentence_spans_for_thresholds([(0, len(inc_15), inc_15)]) == [(0, len(inc_15), inc_15)]
 
 
 def test_split_sentence_chunks_by_separator_regex_whitespace() -> None:

@@ -52,18 +52,6 @@ MAX_CACHE_SIZE = 2048
 # Default: 10 sentences
 MAX_RECENT_INCOMPLETE_SCAN = 10
 
-# Worker LLM limits & timeout thresholds
-# Per-sentence ceiling applied when the LLM request / cache identity is built (checked_grammar_text);
-# text past the cap is intentionally not checked.
-# Rationale: Prevents sending massive chunks of text to the LLM which would inflate costs and latency.
-# Default: 8192 characters (approx 1200-1600 words)
-GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS = 8192
-
-# Maximum output tokens requested from the LLM for grammar checking responses.
-# Rationale: Ensures complete JSON response structures without truncation while capping cost per request.
-# Default: 3072 tokens
-GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS = 3072
-
 # The hard upper limit for batching sentences from a single paragraph into one LLM request.
 # Rationale: Avoids hitting LLM output token limits and prevents batch failures while optimizing throughput.
 # Default: 8 sentences
@@ -122,7 +110,7 @@ def grammar_max_tokens() -> int:
     This is the per-request cap (used for both single-sentence and batch requests,
     not multiplied by batch size).
     """
-    return GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
+    return 3072
 
 
 def grammar_max_chars() -> int:
@@ -134,7 +122,7 @@ def grammar_max_chars() -> int:
     a new squiggle. Old rows stored under the full-sentence fingerprint miss once and are
     rewritten under the prefix. No migration.
     """
-    return GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS
+    return 8192
 
 
 def checked_grammar_text(text: str, limit: int) -> str:
@@ -362,15 +350,11 @@ GRAMMAR_CACHE_NORMALIZATION_RE = re.compile(rf"^(.*?{_sterm_class})({_sterm_clas
 # ---------------------------------------------------------------------------
 
 
-def count_nonspace_chars(text: str) -> int:
-    return sum(1 for c in text if not c.isspace())
-
-
 def filter_sentence_spans_for_thresholds(spans: Sequence[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
     """Drop incomplete sentences shorter than ``GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS`` (conservative churn avoidance)."""
     out: list[tuple[int, int, str]] = []
     for s, e, txt in spans:
-        if not looks_complete_sentence(txt) and count_nonspace_chars(txt) < GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS:
+        if not looks_complete_sentence(txt) and sum(1 for c in txt if not c.isspace()) < GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS:
             continue
         out.append((s, e, txt))
     return out

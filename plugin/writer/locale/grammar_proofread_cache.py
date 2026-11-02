@@ -33,15 +33,6 @@ def resolve_checker_identity(checker_identity: str | None = None) -> str:
         return checker_identity
     return grammar_checker_identity()
 
-def cache_clear() -> None:
-    """Clear the in-memory proofreading cache (tests / reset).
-
-    Always ``clear_all``: a follow-up ``get_persistence(doc_id)`` would register a
-    fresh model-less ``DocumentPersistence``. Per-document teardown is
-    ``grammar_registry.clear_for_doc``.
-    """
-    grammar_registry.clear_all()
-
 
 def ignore_rules_clear() -> None:
     with grammar_registry.lock:
@@ -81,7 +72,7 @@ def _normalize_for_sentence_cache(text: str) -> str:
 
 
 def sentence_identity_fp(sentence: str) -> str:
-    """Stable fingerprint for cache lookup: normalize then hash (same key space as ``make_sentence_key``)."""
+    """Stable fingerprint for cache lookup: normalize then hash (same key space as L1 cache keys)."""
     return fingerprint_for_text(_normalize_for_sentence_cache(sentence))
 
 
@@ -137,11 +128,6 @@ def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len
             e["n_error_length"] = effective_len
         clipped.append(e)
     return clipped
-
-
-def make_sentence_key(locale_key: str, sentence: str, checker_identity: str | None = None) -> str:
-    """Cache key for a specific sentence text (locale + checker identity + fingerprint)."""
-    return _sentence_l1_key(locale_key, checker_identity, sentence_identity_fp(sentence))
 
 
 def evict_sentence_cache_for_identity(checker_identity: str) -> None:

@@ -357,33 +357,13 @@ def candidate_sentence_spans_for_proofreading(
     return [(off, off + len(txt), txt) for off, txt in all_sents]
 
 
-def active_spans_from_paragraph(
-    paragraph_spans: Sequence[SentenceSpan],
-    a_text: str,
-    n_start: int,
-    n_suggested_end: int,
-) -> list[SentenceSpan]:
-    """Active-window sentences from an already-split paragraph.
-
-    ``n_start == 0`` is a paragraph-scale pass: return every span and ignore
-    the suggested end (LibreOffice's end hint is not a clip). Incremental
-    calls (``n_start != 0``) keep only spans overlapping the active range.
-    """
-    if n_start == 0:
-        return list(paragraph_spans)
-    nlen = len(a_text)
-    lo = max(0, min(n_start, nlen))
-    hi = max(lo, min(n_suggested_end, nlen))
-    return [(s, e, t) for s, e, t in paragraph_spans if span_overlaps_range(s, e, lo, hi)]
-
-
 def resolve_work_spans(
     a_doc_id: str,
     loc_key: str,
     a_text: str,
     n_start: int,
     n_suggested_end: int,
-    paragraph_spans: list[SentenceSpan],
+    paragraph_spans: Sequence[SentenceSpan],
 ) -> list[SentenceSpan]:
     """Active-window spans from the already-split, threshold-filtered paragraph.
 
@@ -391,7 +371,13 @@ def resolve_work_spans(
     (or returns all spans when ``n_start == 0``). ``raw_candidates`` is the
     post-threshold paragraph count.
     """
-    work_spans = active_spans_from_paragraph(paragraph_spans, a_text, n_start, n_suggested_end)
+    if n_start == 0:
+        work_spans = list(paragraph_spans)
+    else:
+        nlen = len(a_text)
+        lo = max(0, min(n_start, nlen))
+        hi = max(lo, min(n_suggested_end, nlen))
+        work_spans = [(s, e, t) for s, e, t in paragraph_spans if span_overlaps_range(s, e, lo, hi)]
     if not work_spans:
         grammar_obs(
             "do_proofreading_skip",
@@ -469,13 +455,6 @@ def _provider_error_span(window: str, item: dict[str, Any], wrong: str) -> tuple
     return start, length
 
 
-def _proofreading_suggestions(item: dict[str, Any], correct: Any) -> tuple[str, ...]:
-    raw = item.get("suggestions")
-    if isinstance(raw, (list, tuple)):
-        return tuple(str(value) for value in raw)
-    return (str(correct),) if correct else ()
-
-
 def _suggestion_hint(suggestions: tuple[str, ...]) -> str:
     from plugin.framework.i18n import _
 
@@ -517,10 +496,13 @@ def _expand_span_for_overlap(pos: int, length: int, correct: str, full_text: str
 def _build_normalized_error(pos: int, length: int, it: dict[str, Any], correct: str) -> NormalizedProofError:
     """Construct a NormalizedProofError from the raw JSON payload properties."""
     reason = str(it.get("reason") or "")
-    existing = str(it.get("rule_identifier") or "").strip()
-    rule_id = existing if existing else f"{WA_G_RULE_PREFIX}{reason}"
+    rule_id = str(it.get("rule_identifier") or "").strip() or f"{WA_G_RULE_PREFIX}{reason}"
 
-    sugg = _proofreading_suggestions(it, correct)
+    raw = it.get("suggestions")
+    if isinstance(raw, (list, tuple)):
+        sugg = tuple(str(value) for value in raw)
+    else:
+        sugg = (str(correct),) if correct else ()
     typ = str(it.get("type") or "grammar")
     provider_short = str(it.get("short_comment") or "").strip()
     provider_full = str(it.get("full_comment") or "").strip()
@@ -539,11 +521,8 @@ def _build_normalized_error(pos: int, length: int, it: dict[str, Any], correct: 
     )
 
 
-def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: int, items: Iterable[dict[str, Any]], ctx: Any = None, loc_key: str | None = None) -> list[NormalizedProofError]:
+def normalize_errors_for_text(full_text: str, items: Iterable[dict[str, Any]], ctx: Any = None, loc_key: str | None = None) -> list[NormalizedProofError]:
     """Map ``wrong`` substrings to absolute positions in ``full_text`` (Writer buffer)."""
-    slice_end = min(n_slice_end, len(full_text))
-    slice_start = max(0, min(n_slice_start, slice_end))
-    window = full_text[slice_start:slice_end]
     results: list[NormalizedProofError] = []
     used_spans: list[tuple[int, int]] = []
 
@@ -561,26 +540,21 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
         # substrings in order moved a final single-space error into an earlier space run and
         # then dropped earlier-word diagnostics. Trust validated LSP offsets so each issue
         # remains attached to the span Harper actually reported.
-        provider_span = _provider_error_span(window, it, wrong)
+        provider_span = _provider_error_span(full_text, it, wrong)
         if provider_span is not None:
-            rel, length = provider_span
-            pos = slice_start + rel
+            pos, length = provider_span
         else:
-            rel = window.find(wrong, search_pos) if wrong else -1
-            if rel < 0:
+            pos = full_text.find(wrong, search_pos) if wrong else -1
+            if pos < 0:
                 continue
-            pos = slice_start + rel
             length = len(wrong)
-            search_pos = rel + 1
+            search_pos = pos + 1
 
         # 2. Expand span for overlap
         if correct and provider_span is None:
             if bi is None:
                 bi, locale = get_break_iterator_and_locale(ctx, loc_key)
             pos, length = _expand_span_for_overlap(pos, length, correct, full_text, bi, locale)
-            span_end = min(pos + length, slice_end)
-            pos = max(pos, slice_start)
-            length = max(0, span_end - pos)
             expanded_wrong = full_text[pos : pos + length]
             if expanded_wrong == correct:
                 continue

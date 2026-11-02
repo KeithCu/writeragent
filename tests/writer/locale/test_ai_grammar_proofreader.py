@@ -127,8 +127,6 @@ def _grammar_obs_call_sites_present() -> bool:
     return module_source_contains(proofreader, "grammar_obs(")
 
 from plugin.writer.locale.grammar_proofread_locale import (
-    GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS,
-    count_nonspace_chars,
     looks_complete_sentence,
 )
 from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
@@ -171,7 +169,7 @@ def test_uno_setup_teardown_preserves_string_grammar_provider() -> None:
     with (
         patch.object(uno_tests, "get_config", side_effect=lambda requested: "harper" if requested == key else None),
         patch.object(uno_tests, "set_config", side_effect=lambda requested, value: set_calls.append((requested, value))),
-        patch.object(uno_tests.gc, "cache_clear"),
+        patch.object(uno_tests.gc.grammar_registry, "clear_all"),
         patch.object(uno_tests.gc, "ignore_rules_clear"),
     ):
         saved = uno_tests.setup_grammar_proof_tests(MagicMock())
@@ -366,11 +364,6 @@ def test_sentence_terminators_cover_multilingual_cases() -> None:
     assert looks_complete_sentence("यह एक वाक्य है।")
     assert not looks_complete_sentence("incomplete clause")
 
-def test_partial_threshold_counts_nonspace_chars() -> None:
-    assert count_nonspace_chars("a b c") == 3
-    assert count_nonspace_chars("too short") < GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
-    assert count_nonspace_chars("this is long enough") >= GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
-
 def test_run_llm_skips_split_when_item_text_set() -> None:
     def _get_config(key: str):
         if key == "doc.grammar_proofreader_enabled": return "llm"
@@ -484,10 +477,10 @@ def _reset_grammar_caches():
     """
     from plugin.writer.locale import grammar_persistence as gp
 
-    gc.cache_clear()
+    gc.grammar_registry.clear_all()
     gp.grammar_registry.doc_persistence_instances.clear()
     yield
-    gc.cache_clear()
+    gc.grammar_registry.clear_all()
     gp.grammar_registry.doc_persistence_instances.clear()
 
 def _make_proofreader(ctx: Any = None) -> Any:
@@ -698,7 +691,7 @@ class TestTypingIntegration:
             (off2, "harper||s2"),
         }
 
-        gc.cache_clear()
+        gc.grammar_registry.clear_all()
         lint_by_text = {
             s1: {
                 "wrong": "First",

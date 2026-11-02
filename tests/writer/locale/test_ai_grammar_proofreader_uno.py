@@ -27,7 +27,7 @@ def setup_grammar_proof_tests(_ctx: Any = None) -> Any:
 
 def teardown_grammar_proof_tests(saved_enabled: Any) -> None:
     set_config("doc.grammar_proofreader_enabled", saved_enabled)
-    gc.cache_clear()
+    gc.grammar_registry.clear_all()
     gc.ignore_rules_clear()
 
 
@@ -45,8 +45,6 @@ def test_do_proofreading_returns_cached_errors(ctx: Any) -> None:
 
         norms = gt.normalize_errors_for_text(
             text,
-            0,
-            len(text),
             [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
             ctx=ctx,
             loc_key="en-US",
@@ -77,8 +75,6 @@ def test_ignore_rule_filters_cached_error(ctx: Any) -> None:
 
         norms = gt.normalize_errors_for_text(
             text,
-            0,
-            len(text),
             [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
             ctx=ctx,
             loc_key="en-US",
@@ -117,8 +113,6 @@ def test_incomplete_short_sentence_skips_before_cache_lookup(ctx: Any) -> None:
 
         norms = gt.normalize_errors_for_text(
             text,
-            0,
-            len(text),
             [{"wrong": "short", "correct": "brief", "type": "style", "reason": "test"}],
             ctx=ctx,
             loc_key="en-US",
@@ -145,8 +139,6 @@ def test_incomplete_long_sentence_uses_cache_when_allowed(ctx: Any) -> None:
 
         norms = gt.normalize_errors_for_text(
             text,
-            0,
-            len(text),
             [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
             ctx=ctx,
             loc_key="en-US",
@@ -177,8 +169,6 @@ def test_paragraph_two_cached_sentences_return_both_errors(ctx: Any) -> None:
             wrong = "complete" if "Testing" in st else "finished"
             norms = gt.normalize_errors_for_text(
                 st,
-                0,
-                len(st),
                 [{"wrong": wrong, "correct": "x", "type": "style", "reason": "t"}],
                 ctx=ctx,
                 loc_key="en-US",
@@ -207,8 +197,6 @@ def test_incremental_nonzero_start_returns_only_overlapping_sentence(ctx: Any) -
         t_off, t_txt = sents[2]
         norms = gt.normalize_errors_for_text(
             t_txt,
-            0,
-            len(t_txt),
             [{"wrong": "Complete", "correct": "complete", "type": "spelling", "reason": "t"}],
             ctx=ctx,
             loc_key="en-US",
@@ -248,8 +236,6 @@ def test_native_break_iterator_and_proofreader_emoji_utf16(ctx: Any) -> None:
         text = "👋 they is fine."
         norms = gt.normalize_errors_for_text(
             text,
-            0,
-            len(text),
             [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agr"}],
             ctx=ctx,
             loc_key="en-US",
