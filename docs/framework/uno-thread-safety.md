@@ -237,7 +237,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 | Script session document | `plugin/scripting/session_manager.py` | `document_for_script_session()` returns `guard_uno(model)`. A `doc:` pin from chat `run_venv_python_script` returns `guard_uno` of that object and does not enumerate the desktop. |
 | Calc Add-in Doc Lookup | `plugin/calc/python/function.py` | `_get_calc_doc()` returns `None` off-main (#402), guards on-main. |
 | Calc Cell Editor Selection | `plugin/calc/python/editor.py` | `_get_active_calc_cell()` guards active cell interface. |
-| Graphic Export Bridge | `plugin/writer/images/image_tools.py` | `export_graphic_to_bytes()` resolves via `get_ctx()`. |
+| Graphic Export Bridge | `plugin/writer/images/image_tools.py` | `export_graphic_object_to_bytes()` resolves via `get_ctx()`. |
 | Locale Resolution | `plugin/framework/i18n.py` | `get_lo_locale()` uses `get_ctx()` on-main, falls back to `en_US` off-main. |
 | MCP Context Resolution | `plugin/mcp/mcp_protocol.py` | Context resolution uses `get_ctx()`, not raw bootstrap context. |
 | Document user properties | `plugin/doc/udprops.py` | Unwrap PropertyBag (proxy vs addProperty). Not `@main_thread_only`: `XFilter.filter()` runs on LO's Dummy-* dispatch thread during socket `loadComponentFromURL`. |

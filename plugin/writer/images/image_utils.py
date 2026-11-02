@@ -97,12 +97,7 @@ def _unlink_temp_paths(paths: list[str]) -> None:
 
 def _abandon_image_paths(paths: list[str], stop_checker: Any, exc: Exception, log_message: str) -> tuple[list[str], str]:
     _unlink_temp_paths(paths)
-    is_stopped = False
-    if isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED":
-        is_stopped = True
-    elif stop_checker is not None and stop_checker():
-        is_stopped = True
-    if is_stopped:
+    if (isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED") or (stop_checker is not None and stop_checker()):
         log.debug("Image generation cancelled by Stop: %s", exc)
         raise ToolExecutionError("Image generation stopped by user.", code="USER_STOPPED") from exc
     message = resolve_exception_message(exc)
@@ -210,7 +205,6 @@ class EndpointImageProvider:
         prompt: str,
         width: int = DEFAULT_IMAGE_BASE_SIZE,
         height: int = DEFAULT_IMAGE_BASE_SIZE,
-        model: str | None = None,
         steps: int | None = None,
         status_callback: Any = None,
         stop_checker: Any = None,
@@ -220,9 +214,7 @@ class EndpointImageProvider:
     ) -> tuple[list[str], str]:
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
         try:
-            if isinstance(image_model, str) and image_model.strip():
-                model = image_model.strip()
-            model = model or self.model
+            model = image_model.strip() if isinstance(image_model, str) and image_model.strip() else self.model
             steps = steps if (steps is not None and steps > 0) else None
             log.info("Requesting image via endpoint: %s", model)
 
@@ -272,6 +264,7 @@ class EndpointImageProvider:
                 body_dict["steps"] = steps
 
             paths = []
+            log_message = "OpenRouter image processing failed"
             try:
                 chat_resp = self.client.request_with_tools(
                     messages,
@@ -304,15 +297,13 @@ class EndpointImageProvider:
                     )
                     if path:
                         paths.append(path)
-            except Exception as e:
-                return _abandon_image_paths(paths, stop_checker, e, "OpenRouter image processing failed")
 
-            if paths:
-                return paths, ""
+                if paths:
+                    return paths, ""
 
-            # Fallback: image in content string (some endpoints)
-            if fallback_content:
-                try:
+                # Fallback: image in content string (some endpoints)
+                if fallback_content:
+                    log_message = "Image fallback content processing failed"
                     path = self._save_image_ref(
                         fallback_content,
                         stop_checker=stop_checker,
@@ -323,8 +314,8 @@ class EndpointImageProvider:
                     if path:
                         paths.append(path)
                         return paths, ""
-                except Exception as e:
-                    return _abandon_image_paths(paths, stop_checker, e, "Image fallback content processing failed")
+            except Exception as e:
+                return _abandon_image_paths(paths, stop_checker, e, log_message)
 
             return [], "No image data returned from provider"
         finally:
@@ -337,16 +328,13 @@ class ImageService:
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
 
-    def get_provider(self) -> EndpointImageProvider:
+    def generate_image(self, prompt: str, status_callback: Any = None, stop_checker: Any = None, **kwargs: Any) -> tuple[list[str], str]:
         from plugin.framework.config import get_api_config
         from plugin.framework.client.model_fetcher import get_image_model
 
         api_config = get_api_config().copy()
         api_config["model"] = get_image_model()
-        return EndpointImageProvider(api_config, self.ctx)
-
-    def generate_image(self, prompt: str, status_callback: Any = None, stop_checker: Any = None, **kwargs: Any) -> tuple[list[str], str]:
-        provider = self.get_provider()
+        provider = EndpointImageProvider(api_config, self.ctx)
         base_size = get_config_int("image_base_size")
         for key in ("width", "height"):
             if kwargs.get(key) is None:

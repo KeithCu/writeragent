@@ -353,15 +353,6 @@ def insert_image_into_header_footer(
         }
 
 
-def _place_view_cursor_at_text_range(model: Any, text_cursor: Any) -> bool:
-    def _place() -> bool:
-        vc = model.CurrentController.ViewCursor
-        vc.gotoRange(text_cursor.getStart(), False)
-        return True
-
-    return best_effort(_place, "_place_view_cursor_at_text_range failed", default=False)
-
-
 def _cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:
     """Collapsed model cursor at the view cursor, on the host XText.
 
@@ -452,7 +443,12 @@ def _insert_writer_graphic(
             "_insert_writer_graphic: could not read view cursor",
             default=None,
         )
-        if not _place_view_cursor_at_text_range(model, text_cursor):
+
+        def _place() -> bool:
+            model.CurrentController.ViewCursor.gotoRange(text_cursor.getStart(), False)
+            return True
+
+        if not best_effort(_place, "_place_view_cursor_at_text_range failed", default=False):
             linking = False
 
     if linking:
@@ -636,8 +632,11 @@ def replace_graphic_source(
 # callable even when ServiceManager existed, and assert statements could be stripped
 # under Python -O optimizations. Context and ServiceManager availability are now
 # validated with explicit RuntimeError checks.
-def export_graphic_to_bytes(ctx: Any, graphic: Any) -> bytes:
-    """Export a UNO Graphic to raw PNG bytes via GraphicProvider."""
+def export_graphic_object_to_bytes(ctx: Any, obj: Any) -> bytes | None:
+    """Export a graphic-bearing UNO object (GraphicObject or GraphicObjectShape) to PNG bytes."""
+    graphic = visual_helpers.graphic_from_object(obj)
+    if graphic is None:
+        return None
     if ctx is None:
         # New infection start if we call uno.getComponentContext() here.
         # get_ctx() wraps the component context (Layer A) and is main-thread-only.
@@ -667,14 +666,6 @@ def export_graphic_to_bytes(ctx: Any, graphic: Any) -> bytes:
             os.unlink(tmp_name)
         except OSError:
             pass
-
-
-def export_graphic_object_to_bytes(ctx: Any, obj: Any) -> bytes | None:
-    """Export a graphic-bearing UNO object (GraphicObject or GraphicObjectShape) to PNG bytes."""
-    graphic = visual_helpers.graphic_from_object(obj)
-    if graphic is None:
-        return None
-    return export_graphic_to_bytes(ctx, graphic)
 
 
 def get_selected_image_base64(model: Any, ctx: Any = None) -> str | None:

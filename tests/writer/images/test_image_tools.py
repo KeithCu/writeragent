@@ -561,7 +561,6 @@ class TestWriterImageCursorConversion:
 
         with (
             patch.object(image_tools, "_should_link_image_path", return_value=True),
-            patch.object(image_tools, "_place_view_cursor_at_text_range", return_value=True),
             patch.object(image_tools, "_dispatch_insert_linked_graphic", return_value=graphic_mock),
             patch.object(image_tools, "_apply_graphic_properties"),
         ):
@@ -570,16 +569,16 @@ class TestWriterImageCursorConversion:
             )
 
         assert res is graphic_mock
-        view_cursor.gotoRange.assert_called_once_with(saved_start, False)
+        view_cursor.gotoRange.assert_any_call(saved_start, False)
 
     def test_insert_writer_graphic_embeds_when_view_cursor_move_fails(self):
         ctx = MagicMock()
         model = MagicMock()
+        model.CurrentController.ViewCursor.gotoRange.side_effect = RuntimeError("move failed")
         text_cursor = MagicMock()
 
         with (
             patch.object(image_tools, "_should_link_image_path", return_value=True),
-            patch.object(image_tools, "_place_view_cursor_at_text_range", return_value=False),
             patch.object(image_tools, "_dispatch_insert_linked_graphic") as dispatch,
             patch.object(image_tools, "_insert_embedded_at_writer_cursor", return_value="embedded_img") as embed,
         ):
