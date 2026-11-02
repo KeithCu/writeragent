@@ -194,13 +194,6 @@ class GrammarRegistry:
             grammar_queue.forget_document(doc_id)
         return removed
 
-    def clear_for_doc(self, doc_id: str) -> None:
-        with self.lock:
-            self.doc_locales.pop(doc_id, None)
-            dp = self.doc_persistence_instances.pop(doc_id, None)
-        if dp:
-            dp._teardown()
-
     def clear_all(self) -> None:
         with self.lock:
             self.sentence_cache.clear()

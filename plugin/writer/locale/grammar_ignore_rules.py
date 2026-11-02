@@ -14,20 +14,18 @@ from .grammar_proofread_cache import ignored_rules_snapshot
 # The venv LanguageTool checker imports this leaf, not this module, because
 # this module imports grammar_proofread_cache, which imports config.
 from plugin.framework.grammar_rule_ids import (
-    STABLE_RULE_PREFIXES,
+    STABLE_RULE_PREFIXES as _STABLE_RULE_PREFIXES,
     WA_G_RULE_PREFIX,
-    parse_prefixed_rule_identifier,
+    parse_prefixed_rule_identifier as _parse_prefixed_rule_identifier,
 )
 
 __all__ = [
-    "STABLE_RULE_PREFIXES",
     "WA_G_RULE_PREFIX",
     "canonical_rule_key",
     "collect_ignored_reasons",
     "doc_ignored_rules",
     "is_rule_ignored",
     "normalize_reason",
-    "parse_prefixed_rule_identifier",
 ]
 
 GRAMMAR_NORMALIZE_REASON_RE = re.compile(r"[^\w\s]")
@@ -50,8 +48,8 @@ def canonical_rule_key(rule_identifier: str) -> str | None:
     """Document-set key for ``rule_identifier`` (prompt filter + persistence); None when empty."""
     if rule_identifier.startswith(WA_G_RULE_PREFIX):
         return normalize_reason(rule_identifier[len(WA_G_RULE_PREFIX) :]) or None
-    for prefix in STABLE_RULE_PREFIXES:
-        code = parse_prefixed_rule_identifier(rule_identifier, prefix)
+    for prefix in _STABLE_RULE_PREFIXES:
+        code = _parse_prefixed_rule_identifier(rule_identifier, prefix)
         if code is not None:
             return code
     return normalize_reason(rule_identifier) or None

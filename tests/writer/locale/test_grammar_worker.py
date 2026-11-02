@@ -74,15 +74,10 @@ def _ec(client: MagicMock | None = None, *, detect_lang_mode: str = "llm") -> Ma
 
 
 def test_detect_lang_instruction_french_only_no_en_us() -> None:
-    from plugin.writer.locale.grammar_persistence import grammar_registry
-    grammar_registry.clear_for_doc("doc-fr")
-    try:
-        item = _item("Bonjour le monde.", doc_id="doc-fr", grammar_bcp47="fr-FR")
-        instr = _detect_lang_instruction([(item, "Bonjour le monde.")])
-        assert "fr-FR" in instr
-        assert "en-US" not in instr
-    finally:
-        grammar_registry.clear_for_doc("doc-fr")
+    item = _item("Bonjour le monde.", doc_id="doc-fr", grammar_bcp47="fr-FR")
+    instr = _detect_lang_instruction([(item, "Bonjour le monde.")])
+    assert "fr-FR" in instr
+    assert "en-US" not in instr
 
 
 def test_build_grammar_system_prompt_batch_vs_single() -> None:
