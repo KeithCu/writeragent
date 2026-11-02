@@ -13,34 +13,35 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Process-wide global singleton helper for LibreOffice double-import environments.
+"""Process-wide singletons that survive a second import of a module.
 
-LibreOffice can import a Python module twice (for instance, across different
-component contexts or classloader environments within the same LibreOffice process),
-giving each copy its own distinct module-level globals.
-
-State that must remain shared across the entire process (such as the event bus,
-the logging shared box, or install-once hooks like exception handlers and watchdog
-threads) is stored on ``sys.__dict__``. Storing once via ``setdefault`` ensures
-that singletons stay singletons and what is installed once stays installed once.
+LibreOffice can import a Python module twice, and each copy gets its own module
+globals. State that must be shared by the whole process (the event bus, the
+logging box, install-once hooks) is stored on ``sys`` instead, which both copies
+see. This is the one place that does it.
 """
 
 from __future__ import annotations
 
 import sys
+import threading
 from typing import Callable, TypeVar, cast
 
 T = TypeVar("T")
 
+_LOCK = sys.__dict__.setdefault("_writeragent_process_global_lock", threading.RLock())
+
 
 def process_global(name: str, factory: Callable[[], T]) -> T:
-    """Return a process-wide singleton stored in ``sys.__dict__``, creating it once.
+    """Return ``sys._writeragent_<name>``, calling *factory* once to create it.
 
-    If *name* (prefixed with ``_writeragent_``) already exists in ``sys.__dict__``,
-    its current value is returned. Otherwise, *factory* is called and its result is
-    stored in ``sys.__dict__`` via ``setdefault`` and returned.
+    The factory runs under one process-wide lock, so concurrent first callers
+    create the object once. A factory that raises stores nothing.
     """
-    key = f"_writeragent_{name}" if not name.startswith("_writeragent_") else name
+    key = "_writeragent_" + name
     if key in sys.__dict__:
         return cast("T", sys.__dict__[key])
-    return cast("T", sys.__dict__.setdefault(key, factory()))
+    with _LOCK:
+        if key not in sys.__dict__:
+            sys.__dict__[key] = factory()
+        return cast("T", sys.__dict__[key])
