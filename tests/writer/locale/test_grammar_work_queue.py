@@ -14,8 +14,6 @@ from plugin.writer.locale.grammar_work_queue import (
     GrammarWorkItem,
     GrammarWorkQueue,
     enqueue_misses,
-    filter_stale_and_group,
-    inflight_superseded,
 )
 from unittest.mock import MagicMock, patch
 
@@ -375,10 +373,11 @@ def test_drain_loop_exception_resilience() -> None:
 
 
 def test_inflight_superseded() -> None:
-    latest = {"k": 9}
-    assert inflight_superseded(latest, "k", 7) is True
-    assert inflight_superseded(latest, "k", 9) is False
-    assert inflight_superseded(latest, "other", 1) is False
+    q = GrammarWorkQueue()
+    q._latest_seq["k"] = 9
+    assert q.inflight_superseded("k", 7) is True
+    assert q.inflight_superseded("k", 9) is False
+    assert q.inflight_superseded("other", 1) is False
 
 
 def test_note_inflight_generation_publishes_key_and_keeps_newer() -> None:
@@ -446,8 +445,9 @@ def test_ensure_workers_spawns_up_to_config() -> None:
 
 def test_filter_stale_and_group_skips_stale() -> None:
     items = [_item(1, key="k1"), _item(2, key="k2"), _item(3, key="k3")]
-    stale_keys = {"k2"}
-    groups = filter_stale_and_group(items, lambda it: it.inflight_key in stale_keys)
+    q = GrammarWorkQueue()
+    q._latest_seq["k2"] = 3
+    groups = q.filter_stale_and_group(items)
     all_items = [it for g in groups.values() for it in g]
     assert len(all_items) == 2
     keys = {it.inflight_key for it in all_items}
@@ -458,7 +458,8 @@ def test_filter_stale_and_group_groups_by_doc_locale() -> None:
     a = _make_item("S1.", doc_id="doc_a", locale="en-US", seq=1, inflight_key="a1")
     b = _make_item("S2.", doc_id="doc_b", locale="fr-FR", seq=2, inflight_key="b1")
     c = _make_item("S3.", doc_id="doc_a", locale="en-US", seq=3, inflight_key="a2")
-    groups = filter_stale_and_group([a, b, c], lambda _: False)
+    q = GrammarWorkQueue()
+    groups = q.filter_stale_and_group([a, b, c])
     assert ("doc_a", "en-US", "", "") in groups
     assert ("doc_b", "fr-FR", "", "") in groups
     assert len(groups[("doc_a", "en-US", "", "")]) == 2
@@ -468,7 +469,8 @@ def test_filter_stale_and_group_groups_by_doc_locale() -> None:
 def test_filter_stale_and_group_splits_harper_and_llm() -> None:
     h = _make_item("S1.", doc_id="doc_a", locale="en-US", seq=1, inflight_key="h1", provider="harper", checker_identity="harper")
     llm_item = _make_item("S2.", doc_id="doc_a", locale="en-US", seq=2, inflight_key="l1", provider="llm", checker_identity="llm:model-x")
-    groups = filter_stale_and_group([h, llm_item], lambda _: False)
+    q = GrammarWorkQueue()
+    groups = q.filter_stale_and_group([h, llm_item])
     assert ("doc_a", "en-US", "harper", "harper") in groups
     assert ("doc_a", "en-US", "llm", "llm:model-x") in groups
     assert len(groups) == 2
@@ -476,7 +478,9 @@ def test_filter_stale_and_group_splits_harper_and_llm() -> None:
 
 def test_filter_stale_and_group_all_stale_returns_empty() -> None:
     items = [_item(1), _item(2)]
-    groups = filter_stale_and_group(items, lambda _: True)
+    q = GrammarWorkQueue()
+    q._latest_seq["d|en-US|k1"] = 10
+    groups = q.filter_stale_and_group(items)
     assert groups == {}
 
 

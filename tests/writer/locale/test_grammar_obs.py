@@ -15,7 +15,7 @@ from plugin.writer.locale import grammar_obs as go
 from plugin.writer.locale.grammar_proofread_text import slice_preview_debug
 from plugin.writer.locale.grammar_work_queue import (
     GrammarWorkItem,
-    filter_stale_and_group,
+    GrammarWorkQueue,
 )
 
 
@@ -64,8 +64,10 @@ def test_grammar_obs_logs_when_debug_enabled() -> None:
 
 def test_filter_stale_and_group_emits_batch_stats_for_stale_skips() -> None:
     items = [_item(key="a", seq=1), _item(key="b", seq=2)]
+    q = GrammarWorkQueue()
+    q._latest_seq["a"] = 2
     with patch("plugin.writer.locale.grammar_work_queue.grammar_obs") as mock_obs:
-        groups = filter_stale_and_group(items, lambda it: it.inflight_key == "a")
+        groups = q.filter_stale_and_group(items)
     assert groups == {("d1", "en-US", items[1].provider, items[1].checker_identity): [items[1]]}
     mock_obs.assert_any_call("batch_stats", sentences_stale_skipped=1, survivor_count=1)
     mock_obs.assert_any_call("queue_stale_skip", doc_id="d1", locale="en-US", seq=1, inflight_key="a")
@@ -73,8 +75,9 @@ def test_filter_stale_and_group_emits_batch_stats_for_stale_skips() -> None:
 
 def test_filter_stale_and_group_no_batch_stats_when_nothing_stale() -> None:
     items = [_item(key="a", seq=1)]
+    q = GrammarWorkQueue()
     with patch("plugin.writer.locale.grammar_work_queue.grammar_obs") as mock_obs:
-        filter_stale_and_group(items, lambda _: False)
+        q.filter_stale_and_group(items)
     assert not any(call.args and call.args[0] == "batch_stats" for call in mock_obs.call_args_list)
 
 

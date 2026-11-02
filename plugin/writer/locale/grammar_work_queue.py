@@ -81,7 +81,7 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 
 from . import (
@@ -130,38 +130,6 @@ def grammar_inflight_key(a_document_identifier: str, loc_key: str, sent_text: st
     else:
         context = "INCOMPLETE_WRITER_AGENT_INTERNAL_STRING"
     return f"{a_document_identifier}|{loc_key}|{context}"
-
-
-def inflight_superseded(latest_seq: Mapping[str, int], inflight_key: str, enqueue_seq: int) -> bool:
-    """True if ``latest_seq`` records a newer generation than ``enqueue_seq`` for ``inflight_key``.
-
-    Used for pre-execute skip (via ``inflight_superseded``) and post-LLM cache skip.
-    """
-    latest = latest_seq.get(inflight_key)
-    return latest is not None and enqueue_seq < latest
-
-
-def filter_stale_and_group(
-    items: list[GrammarWorkItem],
-    is_stale_fn: Any,
-) -> dict[tuple[str, str, str, str], list[GrammarWorkItem]]:
-    """Drop stale items and group the rest by ``(doc_id, grammar_bcp47, provider, checker_identity)``.
-
-    ``is_stale_fn`` is called with each item; items for which it returns True
-    are skipped (with an obs log).  Returns a dict mapping
-    ``(doc_id, locale, provider, checker_identity)`` to the non-stale items in that group.
-    """
-    groups: dict[tuple[str, str, str, str], list[GrammarWorkItem]] = defaultdict(list)
-    stale_count = 0
-    for item in items:
-        if is_stale_fn(item):
-            grammar_obs("queue_stale_skip", doc_id=item.doc_id, locale=item.grammar_bcp47, seq=item.enqueue_seq, inflight_key=item.inflight_key)
-            stale_count += 1
-            continue
-        groups[(item.doc_id, item.grammar_bcp47, item.provider, item.checker_identity)].append(item)
-    if stale_count > 0:
-        grammar_obs("batch_stats", sentences_stale_skipped=stale_count, survivor_count=sum(len(v) for v in groups.values()))
-    return dict(groups)
 
 
 _ENQUEUE_SEQ_COUNTER = itertools.count(1)
@@ -293,7 +261,35 @@ class GrammarWorkQueue:
     def inflight_superseded(self, inflight_key: str, enqueue_seq: int) -> bool:
         """True if a newer grammar enqueue has been recorded for this key (e.g. user kept typing)."""
         with self._lock:
-            return inflight_superseded(self._latest_seq, inflight_key, enqueue_seq)
+            latest = self._latest_seq.get(inflight_key)
+            return latest is not None and enqueue_seq < latest
+
+    def filter_stale_and_group(
+        self,
+        items: list[GrammarWorkItem],
+    ) -> dict[tuple[str, str, str, str], list[GrammarWorkItem]]:
+        """Drop stale items and group the rest by ``(doc_id, grammar_bcp47, provider, checker_identity)``."""
+        groups: dict[tuple[str, str, str, str], list[GrammarWorkItem]] = defaultdict(list)
+        stale_count = 0
+        for item in items:
+            if self.inflight_superseded(item.inflight_key, item.enqueue_seq):
+                grammar_obs(
+                    "queue_stale_skip",
+                    doc_id=item.doc_id,
+                    locale=item.grammar_bcp47,
+                    seq=item.enqueue_seq,
+                    inflight_key=item.inflight_key,
+                )
+                stale_count += 1
+                continue
+            groups[(item.doc_id, item.grammar_bcp47, item.provider, item.checker_identity)].append(item)
+        if stale_count > 0:
+            grammar_obs(
+                "batch_stats",
+                sentences_stale_skipped=stale_count,
+                survivor_count=sum(len(v) for v in groups.values()),
+            )
+        return dict(groups)
 
     def note_inflight_generation(self, inflight_key: str, enqueue_seq: int) -> bool:
         """Record a retargeted generation. True when this seq is already stale.
@@ -304,7 +300,8 @@ class GrammarWorkQueue:
         newer one, so the older generation stays droppable.
         """
         with self._lock:
-            if inflight_superseded(self._latest_seq, inflight_key, enqueue_seq):
+            latest = self._latest_seq.get(inflight_key)
+            if latest is not None and enqueue_seq < latest:
                 return True
             self._latest_seq[inflight_key] = enqueue_seq
             return False
@@ -328,17 +325,16 @@ class GrammarWorkQueue:
         language-detection requeues and in-place locale retargets that mint
         a fresh higher seq (``note_inflight_generation``).
         """
-        with self._lock:
-            key = item.inflight_key
-            prev_seq = self._latest_seq.get(key)
-            if prev_seq is not None and item.enqueue_seq < prev_seq:
+        key = item.inflight_key
+        if self.note_inflight_generation(key, item.enqueue_seq):
+            latest = self._latest_seq.get(key)
+            if latest is not None:
                 log.error(
                     "[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable",
                     key,
                     item.enqueue_seq,
-                    prev_seq,
+                    latest,
                 )
-            self._latest_seq[key] = max(prev_seq or 0, item.enqueue_seq)
         grammar_obs(
             "queue_enqueue",
             sentences_queued=1,
@@ -401,9 +397,7 @@ class GrammarWorkQueue:
                 seqs=tuple(x.enqueue_seq for x in batch),
                 keys=tuple(x.inflight_key for x in batch),
             )
-            groups = filter_stale_and_group(
-                batch, lambda it: self.inflight_superseded(it.inflight_key, it.enqueue_seq)
-            )
+            groups = self.filter_stale_and_group(batch)
             for (doc_id, locale, _prov, _ident), group_items in groups.items():
                 grammar_obs(
                     "queue_execute_batch",
@@ -421,14 +415,11 @@ class GrammarWorkQueue:
             partials.clear()
             _dispatch(remaining)
 
-        def _slurp(deadline: float | None = None) -> bool:
+        def _slurp(deadline: float) -> bool:
             while True:
-                if deadline is not None:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        return False
-                else:
-                    remaining = 0
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
                 try:
                     nxt = self._q.get(timeout=remaining)
                 except queue.Empty:
@@ -466,12 +457,8 @@ class GrammarWorkQueue:
 
                     _absorb(first)
 
-                # 3. If completes has items, slurp non-blocking and coalesce for fixed window.
+                # 3. If completes has items, coalesce for fixed window.
                 if completes:
-                    if _slurp():
-                        _flush_and_stop()
-                        return
-
                     # Fixed coalesce window (deadline does not move when more items arrive)
                     coalesce_deadline = time.monotonic() + grammar_proofread_locale.GRAMMAR_COMPLETE_COALESCE_S
                     if _slurp(coalesce_deadline):
