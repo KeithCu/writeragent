@@ -27,6 +27,7 @@ import threading
 import time
 from typing import Any, Generator
 
+from compute_service import error_codes as ec
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, canonical_execute_mode, validate_session_id
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, Deadline, PoolSingleton, error_dict, resolve_override
@@ -36,7 +37,7 @@ log = logging.getLogger("compute_service.formula")
 
 # The child never ran the cell. Dropping the lost-session marker on these
 # codes would hide a reset kernel from the next sticky call.
-_UNRUN_RESULT_CODES = frozenset({"QUEUE_TIMEOUT", "PAYLOAD_TOO_LARGE", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN"})
+_UNRUN_RESULT_CODES = frozenset({ec.QUEUE_TIMEOUT, ec.PAYLOAD_TOO_LARGE, ec.WORKER_SPAWN_FAILED, ec.WORKER_PIPE_BROKEN})
 SESSION_RESET_TIMEOUT_SEC = 5.0
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -264,7 +265,7 @@ class FormulaProcessPool(BaseProcessPool):
         try:
             validate_session_id(session_id)
         except ExecuteRequestError as exc:
-            return {"status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
+            return {"status": "error", "code": ec.INVALID_REQUEST, "error": str(exc)}
 
         with self._session_gate(session_id):
             with self._cond:
@@ -278,7 +279,7 @@ class FormulaProcessPool(BaseProcessPool):
 
             with self.leased(worker, timeout_sec=timeout_sec) as leased:
                 if leased is None:
-                    return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Could not lease worker to reset session."}
+                    return {"status": "error", "code": ec.WORKER_POOL_BUSY, "error": "Could not lease worker to reset session."}
                 res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
                 # A non-ok reset can mean the worker still holds the namespace.
                 if res.get("status") == "ok":
@@ -375,7 +376,7 @@ class FormulaProcessPool(BaseProcessPool):
                 decoded = decode_worker_result(res)
             except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, MemoryError) as exc:
                 # A bad result blob is a decode failure, not a crash: the child stays up.
-                failed = error_dict("RESULT_DECODE_ERROR", f"Worker result_json could not be decoded: {exc}", req_id=req_id)
+                failed = error_dict(ec.RESULT_DECODE_ERROR, f"Worker result_json could not be decoded: {exc}", req_id=req_id)
                 if expect_namespace and created:
                     failed["session_reset"] = True
                 return failed
@@ -451,7 +452,7 @@ class FormulaProcessPool(BaseProcessPool):
         ``data_json`` here, not packed as a second wire.
         """
         if self._is_shutdown or not self.workers:
-            return error_dict("SERVICE_SHUTDOWN", "Formula compute pool is shutting down.", req_id=req_id)
+            return error_dict(ec.SERVICE_SHUTDOWN, "Formula compute pool is shutting down.", req_id=req_id)
 
         # One schema. A mode the HTTP layer missed must not be
         # rewritten and run: that returned 200 for a kernel that kept no state.
@@ -464,19 +465,19 @@ class FormulaProcessPool(BaseProcessPool):
             if session_id:
                 validate_session_id(session_id)
         except ExecuteRequestError as exc:
-            return error_dict("INVALID_REQUEST", str(exc), req_id=req_id)
+            return error_dict(ec.INVALID_REQUEST, str(exc), req_id=req_id)
 
         # Only None means "use the default". Zero is an explicit timeout.
         clock = deadline if deadline is not None else Deadline(float(self.default_timeout_sec if timeout_sec is None else timeout_sec))
         # Before select, so a miss does not reserve a session or consume the
         # lost-session marker.
         if clock.usable() is None:
-            return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
+            return error_dict(ec.QUEUE_TIMEOUT, "Request deadline expired before a worker lease.", req_id=req_id)
 
         try:
             payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, mode=mode, init_script=init_script, req_id=req_id)
         except ExecuteRequestError as exc:
-            return error_dict("INVALID_REQUEST", str(exc), req_id=req_id)
+            return error_dict(ec.INVALID_REQUEST, str(exc), req_id=req_id)
 
         gate = self._session_gate(session_id) if mode == "shared" and session_id else nullcontext()
         with gate:
@@ -487,7 +488,7 @@ class FormulaProcessPool(BaseProcessPool):
                     had_binding = session_id in self._sessions
                 target_worker = self._select_shared_worker(session_id)
                 if target_worker is None:
-                    return error_dict("SERVICE_SHUTDOWN", "Formula compute pool is shutting down.", req_id=req_id)
+                    return error_dict(ec.SERVICE_SHUTDOWN, "Formula compute pool is shutting down.", req_id=req_id)
                 lease_budget = max(clock.left(), 0.0)
                 leased = self.lease_specific(target_worker, timeout_sec=lease_budget)
                 if leased is not None:
@@ -502,13 +503,13 @@ class FormulaProcessPool(BaseProcessPool):
                 busy_err = "All formula workers are currently busy and request timed out waiting for worker lease."
 
             if leased is None:
-                return error_dict("WORKER_POOL_BUSY", busy_err, req_id=req_id)
+                return error_dict(ec.WORKER_POOL_BUSY, busy_err, req_id=req_id)
 
             result: dict[str, Any] | None = None
             try:
                 # The lease wait spent part of the clock.
                 if clock.usable() is None:
-                    result = error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
+                    result = error_dict(ec.QUEUE_TIMEOUT, "Request deadline expired before a worker lease.", req_id=req_id)
                     return result
                 result = self._run_execution(
                     leased,
