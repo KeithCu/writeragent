@@ -69,6 +69,7 @@ COMPUTE_PLUGIN_FILES = (
     "plugin/scripting/payload_codec.py",
     "plugin/scripting/sandbox.py",
     "plugin/scripting/sandbox_cache.py",
+    "plugin/scripting/session_key.py",
     "plugin/scripting/venv/__init__.py",
     "plugin/scripting/venv/coerce.py",
     "plugin/scripting/venv/results.py",

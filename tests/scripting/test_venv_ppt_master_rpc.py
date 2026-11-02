@@ -249,7 +249,8 @@ def test_execute_ppt_master_turn_passes_frame_session_id():
             timeout_sec=5,
         )
     req = mock_ipc.call_args.args[0]
-    assert req.session_id == "ppt_master:file:///deck-b.odp"
+    assert req.session is not None
+    assert req.session.wire() == "ppt_master:file:///deck-b.odp"
     assert req.data["session_id"] == "ppt_master:file:///deck-b.odp"
     assert req.action == "ppt_master_turn"
     assert req.caller == "ppt_master_venv"

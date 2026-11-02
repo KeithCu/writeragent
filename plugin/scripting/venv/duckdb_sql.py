@@ -26,6 +26,11 @@ from typing import Any
 from plugin.scripting.calc_functions_common import (
     ANALYSIS_DATA_TABLE_ROWS as MAX_TABLE_ROWS,
 )
+from plugin.scripting.session_key import (
+    INIT_SUFFIX,
+    PERSISTABLE_KINDS,
+    SessionKey,
+)
 from plugin.scripting.venv.coerce import (
     table_from_df as _table_from_df,
 )
@@ -168,11 +173,6 @@ def _read_flat_relation(con: Any, path: str) -> Any:
     raise SqlError("UNSUPPORTED_FILE_TYPE", unsupported_flat_type_message(os.path.basename(path), ext))
 
 
-# Workbook-keyed sessions may keep one DuckDB. Domain prefixes used by
-# run_trusted_action (``writeragent:sql``) are routing ids, not kernels —
-# caching on those would leak one catalog across every document.
-_PERSISTABLE_PREFIXES = ("calc:", "rps:", "notebook:")
-
 _SESSION_CONNECTIONS: dict[str, Any] = {}
 _SESSION_LOCK = threading.Lock()
 
@@ -186,10 +186,11 @@ def persistable_duckdb_session_id(session_id: str | None) -> str | None:
     sid = (session_id or "").strip()
     if not sid:
         return None
-    if sid.endswith(":init"):
-        sid = sid[: -len(":init")]
-    if any(sid.startswith(prefix) for prefix in _PERSISTABLE_PREFIXES):
-        return sid
+    if sid.endswith(INIT_SUFFIX):
+        sid = sid[: -len(INIT_SUFFIX)]
+    parsed = SessionKey.parse(sid)
+    if parsed.kind in PERSISTABLE_KINDS and parsed.rest:
+        return parsed.wire()
     return None
 
 

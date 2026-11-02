@@ -17,7 +17,6 @@ from dataclasses import replace
 import json
 import logging
 import threading
-import uuid
 from typing import Any, Mapping, final
 
 from plugin.calc.address_utils import split_sheet_prefix
@@ -91,17 +90,18 @@ def geometric_flag_enabled() -> bool:
 
 
 def geometric_workbook_key(doc: Any) -> str:
-    """``calc:`` + ``_workbook_session_key`` — never empty (unsaved uses a persisted id)."""
-    from plugin.scripting.session_manager import _workbook_session_key
+    """``calc:`` + ``mint_document_key`` — never empty (unsaved uses a persisted id)."""
+    from plugin.scripting.session_key import SessionKey, SessionKind, new_unsaved_document_key
+    from plugin.scripting.session_manager import mint_document_key
 
-    key = (_workbook_session_key(doc) or "").strip()
+    key = (mint_document_key(doc) or "").strip()
     if not key:
         cached = getattr(doc, "_geometric_unsaved_key", None)
         if not cached:
-            cached = f"unsaved:{uuid.uuid4()}"
+            cached = new_unsaved_document_key()
             best_effort(lambda: setattr(doc, "_geometric_unsaved_key", cached), "set unsaved key")
         key = cached
-    return f"calc:{key}"
+    return SessionKey.of(SessionKind.CALC, key).wire()
 
 
 def replace_geometric_strip_safe(workbook_key: str, safe: frozenset[EvalIndexKey]) -> None:

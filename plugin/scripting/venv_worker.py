@@ -55,6 +55,7 @@ from plugin.scripting.ipc import (
     unpack_pickle_frame,
     write_packed_frame_with_timeout,
 )
+from plugin.scripting.session_key import SessionKey
 from plugin.scripting.payload_codec import _HOST_UNPACK_ERRORS, host_unpack_data
 from plugin.scripting.sandbox import (
     detect_sandbox,
@@ -353,10 +354,10 @@ class _ExecRequest:
     data: Any = None
     bindings: dict[str, Any] | None = None
     timeout_sec: int | None = None
-    session_id: str | None = None
+    session: SessionKey | None = None
     action: str | None = None
     init_script: str | None = None
-    init_session_id: str | None = None
+    init_session: SessionKey | None = None
     init_script_hash: str | None = None
     allow_heartbeat: bool = False
     on_heartbeat: Callable[[dict[str, Any]], None] | None = None
@@ -365,7 +366,7 @@ class _ExecRequest:
     cancellation_scope: Any | None = None
     python_tool_domain: str | None = None
     caller: str = "script"
-    script_session_id: str | None = None
+    pin: str | None = None
     sandbox_policy: dict[str, Any] | None = None
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -375,8 +376,8 @@ class _ExecRequest:
         request: dict[str, Any] = {"id": self.request_id}
         if self.timeout_sec is not None:
             request["timeout_sec"] = self.timeout_sec
-        if self.session_id:
-            request["session_id"] = self.session_id
+        if self.session is not None:
+            request["session_id"] = self.session.wire()
         if self.data is not None:
             request["data"] = self.data
         # allow_heartbeat belongs on every long job, not only the code branch.
@@ -392,8 +393,8 @@ class _ExecRequest:
                 request["bindings"] = self.bindings
             if self.init_script:
                 request["init_script"] = self.init_script
-            if self.init_session_id:
-                request["init_session_id"] = self.init_session_id
+            if self.init_session is not None:
+                request["init_session_id"] = self.init_session.wire()
             if self.init_script_hash:
                 request["init_script_hash"] = self.init_script_hash
             if self.sandbox_policy is not None:
@@ -755,7 +756,7 @@ class PythonWorkerManager:
             # Pin wins over the kernel session id. Chat passes doc:… and
             # leaves request session_id unset. RPS / =PY() / PPT-Master
             # omit the pin and keep the request id.
-            resolved_script_session_id = host_script_session_id(wire.get("session_id"), req.script_session_id)
+            resolved_script_session_id = host_script_session_id(wire.get("session_id"), req.pin)
         except Exception as exc:
             log.warning("Python worker request preparation failed: %s", exc)
             return self._err("WORKER_IPC_ERROR", f"Failed to prepare request: {exc}")
@@ -937,15 +938,15 @@ class PythonWorkerManager:
                     data=data,
                     bindings=bindings,
                     timeout_sec=timeout_sec,
-                    session_id=session_id,
+                    session=SessionKey.from_host(session_id),
                     action=action,
                     init_script=init_script,
-                    init_session_id=init_session_id,
+                    init_session=SessionKey.from_host(init_session_id),
                     init_script_hash=init_script_hash,
                     allow_heartbeat=allow_heartbeat,
                     on_heartbeat=on_heartbeat,
                     python_tool_domain=python_tool_domain,
-                    script_session_id=script_session_id,
+                    pin=script_session_id,
                     stop_checker=stop_checker,
                     cancellation_scope=cancellation_scope,
                     sandbox_policy=sandbox_policy,
@@ -987,7 +988,7 @@ class PythonWorkerManager:
                     data=payload,
                     timeout_sec=timeout_sec,
                     action="ppt_master_turn",
-                    session_id=session_id or None,
+                    session=SessionKey.from_host(session_id),
                     on_worker_event=on_worker_event,
                     stop_checker=stop_checker,
                     cancellation_scope=cancellation_scope,

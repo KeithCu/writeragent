@@ -132,7 +132,7 @@ def _lifecycle_key(doc: Any) -> str:
     spill's scheduled key never matched the live key and the write returned
     without touching the sheet.
     How it happened: ``_lifecycle_key`` always called
-    ``calc_workbook_base_session_id``, and ``_workbook_session_key`` returns a
+    ``calc_workbook_base_session_id``, and ``mint_document_key`` returns a
     fresh uuid when the session property does not stick.
     Why this change fixes it: a missing RuntimeUID reuses the key already
     stored for this object. A new session id is computed only the first time.
@@ -366,7 +366,9 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
     """
     if not session_id or doc is None or not _HAVE_UNO_DOC_EVENTS:
         return
-    if session_id.startswith("calc:"):
+    from plugin.scripting.session_key import SessionKey, SessionKind
+
+    if SessionKey.parse(session_id).kind is SessionKind.CALC:
         ensure_calc_workbook_unload_resets_python(ctx, doc)
         return
     # Writer/Draw key. Must not record a Calc session id. Same RuntimeUID ladder as _lifecycle_key.

@@ -35,6 +35,7 @@ from plugin.scripting.ipc import (
 )
 import plugin.scripting.venv_worker as venv_worker_module
 from plugin.scripting.sandbox import scrub_subprocess_env
+from plugin.scripting.session_key import SessionKey
 from plugin.scripting.venv_worker import (
     FailedAfterStart,
     PythonWorkerManager,
@@ -1195,7 +1196,7 @@ def test_build_request_sets_heartbeat_on_trusted_action():
     assert "timeout_sec" not in request
     assert "cancellation_scope" not in request
     assert "script_session_id" not in request
-    empty = _ExecRequest(session_id="", allow_heartbeat=False, bindings={}, code=None).wire()
+    empty = _ExecRequest(session=None, allow_heartbeat=False, bindings={}, code=None).wire()
     assert empty["code"] == ""
     assert "session_id" not in empty
     assert "allow_heartbeat" not in empty
@@ -1615,8 +1616,8 @@ def _ipc_one_tool_call(*, session_id, script_session_id):
             _ExecRequest(
                 "result = 1",
                 timeout_sec=1,
-                session_id=session_id,
-                script_session_id=script_session_id,
+                session=SessionKey.from_host(session_id),
+                pin=script_session_id,
             )
         )
     return captured["request"], mock_tool.call_args, result
@@ -1647,8 +1648,8 @@ def test_execute_forwards_script_session_id_not_as_kernel_session():
         mgr.execute("result = 1", script_session_id="doc:pin")
     req = ipc.call_args.args[0]
     assert ipc.call_args.kwargs == {}
-    assert req.script_session_id == "doc:pin"
-    assert req.session_id is None
+    assert req.pin == "doc:pin"
+    assert req.session is None
     assert "session_id" not in req.wire()
     assert "script_session_id" not in req.wire()
 
