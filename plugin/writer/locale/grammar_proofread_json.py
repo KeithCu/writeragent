@@ -29,36 +29,31 @@ def _coerce_json_object(content: str) -> Mapping[str, Any] | None:
     return _as_mapping(safe_json_loads(text))
 
 
-def _parse_error_item(row: Mapping[str, Any]) -> dict[str, Any] | None:
-    """Map one LLM error object to ``wrong``/``correct``/``type``/``reason``, or None if unusable."""
-    wrong = row.get("wrong")
-    correct = row.get("correct")
-    # ``str(None)`` used to become reason "None" (rule id ``wa_g_None``) and a
-    # ``(grammar) None`` tooltip; a non-string ``wrong`` could even match text.
-    if not isinstance(wrong, str) or not isinstance(correct, str):
-        return None
-    typ = row.get("type")
-    typ = typ.strip().lower() if isinstance(typ, str) else ""
-    if typ not in ("grammar", "style", "spelling"):
-        typ = "grammar"
-    reason = row.get("reason")
-    return {
-        "wrong": wrong,
-        "correct": correct,
-        "type": typ,
-        "reason": reason.strip() if isinstance(reason, str) else "",
-    }
-
-
 def _parse_errors(raw: list[Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for item in raw:
         mapped = _as_mapping(item)
         if mapped is None:
             continue
-        parsed = _parse_error_item(mapped)
-        if parsed is not None:
-            out.append(parsed)
+        wrong = mapped.get("wrong")
+        correct = mapped.get("correct")
+        # ``str(None)`` used to become reason "None" (rule id ``wa_g_None``) and a
+        # ``(grammar) None`` tooltip; a non-string ``wrong`` could even match text.
+        if not isinstance(wrong, str) or not isinstance(correct, str):
+            continue
+        typ = mapped.get("type")
+        typ = typ.strip().lower() if isinstance(typ, str) else ""
+        if typ not in ("grammar", "style", "spelling"):
+            typ = "grammar"
+        reason = mapped.get("reason")
+        out.append(
+            {
+                "wrong": wrong,
+                "correct": correct,
+                "type": typ,
+                "reason": reason.strip() if isinstance(reason, str) else "",
+            }
+        )
     return out
 
 
