@@ -768,6 +768,25 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
     assert res["message"].startswith("Inserted content at end.")
 
 
+def test_apply_document_content_releases_session_on_mid_edit_failure():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    session_mock = MagicMock()
+
+    def fake_execute_edit(_ctx, session_sink=None, **kwargs):
+        if session_sink is not None:
+            session_sink.append(session_mock)
+        raise RuntimeError("boom mid-edit")
+
+    tool = ApplyDocumentContent()
+    with patch.object(ApplyDocumentContent, "_execute_edit", side_effect=fake_execute_edit), \
+         patch.object(tool, "_release_review_session") as mock_release:
+        with pytest.raises(RuntimeError, match="boom mid-edit"):
+            tool.execute(ctx, content="test", target="end")
+        mock_release.assert_called_once_with(session_mock)
+
+
 def test_apply_document_content_main_thread_uses_on_main_thread():
     from plugin.writer.apply_document_content import ApplyDocumentContent, _run_on_main_thread
 
