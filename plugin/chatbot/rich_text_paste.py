@@ -207,7 +207,7 @@ _LIBERATION_SANS_EM = (
 )
 def _cell_width_em(text: str, *, bold: bool = False) -> float:
     adv = 0.0
-    for ch in text or "":
+    for ch in text:
         o = ord(ch)
         if 32 <= o <= 126:
             adv += _LIBERATION_SANS_EM[o - 32]
@@ -231,12 +231,12 @@ def _max_column_ems(rows: list[list[str]]) -> list[float]:
     for r_i, row in enumerate(rows):
         bold = r_i == 0
         for i, cell in enumerate(row):
-            widths[i] = max(widths[i], _cell_width_em(cell or "", bold=bold))
+            widths[i] = max(widths[i], _cell_width_em(cell, bold=bold))
     return widths
 
 
 def _column_width_twips(width_em: float) -> int:
-    return max(1, int(round((max(0.0, float(width_em)) + _TAB_GAP_EM) * CHAT_FONT_HEIGHT * _TWIPS_PER_PT)))
+    return max(1, int(round((width_em + _TAB_GAP_EM) * CHAT_FONT_HEIGHT * _TWIPS_PER_PT)))
 
 
 def _tab_stop_positions_twips(rows: list[list[str]]) -> tuple[int, ...]:
@@ -637,7 +637,7 @@ def paint_message_items(
         links = cell_links_for_rows(rows)
         # Replace, do not append. A previous splice is not part of this paint.
         clear_control(control)
-        res = _copy_formatted_from_hidden_doc_to_control(
+        copy_reason = _copy_formatted_from_hidden_doc_to_control(
             doc,
             control,
             ctx,
@@ -647,8 +647,7 @@ def paint_message_items(
             restore=restore,
             restore_focus=restore_focus,
         )
-        ok, copy_reason = res
-        if ok:
+        if copy_reason is None:
             return _finish_paint()
         log.warning("paint_message_items: formatted copy failed reason=%s; plain paint", copy_reason)
         _replace_control_with_plain(control, rows, ctx, style_window, restore_focus=restore_focus)
@@ -679,14 +678,14 @@ def _copy_formatted_from_hidden_doc_to_control(
     *,
     restore: Any = None,
     restore_focus: Any = None,
-) -> tuple[bool, str | None]:
+) -> str | None:
     """Copy formatted Writer body text into the sidebar RichText control (safe — no clipboard/frame paste).
 
-    Returns ``(ok, failure_reason)`` where *failure_reason* is a short tag when *ok* is false.
+    Returns None on success, or a short failure reason tag.
     """
     model = control.getModel()
     if model is None or not hasattr(model, "createTextCursor"):
-        return False, "model_no_createTextCursor"
+        return "model_no_createTextCursor"
 
     def _do_copy() -> str | None:
         try:
@@ -702,6 +701,18 @@ def _copy_formatted_from_hidden_doc_to_control(
 
             control_len = get_control_text_length(control)
 
+            def _put(
+                text: str,
+                color: Any = None,
+                *,
+                bold: bool | None = None,
+                underline: bool | None = None,
+            ) -> None:
+                nonlocal control_len
+                _insert_string_at_rich_cursor(model, dest_cursor, text, color, bold=bold, underline=underline)
+                if control_len is not None:
+                    control_len += _utf16_units(text)
+
             src_text = src_doc.getText()
             para_enum = src_text.createEnumeration()
             first_para = True
@@ -713,9 +724,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                 element_inserted = False
                 try:
                     if not first_para:
-                        _insert_string_at_rich_cursor(model, dest_cursor, "\n")
-                        if control_len is not None:
-                            control_len += 1
+                        _put("\n")
                         dest_cursor.gotoEnd(False)
                         apply_rich_control_para_margins(dest_cursor)
                     first_para = False
@@ -727,11 +736,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         tab_stops = _tab_stop_positions_twips(cell_rows)
                         for i, cells in enumerate(cell_rows):
                             if i:
-                                _insert_string_at_rich_cursor(
-                                    model, dest_cursor, "\n", bold=False, underline=False,
-                                )
-                                if control_len is not None:
-                                    control_len += 1
+                                _put("\n", bold=False, underline=False)
                                 dest_cursor.gotoEnd(False)
                                 apply_rich_control_para_margins(dest_cursor)
                             _apply_table_tab_stops(dest_cursor, tab_stops)
@@ -746,16 +751,12 @@ def _copy_formatted_from_hidden_doc_to_control(
                             # (EditEngine otherwise keeps the header run's attributes).
                             is_header = i == 0
                             table_text = "\t".join(cells)
-                            _insert_string_at_rich_cursor(
-                                model,
-                                dest_cursor,
+                            _put(
                                 table_text,
                                 default_color,
                                 bold=is_header,
                                 underline=is_header,
                             )
-                            if control_len is not None:
-                                control_len += _utf16_units(table_text)
                             dest_cursor.gotoEnd(False)
                             inserted = True
                             element_inserted = True
@@ -776,11 +777,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         if line_prefix and not prefix_inserted:
                             # Force normal: right after "Assistant: " the number
                             # took the label's bold (EditEngine sticky attrs).
-                            _insert_string_at_rich_cursor(
-                                model, dest_cursor, line_prefix, default_color, bold=False, underline=False
-                            )
-                            if control_len is not None:
-                                control_len += _utf16_units(line_prefix)
+                            _put(line_prefix, default_color, bold=False, underline=False)
                             dest_cursor.gotoEnd(False)
                             prefix_inserted = True
                             element_inserted = True
@@ -795,9 +792,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         maybe_link = bool(href or is_pending or looks_like_cell_link)
                         before_len = control_len
                         txt_units = _utf16_units(txt)
-                        _insert_string_at_rich_cursor(model, dest_cursor, txt, portion_color)
-                        if control_len is not None:
-                            control_len += txt_units
+                        _put(txt, portion_color)
                         element_inserted = True
                         if maybe_link and before_len is not None:
                             addr = normalize_cell_address(href) if href else None
@@ -815,11 +810,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         dest_cursor.gotoEnd(False)
                         inserted = True
                     if line_prefix and not prefix_inserted:
-                        _insert_string_at_rich_cursor(
-                            model, dest_cursor, line_prefix, default_color, bold=False, underline=False
-                        )
-                        if control_len is not None:
-                            control_len += _utf16_units(line_prefix)
+                        _put(line_prefix, default_color, bold=False, underline=False)
                         inserted = True
                         element_inserted = True
                 except Exception as exc:
@@ -846,9 +837,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                                 fallback_text = para.getString()
                             control_len = get_control_text_length(control)
                             if fallback_text:
-                                _insert_string_at_rich_cursor(model, dest_cursor, fallback_text, default_color)
-                                if control_len is not None:
-                                    control_len += _utf16_units(fallback_text)
+                                _put(fallback_text, default_color)
                                 dest_cursor.gotoEnd(False)
                                 inserted = True
                         except Exception:
@@ -873,12 +862,8 @@ def _copy_formatted_from_hidden_doc_to_control(
 
     if ctx is not None:
         with focus_preserved(ctx, restore, restore_focus=restore_focus):
-            reason = _do_copy()
-    else:
-        reason = _do_copy()
-    if reason is None:
-        return True, None
-    return False, reason
+            return _do_copy()
+    return _do_copy()
 
 
 def _plain_fallback_text(text: str) -> str:
@@ -1016,7 +1001,7 @@ def append_formatted_rows(
             _rollback_then_plain(control, rows, before, ctx, style_window, restore_focus)
             return
 
-        res = _copy_formatted_from_hidden_doc_to_control(
+        copy_reason = _copy_formatted_from_hidden_doc_to_control(
             doc,
             control,
             ctx,
@@ -1026,8 +1011,7 @@ def append_formatted_rows(
             restore=restore,
             restore_focus=restore_focus,
         )
-        ok, copy_reason = res
-        if ok:
+        if copy_reason is None:
             inserted = True
             _finish_append_rows(control, rows, restore_focus=restore_focus)
         else:
@@ -1157,7 +1141,7 @@ def append_formatted_row(
             log.warning("append_formatted_row: HTML import failed role=%s", role)
             return _rollback_and_plain()
         log.debug("append_formatted_row: hidden doc ready len=%d role=%s", len(text), role)
-        ok, direct_reason = _copy_formatted_from_hidden_doc_to_control(
+        direct_reason = _copy_formatted_from_hidden_doc_to_control(
             doc,
             control,
             ctx,
@@ -1167,7 +1151,7 @@ def append_formatted_row(
             restore=restore,
             restore_focus=restore_focus,
         )
-        if ok:
+        if direct_reason is None:
             inserted = True
             log.info(
                 "append_formatted_row: insert ok via=direct_copy role=%s",

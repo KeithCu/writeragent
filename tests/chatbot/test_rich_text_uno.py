@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Live Writer checks for plugin.chatbot.rich_text.append_rich_text."""
+"""Live Writer checks for plugin.chatbot.rich_text._append_rich_text_with_span."""
 
 from __future__ import annotations
 
@@ -49,13 +49,16 @@ def test_user_row_color_does_not_bleed_into_previous_answer(ctx):
     The body range was positioned with doc.CharacterCount, which skips
     paragraph breaks, so it started inside the previous answer.
     """
-    from plugin.chatbot.rich_text import ChatTheme, append_rich_text
+    from plugin.chatbot.rich_text import ChatTheme, _append_rich_text_with_span
 
     doc = _hidden_writer(ctx)
     try:
-        assert append_rich_text(doc, "first question", role="user")
-        assert append_rich_text(doc, "done", role="assistant")
-        assert append_rich_text(doc, "second question", role="user")
+        ok, _previous, _added = _append_rich_text_with_span(doc, "first question", role="user")
+        assert ok
+        ok, _previous, _added = _append_rich_text_with_span(doc, "done", role="assistant")
+        assert ok
+        ok, _previous, _added = _append_rich_text_with_span(doc, "second question", role="user")
+        assert ok
         theme = ChatTheme.resolve(doc)
         # Rows may share one paragraph (line breaks), so judge runs, not paragraphs.
         runs = [run for para in _paragraph_runs(doc) for run in para]
@@ -97,9 +100,11 @@ def test_html_body_range_covers_the_imported_list(ctx):
 
     doc = _hidden_writer(ctx)
     try:
-        assert rich_text.append_rich_text(doc, "first question", role="user")
+        ok, _previous, _added = rich_text._append_rich_text_with_span(doc, "first question", role="user")
+        assert ok
         with patch.object(rich_text, "_tighten_list_indent", record):
-            assert rich_text.append_rich_text(doc, "<ul><li>alpha</li><li>beta</li></ul>", role="assistant")
+            ok, _previous, _added = rich_text._append_rich_text_with_span(doc, "<ul><li>alpha</li><li>beta</li></ul>", role="assistant")
+            assert ok
         assert seen, "list tightening did not run"
         assert "alpha" in seen[-1] and "beta" in seen[-1], "body range missed the list: %r" % seen
         assert "first question" not in seen[-1], "body range reached the previous row: %r" % seen
@@ -126,10 +131,14 @@ def test_leading_list_numbers_every_item(ctx):
 
     doc = _hidden_writer(ctx)
     try:
-        assert rich_text.append_rich_text(doc, "first question", role="user")
-        assert rich_text.append_rich_text(doc, "<ol><li>alpha</li><li>beta</li></ol>", role="assistant")
-        assert rich_text.append_rich_text(doc, '<ol start="11"><li>gamma</li><li>delta</li></ol>', role="assistant")
-        assert rich_text.append_rich_text(doc, '<ol type="A"><li>letter</li></ol>', role="assistant")
+        ok, _previous, _added = rich_text._append_rich_text_with_span(doc, "first question", role="user")
+        assert ok
+        ok, _previous, _added = rich_text._append_rich_text_with_span(doc, "<ol><li>alpha</li><li>beta</li></ol>", role="assistant")
+        assert ok
+        ok, _previous, _added = rich_text._append_rich_text_with_span(doc, '<ol start="11"><li>gamma</li><li>delta</li></ol>', role="assistant")
+        assert ok
+        ok, _previous, _added = rich_text._append_rich_text_with_span(doc, '<ol type="A"><li>letter</li></ol>', role="assistant")
+        assert ok
         labels = _list_labels(doc)
         assert ("alpha", "1.") in labels and ("beta", "2.") in labels, labels
         assert ("gamma", "11.") in labels and ("delta", "12.") in labels, labels
@@ -146,12 +155,14 @@ def test_list_and_quote_paragraph_properties(ctx):
 
     doc = _hidden_writer(ctx)
     try:
-        assert rich_text.append_rich_text(doc, "first question", role="user")
-        assert rich_text.append_rich_text(
+        ok, _previous, _added = rich_text._append_rich_text_with_span(doc, "first question", role="user")
+        assert ok
+        ok, _previous, _added = rich_text._append_rich_text_with_span(
             doc,
             "<ul><li>alpha</li></ul><blockquote><p>quoted</p></blockquote><pre>code</pre>",
             role="assistant",
         )
+        assert ok
         props: list[dict[str, Any]] = []
         paras = doc.getText().createEnumeration()
         while paras.hasMoreElements():

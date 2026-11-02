@@ -392,7 +392,7 @@ Each such item:
 
 1. Crosses the queue boundary.
 2. Wakes the main-thread drain loop (`run_stream_drain_loop` in `async_stream.py`).
-3. Triggers `apply_chunk_fn` (ultimately `append_text_chunk` or `append_rich_text`).
+3. Triggers `apply_chunk_fn` (ultimately `append_text_chunk` or `_append_rich_text_with_span`).
 4. May cause `toolkit.processEventsToIdle()` and RichTextControl caret reveal (`reveal_rich_control_caret`) on the formatted sidebar path.
 
 The net visual effect for the user was **micro-stutter** during long assistant answers: the sidebar would repaint/relayout far more often than necessary.
@@ -460,7 +460,7 @@ Per the implementation plan and the final status after the May 2025-25 change, t
      - All paths in `plugin/chatbot/send_handlers.py` (direct web research, librarian mode, image generation results, approval flows, etc.).
      - `plugin/acp/acp_backend.py` and any other ACP / Hermes / CLI agent backends that emit display text.
      - Any "last tiny terminator" or `last_streamed` accumulation patterns (the final `FINAL_DONE` payload must be preceded by a flush of the last real content batch).
-     - The rich-text-specific "1 character" + `_tighten_list_indent` path inside `append_rich_text` / `append_text_chunk` (see `rich_text.py`).
+     - The rich-text-specific "1 character" + `_tighten_list_indent` path inside `_append_rich_text_with_span` / `append_text_chunk` (see `rich_text.py`).
 
 2. **ACP backend and other non-LLM-stream producers**
    - The ACP (Actor Context Protocol) path in `plugin/acp/` can produce `CHUNK` / `THINKING` (and tool-related display items) on its own reader thread.

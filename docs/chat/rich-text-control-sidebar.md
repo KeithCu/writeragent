@@ -63,7 +63,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | Theme-aware **You:** / **Assistant:** colors | `get_theme_colors` in [`rich_text.py`](../../plugin/chatbot/rich_text.py) |
 | Chat typography (Liberation Sans 10pt, para side margins) | `CHAT_FONT_*`, `CHAT_PARA_SIDE_MARGIN`, `apply_chat_char_props`, `configure_hidden_writer_for_chat` in [`rich_text_paste.py`](../../plugin/chatbot/rich_text_paste.py) |
 | Spellcheck off for hidden HTML import doc | `zxx` locale on Standard style in `configure_hidden_writer_for_chat` (`rich_text_paste.py`) |
-| List indent tightening after HTML import | `_tighten_list_indent` in `append_rich_text` (`rich_text.py`) |
+| List indent tightening after HTML import | `_tighten_list_indent` in `_append_rich_text_with_span` (`rich_text.py`) |
 | Streaming plain append | `RichTextChatWidget.stream_session` via `panel.py` `_append_response` |
 | Post-stream HTML rerender | `SendButtonListener.rerender_rich_text_session` → `RichTextChatWidget.rerender_last_assistant_if_html` |
 | Truncate stream tail without flattening earlier formatting | `rollback_rich_insert` (cursor delete, not `model.Text = ""`) |
@@ -192,7 +192,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | `CHAT_FONT_*`, `CHAT_PARA_SIDE_MARGIN` | Single source of truth for sidebar chat typography |
 | `apply_chat_char_props` | Set Liberation Sans / weight / height on cursor, portion, or style |
 | `apply_rich_control_para_margins` | EditEngine horizontal inset for sidebar density |
-| `append_rich_text` | HTML filter import + list tightening |
+| `_append_rich_text_with_span` | HTML filter import + list tightening |
 | `get_theme_colors` | Theme-aware role colors |
 
 ### Key APIs (`rich_text_control.py`)
@@ -234,7 +234,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 
 The stream appends the new suffix of an open row without stripping the row again. History reload is `paint_message_items`. `append_formatted_rows` is the turn-end tail. During direct copy from the hidden document, `element_skipped` marks a partially written element, whereas a not-yet-written element is inserted as its own visible text.
 
-Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`append_rich_text`, `get_theme_colors`, `contains_html_tag`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
+Shared HTML import and theme: [`format.py`](../../plugin/writer/format.py) (`insert_html_fragment_at_cursor`), [`rich_text.py`](../../plugin/chatbot/rich_text.py) (`_append_rich_text_with_span`, `get_theme_colors`, `contains_html_tag`, sidebar list CSS via `_SIDEBAR_LIST_CSS`).
 
 ### Scroll behavior (follow the caret)
 

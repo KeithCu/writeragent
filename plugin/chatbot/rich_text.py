@@ -36,7 +36,7 @@ from plugin.framework.i18n import _
 log = logging.getLogger(__name__)
 
 
-# Legacy plain-sidebar prefix; append_rich_text adds "Assistant:" instead.
+# Legacy plain-sidebar prefix; _append_rich_text_with_span adds "Assistant:" instead.
 _LEGACY_AI_LABEL_RE = re.compile(r"^\s*AI:\s*", re.IGNORECASE)
 
 
@@ -70,23 +70,26 @@ CHAT_FONT_WEIGHT = 100.0
 CHAT_PARA_SIDE_MARGIN = 250
 
 
-def _safe_set_prop(obj: Any, name: str, val: Any) -> None:
-    uno_probe(lambda: setattr(obj, name, val), None)
+def _set_props(obj: Any, pairs: tuple[tuple[str, Any], ...]) -> None:
+    for name, val in pairs:
+        uno_probe(cast("Any", lambda n=name, v=val: setattr(obj, n, v)), None)
 
 
 def apply_chat_char_props(target: Any, *, bg_color: int | None = None) -> None:
     """Apply sidebar chat Liberation Sans 10pt Char* props to a cursor, portion, or style object."""
-    for name, val in (
-        ("CharFontName", CHAT_FONT_NAME),
-        ("CharFontNameAsian", CHAT_FONT_NAME),
-        ("CharFontNameComplex", CHAT_FONT_NAME),
-        ("CharHeight", CHAT_FONT_HEIGHT),
-        ("CharWeight", CHAT_FONT_WEIGHT),
-        ("CharPosture", 0),
-    ):
-        _safe_set_prop(target, name, val)
+    _set_props(
+        target,
+        (
+            ("CharFontName", CHAT_FONT_NAME),
+            ("CharFontNameAsian", CHAT_FONT_NAME),
+            ("CharFontNameComplex", CHAT_FONT_NAME),
+            ("CharHeight", CHAT_FONT_HEIGHT),
+            ("CharWeight", CHAT_FONT_WEIGHT),
+            ("CharPosture", 0),
+        ),
+    )
     if bg_color is not None:
-        _safe_set_prop(target, "CharBackColor", bg_color)
+        _set_props(target, (("CharBackColor", bg_color),))
 
 
 _SERIF_FONT_MARKERS = ("serif", "times", "roman", "courier", "mono")
@@ -109,12 +112,14 @@ def normalize_portion_font(portion: Any) -> None:
 
 def apply_rich_control_para_margins(cursor: Any) -> None:
     """Keep chat text off the RichTextControl edges (EditEngine has no CSS padding)."""
-    for name, val in (
-        ("ParaLeftMargin", CHAT_PARA_SIDE_MARGIN),
-        ("ParaRightMargin", CHAT_PARA_SIDE_MARGIN),
-        ("ParaFirstLineIndent", 0),
-    ):
-        _safe_set_prop(cursor, name, val)
+    _set_props(
+        cursor,
+        (
+            ("ParaLeftMargin", CHAT_PARA_SIDE_MARGIN),
+            ("ParaRightMargin", CHAT_PARA_SIDE_MARGIN),
+            ("ParaFirstLineIndent", 0),
+        ),
+    )
 
 
 def strip_legacy_ai_label(text: str) -> str:
@@ -248,15 +253,16 @@ def span_matches_message(added: str, role: str, content: str) -> bool:
         return False
     remainder = remainder[len(matched_label):]
 
-    remainder_counter = Counter(tok.casefold() for tok in re.findall(r"\w+", remainder))
+    def _word_counts(s: str) -> Counter[str]:
+        return Counter(tok.casefold() for tok in re.findall(r"\w+", s))
+
+    remainder_counter = _word_counts(remainder)
     visible = strip_html_tags(content or "")
     # strip_html_tags joins adjacent blocks ("<li>a</li><li>b</li>" -> "ab")
     # while Writer gives one paragraph each, so a compact list failed this
     # check and the full repaint wrote it as plain "ab". Accept both splits.
     spaced = strip_html_tags((content or "").replace("<", " <"))
-    visible_counter = Counter(tok.casefold() for tok in re.findall(r"\w+", visible))
-    spaced_counter = Counter(tok.casefold() for tok in re.findall(r"\w+", spaced))
-    return remainder_counter == visible_counter or remainder_counter == spaced_counter
+    return remainder_counter == _word_counts(visible) or remainder_counter == _word_counts(spaced)
 
 
 def _sidebar_import_html(text: str) -> str:
@@ -279,7 +285,7 @@ def _sidebar_import_html(text: str) -> str:
     return text
 
 
-def _append_rich_text_with_span(
+def _append_rich_text_with_span(  # pyright: ignore[reportUnusedFunction]
     doc: Any,
     text: str,
     role: str = "assistant",
@@ -354,13 +360,7 @@ def _append_rich_text_with_span(
                     if leading_list:
                         _drop_list_sentinel(text_obj, body_anchor)
                 except Exception:
-                    # Restore the body from before this call. The filter
-                    # can insert tags and then raise; return False only skips
-                    # the copy, and a caller that keeps the doc still has the
-                    # partial message.
                     log.warning("HTML import failed; restoring hidden doc role=%s", role)
-                    # XText.setString replaces the whole body.
-                    text_obj.setString(previous)
                     return False, previous, ""
             else:
                 text_obj.insertString(cursor, text, False)
@@ -374,12 +374,6 @@ def _append_rich_text_with_span(
             added = text_obj.getString() or ""
 
         if has_body:
-            if contains_html_tag(added):
-                # The filter returned without raising and left the tags as text.
-                log.warning("HTML import left tags in the hidden doc role=%s", role)
-                text_obj.setString(previous)
-                return False, previous, ""
-
             # Start body_range one character after body_anchor (the end of
             # the prefix). Counting from the document start with
             # doc.CharacterCount stops short by the paragraph breaks that
@@ -398,22 +392,4 @@ def _append_rich_text_with_span(
 
     except Exception as e:
         log.exception("Error in append_rich_text: %s", e)
-        if text_obj is not None:
-            text_obj.setString(previous)
         return False, previous, ""
-
-
-def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> bool:
-    """Append one message to a Writer document (hidden doc for RichTextControl copy).
-
-    Inserts a bold, colored role prefix (``You:`` / ``Assistant:``) then
-    imports *text* as HTML via Writer's StarWriter HTML filter so that
-    ``<strong>``, ``<em>``, ``<code>``, ``<ul>`` etc. render natively.
-
-    Returns False when the HTML filter fails. The body is restored to the
-    text from before this call, so a tag the filter wrote before raising
-    does not stay, and the role prefix is not left without its body.
-    The caller writes the stripped message.
-    """
-    ok, _prev, _added = _append_rich_text_with_span(doc, text, role=role, style_window=style_window)
-    return ok
