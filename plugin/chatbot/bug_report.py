@@ -123,6 +123,8 @@ def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
         lines.append(f"- Python venv path: {venv_path}")
     else:
         endpoint = _redact_endpoint(get_current_endpoint()) or "(not set)"
+        # model_fetcher is WriterAgent-only; LibrePy AST guard requires try/except
+        # (best_effort alone is invisible to test_librepy_import_graph).
         model = "(not set)"
         try:
             from plugin.framework.client.model_fetcher import get_text_model
