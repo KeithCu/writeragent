@@ -2580,8 +2580,12 @@ class TestJ02Regression:
 
     def test_plain_transcript_appends_delta_and_scrolls(self) -> None:
         """Plain transcript view appends delta chunk and scrolls to end without calling render_session_messages."""
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
         listener = _make_send_listener()
-        listener.session = None
+        listener.session = MagicMock()
+        listener.session.messages = []
+        begin_send_turn(listener)
         resp_model = MagicMock()
         listener.response_control = MagicMock()
         listener.response_control.getModel.return_value = resp_model
