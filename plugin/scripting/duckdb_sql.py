@@ -14,7 +14,7 @@ from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, deal, str_bounded
 from plugin.scripting._lazy_venv import install_lazy_exports, venv_attr
-from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, is_status_helper_result, parse_helper_script_header
+from plugin.scripting.helper_domain import HelperScriptMeta, ScriptFacts, header_prefix, is_status_helper_result
 
 # --- Constants (host) ---
 
@@ -126,7 +126,7 @@ def parse_sql_script_header(code: str) -> HelperScriptMeta | None:
     """Parse machine header from SQL script template."""
     # Header regex ``params=({.*})`` hangs deep check even via this thin wrapper.
     # crosshair: off
-    return parse_helper_script_header(code, tag="sql", helper_names=SQL_HELPER_NAMES)
+    return ScriptFacts.from_source(code).header(tag="sql", helper_names=SQL_HELPER_NAMES)
 
 
 

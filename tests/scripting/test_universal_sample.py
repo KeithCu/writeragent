@@ -7,7 +7,7 @@ register_alias_importer()
 import writeragent as wa
 
 def test_get_active_document_type_writer():
-    with patch("writeragent._rpc_call") as mock_rpc:
+    with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": [
                 {"is_active": False, "doc_type": "calc"},
@@ -19,7 +19,7 @@ def test_get_active_document_type_writer():
         mock_rpc.assert_called_once_with("list_open_documents")
 
 def test_get_active_document_type_calc():
-    with patch("writeragent._rpc_call") as mock_rpc:
+    with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": [
                 {"is_active": True, "doc_type": "calc"},
@@ -30,7 +30,7 @@ def test_get_active_document_type_calc():
         assert doc_type == "calc"
 
 def test_get_active_document_type_unknown():
-    with patch("writeragent._rpc_call") as mock_rpc:
+    with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": []
         }
@@ -38,7 +38,7 @@ def test_get_active_document_type_unknown():
         assert doc_type == "unknown"
 
 def test_get_active_document_type_propagates_rpc_error():
-    with patch("writeragent._rpc_call", side_effect=RuntimeError("pipe closed")):
+    with patch("writeragent.call_host_tool", side_effect=RuntimeError("pipe closed")):
         try:
             wa.get_active_document_type()
         except RuntimeError as exc:

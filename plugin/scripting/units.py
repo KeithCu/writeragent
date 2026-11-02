@@ -15,9 +15,7 @@ from plugin.doc.doc_type import is_calc, is_writer
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.helper_domain import (
-    parse_run_import_call_spec,
-)
+from plugin.scripting.helper_domain import ScriptFacts
 from plugin.scripting.helper_registry import names
 
 from plugin.scripting.calc_range import ensure_rectangular_2d
@@ -40,7 +38,7 @@ def get_units_script_templates() -> dict[str, str]:
 
 def extract_units_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     """Extract units insertion kwargs (e.g. output_style) from script code."""
-    spec = parse_run_import_call_spec(code, run_name="run_units")
+    spec = ScriptFacts.from_source(code).first_run_spec("run_units")
     body_params = spec.get("params") if spec else None
     if not isinstance(body_params, dict):
         return {}

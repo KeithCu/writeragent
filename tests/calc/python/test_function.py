@@ -1427,7 +1427,7 @@ def test_execute_python_addin_from_background_thread_isolated(monkeypatch: pytes
 
     ctx = _ctx_with_doc(None)
 
-    def fake_run(ctx, code, **kwargs):
+    def fake_run(code, **kwargs):
         return {"status": "ok", "result": 2.0}
 
     monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
@@ -1467,7 +1467,7 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
 
     ctx = _ctx_with_doc(None)
 
-    def fake_run(ctx, code, session_id=None, **kwargs):
+    def fake_run(code, session_id=None, **kwargs):
         # Even with timeout in shared mode, it falls back to isolated (session_id=None) and returns result
         return {"status": "ok", "result": 42.0}
 
@@ -2981,7 +2981,7 @@ def test_execute_python_addin_flag_passes_through_without_gate(monkeypatch: pyte
     ctx = _ctx_with_doc(doc)
     captured_calls: list[tuple[Any, ...]] = []
 
-    def fake_run(ctx, code, **kwargs):
+    def fake_run(code, **kwargs):
         captured_calls.append((code, kwargs))
         return {"status": "ok", "result": 123}
 

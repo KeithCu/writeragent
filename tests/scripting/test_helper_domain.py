@@ -10,21 +10,18 @@ import logging
 from unittest.mock import MagicMock, patch
 
 from plugin.scripting.helper_domain import (
+    ScriptFacts,
     build_helper_script_template,
     format_elapsed_time,
-    parse_helper_script_header,
-    parse_run_import_call_spec,
     rps_insert_failed_outcome,
-    script_header_needs_data_binding,
     supports_calc_or_writer_manual,
 )
-from plugin.scripting.python_runner import script_uses_run_import
 import pytest
 
 
 def test_parse_valid_header():
     code = '# writeragent:units helper=convert_quantity params={"value":"10"}\nresult = 1\n'
-    meta = parse_helper_script_header(code, tag="units", helper_names={"convert_quantity"})
+    meta = ScriptFacts.from_source(code).header(tag="units", helper_names={"convert_quantity"})
     assert meta is not None
     assert meta.helper == "convert_quantity"
     assert meta.params == {"value": "10"}
@@ -39,12 +36,11 @@ def test_parse_valid_header():
 )
 def test_parse_missing_tag(value, tag, value_2):
     code = value
-    assert parse_helper_script_header(code, tag=tag, helper_names={value_2}) is None
+    assert ScriptFacts.from_source(code).header(tag=tag, helper_names={value_2}) is None
 
 def test_parse_bad_json_empty():
     code = "# writeragent:units helper=convert_quantity params={not-json}\n"
-    meta = parse_helper_script_header(
-        code,
+    meta = ScriptFacts.from_source(code).header(
         tag="units",
         helper_names={"convert_quantity"},
     )
@@ -86,7 +82,7 @@ def test_parse_run_import_call_params_reads_body():
     code = (
         'result = run_units({"helper": "convert_quantity", "params": {"value":"20","to_unit":"mm/h"}}, None, {})\n'
     )
-    spec = parse_run_import_call_spec(code, run_name="run_units")
+    spec = ScriptFacts.from_source(code).first_run_spec("run_units")
     assert spec is not None
     assert spec["params"] == {"value": "20", "to_unit": "mm/h"}
 
@@ -95,14 +91,14 @@ def test_parse_run_import_call_spec_reads_helper_and_params():
     code = (
         'result = run_text_analytics({"helper": "entities", "params": {"lang": "de"}}, text, document_context)\n'
     )
-    spec = parse_run_import_call_spec(code, run_name="run_text_analytics")
+    spec = ScriptFacts.from_source(code).first_run_spec("run_text_analytics")
     assert spec == {"helper": "entities", "params": {"lang": "de"}}
 
 
 def test_print_is_not_a_run_import_or_helper_spec():
     code = 'print("hi")\n'
-    assert script_uses_run_import(code, run_name="run_text_analytics") is False
-    assert parse_run_import_call_spec(code, run_name="run_text_analytics") is None
+    assert ScriptFacts.from_source(code).calls("run_text_analytics") is False
+    assert ScriptFacts.from_source(code).first_run_spec("run_text_analytics") is None
 
 
 def test_writeragent_import_call_is_a_helper_spec():
@@ -110,11 +106,11 @@ def test_writeragent_import_call_is_a_helper_spec():
         "from writeragent.scripting.units import convert_quantity\n"
         'result = convert_quantity(10, "m", "km")\n'
     )
-    spec = parse_run_import_call_spec(code, run_name="run_units")
+    spec = ScriptFacts.from_source(code).first_run_spec("run_units")
     assert spec is not None
     assert spec["helper"] == "convert_quantity"
     assert spec["params"] == {"value": 10, "from": "m", "to": "km"}
-    assert script_uses_run_import(code, run_name="run_text_analytics") is False
+    assert ScriptFacts.from_source(code).calls("run_text_analytics") is False
 
 
 def test_direct_call_units_positional_prefix_and_keywords():
@@ -122,7 +118,7 @@ def test_direct_call_units_positional_prefix_and_keywords():
         "from writeragent.scripting.units import convert_quantity\n"
         'convert_quantity(data, from_unit="m/s", to_unit="km/h")\n'
     )
-    assert parse_run_import_call_spec(code1, run_name="run_units") == {
+    assert ScriptFacts.from_source(code1).first_run_spec("run_units") == {
         "helper": "convert_quantity",
         "params": {"value": "data", "from_unit": "m/s", "to_unit": "km/h"},
     }
@@ -131,7 +127,7 @@ def test_direct_call_units_positional_prefix_and_keywords():
         "from writeragent.scripting.units import convert_quantity\n"
         'convert_quantity(1, "m", "km", value=5)\n'
     )
-    assert parse_run_import_call_spec(code2, run_name="run_units") == {
+    assert ScriptFacts.from_source(code2).first_run_spec("run_units") == {
         "helper": "convert_quantity",
         "params": {"value": 5, "from": "m", "to": "km"},
     }
@@ -140,7 +136,7 @@ def test_direct_call_units_positional_prefix_and_keywords():
         "from writeragent.scripting.units import convert_quantity\n"
         'convert_quantity(data, "m")\n'
     )
-    assert parse_run_import_call_spec(code3, run_name="run_units") == {
+    assert ScriptFacts.from_source(code3).first_run_spec("run_units") == {
         "helper": "convert_quantity",
         "params": {"value": "data", "from": "m"},
     }
@@ -149,7 +145,7 @@ def test_direct_call_units_positional_prefix_and_keywords():
         "from writeragent.scripting.units import format_quantity\n"
         'format_quantity(50, "m", ".2f")\n'
     )
-    assert parse_run_import_call_spec(code4, run_name="run_units") == {
+    assert ScriptFacts.from_source(code4).first_run_spec("run_units") == {
         "helper": "format_quantity",
         "params": {"magnitude": 50, "units": "m", "format_spec": ".2f"},
     }
@@ -158,7 +154,7 @@ def test_direct_call_units_positional_prefix_and_keywords():
         "from writeragent.scripting.units import format_quantity\n"
         "format_quantity(50)\n"
     )
-    spec5 = parse_run_import_call_spec(code5, run_name="run_units")
+    spec5 = ScriptFacts.from_source(code5).first_run_spec("run_units")
     assert spec5 is not None
     assert spec5["params"] == {"magnitude": 50}
     assert "quantity" not in spec5["params"]
@@ -167,7 +163,7 @@ def test_direct_call_units_positional_prefix_and_keywords():
         "from writeragent.scripting.units import parse_quantity\n"
         'parse_quantity("10 m/s")\n'
     )
-    assert parse_run_import_call_spec(code6, run_name="run_units") == {
+    assert ScriptFacts.from_source(code6).first_run_spec("run_units") == {
         "helper": "parse_quantity",
         "params": {"quantity": "10 m/s"},
     }
@@ -176,7 +172,7 @@ def test_direct_call_units_positional_prefix_and_keywords():
         "from writeragent.scripting.units import check_dimensionality\n"
         'check_dimensionality("10 m", "10 ft")\n'
     )
-    assert parse_run_import_call_spec(code7, run_name="run_units") == {
+    assert ScriptFacts.from_source(code7).first_run_spec("run_units") == {
         "helper": "check_dimensionality",
         "params": {"quantity_a": "10 m", "quantity_b": "10 ft"},
     }
@@ -185,7 +181,7 @@ def test_direct_call_units_positional_prefix_and_keywords():
         "from writeragent.scripting.units import check_dimensionality\n"
         'check_dimensionality("10 m")\n'
     )
-    assert parse_run_import_call_spec(code8, run_name="run_units") == {
+    assert ScriptFacts.from_source(code8).first_run_spec("run_units") == {
         "helper": "check_dimensionality",
         "params": {"quantity_a": "10 m"},
     }
@@ -194,14 +190,14 @@ def test_direct_call_units_positional_prefix_and_keywords():
         "from writeragent.scripting.analysis import describe_data\n"
         "describe_data(data)\n"
     )
-    assert parse_run_import_call_spec(code9, run_name="run_analysis") == {
+    assert ScriptFacts.from_source(code9).first_run_spec("run_analysis") == {
         "helper": "describe_data",
         "params": {},
     }
 
 
 def test_parse_run_import_call_null_byte_returns_none():
-    assert parse_run_import_call_spec("\x00", run_name="\x00") is None
+    assert ScriptFacts.from_source("\x00").first_run_spec("\x00") is None
 
 
 def test_format_elapsed_time_buckets():
@@ -216,7 +212,7 @@ def test_parse_run_import_call_params_nested_unary():
         'result = run_units({"helper": "h", "params": {"n": -5, "items": [-1, 2], '
         '"pos": +3, "dbl": -(-4)}}, None, {})\n'
     )
-    spec = parse_run_import_call_spec(code, run_name="run_units")
+    spec = ScriptFacts.from_source(code).first_run_spec("run_units")
     assert spec is not None
     assert spec["params"] == {"n": -5, "items": [-1, 2], "pos": 3, "dbl": 4}
 
@@ -247,24 +243,17 @@ def test_rps_insert_failed_outcome_logs_type_str_repr(caplog):
 
 def test_parse_run_import_call_accepts_long_script():
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-    from plugin.scripting.helper_domain import parse_run_import_call_spec
 
     code = "x = 1\n" * (DEAL_MAX_SOURCE // 4)
-    assert parse_run_import_call_spec(code, run_name="run") is None
+    assert ScriptFacts.from_source(code).first_run_spec("run") is None
 
 
 def test_script_uses_run_import_in_comment_not_matched():
-    # What was wrong: Substring search for run_name matched comments like "# run_vision(doc)",
-    # wrongly treating custom Python scripts as helper-domain scripts.
-    # Why this change: AST parsing ensures run_name is an actual function call, not comment text.
     code = "# run_vision(data)\nresult = 42\n"
-    assert script_uses_run_import(code, run_name="run_vision") is False
+    assert ScriptFacts.from_source(code).calls("run_vision") is False
 
 
 def test_build_helper_script_template_bare_data_only_for_injected_data():
-    # What was wrong: val == "data" in template params caused literal "data" strings
-    # for non-data parameters (like column="data") to be unquoted as bare variable references.
-    # Why this change: Only unquote when the parameter key is a known data/value/quantity arg.
     template = build_helper_script_template(
         helper="describe_data",
         params={"column": "data", "data": "data"},
@@ -282,7 +271,7 @@ def test_direct_call_unresolved_name_is_omitted():
         "from writeragent.scripting.units import convert_quantity\n"
         "convert_quantity(user_var)\n"
     )
-    assert parse_run_import_call_spec(code, run_name="run_units") == {
+    assert ScriptFacts.from_source(code).first_run_spec("run_units") == {
         "helper": "convert_quantity",
         "params": {},
     }
@@ -293,7 +282,7 @@ def test_unresolved_output_style_is_omitted():
         "from writeragent.scripting.units import convert_quantity\n"
         "convert_quantity(1, 'm', 'km', output_style=style_var)\n"
     )
-    spec = parse_run_import_call_spec(code, run_name="run_units")
+    spec = ScriptFacts.from_source(code).first_run_spec("run_units")
     assert spec is not None
     assert spec["params"] == {
         "value": 1,
@@ -307,7 +296,7 @@ def test_literal_none_is_kept():
         "from writeragent.scripting.units import convert_quantity\n"
         "convert_quantity(None)\n"
     )
-    assert parse_run_import_call_spec(code, run_name="run_units") == {
+    assert ScriptFacts.from_source(code).first_run_spec("run_units") == {
         "helper": "convert_quantity",
         "params": {"value": None},
     }
@@ -317,7 +306,7 @@ def test_unresolved_list_and_dict_value_are_omitted():
     code = (
         'result = run_units({"helper": "convert_quantity", "params": {"value": user_var, "to": "km", "items": [1, user_var]}}, None, {})\n'
     )
-    spec = parse_run_import_call_spec(code, run_name="run_units")
+    spec = ScriptFacts.from_source(code).first_run_spec("run_units")
     assert spec is not None
     assert spec["params"] == {"to": "km"}
 
@@ -437,16 +426,14 @@ def test_script_header_needs_data_binding_on_calc_domains():
 
     calc_doc = object()
     with patch("plugin.doc.doc_type.is_calc", return_value=True):
-        assert script_header_needs_data_binding(
+        assert ScriptFacts.from_source(
             "from writeragent.scripting.analysis import run_analysis\nresult = run_analysis(...)\n",
-            doc=calc_doc,
-        ) is True
-        assert script_header_needs_data_binding(
+        ).needs_data_binding(doc=calc_doc) is True
+        assert ScriptFacts.from_source(
             'from writeragent.scripting.forecast import run_forecast\nresult = run_forecast({"helper": "forecast_time_series", "params": {}}, data, {})\n',
-            doc=calc_doc,
-        ) is True
-        assert script_header_needs_data_binding("# writeragent:text helper=full params={}\n", doc=calc_doc) is False
-        assert script_header_needs_data_binding('print("hi")\n', doc=calc_doc) is False
+        ).needs_data_binding(doc=calc_doc) is True
+        assert ScriptFacts.from_source("# writeragent:text helper=full params={}\n").needs_data_binding(doc=calc_doc) is False
+        assert ScriptFacts.from_source('print("hi")\n').needs_data_binding(doc=calc_doc) is False
 
 
 def test_script_header_needs_data_binding_for_direct_helper_templates():
@@ -455,14 +442,12 @@ def test_script_header_needs_data_binding_for_direct_helper_templates():
 
     calc_doc = object()
     with patch("plugin.doc.doc_type.is_calc", return_value=True):
-        assert script_header_needs_data_binding(
+        assert ScriptFacts.from_source(
             get_analysis_script_templates()["describe_data"],
-            doc=calc_doc,
-        ) is True
-        assert script_header_needs_data_binding(
+        ).needs_data_binding(doc=calc_doc) is True
+        assert ScriptFacts.from_source(
             get_sql_script_templates()["query_sheet_sql"],
-            doc=calc_doc,
-        ) is True
+        ).needs_data_binding(doc=calc_doc) is True
 
 
 def test_script_header_needs_data_binding_ignores_comments_and_non_calc():
@@ -476,35 +461,32 @@ def test_script_header_needs_data_binding_ignores_comments_and_non_calc():
     viz_code = "from writeragent.scripting.viz import quick_plot\nresult = quick_plot()\n"
 
     with patch("plugin.doc.doc_type.is_calc", side_effect=is_calc_mock):
-        assert script_header_needs_data_binding("# run_analysis(foo)\n", doc=calc_doc) is False
-        assert script_header_needs_data_binding('x = "run_analysis("\n', doc=calc_doc) is False
-        assert script_header_needs_data_binding("run_analysis()\n", doc=calc_doc) is True
+        assert ScriptFacts.from_source("# run_analysis(foo)\n").needs_data_binding(doc=calc_doc) is False
+        assert ScriptFacts.from_source('x = "run_analysis("\n').needs_data_binding(doc=calc_doc) is False
+        assert ScriptFacts.from_source("run_analysis()\n").needs_data_binding(doc=calc_doc) is True
         assert (
-            script_header_needs_data_binding(
+            ScriptFacts.from_source(
                 "result = writeragent.scripting.analysis.run_analysis()\n",
-                doc=calc_doc,
-            )
+            ).needs_data_binding(doc=calc_doc)
             is True
         )
-        assert script_header_needs_data_binding("query_folder_sql()\n", doc=calc_doc) is True
+        assert ScriptFacts.from_source("query_folder_sql()\n").needs_data_binding(doc=calc_doc) is True
         assert (
-            script_header_needs_data_binding(
+            ScriptFacts.from_source(
                 "import writeragent.scripting.analysis as analysis\nresult = analysis.describe_data()\n",
-                doc=calc_doc,
-            )
+            ).needs_data_binding(doc=calc_doc)
             is True
         )
         assert (
-            script_header_needs_data_binding(
+            ScriptFacts.from_source(
                 "import writeragent.scripting.analysis\nresult = writeragent.scripting.analysis.describe_data()\n",
-                doc=calc_doc,
-            )
+            ).needs_data_binding(doc=calc_doc)
             is False
         )
-        assert script_header_needs_data_binding("run_analysis(\n", doc=calc_doc) is True
-        assert script_header_needs_data_binding("run_viz()\n", doc=non_calc_doc) is False
-        assert script_header_needs_data_binding(viz_code, doc=non_calc_doc) is False
-        assert script_header_needs_data_binding(viz_code, doc=calc_doc) is True
+        assert ScriptFacts.from_source("run_analysis(\n").needs_data_binding(doc=calc_doc) is True
+        assert ScriptFacts.from_source("run_viz()\n").needs_data_binding(doc=non_calc_doc) is False
+        assert ScriptFacts.from_source(viz_code).needs_data_binding(doc=non_calc_doc) is False
+        assert ScriptFacts.from_source(viz_code).needs_data_binding(doc=calc_doc) is True
 
 
 

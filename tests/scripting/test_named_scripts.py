@@ -221,7 +221,7 @@ def test_sandbox_library_second_attr_does_not_refetch():
             }
         raise AssertionError(tool)
 
-    with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+    with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
         res = run_sandboxed_code(
             "import writeragent as wa\n"
             "result = wa.scripts.Helpers.add(1, 2) + wa.scripts.Helpers.mul(3, 4)\n"
@@ -251,7 +251,7 @@ def test_getitem_uses_stored_title():
             }
         raise AssertionError(tool)
 
-    with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+    with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
         res = run_sandboxed_code(
             "import writeragent as wa\n"
             "result = wa.scripts['odd name'].ping()\n"
@@ -290,7 +290,7 @@ def test_shared_session_picks_up_script_edit():
     bodies = {"Helpers": "def n():\n    return 1\n"}
     sid = "test-named-scripts-edit"
     try:
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=_helpers_rpc(bodies)):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=_helpers_rpc(bodies)):
             r1 = run_sandboxed_code(
                 "import writeragent as wa\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
@@ -315,7 +315,7 @@ def test_shared_session_unchanged_sends_hash_not_body():
     calls: list[tuple[str, dict]] = []
     sid = "test-named-scripts-hash"
     try:
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=_helpers_rpc(bodies, calls)):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=_helpers_rpc(bodies, calls)):
             run_sandboxed_code(
                 "import writeragent as wa\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
@@ -351,7 +351,7 @@ def test_doc_hello_function_call():
             }
         raise AssertionError(tool)
 
-    with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+    with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
         res = run_sandboxed_code(
             "import writeragent as wa\n"
             "result = wa.doc.hello_writeragent.hello()\n"
@@ -385,7 +385,7 @@ def test_script_library_uses_bound_executor_not_contextvar():
 
     token = _current_executor.set(None)
     try:
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
             assert lib.hello_writeragent.hello() == "Hello, Keith"
     finally:
         _current_executor.reset(token)
@@ -437,7 +437,7 @@ def test_bind_keeps_each_executor_library():
                 }
             raise AssertionError(tool)
 
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
             assert lib_a.hello_writeragent.hello() == "from-a"
         assert ("document", "hello_writeragent") in exe_a._named_script_cache
         assert getattr(exe_b, "_named_script_cache", None) in (None, {})
@@ -470,7 +470,7 @@ def test_library_lookup_prefers_contextvar_executor():
         raise AssertionError(tool)
 
     try:
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
             assert lib.Helpers.n() == "from-context"
         assert ("user", "Helpers") in exe_b._named_script_cache
         assert getattr(exe_a, "_named_script_cache", None) in (None, {})
@@ -621,39 +621,29 @@ def test_off_main_py_named_script_skips_main_thread_marshal():
 
 
 def test_rpc_named_librepy_fallback_uses_exchange_tool_call():
-    import builtins
-
-    from plugin.scripting.named_scripts import _rpc_named
-
-    real_import = builtins.__import__
-
-    def _block_api(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "plugin.scripting.writeragent_api":
-            raise ImportError("LibrePy omits writeragent_api")
-        return real_import(name, globals, locals, fromlist, level)
+    from plugin.scripting.host_tool_call import call_host_tool
 
     with (
         # COMPUTE_WORKER is set by importing compute_service.formula_worker;
         # force it off so this test does not depend on what ran earlier.
         patch.dict("os.environ", {"WRITERAGENT_IS_WORKER": "1", "WRITERAGENT_COMPUTE_WORKER": "0"}),
-        patch("builtins.__import__", side_effect=_block_api),
         patch("plugin.scripting.ipc.exchange_tool_call", return_value={"body": "x"}) as mock_exchange,
     ):
-        result = _rpc_named("get_named_python_script", name="Hello", missing=None)
+        result = call_host_tool("get_named_python_script", name="Hello", missing=None)
 
     assert result == {"body": "x"}
     mock_exchange.assert_called_once_with("get_named_python_script", {"name": "Hello"})
 
 
 def test_rpc_named_fails_closed_in_compute_worker():
-    from plugin.scripting.named_scripts import _rpc_named
+    from plugin.scripting.host_tool_call import call_host_tool
 
     with (
         patch.dict("os.environ", {"WRITERAGENT_COMPUTE_WORKER": "1"}),
         patch("plugin.scripting.ipc.exchange_tool_call") as mock_exchange,
     ):
         with pytest.raises(RuntimeError, match="compute service"):
-            _rpc_named("get_named_python_script", name="Hello")
+            call_host_tool("get_named_python_script", name="Hello")
     mock_exchange.assert_not_called()
 
 
@@ -709,7 +699,7 @@ def test_script_library_dir_and_contains():
             return {"user": ["my_func", "other-script"], "document": []}
         return {}
 
-    with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+    with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
         lib = ScriptLibrary("user")
         d = dir(lib)
         assert "my_func" in d
@@ -899,7 +889,7 @@ def test_shared_session_namespace_mutation_persists():
     bodies = {"Helpers": "def n():\n    return 1\n"}
     sid = "test-named-scripts-mutation"
     try:
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=_helpers_rpc(bodies)):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=_helpers_rpc(bodies)):
             r1 = run_sandboxed_code(
                 "import writeragent as wa\nwa.scripts.Helpers.n = lambda: 9\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,

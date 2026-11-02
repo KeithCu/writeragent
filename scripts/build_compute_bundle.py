@@ -65,6 +65,7 @@ COMPUTE_PLUGIN_FILES = (
     "plugin/scripting/excel_xl.py",
     "plugin/scripting/helper_domain.py",
     "plugin/scripting/helper_registry.py",
+    "plugin/scripting/host_tool_call.py",
     "plugin/scripting/ipc.py",
     "plugin/scripting/named_scripts.py",
     "plugin/scripting/payload_codec.py",

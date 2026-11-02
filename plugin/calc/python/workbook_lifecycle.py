@@ -252,7 +252,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 log.debug("python_workbook_lifecycle: %s reopened; dropping reset retry", sid)
                 return
             try:
-                res = reset_python_session(self._ctx, sid)
+                res = reset_python_session(sid)
             except Exception:
                 log.debug("python_workbook_lifecycle: retry reset raised", exc_info=True)
                 break
@@ -262,7 +262,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             log.warning("python_workbook_lifecycle: session %s still WORKER_REENTRY after retry timeout", sid)
 
     def _reset_one(self, sid: str) -> None:
-        res = reset_python_session(self._ctx, sid)
+        res = reset_python_session(sid)
         if _is_reentry(res):
             from plugin.framework.worker_pool import run_in_background
 
