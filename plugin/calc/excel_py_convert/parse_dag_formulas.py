@@ -23,12 +23,8 @@ from plugin.calc.excel_py_convert.parse_excel_ooxml import (
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.python.formula_edit import (
     CALC_PYTHON_FN,
+    PyFormula,
     escape_code_for_formula,
-    format_data_binding_display,
-    parse_data_binding_text,
-    parse_python_formula,
-    py_formula_has_unquoted_code_ref,
-    rebuild_python_formula_with_data,
 )
 
 
@@ -77,17 +73,16 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
                 shifted = shift_xlws_py_formula(master_body, delta_r, delta_c)
                 formula = shifted[0] if shifted else ""
             else:
-                parts = parse_python_formula(master_body)
+                parts = PyFormula.parse(master_body)
                 if parts is not None:
                     shifted_args: list[str] = []
-                    # PythonFormulaParts has no data_args; re-parse the trailing arg text and keep parts.prefix.
-                    for arg in parse_data_binding_text(format_data_binding_display(parts.data_suffix)):
+                    for arg in parts.data_args():
                         s_arg = shift_xlws_py_dep(arg, delta_r, delta_c)
                         if s_arg is None:
                             break
                         shifted_args.append(s_arg)
                     else:
-                        formula = rebuild_python_formula_with_data(parts.code, shifted_args, parts=parts)
+                        formula = parts.render(parts.code, data_args=shifted_args)
 
         if formula and not formula.startswith("="):
             formula = "=" + formula
@@ -134,13 +129,13 @@ def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
             for a1, (formula, _value) in cell_map.items():
                 if not formula:
                     continue
-                parts = parse_python_formula(formula)
+                parts = PyFormula.parse(formula)
                 if parts is None:
                     continue
                 # A quoted code string that looks like a bank ref is literal Python, not a reference.
                 resolved = (
                     resolve_bank_cell_reference(parts.code, _lookup)
-                    if py_formula_has_unquoted_code_ref(formula)
+                    if parts.code_is_ref
                     else None
                 )
                 if resolved is not None:

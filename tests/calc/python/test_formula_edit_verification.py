@@ -19,20 +19,17 @@ from hypothesis import strategies as st
 
 import deal
 from plugin.calc.python.formula_edit import (
+    PyFormula,
     _parse_quoted_string,
     _parse_unquoted_code_arg,
+    build_data_suffix,
     escape_code_for_formula,
     format_data_binding_display,
     format_data_binding_text,
-    normalize_formula_string,
-    parse_data_binding_text,
-    parse_python_formula,
-    rebuild_python_formula,
-    rebuild_python_formula_with_data,
     format_excel_data_range,
     format_py_data_range,
-    build_data_suffix,
-    PythonFormulaParts,
+    normalize_formula_string,
+    parse_data_binding_text,
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
@@ -47,20 +44,16 @@ _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
     "plugin.calc.python.formula_edit._parse_quoted_string",
     "plugin.calc.python.formula_edit.normalize_formula_string",
-    "plugin.calc.python.formula_edit.parse_python_formula",
+    "plugin.calc.python.formula_edit.PyFormula.parse",
     "plugin.calc.spreadsheet_import.preprocess.normalize_lo_formula_for_parse",
 )
 _REWRITE_WRAPPERS_OFF = (
     "escape_code_for_formula",
-    "rebuild_python_formula",
-    "rebuild_python_formula_with_data",
+    "render",
+    "compose",
     "format_data_binding_display",
     "parse_data_binding_text",
-    "extract_python_code_loose",
     "build_data_suffix",
-    "py_formula_has_unquoted_code_ref",
-    "rebuild_python_formula_with_code_ref",
-    "cell_looks_python_like",
 )
 
 # Avoid Hypothesis inventing NULs / unpaired surrogates that confuse quote lexers.
@@ -91,7 +84,7 @@ def test_hypothesis_escape_embed_parse_round_trip(code: str) -> None:
     """escape → embed in =PY("…") → parse recovers code."""
     escaped = escape_code_for_formula(code)
     formula = f'=PY("{escaped}")'
-    parts = parse_python_formula(formula)
+    parts = PyFormula.parse(formula)
     assert parts is not None
     assert parts.code == code
     assert parts.data_suffix == ")"
@@ -103,10 +96,10 @@ def test_hypothesis_rebuild_parse_round_trip(code: str) -> None:
     """rebuild(parse(=PY(\"…\"))) preserves sanitized code (Phase 8 #1)."""
     escaped = escape_code_for_formula(code)
     formula = f'=PY("{escaped}")'
-    parts = parse_python_formula(formula)
+    parts = PyFormula.parse(formula)
     assert parts is not None
-    rebuilt = rebuild_python_formula(parts, parts.code)
-    again = parse_python_formula(rebuilt)
+    rebuilt = parts.render(parts.code)
+    again = PyFormula.parse(rebuilt)
     assert again is not None
     assert again.code == parts.code
     assert again.data_suffix == parts.data_suffix
@@ -156,10 +149,10 @@ def test_parse_quoted_string_rejects_negative_start() -> None:
 
 def test_parse_rebuild_preserves_code_and_data_suffix() -> None:
     original = '=PYTHON("result = 1"; A1:B10)'
-    parts = parse_python_formula(original)
+    parts = PyFormula.parse(original)
     assert parts is not None
-    rebuilt = rebuild_python_formula(parts, parts.code)
-    again = parse_python_formula(rebuilt)
+    rebuilt = parts.render(parts.code)
+    again = PyFormula.parse(rebuilt)
     assert again is not None
     assert again.code == parts.code
     assert again.data_suffix == parts.data_suffix
@@ -190,23 +183,23 @@ def test_data_binding_format_and_parse() -> None:
 
 
 def test_formula_edit_overflow_pre_fails_closed() -> None:
-    if not deal_pre_present(rebuild_python_formula_with_data):
+    if not deal_pre_present(PyFormula.compose):
         pytest.skip("@deal.pre stripped in release bundle")
     too_long = "x" * (DEAL_MAX_SOURCE + 1)
     # rebuild_* / sanitize / escape allow DEAL_MAX_SOURCE+256 slack (dtype=float growth).
     rebuild_too_long = "x" * (DEAL_MAX_SOURCE + 256 + 1)
     with pytest.raises(deal.PreContractError):
-        rebuild_python_formula_with_data(rebuild_too_long, [])
+        PyFormula.compose(rebuild_too_long, [])
     with pytest.raises(deal.PreContractError):
         escape_code_for_formula(rebuild_too_long)
     with pytest.raises(deal.PreContractError):
-        rebuild_python_formula(PythonFormulaParts("=PY(", "x", ")"), rebuild_too_long)
+        PyFormula("=PY(", "x", data_suffix=")").render(rebuild_too_long)
     with pytest.raises(deal.PreContractError):
         format_data_binding_display(too_long)
     with pytest.raises(deal.PreContractError):
         normalize_formula_string(too_long)
     with pytest.raises(deal.PreContractError):
-        parse_python_formula(too_long)
+        PyFormula.parse(too_long)
     with pytest.raises(deal.PreContractError):
         normalize_lo_formula_for_parse(too_long)
     with pytest.raises(deal.PreContractError):
@@ -243,13 +236,13 @@ def test_hypothesis_format_data_binding_display_invariants(suffix: str) -> None:
 def test_normalize_py_token_is_not_pattern_error() -> None:
     """Cluster A: CrossHair ``normalize_formula_string('PY')`` PatternError."""
     assert normalize_formula_string("PY") == "PY"
-    assert parse_python_formula("PY") is None
+    assert PyFormula.parse("PY") is None
 
 
 def test_sanitize_dtype_float_control_char_is_not_nested_pre() -> None:
     """Cluster B: ``dtype=float`` + NUL/SOH."""
     assert escape_code_for_formula("dtype=float\x00") == "dtype=float\x00"
-    rebuilt = rebuild_python_formula(PythonFormulaParts("=PY(", "x", ")"), ".dtype=float\x01")
+    rebuilt = PyFormula("=PY(", "x", data_suffix=")").render(".dtype=float\x01")
     assert ".dtype=float\x01" in rebuilt
 
 
@@ -266,28 +259,24 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
     fqns = cover_fqns_for_module(path, require_deal=True)
     for name in _REWRITE_WRAPPERS_OFF:
         assert not any(f.endswith(f".{name}") for f in fqns), name
-    assert any(f.endswith(".parse_python_formula") for f in fqns)
+    assert any(f.endswith(".PyFormula.parse") for f in fqns)
     assert any(f.endswith(".normalize_formula_string") for f in fqns)
     assert any(f.endswith(".format_py_data_range") for f in fqns)
     assert any(f.endswith(".format_excel_data_range") for f in fqns)
     cover_fqns = cover_fqns_for_module(path)
     for name in (
-        "extract_python_code_loose",
         "build_data_suffix",
-        "py_formula_has_unquoted_code_ref",
-        "rebuild_python_formula_with_code_ref",
-        "cell_looks_python_like",
         "_parts_result_ok",
         "_quoted_parse_result_ok",
-        "py_call_open_end",
         "format_data_binding_text",
+        "render",
+        "compose",
     ):
         assert not any(f.endswith(f".{name}") for f in cover_fqns), name
     preprocess = cover_fqns_for_module(
         Path("plugin/calc/spreadsheet_import/preprocess.py"), require_deal=True
     )
     assert any(f.endswith(".normalize_lo_formula_for_parse") for f in preprocess)
-
 
 
 @pytest.mark.slow

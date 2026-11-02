@@ -14,15 +14,15 @@ from plugin.calc.python.editor import (
     editor_load_save_as_plain,
 )
 from plugin.calc.python.formula_edit import (
+    PyFormula,
     build_editor_formula_save,
-    parse_python_formula,
     py_code_arg_is_cell_ref,
 )
 from plugin.tests.testing_utils import CalcCellStub, CalcDocStub, CalcSheetStub
 
 
 def test_editor_load_save_as_plain_python_formula():
-    parts = parse_python_formula('=PYTHON("x"; A1:B10)')
+    parts = PyFormula.parse('=PYTHON("x"; A1:B10)')
     assert parts is not None
     assert editor_load_save_as_plain(parsed_parts=parts, initial_code="x") is False
 
@@ -37,7 +37,7 @@ def test_editor_load_save_as_plain_empty_cell():
 
 
 def test_editor_load_save_as_plain_follow_code_ref():
-    parts = parse_python_formula("=PY($A$1; C1:C10)")
+    parts = PyFormula.parse("=PY($A$1; C1:C10)")
     assert parts is not None
     assert editor_load_save_as_plain(
         parsed_parts=parts, initial_code="result = 1", follow_code_ref=True
@@ -48,7 +48,6 @@ def test_build_editor_formula_save_new_cell_with_data_binding():
     result = build_editor_formula_save(
         parsed_parts=None,
         new_code="np.mean(data)",
-        cell_has_unparsed_python=False,
         data_binding_text="A1:A10",
     )
     assert result == '=PY("np.mean(data)";A1:A10)'
@@ -58,7 +57,6 @@ def test_build_editor_formula_save_multi_range_from_textbox():
     result = build_editor_formula_save(
         parsed_parts=None,
         new_code="sum(d) for d in ranges",
-        cell_has_unparsed_python=False,
         data_binding_text="A1:A5, C1:C5",
     )
     assert isinstance(result, str)
@@ -67,12 +65,11 @@ def test_build_editor_formula_save_multi_range_from_textbox():
 
 
 def test_build_editor_formula_save_clear_data_binding():
-    parts = parse_python_formula('=PYTHON("x"; A1:B10)')
+    parts = PyFormula.parse('=PYTHON("x"; A1:B10)')
     assert parts is not None
     result = build_editor_formula_save(
         parsed_parts=parts,
         new_code="x = 1",
-        cell_has_unparsed_python=False,
         data_binding_text="",
     )
     assert result == '=PYTHON("x = 1")'
@@ -102,41 +99,29 @@ def test_build_editor_formula_save_new_cell():
     result = build_editor_formula_save(
         parsed_parts=None,
         new_code="np.mean(data)",
-        cell_has_unparsed_python=False,
     )
     assert result == '=PY("np.mean(data)")'
 
 
 def test_build_editor_formula_save_preserves_data_suffix():
-    parts = parse_python_formula('=PYTHON("x"; A1:B10)')
+    parts = PyFormula.parse('=PYTHON("x"; A1:B10)')
     assert parts is not None
     result = build_editor_formula_save(
         parsed_parts=parts,
         new_code="np.sum(data)",
-        cell_has_unparsed_python=False,
     )
     assert isinstance(result, str)
     assert "A1:B10" in result
     assert 'np.sum(data)' in result
-    reparsed = parse_python_formula(result)
+    reparsed = PyFormula.parse(result)
     assert reparsed is not None
     assert reparsed.code == "np.sum(data)"
-
-
-def test_build_editor_formula_save_unparsed_python_returns_error():
-    result = build_editor_formula_save(
-        parsed_parts=None,
-        new_code="x = 1",
-        cell_has_unparsed_python=True,
-    )
-    assert isinstance(result, dict)
-    assert result["type"] == "error"
 
 
 def test_apply_cell_save_formula_mode():
     doc = CalcDocStub()
     cell = CalcCellStub()
-    parts = parse_python_formula('=PYTHON("old"; C1:C5)')
+    parts = PyFormula.parse('=PYTHON("old"; C1:C5)')
     assert parts is not None
 
     result = _apply_cell_save(
@@ -153,7 +138,7 @@ def test_apply_cell_save_formula_mode():
     assert cell.getString() == ""
     assert "C1:C5" in formula
     assert "new" in formula
-    reparsed = parse_python_formula(formula)
+    reparsed = PyFormula.parse(formula)
     assert reparsed is not None
     assert reparsed.code == "new"
     assert doc.calculate_all_count == 1
@@ -162,7 +147,7 @@ def test_apply_cell_save_formula_mode():
 def test_apply_cell_save_plain_text_mode():
     doc = CalcDocStub()
     cell = CalcCellStub()
-    parts = parse_python_formula('=PYTHON("old"; C1:C5)')
+    parts = PyFormula.parse('=PYTHON("old"; C1:C5)')
     assert parts is not None
     code = "np.mean(data)\n"
 
@@ -190,7 +175,7 @@ def test_follow_code_ref_save_writes_a1_keeps_formula_ref():
     formula_cell = sheet.getCellByPosition(1, 0)
     code_cell.setString("result = 42")
     formula_cell.setFormula("=PY($A$1; C1:C10)")
-    parts = parse_python_formula(formula_cell.getFormula())
+    parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
     assert parts.code == "$A$1"
 
@@ -213,7 +198,7 @@ def test_follow_code_ref_save_writes_a1_keeps_formula_ref():
     assert "Saved code in $A$1" in result.get("status_ok_text", "")
     assert formula_cell.getFormula().startswith("=PY(")
     assert code_cell.getString() == "result = 99"
-    reparsed = parse_python_formula(formula_cell.getFormula())
+    reparsed = PyFormula.parse(formula_cell.getFormula())
     assert reparsed is not None
     assert py_code_arg_is_cell_ref(reparsed.code)
     assert "C1:C10" in formula_cell.getFormula()
@@ -232,7 +217,7 @@ def test_self_ref_code_cell_does_not_take_follow_save_path():
     sheet = doc.getSheets().getByIndex(0)
     cell = sheet.getCellByPosition(0, 0)
     cell.setFormula("=PY($A$1)")
-    parts = parse_python_formula(cell.getFormula())
+    parts = PyFormula.parse(cell.getFormula())
     assert parts is not None
 
     for code_cell in (cell, sheet.getCellByPosition(0, 0)):
@@ -258,7 +243,7 @@ def test_follow_plain_flag_still_sends_data_text():
     formula_cell = sheet.getCellByPosition(1, 0)
     code_cell.setString("result = 42")
     formula_cell.setFormula("=PY($A$1; C1:C10)")
-    parts = parse_python_formula(formula_cell.getFormula())
+    parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
     assert parts.code == "$A$1"
 
@@ -291,7 +276,7 @@ def test_follow_code_ref_save_can_change_data_binding():
     formula_cell = sheet.getCellByPosition(1, 0)
     code_cell.setString("result = np.sum(data)")
     formula_cell.setFormula("=PY($A$1; C1:C10)")
-    parts = parse_python_formula(formula_cell.getFormula())
+    parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
 
     result = _apply_cell_save(
@@ -321,7 +306,7 @@ def test_follow_code_ref_empty_data_keeps_formula_and_one_paren():
     formula_cell = sheet.getCellByPosition(1, 0)
     code_cell.setString("result = 42")
     formula_cell.setFormula("=PY($A$1)")
-    parts = parse_python_formula(formula_cell.getFormula())
+    parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
     original = formula_cell.getFormula()
 
@@ -347,7 +332,7 @@ def _follow_save(formula, new_code, data_binding_text):
     formula_sheet = doc.getSheets().getByIndex(0)
     formula_cell = formula_sheet.getCellByPosition(1, 0)
     formula_cell.setFormula(formula)
-    parts = parse_python_formula(formula_cell.getFormula())
+    parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
     resolved = _resolve_code_ref_cell(doc, parts.code)
     assert resolved is not None
@@ -389,7 +374,7 @@ def test_follow_sheet_qualified_ref_resolves_other_sheet():
     code_cell.setString("result = 7")
     formula_cell = sheet1.getCellByPosition(1, 0)
     formula_cell.setFormula("=PY(Sheet2.A1; C1:C10)")
-    parts = parse_python_formula(formula_cell.getFormula())
+    parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
     assert parts.code == "Sheet2.A1"
     resolved = _resolve_code_ref_cell(doc, parts.code)
@@ -421,7 +406,7 @@ def test_follow_quoted_sheet_name_resolves():
     code_cell.setString("result = 3")
     formula_cell = formula_sheet.getCellByPosition(0, 0)
     formula_cell.setFormula("=PY('My Sheet'.$B$2; C1:C10)")
-    parts = parse_python_formula(formula_cell.getFormula())
+    parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
     resolved = _resolve_code_ref_cell(doc, parts.code)
     assert resolved is code_cell
@@ -452,7 +437,7 @@ def test_follow_apostrophe_sheet_name_resolves():
     code_cell.setString("result = 3")
     formula_cell = formula_sheet.getCellByPosition(0, 0)
     formula_cell.setFormula("=PY('O''Brien'.$B$2; C1:C10)")
-    parts = parse_python_formula(formula_cell.getFormula())
+    parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
     resolved = _resolve_code_ref_cell(doc, parts.code)
     assert resolved is code_cell
@@ -492,7 +477,7 @@ def test_follow_clear_data_rewrites_to_ref_only():
     assert "$A$1" in formula
     assert formula.count(")") == 1
     assert not formula.endswith("))")
-    reparsed = parse_python_formula(formula)
+    reparsed = PyFormula.parse(formula)
     assert reparsed is not None
     assert py_code_arg_is_cell_ref(reparsed.code)
 
@@ -556,7 +541,6 @@ def test_text_cell_py_literal_is_not_a_formula():
     from unittest.mock import MagicMock
     from plugin.calc.python.editor import (
         _cell_formula_strings,
-        _cell_has_unparsed_python,
         _load_cell_editor_code,
         editor_load_save_as_plain,
     )
@@ -570,7 +554,6 @@ def test_text_cell_py_literal_is_not_a_formula():
     code1, parts1, _source1 = _load_cell_editor_code(cell1, _cell_formula_strings(cell1))
     assert code1 == "PY(x)"
     assert parts1 is None
-    assert _cell_has_unparsed_python(cell1) is False
     assert editor_load_save_as_plain(parsed_parts=None, initial_code="PY(x)") is True
 
     cell2 = MagicMock()
@@ -703,7 +686,7 @@ def test_follow_save_uses_one_undo_context():
     formula_cell = sheet.getCellByPosition(1, 0)
     code_cell.setString("result = 42")
     formula_cell.setFormula("=PY($A$1; C1:C10)")
-    parts = parse_python_formula(formula_cell.getFormula())
+    parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
 
     calls: list[tuple[str, Any]] = []
@@ -761,36 +744,5 @@ def test_plain_save_reconciles_geometric_registry():
         )
         assert result["ok"] is True
         mock_after.assert_called_once_with(doc, cell)
-
-
-def test_formula_save_skips_unparsed_probe_when_data_present():
-    from unittest.mock import patch
-    import plugin.calc.python.editor as pe
-
-    doc = CalcDocStub()
-    cell = CalcCellStub()
-
-    with patch.object(pe, "_cell_has_unparsed_python", return_value=False) as mock_probe:
-        result = _apply_cell_save(
-            doc,
-            cell,
-            parsed_parts=None,
-            new_code="x = 1",
-            save_as_plain=False,
-            data_binding_text="A1:A5",
-        )
-        assert result["ok"] is True
-        mock_probe.assert_not_called()
-
-        result2 = _apply_cell_save(
-            doc,
-            cell,
-            parsed_parts=None,
-            new_code="x = 2",
-            save_as_plain=False,
-            data_binding_text=None,
-        )
-        assert result2["ok"] is True
-        mock_probe.assert_called_once_with(cell)
 
 

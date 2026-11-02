@@ -19,15 +19,11 @@ from typing import Literal, Mapping
 
 from plugin.calc.address_utils import format_address, parse_address, parse_range_string, split_sheet_prefix
 from plugin.calc.python.formula_edit import (
-    PythonFormulaParts,
+    PyFormula,
     assemble_python_formula,
     escape_code_for_formula,
-    format_data_binding_display,
     format_py_data_range,
-    parse_data_binding_text,
-    parse_python_formula,
     py_code_arg_is_cell_ref,
-    py_formula_has_unquoted_code_ref,
 )
 
 log = logging.getLogger(__name__)
@@ -115,16 +111,12 @@ def _arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None)
     return c_lo <= tcol <= c_hi and r_lo <= trow <= r_hi
 
 
-def _args_of(parts: PythonFormulaParts) -> list[str]:
-    return parse_data_binding_text(format_data_binding_display(parts.data_suffix))
-
-
 def formula_data_args(formula: str) -> list[str] | None:
     """Trailing ``=PY`` data args, or None if the formula does not parse."""
-    parts = parse_python_formula(formula)
+    parts = PyFormula.parse(formula)
     if parts is None:
         return None
-    return _args_of(parts)
+    return parts.data_args()
 
 
 def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | None:
@@ -133,10 +125,10 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
     Quoted code is quote-escaped only (``"`` → ``""``). Code-in-cell keeps
     the unquoted ref (``$A$1``).
     """
-    parts = parse_python_formula(formula)
+    parts = PyFormula.parse(formula)
     if parts is None:
         return None
-    old_args = _args_of(parts)
+    old_args = parts.data_args()
     # Join existing user args verbatim; format only a new/replaced last pred.
     # ``build_data_suffix`` / ``_format_py_data_range_body`` strip ``$`` from
     # every token. Keep the parsed original spelling; only the appended/replaced
@@ -154,7 +146,7 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
             else:
                 emitted.append(tok)
         suffix = f";{';'.join(emitted)})"
-    if py_formula_has_unquoted_code_ref(formula):
+    if parts.code_is_ref:
         return assemble_python_formula(parts.prefix, parts.code, suffix, quoted=False)
     return assemble_python_formula(parts.prefix, escape_code_for_formula(parts.code), suffix, quoted=True)
 
@@ -178,10 +170,9 @@ def _adj_for(
     sheet_name: str,
 ) -> set[str]:
     tokens = list(args or [])
-    if py_formula_has_unquoted_code_ref(formula):
-        parts = parse_python_formula(formula)
-        if parts is not None and parts.code:
-            tokens.append(parts.code)
+    parts = PyFormula.parse(formula)
+    if parts is not None and parts.code_is_ref and parts.code:
+        tokens.append(parts.code)
     return {
         live for live in live_keys
         if any(_arg_covers_cell(token, live, sheet_name=sheet_name) for token in tokens)
