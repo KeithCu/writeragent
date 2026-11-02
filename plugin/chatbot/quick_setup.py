@@ -14,7 +14,7 @@ from plugin.framework.client.model_fetcher import (
     _v1_models_request,
 )
 from plugin.framework.client.provider_detection import is_openrouter_endpoint, is_openwebui_endpoint
-from plugin.framework.config import get_config_bool_safe
+from plugin.framework.config import get_config
 from plugin.framework.constants import USER_AGENT
 from plugin.framework.i18n import _
 
@@ -37,8 +37,8 @@ def check_endpoint_connection(endpoint: str, api_key: str = "") -> tuple[bool, s
         base,
         api_key,
         models_url,
-        is_openwebui=is_openwebui_endpoint(endpoint, explicit_is_openwebui=get_config_bool_safe("is_openwebui")),
-        is_openrouter=is_openrouter_endpoint(base, explicit_is_openrouter=get_config_bool_safe("is_openrouter")),
+        is_openwebui=is_openwebui_endpoint(endpoint, explicit_is_openwebui=bool(get_config("is_openwebui"))),
+        is_openrouter=is_openrouter_endpoint(base, explicit_is_openrouter=bool(get_config("is_openrouter"))),
         log_label="check_endpoint_connection",
     )
     if auth_headers is None:

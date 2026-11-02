@@ -100,15 +100,17 @@ def test_start_server_stashes_last_start_error(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
 
     services = MagicMock()
-    proxy = MagicMock()
-    proxy.get.side_effect = lambda k, d=None: {
-        "mcp_port": 18765,
-        "host": "localhost",
-        "use_ssl": False,
-        "ssl_cert": "",
-        "ssl_key": "",
-    }.get(k, d)
-    services.config.proxy_for.return_value = proxy
+    monkeypatch.setattr(
+        mcp_mod,
+        "get_config",
+        lambda k: {
+            "mcp.mcp_port": 18765,
+            "mcp.host": "localhost",
+            "mcp.use_ssl": False,
+            "mcp.ssl_cert": "",
+            "mcp.ssl_key": "",
+        }.get(k),
+    )
     services.events = None
 
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
@@ -226,7 +228,7 @@ def _module_with_listener(monkeypatch, listener, cfg_values, *, fail_start: Base
 
     services = MagicMock()
     cfg = _Cfg(cfg_values)
-    services.config.proxy_for.return_value = cfg
+    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg.values.get(k.removeprefix("mcp."), cfg.values.get(k)))
     services.events = MagicMock()
 
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)

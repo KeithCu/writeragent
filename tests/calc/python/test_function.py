@@ -1216,7 +1216,7 @@ def test_session_key_off_main_ignores_cached_doc(monkeypatch: pytest.MonkeyPatch
 def test_finalize_python_return_off_main_skips_session_key_on_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
     """Spill-disabled list results must not locate the cached model off-main."""
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
-    monkeypatch.setattr("plugin.framework.config.get_config_bool", lambda _key: False)
+    monkeypatch.setattr("plugin.framework.config.get_config", lambda _key: False)
     doc = MagicMock()
     doc.getURL.side_effect = AssertionError("getURL off main")
     val = finalize_python_return(MagicMock(), "c", [10, 20, 30], doc=doc)
@@ -2904,7 +2904,7 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
         lambda *args, **kwargs: ("file:///doc.ods", "Sheet1", "sid", "code_once", "1,1"),
     )
     monkeypatch.setattr(
-        "plugin.framework.config.get_config_bool",
+        "plugin.framework.config.get_config",
         lambda key, default=False: False if key == "scripting.python_auto_spill" else default,
     )
     monkeypatch.setattr(
@@ -2987,7 +2987,7 @@ def test_execute_python_addin_flag_passes_through_without_gate(monkeypatch: pyte
 
     monkeypatch.setattr("plugin.calc.python.function.run_code_in_user_venv", fake_run)
     monkeypatch.setattr(
-        "plugin.framework.config.get_config_bool",
+        "plugin.framework.config.get_config",
         lambda key, default=False: True if key == "scripting.python_allow_network" else default,
     )
 

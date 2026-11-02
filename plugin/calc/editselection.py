@@ -23,7 +23,7 @@ from plugin.calc.calc_utils import TEXT
 from plugin.chatbot.dialogs import msgbox
 from plugin.chatbot.selection import ApplyChunkFn, ErrorFn, StreamCompletionTask, create_validated_client, prompt_for_edit_instructions, stream_completion_tasks
 from plugin.doc.compound_undo import WriterCompoundUndo
-from plugin.framework.config import get_config_int, get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.errors import format_error_message
 from plugin.framework.i18n import _
 
@@ -56,10 +56,10 @@ def do_calc_extend_edit(ctx: Any, model: Any, is_edit: bool) -> None:
 
     area = selection.getRangeAddress()
 
-    extend_sys = get_config_str("extend_selection_system_prompt")
-    extend_max = get_config_int("extend_selection_max_tokens")
-    edit_sys = extra_instructions or get_config_str("edit_selection_system_prompt")
-    edit_max = get_config_int("edit_selection_max_new_tokens")
+    extend_sys = get_config("extend_selection_system_prompt")
+    extend_max = get_config("chatbot.extend_selection_max_tokens")
+    edit_sys = extra_instructions or get_config("edit_selection_system_prompt")
+    edit_max = get_config("chatbot.edit_selection_max_new_tokens")
 
     tasks: list[StreamCompletionTask] = []
 

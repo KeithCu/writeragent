@@ -17,8 +17,8 @@ from plugin.chatbot.dialogs import (
     set_combo_items,
     set_control_text,
 )
-from plugin.framework.config import get_config, set_configs
-from plugin.framework.config_schema import as_bool, coerce_config_value
+from plugin.framework.config import get_config, save
+from plugin.framework.config_schema import as_bool, validate
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
 
@@ -331,7 +331,7 @@ def _config_assignment_matches(
     if isinstance(proposed, dict) or isinstance(current, dict):
         return proposed == current
     try:
-        coerced = coerce_config_value(key, proposed, fallback_value=current, strict=True)
+        coerced = validate({key: proposed})[key]
     except (ConfigError, ConfigValidationError):
         return False
     return coerced == current
@@ -360,4 +360,4 @@ def apply_field_specs_result(result: dict[str, Any], field_specs: list[dict[str,
     # One write, and only keys that differ from disk or from an omitted default.
     pending = changed_config_values(pending, get_config)
     if pending:
-        set_configs(pending)
+        save(pending)

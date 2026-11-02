@@ -5,8 +5,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.config_schema import CONFIG_DEFAULTS, as_bool
-from plugin.framework.errors import ConfigError
 from plugin.framework.prompts import (
     CALC_CORE_DIRECTIVES,
     CHAT_RESPONSE_FORMAT,
@@ -51,18 +49,18 @@ def test_get_greeting_for_document_draw():
     assert get_greeting_for_document(model) == "AI: I can help you create and edit polished, colorful shapes in Draw and Impress. Try me!"
 
 def test_get_chat_response_format_instructions_plain_when_rich_disabled():
-    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions
+    from plugin.framework.prompts import get_chat_response_format_instructions
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
+    with patch("plugin.framework.config.get_config", return_value=False):
         fmt = get_chat_response_format_instructions()
     assert CHAT_RESPONSE_FORMAT not in fmt
     assert "plain text only" in fmt
 
 
 def test_get_chat_response_format_instructions_html_when_rich_enabled():
-    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS, get_chat_response_format_instructions
+    from plugin.framework.prompts import get_chat_response_format_instructions
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
+    with patch("plugin.framework.config.get_config", return_value=True):
         fmt = get_chat_response_format_instructions()
     assert fmt == RICH_CHAT_SIDEBAR_INSTRUCTIONS
     assert CHAT_RESPONSE_FORMAT in fmt
@@ -73,9 +71,8 @@ def test_get_chat_response_format_instructions_html_when_rich_enabled():
 def test_get_chat_system_prompt_plain_text_when_rich_disabled():
     model = MagicMock()
     model.supportsService.return_value = False
-    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
+    with patch("plugin.framework.config.get_config", return_value=False):
         prompt = get_chat_system_prompt_for_document(model)
     assert CHAT_RESPONSE_FORMAT not in prompt
     assert "plain text only" in prompt
@@ -85,34 +82,13 @@ def test_get_chat_system_prompt_plain_text_when_rich_disabled():
 def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
     model = MagicMock()
     model.supportsService.return_value = False
-    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
-    with patch("plugin.framework.config.get_config_bool_safe") as mock_bool:
-        mock_bool.side_effect = lambda key: key == "rich_text_control_sidebar"
+    with patch("plugin.framework.config.get_config") as mock_bool:
+        mock_bool.side_effect = lambda key: key == "chatbot.rich_text_control_sidebar"
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
         assert RICH_CHAT_SIDEBAR_INSTRUCTIONS in prompt
         assert CHAT_RESPONSE_FORMAT in prompt
         assert "plain text only" not in prompt
-
-
-def test_get_chat_system_prompt_allows_html_by_default_fallback():
-    model = MagicMock()
-    model.supportsService.return_value = False
-
-    rich_default = as_bool(CONFIG_DEFAULTS.get("rich_text_control_sidebar"))
-
-    # When get_config_bool fails, get_config_bool_safe must fall back to the module.yaml default.
-    with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("Invalid stored value", code="CONFIG_TYPE_ERROR")):
-        prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
-
-    if rich_default:
-        assert RICH_CHAT_SIDEBAR_INSTRUCTIONS in prompt
-        assert CHAT_RESPONSE_FORMAT in prompt
-        assert "plain text only" not in prompt
-    else:
-        assert RICH_CHAT_SIDEBAR_INSTRUCTIONS not in prompt
-        assert CHAT_RESPONSE_FORMAT not in prompt
-        assert "plain text only" in prompt
 
 
 def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
@@ -258,9 +234,8 @@ def test_get_chat_system_prompt_for_document_calc():
     def supportsService(service):
         return service == "com.sun.star.sheet.SpreadsheetDocument"
     model.supportsService.side_effect = supportsService
-    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
+    with patch("plugin.framework.config.get_config", return_value=False):
         prompt = get_chat_system_prompt_for_document(model)
     assert CHAT_RESPONSE_FORMAT not in prompt
     assert "plain text only" in prompt
@@ -274,9 +249,8 @@ def test_get_chat_system_prompt_for_document_draw():
     def supportsService(service):
         return service in ("com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument")
     model.supportsService.side_effect = supportsService
-    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
+    with patch("plugin.framework.config.get_config", return_value=False):
         prompt = get_chat_system_prompt_for_document(model)
     assert CHAT_RESPONSE_FORMAT not in prompt
     assert "plain text only" in prompt
@@ -301,7 +275,7 @@ def test_draw_prompt_omits_get_image_when_model_has_no_vision():
 
     model.supportsService.side_effect = supportsService
     with (
-        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.framework.config.get_config", return_value=False),
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
     ):
         prompt = get_chat_system_prompt_for_document(model)
@@ -323,7 +297,7 @@ def test_draw_prompt_keeps_get_image_when_model_has_vision():
 
     model.supportsService.side_effect = supportsService
     with (
-        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.framework.config.get_config", return_value=False),
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
     ):
         prompt = get_chat_system_prompt_for_document(model)
@@ -725,7 +699,7 @@ def test_tts_short_answers_constants_are_verbatim():
 
 def test_tts_short_answers_injected_when_option_and_tts_on():
     with patch(
-        "plugin.framework.config.get_config_bool_safe",
+        "plugin.framework.config.get_config",
         side_effect=_tts_flags(short_answers=True, tts_enabled=True),
     ):
         prompt = get_chat_system_prompt_for_document(_writer_model(), "house style")
@@ -739,7 +713,7 @@ def test_tts_short_answers_injected_when_option_and_tts_on():
 
 def test_tts_short_answers_absent_when_tts_off():
     with patch(
-        "plugin.framework.config.get_config_bool_safe",
+        "plugin.framework.config.get_config",
         side_effect=_tts_flags(short_answers=True, tts_enabled=False),
     ):
         prompt = get_chat_system_prompt_for_document(_writer_model(), "house style")
@@ -752,7 +726,7 @@ def test_tts_short_answers_absent_when_tts_off():
 
 def test_tts_short_answers_absent_when_checkbox_off():
     with patch(
-        "plugin.framework.config.get_config_bool_safe",
+        "plugin.framework.config.get_config",
         side_effect=_tts_flags(short_answers=False, tts_enabled=True),
     ):
         prompt = get_chat_system_prompt_for_document(_writer_model())
@@ -773,7 +747,7 @@ def test_user_memory_long_blob_is_truncated_short_is_unchanged():
     def _prompt(mem: str) -> str:
         with (
             patch("plugin.chatbot.memory.MemoryStore") as store_cls,
-            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+            patch("plugin.framework.config.get_config", return_value=False),
         ):
             store_cls.return_value.read.return_value = mem
             return get_chat_system_prompt_for_document(model, ctx=MagicMock())
@@ -799,7 +773,7 @@ def test_profile_fence_inside_memory_does_not_close_the_block():
 
     with (
         patch("plugin.chatbot.memory.MemoryStore") as store_cls,
-        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.framework.config.get_config", return_value=False),
     ):
         store_cls.return_value.read.return_value = mem
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
@@ -868,7 +842,7 @@ def test_user_memory_failure_logs_exception_and_prompt_continues(caplog):
     with (
         patch("plugin.chatbot.memory.MemoryStore") as store_cls,
         patch("plugin.chatbot.skills.SkillStore") as skill_cls,
-        patch("plugin.framework.config.get_config_bool_safe", side_effect=flags),
+        patch("plugin.framework.config.get_config", side_effect=flags),
         caplog.at_level(logging.DEBUG, logger="plugin.framework.prompts"),
     ):
         store_cls.return_value.read.side_effect = OSError("USER.md unreadable")
@@ -893,7 +867,7 @@ def test_humanizer_failure_logs_exception_and_prompt_continues(caplog):
     with (
         patch("plugin.chatbot.memory.MemoryStore") as store_cls,
         patch("plugin.chatbot.skills.SkillStore") as skill_cls,
-        patch("plugin.framework.config.get_config_bool_safe", side_effect=flags),
+        patch("plugin.framework.config.get_config", side_effect=flags),
         caplog.at_level(logging.DEBUG, logger="plugin.framework.prompts"),
     ):
         store_cls.return_value.read.return_value = "Prefers short paragraphs."

@@ -60,7 +60,10 @@ def _clamped_int_config(key: str, lo: int, hi: int, *, warn_name: str = "") -> i
     """Read an int config key, falling back to lo if <= 0 and clamping to [lo, hi]."""
     from plugin.framework import config
 
-    n = config.get_config_int_safe(key)
+    try:
+        n = int(config.get_config(key))
+    except Exception:
+        n = 0
     clamped = max(lo, min(hi, n))
     if warn_name and n > 0 and clamped != n:
         _log.warning("[grammar] %s %d out of range [%d, %d], clamping", warn_name, n, lo, hi)

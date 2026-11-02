@@ -94,7 +94,7 @@ def _format_lo_version(product: dict[str, str]) -> str:
 
 def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
     """Return (header, rest) sections for environment and issue body."""
-    from plugin.framework.config import get_config_str, get_current_endpoint, user_config_dir
+    from plugin.framework.config import get_config, get_current_endpoint, user_config_dir
     from plugin.framework.i18n import get_lo_locale
     from plugin.framework.constants import EXTENSION_ID_LIBREPY
     from plugin.framework.logging import get_debug_log_path
@@ -119,7 +119,7 @@ def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
     lines.append(f"- Python: {sys.version.split()[0]} ({sys.platform})")
 
     if ext_id == EXTENSION_ID_LIBREPY:
-        venv_path = get_config_str("scripting.python_venv_path") or "(not set)"
+        venv_path = get_config("scripting.python_venv_path") or "(not set)"
         lines.append(f"- Python venv path: {venv_path}")
     else:
         endpoint = _redact_endpoint(get_current_endpoint()) or "(not set)"

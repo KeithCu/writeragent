@@ -169,9 +169,9 @@ class QueryKeyListener(BaseKeyListener):
             return
         if not query_enter_triggers_primary_send(e.KeyCode, e.Modifiers):
             return
-        from plugin.framework.config import get_config_bool
+        from plugin.framework.config import get_config
 
-        if not get_config_bool(_CHAT_ENTER_SENDS):
+        if not get_config(_CHAT_ENTER_SENDS):
             return
         sc = self.send_listener.send_control
         if not sc or not sc.getModel():
@@ -683,9 +683,9 @@ class SendButtonListener(BaseActionListener):
                 return
 
             if not self._rich_plain_fallback_warned:
-                from plugin.framework.config import get_config_bool_safe
+                from plugin.framework.config import get_config
 
-                if get_config_bool_safe("rich_text_control_sidebar"):
+                if get_config("chatbot.rich_text_control_sidebar"):
                     log.warning(
                         "[RICH-CONTROL] _append_response plain fallback while rich_text_control_sidebar enabled",
                     )
@@ -1074,12 +1074,12 @@ class SendButtonListener(BaseActionListener):
                         if self._terminal_status:
                             self._set_status(_(self._terminal_status))
                         try:
-                            from plugin.framework.config import get_config_bool_safe
+                            from plugin.framework.config import get_config
                             # Speak from session_for_turn(self) (valid until
                             # drop_turn) when TTS is enabled and terminal status
                             # is not Stopped. An alive-turn check fails here: the
                             # tool-loop finally already ran abort_turn(self).
-                            if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
+                            if get_config("audio.tts_enabled") and self._terminal_status != "Stopped":
                                 from plugin.chatbot.tool_loop_actions import (
                                     current_turn,
                                     session_for_turn,

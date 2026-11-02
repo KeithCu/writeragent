@@ -22,7 +22,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, IO, Generator, Literal
 
-from plugin.framework.config import get_config_bool, get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.thread_guard import background, on_main_thread
 from plugin.framework.constants import (
     EMBEDDINGS_HEARTBEAT_GRACE_S,
@@ -1396,10 +1396,10 @@ def _resolve_worker_python(
 ) -> tuple[str | None, dict[str, Any] | None]:
     """Return (exe, error_response) for the configured venv / LO interpreter.
 
-    Config is process-global (``get_config_str``). Callers that still have a
+    Config is process-global (``get_config``). Callers that still have a
     UNO context pass it to ``run_code_in_user_venv``, not here.
     """
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     embeddings = pool == WORKER_POOL_EMBEDDINGS
     # Embeddings cannot fall through to LibreOffice's Python. An empty path
     # is its own error; a configured path shares the venv lookup below.
@@ -1497,10 +1497,10 @@ def run_code_in_user_venv(
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
     if sandbox_policy is None and not action:
-        allow_network = get_config_bool("scripting.python_allow_network")
-        allow_files = get_config_bool("scripting.python_allow_files")
-        allow_os = get_config_bool("scripting.python_allow_os")
-        extra_modules = get_config_str("scripting.python_extra_modules")
+        allow_network = bool(get_config("scripting.python_allow_network"))
+        allow_files = bool(get_config("scripting.python_allow_files"))
+        allow_os = bool(get_config("scripting.python_allow_os"))
+        extra_modules = get_config("scripting.python_extra_modules")
         sandbox_policy = {
             "network": allow_network,
             "files": allow_files or allow_os,

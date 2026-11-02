@@ -14,17 +14,11 @@ from plugin.framework.config import (
     get_api_key_for_endpoint,
     set_api_key_for_endpoint,
     get_config,
-    get_config_bool,
-    get_config_bool_safe,
     get_config_dict,
-    get_config_float,
-    get_config_int,
-    get_config_int_safe,
     parse_config_json_text,
     reset_config_for_tests,
-    set_config,
-    set_configs,
-    update_config,
+    save,
+    update_config_mapping,
 )
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
@@ -37,13 +31,13 @@ def _patch_manifest(mock_modules):
         config_schema.MODULES,
         config_schema.CONFIG_DEFAULTS,
         config_schema.CONFIG_SCHEMAS,
-        config_schema.DOTTED_FALLBACKS,
+        config_schema.FLAT_TO_MODULE_KEY,
     )
     config_schema.set_manifest_modules(mock_modules)
     try:
         yield
     finally:
-        config_schema.MODULES, config_schema.CONFIG_DEFAULTS, config_schema.CONFIG_SCHEMAS, config_schema.DOTTED_FALLBACKS = orig
+        config_schema.MODULES, config_schema.CONFIG_DEFAULTS, config_schema.CONFIG_SCHEMAS, config_schema.FLAT_TO_MODULE_KEY = orig
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.constants import get_plugin_dir
 import sys
@@ -60,13 +54,13 @@ class TestConfigSync:
         def mock_get_config(key):
             return self.config_data.get(key, '')
 
-        def mock_set_config(key, value, event_key=None):
-            self.config_data[key] = value
+        def mock_save(patch, event_key=None):
+            self.config_data.update(patch)
 
         self.get_patcher = patch('plugin.framework.config.get_config', side_effect=mock_get_config)
-        self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
+        self.set_patcher = patch('plugin.framework.config.save', side_effect=mock_save)
         self.get_mf_patcher = patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config)
-        self.set_mf_patcher = patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config)
+        self.set_mf_patcher = patch('plugin.framework.client.model_fetcher.save', side_effect=mock_save)
         self.mock_get = self.get_patcher.start()
         self.mock_set = self.set_patcher.start()
         self.get_mf_patcher.start()
@@ -118,7 +112,7 @@ class TestConfigSync:
         self.config_data[f'model_lru@{endpoint_b}'] = ['other-model']
         with patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value=endpoint_a), \
              patch('plugin.framework.model_lru.get_config', side_effect=lambda k: self.config_data.get(k, '')), \
-             patch('plugin.framework.model_lru.set_config', side_effect=lambda k, v: self.config_data.__setitem__(k, v)), \
+             patch('plugin.framework.model_lru.save', side_effect=lambda p: self.config_data.update(p)), \
              patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value=endpoint_a):
             set_text_model('model-on-a', update_lru=True)
         assert (self.config_data.get(f'model_lru@{endpoint_a}')) == (['model-on-a'])
@@ -151,14 +145,14 @@ class TestConfigSync:
         assert (get_api_key_for_endpoint('http://localhost:11434/')) == ('test-key-123')
 
     def test_set_api_key_for_endpoint(self):
-        # This class stubs set_config. API-key writes go through update_config
+        # This class stubs save. API-key writes go through update_config_mapping
         # so the stub still has to record the map the store would patch.
         def _record(key, fn, event_key=None):
             del event_key
             current = self.config_data.get(key, {})
             self.config_data[key] = fn(current if isinstance(current, dict) else {})
 
-        with patch('plugin.framework.config.update_config', side_effect=_record):
+        with patch('plugin.framework.config.update_config_mapping', side_effect=_record):
             set_api_key_for_endpoint('http://localhost:11434', 'new-key')
             assert (self.config_data.get('api_keys_by_endpoint', {}).get('http://localhost:11434')) == ('new-key')
             set_api_key_for_endpoint('http://localhost:11434/', 'updated-key')
@@ -228,29 +222,10 @@ class TestConfigSyncFileIO:
         assert get_config("chat_max_tokens") == huge
         temperature = get_config("temperature")
         assert temperature != huge
-        assert get_config_float("temperature") == float(temperature)
-
-    def test_set_audio_stt_model_keeps_legacy_stt_model(self):
-        """Saving the Speech-tab key must not delete a pre-move stt_model."""
-        from plugin.framework.client.model_fetcher import get_stt_model
-
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"stt_model": "whisper-legacy"}, f)
-        reset_config_for_tests()
-        set_config("audio.stt_model", "whisper-new")
-        data = self._load_written()
-        assert (data.get("audio.stt_model")) == ("whisper-new")
-        assert (data.get("stt_model")) == ("whisper-legacy")
-        assert (get_stt_model()) == ("whisper-new")
-
-        reset_config_for_tests()
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"stt_model": "whisper-legacy"}, f)
-        reset_config_for_tests()
-        assert (get_stt_model()) == ("whisper-legacy")
+        assert get_config("temperature") == float(temperature)
 
     def test_get_config_dict_is_not_the_cache(self):
-        set_config("openrouter_chat_extra", {"temperature": 0.2})
+        save({"openrouter_chat_extra": {"temperature": 0.2}})
         first = get_config("openrouter_chat_extra")
         first["temperature"] = 9
         first["extra"] = True
@@ -287,15 +262,15 @@ class TestConfigSyncFileIO:
         assert get_reasoning_effort_for_endpoint("https://openrouter.ai/api/v1") == "medium"
         assert get_reasoning_effort_for_endpoint("https://openrouter.ai/api") == "medium"
 
-        set_config("endpoint", "https://api.openai.com/v1")
+        save({"endpoint": "https://api.openai.com/v1"})
         cfg = get_api_config()
         assert cfg.get("reasoning_effort") == "high"
 
-        set_config("endpoint", "https://openrouter.ai/api/v1")
+        save({"endpoint": "https://openrouter.ai/api/v1"})
         cfg_or = get_api_config()
         assert cfg_or.get("reasoning_effort") == "medium"
 
-        set_config("endpoint", "https://api.together.xyz/v1")
+        save({"endpoint": "https://api.together.xyz/v1"})
         cfg_other = get_api_config()
         assert "reasoning_effort" not in cfg_other
 
@@ -305,7 +280,7 @@ class TestConfigSyncFileIO:
         set_reasoning_effort_for_endpoint("https://api.openai.com/v1", "high")
         set_reasoning_effort_for_endpoint("https://openrouter.ai/api/v1", "medium")
 
-        set_configs({"reasoning_effort": {"https://api.openai.com": "max"}})
+        save({"reasoning_effort": {"https://api.openai.com": "max"}})
         stored = get_config("reasoning_effort")
         assert stored.get("https://api.openai.com") == "max"
         assert stored.get("https://openrouter.ai/api") == "medium"
@@ -384,22 +359,6 @@ class TestConfigSyncFileIO:
         with open(os.path.join(self.temp_dir.name, stamped[0]), "r", encoding="utf-8") as f:
             assert f.read() == broken2
 
-    def test_remove_without_write_backs_up_repairable_file_once(self):
-        body = '{"text_model": "gpt",}'
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            f.write(body)
-        reset_config_for_tests()
-        from plugin.framework.config import remove_config
-
-        remove_config("image_model")
-        remove_config("image_model")
-        with open(self.config_path, "r", encoding="utf-8") as f:
-            assert f.read() == body
-        backups = [e for e in os.listdir(self.temp_dir.name) if e.startswith(os.path.basename(self.config_path) + CONFIG_BACKUP_SUFFIX)]
-        assert len(backups) == 1
-        with open(self._backup_path(), "r", encoding="utf-8") as f:
-            assert f.read() == body
-
     def test_broken_file_keeps_last_good_snapshot(self):
         from plugin.framework.config import _cache
 
@@ -425,7 +384,13 @@ class TestConfigSyncFileIO:
         assert get_config("text_model") == "my-snapshot-model"
 
         _cache.mtime_last_checked = 0.0
-        with patch("plugin.framework.config._load_config_dict", side_effect=OSError("disk read failure")):
+        _orig_open = open
+        def _mock_open(file, *args, **kwargs):
+            if file == self.config_path:
+                raise OSError("disk read failure")
+            return _orig_open(file, *args, **kwargs)
+
+        with patch("builtins.open", side_effect=_mock_open):
             assert get_config("text_model") == "my-snapshot-model"
         assert isinstance(_cache.data, dict)
 
@@ -503,7 +468,7 @@ class TestConfigSyncFileIO:
         assert (data['text_model']) == ('gpt')
 
     def test_get_config_repair_persist_does_not_drop_concurrent_set(self):
-        """GET-path repair persist must not rewrite over a concurrent set_config."""
+        """GET-path repair persist must not rewrite over a concurrent save."""
         broken = '{"text_model": "gpt",}'
         with open(self.config_path, "w", encoding="utf-8") as f:
             f.write(broken)
@@ -522,7 +487,7 @@ class TestConfigSyncFileIO:
         def writer():
             try:
                 barrier.wait(timeout=5)
-                set_config("image_model", "flux-keep")
+                save({"image_model": "flux-keep"})
             except Exception as exc:
                 errors.append(exc)
 
@@ -565,7 +530,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'gpt'}, f)
         reset_config_for_tests()
-        set_config('text_model', 'other')
+        save({'text_model': 'other'})
         assert not (os.path.exists(self._backup_path()))
         assert (self._load_written()['text_model']) == ('other')
 
@@ -589,7 +554,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"temperature": ""}, f)
         reset_config_for_tests()
-        assert (get_config_float("temperature")) == (-1.0)
+        assert (get_config("temperature")) == (-1.0)
 
     def test_get_api_config_omits_default_temperature(self):
         """Schema default -1 means leave temperature out so the provider picks."""
@@ -598,7 +563,7 @@ class TestConfigSyncFileIO:
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
         reset_config_for_tests()
-        assert (get_config_float("temperature")) == (-1.0)
+        assert (get_config("temperature")) == (-1.0)
         cfg = get_api_config()
         assert ("temperature") not in (cfg)
 
@@ -618,9 +583,7 @@ class TestConfigSyncFileIO:
                 set_api_key_for_endpoint("https://api.openai.com", "sk-new")
         assert (get_api_key_for_endpoint("https://api.openai.com")) == ("")
 
-    def test_remove_config_heals_out_of_range_neighbor(self):
-        from plugin.framework.config import remove_config
-
+    def test_save_default_heals_out_of_range_neighbor(self):
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({
                 "temperature": 1.5,
@@ -628,7 +591,7 @@ class TestConfigSyncFileIO:
                 "api_keys_by_endpoint": {"https://api.openai.com": "sk-keep"},
             }, f)
         reset_config_for_tests()
-        remove_config("text_model")
+        save({"text_model": ""})
         data = self._load_written()
         assert "text_model" not in data
         assert data.get("temperature") == 1.0
@@ -638,93 +601,18 @@ class TestConfigSyncFileIO:
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"temperature": 1.5, "text_model": "keep-me"}, f)
         reset_config_for_tests()
-        set_config("seed", "42")
+        save({"seed": "42"})
         data = self._load_written()
         assert data.get("seed") == "42"
         assert data.get("text_model") == "keep-me"
         assert data.get("temperature") == 1.0
-
-    def test_update_dotted_key_ignores_unrelated_flat_suffix(self):
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"endpoint": "http://keep.example"}, f)
-        reset_config_for_tests()
-        recorded = []
-
-        def fn(val):
-            recorded.append(val)
-            return val
-
-        update_config("notamodule.endpoint", fn)
-        assert recorded == [None]
-        data = self._load_written()
-        assert data == {"endpoint": "http://keep.example"}
-
-    def test_set_unrelated_dotted_key_keeps_flat_endpoint(self):
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"endpoint": "http://keep.example", "text_model": "m"}, f)
-        reset_config_for_tests()
-        with patch.object(get_event_bus(), "emit") as mock_emit:
-            set_config("notamodule.endpoint", "http://other.example")
-            assert mock_emit.call_count == 1
-            assert mock_emit.call_args.kwargs["key"] == "notamodule.endpoint"
-            assert mock_emit.call_args.kwargs["value"] == "http://other.example"
-            assert mock_emit.call_args.kwargs["old_value"] is None
-        data = self._load_written()
-        assert data.get("endpoint") == "http://keep.example"
-        assert data.get("notamodule.endpoint") == "http://other.example"
-
-    def test_update_audio_stt_model_does_not_read_legacy_flat(self):
-        from plugin.framework.client.model_fetcher import get_stt_model
-
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"stt_model": "whisper-legacy"}, f)
-        reset_config_for_tests()
-        recorded = []
-
-        def fn(val):
-            recorded.append(val)
-            return val
-
-        update_config("audio.stt_model", fn)
-        assert recorded == [""]
-        data = self._load_written()
-        assert data.get("stt_model") == "whisper-legacy"
-        assert "audio.stt_model" not in data
-        assert get_config("audio.stt_model") == ""
-        assert get_stt_model() == "whisper-legacy"
-
-    def test_remove_legacy_stt_only_old_value_is_dotted_default(self):
-        from plugin.framework.config import remove_config
-
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"stt_model": "whisper-legacy"}, f)
-        reset_config_for_tests()
-        with patch.object(get_event_bus(), "emit") as mock_emit:
-            remove_config("audio.stt_model")
-            assert mock_emit.call_count == 1
-            assert mock_emit.call_args.kwargs["key"] == "audio.stt_model"
-            assert mock_emit.call_args.kwargs["old_value"] == ""
-        data = self._load_written()
-        assert "stt_model" not in data
-        assert "audio.stt_model" not in data
-
-    def test_remove_audio_stt_model_drops_legacy_stt_model(self):
-        from plugin.framework.config import remove_config
-
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"audio.stt_model": "whisper-new", "stt_model": "whisper-legacy"}, f)
-        reset_config_for_tests()
-        remove_config("audio.stt_model")
-        data = self._load_written()
-        assert "audio.stt_model" not in data
-        assert "stt_model" not in data
 
     def test_set_config_omitted_key_old_value_is_schema_default(self):
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump({"text_model": "test-model"}, f)
         reset_config_for_tests()
         with patch.object(get_event_bus(), "emit") as emit:
-            set_config("request_timeout", 45)
+            save({"request_timeout": 45})
             assert emit.call_count == 1
             assert emit.call_args.kwargs["key"] == "request_timeout"
             assert emit.call_args.kwargs["value"] == 45
@@ -735,24 +623,11 @@ class TestConfigSyncFileIO:
             json.dump({"request_timeout": 30}, f)
         reset_config_for_tests()
         with patch.object(get_event_bus(), "emit") as emit:
-            set_config("request_timeout", 45)
+            save({"request_timeout": 45})
             assert emit.call_count == 1
             assert emit.call_args.kwargs["key"] == "request_timeout"
             assert emit.call_args.kwargs["value"] == 45
             assert emit.call_args.kwargs["old_value"] == 30
-
-    def test_remove_config_old_value_is_stored(self):
-        from plugin.framework.config import remove_config
-
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"text_model": "keep"}, f)
-        reset_config_for_tests()
-        with patch.object(get_event_bus(), "emit") as emit:
-            remove_config("text_model")
-            assert emit.call_count == 1
-            assert emit.call_args.kwargs["key"] == "text_model"
-            assert emit.call_args.kwargs["value"] is None
-            assert emit.call_args.kwargs["old_value"] == "keep"
 
     def test_get_config_default_resolution(self):
         if os.path.exists(self.config_path):
@@ -763,28 +638,28 @@ class TestConfigSyncFileIO:
         assert (get_config('slash_command_lru')) == ([])
         assert (get_config('endpoint')) == ('http://localhost:11434')
         assert (get_config('model_lru@http://localhost:11434')) == ([])
-        assert (get_config_int('extension_update_check_epoch')) == (0)
-        assert (get_config_int('librepy_update_check_epoch')) == (0)
-        assert (get_config_int('libreharper_update_check_epoch')) == (0)
-        # Module-yaml keys (no WriterAgentConfig dataclass field; defaults from MODULES schema)
-        assert (get_config_int('web_cache_max_mb')) == (50)
-        assert (get_config_int('web_cache_validity_days')) == (30)
-        assert (get_config_int('extend_selection_max_tokens')) == (1000)
-        assert (get_config_bool('chatbot.show_search_thinking')) is False
-        assert (get_config_bool('web_research_cache_enabled')) is False
+        assert (get_config('extension_update_check_epoch')) == (0)
+        assert (get_config('librepy_update_check_epoch')) == (0)
+        assert (get_config('libreharper_update_check_epoch')) == (0)
+        # Module-yaml keys (defaults from MODULES schema)
+        assert (get_config('chatbot.web_cache_max_mb')) == (50)
+        assert (get_config('chatbot.web_cache_validity_days')) == (30)
+        assert (get_config('chatbot.extend_selection_max_tokens')) == (1000)
+        assert (get_config('chatbot.show_search_thinking')) is False
+        assert (get_config('chatbot.web_research_cache_enabled')) is False
         # Fresh install: Keep replies brief is on when the key was never saved.
-        assert (get_config_bool('audio.tts_short_answers')) is True
+        assert (get_config('audio.tts_short_answers')) is True
         assert (get_config('embeddings.folder_search_mode')) == ('none')
         assert (get_config('scripting.python_max_data_cells')) == (250000)
         assert (get_config('scripting.python_venv_path')) == ('')
-        assert (get_config_bool('scripting.python_auto_spill')) is True
-        assert (get_config_bool('scripting.python_geometric_recalc_order')) is False
+        assert (get_config('scripting.python_auto_spill')) is True
+        assert (get_config('scripting.python_geometric_recalc_order')) is False
         assert (get_config('doc.agent_edit_review_mode')) == ('off')
-        assert (get_config_int('chatbot.max_tool_rounds')) == (15)
-        assert (get_config_int('web_research_cache_jaccard_percent')) == (60)
-        assert (get_config_int('web_research_cache_embedding_percent')) == (75)
-        assert (get_config_int('web_research_cache_min_overlap')) == (8)
-        assert (get_config('log_level')) == ('DEBUG')
+        assert (get_config('chatbot.max_tool_rounds')) == (15)
+        assert (get_config('chatbot.web_research_cache_jaccard_percent')) == (60)
+        assert (get_config('chatbot.web_research_cache_embedding_percent')) == (75)
+        assert (get_config('chatbot.web_research_cache_min_overlap')) == (8)
+        assert (get_config('core.log_level')) == ('DEBUG')
         with pytest.raises(ConfigError) as err_ctx:
             get_config('unknown_key')
         assert (err_ctx.value.details.get('key')) == ('unknown_key')
@@ -799,13 +674,13 @@ class TestConfigSyncFileIO:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'audio.tts_short_answers': False, 'text_model': 'keep-me'}, f)
         reset_config_for_tests()
-        assert (get_config_bool('audio.tts_short_answers')) is False
+        assert (get_config('audio.tts_short_answers')) is False
 
-        set_config('text_model', 'still-me')
+        save({'text_model': 'still-me'})
         data = self._load_written()
         assert (data.get('audio.tts_short_answers')) is False
         assert (data.get('text_model')) == ('still-me')
-        assert (get_config_bool('audio.tts_short_answers')) is False
+        assert (get_config('audio.tts_short_answers')) is False
 
     def test_stale_calc_prompt_max_tokens_upgraded_and_persisted(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
@@ -826,15 +701,13 @@ class TestConfigSyncFileIO:
         assert (data['calc_prompt_max_tokens']) == (150)
 
     def test_writeragent_config_validate_bumps_stale_prompt_tokens(self):
-        from plugin.framework.config_schema import WriterAgentConfig
+        from plugin.framework.config_schema import validate
 
-        cfg = WriterAgentConfig(calc_prompt_max_tokens=70)
-        cfg.validate()
-        assert (cfg.calc_prompt_max_tokens) == (4096)
+        out = validate({"calc_prompt_max_tokens": 70})
+        assert (out["calc_prompt_max_tokens"]) == (4096)
 
-        cfg2 = WriterAgentConfig(calc_prompt_max_tokens=150)
-        cfg2.validate()
-        assert (cfg2.calc_prompt_max_tokens) == (150)
+        out2 = validate({"calc_prompt_max_tokens": 150})
+        assert (out2["calc_prompt_max_tokens"]) == (150)
         with pytest.raises(ConfigError):
             get_config('some_custom_map')
 
@@ -881,38 +754,22 @@ class TestConfigSyncFileIO:
                 'text_model': 'custom-model',
             }, f)
         reset_config_for_tests()
-        set_config('request_timeout', 60)
+        save({'request_timeout': 60})
         data = self._load_written()
-        assert (data) == ({
-            'endpoint': 'http://localhost:11434',
-            'chat_max_tokens': 16384,
+        assert data == {
             'text_model': 'custom-model',
             'request_timeout': 60,
-        })
-
-    def test_set_config_identical_value_does_not_prune_other_defaults(self):
-        with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump({
-                'endpoint': 'http://localhost:11434',
-                'text_model': 'custom-model',
-            }, f)
-        reset_config_for_tests()
-        with patch.object(get_event_bus(), 'emit') as mock_emit:
-            set_config('text_model', 'custom-model')
-            mock_emit.assert_not_called()
-        data = self._load_written()
-        assert (data.get('endpoint')) == ('http://localhost:11434')
-        assert (data.get('text_model')) == ('custom-model')
+        }
 
     def test_set_config_event_value_is_normalized_endpoint(self):
         reset_config_for_tests()
         with patch.object(get_event_bus(), "emit") as mock_emit:
-            set_config("endpoint", "https://api.example.com/v1")
+            save({"endpoint": "https://api.example.com/v1"})
         assert mock_emit.call_args.kwargs["value"] == "https://api.example.com"
         assert self._load_written().get("endpoint") == "https://api.example.com"
 
     def test_set_configs_api_key_patch_keeps_other_slots(self):
-        """A one-slot set_configs merges under the lock. It does not replace the map.
+        """A one-slot save merges under the lock. It does not replace the map.
 
         What was wrong: the caller copied the map, edited one URL, and the
         batch wrote that copy back. A key stored for another endpoint in
@@ -926,7 +783,7 @@ class TestConfigSyncFileIO:
         def _batch() -> None:
             try:
                 barrier.wait(timeout=5)
-                set_configs({"api_keys_by_endpoint": {"https://api.openai.com": "sk-a"}})
+                save({"api_keys_by_endpoint": {"https://api.openai.com": "sk-a"}})
             except BaseException as exc:
                 errors.append(exc)
 
@@ -981,21 +838,22 @@ class TestConfigSyncFileIO:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'gpt'}, f)
         with patch.object(get_event_bus(), 'emit') as mock_emit:
-            set_config('text_model', 'gpt')
+            save({'text_model': 'gpt'})
             mock_emit.assert_not_called()
         with patch.object(get_event_bus(), 'emit') as mock_emit:
-            set_config('text_model', 'other')
+            save({'text_model': 'other'})
             mock_emit.assert_called_once()
             assert mock_emit.call_args.args[0] == "config:changed"
             assert mock_emit.call_args.kwargs["key"] == "text_model"
             assert mock_emit.call_args.kwargs["value"] == "other"
+            assert mock_emit.call_args.kwargs["keys"] == ("text_model",)
         data = self._load_written()
         assert (data.get('text_model')) == ('other')
 
     def test_set_config_omitted_default_does_not_write_or_emit(self):
         """A key left out of the file is already the schema default.
 
-        Settings OK calls set_config for every field. dict.get used to return
+        Settings OK calls save for every field. dict.get used to return
         None for an omitted key, None != default, and each call validated,
         rewrote the file, and emitted config:changed.
         """
@@ -1006,22 +864,23 @@ class TestConfigSyncFileIO:
             before = f.read()
 
         with patch.object(get_event_bus(), 'emit') as mock_emit:
-            set_config('request_timeout', 120)
+            save({'request_timeout': 120})
             mock_emit.assert_not_called()
             # Settings passes the dialog string; coercion must happen first.
-            set_config('request_timeout', '120')
+            save({'request_timeout': '120'})
             mock_emit.assert_not_called()
 
         with open(self.config_path, encoding='utf-8') as f:
             assert f.read() == before
-        assert (get_config_int('request_timeout')) == (120)
+        assert (get_config('request_timeout')) == (120)
 
         with patch.object(get_event_bus(), 'emit') as mock_emit:
-            set_config('request_timeout', 60)
+            save({'request_timeout': 60})
             mock_emit.assert_called_once()
             assert mock_emit.call_args.args[0] == "config:changed"
             assert mock_emit.call_args.kwargs["key"] == "request_timeout"
             assert mock_emit.call_args.kwargs["value"] == 60
+            assert mock_emit.call_args.kwargs["keys"] == ("request_timeout",)
         data = self._load_written()
         assert (data.get('request_timeout')) == (60)
         assert (data.get('text_model')) == ('custom-model')
@@ -1041,7 +900,7 @@ class TestConfigSyncFileIO:
         def _write(key: str, value: object) -> None:
             try:
                 barrier.wait(timeout=5)
-                set_config(key, value)
+                save({key: value})
             except BaseException as exc:
                 errors.append(exc)
 
@@ -1062,7 +921,7 @@ class TestConfigSyncFileIO:
         assert (data.get('custom_unrecognized_key')) == ('from-earlier-writer')
 
     def test_update_config_keeps_both_map_keys(self):
-        """update(key, fn) applies fn to the value just read, under one lock."""
+        """update_config_mapping applies fn to the value just read, under one lock."""
         reset_config_for_tests()
         barrier = threading.Barrier(2)
         errors: list[BaseException] = []
@@ -1075,7 +934,7 @@ class TestConfigSyncFileIO:
 
             try:
                 barrier.wait(timeout=5)
-                update_config('api_keys_by_endpoint', _put)
+                update_config_mapping('api_keys_by_endpoint', _put)
             except BaseException as exc:
                 errors.append(exc)
 
@@ -1101,7 +960,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, encoding='utf-8') as f:
             before = f.read()
         with patch.object(get_event_bus(), 'emit') as mock_emit:
-            set_configs({'request_timeout': 120, 'temperature': -1, 'text_model': 'custom-model'})
+            save({'request_timeout': 120, 'temperature': -1, 'text_model': 'custom-model'})
             mock_emit.assert_not_called()
         with open(self.config_path, encoding='utf-8') as f:
             assert f.read() == before
@@ -1110,19 +969,19 @@ class TestConfigSyncFileIO:
         """One or two real changes patch those keys and emit once."""
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({
-                'endpoint': 'http://localhost:11434',
+                'endpoint': 'http://localhost:8000',
                 'text_model': 'keep-me',
                 'custom_unrecognized_key': 'stay',
             }, f)
         reset_config_for_tests()
         with patch.object(get_event_bus(), 'emit') as mock_emit:
-            set_configs({'image_model': 'flux', 'request_timeout': 60})
+            save({'image_model': 'flux', 'request_timeout': 60})
         assert mock_emit.call_count == 1
         assert mock_emit.call_args.kwargs['key'] == ''
-        assert mock_emit.call_args.kwargs['keys'] == ('image_model', 'request_timeout')
+        assert set(mock_emit.call_args.kwargs['keys']) == {'image_model', 'request_timeout'}
         data = self._load_written()
         assert (data) == ({
-            'endpoint': 'http://localhost:11434',
+            'endpoint': 'http://localhost:8000',
             'text_model': 'keep-me',
             'custom_unrecognized_key': 'stay',
             'image_model': 'flux',
@@ -1160,81 +1019,79 @@ class TestConfigSyncFileIO:
         reset_config_for_tests()
         with patch("plugin.framework.config._try_repair_config_dict", return_value=None):
             with pytest.raises(ConfigError):
-                set_config('text_model', 'should-not-wipe')
+                save({'text_model': 'should-not-wipe'})
         with open(self.config_path, encoding='utf-8') as f:
             assert f.read() == original
 
     def test_set_config_invalid_numeric_raises_and_keeps_file(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump({'extend_selection_max_tokens': 1200}, f)
+            json.dump({'chatbot.extend_selection_max_tokens': 1200}, f)
         reset_config_for_tests()
 
         with pytest.raises(ConfigValidationError):
-            set_config('extend_selection_max_tokens', 'not-a-number')
+            save({'chatbot.extend_selection_max_tokens': 'not-a-number'})
 
         data = self._load_written()
-        assert (data.get('extend_selection_max_tokens')) == (1200)
+        assert (data.get('chatbot.extend_selection_max_tokens')) == (1200)
 
     def test_set_config_out_of_range_raises_and_keeps_file(self):
-        """module.yaml ints are not WriterAgentConfig fields.
+        """module.yaml ints are module keys.
 
-        set_config coerces with strict=True. An out-of-range number used to
-        be saved as min or max with no error, because those keys never reached
-        validate(). Load and WriterAgentConfig.validate still clamp. A write
-        must refuse the value and leave the file alone.
+        save coerces with strict=True. An out-of-range number raises
+        ConfigValidationError and leaves the file alone.
         """
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'keep-me'}, f)
         reset_config_for_tests()
 
         with pytest.raises(ConfigValidationError):
-            set_config('extend_selection_max_tokens', '1')
+            save({'chatbot.extend_selection_max_tokens': '1'})
         with pytest.raises(ConfigValidationError):
-            set_config('edit_selection_max_new_tokens', '99999')
+            save({'chatbot.edit_selection_max_new_tokens': '99999'})
 
         data = self._load_written()
-        assert ('extend_selection_max_tokens') not in (data)
-        assert ('edit_selection_max_new_tokens') not in (data)
+        assert ('chatbot.extend_selection_max_tokens') not in (data)
+        assert ('chatbot.edit_selection_max_new_tokens') not in (data)
         assert (data.get('text_model')) == ('keep-me')
-        assert (get_config_int('extend_selection_max_tokens')) == (1000)
-        assert (get_config_int('edit_selection_max_new_tokens')) == (1000)
+        assert (get_config('chatbot.extend_selection_max_tokens')) == (1000)
+        assert (get_config('chatbot.edit_selection_max_new_tokens')) == (1000)
         assert ('temperature') not in (data)
         assert ('chat_max_tokens') not in (data)
         assert ('saved_python_scripts') not in (data)
 
         # Bounds themselves are still legal, and a real write still omits defaults.
-        set_config('extend_selection_max_tokens', '10')
-        set_config('edit_selection_max_new_tokens', '4096')
+        save({'chatbot.extend_selection_max_tokens': '10'})
+        save({'chatbot.edit_selection_max_new_tokens': '4096'})
         data = self._load_written()
-        assert (data.get('extend_selection_max_tokens')) == (10)
-        assert (data.get('edit_selection_max_new_tokens')) == (4096)
+        assert (data.get('chatbot.extend_selection_max_tokens')) == (10)
+        assert (data.get('chatbot.edit_selection_max_new_tokens')) == (4096)
         assert (data.get('text_model')) == ('keep-me')
         assert ('temperature') not in (data)
         assert ('chat_max_tokens') not in (data)
         assert ('saved_python_scripts') not in (data)
 
     def test_set_config_log_level_runtime_default_omitted(self):
-        set_config('text_model', 'custom-model')
-        set_config('log_level', get_config('log_level'))
+        save({'text_model': 'custom-model'})
+        save({'core.log_level': get_config('core.log_level')})
         data = self._load_written()
-        assert ('log_level') not in (data)
+        assert ('core.log_level') not in (data)
         assert (data.get('text_model')) == ('custom-model')
 
     def test_set_config_log_level_non_default_persisted(self):
-        set_config('log_level', 'INFO')
+        save({'core.log_level': 'INFO'})
         data = self._load_written()
-        assert (data.get('log_level')) == ('INFO')
+        assert (data.get('core.log_level')) == ('INFO')
 
     def test_set_config_omits_default_value(self):
         # Setting a value to its default does not write to an empty or non-existent file
-        set_config('endpoint', 'http://localhost:11434')
+        save({'endpoint': 'http://localhost:11434'})
         if os.path.exists(self.config_path):
             data = self._load_written()
             assert ('endpoint') not in (data)
         assert (get_config('endpoint')) == ('http://localhost:11434')
 
     def test_set_config_only_persists_non_defaults(self):
-        set_config('text_model', 'custom-model')
+        save({'text_model': 'custom-model'})
         data = self._load_written()
         assert (data) == ({'text_model': 'custom-model'})
         with open(self.config_path, 'r', encoding='utf-8') as f:
@@ -1250,15 +1107,15 @@ class TestConfigSyncFileIO:
         assert (data) == ({'text_model': 'custom-model'})
 
     def test_set_config_reverting_to_default_removes_key(self):
-        set_config('request_timeout', 60)
+        save({'request_timeout': 60})
         data = self._load_written()
         assert (data.get('request_timeout')) == (60)
 
         # Resetting back to default (120) removes it from file
-        set_config('request_timeout', 120)
+        save({'request_timeout': 120})
         data = self._load_written()
         assert ('request_timeout') not in (data)
-        assert (get_config_int('request_timeout')) == (120)
+        assert (get_config('request_timeout')) == (120)
 
     def test_is_default_value_types(self):
         from plugin.framework.config_schema import is_default_value
@@ -1275,18 +1132,18 @@ class TestConfigSyncFileIO:
         assert (is_default_value('prompt_lru', []))
         assert not (is_default_value('prompt_lru', ['a']))
         assert not (is_default_value('unknown_key_xyz', 'val'))
-        # log_level default is DEBUG in a checkout (plugin/tests present), WARN in a shipped OXT
-        assert (is_default_value('log_level', get_config('log_level')))
-        assert not (is_default_value('log_level', 'INFO'))
+        # core.log_level default is DEBUG in a checkout (plugin/tests present), WARN in a shipped OXT
+        assert (is_default_value('core.log_level', get_config('core.log_level')))
+        assert not (is_default_value('core.log_level', 'INFO'))
 
     def test_future_default_change_applies_when_omitted(self):
         # File only contains user customization for text_model
-        set_config('text_model', 'my-model')
+        save({'text_model': 'my-model'})
         data = self._load_written()
-        assert ('extend_selection_max_tokens') not in (data)
+        assert ('chatbot.extend_selection_max_tokens') not in (data)
 
         # In current version, get_config returns current default (1000)
-        assert (get_config_int('extend_selection_max_tokens')) == (1000)
+        assert (get_config('chatbot.extend_selection_max_tokens')) == (1000)
 
         # Simulate a future update that changes the default in manifest schema (MODULES)
         mock_modules = [{
@@ -1300,37 +1157,11 @@ class TestConfigSyncFileIO:
         }]
         with _patch_manifest(mock_modules):
             reset_config_for_tests()
-            # Because extend_selection_max_tokens was not written to disk, the new default is picked up automatically!
-            assert (get_config_int('extend_selection_max_tokens')) == (2000)
-
-    def test_remove_config_prunes_remaining_defaults(self):
-        from plugin.framework.config import remove_config
-
-        with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump({
-                'endpoint': 'http://localhost:11434',
-                'chat_max_tokens': 16384,
-                'request_timeout': 60,
-                'text_model': 'custom-model'
-            }, f)
-        reset_config_for_tests()
-
-        remove_config('request_timeout')
-
-        data = self._load_written()
-        # Only the removed key goes. Other keys, including stored defaults, stay.
-        assert (data) == ({
-            'endpoint': 'http://localhost:11434',
-            'chat_max_tokens': 16384,
-            'text_model': 'custom-model',
-        })
+            # Because chatbot.extend_selection_max_tokens was not written to disk, the new default is picked up automatically!
+            assert (get_config('chatbot.extend_selection_max_tokens')) == (2000)
 
     def test_set_config_does_not_drop_another_writers_keys(self):
-        """A later one-key save must keep keys an earlier writer stored.
-
-        What was wrong: set_config loaded the whole JSON and wrote
-        ``to_dict()`` back. Unknown and retired keys disappeared.
-        """
+        """A later one-key save must keep keys an earlier writer stored."""
         original = {
             'text_model': 'custom-model',
             'chat_sidebar_mode': 'chat',
@@ -1345,7 +1176,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(original, f)
         reset_config_for_tests()
-        set_config('request_timeout', 60)
+        save({'request_timeout': 60})
         data = self._load_written()
         assert (data['request_timeout']) == (60)
         for key, value in original.items():
@@ -1356,7 +1187,7 @@ class TestConfigSyncFileIO:
             json.dump({"text_model": "keep"}, f)
         reset_config_for_tests()
         with pytest.raises(ConfigError) as exc_info:
-            set_config("custom_blob", {1, 2})
+            save({"custom_blob": {1, 2}})
         assert exc_info.value.code == "CONFIG_SAVE_ERROR"
         data = self._load_written()
         assert data.get("text_model") == "keep"
@@ -1439,22 +1270,20 @@ class TestRobustNumericParsing:
             parse_float_robust("invalid")
 
     def test_config_validate_type_casting(self):
-        from plugin.framework.config_schema import WriterAgentConfig
+        from plugin.framework.config_schema import validate
 
         # Test standard dataclass type casting
-        config = WriterAgentConfig.from_dict({
+        validated = validate({
             "temperature": "0,7",  # String with European decimal comma
             "chat_max_tokens": 16384.0,  # Float instead of int
             "image_steps": "30",  # String int
         })
-        config.validate()
 
-        assert (config.temperature) == (0.7)
-        assert (config.chat_max_tokens) == (16384)
-        assert (config.image_steps) == (30)
+        assert (validated["temperature"]) == (0.7)
+        assert (validated["chat_max_tokens"]) == (16384)
+        assert (validated["image_steps"]) == (30)
 
-        # Test _extra_config dynamic YAML schema type casting (e.g. mcp.mcp_port)
-        # First let's patch MODULES to contain a mock module schema
+        # Test dynamic YAML schema type casting (e.g. mcp.mcp_port)
         mock_modules = [{
             "name": "mcp",
             "config": {
@@ -1469,34 +1298,19 @@ class TestRobustNumericParsing:
             }
         }]
         with _patch_manifest(mock_modules):
-            config_with_extra = WriterAgentConfig.from_dict({
+            validated_extra = validate({
                 "mcp.mcp_port": "8765,00",  # German locale format
             })
-            config_with_extra.validate()
-
-            assert (config_with_extra._extra_config.get("mcp.mcp_port")) == (8765)
+            assert (validated_extra["mcp.mcp_port"]) == (8765)
 
     def test_yaml_backed_key_extra_config_type_casting(self):
-        from plugin.framework.config_schema import WriterAgentConfig
+        from plugin.framework.config_schema import validate
 
-        config = WriterAgentConfig.from_dict({"web_cache_max_mb": "50,0"})
-        config.validate()
-        assert (config._extra_config.get("web_cache_max_mb")) == (50)
-
-    def test_yaml_backed_key_schema_bounds_flat_and_dotted(self):
-        from plugin.framework.config_schema import WriterAgentConfig
-
-        config = WriterAgentConfig.from_dict({
-            "extend_selection_max_tokens": "1",
-            "chatbot.edit_selection_max_new_tokens": "99999",
-        })
-        config.validate()
-
-        assert (config._extra_config.get("extend_selection_max_tokens")) == (10)
-        assert (config._extra_config.get("chatbot.edit_selection_max_new_tokens")) == (4096)
+        validated = validate({"chatbot.web_cache_max_mb": "50,0"})
+        assert (validated["chatbot.web_cache_max_mb"]) == (50)
 
     def test_schema_option_label_canonicalization_from_manifest(self):
-        from plugin.framework.config_schema import WriterAgentConfig
+        from plugin.framework.config_schema import validate
 
         mock_modules = [{
             "name": "demo",
@@ -1509,8 +1323,6 @@ class TestRobustNumericParsing:
             },
         }]
 
-        config = WriterAgentConfig.from_dict({"demo.mode": "Translated Fast"})
-
         def fake_gettext(msg):
             if msg == "Fast Mode":
                 return "Translated Fast"
@@ -1518,46 +1330,41 @@ class TestRobustNumericParsing:
 
         with _patch_manifest(mock_modules), \
              patch("plugin.framework.config_schema._", side_effect=fake_gettext):
-            config.validate()
+            validated = validate({"demo.mode": "Translated Fast"})
 
-        assert (config._extra_config.get("demo.mode")) == ("fast")
+        assert (validated["demo.mode"]) == ("fast")
 
     def test_config_validation_constraints(self):
-        from plugin.framework.config_schema import WriterAgentConfig
+        from plugin.framework.config_schema import validate
         from plugin.framework.errors import ConfigValidationError
 
         # temperature > 1.0
-        config = WriterAgentConfig.from_dict({"temperature": 1.5})
         with pytest.raises(ConfigValidationError) as ctx:
-            config.validate()
+            validate({"temperature": 1.5})
         assert (ctx.value.code) == ("INVALID_TEMPERATURE")
 
         # chat_max_tokens < 0
-        config = WriterAgentConfig.from_dict({"chat_max_tokens": -5})
         with pytest.raises(ConfigValidationError) as ctx:
-            config.validate()
+            validate({"chat_max_tokens": -5})
         assert (ctx.value.code) == ("INVALID_CHAT_MAX_TOKENS")
 
         # request_timeout <= 0
-        config = WriterAgentConfig.from_dict({"request_timeout": 0})
         with pytest.raises(ConfigValidationError) as ctx:
-            config.validate()
+            validate({"request_timeout": 0})
         assert (ctx.value.code) == ("INVALID_REQUEST_TIMEOUT")
 
         # endpoint preset resolution
-        config = WriterAgentConfig.from_dict({"endpoint": "OpenRouter"})
-        config.validate()
-        assert (config.endpoint) == ("https://openrouter.ai/api")
+        validated = validate({"endpoint": "OpenRouter"})
+        assert (validated["endpoint"]) == ("https://openrouter.ai/api")
 
     def test_validate_falls_back_when_config_ui_helpers_missing(self):
         """LibrePy omits config_ui_helpers; endpoint still normalizes."""
-        from plugin.framework.config_schema import WriterAgentConfig
+        from plugin.framework.config_schema import validate
         from plugin.framework.url_utils import normalize_endpoint_url
 
-        config = WriterAgentConfig.from_dict({"endpoint": "http://localhost:11434/"})
         with patch.dict(sys.modules, {"plugin.chatbot.config_ui_helpers": None}):
-            config.validate()
-        assert (config.endpoint) == (normalize_endpoint_url("http://localhost:11434/"))
+            validated = validate({"endpoint": "http://localhost:11434/"})
+        assert (validated["endpoint"]) == (normalize_endpoint_url("http://localhost:11434/"))
 
     def test_validate_api_config_without_config_ui_helpers(self):
         from plugin.framework.config import validate_api_config
@@ -1588,16 +1395,8 @@ def test_get_config_before_init_warns_once(caplog):
 def test_set_config_raises_when_path_empty():
     with patch("plugin.framework.config.get_config_file_path", return_value=""):
         with pytest.raises(ConfigError) as exc:
-            set_config("text_model", "x")
+            save({"text_model": "x"})
     assert exc.value.code == "CONFIG_PATH_ERROR"
-
-
-def test_remove_config_raises_when_path_unresolved():
-    from plugin.framework.config import remove_config
-
-    with patch("plugin.framework.config.get_config_file_path", side_effect=ConfigError("no path", code="CONFIG_DIR_ERROR")):
-        with pytest.raises(ConfigError):
-            remove_config("text_model")
 
 
 def test_second_config_backup_keeps_the_first_copy(tmp_path):
@@ -1639,46 +1438,44 @@ def test_resolve_config_path_from_ctx_rejects_mock_and_invalid_user_config():
     assert path == os.path.join("/home/user/.config/libreoffice/4/user", "writeragent.json")
 
 
-def test_get_config_int_safe_unknown_key_logs_once_and_returns_zero(caplog):
+def test_rename_migrates_model_stt_model_and_flat_keys(tmp_path):
     reset_config_for_tests()
-    with caplog.at_level(logging.WARNING, logger="plugin.framework.config"):
-        val1 = get_config_int_safe("not.a.real.key")
-        val2 = get_config_int_safe("not.a.real.key")
-    assert val1 == 0
-    assert val2 == 0
-    records = [r for r in caplog.records if "not.a.real.key" in r.message]
-    assert len(records) == 1
+    cfg_file = tmp_path / "writeragent.json"
+    with patch("plugin.framework.config.get_config_file_path", return_value=str(cfg_file)):
+        with open(cfg_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "model": "legacy-chat-model",
+                "stt_model": "whisper-legacy",
+                "deep_research_max_rounds": 5,
+            }, f)
+        reset_config_for_tests()
+        assert get_config("text_model") == "legacy-chat-model"
+        assert get_config("audio.stt_model") == "whisper-legacy"
+        assert get_config("chatbot.deep_research_max_rounds") == 5
+
+        written = parse_config_json_text(cfg_file.read_text(encoding="utf-8"))
+        assert "model" not in written
+        assert "stt_model" not in written
+        assert "deep_research_max_rounds" not in written
+        assert written.get("text_model") == "legacy-chat-model"
+        assert written.get("audio.stt_model") == "whisper-legacy"
+        assert written.get("chatbot.deep_research_max_rounds") == 5
 
 
-def test_get_config_bool_safe_unknown_key_logs_once_and_returns_false(caplog):
+def test_bad_save_rolls_back_cache_and_keeps_disk(tmp_path):
     reset_config_for_tests()
-    with caplog.at_level(logging.WARNING, logger="plugin.framework.config"):
-        val1 = get_config_bool_safe("not.a.real.key")
-        val2 = get_config_bool_safe("not.a.real.key")
-    assert val1 is False
-    assert val2 is False
-    records = [r for r in caplog.records if "not.a.real.key" in r.message]
-    assert len(records) == 1
+    cfg_file = tmp_path / "writeragent.json"
+    with patch("plugin.framework.config.get_config_file_path", return_value=str(cfg_file)):
+        save({"text_model": "good-model"})
+        disk_before = cfg_file.read_text(encoding="utf-8")
+        with pytest.raises(ConfigValidationError):
+            save({"temperature": 99.0})
+        assert cfg_file.read_text(encoding="utf-8") == disk_before
+        assert get_config("text_model") == "good-model"
 
 
-def test_get_config_int_safe_type_error_uses_schema_default(caplog):
+def test_unknown_key_raises():
     reset_config_for_tests()
-    with patch("plugin.framework.config.get_config_int", side_effect=ConfigError("bad", code="CONFIG_TYPE_ERROR")):
-        with caplog.at_level(logging.WARNING, logger="plugin.framework.config"):
-            val = get_config_int_safe("request_timeout")
-    assert val == 120
-    assert not any("Unknown config key" in r.message or "CONFIG_KEY_NOT_FOUND" in r.message for r in caplog.records)
-
-
-def test_get_config_int_safe_propagates_non_config_error():
-    reset_config_for_tests()
-    with patch("plugin.framework.config.get_config_int", side_effect=RuntimeError("boom")):
-        with pytest.raises(RuntimeError):
-            get_config_int_safe("request_timeout")
-
-
-def test_get_config_bool_safe_propagates_non_config_error():
-    reset_config_for_tests()
-    with patch("plugin.framework.config.get_config_bool", side_effect=RuntimeError("boom")):
-        with pytest.raises(RuntimeError):
-            get_config_bool_safe("rich_text_control_sidebar")
+    with pytest.raises(ConfigError) as exc_info:
+        get_config("nosuchkey")
+    assert exc_info.value.code == "CONFIG_KEY_NOT_FOUND"

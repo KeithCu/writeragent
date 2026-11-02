@@ -1413,30 +1413,18 @@ def run_module_suite(ctx: Any, module: Any, name: str) -> tuple[int, int, list[s
     return total_passed, total_failed, suite_log
 
 
-def _native_suite_set_config(
-    key: str,
-    value: Any,
+def _native_suite_save(
+    patch: dict[str, Any],
     *,
     event_key: str | None,
     ctx: Any,
     review_mode_override: Dict[str, Any],
-    original_set_config: Callable[..., None],
+    original_save: Callable[..., None],
 ) -> None:
-    """Stand-in for ``set_config`` while native suites run.
-
-    Forward ``event_key``. ``set_text_model``, ``set_image_model``, and
-    ``set_api_key_for_endpoint`` always pass it: the listener key when a
-    settings field is stored under another name, or ``None`` so listeners
-    see the stored key. A wrapper that only takes ``(key, value)`` raises
-    ``TypeError`` and aborts both suites before any test
-    (GHA 36809189426, 36809192143).
-
-    ``doc.agent_edit_review_mode`` stays in memory; a caller-supplied
-    ``event_key`` is still the ``config:changed`` key so that signal is
-    not dropped.
-    """
-    if key == "doc.agent_edit_review_mode":
-        review_mode_override[key] = value
+    """Stand-in for ``save`` while native suites run."""
+    if "doc.agent_edit_review_mode" in patch:
+        value = patch["doc.agent_edit_review_mode"]
+        review_mode_override["doc.agent_edit_review_mode"] = value
         from plugin.framework.event_bus import get_event_bus
 
         bus = get_event_bus()
@@ -1444,8 +1432,11 @@ def _native_suite_set_config(
             bus.emit("config:changed", key=event_key, value=value, ctx=ctx)
         else:
             bus.emit("config:changed", ctx=ctx)
+        remaining = {k: v for k, v in patch.items() if k != "doc.agent_edit_review_mode"}
+        if remaining:
+            original_save(remaining, event_key=event_key)
         return
-    original_set_config(key, value, event_key=event_key)
+    original_save(patch, event_key=event_key)
 
 
 def run_all_tests(ctx: Any) -> str:
@@ -1476,7 +1467,7 @@ def run_all_tests(ctx: Any) -> str:
     # and only track its test-specific overrides in memory.
     import plugin.framework.config
     original_get_config = plugin.framework.config.get_config
-    original_set_config = plugin.framework.config.set_config
+    original_save = plugin.framework.config.save
     original_get_config_dict = plugin.framework.config.get_config_dict
 
     _review_mode_override: Dict[str, Any] = {}
@@ -1486,14 +1477,13 @@ def run_all_tests(ctx: Any) -> str:
             return _review_mode_override.get(key, "off")
         return original_get_config(key)
 
-    def test_set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
-        _native_suite_set_config(
-            key,
-            value,
+    def test_save(patch: dict[str, Any], *, event_key: str | None = None) -> None:
+        _native_suite_save(
+            patch,
             event_key=event_key,
             ctx=ctx,
             review_mode_override=_review_mode_override,
-            original_set_config=original_set_config,
+            original_save=original_save,
         )
 
     def test_get_config_dict() -> dict[str, Any]:
@@ -1503,7 +1493,7 @@ def run_all_tests(ctx: Any) -> str:
         return merged
 
     setattr(plugin.framework.config, "get_config", test_get_config)
-    setattr(plugin.framework.config, "set_config", test_set_config)
+    setattr(plugin.framework.config, "save", test_save)
     setattr(plugin.framework.config, "get_config_dict", test_get_config_dict)
 
     suites: List[Dict[str, Any]] = []

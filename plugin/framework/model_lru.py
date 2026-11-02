@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.config import LRU_MAX_ITEMS, get_config, set_config
+from plugin.framework.config import LRU_MAX_ITEMS, get_config, save
 from plugin.framework.i18n import _
 
 _MODEL_COMBO_PLACEHOLDER_MSGIDS = (
@@ -68,4 +68,4 @@ def update_lru_history(val: Any, lru_key: str, endpoint: str) -> None:
     new_lru = next_lru_list(get_config(scoped_key), val)
     if new_lru is None:
         return
-    set_config(scoped_key, new_lru)
+    save({scoped_key: new_lru})

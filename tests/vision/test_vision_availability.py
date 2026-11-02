@@ -22,13 +22,13 @@ class _Tool:
 def test_vision_venv_configured_catches_config_error():
     # What was wrong: pytest escape hatch returned False unconditionally in tests, hiding real config behavior.
     # Why this change: verify ConfigError is caught, logged, and returns False safely.
-    with patch("plugin.vision.vision_availability.get_config_str", side_effect=ConfigError("broken config")):
+    with patch("plugin.vision.vision_availability.get_config", side_effect=ConfigError("broken config")):
         assert vision_venv_configured() is False
 
 
 def test_vision_venv_configured_success():
     with (
-        patch("plugin.vision.vision_availability.get_config_str", return_value="/fake/venv"),
+        patch("plugin.vision.vision_availability.get_config", return_value="/fake/venv"),
         patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/fake/venv/bin/python"),
     ):
         assert vision_venv_configured() is True

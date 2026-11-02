@@ -51,7 +51,7 @@ class TestFetchAvailableModelsCache:
 
         payload = {'data': [{'id': 'm1'}]}
         with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync, \
-             patch('plugin.framework.client.model_fetcher.get_config_bool_safe', return_value=False):
+             patch('plugin.framework.client.model_fetcher.get_config', return_value=False):
             r1 = fetch_available_models('https://chat.openwebui.example/api', api_key_override='sk-test')
             assert r1 == ['m1']
             assert mock_sync.call_count == 1
@@ -71,7 +71,7 @@ class TestFetchAvailableModelsCache:
 
         payload = {'data': [{'id': 'm1'}]}
         with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync, \
-             patch('plugin.framework.client.model_fetcher.get_config_bool_safe', return_value=True):
+             patch('plugin.framework.client.model_fetcher.get_config', return_value=True):
             r = fetch_available_models('http://127.0.0.1:3000/api', api_key_override='sk')
             assert r == ['m1']
             assert mock_sync.call_count == 1
@@ -158,7 +158,7 @@ class TestTextModelPlaceholderGuards:
     def test_set_text_model_ignores_placeholder(self):
         from plugin.framework.client.model_fetcher import set_text_model
 
-        with patch('plugin.framework.client.model_fetcher.set_config') as mock_set:
+        with patch('plugin.framework.client.model_fetcher.save') as mock_set:
             set_text_model('(Connection failed)', update_lru=False)
             mock_set.assert_not_called()
 
@@ -414,7 +414,7 @@ class TestHasNativeVision:
         from plugin.framework.client.model_fetcher import has_native_vision
         with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
              patch('plugin.framework.client.model_fetcher.get_config', return_value={}), \
-             patch('plugin.framework.client.model_fetcher.set_config'):
+             patch('plugin.framework.client.model_fetcher.save'):
 
             import plugin.framework.client.model_fetcher as mf
             memo = mf._get_catalog_memo('https://openrouter.ai/api')
@@ -629,7 +629,7 @@ class TestHasNativeVision:
             memo.vision_declarations = {"known-model": True}
             with patch.object(model_fetcher, "get_config", return_value={}), \
                  patch.object(model_fetcher, "fetch_available_models") as fetch, \
-                 patch.object(model_fetcher, "set_config"):
+                 patch.object(model_fetcher, "save"):
                 assert model_fetcher.has_native_vision(
                     "known-model",
                     "https://openrouter.ai/api",
@@ -640,15 +640,13 @@ class TestHasNativeVision:
             model_fetcher._catalog_memos.update(saved)
 
     def test_vision_support_map_is_a_config_field(self):
-        from plugin.framework.config_schema import WriterAgentConfig, _resolve_default, is_known_config_key
+        from plugin.framework.config_schema import _resolve_default, is_known_config_key, validate
         assert (is_known_config_key('vision_support_map'))
         assert (_resolve_default('vision_support_map')) == ({})
-        cfg = WriterAgentConfig.from_dict({
+        validated = validate({
             'vision_support_map': {'https://openrouter.ai/api@google/gemini-3.8-flash': False},
         })
-        cfg.validate()
-        dumped = cfg.to_dict()
-        assert (dumped['vision_support_map']['https://openrouter.ai/api@google/gemini-3.8-flash']) is False
+        assert (validated['vision_support_map']['https://openrouter.ai/api@google/gemini-3.8-flash']) is False
 
     def test_vision_memo_honors_api_key_override(self):
         from plugin.framework.client.model_fetcher import fetch_available_models, has_native_vision
@@ -796,6 +794,8 @@ class TestHasNativeVision:
         def mock_get_config(key):
             if key == "vision_support_map":
                 return dict(saved)
+            if key == "is_openwebui":
+                return True
             return {}
 
         def mock_update_config_mapping(key, mutator, event_key=None):
@@ -804,7 +804,6 @@ class TestHasNativeVision:
 
         with patch("plugin.framework.client.model_fetcher.get_config", side_effect=mock_get_config), \
              patch("plugin.framework.client.model_fetcher.update_config_mapping", side_effect=mock_update_config_mapping), \
-             patch("plugin.framework.client.model_fetcher.get_config_bool_safe", return_value=True), \
              patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
 
             set_native_vision_support("my-model", "http://openwebui.example/api", True)
@@ -993,26 +992,11 @@ class TestV1ContextHarvest:
 
 
 class TestGetSttModel:
-    @pytest.mark.parametrize(
-        "value, value_2, expected",
-        [
-            pytest.param("speech-new", "speech-old", "speech-new", id="test_audio_stt_model_wins_over_legacy"),
-            pytest.param("", "whisper-legacy", "whisper-legacy", id="test_legacy_stt_model_when_new_key_empty"),
-        ],
-    )
-    def test_audio_stt_model_wins_over_legacy(self, value, value_2, expected):
+    def test_audio_stt_model_read(self):
         from plugin.framework.client.model_fetcher import get_stt_model
 
-        def fake_get(key):
-            if key == "audio.stt_model":
-                return value
-            if key == "stt_model":
-                return value_2
-            return ""
-
-        with patch("plugin.framework.client.model_fetcher.get_config", side_effect=fake_get):
-            assert get_stt_model() == expected
-
+        with patch("plugin.framework.client.model_fetcher.get_config", return_value="speech-new"):
+            assert get_stt_model() == "speech-new"
 
     def test_default_from_provider_when_both_empty(self):
         from plugin.framework.client.model_fetcher import get_stt_model

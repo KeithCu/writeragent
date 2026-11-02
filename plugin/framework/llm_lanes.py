@@ -43,8 +43,8 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
     that can only process one request at a time process-wide.
     """
     if timeout is None:
-        from plugin.framework.config import get_config_int
-        timeout = float(get_config_int("request_timeout") or 60)
+        from plugin.framework.config import get_config
+        timeout = float(get_config("request_timeout") or 60)
 
     deadline = time.monotonic() + timeout
     notified_status = False

@@ -68,9 +68,17 @@ class DummyChatbotPanel(SendHandlersMixin):
 def test_get_mcp_url_uses_schema_keys_only():
     """Agent backends must not read mcp.host (not in module.yaml)."""
     panel = DummyChatbotPanel()
-    with patch("plugin.chatbot.send_handlers.get_config", return_value="true"), patch("plugin.chatbot.send_handlers.get_config_int_safe", return_value=18765) as mock_port:
+
+    def _mcp_cfg(key):
+        if key == "mcp.mcp_enabled":
+            return "true"
+        if key == "mcp.mcp_port":
+            return 18765
+        raise AssertionError(f"unexpected key {key!r}")
+
+    with patch("plugin.chatbot.send_handlers.get_config", side_effect=_mcp_cfg) as mock_cfg:
         url = panel._get_mcp_url()  # type: ignore
-    mock_port.assert_called_once_with("mcp.mcp_port")
+    mock_cfg.assert_any_call("mcp.mcp_port")
     assert url == "http://localhost:18765/mcp"
 
 def test_get_mcp_url_returns_none_when_disabled():
@@ -834,7 +842,7 @@ def test_acp_approval_default_and_dead_turn():
 
 def test_acp_approval_auto_approve_when_configured():
     from plugin.chatbot.send_handlers import SendHandlersMixin
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
     import unittest.mock as mock
 
     class DummyHost(SendHandlersMixin):
@@ -861,7 +869,7 @@ def test_acp_approval_auto_approve_when_configured():
 
         with mock.patch("plugin.chatbot.send_handlers.show_approval_dialog") as mock_dialog:
 
-            set_config("agent_backend.prompt_for_permission", False)
+            save({"agent_backend.prompt_for_permission": False})
 
             host._do_send_via_agent_backend("hello", mock.MagicMock(), "writer")
             cb = mock_loop.call_args.kwargs.get("on_approval_callback")
@@ -892,7 +900,7 @@ def test_web_research_tool():
     ctx.ctx = MockContext()
     # Mock get_config logic inside web_research to avoid KeyError
     from unittest.mock import patch
-    setattr(ctx.ctx, "getServiceManager", MagicMock())  # for ConfigService
+    setattr(ctx.ctx, "getServiceManager", MagicMock())  # for config
     ctx.status_callback = MagicMock()
     ctx.append_thinking_callback = MagicMock()
     ctx.stop_checker = lambda: False
@@ -972,15 +980,35 @@ def test_web_research_tool():
 
                 from plugin.writer.specialized_base import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
-                with patch("plugin.framework.config.get_config", return_value="false"):
-                    def _cfg_int(key):
-                        if key == "web_cache_max_mb":
-                            return 0  # disable SQLite cache (avoids db path issues in tests)
-                        if key == "chat_max_tokens":
-                            return 2048
-                        return 10
 
-                    with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int):
+                def _cfg_get(key):
+                    if key == "chatbot.web_cache_max_mb":
+                        return 0  # disable SQLite cache (avoids db path issues in tests)
+                    if key == "chat_max_tokens":
+                        return 2048
+                    if key in (
+                        "chatbot.deep_research_sub_agent_steps",
+                        "chatbot.deep_research_max_rounds",
+                        "chatbot.deep_research_breadth",
+                        "chatbot.deep_research_concurrency",
+                        "chatbot.deep_research_max_sub_queries",
+                        "chatbot.max_tool_rounds",
+                    ):
+                        return 10
+                    if key == "chatbot.deep_research_quality_threshold":
+                        return 0.5
+                    if key == "chatbot.web_cache_validity_days":
+                        return 7
+                    if key in (
+                        "chatbot.web_research_cache_jaccard_percent",
+                        "chatbot.web_research_cache_embedding_percent",
+                    ):
+                        return 80
+                    if key == "chatbot.web_research_cache_min_overlap":
+                        return 3
+                    return "false"
+
+                with patch("plugin.framework.config.get_config", side_effect=_cfg_get):
                         with patch("plugin.framework.config.get_api_config", return_value={}):
                             result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 
@@ -997,7 +1025,7 @@ def test_web_research_tool_stop():
     ctx = MagicMock()
     ctx.ctx = MockContext()
     from unittest.mock import patch
-    setattr(ctx.ctx, "getServiceManager", MagicMock())  # for ConfigService
+    setattr(ctx.ctx, "getServiceManager", MagicMock())  # for config
     ctx.stop_checker = lambda: True  # Stop immediately
 
     with patch("plugin.chatbot.smol_agent.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
@@ -1005,15 +1033,35 @@ def test_web_research_tool_stop():
             with patch("requests.get"):
                 from plugin.writer.specialized_base import DelegateToSpecializedWriter
                 tool = DelegateToSpecializedWriter()
-                with patch("plugin.framework.config.get_config", return_value="false"):
-                    def _cfg_int_stop(key):
-                        if key == "web_cache_max_mb":
-                            return 0
-                        if key == "chat_max_tokens":
-                            return 2048
-                        return 10
 
-                    with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int_stop):
+                def _cfg_get_stop(key):
+                    if key == "chatbot.web_cache_max_mb":
+                        return 0
+                    if key == "chat_max_tokens":
+                        return 2048
+                    if key in (
+                        "chatbot.deep_research_sub_agent_steps",
+                        "chatbot.deep_research_max_rounds",
+                        "chatbot.deep_research_breadth",
+                        "chatbot.deep_research_concurrency",
+                        "chatbot.deep_research_max_sub_queries",
+                        "chatbot.max_tool_rounds",
+                    ):
+                        return 10
+                    if key == "chatbot.deep_research_quality_threshold":
+                        return 0.5
+                    if key == "chatbot.web_cache_validity_days":
+                        return 7
+                    if key in (
+                        "chatbot.web_research_cache_jaccard_percent",
+                        "chatbot.web_research_cache_embedding_percent",
+                    ):
+                        return 80
+                    if key == "chatbot.web_research_cache_min_overlap":
+                        return 3
+                    return "false"
+
+                with patch("plugin.framework.config.get_config", side_effect=_cfg_get_stop):
                         with patch("plugin.framework.config.get_api_config", return_value={}):
                             result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 
@@ -1026,7 +1074,7 @@ def test_web_research_tool_approval():
     ctx = MagicMock()
     ctx.ctx = MockContext()
     from unittest.mock import patch
-    setattr(ctx.ctx, "getServiceManager", MagicMock())  # for ConfigService
+    setattr(ctx.ctx, "getServiceManager", MagicMock())  # for config
     ctx.status_callback = MagicMock()
     ctx.append_thinking_callback = MagicMock()
     ctx.stop_checker = lambda: False
@@ -1068,15 +1116,33 @@ def test_web_research_tool_approval():
                         return "true"
                     if key == "agent_backend.prompt_for_permission":
                         return "true"
-                    return "false"
-                with patch("plugin.framework.config.get_config", side_effect=_cfg_get):
-                    def _cfg_int(key):
-                        if key == "web_cache_max_mb":
-                            return 0
-                        if key == "chat_max_tokens":
-                            return 2048
+                    if key == "chatbot.web_cache_max_mb":
+                        return 0
+                    if key == "chat_max_tokens":
+                        return 2048
+                    if key in (
+                        "chatbot.deep_research_sub_agent_steps",
+                        "chatbot.deep_research_max_rounds",
+                        "chatbot.deep_research_breadth",
+                        "chatbot.deep_research_concurrency",
+                        "chatbot.deep_research_max_sub_queries",
+                        "chatbot.max_tool_rounds",
+                    ):
                         return 10
-                    with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int):
+                    if key == "chatbot.deep_research_quality_threshold":
+                        return 0.5
+                    if key == "chatbot.web_cache_validity_days":
+                        return 7
+                    if key in (
+                        "chatbot.web_research_cache_jaccard_percent",
+                        "chatbot.web_research_cache_embedding_percent",
+                    ):
+                        return 80
+                    if key == "chatbot.web_research_cache_min_overlap":
+                        return 3
+                    return "false"
+
+                with patch("plugin.framework.config.get_config", side_effect=_cfg_get):
                         with patch("plugin.framework.config.get_api_config", return_value={}):
                             result = tool.execute(ctx, domain="web_research", task="What is the latest Python release?")
 

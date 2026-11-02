@@ -487,7 +487,7 @@ def resolve_run_script_selection(
 ) -> tuple[str, str, dict[str, str]]:
     """Return (selected_name, selected_code, merged_scripts) for Run Python Script."""
     name_config_key = resolve_run_script_name_config_key(doc)
-    last_name = config.get_config_str(name_config_key)
+    last_name = config.get_config(name_config_key)
     names, merged_scripts, _unused_origin_map = picker_state
     # A raw document name from an older list still selects that script when
     # the picker key is the [Doc] display name and no user script uses the raw name.
@@ -498,7 +498,7 @@ def resolve_run_script_selection(
     if not last_name or last_name not in merged_scripts:
         last_name = names[0] if names else ""
         if last_name:
-            config.set_config(name_config_key, last_name)
+            config.save({name_config_key: last_name})
     selected_code = merged_scripts.get(last_name, "")
     return last_name, selected_code, merged_scripts
 
@@ -633,21 +633,21 @@ def save_user_script(name: str, code: str) -> DocumentScriptError | None:
         return new_script_name_error(name, attach=False)
     scripts = get_user_scripts()
     scripts[name] = code
-    config.set_config("saved_python_scripts", scripts)
+    config.save({"saved_python_scripts": scripts})
     return None
 
 
 def delete_user_script(name: str) -> DocumentScriptError | None:
     scripts = get_user_scripts()
     # Deleting a user script that is not there must not report success or
-    # rewrite config. Return NOT_FOUND and skip set_config.
+    # rewrite config. Return NOT_FOUND and skip save.
     if name not in scripts:
         return DocumentScriptError(
             _("Script '{0}' does not exist in My Scripts.").format(name),
             DocumentScriptErrorCode.NOT_FOUND,
         )
     del scripts[name]
-    config.set_config("saved_python_scripts", scripts)
+    config.save({"saved_python_scripts": scripts})
     return None
 
 
@@ -725,7 +725,7 @@ def _on_select_script(
     send_list: Callable[..., None],
 ) -> bool:
     name = str(msg.get("name", "") or "").strip()
-    config.set_config(resolve_run_script_name_config_key(session_doc), name)
+    config.save({resolve_run_script_name_config_key(session_doc): name})
     return True
 
 
@@ -784,7 +784,7 @@ def _on_save_script(
         if user_err:
             send_list(status_error_text=str(user_err))
             return True
-        config.set_config(resolve_run_script_name_config_key(session_doc), saved_name)
+        config.save({resolve_run_script_name_config_key(session_doc): saved_name})
         if log_user:
             log.info("scripts picker: save_script '%s' (user)", saved_name)
         send_list(status_ok_text=ok_text)
@@ -809,7 +809,7 @@ def _on_save_script(
             send_list(status_error_text=str(save_err))
             return True
         display_name = document_script_display_name(storage_name)
-        config.set_config(resolve_run_script_name_config_key(session_doc), display_name)
+        config.save({resolve_run_script_name_config_key(session_doc): display_name})
         send_list(status_ok_text=_("Saved script '{0}' to this document.").format(storage_name))
         return True
     return _finish_user_save(name, _("Saved script '{0}'.").format(name), log_user=True)

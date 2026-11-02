@@ -27,7 +27,7 @@ from plugin.framework.queue_executor import post_to_main_thread
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.errors import format_error_message
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.config import get_api_config, set_config, validate_api_config
+from plugin.framework.config import get_api_config, save, validate_api_config
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_ctx, get_document_from_frame
 from .dialogs import msgbox
@@ -68,7 +68,7 @@ def prompt_for_edit_instructions(ctx: Any, title: str) -> tuple[str, str] | None
     if not user_input:
         return None
     if extra_instructions:
-        set_config("additional_instructions", extra_instructions)
+        save({"additional_instructions": extra_instructions})
         update_lru_history(extra_instructions, "prompt_lru", "")
     return user_input, extra_instructions
 

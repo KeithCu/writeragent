@@ -18,7 +18,7 @@ import tempfile
 import threading
 from typing import TYPE_CHECKING, Any, cast
 
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_tree
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
 from plugin.scripting.native_binaries import ensure_native_binaries_on_path
@@ -48,7 +48,7 @@ def is_audio_recording_configured() -> bool:
 
 def resolve_recording_python() -> tuple[str | None, str]:
     """Return (venv python executable, error message)."""
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return None, _VENV_NOT_CONFIGURED
     exe = resolve_venv_python(venv_dir)

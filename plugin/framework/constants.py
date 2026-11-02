@@ -128,9 +128,9 @@ DEFAULT_FOLDER_RERANK_MODEL = FOLDER_RERANK_MODEL_ENGLISH_SMALL
 
 def folder_rerank_enabled() -> bool:
     """True when LlamaIndex cross-encoder rerank is enabled in Settings."""
-    from plugin.framework.config import get_config_bool
+    from plugin.framework.config import get_config
 
-    return get_config_bool("embeddings.folder_rerank_enabled")
+    return bool(get_config("embeddings.folder_rerank_enabled"))
 
 
 def resolve_folder_rerank_model() -> str:

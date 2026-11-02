@@ -196,12 +196,12 @@ def _post_audio_speech(
     """Execute the HTTP request, returning (audio_bytes, content_type, code, error_body)."""
     import json
 
-    from plugin.framework.config import get_config_int_safe
+    from plugin.framework.config import get_config
     from plugin.framework.client.requests import sync_request
     from plugin.framework.errors import NetworkError
 
     # Read budget only. Connect stays on the shared short timeout inside sync_request.
-    timeout = get_config_int_safe("request_timeout")
+    timeout = int(get_config("request_timeout") or 0)
     read_timeout = float(timeout if timeout > 0 else 120)
 
     data = json.dumps(payload).encode("utf-8")

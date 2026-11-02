@@ -36,9 +36,10 @@ def get_api_config() -> dict[str, Any]:
     return _gac()
 
 
-def get_config_int(key: str) -> int:
-    from plugin.framework.config import get_config_int as _gci
-    return _gci(key)
+def get_config(key: str) -> Any:
+    from plugin.framework.config import get_config as _gc
+    return _gc(key)
+
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -367,7 +368,7 @@ def create_smol_model(
 ) -> WriterAgentSmolModel:
     """Construct a WriterAgentSmolModel with configured client, max tokens, and callbacks."""
     if max_tokens is None:
-        max_tokens = get_config_int("chat_max_tokens")
+        max_tokens = int(get_config("chat_max_tokens"))
     if stop_checker is None and ctx is not None:
         stop_checker = ctx.stop_checker
     if status_callback is None and ctx is not None:
@@ -386,7 +387,7 @@ def create_smol_model(
 
 def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str) -> ToolCallingAgent:
     """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
-    max_steps = get_config_int("chatbot.max_tool_rounds")
+    max_steps = get_config("chatbot.max_tool_rounds")
     smol_model = create_smol_model(ctx)
     return ToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)
 

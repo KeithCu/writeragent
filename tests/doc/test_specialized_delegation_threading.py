@@ -81,7 +81,7 @@ class _DummyDocResearchTool(ToolBase):
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -97,7 +97,7 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -133,7 +133,7 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -149,7 +149,7 @@ def test_calc_delegate_disposed_context_reports_document_disposed(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_get_calc_context.side_effect = DocumentDisposedError("doc closed")
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -181,7 +181,7 @@ def test_calc_delegate_disposed_context_reports_document_disposed(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -195,7 +195,7 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     """Regression: truthiness on guard-proxied ctx.doc trips UNO bool on MCP/long-running worker."""
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
@@ -250,7 +250,7 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -266,7 +266,7 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_format_canvas.return_value = " Document canvas (Writer): page style 'Standard'; paper 210.0 x 297.0 mm"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -299,7 +299,7 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -313,7 +313,7 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_agent_instance = MagicMock()
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
@@ -342,7 +342,7 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -360,7 +360,7 @@ def test_writer_delegate_marshals_document_research_scaffolding(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_get_open_docs.return_value = [{"path": "/tmp/a.odt", "url": "file:///tmp/a.odt", "doc_type": "writer", "is_active": True}]
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -398,7 +398,7 @@ def test_writer_delegate_marshals_document_research_scaffolding(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -416,7 +416,7 @@ def test_writer_delegate_disposed_open_documents_reports_document_disposed(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_get_open_docs.side_effect = DocumentDisposedError("doc closed")
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -500,7 +500,7 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -516,7 +516,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     """Regression: specialized execute built the #673 peer catalog on the async worker.
 
@@ -705,7 +705,7 @@ def test_calc_specialized_domain_base_requires_core_read_tools():
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -721,7 +721,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     """Outer hop payload gets web-research-style `instruction` after create_sheet."""
     from plugin.calc.sheets import CreateSheet

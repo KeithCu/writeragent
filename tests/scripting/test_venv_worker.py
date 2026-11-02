@@ -1235,22 +1235,16 @@ def test_run_code_in_user_venv_reads_sandbox_policy_flags():
         mock_execute.return_value = {"status": "ok", "result": 1}
 
         # Case 1: only OS is on -> files must be True as well (files = allow_files or allow_os)
-        def fake_get_bool_os(key: str) -> bool:
+        def fake_get_config(key: str):
             if key == "scripting.python_allow_os":
                 return True
             if key in ("scripting.python_allow_network", "scripting.python_allow_files"):
                 return False
-            return False
-
-        def fake_get_str(key: str) -> str:
             if key == "scripting.python_extra_modules":
                 return "custom_mod"
             return ""
 
-        with (
-            patch("plugin.scripting.venv_worker.get_config_bool", side_effect=fake_get_bool_os),
-            patch("plugin.scripting.venv_worker.get_config_str", side_effect=fake_get_str),
-        ):
+        with patch("plugin.scripting.venv_worker.get_config", side_effect=fake_get_config):
             run_code_in_user_venv(ctx, "result = 1")
             assert mock_execute.call_args.kwargs["sandbox_policy"] == {
                 "network": False,
@@ -1262,15 +1256,14 @@ def test_run_code_in_user_venv_reads_sandbox_policy_flags():
         mock_execute.reset_mock()
 
         # Case 2: network and files on, os off
-        def fake_get_bool_net_files(key: str) -> bool:
+        def fake_get_bool_net_files(key: str):
             if key in ("scripting.python_allow_network", "scripting.python_allow_files"):
                 return True
+            if key == "scripting.python_extra_modules":
+                return ""
             return False
 
-        with (
-            patch("plugin.scripting.venv_worker.get_config_bool", side_effect=fake_get_bool_net_files),
-            patch("plugin.scripting.venv_worker.get_config_str", return_value=""),
-        ):
+        with patch("plugin.scripting.venv_worker.get_config", side_effect=fake_get_bool_net_files):
             run_code_in_user_venv(ctx, "result = 1")
             assert mock_execute.call_args.kwargs["sandbox_policy"] == {
                 "network": True,
@@ -1459,7 +1452,7 @@ def test_worker_harness_dies_with_parent(monkeypatch):
 
 
 @patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10)
-@patch("plugin.scripting.venv_worker.get_config_str", return_value="")
+@patch("plugin.scripting.venv_worker.get_config", return_value="")
 @patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable)
 @patch("plugin.scripting.venv_worker.PythonWorkerManager.execute")
 def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mock_configured_timeout):
@@ -1561,7 +1554,7 @@ def test_run_code_forwards_script_session_pin_apart_from_kernel_session():
     ctx = MagicMock()
     with (
         patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10),
-        patch("plugin.scripting.venv_worker.get_config_str", return_value=""),
+        patch("plugin.scripting.venv_worker.get_config", return_value=""),
         patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable),
         patch("plugin.scripting.venv_worker.PythonWorkerManager.execute") as mock_execute,
     ):
@@ -1846,7 +1839,7 @@ def test_terminate_worker_re_primes_on_next_execute():
         PythonWorkerManager.shutdown_all()
 
 
-@patch("plugin.scripting.venv_worker.get_config_str", return_value="")
+@patch("plugin.scripting.venv_worker.get_config", return_value="")
 @patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable)
 def test_warm_venv_worker_resolves_and_warms(mock_lo_python, mock_cfg):
 
@@ -1870,7 +1863,7 @@ class TestLiveWorkerReuse:
         yield mgr
         PythonWorkerManager.shutdown_all()
 
-    @patch("plugin.scripting.venv_worker.get_config_str", return_value="")
+    @patch("plugin.scripting.venv_worker.get_config", return_value="")
     @patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable)
     def test_run_code_uses_manager(self, mock_lo_python, mock_cfg, warmed_worker_manager):
         del warmed_worker_manager

@@ -151,7 +151,7 @@ def test_unsubscribe_weak_bound_method_without_stashing():
 def test_emit_drops_reentrant_same_event():
     """Same-thread nested emit of the same name must not re-enter subscribers.
 
-    That is the sidebar hang: config:changed -> setText -> set_config ->
+    That is the sidebar hang: config:changed -> setText -> save ->
     config:changed. Raising from emit would be swallowed by the outer emit's
     except Exception, so we drop and warn instead.
     """

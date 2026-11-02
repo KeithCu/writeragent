@@ -47,18 +47,15 @@ def _model_for_data(data):
     return doc, sheet
 
 
-def _config_str(key):
+def _config(key):
     return {
         "extend_selection_system_prompt": "extend system",
         "edit_selection_system_prompt": "edit system",
-    }[key]
-
-
-def _config_int(key):
-    return {
-        "extend_selection_max_tokens": 50,
-        "edit_selection_max_new_tokens": 7,
-    }[key]
+        "chatbot.extend_selection_system_prompt": "extend system",
+        "chatbot.edit_selection_system_prompt": "edit system",
+        "chatbot.extend_selection_max_tokens": 50,
+        "chatbot.edit_selection_max_new_tokens": 7,
+    }.get(key, 0 if "max" in key else "")
 
 
 def test_calc_extend_streams_each_non_empty_cell():
@@ -72,8 +69,7 @@ def test_calc_extend_streams_each_non_empty_cell():
         apply_chunk_fn("+2", False)
         on_done_fn()
 
-    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
-         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=False)
@@ -95,11 +91,10 @@ def test_calc_edit_skips_empty_cells():
         apply_chunk_fn("Edited", False)
         on_done_fn()
 
-    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
-         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.chatbot.selection.input_box", new=input_box), \
-         patch("plugin.chatbot.selection.set_config"), \
+         patch("plugin.chatbot.selection.save"), \
          patch("plugin.chatbot.selection.update_lru_history"), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=True)
@@ -121,12 +116,11 @@ def test_calc_edit_uses_extra_prompt_and_restores_original_on_error():
         apply_chunk_fn("=2", False)
         on_error_fn(error)
 
-    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
-         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.calc.editselection.msgbox") as msgbox, \
          patch("plugin.chatbot.selection.input_box", new=input_box), \
-         patch("plugin.chatbot.selection.set_config"), \
+         patch("plugin.chatbot.selection.save"), \
          patch("plugin.chatbot.selection.update_lru_history"), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=True)
@@ -147,8 +141,7 @@ def test_calc_extend_text_cell():
         apply_chunk_fn(" world", False)
         on_done_fn()
 
-    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
-         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=False)
@@ -168,11 +161,10 @@ def test_calc_edit_text_cell_with_formula_looking_output():
         apply_chunk_fn("=2", False)
         on_done_fn()
 
-    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
-         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.chatbot.selection.input_box", new=input_box), \
-         patch("plugin.chatbot.selection.set_config"), \
+         patch("plugin.chatbot.selection.save"), \
          patch("plugin.chatbot.selection.update_lru_history"), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=True)
@@ -192,11 +184,10 @@ def test_calc_edit_formula_cell():
         apply_chunk_fn("=1+2", False)
         on_done_fn()
 
-    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
-         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.chatbot.selection.input_box", new=input_box), \
-         patch("plugin.chatbot.selection.set_config"), \
+         patch("plugin.chatbot.selection.save"), \
          patch("plugin.chatbot.selection.update_lru_history"), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=True)
@@ -217,11 +208,10 @@ def test_calc_edit_number_cell_stays_numeric():
         apply_chunk_fn("43", False)
         on_done_fn()
 
-    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
-         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.chatbot.selection.input_box", new=input_box), \
-         patch("plugin.chatbot.selection.set_config"), \
+         patch("plugin.chatbot.selection.save"), \
          patch("plugin.chatbot.selection.update_lru_history"), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=True)
@@ -241,12 +231,11 @@ def test_calc_edit_text_cell_restores_original_on_error():
         apply_chunk_fn("x", False)
         on_error_fn(RuntimeError("provider failed"))
 
-    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
-         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.calc.editselection.msgbox"), \
          patch("plugin.chatbot.selection.input_box", new=input_box), \
-         patch("plugin.chatbot.selection.set_config"), \
+         patch("plugin.chatbot.selection.save"), \
          patch("plugin.chatbot.selection.update_lru_history"), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=True)
@@ -363,8 +352,7 @@ def test_calc_extend_multi_cell_is_one_undo_context():
         apply_chunk_fn("+2", False)
         on_done_fn()
 
-    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
-         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.chatbot.selection.post_to_main_thread", side_effect=lambda fn: fn()), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
@@ -410,12 +398,11 @@ def test_calc_edit_error_closes_undo_after_cell_restore():
         else:
             pytest.fail("third stream should not start")
 
-    with patch("plugin.calc.editselection.get_config_str", side_effect=_config_str), \
-         patch("plugin.calc.editselection.get_config_int", side_effect=_config_int), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.calc.editselection.msgbox") as msgbox, \
          patch("plugin.chatbot.selection.input_box", new=input_box), \
-         patch("plugin.chatbot.selection.set_config"), \
+         patch("plugin.chatbot.selection.save"), \
          patch("plugin.chatbot.selection.update_lru_history"), \
          patch("plugin.chatbot.selection.post_to_main_thread", side_effect=lambda fn: fn()), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.errors import ConfigError
 from plugin.scripting.sandbox import resolve_venv_python
 
@@ -45,7 +45,7 @@ def vision_venv_configured(ctx: Any = None) -> bool:
     # Config read failures are ConfigError: log them and return False.
     # get_config takes no ctx, so a missing ctx is not a reason to skip Settings.
     try:
-        venv_dir = get_config_str("scripting.python_venv_path").strip()
+        venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
         if not venv_dir:
             return False
         return resolve_venv_python(venv_dir) is not None

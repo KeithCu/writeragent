@@ -190,9 +190,9 @@ def get_chat_response_format_instructions() -> str:
     When ``rich_text_control_sidebar`` is off, models are not told about HTML — same gate as
     ``get_chat_system_prompt_for_document``.
     """
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    if not get_config_bool_safe("rich_text_control_sidebar"):
+    if not get_config("chatbot.rich_text_control_sidebar"):
         return PLAIN_CHAT_RESPONSE_FORMAT
     return RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
@@ -1062,11 +1062,11 @@ def tts_short_answers_prompt_suffix() -> str:
     verbosity or ``max_tokens``, so OpenRouter, Together, and local endpoints
     all see the same text.
     """
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    if not get_config_bool_safe("audio.tts_short_answers"):
+    if not get_config("audio.tts_short_answers"):
         return ""
-    if not get_config_bool_safe("audio.tts_enabled"):
+    if not get_config("audio.tts_enabled"):
         return ""
     return "\n\n" + TTS_SHORT_ANSWERS_INSTRUCTION + "\n\n" + TTS_SHORT_ANSWERS_REMINDER
 
@@ -1116,9 +1116,9 @@ def format_humanizer_guidance_prompt_block() -> str:
     """
     try:
         from plugin.chatbot.skills import SkillStore
-        from plugin.framework.config import get_config_bool_safe
+        from plugin.framework.config import get_config
 
-        if get_config_bool_safe("chatbot.humanizer_enabled"):
+        if get_config("chatbot.humanizer_enabled"):
             hstore = SkillStore()
             hguidance = hstore.get_humanizer_guidance()
             if hguidance:

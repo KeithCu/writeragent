@@ -222,11 +222,11 @@ def _enable_geometric_flag(ctx):
     soffice flag-off → no in-process record/strip → Isolated Shared names.
     """
     import plugin.calc.python.geometric_recalc as geo
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     previous = geo.geometric_flag_enabled
     geo.geometric_flag_enabled = lambda: True
-    set_config(_GEO_FLAG_KEY, True)
+    save({_GEO_FLAG_KEY: True})
 
     def _on(data: dict) -> None:
         data[_GEO_FLAG_KEY] = True
@@ -238,10 +238,10 @@ def _enable_geometric_flag(ctx):
 def _restore_geometric_flag(ctx, previous) -> None:
     """Drop persisted flag (default off) and restore the client monkeypatch."""
     import plugin.calc.python.geometric_recalc as geo
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     geo.geometric_flag_enabled = previous
-    set_config(_GEO_FLAG_KEY, False)
+    save({_GEO_FLAG_KEY: False})
 
     def _off(data: dict) -> None:
         data.pop(_GEO_FLAG_KEY, None)
@@ -253,10 +253,10 @@ def _restore_geometric_flag(ctx, previous) -> None:
 def _disable_geometric_flag_client_and_file(ctx) -> None:
     """Flag-off mid-test: client patch + file so soffice modify stays off."""
     import plugin.calc.python.geometric_recalc as geo
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     geo.geometric_flag_enabled = lambda: False
-    set_config(_GEO_FLAG_KEY, False)
+    save({_GEO_FLAG_KEY: False})
 
     def _off(data: dict) -> None:
         data.pop(_GEO_FLAG_KEY, None)
@@ -338,9 +338,9 @@ def _set_session_mode(ctx, mode: str) -> None:
     ``UserInstallation`` profile. Write only throwaway / in-profile paths
     (see ``_session_config_paths``).
     """
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
-    set_config("scripting.python_session_mode", mode)
+    save({"scripting.python_session_mode": mode})
 
     def _mode(data: dict) -> None:
         if mode == "isolated":
@@ -354,13 +354,13 @@ def _set_session_mode(ctx, mode: str) -> None:
 
 def _leftover_shared_diag(ctx, a1, a3) -> str:
     """Config + cell snapshot when leftover Shared does not become 41."""
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
     from plugin.scripting.session_manager import python_session_mode
     from plugin.testing_runner import _progress_verbose as _progress
 
     try:
         mode = python_session_mode()
-        venv = get_config_str("scripting.python_venv_path")
+        venv = get_config("scripting.python_venv_path")
     except Exception as exc:
         mode = "<unreadable %s>" % exc
         venv = ""
@@ -639,9 +639,9 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
     from plugin.calc.python.formula_locator_cache import is_matching_py_formula
     from plugin.calc.python.function import _spill_registry_doc_key, perform_deferred_spill
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
-    from plugin.framework.config import get_config_bool
+    from plugin.framework.config import get_config
 
-    assert get_config_bool("scripting.python_auto_spill") is True
+    assert get_config("scripting.python_auto_spill") is True
     reset_geometric_runtime_for_tests()
     previous = _enable_geometric_flag(ctx)
     try:

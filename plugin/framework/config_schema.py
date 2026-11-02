@@ -41,7 +41,7 @@ import logging
 import os
 import textwrap
 import typing
-from typing import Any, Callable, Dict, Iterator, Mapping
+from typing import Any, Callable, Dict
 
 from plugin.framework.constants import get_plugin_dir
 from plugin.framework.deal_shim import deal
@@ -65,16 +65,16 @@ except ImportError:
 MODULES: list[dict[str, Any]] = []
 CONFIG_DEFAULTS: dict[str, Any] = {}
 CONFIG_SCHEMAS: dict[str, Any] = {}
-DOTTED_FALLBACKS: dict[str, list[str]] = {}
+FLAT_TO_MODULE_KEY: dict[str, str] = {}
 
 
 def set_manifest_modules(modules: list[dict[str, Any]]) -> None:
     """Set manifest modules list and rebuild fast defaults/schemas lookup dictionaries."""
-    global MODULES, CONFIG_DEFAULTS, CONFIG_SCHEMAS, DOTTED_FALLBACKS
+    global MODULES, CONFIG_DEFAULTS, CONFIG_SCHEMAS, FLAT_TO_MODULE_KEY
     MODULES = modules or []
     defaults: dict[str, Any] = {}
     schemas: dict[str, Any] = {}
-    fallbacks: dict[str, list[str]] = {}
+    flat_to_mod: dict[str, str] = {"doc_agent_edit_review_mode": "doc.agent_edit_review_mode"}
     for m in MODULES:
         mod_name = m.get("name", "")
         config = m.get("config", {})
@@ -84,15 +84,11 @@ def set_manifest_modules(modules: list[dict[str, Any]]) -> None:
                     full_key = f"{mod_name}.{fname}"
                     if "default" in schema:
                         defaults[full_key] = schema["default"]
-                        if fname not in defaults:
-                            defaults[fname] = schema["default"]
                     schemas[full_key] = schema
-                    if fname not in schemas:
-                        schemas[fname] = schema
-                    fallbacks.setdefault(fname, []).append(full_key)
+                    flat_to_mod[fname] = full_key
     CONFIG_DEFAULTS = defaults
     CONFIG_SCHEMAS = schemas
-    DOTTED_FALLBACKS = fallbacks
+    FLAT_TO_MODULE_KEY = flat_to_mod
 
 
 # Bind derived tables from MODULES at import so callers do not need
@@ -303,8 +299,7 @@ class WriterAgentConfig:
 
     endpoint: str = "http://localhost:11434"
     text_model: str = ""
-    model: str = ""
-    # max 1.0; parse failures stay the unset sentinel -1.0. See validate().
+    # max 1.0; parse failures stay the unset sentinel -1.0.
     temperature: float = dataclasses.field(default=-1.0, metadata={"kind": "float", "max": 1.0, "fallback": 1.0, "parse_fallback": -1.0, "code": "INVALID_TEMPERATURE", "message": "Temperature must be <= 1.0"})
     additional_instructions: str = ""
     chat_max_tokens: int = dataclasses.field(default=16384, metadata={"kind": "int", "min": 0, "fallback": 16384, "parse_fallback": 16384, "code": "INVALID_CHAT_MAX_TOKENS", "message": "Chat max tokens must be >= 0"})
@@ -312,7 +307,6 @@ class WriterAgentConfig:
     # both proactive compact and overflow retry.
     chat_compaction_enabled: bool = True
     request_timeout: int = dataclasses.field(default=120, metadata={"kind": "int", "min_exclusive": 0, "fallback": 120, "parse_fallback": 120, "code": "INVALID_REQUEST_TIMEOUT", "message": "Request timeout must be > 0"})
-    stt_model: str = ""
     api_keys_by_endpoint: Dict[str, str] = dataclasses.field(default_factory=dict)
     # Normalized endpoint URL -> effort string. Missing or blank sends no effort field.
     reasoning_effort: Dict[str, str] = dataclasses.field(default_factory=dict)
@@ -336,9 +330,6 @@ class WriterAgentConfig:
     edit_selection_system_prompt: str = ""
     audio_support_map: Dict[str, bool] = dataclasses.field(default_factory=dict)
     # Learned vision yes/no per "endpoint@model", same role as audio_support_map.
-    # This key was read and written by has_native_vision but never declared, so
-    # get_config raised CONFIG_KEY_NOT_FOUND ("Missing config key 'vision_support_map'")
-    # on every chat send and set_native_vision_support could not persist.
     vision_support_map: Dict[str, bool] = dataclasses.field(default_factory=dict)
     calc_prompt_max_tokens: int = 4096
     # When True, treat endpoint as OpenRouter (e.g. custom proxy) even if the URL lacks openrouter.ai.
@@ -346,7 +337,7 @@ class WriterAgentConfig:
     # Wire always sends parallel_tool_calls: false until the tool loop can apply
     # parallel calls. Default matches the wire so Options/file do not lie.
     parallel_tool_calls: bool = False
-    # Merged into POST \u2026/chat/completions JSON when OpenRouter is active; see AGENTS.md.
+    # Merged into POST …/chat/completions JSON when OpenRouter is active; see AGENTS.md.
     openrouter_chat_extra: Dict[str, Any] = dataclasses.field(default_factory=dict)
     last_python_script_name_writer: str = "Universal Sample"
     last_python_script_name_calc: str = "Universal Sample"
@@ -362,163 +353,6 @@ class WriterAgentConfig:
 
     # Persists multiple user-saved Python scripts (name -> code)
     saved_python_scripts: Dict[str, str] = dataclasses.field(default_factory=lambda: dict(_DEFAULT_PYTHON_SCRIPTS))
-
-    # Track changes review mode ("off", "record", "wait")
-    doc_agent_edit_review_mode: str = "off"
-
-    # Store arbitrary module.yaml config entries
-    _extra_config: Dict[str, Any] = dataclasses.field(default_factory=dict)
-
-    def validate(self, *, coerce_out_of_range: bool = False) -> "WriterAgentConfig":
-        """Perform validation of config keys and emit warnings or fix values.
-
-        When *coerce_out_of_range* is True (config load/repair), clamp invalid
-        numeric bounds instead of raising so one bad field cannot discard the
-        rest of the file.
-        """
-        # Clean up any translated headers that incorrectly made it into config
-        for f in dataclasses.fields(self):
-            if f.name == "_extra_config":
-                continue
-            val = getattr(self, f.name)
-            if isinstance(val, str) and "Project-Id-Version:" in val:
-                log.debug("config validate: stripped PO/header from dataclass field %r (len=%s)", f.name, len(val))
-                # Default seed should be -1, not empty string.
-                if f.name == "seed":
-                    setattr(self, f.name, "-1")
-                else:
-                    setattr(self, f.name, "")
-
-        # Bounds live on the field metadata. Check them before coercion.
-        # Strict coerce rejects temperature 5.0 and chat_max_tokens -1;
-        # non-strict coerce clamps to inclusive min/max. Clamping first
-        # would turn chat_max_tokens -1 into 0, and this check would neither
-        # raise nor apply the fallback 16384. calc_prompt_max_tokens < 100
-        # is a separate one-time migration below, not a generic minimum.
-        for f in dataclasses.fields(self):
-            meta = f.metadata
-            if "kind" not in meta:
-                continue
-            value = getattr(self, f.name)
-            if meta["kind"] == "int" and not isinstance(value, int):
-                try:
-                    value = parse_int_robust(value)
-                except (ValueError, OverflowError):
-                    value = meta["parse_fallback"]
-            elif meta["kind"] == "float" and not isinstance(value, (int, float)):
-                try:
-                    value = parse_float_robust(value)
-                except (ValueError, OverflowError):
-                    value = meta["parse_fallback"]
-            out_of_range = _numeric_outside_schema_bounds(meta, value)
-            if out_of_range:
-                if coerce_out_of_range:
-                    log.warning("%s %s out of range; using %s", f.name, value, meta["fallback"])
-                    value = meta["fallback"]
-                else:
-                    raise ConfigValidationError(_(meta["message"]), code=meta["code"])
-            setattr(self, f.name, value)
-
-        # Cast standard fields through the central schema validator so dialog
-        # controllers do not need to duplicate config type rules.
-        for f in dataclasses.fields(self):
-            if f.name == "_extra_config":
-                continue
-            val = getattr(self, f.name)
-            setattr(self, f.name, coerce_config_value(f.name, val))
-
-        # Clean up and cast extra keys from module schemas robustly.
-        for k, v in list(self._extra_config.items()):
-            if isinstance(v, str) and "Project-Id-Version:" in v:
-                log.debug("config validate: stripped PO/header from extra key %r (len=%s)", k, len(v))
-                self._extra_config[k] = ""
-                v = ""
-            self._extra_config[k] = coerce_config_value(k, v)
-
-        endpoint_str = str(self.endpoint or "").strip()
-        if endpoint_str:
-            # WriterAgent overlays selector-label parsing in config.py; LibrePy
-            # keeps this url_utils fallback (no chatbot import in this module).
-            self.endpoint = _endpoint_normalizer(endpoint_str, self.is_openwebui)
-        else:
-            self.endpoint = ""
-
-        # Old shipped default was 70; values below 100 are treated as stale and upgraded.
-        if self.calc_prompt_max_tokens < 100:
-            log.info("Upgrading calc_prompt_max_tokens from %s to 4096", self.calc_prompt_max_tokens)
-            self.calc_prompt_max_tokens = 4096
-
-        if not isinstance(self.openrouter_chat_extra, dict):
-            log.warning("Invalid openrouter_chat_extra (not a dict), resetting to {}")
-            self.openrouter_chat_extra = {}
-
-        if not isinstance(self.reasoning_effort, dict):
-            log.warning("Invalid reasoning_effort (not a dict), resetting to {}")
-            self.reasoning_effort = {}
-
-        # Legacy ``model`` key: migrate once into text_model, then clear so
-        # to_dict does not keep writing the dead field.
-        if not str(self.text_model or "").strip() and str(self.model or "").strip():
-            self.text_model = str(self.model).strip()
-        self.model = ""
-
-        if isinstance(self.saved_python_scripts, dict) and "Sample" in self.saved_python_scripts:
-            del self.saved_python_scripts["Sample"]
-
-        if not isinstance(self.saved_python_scripts, dict):
-            self.saved_python_scripts = {}
-        if "Universal Sample" not in self.saved_python_scripts:
-            self.saved_python_scripts["Universal Sample"] = _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
-        elif isinstance(self.saved_python_scripts.get("Universal Sample"), str):
-            curr = self.saved_python_scripts["Universal Sample"]
-            if any(marker in curr for marker in _LEGACY_UNIVERSAL_SAMPLE_MARKERS):
-                self.saved_python_scripts["Universal Sample"] = _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
-
-        return self
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WriterAgentConfig":
-        """Load from a dictionary, mapping known fields and pushing others to _extra_config."""
-        field_names = {f.name for f in dataclasses.fields(cls) if f.name != "_extra_config"}
-        known_kwargs = {}
-        extra_kwargs = {}
-
-        for key, value in data.items():
-            safe_key = key.replace(".", "_")
-            if safe_key in field_names:
-                known_kwargs[safe_key] = value
-            else:
-                extra_kwargs[key] = value
-
-        config = cls(**known_kwargs)
-        config._extra_config = extra_kwargs
-        return config
-
-    def to_dict(self, omit_defaults: bool = True) -> Dict[str, Any]:
-        """Convert back to dictionary, expanding _extra_config.
-
-        When omit_defaults is True (default), fields matching ``_resolve_default``
-        (schema, then dataclass, including log_level DEBUG/WARN) are excluded so
-        defaults are not written to the JSON config file. Extra keys with no
-        schema / dataclass / LRU default are dropped (retired or unknown).
-        """
-        out: Dict[str, Any] = {}
-        for f in dataclasses.fields(self):
-            if f.name == "_extra_config":
-                continue
-            val = getattr(self, f.name)
-            if omit_defaults and is_default_value(f.name, val):
-                continue
-            out[f.name] = val
-
-        for k, v in self._extra_config.items():
-            if not is_known_config_key(k):
-                continue
-            if omit_defaults and is_default_value(k, v):
-                continue
-            out[k] = v
-
-        return out
 
 
 _MISSING_VALUE = object()
@@ -580,7 +414,7 @@ def _dataclass_schema_for_key(key: str) -> dict[str, Any] | None:
         # validate() reads these from field metadata. Callers of
         # get_config_schema / strict coerce (settings compare, set_config)
         # never saw them, so temperature 5.0 and chat_max_tokens -1 passed.
-        for bound in ("min", "max", "min_exclusive"):
+        for bound in ("min", "max", "min_exclusive", "code", "message", "fallback", "parse_fallback"):
             if bound in field.metadata:
                 schema[bound] = field.metadata[bound]
         return schema
@@ -594,11 +428,13 @@ def get_config_schema(key: str) -> dict[str, Any] | None:
     precedence over dataclass defaults, matching ``_resolve_default``.
     """
     schema = _module_schema_for_key(key) or _dataclass_schema_for_key(key)
+    if schema is None and key.split("@", 1)[0] in _LRU_LIST_CONFIG_KEY_PREFIXES:
+        return {"type": "list", "default": []}
     # log_level's runtime default is the plugin/tests probe, not the yaml
     # literal. Overlay so get_config_schema["default"] matches get_config.
-    if schema is not None and key == "log_level":
+    if schema is not None and key == "core.log_level":
         schema = dict(schema)
-        schema["default"] = _resolve_default("log_level")
+        schema["default"] = _resolve_default("core.log_level")
     return schema
 
 
@@ -619,50 +455,6 @@ def _canonicalize_schema_option_value(schema: dict[str, Any] | None, value: Any)
     return value
 
 
-def _numeric_outside_schema_bounds(schema: Mapping[str, Any], value: Any) -> bool:
-    """True when a number violates schema min, max, or min_exclusive.
-
-    ``clamp_schema_value`` only rewrites inclusive min/max. ``min_exclusive``
-    has no clamp target (request_timeout 0 must not become 1); strict coerce
-    still has to reject it.
-    """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return False
-    try:
-        if "min" in schema and value < parse_float_robust(schema["min"]):
-            return True
-        if "min_exclusive" in schema and value <= parse_float_robust(schema["min_exclusive"]):
-            return True
-        if "max" in schema and value > parse_float_robust(schema["max"]):
-            return True
-    except (ValueError, OverflowError):
-        return False
-    return False
-
-
-def clamp_schema_value(key: str, value: Any) -> Any:
-    """Apply module/dataclass schema min/max bounds to an already coerced value."""
-    schema = get_config_schema(key)
-    if not schema or ("min" not in schema and "max" not in schema):
-        return value
-    schema_type = _normalize_schema_type(schema.get("type"))
-    if schema_type not in {"int", "float"}:
-        return value
-    try:
-        numeric_value = parse_float_robust(value)
-        if "min" in schema:
-            numeric_value = max(parse_float_robust(schema["min"]), numeric_value)
-        if "max" in schema:
-            numeric_value = min(parse_float_robust(schema["max"]), numeric_value)
-        # int(inf) is OverflowError. A number that cannot be clamped degrades
-        # to the original value, same as a ValueError from parse_float_robust.
-        if schema_type == "int":
-            return int(numeric_value)
-        return numeric_value
-    except (ValueError, OverflowError):
-        return value
-
-
 def _strict_bool_ok(value: Any) -> bool:
     if type(value) in (bool, int, float):
         return True
@@ -671,85 +463,144 @@ def _strict_bool_ok(value: Any) -> bool:
     return False
 
 
-def coerce_config_value(key: str, value: Any, *, fallback_value: Any = _MISSING_VALUE, strict: bool = False) -> Any:
-    """Coerce a config value according to its schema and canonicalize options.
+def validate(data: dict[str, Any]) -> dict[str, Any]:
+    """Pure config validator.
 
-    Invalid numeric/list values use ``fallback_value`` when supplied (load and
-    repair), otherwise the schema default. ``strict=True`` (``set_config``)
-    raises ``ConfigValidationError`` instead of silently keeping the previous
-    value. Unknown keys are returned unchanged.
+    Coerce each known key (parsers, as_bool, option labels, endpoint normalizer).
+    Raise ConfigValidationError on a wrong type or out-of-range number (min / max /
+    min_exclusive and module bounds). Unknown keys pass through. Defaults stay.
+    Also, and not raises: PO-header strip, non-dict map reset, calc_prompt_max_tokens < 100
+    to 4096, saved-script sample migration.
     """
-    schema = get_config_schema(key)
-    if not schema:
-        return value
+    out = dict(data)
 
-    value = _canonicalize_schema_option_value(schema, value)
-    schema_type = _normalize_schema_type(schema.get("type"))
+    # 1. PO-header strip
+    for k, v in list(out.items()):
+        if isinstance(v, str) and "Project-Id-Version:" in v:
+            log.debug("config validate: stripped PO/header from key %r", k)
+            out[k] = "-1" if k == "seed" else ""
 
-    def _invalid(reason: str) -> Any:
-        if strict:
-            raise ConfigValidationError(
-                f"Invalid configuration value for {key}: {reason}",
-                code="CONFIG_INVALID_VALUE",
-                details={"key": key, "value": value},
-            )
-        if fallback_value is not _MISSING_VALUE:
-            return coerce_config_value(key, fallback_value)
-        return schema.get("default", _MISSING_VALUE)
+    # 2. Non-dict map reset
+    for dict_key in (
+        "openrouter_chat_extra",
+        "reasoning_effort",
+        "api_keys_by_endpoint",
+        "audio_support_map",
+        "vision_support_map",
+        "saved_python_scripts",
+    ):
+        if dict_key in out and not isinstance(out[dict_key], dict):
+            log.warning("Invalid %s (not a dict), resetting to {}", dict_key)
+            out[dict_key] = {}
 
-    if schema_type in ("int", "float"):
-        parser = parse_int_robust if schema_type == "int" else parse_float_robust
-        reason = "not an integer" if schema_type == "int" else "not a number"
+    # 3. calc_prompt_max_tokens < 100 to 4096
+    if "calc_prompt_max_tokens" in out:
+        c_val = out["calc_prompt_max_tokens"]
         try:
-            value = parser(value)
-        except (ValueError, OverflowError):
-            fallback = _invalid(reason)
-            return fallback if fallback is not _MISSING_VALUE else value
-    elif schema_type == "boolean":
-        if strict and not _strict_bool_ok(value):
-            raise ConfigValidationError(f"Invalid configuration value for {key}: not a boolean", code="CONFIG_INVALID_VALUE", details={"key": key, "value": value})
-        value = as_bool(value)
-    elif schema_type == "list":
-        if isinstance(value, list):
-            pass
-        elif isinstance(value, str) and value.strip():
-            value = [value.strip()]
-        else:
-            fallback = _invalid("not a list")
-            if fallback is not _MISSING_VALUE:
-                value = fallback if isinstance(fallback, list) else [fallback]
+            c_int = parse_int_robust(c_val)
+            if c_int < 100:
+                log.info("Upgrading calc_prompt_max_tokens from %s to 4096", c_int)
+                out["calc_prompt_max_tokens"] = 4096
             else:
-                value = []
-    elif schema_type == "string":
-        if value is None:
-            fallback = _invalid("missing string")
-            value = fallback if fallback is not _MISSING_VALUE else ""
+                out["calc_prompt_max_tokens"] = c_int
+        except (ValueError, OverflowError):
+            pass
+
+    # 4. saved-script sample migration
+    saved_scripts = out.get("saved_python_scripts")
+    if isinstance(saved_scripts, dict):
+        saved_scripts.pop("Sample", None)
+        if "Universal Sample" not in saved_scripts:
+            saved_scripts["Universal Sample"] = _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
+        elif isinstance(saved_scripts.get("Universal Sample"), str):
+            curr = saved_scripts["Universal Sample"]
+            if any(marker in curr for marker in _LEGACY_UNIVERSAL_SAMPLE_MARKERS):
+                saved_scripts["Universal Sample"] = _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
+
+    # 5. Endpoint normalization
+    if "endpoint" in out:
+        ep_str = str(out["endpoint"] or "").strip()
+        if ep_str:
+            is_openwebui = as_bool(out.get("is_openwebui", False))
+            out["endpoint"] = _endpoint_normalizer(ep_str, is_openwebui)
         else:
-            value = str(value)
+            out["endpoint"] = ""
 
-    clamped = clamp_schema_value(key, value)
-    # set_config uses strict=True so a bad type raises. Out-of-range numbers
-    # were still saved as min/max with no error (module.yaml keys never hit
-    # WriterAgentConfig.validate). Dataclass min/max/min_exclusive are on the
-    # schema too. min_exclusive does not change `clamped`, so compare bounds
-    # as well as the clamped number.
-    if strict and schema_type in {"int", "float"} and (clamped != value or _numeric_outside_schema_bounds(schema, value)):
-        raise ConfigValidationError(
-            f"Invalid configuration value for {key}: out of range",
-            code="CONFIG_INVALID_VALUE",
-            details={"key": key, "value": value},
-        )
-    return clamped
+    # 6. Coerce and validate known keys
+    for key, val in list(out.items()):
+        if key in ("endpoint", "saved_python_scripts"):
+            continue
+        schema = get_config_schema(key)
+        if not schema:
+            continue
 
+        val = _canonicalize_schema_option_value(schema, val)
+        schema_type = _normalize_schema_type(schema.get("type"))
 
-# --- MODULES / manifest schema ---
+        if schema_type in ("int", "float"):
+            parser = parse_int_robust if schema_type == "int" else parse_float_robust
+            try:
+                coerced_val = parser(val)
+            except (ValueError, OverflowError) as exc:
+                code = schema.get("code", "CONFIG_INVALID_VALUE")
+                msg = schema.get("message")
+                details = {"key": key, "value": val, "reason": "parse"}
+                if msg:
+                    raise ConfigValidationError(_(msg), code=code, details=details) from exc
+                raise ConfigValidationError(
+                    f"Invalid configuration value for {key}: not an {'integer' if schema_type == 'int' else 'number'}",
+                    code="CONFIG_INVALID_VALUE",
+                    details=details,
+                ) from exc
 
+            out_of_range = False
+            try:
+                if "min" in schema and coerced_val < parse_float_robust(schema["min"]):
+                    out_of_range = True
+                if "min_exclusive" in schema and coerced_val <= parse_float_robust(schema["min_exclusive"]):
+                    out_of_range = True
+                if "max" in schema and coerced_val > parse_float_robust(schema["max"]):
+                    out_of_range = True
+            except (ValueError, OverflowError):
+                pass
 
-def _dotted_fallback_keys(key: str) -> Iterator[str]:  # pyright: ignore[reportUnusedFunction]  # called by config.py
-    """Yield dotted key variants for key using manifest modules (e.g. extend_selection_max_tokens -> chatbot.extend_selection_max_tokens)."""
-    if "." in key:
-        return
-    yield from DOTTED_FALLBACKS.get(key, ())
+            if out_of_range:
+                code = schema.get("code", "CONFIG_INVALID_VALUE")
+                msg = schema.get("message")
+                if msg:
+                    raise ConfigValidationError(_(msg), code=code, details={"key": key, "value": val})
+                raise ConfigValidationError(
+                    f"Invalid configuration value for {key}: out of range",
+                    code="CONFIG_INVALID_VALUE",
+                    details={"key": key, "value": val},
+                )
+            out[key] = coerced_val
+
+        elif schema_type == "boolean":
+            if not _strict_bool_ok(val):
+                raise ConfigValidationError(
+                    f"Invalid configuration value for {key}: not a boolean",
+                    code="CONFIG_INVALID_VALUE",
+                    details={"key": key, "value": val},
+                )
+            out[key] = as_bool(val)
+
+        elif schema_type == "list":
+            if isinstance(val, list):
+                out[key] = val
+            elif isinstance(val, str) and val.strip():
+                out[key] = [val.strip()]
+            else:
+                raise ConfigValidationError(
+                    f"Invalid configuration value for {key}: not a list",
+                    code="CONFIG_INVALID_VALUE",
+                    details={"key": key, "value": val},
+                )
+
+        elif schema_type == "string":
+            out[key] = "" if val is None else str(val)
+
+    return out
 
 
 # --- Default resolution ---
@@ -757,7 +608,7 @@ def _dotted_fallback_keys(key: str) -> Iterator[str]:  # pyright: ignore[reportU
 
 def _resolve_default(key: str) -> Any:
     """Resolve default for key: schema first, then dataclass. Safe fallbacks for None."""
-    if key == "log_level":
+    if key == "core.log_level":
         tests_dir = os.path.join(get_plugin_dir(), "tests")
         return "DEBUG" if os.path.isdir(tests_dir) else "WARN"
 

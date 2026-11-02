@@ -1567,13 +1567,14 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
     mod.name = "mcp"
     services = MagicMock()
-    services.config.proxy_for.return_value = {
-        "mcp_enabled": True,
-        "tunnel_enabled": True,
-        "mcp_port": 18765,
-        "tunnel_provider": "cloudflare",
-        "tunnel_provider_token": "",
+    cfg_data = {
+        "mcp.mcp_enabled": True,
+        "mcp.tunnel_enabled": True,
+        "mcp.mcp_port": 18765,
+        "mcp.tunnel_provider": "cloudflare",
+        "mcp.tunnel_provider_token": "",
     }
+    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
     mod._services = services
     bound = MagicMock()
     bound.is_running.return_value = True
@@ -1810,7 +1811,8 @@ def _sync_tunnel_module(monkeypatch, port, bound_port=18765):
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
     mod.name = "mcp"
     services = MagicMock()
-    services.config.proxy_for.return_value = {"mcp_enabled": True, "tunnel_enabled": True, "mcp_port": port, "tunnel_provider": "cloudflare", "tunnel_provider_token": ""}
+    cfg_data = {"mcp.mcp_enabled": True, "mcp.tunnel_enabled": True, "mcp.mcp_port": port, "mcp.tunnel_provider": "cloudflare", "mcp.tunnel_provider_token": ""}
+    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
     mod._services = services
     bound = MagicMock()
     bound.is_running.return_value = True

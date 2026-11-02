@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     """Run LlmClient.request_with_tools for a venv ppt-master turn (keys stay on host)."""
     from plugin.framework.client.llm_client import LlmClient
-    from plugin.framework.config import get_api_config, get_config_int
+    from plugin.framework.config import get_api_config, get_config
     from plugin.framework.uno_context import get_ctx
 
     messages = payload.get("messages")
@@ -46,7 +46,7 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         # timeout with no reply.
         ctx = execute_on_main_thread(get_ctx)
         if max_tokens is None:
-            max_tokens = get_config_int("chat_max_tokens")
+            max_tokens = get_config("chat_max_tokens")
 
         client = LlmClient(get_api_config(), ctx, cancellation_scope=cancellation_scope)
         result = client.request_with_tools(
