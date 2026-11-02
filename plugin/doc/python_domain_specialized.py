@@ -196,7 +196,7 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
         # bulk shape placement reaches writeragent_api.
         missing = [name for name in (_VENV_SCRIPT_TOOL, _FINISH_TOOL) if name not in seen]
         if missing:
-            for tool in registry.get_tools(names=missing, exclude_tiers=(), filter_doc_type=False):
+            for tool in registry.get_tools(names=frozenset(missing), exclude_tiers=(), filter_doc_type=False):
                 if tool.name == _VENV_SCRIPT_TOOL:
                     venv.append(tool)
                 elif tool.name == _FINISH_TOOL:

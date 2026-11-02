@@ -808,11 +808,11 @@ def _spill_registry_doc_key(doc: Any) -> str:
     # Bugfix: What was wrong: Property-only reads missed builds that expose getRuntimeUID()
     # or the attribute, and str() of a truthy mock was accepted as an id.
     # How it happened: _spill_registry_doc_key only called getPropertyValue("RuntimeUID") and converted any truthy value via str().
-    # Why this change fixes it: Use the shared _read_runtime_uid ladder, which tries method, attribute,
-    # then property, and accepts only plain str / int, same as get_runtime_uid.
-    from plugin.framework.uno_context import _read_runtime_uid
+    # Why this change fixes it: Use the shared get_runtime_uid ladder, which tries method, attribute,
+    # then property, and accepts only plain str / int.
+    from plugin.framework.uno_context import get_runtime_uid
 
-    uid = _read_runtime_uid(doc)
+    uid = get_runtime_uid(doc)
 
     url_raw = doc.getURL()
     url = str(url_raw) if isinstance(url_raw, str) else ""

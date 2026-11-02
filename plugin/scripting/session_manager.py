@@ -18,7 +18,7 @@ from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_desktop, iter_desktop_models
+from plugin.framework.uno_context import get_desktop, iter_open_models
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "sessi
 
     matches: list[Any] = []
     try:
-        for model in iter_desktop_models(ctx, label=label):
+        for model in iter_open_models(ctx, strict=False, label=label):
             try:
                 if predicate(model):
                     matches.append(guard_uno(model))

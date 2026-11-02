@@ -48,8 +48,8 @@ from plugin.framework.errors import (
     is_tool_document_disposed,
     make_tool_error,
     resolve_exception_message,
-    safe_json_loads,
 )
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.thread_guard import assert_main_thread, on_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
@@ -670,7 +670,7 @@ class ToolRegistry:
         self,
         doc: Any = None,
         doc_type: str | None = None,
-        names: Any = None,
+        names: frozenset[str] | None = None,
         filter_doc_type: bool = True,
         exclude_tiers: Any = _DEFAULT_EXCLUDE_TIERS,
         active_domain: str | None = None,
@@ -683,9 +683,8 @@ class ToolRegistry:
             doc: Optional document model (legacy; prefer doc_type + uno_services_supported).
             doc_type: Optional string indicating compatibility ("writer", "calc", "draw").
             uno_services_supported: Cached UNO service names from sidebar/MCP (no live doc probe).
-            names: Optional collection of exact tool names. ``None`` applies
-                no name filter. An empty collection matches nothing. A bare
-                string is that one name, not a substring.
+            names: Optional frozenset of exact tool names. ``None`` applies
+                no name filter. An empty frozenset matches nothing.
             filter_doc_type: If True, filters by doc model services or doc_type. Defaults to True.
             exclude_tiers: Tiers to omit from the result. If omitted, excludes
                 ``specialized``, ``specialized_control``, and ``mcp`` so nested
@@ -753,17 +752,8 @@ class ToolRegistry:
         else:
             if to_exclude:
                 tools = [t for t in tools if getattr(t, "tier", None) not in to_exclude]
-        # Only None skips the filter. Callers pass tool names, not a substring
-        # to search. ``if names`` treats ``[]`` and ``""`` as no filter and
-        # returns every tool. A bare string is iterable, so ``t.name in
-        # "target"`` matches the tool named ``get``. A str is one exact name;
-        # any other collection becomes a set, and an empty set matches nothing.
         if names is not None:
-            if isinstance(names, str):
-                name_set = frozenset((names,))
-            else:
-                name_set = frozenset(names)
-            tools = [t for t in tools if t.name in name_set]
+            tools = [t for t in tools if t.name in names]
         if ctx is not None:
             from plugin.vision.vision_availability import filter_vision_specialized_tools
 

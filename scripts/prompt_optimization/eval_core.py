@@ -172,7 +172,7 @@ def _weighted_judge_score(
 
 
 def _parse_judge_json(content: str, task_category: str) -> JudgeResult:
-    from plugin.framework.errors import safe_json_loads
+    from plugin.framework.json_utils import safe_json_loads
 
     text = (content or "").strip()
     if not text:
