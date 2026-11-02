@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 from plugin.doc.text_helpers import go_right
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.i18n import N_, _
+from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
 from plugin.writer.word_diff_split import _DEFAULT_THRESHOLD
 
@@ -361,8 +362,6 @@ class EditReviewSession:
                 log.warning("EditReviewSession: could not enable RecordChanges; edits will be unreviewed")
                 return self
         self._active = True
-        from plugin.writer import review_authors
-
         self._prior_author = review_authors.begin(self.ctx)
         # Make the markup visible so the user actually sees what to review.
         _force_show_changes(self.doc, "EditReviewSession")
@@ -371,8 +370,6 @@ class EditReviewSession:
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
         if not self._active:
             return
-        from plugin.writer import review_authors
-
         review_authors.end(self.ctx, self._prior_author)
         self._prior_author = None
         if not self._was_recording:
@@ -556,15 +553,13 @@ class EditReviewSession:
 
         reliable = _review_scan.scan_redlines(self.doc, on_item)[0]
         if not reliable:
-            log.debug("EditReviewSession: pending check enumeration incomplete", exc_info=False)
+            log.debug("EditReviewSession: pending check enumeration incomplete")
         return seen & registered, reliable
 
     def _change_text_at_anchor(self, record: ChangeRecord) -> str | None:
         """Current text of the CHANGE's own region (its anchor bookmark span), or None if the anchor
         is gone. Scoped to the change, not the whole paragraph, so a neighbouring change sharing the
         paragraph never contaminates this one's reported text."""
-        if not record.bookmark:
-            return None
         try:
             bookmarks = self.doc.getBookmarks()
             if not bookmarks.hasByName(record.bookmark):
@@ -634,8 +629,6 @@ class EditReviewSession:
             bookmarks = self.doc.getBookmarks()
             with self._undo_lock():
                 for record in records:
-                    if not record.bookmark:
-                        continue
                     try:
                         if bookmarks.hasByName(record.bookmark):
                             bm = bookmarks.getByName(record.bookmark)
@@ -1181,10 +1174,10 @@ def _collapse_review_context(doc: Any, track_reviewable: bool, was_recording: bo
     before_ids = None
     before_ids_ok = False
     prior_author = None
+    get_ctx: Any = None
     if track_reviewable:
         try:
             from plugin.framework.uno_context import get_ctx
-            from plugin.writer import review_authors
             from plugin.writer.review_scan import snapshot_redline_ids
 
             before_ids, before_ids_ok = snapshot_redline_ids(doc)
@@ -1201,9 +1194,6 @@ def _collapse_review_context(doc: Any, track_reviewable: bool, was_recording: bo
     finally:
         if prior_author is not None:
             try:
-                from plugin.framework.uno_context import get_ctx
-                from plugin.writer import review_authors
-
                 review_authors.end(get_ctx(), prior_author)
             except Exception:
                 log.warning("%s: author restore failed", label, exc_info=True)

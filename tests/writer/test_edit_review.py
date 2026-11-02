@@ -439,6 +439,7 @@ def test_wait_for_review_not_complete_on_unreliable_pending():
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
     session.changes = [ChangeRecord("t", "", "", "", "", "")]
+    session.doc.getBookmarks.return_value.hasByName.return_value = False
     with _patch.object(session, "_pending_tokens", return_value=(set(), False)), \
          _patch.object(session, "cleanup"):
         result = session.wait_for_review(timeout=0.0, poll=0.01)
@@ -453,6 +454,7 @@ def test_wait_for_review_completes_on_reliable_empty():
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
     session.changes = [ChangeRecord("t", "", "", "", "", "")]
+    session.doc.getBookmarks.return_value.hasByName.return_value = False
     with _patch.object(session, "_pending_tokens", return_value=(set(), True)), \
          _patch.object(session, "cleanup"):
         result = session.wait_for_review(timeout=1.0, poll=0.01)
