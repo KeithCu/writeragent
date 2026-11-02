@@ -290,9 +290,7 @@ class SidebarModeController:
         if self._panel.chat_mode_selector:
             set_selector_mode_with_flags(self._panel.chat_mode_selector, mode, self._panel.sidebar_mode_flags)
         # Combo change does not reliably fire ChatModeListener; apply the mode here.
-        apply_fn = getattr(self._panel, "_apply_sidebar_mode_fn", None)
-        if callable(apply_fn):
-            apply_fn(mode)
+        self._panel._apply_sidebar_mode_fn(mode)
 
     def on_brainstorming_session_finished(self, spec_saved: bool = False) -> None:
         """Reset sidebar after brainstorming_finished (dropdown transitions to Writing Plan or Chat)."""

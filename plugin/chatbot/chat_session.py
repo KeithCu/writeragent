@@ -64,11 +64,8 @@ class ChatSession:
         """Reset memory to just the system prompt and write history once."""
         self.messages = []
         self.document_context = ""
-        if not self.base_system_prompt:
-            if self.db:
-                self.db.replace_messages([])
-            return
-        self.set_system_context(self.base_system_prompt, "")
+        if self.base_system_prompt:
+            self.set_system_context(self.base_system_prompt, "")
         if self.db:
             self.db.replace_messages(list(self.messages))
 

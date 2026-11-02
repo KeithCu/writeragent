@@ -65,7 +65,7 @@ class EvalDashboard:
         )
         self._schedule_models_fetch(current_endpoint, current_model)
 
-        self._dlg.getControl("btn_run").addActionListener(EvalRunListener(self._ctx, self._dlg, self))
+        self._dlg.getControl("btn_run").addActionListener(EvalRunListener(self))
         self._dlg.getControl("btn_close").addActionListener(SimpleCloseListener(self._dlg))
 
     def _apply_model_list(self, endpoint: str, current_model: str, models: Any) -> None:
@@ -121,9 +121,9 @@ class EvalRunListener(BaseActionListener):
     is_running: bool
     _owner: EvalDashboard
 
-    def __init__(self, ctx: Any, dialog: Any, owner: EvalDashboard) -> None:
-        self.ctx = ctx
-        self.dialog = dialog
+    def __init__(self, owner: EvalDashboard) -> None:
+        self.ctx = owner._ctx
+        self.dialog = owner._dlg
         self._owner = owner
         self.is_running = False
 
