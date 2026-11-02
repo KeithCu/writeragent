@@ -33,7 +33,7 @@ from plugin.framework.tool import ToolBase
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.calc.address_utils import format_range, index_to_column, parse_range_string, quote_sheet_name, split_sheet_prefix
+from plugin.calc.address_utils import format_range, index_to_column, quote_sheet_name, range_shape, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.inspector import CellInspector
@@ -336,19 +336,6 @@ def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, A
         return None
 
 
-def _a1_range_shape(range_name: str) -> tuple[int, int, int] | None:
-    """``(cell_count, rows, cols)`` for an A1 range, or None for named/invalid refs."""
-    try:
-        _unused_sheet, local = split_sheet_prefix(range_name)
-        (c0, r0), (c1, r1) = parse_range_string(local)
-    except Exception:
-        # Named ranges and deal.pre misses skip this gate; manipulator still checks 1-D.
-        return None
-    cols = abs(c1 - c0) + 1
-    rows = abs(r1 - r0) + 1
-    return cols * rows, rows, cols
-
-
 def _normalize_source_arg(raw: Any) -> tuple[str | None, str | None]:
     """Parse optional ``source`` (A1 / Sheet.A1). Returns ``(source, error)``."""
     if raw is None:
@@ -555,14 +542,14 @@ class WriteCellRange(ToolBase):
         if isinstance(fov, (int, float)):
             fov = str(fov)
 
-        single_cell = len(rn) == 1 and _a1_range_shape(rn[0]) == (1, 1, 1)
+        single_cell = len(rn) == 1 and range_shape(rn[0]) == (1, 1, 1)
         parsed_vals = _parse_formula_or_values_string(fov, single_cell_range=single_cell) if isinstance(fov, str) else (fov if isinstance(fov, list) else None)
         if parsed_vals is not None and len(parsed_vals) > 0:
             if isinstance(parsed_vals[0], (list, tuple)):
                 r_cnt = len(parsed_vals)
                 c_cnt = len(parsed_vals[0]) if r_cnt > 0 else 0
                 for r in rn:
-                    shape = _a1_range_shape(r)
+                    shape = range_shape(r)
                     if shape is None:
                         continue
                     n_cells, rows, cols = shape
@@ -572,7 +559,7 @@ class WriteCellRange(ToolBase):
             else:
                 n_vals = len(parsed_vals)
                 for r in rn:
-                    shape = _a1_range_shape(r)
+                    shape = range_shape(r)
                     if shape is None:
                         continue
                     n_cells, rows, cols = shape

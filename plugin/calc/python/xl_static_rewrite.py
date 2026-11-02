@@ -17,14 +17,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-from plugin.calc.address_utils import MAX_COL, format_range, parse_range_string, split_sheet_prefix
+from plugin.calc.address_utils import (
+    format_range,
+    is_cell_token,
+    parse_range_string,
+    split_sheet_prefix,
+)
 from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, str_bounded, deal
-
-# A1 endpoint shape gate only (1-3 letters, optional $). Bounds and the rest of the
-# validation come from plugin.calc.address_utils; unbounded letters would raise
-# PreContractError inside column_to_index before a range check could reject them.
-_A1_ENDPOINT_RE = re.compile(r"^\$?[A-Za-z]{1,3}\$?[0-9]{1,7}$")
 
 # Excel binding tokens are not A1 literals — leave them for the binding-only shim.
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
@@ -65,14 +65,11 @@ def _canonical_address_key(ref: str) -> tuple[str | None, str] | None:
     s = (ref or "").strip()
     sheet, a1 = split_sheet_prefix(s)
     parts = a1.split(":")
-    if len(parts) > 2 or not all(_A1_ENDPOINT_RE.match(p) for p in parts):
+    if len(parts) > 2 or not all(is_cell_token(p) for p in parts):
         return None
     try:
         start, end = parse_range_string(a1)
     except ValueError:
-        return None
-    # 3-letter columns run past XFD; parse_range_string bounds rows only.
-    if end[0] > MAX_COL:
         return None
     body = format_range(start[0], start[1], end[0], end[1], collapse_single=True)
     return (sheet.casefold() if sheet else None, body)

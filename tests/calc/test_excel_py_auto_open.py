@@ -181,6 +181,7 @@ def test_apply_dag_formulas_defined_name_add_failure_rolls_back(monkeypatch):
 
 
 def test_script_bank_only_long_scripts_and_mirrors_a1():
+    from plugin.calc.address_utils import canonical
     from plugin.calc.excel_py_convert.script_bank import (
         INLINE_CODE_MAX_CHARS,
         code_bank_ref,
@@ -188,10 +189,9 @@ def test_script_bank_only_long_scripts_and_mirrors_a1():
         collect_script_bank,
         collect_safety_warnings,
         formula_for_converted_cell,
-        normalize_bank_a1,
     )
 
-    assert normalize_bank_a1("$h$4") == "H4"
+    assert canonical("$h$4") == "H4"
     assert code_sheet_name_for("Pivots") == "py_code_Pivots"
     assert code_bank_ref("Pivots", "H4") == "py_code_Pivots.H4"
 

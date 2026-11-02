@@ -987,8 +987,8 @@ def test_write_cell_range_tool_error_return():
 
 
 def test_json_array_value_count_and_a1_shape():
+    from plugin.calc.address_utils import range_shape
     from plugin.calc.cells import (
-        _a1_range_shape,
         _normalize_source_arg,
     )
     from plugin.calc.manipulator import _parse_formula_or_values_string
@@ -997,10 +997,10 @@ def test_json_array_value_count_and_a1_shape():
     assert _parse_formula_or_values_string("=B2+1") is None
     assert _parse_formula_or_values_string("") is None
     assert _parse_formula_or_values_string("[]") == []
-    assert _a1_range_shape("C2:C9") == (8, 8, 1)
-    assert _a1_range_shape("Sheet1.C2:C9") == (8, 8, 1)
-    assert _a1_range_shape("A1:B1") == (2, 1, 2)
-    assert _a1_range_shape("SalesData") is None
+    assert range_shape("C2:C9") == (8, 8, 1)
+    assert range_shape("Sheet1.C2:C9") == (8, 8, 1)
+    assert range_shape("A1:B1") == (2, 1, 2)
+    assert range_shape("SalesData") is None
     assert _normalize_source_arg(None) == (None, None)
     assert _normalize_source_arg("  Sheet1.A1:C3  ") == ("Sheet1.A1:C3", None)
     assert _normalize_source_arg("   ") == (None, None)
