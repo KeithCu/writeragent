@@ -97,19 +97,4 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
                 }
             return self._tool_error(message, code=code, vision_result=result, **partial_fields)
 
-        # Default images_processed to 0 only when the key is missing.
-        # `or 1` turns a real 0 into 1.
-        out: dict[str, Any] = {
-            "status": "ok",
-            "helper": "extract_structure",
-            "full_text": str(result.get("full_text") or ""),
-            "metrics": result.get("metrics") or {},
-            "warnings": result.get("warnings") or [],
-            "inserted": bool(result.get("inserted")),
-            "images_processed": int(result.get("images_processed", 0)),
-            "message": str(result.get("message") or _("OCR complete.")),
-        }
-        names = result.get("image_names")
-        if names:
-            out["image_names"] = names
-        return out
+        return result

@@ -196,12 +196,17 @@ def zvec_ingest_rows(collection_path: str, meta_path: str, model_name: str, rows
     count = _doc_count(coll) or len(docs)
 
     # Write/refresh the shared corpus_meta.json so host empty checks and UI see progress.
-    from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta
+    from plugin.embeddings.embeddings_cache import SCHEMA_VERSION, CorpusMeta
 
     meta_p = Path(str(meta_path))
-    ensure_corpus_meta(meta_p, embedding_model=model_name, dim=dim or None, chunk_count=count)
-    # Override storage backend for visibility
-    write_corpus_meta(meta_p, storage_backend="zvec", updated_at=str(time.time()))
+    CorpusMeta.load(meta_p).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=model_name,
+        dim=dim or 0,
+        chunk_count=count,
+        storage_backend="zvec",
+        updated_at=str(time.time()),
+    ).save(meta_p)
 
     try:
         coll.flush()
@@ -320,7 +325,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     and can be selected even on a folder that has never used the sqlite backend.
     """
 
-    from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta, zvec_collection_path
+    from plugin.embeddings.embeddings_cache import SCHEMA_VERSION, CorpusMeta, zvec_collection_path
     from plugin.embeddings.embeddings_fs import guess_indexable_paths, indexable_chunks_from_path
 
     root = str(listing_root or "").strip()
@@ -366,8 +371,12 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
         dim = 384
 
     # Ensure meta reflects we are using zvec for this model (even if count is still 0).
-    ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim)
-    write_corpus_meta(meta_path, storage_backend="zvec")
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=embedding_model,
+        dim=dim,
+        storage_backend="zvec",
+    ).save(meta_path)
 
     # Purge deleted files
     current_urls = {entry.url for entry in files}
@@ -458,8 +467,14 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     except Exception:
         final_count = indexed
 
-    ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim, chunk_count=final_count)
-    write_corpus_meta(meta_path, storage_backend="zvec", updated_at=str(time.time()))
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=embedding_model,
+        dim=dim,
+        chunk_count=final_count,
+        storage_backend="zvec",
+        updated_at=str(time.time()),
+    ).save(meta_path)
 
     _hb.force({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total})
 

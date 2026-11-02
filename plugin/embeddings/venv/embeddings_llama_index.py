@@ -539,9 +539,7 @@ def llama_index_ingest(
     if not HAS_LLAMA_INDEX:
         raise ImportError("llama-index-core is not installed in the configured Python venv.")
 
-    import json
     import time
-    from pathlib import Path
 
     from plugin.embeddings.embeddings_cache import dim_from_meta_path
     from plugin.embeddings.venv.embeddings_sqlite import (
@@ -581,17 +579,16 @@ def llama_index_ingest(
         finally:
             conn.close()
 
-        meta_file = Path(meta_path)
-        meta_file.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": SCHEMA_VERSION,
-            "storage_backend": "llama_index",
-            "embedding_model": model_name,
-            "dim": str(dim or 0),
-            "chunk_count": str(count),
-            "updated_at": str(time.time()),
-        }
-        meta_file.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        from plugin.embeddings.embeddings_cache import CorpusMeta
+
+        CorpusMeta.load(meta_path).update(
+            schema_version=SCHEMA_VERSION,
+            storage_backend="llama_index",
+            embedding_model=model_name,
+            dim=dim or 0,
+            chunk_count=count,
+            updated_at=str(time.time()),
+        ).save(meta_path)
         return {"indexed": 0, "dim": dim or 0, "storage_backend": "llama_index"}
 
     nodes = []
@@ -641,17 +638,16 @@ def llama_index_ingest(
 
     final_dim = len(nodes[0].embedding) if nodes and nodes[0].embedding else (dim or 0)
 
-    meta_file = Path(meta_path)
-    meta_file.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "storage_backend": "llama_index",
-        "embedding_model": model_name,
-        "dim": str(final_dim),
-        "chunk_count": str(count),
-        "updated_at": str(time.time()),
-    }
-    meta_file.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    from plugin.embeddings.embeddings_cache import CorpusMeta
+
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        storage_backend="llama_index",
+        embedding_model=model_name,
+        dim=final_dim,
+        chunk_count=count,
+        updated_at=str(time.time()),
+    ).save(meta_path)
 
     return {"indexed": len(nodes), "dim": final_dim, "storage_backend": "llama_index"}
 

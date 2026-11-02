@@ -29,7 +29,7 @@ import logging
 from typing import Any, Callable, NoReturn, TypeVar, overload
 
 from plugin.framework.i18n import _
-from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from plugin.framework.json_utils import safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 from plugin.framework.deal_shim import DEAL_MAX_MSGID, UNDER_CROSSHAIR, deal
 
@@ -356,8 +356,6 @@ def format_error_message(e: BaseException) -> str:
                 return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
             return reason
         # urllib.request wraps a certificate failure as URLError(reason=SSLError).
-        # A direct SSLError is handled above. The wrapped form used to return "Connection Error"
-        # and hide the TLS sentence.
         if isinstance(reason_obj, ssl.SSLError):
             return _("TLS/SSL Error: {0}").format(reason)
         if "timed out" in rl and "formula" not in rl:
@@ -505,7 +503,7 @@ def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
     return is_real_disposal(exc) or doc is None or is_document_disposed(doc)
 
 
-def _uno_disposal_message(exc: BaseException) -> str:  # pyright: ignore[reportUnusedFunction]  # imported by uno_context.py and scratch_writer.py
+def _uno_disposal_message(exc: BaseException) -> str:  # pyright: ignore[reportUnusedFunction]
     """Resolve exception text, falling back to standard UNO disposal sentence."""
     msg = resolve_exception_message(exc)
     if msg == type(exc).__name__:
@@ -579,10 +577,6 @@ def safe_uno_call(default: Any = None) -> Any:
             except Exception as e:
                 # Do not add "RuntimeException": that is a probe failure, not disposal.
                 if is_real_disposal(e):
-                    # Bugfix: details used to store str(args) and str(kwargs); a probe
-                    # argument can be document text or a UNO proxy, and stringifying
-                    # it during teardown is large and can touch the dead object;
-                    # the message already names func.__name__.
                     _raise_disposed_during(func.__name__, e)
                 logging.getLogger("writeragent.errors").debug("safe_uno_call: %s failed (%s), returning default %r", func.__name__, e, default)
                 return default
@@ -597,10 +591,7 @@ def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
     try:
         return fn(*args, **kwargs)
     except WriterAgentException:
-        # Bugfix: safe_call previously caught all Exception instances and wrapped them
-        # in UnoObjectError, converting WriterAgentException subclasses (like
-        # ConfigError) into generic UNO errors and losing their error codes.
-        # Catching WriterAgentException first preserves specific domain exceptions.
+        # Preserve specific domain exceptions.
         raise
     except Exception as e:
         # Only DisposedException is disposal. Treating RuntimeException as

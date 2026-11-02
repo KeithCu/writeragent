@@ -25,6 +25,7 @@ import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Mapping
+from compute_service import error_codes as ec
 
 log = logging.getLogger("compute_service.config")
 
@@ -58,7 +59,7 @@ def _as_path_tuple(value: Any) -> tuple[str, ...]:
 
 _FILE_PATH_DENIED: dict[str, Any] = {
     "status": "error",
-    "code": "FILE_PATH_DENIED",
+    "code": ec.FILE_PATH_DENIED,
     "error": "file_path is not under ocr.allow_paths (default deny).",
 }
 
@@ -127,20 +128,20 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
     ``_post_open_realpath`` applies the allowlist to that opened path.
     """
     if not isinstance(file_path, str) or not file_path.strip():
-        return None, {"status": "error", "code": "INVALID_FILE_PATH", "error": "file_path must be a non-empty string path"}
+        return None, {"status": "error", "code": ec.INVALID_FILE_PATH, "error": "file_path must be a non-empty string path"}
     if not ocr_path_is_allowed(file_path, allow_prefixes):
         return None, dict(_FILE_PATH_DENIED)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(os.path.expanduser(file_path.strip()), flags)
     except FileNotFoundError:
-        return None, {"status": "error", "code": "FILE_NOT_FOUND", "error": f"Image file not found: {file_path}"}
+        return None, {"status": "error", "code": ec.FILE_NOT_FOUND, "error": f"Image file not found: {file_path}"}
     except OSError as exc:
-        return None, {"status": "error", "code": "FILE_READ_ERROR", "error": f"Failed to read image file {file_path}: {exc}"}
+        return None, {"status": "error", "code": ec.FILE_READ_ERROR, "error": f"Failed to read image file {file_path}: {exc}"}
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
-            return None, {"status": "error", "code": "NOT_A_FILE", "error": f"Path is not a regular file: {file_path}"}
+            return None, {"status": "error", "code": ec.NOT_A_FILE, "error": f"Path is not a regular file: {file_path}"}
         try:
             opened = _post_open_realpath(fd, file_path)
         except (OSError, ValueError):
@@ -159,11 +160,11 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
             remaining -= len(blob)
         data = b"".join(chunks)
     except OSError as exc:
-        return None, {"status": "error", "code": "FILE_READ_ERROR", "error": f"Failed to read image file {file_path}: {exc}"}
+        return None, {"status": "error", "code": ec.FILE_READ_ERROR, "error": f"Failed to read image file {file_path}: {exc}"}
     finally:
         os.close(fd)
     if len(data) > max_bytes:
-        return None, {"status": "error", "code": "FILE_TOO_LARGE", "error": f"Image file exceeds {max_bytes} bytes: {file_path}"}
+        return None, {"status": "error", "code": ec.FILE_TOO_LARGE, "error": f"Image file exceeds {max_bytes} bytes: {file_path}"}
     return data, None
 
 
@@ -353,9 +354,6 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
     return raw
 
 
-# Only constructor fields are accepted. Non-init names such as 'threads'
-# are unknown keys, not a TypeError inside ComputeSettings(**values).
-_FIELD_NAMES = frozenset(f.name for f in fields(ComputeSettings) if f.init)
 # Order is the ConfigError priority. logging applies "level" before "log_level"
 # so an explicit log_level wins when both are set.
 _SECTION_FIELDS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
@@ -384,7 +382,6 @@ _SECTION_FIELDS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     ),
     ("logging", (("level", "log_level"), ("log_level", "log_level"))),
 )
-_AUTH_KEYS = frozenset({"api_key", "api_key_file"})
 
 _INT_FIELDS = frozenset(f.name for f in fields(ComputeSettings) if f.type is int or f.type == "int")
 _FLOAT_FIELDS = frozenset(f.name for f in fields(ComputeSettings) if f.type is float or f.type == "float")
@@ -414,29 +411,22 @@ def _reject_unknown_keys(section: Mapping[str, Any], allowed: frozenset[str], la
 
 
 def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
-    """Accept flat keys or nested ``listen`` / ``auth`` / ``limits`` / ``ocr`` / ``logging`` sections."""
-    _reject_unknown_keys(raw, _FIELD_NAMES | frozenset(label for label, _pairs in _SECTION_FIELDS), "config")
+    """Map the nested ``listen`` / ``auth`` / ``limits`` / ``ocr`` / ``logging`` sections onto settings fields; any other top-level key is an error."""
+    auth = raw.get("auth")
+    if "api_key" in raw or (isinstance(auth, Mapping) and "api_key" in auth):
+        raise ConfigError("Do not put api_key in the JSON config. Set PYTHON_COMPUTE_API_KEY or auth.api_key_file.")
+    _reject_unknown_keys(raw, frozenset(label for label, _pairs in _SECTION_FIELDS), "config")
     out: dict[str, Any] = {}
     for label, pairs in _SECTION_FIELDS:
-        if label == "auth":
-            auth = raw.get("auth")
-            if "api_key" in raw or (isinstance(auth, Mapping) and "api_key" in auth):
-                raise ConfigError("Do not put api_key in the JSON config. Set PYTHON_COMPUTE_API_KEY or auth.api_key_file.")
-            allowed = _AUTH_KEYS
-        else:
-            allowed = frozenset(src for src, _dst in pairs)
         section = raw.get(label)
         if section is None:
             continue
         if not isinstance(section, Mapping):
             raise ConfigError(f"{label} must be a JSON object")
-        _reject_unknown_keys(section, allowed, label)
+        _reject_unknown_keys(section, frozenset(src for src, _dst in pairs), label)
         for src, dst in pairs:
             if src in section:
                 out[dst] = section[src]
-    for key in _FIELD_NAMES:
-        if key in raw and key not in out:
-            out[key] = raw[key]
     return out
 
 

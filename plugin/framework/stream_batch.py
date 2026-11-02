@@ -198,9 +198,7 @@ class BatchingStreamQueue:
 
     def _emit_pending_locked(self) -> None:
         """Emit each contiguous display run, in arrival order. Caller holds lock."""
-        # Bugfix: a later "".join used to leave earlier runs in _runs after
-        # they were already put, so the next flush duplicated them. Snapshot-first
-        # makes emit atomic wrt _runs.
+        # Snapshot-first makes emit atomic wrt _runs.
         runs = self._runs
         self._runs = []
         self._timer.cancel()
@@ -212,8 +210,7 @@ class BatchingStreamQueue:
 
     def put(self, item: Any) -> None:
         """Batch CHUNK/THINKING. Any other item flushes those runs first."""
-        # Bugfix: str-enum equality made "chunk" == CHUNK, so bare string tags were
-        # batched. `is` rejects them; they stay boundary items and the drain reports them.
+        # Use `is` to match enum members and reject bare string tags.
         kind, data = split_stream_item(item)
         if isinstance(item, (list, tuple)) and (kind is StreamQueueKind.CHUNK or kind is StreamQueueKind.THINKING):
             with self._lock:

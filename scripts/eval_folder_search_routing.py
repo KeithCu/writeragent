@@ -22,7 +22,7 @@ sys.path.insert(0, str(project_root))
 
 from plugin.embeddings.embeddings_cache import corpus_db_path, corpus_meta_path, index_is_empty, read_corpus_meta  # noqa: E402
 from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL, hybrid_search, knn_search  # noqa: E402
-from plugin.embeddings.venv.folder_fts import search_folder_fts  # noqa: E402
+from plugin.embeddings.venv.embeddings_sqlite import build_match_query, connect_corpus_db, fts_corpus_search  # noqa: E402
 
 DEFAULT_FOLDER = Path("~/Desktop/Writing")
 DEFAULT_K = 10
@@ -195,7 +195,16 @@ def run_search_leg(
             )
     if leg == "vec":
         return knn_search(str(db_path), query, k, model_name=model_name)
-    return search_folder_fts(str(db_path), query, k=k, near_slop=near_slop)
+    if not Path(db_path).is_file():
+        return {"hits": [], "query": query, "match": ""}
+    slop = max(0, int(near_slop))
+    match_expr = build_match_query(query, near_slop=slop)
+    conn = connect_corpus_db(Path(db_path))
+    try:
+        hits = fts_corpus_search(conn, query, k=k, near_slop=slop)
+    finally:
+        conn.close()
+    return {"hits": hits, "query": query, "match": match_expr}
 
 
 def evaluate_query(

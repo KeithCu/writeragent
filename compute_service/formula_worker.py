@@ -24,6 +24,7 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+from compute_service import error_codes as ec
 from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 from compute_service.json_forward import json_forward_envelope
@@ -130,7 +131,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         # Traceback included server paths on the kit wire. Eval errors from
         # json_egress are only status/error/stdout; this path must match.
-        err = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": str(exc), "stdout": ""}
+        err = {"id": req_id, "status": "error", "code": ec.WORKER_EXECUTION_ERROR, "error": str(exc), "stdout": ""}
         return json_forward_envelope(err, req_id=req_id, session_reset=False, namespace_created=False)
 
 

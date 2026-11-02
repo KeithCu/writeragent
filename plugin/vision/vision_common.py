@@ -11,9 +11,9 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-HELPER_NAMES = frozenset({"extract_text", "extract_structure", "detect_objects", "detect_layout", "recognize_pipeline", "perceptual_hash"})
+HELPER_NAMES = frozenset({"extract_text", "extract_structure"})
 
-IMPLEMENTED_HELPERS = frozenset({"extract_text", "extract_structure"})
+IMPLEMENTED_HELPERS = HELPER_NAMES
 
 DEFAULT_ENGINE = "docling"
 ENGINES = frozenset({"docling", "paddle"})

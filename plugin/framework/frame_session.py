@@ -40,9 +40,7 @@ _OPEN: list[FrameSession] = []
 def _same_frame(left: Any, right: Any) -> bool:
     """True when *left* and *right* are the same frame.
 
-    Off the main thread ``uno_same`` raises. Treating that as a miss used to
-    fall through to ``panels[0]``. Identity here is ``is`` off the main
-    thread, and ``uno_same`` only on it.
+    Uses ``is`` off the main thread, and ``uno_same`` on the main thread.
     """
     if left is None or right is None:
         return False

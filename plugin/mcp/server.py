@@ -58,7 +58,8 @@ import weakref
 from http.server import BaseHTTPRequestHandler
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
-from plugin.framework.errors import AgentParsingError, WriterAgentException, format_error_payload, safe_json_loads
+from plugin.framework.errors import AgentParsingError, WriterAgentException, format_error_payload
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.http_server import DualStackThreadPoolHTTPServer
 from plugin.mcp.cors import reject_forbidden_host, reject_forbidden_origin, send_cors_headers

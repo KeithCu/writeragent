@@ -14,7 +14,6 @@ See docs/embeddings.md and docs/enabling_numpy_in_libreoffice.md.
 from __future__ import annotations
 
 import importlib
-import json
 import logging
 from pathlib import Path
 from collections.abc import Callable
@@ -188,20 +187,9 @@ def delete_paragraphs(db_path: str, meta_path: str, keys: list[dict[str, Any]], 
         conn.close()
 
     meta_file = Path(str(meta_path))
-    loaded: Any
-    if meta_file.is_file():
-        try:
-            loaded = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            loaded = {}
-    else:
-        loaded = {}
-    # A JSON list or string has no fields to merge. Assigning chunk_count on
-    # it raises TypeError and leaves the non-object file in place.
-    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
-    data["chunk_count"] = str(count)
-    meta_file.parent.mkdir(parents=True, exist_ok=True)
-    meta_file.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    from plugin.embeddings.embeddings_cache import CorpusMeta
+
+    CorpusMeta.load(meta_file).update(chunk_count=count).save(meta_file)
     return {"deleted": deleted}
 
 
@@ -268,19 +256,13 @@ def hybrid_search(db_path: str, query_text: str, k: int, *, model_name: str, nea
 
 def collection_stats(db_path: str, meta_path: str, *, model_name: str = "") -> dict[str, Any]:
     """Return chunk count and corpus metadata for host empty/stale checks."""
+    from plugin.embeddings.embeddings_cache import CorpusMeta
     from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count
 
     meta_file = Path(str(meta_path))
-    meta: dict[str, str] = {}
-    if meta_file.is_file():
-        try:
-            raw = json.loads(meta_file.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                meta = {str(k): str(v) for k, v in raw.items()}
-        except (OSError, json.JSONDecodeError):
-            log.debug("collection_stats could not read %s", meta_path, exc_info=True)
-
-    count = int(meta.get("chunk_count", "0") or 0)
+    meta_obj = CorpusMeta.load(meta_file)
+    meta = meta_obj.to_dict() if meta_obj.is_valid else {}
+    count = meta_obj.chunk_count
     db = Path(str(db_path))
     # zvec mode may pass a directory (the collection path) instead of corpus.db file.
     # In that case, trust the meta count written by the zvec maintain path.

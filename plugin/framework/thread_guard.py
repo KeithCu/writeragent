@@ -118,18 +118,7 @@ def on_python_main_thread() -> bool:
 def on_main_thread() -> bool:
     """True on the VCL thread, or on an untagged LibreOffice upcall.
 
-    What was wrong: only ``threading.main_thread()`` passed, so every PyUNO
-    upcall (a new ``threading._DummyThread`` per call, named ``Dummy-N``)
-    was a violation. LibreOffice invokes listeners while holding the
-    SolarMutex, so that access is legitimate. With ``GUARD_ON``, the raise
-    aborted ``review_toolbar`` modify-listener registration.
-    How it happened: ``assert_main_thread`` / ``@main_thread_only``
-    (``get_runtime_uid``, ``uno_same``) and proxy ``__getattr__``
-    (``UNO.getServiceManager``) all go through this predicate.
-    Why this change: an untagged ``_DummyThread`` is LO dispatch. A Dummy
-    thread tagged with ``set_background_task`` is our work and stays a
-    violation. ``threading.Thread`` workers stay a violation. The
-    designated-main hook still wins over both.
+    An untagged ``_DummyThread`` is LibreOffice dispatch holding SolarMutex.
     """
     if on_python_main_thread():
         return True
@@ -201,11 +190,7 @@ def _notify_thread_violation(msg: str) -> None:
     except Exception:
         return
 
-    # Bugfix: Per-ident dedup posted one modal per violating thread, and each
-    # modal runs a nested main-thread loop. set_background_task(None) also
-    # cleared the ident while that dialog was still up, so the next job on
-    # the same pool thread posted a second modal. One flag, cleared only when
-    # the dialog callback finishes or the post itself fails, allows a single dialog.
+    # Only one violation dialog is shown at a time.
     global _violation_dialog_open
     with _violation_ui_lock:
         if _violation_dialog_open:
@@ -230,11 +215,7 @@ def _notify_thread_violation(msg: str) -> None:
     try:
         from plugin.framework.queue_executor import post_to_main_thread
 
-        # Bugfix: run_in_background copies the send ContextVar, so an omitted
-        # scope binds the active SendCancellation. cancel() -> cancel_pending_work
-        # and process_queue's scope.is_cancelled() skip then drop _show_popup
-        # after _violation_dialog_open was set, leaving the flag stuck. An
-        # unscoped post (bound_scope=None) ensures the popup survives cancellation.
+        # Post with bound_scope=None so cancellation does not drop the dialog and leave the flag stuck.
         post_to_main_thread(_show_popup, bound_scope=None)
     except Exception:
         log.exception("Failed to post thread violation message box on main thread")
@@ -290,25 +271,7 @@ def _is_pyuno(obj: Any) -> bool:
     if hasattr(obj, "__pyunostruct__"):
         return False
     t = type(obj)
-    # Bugfix: do not treat PyUNO_callable as a guardable UNO object.
-    # What was wrong: returning True for tp_name "PyUNO_callable"
-    # (pyuno/source/module/pyuno_callable.cxx, module builtins, no
-    # queryInterface) made __getattr__ wrap the method and __call__
-    # wrap its return.
-    # How it happened: pyuno.invoke keeps uno.Any only when the target
-    # is a real PyUNO instance (pyuno.cxx PyUNO_invoke). A proxy takes
-    # the else branch, which drops Any before the call, and
-    # replaceByIndex / setPropertyValue of a PropertyValue or TabStop
-    # sequence raises IllegalArgumentException. pyObject2Any extracts
-    # the real XInterface only for a PyUNO instance
-    # (pyuno_runtime.cxx). Any other object whose getTypes() returns
-    # types — this proxy forwards getTypes — becomes an invocation
-    # adapter with a different identity, so XDrawPage.group and graphic
-    # export miss the real shape.
-    # Why this change: leave the name to fall through. __getattr__
-    # still asserts, then _wrap_uno returns the raw callable. Its
-    # return value stays a real PyUNO object. Deepening _unwrap_uno
-    # cannot fix this: invoke and pyObject2Any never call it.
+    # PyUNO_callable is not wrapped so method invocations keep native PyUNO return values.
     mod = getattr(t, "__module__", "") or ""
     if "pyuno" in mod:
         return True
@@ -336,11 +299,7 @@ class _UnoThreadGuardProxy:
 
     # --- Attribute access (methods and properties) ---
     def __getattr__(self, name: str) -> Any:
-        # Bugfix: copy.copy and pickle.loads call hasattr on an instance built
-        # with object.__new__ before __dict__ is restored. Reading self._target
-        # from __getattr__ when _target is absent called __getattr__ again and
-        # raised RecursionError. Raising AttributeError immediately lets hasattr
-        # return False so copy/unpickle machinery can apply the saved state.
+        # Avoid recursion when unpickling or copying before _target is assigned.
         if name == "_target":
             raise AttributeError(name)
         # hasattr() uses this path. Returning False off-thread would hide UNO
@@ -355,8 +314,6 @@ class _UnoThreadGuardProxy:
 
     # --- Assignment to properties (e.g. para.NumberingRules = rules) ---
     def __setattr__(self, name: str, value: Any) -> None:
-        # Bugfix: startswith("_") wrote the proxy __dict__ and skipped
-        # assert_main_thread, so a dev write never reached the UNO target.
         # Only _target is stored locally on the proxy.
         if name == "_target":
             object.__setattr__(self, name, value)
@@ -500,9 +457,7 @@ class _UnoThreadGuardProxy:
         return self._target >= _unwrap_uno(other)
 
     def __hash__(self) -> int:
-        # __eq__ asserts because it compares UNO objects. Hash must use the
-        # same check: an off-thread set lookup calls hash, then __eq__, and
-        # used to raise from __eq__ after hash succeeded.
+        # Assert main thread because __eq__ and hash compare UNO objects.
         assert_main_thread("UNO hash")
         return hash(self._target)
 
