@@ -59,7 +59,7 @@ from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.scripting.ipc import UserStopped
 from plugin.framework.constants import AUTO_IMPORTS
 from plugin.scripting.venv.coerce import flat_label
-from plugin.scripting.venv.trusted_dispatch import error_result
+from plugin.scripting.venv.results import error_result
 from plugin.scripting.sandbox import (
     SANDBOX_BLOCKED_MODULES,
     SANDBOX_EXTRA_MODULES,

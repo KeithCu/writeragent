@@ -767,7 +767,7 @@ def resolve_columns(
             matched.append(col)
 
     if missing:
-        from plugin.scripting.venv.trusted_dispatch import error_result
+        from plugin.scripting.venv.results import error_result
 
         return error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper=helper)
 
@@ -775,7 +775,7 @@ def resolve_columns(
         num_set = set(df.select_dtypes(include="number").columns)
         bad = [str(c) for c in matched if c not in num_set]
         if bad:
-            from plugin.scripting.venv.trusted_dispatch import error_result
+            from plugin.scripting.venv.results import error_result
 
             return error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}", helper=helper)
 

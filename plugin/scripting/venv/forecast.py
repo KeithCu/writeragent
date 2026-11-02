@@ -25,9 +25,9 @@ from plugin.scripting.venv.coerce import (
     resolve_df as _resolve_df,
     table_from_df as _table_from_df,
 )
+from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
     dispatch_common_kwargs,
-    error_result as _error_result,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
     run_trusted_spec,

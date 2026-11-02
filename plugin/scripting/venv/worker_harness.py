@@ -55,7 +55,7 @@ if __name__ == "__main__":
 from plugin.framework.uno_bootstrap import register_alias_importer
 register_alias_importer()
 
-from plugin.scripting.venv.trusted_dispatch import error_result
+from plugin.scripting.venv.results import error_result
 
 log = logging.getLogger("worker_harness")
 # The sandbox imports this module; sys.modules lookup avoids a second import on every request.

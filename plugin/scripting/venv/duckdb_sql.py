@@ -29,8 +29,8 @@ from plugin.scripting.calc_functions_common import (
 from plugin.scripting.venv.coerce import (
     table_from_df as _table_from_df,
 )
+from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    error_result as _error_result,
     ok_result as _ok_result,
 )
 

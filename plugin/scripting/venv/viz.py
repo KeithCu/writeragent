@@ -17,10 +17,10 @@ from plugin.scripting.venv.coerce import (
     resolve_columns,
     resolve_df as _resolve_df,
 )
+from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
     _sheet_layout_flags,
     dispatch_common_kwargs,
-    error_result as _error_result,
     missing_package_error as _missing_package_error,
     resolve_spec_helper,
 )

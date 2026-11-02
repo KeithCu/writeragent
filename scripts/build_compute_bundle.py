@@ -71,6 +71,7 @@ COMPUTE_PLUGIN_FILES = (
     "plugin/scripting/sandbox_cache.py",
     "plugin/scripting/venv/__init__.py",
     "plugin/scripting/venv/coerce.py",
+    "plugin/scripting/venv/results.py",
     "plugin/scripting/venv/venv_sandbox.py",
     "plugin/scripting/writeragent_namespace.py",
     "plugin/vision/__init__.py",
