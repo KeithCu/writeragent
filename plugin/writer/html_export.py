@@ -417,12 +417,10 @@ def _range_to_content_via_temp_doc(
                         # A formula portion can be zero-length; keep it when it sits inside the window.
                         if run_start < trim_start or run_start > trim_end:
                             continue
-                    elif run_end <= trim_start or run_start >= trim_end:
-                        continue
-                    if emb is not None:
-                        ph = range_copy._record_math_placeholder(math_records, emb, display_block=display_block)
-                        slice_text = ph
+                        slice_text = range_copy._record_math_placeholder(math_records, emb, display_block=display_block)
                     else:
+                        if run_end <= trim_start or run_start >= trim_end:
+                            continue
                         s_start = max(0, trim_start - run_start)
                         s_end = run_len - max(0, run_end - trim_end)
                         slice_text = chunk[s_start:s_end]
@@ -502,7 +500,7 @@ def document_to_content(
     log.debug("document_to_content: start scope=%r max_chars=%r include_images=%s", scope, max_chars, include_images)
 
     def _done(content: str, path: str) -> str:
-        # Hang diagnosis: if chat stuck on get_document_content, these phase logs name the slow step.
+        # Hang diagnosis: log path, scope, content length, and total time.
         log.debug(
             "document_to_content: done path=%s scope=%r content_len=%d total_ms=%.1f",
             path,
@@ -548,31 +546,11 @@ def document_to_content(
     # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
     xhtml_error: Exception | None = None
     try:
-        t_phase = time.perf_counter()
         xhtml = _export_xhtml(model)
-        log.debug(
-            "document_to_content: phase=_export_xhtml elapsed_ms=%.1f xhtml_len=%d",
-            (time.perf_counter() - t_phase) * 1000.0,
-            len(xhtml),
-        )
-        t_phase = time.perf_counter()
-        # Full export always runs _autostyle_maps: fodt_has_ruby skips iter_ruby_spans, and None triggers a portion walk.
+        # Full export always runs _autostyle_maps: fodt_has_ruby skips the ruby portion walk, and None triggers it.
         parents, overrides, fodt_has_ruby = _autostyle_maps(model)
-        log.debug(
-            "document_to_content: phase=_autostyle_maps elapsed_ms=%.1f parents=%d overrides=%d ruby=%s",
-            (time.perf_counter() - t_phase) * 1000.0,
-            len(parents),
-            len(overrides),
-            fodt_has_ruby,
-        )
-        t_phase = time.perf_counter()
         content = xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides)
         content = finish(content, fodt_has_ruby, "the XHTML export came back empty")
-        log.debug(
-            "document_to_content: phase=postprocess elapsed_ms=%.1f content_len=%d",
-            (time.perf_counter() - t_phase) * 1000.0,
-            len(content),
-        )
         return _done(content, "xhtml")
     except Exception as e:
         # A closed document must not start a second export.
@@ -582,14 +560,8 @@ def document_to_content(
 
     # Fallback: legacy StarWriter export (so reads never hard-fail).
     try:
-        t_phase = time.perf_counter()
         content = _export_starwriter_html(model)
         content = finish(content, None, "the HTML export came back empty")
-        log.debug(
-            "document_to_content: phase=starwriter_fallback elapsed_ms=%.1f content_len=%d",
-            (time.perf_counter() - t_phase) * 1000.0,
-            len(content),
-        )
         if walk_warnings is not None:
             walk_warnings.append(
                 "XHTML export failed; content came from the legacy HTML export and has no style tokens."
@@ -747,16 +719,15 @@ def xtext_to_content(
 
     extracted_fields = extract_page_number_fields(text_obj)
 
-    temp_doc = None
+    temp_doc = new_blank_writer(ctx)
+    if not temp_doc:
+        # Bugfix: returning "" made page_get_header_footer_text report
+        # status ok with empty content (relato #63), including when
+        # document_to_content had already raised ToolExecutionError.
+        raise ToolExecutionError(
+            "Could not read the document: no scratch document."
+        )
     try:
-        temp_doc = new_blank_writer(ctx)
-        if not temp_doc:
-            # Bugfix: returning "" made page_get_header_footer_text report
-            # status ok with empty content (relato #63), including when
-            # document_to_content had already raised ToolExecutionError.
-            raise ToolExecutionError(
-                "Could not read the document: no scratch document."
-            )
         math_records: list[tuple[str, str, bool]] = []
         range_copy._copy_xtext_into_doc(model, text_obj, temp_doc, math_records=math_records)
         content = document_to_content(
@@ -772,7 +743,6 @@ def xtext_to_content(
 
         return content
     finally:
-        if temp_doc is not None:
-            best_effort(lambda: temp_doc.close(True), "xtext_to_content: close temp doc failed")
+        best_effort(lambda: temp_doc.close(True), "xtext_to_content: close temp doc failed")
 
 
