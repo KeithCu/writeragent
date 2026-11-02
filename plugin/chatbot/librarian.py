@@ -84,7 +84,6 @@ def _run_librarian_agent(
     query: str = "",
     history_text: str | None = None,
     suggested_user_name: str | None = None,
-    **kwargs: Any,
 ) -> dict[str, Any]:
     """Run one turn of the Librarian onboarding smol sub-agent."""
     try:

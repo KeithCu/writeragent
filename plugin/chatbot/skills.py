@@ -128,6 +128,3 @@ class SkillStore:
         except OSError as e:
             log.exception("Failed to write humanizer skill: %s", e)
             return False
-
-
-__all__ = ["SkillStore", "HUMANIZER_GUIDANCE"]
