@@ -201,6 +201,16 @@ def endpoint_for_api_key_write(
     return normalize_endpoint_url(target_endpoint)
 
 
+_LRU_FOR_KEY: dict[str, tuple[str, bool]] = {
+    "text_model": ("model_lru", True),
+    "image_model": ("image_model_lru", True),
+    "audio.stt_model": ("audio_model_lru", True),
+    "audio.tts_model": ("tts_model_lru", True),
+    "additional_instructions": ("prompt_lru", False),
+    "image_base_size": ("image_base_size_lru", False),
+}
+
+
 def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[dict[str, Any]] | None = None) -> None:
     """Apply settings dialog result to config. Shared by Writer and Calc.
 
@@ -315,21 +325,12 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             if not sanitized:
                 continue
             val = sanitized
-            if save_key in ("text_model", "image_model"):
-                if sanitized != str(get_config(save_key) or "").strip():
-                    lru_name = "model_lru" if save_key == "text_model" else "image_model_lru"
-                    lru_rows.append((save_key, sanitized, lru_name, current_endpoint))
 
         pending[save_key] = val
-        if val:
-            if save_key == "audio.stt_model":
-                lru_rows.append((save_key, val, "audio_model_lru", current_endpoint))
-            elif save_key == "audio.tts_model":
-                lru_rows.append((save_key, val, "tts_model_lru", current_endpoint))
-            elif save_key == "additional_instructions":
-                lru_rows.append((save_key, val, "prompt_lru", ""))
-            elif save_key == "image_base_size":
-                lru_rows.append((save_key, val, "image_base_size_lru", ""))
+        if val and save_key in _LRU_FOR_KEY:
+            lru_name, scoped = _LRU_FOR_KEY[save_key]
+            if save_key not in ("text_model", "image_model") or val != str(get_config(save_key) or "").strip():
+                lru_rows.append((save_key, val, lru_name, current_endpoint if scoped else ""))
 
     if "api_key" in result:
         # One slot, not a copy of the whole map. set_configs merges that slot
