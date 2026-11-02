@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import re as re_mod
+from itertools import islice
 from typing import TYPE_CHECKING, Any, Iterator
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks, with_view_cursor_left_body_locked
@@ -66,7 +67,6 @@ _SPACE_CODEPOINTS = (
 )
 SPACE_NORMALIZE_MAP = {cp: " " for cp in _SPACE_CODEPOINTS}
 HORIZONTAL_SPACE_CLASS = r"[ \t" + "".join("\\u%04x" % cp for cp in _SPACE_CODEPOINTS) + "]"
-_HORIZONTAL_SPACE_RE = HORIZONTAL_SPACE_CLASS + "+"
 
 
 def find_next_after_match(doc: Any, found: Any, sd: Any) -> Any:
@@ -101,7 +101,7 @@ def invalid_regex_tool_message(rex_msg: str) -> str:
 
 def normalize_search_string_for_find(s: str) -> str:
     """Collapse horizontal whitespace (incl. NBSP); preserve newlines for literal find."""
-    return re_mod.sub(_HORIZONTAL_SPACE_RE, " ", s).strip()
+    return re_mod.sub(HORIZONTAL_SPACE_CLASS + "+", " ", s).strip()
 
 
 # LibreOffice search also sees text a pending tracked change deleted, so visible text that runs
@@ -258,15 +258,15 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     return actual_norm == expected_norm, None
 
 
-def _collect_capped(doc: Any, sd: Any, limit: int = MAX_SEARCH_REPLACEMENTS) -> list[Any]:
-    out: list[Any] = []
+def _iter_descriptor_hits(doc: Any, sd: Any) -> Iterator[Any]:
     found = doc.findFirst(sd)
     while found is not None:
-        out.append(found)
-        if len(out) >= limit:
-            break
+        yield found
         found = find_next_after_match(doc, found, sd)
-    return out
+
+
+def _collect_capped(doc: Any, sd: Any, limit: int = MAX_SEARCH_REPLACEMENTS) -> list[Any]:
+    return list(islice(_iter_descriptor_hits(doc, sd), limit))
 
 
 _DEFAULT_CASE_SENSITIVE_ORDER = (True, False)
@@ -279,19 +279,30 @@ def _lo_regex_descriptor(doc: Any, text: str) -> Any:
     return sd
 
 
+def _iter_lo_matches(
+    doc: Any, candidate: str, case_order: tuple[bool, ...]
+) -> Iterator[Any]:
+    sd = _lo_regex_descriptor(doc, candidate)
+    for case_sens in case_order:
+        sd.SearchCaseSensitive = case_sens
+        matched_in_pass = False
+        for hit in _iter_descriptor_hits(doc, sd):
+            matched_in_pass = True
+            yield hit
+        if matched_in_pass:
+            return
+
+
 def find_lo_regex_ranges(
     doc: Any,
     candidate: str,
     all_matches: bool = False,
 ) -> Any:
     """LO regex findFirst/findNext for one candidate string."""
-    sd = _lo_regex_descriptor(doc, candidate)
     limit = MAX_SEARCH_REPLACEMENTS if all_matches else 1
-    for case_sens in _DEFAULT_CASE_SENSITIVE_ORDER:
-        sd.SearchCaseSensitive = case_sens
-        ranges = _collect_capped(doc, sd, limit)
-        if ranges:
-            return ranges if all_matches else ranges[0]
+    ranges = list(islice(_iter_lo_matches(doc, candidate, _DEFAULT_CASE_SENSITIVE_ORDER), limit))
+    if ranges:
+        return ranges if all_matches else ranges[0]
     return [] if all_matches else None
 
 
@@ -398,14 +409,12 @@ def _iter_chain_matches(
 
     for case_sens in case_sensitive_order:
         sd.SearchCaseSensitive = case_sens
-        found = doc.findFirst(sd)
         matched_in_pass = False
-        while found is not None:
+        for found in _iter_descriptor_hits(doc, sd):
             match_range = _chain_hit_range(found, parts, anchor_idx)
             if match_range is not None:
                 matched_in_pass = True
                 yield match_range
-            found = find_next_after_match(doc, found, sd)
 
         if matched_in_pass:
             break
@@ -496,34 +505,30 @@ def find_occurrence_range(
             f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
         )
 
+    def _nth(matches: Iterator[Any]) -> Any | None:
+        count = 0
+        for match in matches:
+            if count == occurrence:
+                return match
+            count += 1
+        if count > 0:
+            raise _out_of_range(count)
+        return None
+
     case_order = (case_sensitive,) if case_sensitive_order is None else case_sensitive_order
 
     for candidate in _search_try_strings(search_string):
-        for case_sens in case_order:
-            sd = _lo_regex_descriptor(doc, candidate)
-            sd.SearchCaseSensitive = case_sens
-            count = 0
-            found = doc.findFirst(sd)
-            while found is not None:
-                if count == occurrence:
-                    return found
-                count += 1
-                found = find_next_after_match(doc, found, sd)
-            if count > 0:
-                raise _out_of_range(count)
+        match = _nth(_iter_lo_matches(doc, candidate, case_order))
+        if match is not None:
+            return match
 
     parts = search_string.split('\n')
     if len(parts) > 1:
         anchor_idx = _anchor_index(parts)
         if anchor_idx != -1:
-            for case_sens in case_order:
-                count = 0
-                for match in _iter_chain_matches(doc, parts, anchor_idx, (case_sens,)):
-                    if count == occurrence:
-                        return match
-                    count += 1
-                if count > 0:
-                    raise _out_of_range(count)
+            match = _nth(_iter_chain_matches(doc, parts, anchor_idx, case_order))
+            if match is not None:
+                return match
 
     return None
 
