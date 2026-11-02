@@ -1094,8 +1094,8 @@ def test_pivot_and_group_aggfunc_and_headers():
     assert res7["status"] == "ok"
     cols7 = res7["tables"][0]["columns"]
     assert "Region" in cols7
-    assert "Sales_sum" in cols7
-    assert "Sales_mean" in cols7
+    assert "Sales / sum" in cols7
+    assert "Sales / mean" in cols7
     for col_name in cols7:
         assert "(" not in str(col_name)
 
@@ -1107,7 +1107,7 @@ def test_pivot_and_group_aggfunc_and_headers():
     ]
     res8 = analysis.pivot_aggregate(fixture, index="Region", columns="Quarter", values=["Sales", "Units"], aggfunc="sum")
     assert res8["status"] == "ok"
-    assert res8["tables"][0]["columns"] == ["Region", "Sales_Q1", "Sales_Q2", "Units_Q1", "Units_Q2"]
+    assert res8["tables"][0]["columns"] == ["Region", "Sales / Q1", "Sales / Q2", "Units / Q1", "Units / Q2"]
     rows8 = {r[0]: r[1:] for r in res8["tables"][0]["rows"]}
     # South's Q2 sales (idx 1) and units (idx 3) are 0
     assert rows8["South"][1] == 0
@@ -1121,7 +1121,7 @@ def test_pivot_and_group_aggfunc_and_headers():
 
     res10 = analysis.pivot_aggregate(fixture, index="Region", columns="Quarter", values="Sales", aggfunc=["sum", "mean"])
     assert res10["status"] == "ok"
-    assert res10["tables"][0]["columns"] == ["Region", "sum_Q1", "sum_Q2", "mean_Q1", "mean_Q2"]
+    assert res10["tables"][0]["columns"] == ["Region", "sum / Q1", "sum / Q2", "mean / Q1", "mean / Q2"]
     rows10 = {r[0]: r[1:] for r in res10["tables"][0]["rows"]}
     # South mean_Q2 (idx 3) is None
     assert rows10["South"][3] is None

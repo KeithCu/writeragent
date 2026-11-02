@@ -18,15 +18,17 @@ from plugin.scripting.venv.coerce import (
     coerce_float,
     coerce_int,
     coerce_str_list,
+    flat_label,
     parse_date_column,
     numeric_columns as _numeric_columns,
+    resolve_columns,
     resolve_df as _resolve_df,
     table_from_df as _table_from_df,
     _dedupe_column_names,
 )
+from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
     dispatch_common_kwargs,
-    error_result as _error_result,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
     run_trusted_spec,
@@ -94,34 +96,12 @@ def _coerce_columns(value: Any, name: str, helper: str) -> list[str] | None | di
         return _error_result("INVALID_PARAM", str(exc), helper=helper)
 
 
-def _reject_non_numeric(df: Any, names: list[str], *, helper: str) -> dict[str, Any] | None:
-    # _numeric_columns returns requested names without checking dtype, so
-    # .astype(float) raised and run_analysis reported ANALYSIS_FAILED.
-    numeric_set = set(df.select_dtypes(include="number").columns)
-    bad = [n for n in names if n not in numeric_set]
-    if bad:
-        return _error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}", helper=helper)
-    return None
-
-
 def _reject_duplicate_columns(df: Any, *, helper: str) -> dict[str, Any] | None:
     labels = [str(name) for name in df.columns]
     dupes = sorted({name for name in labels if labels.count(name) > 1})
     if dupes:
         return _error_result("INVALID_PARAM", f"Duplicate column names: {', '.join(dupes)}", helper=helper)
     return None
-
-
-def _resolve_numeric(df: Any, columns: list[str] | None, *, helper: str) -> list[str] | dict[str, Any]:
-    try:
-        numeric_cols = _numeric_columns(df, columns)
-    except ValueError as exc:
-        return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
-    if columns is not None:
-        rejected = _reject_non_numeric(df, numeric_cols, helper=helper)
-        if rejected is not None:
-            return rejected
-    return numeric_cols
 
 
 def _format_single_currency(value: Any, symbol: str = "$", decimals: int = 2) -> str:
@@ -362,20 +342,16 @@ def kpi_summary(
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    missing = [m for m in coerced_metrics if m not in df.columns]
-    if missing:
-        return _error_result("UNKNOWN_COLUMN", f"Unknown metrics: {', '.join(missing)}", helper="kpi_summary")
-
-    rejected = _reject_non_numeric(df, coerced_metrics, helper="kpi_summary")
-    if rejected is not None:
-        return rejected
+    resolved_metrics = resolve_columns(df, coerced_metrics, numeric=True, helper="kpi_summary")
+    if isinstance(resolved_metrics, dict):
+        return resolved_metrics
 
     aggs = [str(a).strip().lower() for a in coerced_agg]
     unknown_aggs = [a for a in aggs if a not in _AGG_FUNCS]
     if unknown_aggs:
         return _error_result("INVALID_PARAM", f"Unknown aggregation(s): {', '.join(unknown_aggs)}", helper="kpi_summary")
 
-    summary = df[coerced_metrics].agg(aggs).round(6)
+    summary = df[resolved_metrics].agg(aggs).round(6)
     table = _table_from_df(summary.reset_index().rename(columns={"index": "metric"}), name="kpi_summary")
     return _ok_result(
         "kpi_summary",
@@ -434,7 +410,7 @@ def detect_outliers(
     if df.empty:
         return _ok_result("detect_outliers", metrics={"outlier_count": 0}, tables=[], flags=[], metadata=coerced.metadata)
 
-    resolved_cols = _resolve_numeric(df, coerced_cols, helper="detect_outliers")
+    resolved_cols = resolve_columns(df, coerced_cols, numeric=True, helper="detect_outliers")
     if isinstance(resolved_cols, dict):
         return resolved_cols
     numeric_cols = resolved_cols
@@ -536,13 +512,10 @@ class QuickStats:
             if isinstance(coerced_cols, dict):
                 return coerced_cols
             cols_list = coerced_cols or []
-            missing = [c for c in cols_list if c not in self.df.columns]
-            if missing:
-                return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper="quick_stats")
-            rejected = _reject_non_numeric(self.df, cols_list, helper="quick_stats")
-            if rejected is not None:
-                return rejected
-            numeric_columns = list(cols_list)
+            res = resolve_columns(self.df, cols_list, numeric=True, helper="quick_stats")
+            if isinstance(res, dict):
+                return res
+            numeric_columns = list(res)
         else:
             cols = self.metadata.get("numeric_cols") or _numeric_columns(self.df)
             numeric_columns = [c for c in cols if c in self.df.columns]
@@ -742,23 +715,12 @@ def _normalize_aggfunc(
 
 
 def _flatten_result_columns(df: Any) -> Any:
-    # str of a MultiIndex tuple became "('Sales', 'Q1')" and "('Region', '')",
-    # which is what egress writes as a header.
     import pandas as pd
 
     if not isinstance(df.columns, pd.MultiIndex):
         return df
 
-    out_cols: list[str] = []
-    for col_tuple in df.columns:
-        parts = [
-            str(part).strip()
-            for part in col_tuple
-            if part is not None and str(part).strip() != ""
-        ]
-        joined = "_".join(parts) if parts else "value"
-        out_cols.append(joined)
-
+    out_cols = [flat_label(col) for col in df.columns]
     deduped = _dedupe_column_names(out_cols)
     res = df.copy()
     res.columns = deduped
@@ -850,20 +812,19 @@ def group_summary(
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    missing = [m for m in coerced_by + coerced_metrics if m not in df.columns]
-    if missing:
-        return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper="group_summary")
-
-    rejected = _reject_non_numeric(df, coerced_metrics, helper="group_summary")
-    if rejected is not None:
-        return rejected
+    resolved_by = resolve_columns(df, coerced_by, helper="group_summary")
+    if isinstance(resolved_by, dict):
+        return resolved_by
+    resolved_metrics = resolve_columns(df, coerced_metrics, numeric=True, helper="group_summary")
+    if isinstance(resolved_metrics, dict):
+        return resolved_metrics
 
     norm_agg, err = _normalize_aggfunc(aggfunc, helper="group_summary", key_columns=coerced_metrics)
     if err is not None:
         return err
     assert norm_agg is not None
 
-    grouped = df.groupby(coerced_by)[coerced_metrics].agg(norm_agg).reset_index()
+    grouped = df.groupby(resolved_by)[resolved_metrics].agg(norm_agg).reset_index()
     grouped = _flatten_result_columns(grouped)
     table = _table_from_df(grouped, name="group_summary", max_rows=DATA_TABLE_ROWS)
     return _ok_result(
@@ -896,9 +857,10 @@ def compare_periods(
     if date_col not in df.columns or value_col not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Need columns {date_col!r} and {value_col!r}", helper="compare_periods")
 
-    rejected = _reject_non_numeric(df, [value_col], helper="compare_periods")
-    if rejected is not None:
+    rejected = resolve_columns(df, [value_col], numeric=True, helper="compare_periods")
+    if isinstance(rejected, dict):
         return rejected
+    value_col = rejected[0]
 
     agg_name = str(agg or "sum").strip().lower()
     if agg_name not in ("sum", "mean", "last"):
@@ -1035,9 +997,10 @@ def run_regression(
     if target not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Unknown target {target!r}", helper="run_regression")
 
-    rejected_target = _reject_non_numeric(df, [target], helper="run_regression")
-    if rejected_target is not None:
+    rejected_target = resolve_columns(df, [target], numeric=True, helper="run_regression")
+    if isinstance(rejected_target, dict):
         return rejected_target
+    target = rejected_target[0]
 
     if features is None:
         feature_cols = [c for c in _numeric_columns(df) if c != target]
@@ -1060,9 +1023,10 @@ def run_regression(
     if missing:
         return _error_result("UNKNOWN_COLUMN", f"Unknown features: {', '.join(missing)}", helper="run_regression")
 
-    rejected_features = _reject_non_numeric(df, feature_cols, helper="run_regression")
-    if rejected_features is not None:
+    rejected_features = resolve_columns(df, feature_cols, numeric=True, helper="run_regression")
+    if isinstance(rejected_features, dict):
         return rejected_features
+    feature_cols = rejected_features
 
     # dropna keeps ±inf; statsmodels then returned status: ok with r_squared nan
     # and coefficients ±inf (reproduced with y = inf on the third row of
@@ -1159,9 +1123,7 @@ def cluster_numeric(
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
 
-    # _numeric_columns returns requested names without checking dtype, so
-    # .astype(float) raised and run_analysis reported ANALYSIS_FAILED.
-    resolved_cols = _resolve_numeric(df, coerced_cols, helper="cluster_numeric")
+    resolved_cols = resolve_columns(df, coerced_cols, numeric=True, helper="cluster_numeric")
     if isinstance(resolved_cols, dict):
         return resolved_cols
     numeric_cols = resolved_cols

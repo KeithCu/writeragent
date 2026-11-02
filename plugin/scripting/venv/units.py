@@ -17,8 +17,8 @@ from typing import Any, Callable
 from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.venv.map_range import inspect_input, map_over_range
+from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    error_result as _error_result,
     is_blank_param,
     missing_package_error,
     ok_result,

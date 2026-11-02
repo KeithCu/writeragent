@@ -366,6 +366,32 @@ def test_numeric_columns_empty_list_is_empty():
     assert numeric_columns(df, None) == ["AAPL", "MSFT"]
 
 
+def test_numeric_columns_integer_labels_keeps_original_type():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import numeric_columns
+
+    # What was wrong: numeric_columns stringified labels on the auto path, so
+    # column 0 became "0" and df["0"] raised KeyError on integer-labelled frames.
+    df = pd.DataFrame([[1.0, 2.0], [3.0, 4.0]], columns=[0, 1])
+    cols = numeric_columns(df)
+    assert cols == [0, 1]
+    assert all(isinstance(c, int) for c in cols)
+    assert numeric_columns(df, [0]) == [0]
+
+
+def test_resolve_columns_integer_labels_and_flat_label():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import date_column, flat_label, resolve_columns
+
+    df = pd.DataFrame([[1.0, "x"], [3.0, "y"]], columns=[0, "date"])
+    assert resolve_columns(df, [0], numeric=True) == [0]
+    assert resolve_columns(df, ["0"], numeric=True) == [0]
+    assert date_column(df) == "date"
+    assert flat_label(("Sales", "Q1")) == "Sales / Q1"
+    assert flat_label(("Region", None, "")) == "Region"
+    assert flat_label("Simple") == "Simple"
+
+
 def test_coerce_str_list_skips_none():
     from plugin.scripting.venv.coerce import coerce_str_list
 

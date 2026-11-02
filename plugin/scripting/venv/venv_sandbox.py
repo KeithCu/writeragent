@@ -58,6 +58,8 @@ from plugin.scripting.payload_codec import (
 from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.scripting.ipc import UserStopped
 from plugin.framework.constants import AUTO_IMPORTS
+from plugin.scripting.venv.coerce import flat_label
+from plugin.scripting.venv.results import error_result
 from plugin.scripting.sandbox import (
     SANDBOX_BLOCKED_MODULES,
     SANDBOX_EXTRA_MODULES,
@@ -206,7 +208,7 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
         "invalidate_session_tables": invalidate_session_tables,
         "run_sql": run_sql_bound,
     }
-    _send_cell_owned(executor, helpers)
+    executor.send_variables(helpers)
     executor.custom_tools.update(helpers)
 
 
@@ -231,20 +233,41 @@ _INIT_STATE_SKIP_KEYS = frozenset(
 )
 
 
-def _send_cell_owned(executor: LocalPythonExecutor, variables: dict[str, Any]) -> None:
-    """Bind names the cell rebinds on every execute.
+class CellNamespace:
+    """Namespace builder for sandboxed execution: fresh, seed, bind."""
 
-    An init script can assign the same names. _snapshot_init_bindings drops
-    _INIT_STATE_SKIP_KEYS so those assignments are not seeded into later cells.
-    A fixed injector that gains a key and forgets the tuple used to seed it.
-    """
-    unknown = set(variables) - _INIT_STATE_SKIP_KEYS
-    if unknown:
-        raise RuntimeError(
-            "cell-owned names missing from _INIT_STATE_SKIP_KEYS: "
-            + ", ".join(sorted(unknown))
-        )
-    executor.send_variables(variables)
+    CELL_OWNED_NAMES: tuple[str, ...] = _CELL_OWNED_NAMES
+    SKIP_KEYS: frozenset[str] = _INIT_STATE_SKIP_KEYS
+
+    executor: LocalPythonExecutor
+
+    def __init__(self, executor: LocalPythonExecutor) -> None:
+        self.executor = executor
+
+    @classmethod
+    def fresh(
+        cls,
+        policy: SandboxPolicy | None = None,
+        timeout_sec: int = 30,
+    ) -> CellNamespace:
+        return cls(_new_executor(timeout_sec, policy=policy))
+
+    def seed(self, init_session_id: str, *, copy: bool = False) -> None:
+        _seed_executor_from_init(self.executor, init_session_id, copy_values=copy, skip_keys=self.SKIP_KEYS)
+
+    def bind(
+        self,
+        *,
+        code: str = "",
+        data: Any = None,
+        bindings: dict[str, Any] | None = None,
+    ) -> None:
+        inject_auto_imports(self.executor, code)
+        ranges = _inject_data(self.executor, data)
+        _inject_excel_xl(self.executor, ranges)
+        self.executor.state.pop("scoped_dir", None)
+        _inject_bindings(self.executor, bindings)
+        _inject_session_duckdb(self.executor)
 
 
 def _code_says_imported(code: str, module_name: str) -> bool:
@@ -697,13 +720,6 @@ def _has_custom_serialize_objects(obj: Any) -> bool:
     return _contains_custom_serialize(obj, custom_tuple, 0)
 
 
-def _column_label(c: Any) -> str:
-    """Flatten a pandas column label. MultiIndex tuples become ``A / x``, not a tuple repr."""
-    if isinstance(c, tuple):
-        return " / ".join(str(part) for part in c)
-    return str(c)
-
-
 def _dtype_kind(obj: Any) -> str | None:
     dtype = getattr(obj, "dtype", None)
     kind = getattr(dtype, "kind", None)
@@ -921,7 +937,7 @@ def _serialize_result_impl(
 
         if isinstance(obj, pd_mod.DataFrame):
             df: Any = obj
-            columns = [_column_label(c) for c in df.columns]
+            columns = [flat_label(c) for c in df.columns]
             def _dataframe_cell(value: Any) -> Any:
                 return _temporal_cell_to_stdlib(value, pd_mod)
 
@@ -968,7 +984,7 @@ def _serialize_result_impl(
             if name is not None:
                 return {
                     "__wa_payload__": PAYLOAD_DATAFRAME,
-                    "columns": [_column_label(name)],
+                    "columns": [flat_label(name)],
                     "data": packed,
                 }
             return packed
@@ -1084,7 +1100,10 @@ def clear_all_sandbox_sessions() -> None:
     _reset_session_duckdb(None)
 
 
-def _snapshot_init_bindings(init_session_id: str) -> dict[str, Any]:
+def _snapshot_init_bindings(
+    init_session_id: str,
+    skip_keys: frozenset[str] = _INIT_STATE_SKIP_KEYS,
+) -> dict[str, Any]:
     """Copy user-visible names from the init executor (references, not deep copies)."""
     with _SESSION_LOCK:
         executor = _SESSION_EXECUTORS.get(init_session_id)
@@ -1095,7 +1114,7 @@ def _snapshot_init_bindings(init_session_id: str) -> dict[str, Any]:
         for key, value in executor.state.items()
         if (
             isinstance(key, str)
-            and key not in _INIT_STATE_SKIP_KEYS
+            and key not in skip_keys
             and not key.startswith("_")
         )
     }
@@ -1133,8 +1152,14 @@ def _copy_isolated_seed_value(value: Any) -> Any:
         return value
 
 
-def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str, *, copy_values: bool = False) -> None:
-    bindings = _snapshot_init_bindings(init_session_id)
+def _seed_executor_from_init(
+    executor: LocalPythonExecutor,
+    init_session_id: str,
+    *,
+    copy_values: bool = False,
+    skip_keys: frozenset[str] = _INIT_STATE_SKIP_KEYS,
+) -> None:
+    bindings = _snapshot_init_bindings(init_session_id, skip_keys=skip_keys)
     if copy_values and bindings:
         bindings = {key: _copy_isolated_seed_value(value) for key, value in bindings.items()}
     if bindings:
@@ -1278,7 +1303,7 @@ def _inject_excel_xl(executor: LocalPythonExecutor, ranges: tuple[Any, ...] | No
     """Inject binding-only Excel ``xl()`` closed over *ranges* (may be empty)."""
     from plugin.scripting.excel_xl import make_xl
 
-    _send_cell_owned(executor, {"xl": make_xl(ranges)})
+    executor.send_variables({"xl": make_xl(ranges)})
 
 
 def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> tuple[Any, ...]:
@@ -1291,7 +1316,7 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> tuple[Any, 
     can bind Excel ``xl()`` to the same ranges.
     """
     if data is None:
-        _send_cell_owned(executor, {"data": None, "ranges": []})
+        executor.send_variables({"data": None, "ranges": []})
         return ()
     from plugin.scripting.calc_range import materialize_inputs
     from plugin.scripting.payload_codec import describe_wire_value, is_calc_range_payload, is_multi_data, is_split_grid
@@ -1313,7 +1338,7 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> tuple[Any, 
         "data": data_var,
         "ranges": ranges_list,
     }
-    _send_cell_owned(executor, variables)
+    executor.send_variables(variables)
     return ranges
 
 
@@ -1348,7 +1373,10 @@ def _ensure_mpl_agg() -> None:
             _MPL_AGG_FAILED = True
 
 
-def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
+def _sync_custom_tools(
+    executor: LocalPythonExecutor,
+    skip_keys: frozenset[str] = _INIT_STATE_SKIP_KEYS,
+) -> None:
     """Copy user callables into custom_tools for named-library eval.
 
     evaluate_name and evaluate_call read executor.state before custom_tools,
@@ -1360,7 +1388,7 @@ def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
     ``def session_duckdb`` must not be seeded into the next cell.
     """
     for key, value in executor.state.items():
-        if not isinstance(key, str) or key in _INIT_STATE_SKIP_KEYS or key.startswith("_"):
+        if not isinstance(key, str) or key in skip_keys or key.startswith("_"):
             continue
         if callable(value) and key not in executor.custom_tools:
             executor.custom_tools[key] = value
@@ -1410,24 +1438,6 @@ def _close_open_figures() -> None:
             plt_mod.close("all")
     except Exception:
         log.debug("failed to close pyplot figures", exc_info=True)
-
-
-def _error_result(
-    message: str,
-    *,
-    code: str | None = None,
-    stdout: str = "",
-    include_traceback: bool = False,
-) -> dict[str, Any]:
-    """Error dict shared by the ``_run_on_executor`` failure arms."""
-    out: dict[str, Any] = {"status": "error", "message": message, "stdout": stdout}
-    if code is not None:
-        out["code"] = code
-    if include_traceback:
-        import traceback
-
-        out["traceback"] = traceback.format_exc()
-    return out
 
 
 def _serialize_cell_result(
@@ -1481,9 +1491,19 @@ def _fail_cell(
     """Restore the pre-cell ``result``, close figures, and return an error dict."""
     _restore_prior_result(executor, prior_result)
     _close_open_figures()
-    return _error_result(
-        message, code=code, stdout=stdout, include_traceback=include_traceback
+    return error_result(
+        code, message, stdout=stdout, with_traceback=include_traceback
     )
+
+
+def cell_rebound_result(code: str, prior: Any, current: Any) -> bool:
+    """Whether the cell rebound ``result``, by identity change or module-scope store.
+
+    A module-scope Store covers explicit assignments like ``result = 5`` or
+    in-place ``result += [2]``. Identity covers writes the AST visitor does not
+    see, such as ``except Exception as result``.
+    """
+    return current is not prior or _module_binds_name(code, "result")
 
 
 def _run_on_executor(
@@ -1519,8 +1539,7 @@ def _run_on_executor(
         _sync_custom_tools(executor)
 
         current = executor.state.get("result", _RESULT_MISSING)
-        rebound = current is not prior_result or _module_binds_name(code, "result")
-        if current is not _RESULT_MISSING and rebound:
+        if current is not _RESULT_MISSING and cell_rebound_result(code, prior_result, current):
             result = current
         else:
             result = code_output.output
@@ -1599,10 +1618,10 @@ def _run_on_executor(
             raise
         # SystemExit and KeyboardInterrupt skip the executor's except Exception,
         # which is what copies prints, but the text is already in _print_outputs.
-        return _error_result(
-            str(e),
+        return error_result(
+            message=str(e),
             stdout=print_outputs_from_state(executor.state),
-            include_traceback=True,
+            with_traceback=True,
         )
 
 
@@ -1642,16 +1661,16 @@ def run_sandboxed_code(
     try:
         timeout_sec = int(timeout_sec)
     except (TypeError, ValueError, OverflowError):
-        return _error_result(f"Invalid timeout_sec: {timeout_sec!r}")
+        return error_result(message=f"Invalid timeout_sec: {timeout_sec!r}", stdout="")
     deadline = time.monotonic() + float(timeout_sec)
 
     if sandbox_policy is not None and not isinstance(sandbox_policy, dict):
-        return _error_result("sandbox_policy must be a dict")
+        return error_result(message="sandbox_policy must be a dict", stdout="")
     policy_dict = sandbox_policy or {}
     try:
         raw_extra = policy_dict.get("extra_modules") or ""
         if not isinstance(raw_extra, str):
-            return _error_result("sandbox_policy.extra_modules must be a comma-separated string")
+            return error_result(message="sandbox_policy.extra_modules must be a comma-separated string", stdout="")
         policy = build_sandbox_policy(
             network=bool(policy_dict.get("network", False)),
             files=bool(policy_dict.get("files", False)),
@@ -1659,7 +1678,7 @@ def run_sandboxed_code(
             extra=parse_extra_modules(raw_extra),
         )
     except ValueError as e:
-        return _error_result(str(e))
+        return error_result(message=str(e), stdout="")
 
     # Force non-interactive backend so plt.show() doesn't block in the subprocess.
     # Before matplotlib is loaded, MPLBACKEND makes any later import (plt binding,
@@ -1715,13 +1734,15 @@ def run_sandboxed_code(
             executor, created = _get_or_create_session_executor(
                 session_id, timeout_sec, policy=policy
             )
+            ns = CellNamespace(executor)
             if init_sid:
                 _seed_shared_executor_once(executor, session_id, init_sid, init_digest)
         else:
-            executor = _new_executor(timeout_sec, policy=policy)
+            ns = CellNamespace.fresh(policy, timeout_sec)
+            executor = ns.executor
             created = False
             if init_sid:
-                _seed_executor_from_init(executor, init_sid, copy_values=True)
+                ns.seed(init_sid, copy=True)
 
         left = _seconds_left(deadline)
         if left is None:
@@ -1731,17 +1752,7 @@ def run_sandboxed_code(
             return err
         executor.timeout_seconds = left
 
-        inject_auto_imports(executor, code)
-        ranges = _inject_data(executor, data)
-        _inject_excel_xl(executor, ranges)
-        # Drop scoped_dir before bindings. A shared calc: executor is reused
-        # by =PY() and Run Python Script, so a cell assignment
-        # scoped_dir = "/some/dir" is still in state. The next execute that
-        # binds no folder (Run Python Script injects none) would treat that
-        # path as the host folder.
-        executor.state.pop("scoped_dir", None)
-        _inject_bindings(executor, bindings)
-        _inject_session_duckdb(executor)
+        ns.bind(code=code, data=data, bindings=bindings)
         raw = _run_on_executor(executor, code, force=force)
         if session_id:
             raw["namespace_created"] = created

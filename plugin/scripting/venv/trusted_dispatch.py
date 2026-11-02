@@ -12,27 +12,13 @@ from typing import Any
 
 from plugin.scripting.sheet_layout import extract_sheet_layout
 from plugin.scripting.venv.coerce import coerce_bool, coerce_int
+from plugin.scripting.venv.results import error_result
 
 log = logging.getLogger(__name__)
 
 
 def ok_result(helper: str, **payload: Any) -> dict[str, Any]:
     return {"status": "ok", "helper": helper, **payload}
-
-
-def error_result(
-    code: str,
-    message: str,
-    *,
-    helper: str | None = None,
-    details: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": "error", "code": code, "message": message}
-    if helper:
-        out["helper"] = helper
-    if details:
-        out["details"] = details
-    return out
 
 
 def missing_package_error(helper: str, package: str) -> dict[str, Any]:
