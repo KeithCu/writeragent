@@ -127,11 +127,12 @@ class PanelEventsController:
                 ("stop", self._panel.stop_control, _("Change")),
                 ("clear", self._panel.clear_control, _("Reject")),
             ):
-                if ctrl and ctrl.getModel():
-                    m = ctrl.getModel()
-                    controls[key] = (m.Label, m.Enabled)
-                    _relabel_button(ctrl, label, cache)
-                    m.Enabled = True
+                m = ctrl.getModel() if ctrl else None
+                if not m:
+                    continue
+                controls[key] = (m.Label, m.Enabled)
+                _relabel_button(ctrl, label, cache)
+                m.Enabled = True
             if self._panel.status_control:
                 self._panel._approval_ui_backup["status_text"] = self._panel.status_control.getText()
 
@@ -165,7 +166,7 @@ class PanelEventsController:
         ) = b["actions"]
         with suppress_disposed("_finish_inline_web_approval restore", logger=log):
             cache = self._panel._mnemonic_cache()
-            controls = b.get("controls", {})
+            controls = b["controls"]
             for key, ctrl in (
                 ("send", self._panel.send_control),
                 ("stop", self._panel.stop_control),
