@@ -55,11 +55,6 @@ _LEADING_LIST_RE = re.compile(r"^\s*<(?:ol|ul)\b", re.IGNORECASE)
 _LEADING_MARKER_P_RE = re.compile(r"^\s*<p\b[^>]*>\s*(?:\d{1,3}[.)]|[\u2022*-])\s", re.IGNORECASE)
 
 
-def _body_starts_with_list(html: str) -> bool:
-    """True when the body opens with ``<ol>``/``<ul>`` or a ``<p>`` that starts with a list marker."""
-    return bool(_LEADING_LIST_RE.match(html) or _LEADING_MARKER_P_RE.match(html))
-
-
 def _drop_list_sentinel(text_obj: Any, body_anchor: Any) -> None:
     """Delete the sentinel character the import left right after the prefix."""
     probe = text_obj.createTextCursorByRange(body_anchor.getStart())
@@ -227,13 +222,6 @@ def contains_html_tag(text: str) -> bool:
     return text_has_real_html_tag(text or "")
 
 
-def writer_suffix(text_obj: Any, previous: str) -> str:
-    current = text_obj.getString() or ""
-    if current.startswith(previous):
-        return current[len(previous):]
-    return current
-
-
 def _role_prefix(role: str) -> str:
     if role == "user":
         return "You: "
@@ -357,7 +345,7 @@ def _append_rich_text_with_span(
                     # first-paragraph merge (see _LIST_SENTINEL). Without it a
                     # leading <ol> draws "Assistant: a / 1. b / 2. c". Ordinary
                     # prose keeps sharing the label line.
-                    leading_list = _body_starts_with_list(body_html)
+                    leading_list = bool(_LEADING_LIST_RE.match(body_html) or _LEADING_MARKER_P_RE.match(body_html))
                     if leading_list:
                         body_html = "<p>%s</p>%s" % (_LIST_SENTINEL, body_html)
                     from plugin.writer.html_import import insert_html_fragment_at_cursor

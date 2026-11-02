@@ -54,7 +54,6 @@ from plugin.chatbot.rich_text import (
     render_calc_cell_refs,
     span_matches_message,
     strip_legacy_ai_label,
-    writer_suffix,
 )
 from plugin.chatbot.rich_text_control import (
     force_rich_full_reformat,
@@ -555,7 +554,7 @@ def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant") ->
     cursor.gotoEnd(False)
     if text_obj.getString():
         text_obj.insertString(cursor, "\n\n", False)
-    body = strip_html_tags(text or "")
+    body = _plain_fallback_text(text)
     text_obj.insertString(cursor, _role_prefix(role) + body, False)
 
 
@@ -577,7 +576,9 @@ def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None
             continue
         text_obj.setString(previous)
         append_plain_transcript_row(doc, content, role=role)
-        if not span_matches_message(writer_suffix(text_obj, previous), role, content):
+        current = text_obj.getString() or ""
+        suffix = current[len(previous):] if current.startswith(previous) else current
+        if not span_matches_message(suffix, role, content):
             # The plain row is the message text. If it still does not match,
             # drop the span rather than keep text the list does not have.
             text_obj.setString(previous)
@@ -714,7 +715,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                     if not first_para:
                         _insert_string_at_rich_cursor(model, dest_cursor, "\n")
                         if control_len is not None:
-                            control_len += _utf16_units("\n")
+                            control_len += 1
                         dest_cursor.gotoEnd(False)
                         apply_rich_control_para_margins(dest_cursor)
                     first_para = False
@@ -730,7 +731,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                                     model, dest_cursor, "\n", bold=False, underline=False,
                                 )
                                 if control_len is not None:
-                                    control_len += _utf16_units("\n")
+                                    control_len += 1
                                 dest_cursor.gotoEnd(False)
                                 apply_rich_control_para_margins(dest_cursor)
                             _apply_table_tab_stops(dest_cursor, tab_stops)
@@ -789,7 +790,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         normalize_portion_font(portion)
                         _apply_cursor_char_props(dest_cursor, portion, char_color=portion_color, bg_color=fill_color)
                         href = portion_cell_href(portion)
-                        is_pending = bool(pending_links and pending_link_idx < len(pending_links) and pending_links[pending_link_idx][0] == txt)
+                        is_pending = pending_link_idx < len(pending_links) and pending_links[pending_link_idx][0] == txt
                         looks_like_cell_link = portion_looks_like_cell_link(portion, txt)
                         maybe_link = bool(href or is_pending or looks_like_cell_link)
                         before_len = control_len
@@ -799,8 +800,6 @@ def _copy_formatted_from_hidden_doc_to_control(
                             control_len += txt_units
                         element_inserted = True
                         if maybe_link and before_len is not None:
-                            after_len = control_len
-                            assert after_len is not None
                             addr = normalize_cell_address(href) if href else None
                             if is_pending:
                                 # Pop the matched queue head even when href supplied the address.
@@ -812,7 +811,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                             elif not addr and looks_like_cell_link:
                                 addr = normalize_cell_address(txt.strip())
                             if addr:
-                                register_cell_link_span(control, before_len, after_len, addr)
+                                register_cell_link_span(control, before_len, before_len + txt_units, addr)
                         dest_cursor.gotoEnd(False)
                         inserted = True
                     if line_prefix and not prefix_inserted:
@@ -1051,8 +1050,6 @@ def _append_row_separator(
     control: Any,
     phase: str,
     caller_name: str,
-    *,
-    log_suffix_len: bool = False,
 ) -> None:
     def _do_append() -> None:
         model = control.getModel() if control else None
@@ -1065,10 +1062,7 @@ def _append_row_separator(
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         _insert_string_at_rich_cursor(model, cursor, suffix)
-        if log_suffix_len:
-            log_rich_scroll(phase, control=control, suffix_len=len(suffix))
-        else:
-            log_rich_scroll(phase, control=control)
+        log_rich_scroll(phase, control=control, suffix_len=len(suffix))
 
     best_effort(_do_append, caller_name)
 
@@ -1084,7 +1078,7 @@ def _ensure_trailing_line_break(control: Any) -> None:
     Formatted copy from Writer often has no trailing ``\\n``; a single ``\\n`` only moves to
     the next line. We want ``\\n\\n`` (same gap as ``_ensure_message_separator``).
     """
-    _append_row_separator(control, "trailing_break", "_ensure_trailing_line_break", log_suffix_len=True)
+    _append_row_separator(control, "trailing_break", "_ensure_trailing_line_break")
 
 
 def append_formatted_row(
