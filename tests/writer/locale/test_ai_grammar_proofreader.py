@@ -264,20 +264,6 @@ def test_classify_errors_against_window_counts_before_in_after() -> None:
     assert cls["in_window"] == 1
     assert cls["after_window"] == 1
     assert cls["straddle"] == 1
-    assert "2+3:before" in cls["error_spans"]
-    assert "20+4:in" in cls["error_spans"]
-    assert "40+2:after" in cls["error_spans"]
-    assert "18+5:straddle" in cls["error_spans"]
-
-
-def test_rule_ids_sample_empty_and_truncated() -> None:
-    from plugin.writer.locale.ai_grammar_proofreader import _rule_ids_sample
-
-    assert _rule_ids_sample([]) == ""
-    assert _rule_ids_sample([{"rule_identifier": "harper||SpellCheck"}]) == "harper||SpellCheck"
-    many = [{"rule_identifier": f"r{i}"} for i in range(10)]
-    sample = _rule_ids_sample(many)
-    assert sample == "r0,r1,r2,r3,r4,r5,r6,r7,+2"
 
 
 @pytest.mark.skipif(
@@ -317,7 +303,6 @@ def test_obs_result_window_emits_final_counts_and_rule_ids() -> None:
     assert kwargs["source"] == "harper_fast"
     assert kwargs["n_errors"] == 2
     assert kwargs["n_aErrors"] == 2
-    assert kwargs["rule_ids"] == "harper||SpellCheck,harper||Agreement"
     assert kwargs["in_window"] == 2
     assert kwargs["doc_id"] == "doc-1"
 
@@ -352,7 +337,6 @@ def test_obs_result_window_empty_lint_omits_rule_ids() -> None:
     assert kwargs["stage"] == "final"
     assert kwargs["n_errors"] == 0
     assert kwargs["n_aErrors"] == 0
-    assert "rule_ids" not in kwargs
 
 
 @pytest.mark.parametrize(
@@ -799,7 +783,6 @@ class TestTypingIntegration:
         assert kwargs["source"] == "harper_fast"
         assert kwargs["n_errors"] == 1
         assert kwargs["n_aErrors"] == 1
-        assert kwargs["rule_ids"] == "harper||Agreement"
         # Pre-path cache snapshot must not look like a final empty lint.
         assert kwargs["n_errors"] != 0
         partial = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_cache_partial_hit"]
@@ -837,7 +820,6 @@ class TestTypingIntegration:
         assert kwargs["source"] == "harper_fast"
         assert kwargs["n_errors"] == 0
         assert kwargs["n_aErrors"] == 0
-        assert "rule_ids" not in kwargs
 
     def test_llm_incremental_still_returns_other_sentences_cached_errors(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
