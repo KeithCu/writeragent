@@ -144,3 +144,83 @@ def test_writer_compound_undo_close_can_retry_after_failed_leave():
     assert doc.undo.left is False
     assert cu.close() is True
     assert doc.undo.left is True
+
+
+def test_writer_compound_undo_magicmock_islocked_enters():
+    from unittest.mock import MagicMock
+    doc = MagicMock()
+    mgr = MagicMock()
+    assert mgr.isLocked() is not True
+    doc.getUndoManager.return_value = mgr
+    cu = WriterCompoundUndo(doc, "WriterAgent: mock")
+    assert cu.entered is True
+    mgr.enterUndoContext.assert_called_once_with("WriterAgent: mock")
+    cu.close()
+
+
+def test_writer_compound_undo_try_enter_returns_none_when_unavailable():
+    from unittest.mock import MagicMock
+    # Locked
+    doc_locked = MagicMock()
+    doc_locked.getUndoManager.return_value.isLocked.return_value = True
+    assert WriterCompoundUndo.try_enter(doc_locked, "WriterAgent: locked") is None
+
+    # None manager
+    doc_none = MagicMock()
+    doc_none.getUndoManager.return_value = None
+    assert WriterCompoundUndo.try_enter(doc_none, "WriterAgent: none") is None
+
+    # Missing getUndoManager
+    doc_missing = object()
+    assert WriterCompoundUndo.try_enter(doc_missing, "WriterAgent: missing") is None
+
+    # Non-disposal enter error
+    doc_err = MagicMock()
+    doc_err.getUndoManager.return_value.isLocked.return_value = False
+    doc_err.getUndoManager.return_value.enterUndoContext.side_effect = RuntimeError("enter failed")
+    assert WriterCompoundUndo.try_enter(doc_err, "WriterAgent: err") is None
+
+
+def test_writer_compound_undo_try_enter_reraises_disposal():
+    from unittest.mock import MagicMock
+    doc_disp = MagicMock()
+    doc_disp.getUndoManager.side_effect = _DisposedException("doc disposed")
+    with pytest.raises(DocumentDisposedError):
+        WriterCompoundUndo.try_enter(doc_disp, "WriterAgent: disp")
+
+
+def test_writer_compound_undo_rollback_if_top():
+    from unittest.mock import MagicMock
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.side_effect = [(), ("WriterAgent: test",)]
+    doc.getUndoManager.return_value = mgr
+
+    cu = WriterCompoundUndo.try_enter(doc, "WriterAgent: test")
+    assert cu is not None
+    # Still open -> returns False, does not undo
+    assert cu.rollback_if_top() is False
+    mgr.undo.assert_not_called()
+
+    # Closed -> top title matches and changed -> undoes
+    assert cu.close() is True
+    assert cu.rollback_if_top() is True
+    mgr.undo.assert_called_once()
+
+    # Never entered -> returns False
+    cu_unentered = WriterCompoundUndo(object(), "WriterAgent: unentered")
+    assert cu_unentered.entered is False
+    assert cu_unentered.rollback_if_top() is False
+
+    # Titles unchanged -> does not undo
+    doc_unchanged = MagicMock()
+    mgr2 = MagicMock()
+    mgr2.isLocked.return_value = False
+    mgr2.getAllUndoActionTitles.side_effect = [("WriterAgent: test",), ("WriterAgent: test",)]
+    doc_unchanged.getUndoManager.return_value = mgr2
+    cu_unchanged = WriterCompoundUndo.try_enter(doc_unchanged, "WriterAgent: test")
+    assert cu_unchanged is not None
+    assert cu_unchanged.close() is True
+    assert cu_unchanged.rollback_if_top() is False
+    mgr2.undo.assert_not_called()

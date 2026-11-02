@@ -1176,7 +1176,7 @@ def test_apply_style_all_matches_rolls_back():
     mgr = MagicMock()
     mgr.isLocked.return_value = False
     doc.getUndoManager.return_value = mgr
-    mgr.getAllUndoActionTitles.return_value = ["Agent Edit"]
+    mgr.getAllUndoActionTitles.side_effect = [[], ["Agent Edit"]]
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
 
     call_count = 0
