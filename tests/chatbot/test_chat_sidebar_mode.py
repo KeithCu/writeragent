@@ -24,16 +24,14 @@ from plugin.chatbot.chat_sidebar_mode import (
     LIBRARIAN_HISTORY_SESSION_ID,
     SidebarModeFlags,
     SidebarModeController,
-    _clear_mode_topic_session,
     _modes_for,
-    clear_brainstorming_session,
-    clear_librarian_session,
     get_mode_labels,
     librarian_default_mode,
     mark_librarian_invoked,
     mode_from_label,
     mode_from_selector_with_flags,
     populate_mode_selector_with_flags,
+    release_sticky_session,
     set_selector_mode_with_flags,
     sidebar_mode_flags_for_doc_type,
 )
@@ -161,49 +159,29 @@ def test_populate_mode_selector_sets_string_item_list_on_model():
     ctrl.addItems.assert_called_once_with(labels, 0)
 
 
-def test_clear_brainstorming_session_resets_flags():
+def test_release_sticky_session_brainstorming_to_chat_clears_topic():
     listener = MagicMock()
     listener._active_mode = CHAT_MODE_BRAINSTORMING
     listener._mode_topic = "topic"
-    clear_brainstorming_session(listener)
+    release_sticky_session(listener, CHAT_MODE_CHAT)
     assert listener._active_mode == ""
     assert listener._mode_topic == ""
 
 
-def test_clear_brainstorming_session_skips_when_in_writing_plan():
+def test_release_sticky_session_active_writing_plan_leaves_mode_and_topic():
     listener = MagicMock()
     listener._active_mode = CHAT_MODE_WRITING_PLAN
     listener._mode_topic = "plan topic"
-    clear_brainstorming_session(listener)
+    release_sticky_session(listener, CHAT_MODE_CHAT)
     assert listener._active_mode == CHAT_MODE_WRITING_PLAN
     assert listener._mode_topic == "plan topic"
 
 
-def test_clear_writing_plan_session_resets_flags():
-    listener = MagicMock()
-    listener._active_mode = CHAT_MODE_WRITING_PLAN
-    listener._mode_topic = "topic"
-    _clear_mode_topic_session(listener, CHAT_MODE_WRITING_PLAN)
-    assert listener._active_mode == ""
-    assert listener._mode_topic == ""
-
-
-def test_clear_ppt_master_session_resets_flags():
-    from plugin.chatbot.chat_sidebar_mode import clear_ppt_master_session
-
-    listener = MagicMock()
-    listener._active_mode = CHAT_MODE_PPT_MASTER
-    listener._mode_topic = "topic"
-    clear_ppt_master_session(listener)
-    assert listener._active_mode == ""
-    assert listener._mode_topic == ""
-
-
-def test_clear_librarian_session_resets_flag_only():
+def test_release_sticky_session_librarian_clears_active_mode_only():
     listener = MagicMock()
     listener._active_mode = CHAT_MODE_LIBRARIAN
     listener._mode_topic = "preserved topic"
-    clear_librarian_session(listener)
+    release_sticky_session(listener, CHAT_MODE_CHAT)
     assert listener._active_mode == ""
     assert listener._mode_topic == "preserved topic"
 
@@ -265,7 +243,7 @@ def test_sidebar_mode_controller_brainstorming_finished():
 
     controller = SidebarModeController(panel)
     with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
-        controller.on_brainstorming_session_finished(spec_saved=True)
+        controller.on_mode_finished(CHAT_MODE_BRAINSTORMING, {"spec_saved": True})
     assert panel._mode_topic == "Implement the saved spec: Kitchen remodel"
     assert panel._active_mode == CHAT_MODE_WRITING_PLAN
     assert mock_set.call_args[0][1] == CHAT_MODE_WRITING_PLAN
@@ -276,21 +254,21 @@ def test_sidebar_mode_controller_brainstorming_finished():
     panel._active_mode = CHAT_MODE_BRAINSTORMING
     panel._apply_sidebar_mode_fn.reset_mock()
     with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
-        controller.on_brainstorming_session_finished(spec_saved=False)
+        controller.on_mode_finished(CHAT_MODE_BRAINSTORMING, {"spec_saved": False})
     panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
 
 
 def test_sidebar_mode_controller_other_modes_finished():
-    for meth_name in ("on_librarian_session_finished", "on_writing_plan_session_finished", "on_ppt_master_session_finished"):
+    for mode_key in (CHAT_MODE_LIBRARIAN, CHAT_MODE_WRITING_PLAN, CHAT_MODE_PPT_MASTER):
         panel = MagicMock()
         panel.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=True)
         panel.chat_mode_selector = MagicMock()
         panel._apply_sidebar_mode_fn = MagicMock()
-        panel._active_mode = "something"
+        panel._active_mode = mode_key
 
         controller = SidebarModeController(panel)
         with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
-            getattr(controller, meth_name)()
+            controller.on_mode_finished(mode_key, {})
         panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
 
 

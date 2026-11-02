@@ -528,18 +528,6 @@ class SendButtonListener(BaseActionListener):
         self.session = session
         self.client = None  # Force client recreation if needed, though they usually share same config
 
-    def on_brainstorming_session_finished(self, spec_saved: bool = False) -> None:
-        self._sidebar_mode.on_brainstorming_session_finished(spec_saved)
-
-    def on_librarian_session_finished(self) -> None:
-        self._sidebar_mode.on_librarian_session_finished()
-
-    def on_writing_plan_session_finished(self) -> None:
-        self._sidebar_mode.on_writing_plan_session_finished()
-
-    def on_ppt_master_session_finished(self) -> None:
-        self._sidebar_mode.on_ppt_master_session_finished()
-
     def hide_popup(self) -> None:
         popup = self.slash_popup
         hide = getattr(popup, "hide", None)

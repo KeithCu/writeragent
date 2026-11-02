@@ -11,16 +11,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from plugin.chatbot.chat_sidebar_mode import (
+    CHAT_MODE_BRAINSTORMING,
+    CHAT_MODE_LIBRARIAN,
+    CHAT_MODE_WRITING_PLAN,
+    SidebarMode,
+    require_sidebar_mode,
+)
 from plugin.chatbot.sticky_reply import (
-    BRAINSTORMING_REPLY_SPEC,
-    LIBRARIAN_REPLY_SPEC,
     STATUS_FINISHED,
     STATUS_INCOMPLETE,
     STATUS_OK,
     STATUS_SWITCH_MODE,
-    StickyReplySpec,
     StickyReplyToUserTool,
-    WRITING_PLAN_REPLY_SPEC,
     interpret_sticky_final_answer,
 )
 from plugin.chatbot.smol_agent import SmolToolAdapter
@@ -41,7 +44,7 @@ from plugin.contrib.smolagents.default_tools import FinalAnswerTool
     ],
 )
 def test_librarian_leave_flag_coercion(flag_value, expect_leave):
-    tool = StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC)
+    tool = StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN))
     kwargs: dict = {"answer": "Bye"}
     if flag_value is not None:
         kwargs["switch_to_document_mode"] = flag_value
@@ -56,7 +59,7 @@ def test_librarian_leave_flag_coercion(flag_value, expect_leave):
 
 
 def test_stay_is_ok_dict():
-    tool = StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC)
+    tool = StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN))
     assert tool.execute(MagicMock(), answer="<p>Hi</p>") == {
         "status": STATUS_OK,
         "result": "<p>Hi</p>",
@@ -64,18 +67,19 @@ def test_stay_is_ok_dict():
 
 
 def test_tool_is_async():
-    tool = StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC)
+    tool = StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN))
     assert tool.is_async() is True
 
 
 def test_spec_validation_asserts():
     # Empty leave_flag
     with pytest.raises(AssertionError):
-        StickyReplySpec(leave_flag="", leave_status="finished")
+        SidebarMode(key="test", leave_flag="", leave_status="finished")
     # leave_flag collision with reserved
     with pytest.raises(AssertionError):
-        StickyReplySpec(leave_flag="answer", leave_status="finished")
-    valid = StickyReplySpec(
+        SidebarMode(key="test", leave_flag="answer", leave_status="finished")
+    valid = SidebarMode(
+        key="test",
         leave_flag="done",
         leave_status="finished",
         tracks_spec_saved=True,
@@ -84,7 +88,7 @@ def test_spec_validation_asserts():
 
 
 def test_brainstorming_spec_saved_observed_not_claimed():
-    tool = StickyReplyToUserTool(BRAINSTORMING_REPLY_SPEC)
+    tool = StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_BRAINSTORMING))
     # Model claims spec_saved=True, but no save observed -> spec_saved is False
     leave = tool.execute(
         MagicMock(),
@@ -108,7 +112,7 @@ def test_brainstorming_spec_saved_observed_not_claimed():
 
 def test_writing_plan_leave_drops_unused_plan_completed():
     """plan_completed was never read by the panel. It is not a schema field."""
-    tool = StickyReplyToUserTool(WRITING_PLAN_REPLY_SPEC)
+    tool = StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_WRITING_PLAN))
     props = (tool.parameters or {})["properties"]
     assert "plan_completed" not in props
     assert "writing_plan_finished" in props
@@ -171,7 +175,7 @@ def test_interpret_error_passthrough():
 
 def test_agent_uses_sticky_reply_not_stock_or_old_leave_tool():
     ctx = MagicMock()
-    reply = SmolToolAdapter(StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC), ctx, safe=False, inputs_style="librarian")
+    reply = SmolToolAdapter(StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN)), ctx, safe=False, inputs_style="librarian")
     agent = ToolCallingAgent(tools=[reply], model=MagicMock(), final_answer_tool_name="reply_to_user")
     assert "reply_to_user" in agent.tools
     assert "switch_to_document_mode" not in agent.tools

@@ -497,7 +497,7 @@ Simpler approach:
 | `registry/org/openoffice/Office/UI/Factories.xcu` | ChatPanelFactory registration |
 | `panel_factory.py` | ChatPanelFactory, ChatPanelElement, ChatToolPanel; ContainerWindowProvider + setVisible(True). Wires controls only — does not build `[DOCUMENT CONTENT]`. |
 | `panel.py` | Send/Stop/Clear listeners. |
-| `chat_sidebar_mode.py` | Mode dropdown constants, combo helpers, `clear_*`, and `SidebarModeController` session-finished callbacks. |
+| `chat_sidebar_mode.py` | Mode dropdown constants, combo helpers, `SidebarMode`, `release_sticky_session`, and `SidebarModeController` (finish is `on_mode_finished`; the panel does not forward per-mode methods). |
 | `chat_session.py` | `ChatSession`. Mode-switch, send, and mid-loop context refresh is `ChatSession.refresh_document_context`. |
 | `send_handlers.py` / `tool_loop.py` | Composed on SendButtonListener; call `ChatSession.refresh_document_context` on each send / mutating tool. |
 | `WriterAgentDialogs/ChatPanelDialog.xdl` | Panel UI; `dlg:withtitlebar="false"` |

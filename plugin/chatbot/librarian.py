@@ -175,7 +175,7 @@ TOOLS FOR COMPLETION:
     # instructions.
     instructions += mem_block
 
-    from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, require_sidebar_mode
 
     def tool_call_handler(step: Any) -> None:
         name = getattr(step, "name", "")
@@ -194,7 +194,7 @@ TOOLS FOR COMPLETION:
         collector=lambda c: [MemoryTool()],
         instructions=instructions,
         examples_key="librarian",
-        reply_spec=LIBRARIAN_REPLY_SPEC,
+        mode=require_sidebar_mode(CHAT_MODE_LIBRARIAN),
         status_message="Librarian is thinking...",
         stop_message="Librarian stopped by user.",
         error_prefix="Librarian failed",
