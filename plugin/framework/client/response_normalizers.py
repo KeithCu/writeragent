@@ -47,10 +47,7 @@ def should_prepend_dev_llm_system_prefix() -> bool:
 
 # Local / Harmony-style models sometimes leak chat-template control tokens.
 _CHAT_TEMPLATE_CONTROL_TOKEN_RE = re.compile(r"<\|[a-zA-Z0-9_]+\|>")
-# Bugfix: Previously _DATA_URI_IMAGE_RE used [a-zA-Z0-9+/=\s]+ which greedily
-# swallowed trailing plain text/prose that shared base64 alphabet characters across newlines.
-# The new pattern matches the initial base64 run, followed only by valid MIME-wrapped
-# continuation lines (>=40 chars) or a short padded tail ending in '='.
+# Matches data URL image base64 without greedily swallowing following prose.
 _DATA_URI_IMAGE_RE = re.compile(
     r"data:image/([a-zA-Z0-9+.-]+);base64,([A-Za-z0-9+/=]+(?:\s+[A-Za-z0-9+/=]{40,})*(?:\s+[A-Za-z0-9+/=]{0,39}={1,2})?)"
 )
@@ -74,8 +71,7 @@ def normalize_message_content(raw: Any) -> str | None:
             if isinstance(item, str):
                 parts.append(item)
             elif isinstance(item, dict):
-                # Bugfix: a non-string text (a nested object) reached str.join
-                # and the stream loop turned the TypeError into NetworkError.
+                # Ensure text part is converted to string.
                 if item.get("type") == "text" or "text" in item:
                     parts.append(_text_of(item.get("text")))
         return "".join(parts) if parts else None
@@ -214,10 +210,7 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
 
             if target_message is None:
                 target_message = {"role": "user", "content": "[Image attached by tool/system]"}
-                # Bugfix: When all preceding messages were system messages, insert_idx previously
-                # remained 0, placing the synthetic user message before system instructions.
-                # Defaulting insert_idx to len(messages) appends after all system messages when no
-                # non-system message exists, while correctly inserting before the first non-system message otherwise.
+                # Insert synthetic user message after system messages or before first non-system message.
                 insert_idx = len(messages)
                 for i, msg in enumerate(messages):
                     if not isinstance(msg, dict) or msg.get("role") != "system":
@@ -254,7 +247,6 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
     coalesced_messages: list[Any] = []
     coalesced_any = False
     for m in messages:
-        # Bugfix: Non-dict messages in the list previously caused AttributeError when checking .get("role").
         # Pass non-dict items through untouched.
         if not isinstance(m, dict):
             coalesced_messages.append(m)

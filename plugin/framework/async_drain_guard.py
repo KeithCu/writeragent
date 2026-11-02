@@ -84,12 +84,6 @@ def release_drain_owner() -> None:
     idle callbacks. An underflow logs a warning and does not run idle
     callbacks.
     """
-    # Bugfix: name-only depth let any thread share or drop the pump; the
-    # ident check closes that.
-    # Bugfix: An extra release used to decrement through zero, clamp, and
-    # still run idle callbacks, so a mismatched release looked like a real
-    # transition to idle and hid the missing acquire. Underflow now logs
-    # and returns without running idle callbacks.
     global _active_owner_name, _drain_depth, _owner_thread_ident
     caller = threading.get_ident()
     became_idle = False
@@ -201,9 +195,6 @@ def remove_drain_idle_callback(fn: Callable[[], None]) -> None:
 
 def _notify_drain_idle() -> None:
     """Invoke idle callbacks. Never raise into the drain ``finally``."""
-    # Bugfix: re-raising RecursionError escaped release_drain_owner, and
-    # _EventDrain._finish calls that before epilogues, so _close_peer_drain
-    # never ran and the peer agent_session stayed open.
     if getattr(_idle_notify, "active", False):
         _idle_notify.again = True
         return

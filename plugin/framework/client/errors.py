@@ -131,9 +131,7 @@ def is_audio_unsupported_error(e: Any) -> bool:
 
 def is_400_input_validation(err: Any) -> bool:
     """Treat HTTP 400 with 'input validation' or 'bad request' as likely audio-format rejection (e.g. Together AI)."""
-    # Bugfix: "400" in str(err) is true for any payload whose text happens
-    # to contain those digits, including a non-400 body. The HTTP status is
-    # already on details["status"] from handle_http_status via format_error_payload.
+    # Check details["status"] for exact HTTP 400 status.
     details = err.get("details") if isinstance(err, dict) else None
     status = details.get("status") if isinstance(details, dict) else None
     if not isinstance(status, int) or status != 400:
@@ -224,8 +222,7 @@ def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[
 def _full_url_for_request_path(endpoint: str, path: str) -> str:
     """Join stored endpoint host with relative API path for debug logs.
 
-    Query string is dropped so a leftover ``?key=`` never appears in logs
-    (Google image used to put the API key on the URL).
+    Query string is dropped so API keys never appear in logs.
     """
     if not path or not str(path).startswith("/"):
         return path

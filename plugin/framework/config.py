@@ -215,14 +215,7 @@ def user_config_dir() -> str | None:
 
 def _backup_config_file(config_file_path: str, *, reason: str = "invalid-json") -> str | None:
     """Copy the raw config file before repair or other destructive handling."""
-    # What was wrong: Every parse failure created a new timestamped .bak file,
-    # piling up junk backups on repeated reads of the same corrupt file.
-    # How it happened: _backup_config_file checked only if .bak existed, and if
-    # so immediately allocated a new timestamped filename without checking
-    # whether an existing backup already contained the exact same bytes.
-    # Why this change fixes it: It inspects candidate backups in the same
-    # directory (.bak and .bak.<stamp>); if any already matches the source
-    # file's bytes, that path is returned without creating another copy.
+    # Reuses an existing backup if it already matches the source bytes.
     if not config_file_path or not os.path.exists(config_file_path):
         return None
     try:
@@ -336,11 +329,7 @@ def atomic_write_text(path: str, text: str, *, prefix: str = ".tmp-", fsync: boo
 
 def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
     """Write config via temp file + ``os.replace`` so a crash cannot truncate the live file."""
-    # What was wrong: A set or other non-JSON value raised bare TypeError from
-    # apply, so callers catching ConfigError missed it.
-    # How it happened: json.dumps sat outside the OSError handler.
-    # Why this change fixes it: A value that cannot be written is a save failure,
-    # raising ConfigError with CONFIG_SAVE_ERROR, same code as a disk error.
+    # Non-serializable values raise ConfigError with CONFIG_SAVE_ERROR.
     try:
         body = json.dumps(data, indent=4)
     except (TypeError, ValueError) as e:
@@ -397,9 +386,7 @@ def _load_config_dict(config_file_path: str, *, persist_repair: bool = False, fa
                 raise ConfigError(f"Failed to write repaired config: {e}", code="CONFIG_SAVE_ERROR", details={"path": config_file_path, "backup_path": backup_path}) from e
         return data
     if fail_on_unrepairable:
-        # A later set_config used to load this {} and os.replace the file,
-        # wiping every other setting. The GET path raises too, so a bad
-        # file is not cached as a fresh install with empty API keys.
+        # Do not cache an unrepairable file as empty config.
         log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s).", config_file_path, backup_path or "none")
         raise ConfigError(f"Invalid JSON in {config_file_path} could not be repaired", code="CONFIG_INVALID_FORMAT", details={"path": config_file_path, "backup_path": backup_path})
     log.warning("Invalid JSON in %s could not be auto-repaired (backup: %s). Using empty dict for this load.", config_file_path, backup_path or "none")
@@ -422,13 +409,7 @@ class ConfigCache:
     mtime: float = 0
     mtime_last_checked: float = 0.0
     error_logged: tuple[str, int, int] | tuple[str, None, None] | None = None
-    # What was wrong: A cold failed load left data is None, so every get_config
-    # re-read, scanned .bak*, ran json_repair, and log.warning'd; only
-    # log.exception was tied to error_logged.
-    # How it happened: The 2-second fast path requires data is not None.
-    # Why this change fixes it: This id skips that work until st_mtime_ns or
-    # size changes, and data stays None so the session is not cached as an
-    # empty install.
+    # Skips repeated re-reads of an unreadable file until mtime or size changes.
     unreadable: tuple[str, int, int] | None = None
 
 
@@ -521,14 +502,7 @@ def get_config_bool(key: str) -> bool:
 def _log_unknown_config_key_once(key: str) -> None:
     """Warn once per process for a key that is not in the schema.
 
-    What was wrong: get_config_bool_safe / get_config_int_safe caught Exception
-    around the read and around _resolve_default, so a typo'd key
-    (CONFIG_KEY_NOT_FOUND) read as False or 0 with no log.
-    How it happened: the inner except was for a missing default, and it also
-    swallowed that unknown-key ConfigError.
-    Why this change fixes it: unknown keys log once and still return False/0.
-    A bad stored value (CONFIG_TYPE_ERROR) still uses the schema default.
-    Anything other than ConfigError propagates.
+    Unknown keys log once and return False/0. A bad stored value uses the schema default.
     """
     if key in _unknown_config_keys_logged:
         return
@@ -585,12 +559,6 @@ def get_config_dict() -> dict[str, Any]:
 
 def _raw_config_value_for_key(config_data: dict[str, Any], key: str) -> Any:
     """Return stored file value or _MISSING_VALUE, using the same keys get_config reads before defaults."""
-    # What was wrong: update_config("notamodule.endpoint", fn) and old_value
-    # saw the unrelated flat endpoint; get_config("audio.stt_model") ignored
-    # legacy stt_model while _value_for_update returned it.
-    # How it happened: Any dotted key took config_data[suffix].
-    # Why this change fixes it: That read was not get_config, and it was wider
-    # than _alias_keys_for_write; legacy stt_model stays in get_stt_model only.
     if key in config_data:
         return config_data[key]
     for dotted in _config_schema._dotted_fallback_keys(key):
@@ -619,11 +587,7 @@ def _stage_config_assignment(config_data: dict[str, Any], key: str, value: Any) 
     or the schema default when the key is omitted) leaves the dict alone.
     """
     current_value = _raw_config_value_for_key(config_data, key)
-    # What was wrong: config:changed events reported old_value=None when a key
-    # was omitted from writeragent.json, even though its effective value was the schema default.
-    # How it happened: _stage_config_assignment assigned previous=None on _MISSING_VALUE.
-    # Why this change fixes it: It resolves previous via _value_for_update, returning
-    # the schema default for omitted keys.
+    # Resolves previous to the schema default for omitted keys.
     previous = _value_for_update(config_data, key)
     # strict: an unparseable write must not look like success by snapping back
     # to the previous value. Load/repair stays non-strict.
@@ -654,13 +618,7 @@ def _validated_config_for_write(data: dict[str, Any], keys_label: str) -> _confi
     so a later one-key save would erase keys an earlier writer had stored.
     The file patch is applied separately, and only for keys this call changed.
     """
-    # What was wrong: Writing or removing any valid setting failed if an
-    # unrelated, pre-existing setting in writeragent.json was out-of-range.
-    # How it happened: _validated_config_for_write called validate() with strict
-    # range checks across the whole file, rejecting the entire write.
-    # Why this change fixes it: It validates with coerce_out_of_range=True so
-    # pre-existing neighbor values are coerced into valid bounds while newly
-    # assigned values remain strictly validated in _stage_config_assignment.
+    # Coerces pre-existing settings into valid bounds while newly assigned values remain strictly validated.
     try:
         # deepcopy: validate() mutates nested dicts in place (saved scripts).
         # Sharing them with the loaded file would write those mutations
@@ -694,12 +652,7 @@ def _value_for_update(loaded: dict[str, Any], key: str) -> Any:
 def _alias_keys_for_write(key: str, *, honor_keep_flat: bool = True) -> tuple[str, ...]:
     """Other names ``set_config`` / ``remove`` drops when it writes/removes *key*.
 
-    What was wrong: Any dotted key blindly deleted the flat name matching its
-    suffix (e.g. setting notamodule.endpoint dropped endpoint).
-    How it happened: _alias_keys_for_write split on dot and popped the suffix
-    without checking if that flat name actually mapped to this dotted key.
-    Why this change fixes it: It only treats the suffix as an alias when the
-    manifest-backed _dotted_fallback_keys(flat) yields this exact dotted key.
+    Treats a suffix as an alias only when _dotted_fallback_keys maps to this key.
     """
     aliases: list[str] = list(_config_schema._dotted_fallback_keys(key))
     if "." in key:
@@ -745,10 +698,7 @@ def _patch_changed_keys(loaded: dict[str, Any], staged: dict[str, Any], changed:
 def _repaired_file_dict(loaded: dict[str, Any], config: _config_schema.WriterAgentConfig) -> dict[str, Any]:
     """File image after a load-time repair, touching only keys validate() changed.
 
-    A GET used to persist ``to_dict()`` of the whole schema. That dropped
-    every key the schema does not emit, including keys another writer had
-    just saved. Only a value validate() actually changed is patched. A
-    stored default that validate() left alone stays in the file.
+    Patches only values validate() changed; stored defaults left alone stay in the file.
     """
     out = dict(loaded)
     for key, old in loaded.items():
@@ -1053,11 +1003,7 @@ def _get_validated_config_dict() -> dict[str, Any]:
             except OSError:
                 current_mtime = 0
 
-            # One out-of-range field used to raise ConfigValidationError, which the
-            # ConfigError handler below turned into {} — a later set_config then
-            # rewrote the file with only the new key. Coerce and persist so the
-            # rest of the file (API keys included) is kept. set_config still
-            # validates strictly so the UI can reject a bad new value.
+            # Coerce and persist out-of-range values on load to preserve the rest of the file.
             # Snapshot before validate(). It upgrades calc_prompt_max_tokens < 100
             # in memory and may coerce other fields that alias this dict.
             loaded = copy.deepcopy(data)
@@ -1088,15 +1034,7 @@ def _get_validated_config_dict() -> dict[str, Any]:
             return out
         except (ConfigError, OSError):
             _remember_config_read_failure(config_file_path, stat_id)
-            # What was wrong: Read errors on cold cache logged an exception on
-            # every single read, and OSError discarded any good cached snapshot.
-            # How it happened: _cache.data is None on a cold cache, bypassing the
-            # 2-second throttle, and OSError returned {} unconditionally.
-            # Why this change fixes it: Failures are logged at most once per
-            # (path, mtime, size) until changed or cleared, and OSError returns
-            # the last good cached dict if present, matching ConfigError.
-            # Keep the last good snapshot. Caching {} made the session look
-            # like a fresh install (empty API keys) until the file was fixed.
+            # Keep the last good snapshot if present, and log failures at most once per stat.
             if isinstance(_cache.data, dict):
                 return _cache.data
             return {}

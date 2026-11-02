@@ -120,7 +120,7 @@ except ImportError:
     )
 
 
-def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -> Any:  # pyright: ignore[reportUnusedFunction]  # imported by payload_codec, calc_range, editor_errors, editor_ipc
+def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -> Any:  # pyright: ignore[reportUnusedFunction]
     """Pick the contract predicate once at import.
 
     First argument is the CrossHair predicate, second is the pytest predicate.

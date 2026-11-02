@@ -137,14 +137,7 @@ class BackgroundHandle:
         return fut is not None and not fut.done()
 
     def is_current_thread(self) -> bool:
-        """True when this handle is the dedicated thread now running.
-
-        One supported check. Callers that read ``_thread`` to skip a
-        self-join miss a pooled handle: it has no thread, so that check is
-        false and ``join`` runs. From a pool worker that raises,
-        which is the deadlock guard and must stay. Pool workers that join
-        a different pooled future still hit it.
-        """
+        """True when this handle is the dedicated thread now running."""
         thread = self._thread
         return thread is not None and thread is threading.current_thread()
 
@@ -346,10 +339,6 @@ def _read_stderr_chunk(stream: IO[Any]) -> bytes | str | None:
     buffer = getattr(stream, "buffer", None)
     readable: IO[Any] = buffer if buffer is not None and hasattr(buffer, "read1") else stream
     read1 = getattr(readable, "read1", None)
-    # What was wrong: read1 had an odd `isinstance(chunk, (bytes, str)) or chunk is None` check
-    # that redundantly returned None either way when not bytes/str, while read lacked narrowing.
-    # How it happened: defensive check against unconfigured mock objects in tests.
-    # Why this change fixes it: reads read1 or read and returns chunk only when bytes/str, else None.
     try:
         if callable(read1):
             chunk = read1(4096)
@@ -423,9 +412,7 @@ def _split_on_newlines(pending: str) -> tuple[list[str], str]:
 def _feed_line_buffer(parts: list[str], length: int, chunk: str) -> tuple[list[str], list[str], int]:
     """Feed one new chunk into line-buffered pieces without rescanning the remainder.
 
-    Bugfix: The remainder has already been scanned and has no complete line,
-    so scanning it again on every 4 KB read was O(n²), and a newline-free child
-    kept every byte. Pieces stay unjoined until a line is emitted or the cap is hit.
+    Pieces stay unjoined until a line is emitted or the cap is hit.
     """
     if not chunk:
         return [], parts, length

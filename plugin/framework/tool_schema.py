@@ -46,7 +46,7 @@ def _type_includes(type_value: Any, name: str) -> bool:
 
 
 def call_properties(schema: Any) -> dict[str, Any] | None:
-    """Properties object used to check a call, including ``{}``.
+    """Properties object for checking a call, including ``{}``.
 
     An empty ``properties`` object is a closed schema, not "no schema".
     ``if props`` treats it as missing, so hallucinated kwargs reach no-arg
@@ -64,9 +64,7 @@ def call_properties(schema: Any) -> dict[str, Any] | None:
 def required_keys(schema: Any) -> list[Any]:
     """``required`` when it is a list, else [].
 
-    Bugfix: a string required (``"name"`` / ``"ab"``) used to be iterated as
-    characters. Only a list is a set of keys. Leave a non-list value on the
-    schema object itself; this helper only supplies the key list.
+    Only a list is a set of keys; non-list values return [].
     """
     raw = schema.get("required") if isinstance(schema, dict) else None
     return raw if isinstance(raw, list) else []
@@ -153,9 +151,8 @@ def normalize_outbound_tool_calls(messages: _OutboundMessages, tools: Any) -> _O
     kwargs on a no-arg tool. Duplicate tool names union their properties
     instead of keeping only the last schema.
 
-    *messages* and *tools* may be any sequence. A tuple used to fail the
-    ``list`` check and skip the allow-list. Strings are not sequences of
-    messages or tools.
+    *messages* and *tools* may be any sequence (strings are not sequences
+    of messages or tools).
 
     This writes ``function["arguments"]`` on the existing call dicts and
     does not replace ``tool_calls``. ``prepare_chat_messages`` deep-copies
@@ -270,9 +267,7 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     # crosshair: off
     if type(params) is not dict or len(params) == 0:
         return params
-    # Bugfix: #2594 removed this copy, so normalization mutated the caller's
-    # schema in place (e.g. ToolBase.parameters class dicts shared by every
-    # call). Copy first so the input is never changed.
+    # Deepcopy parameters so normalization does not mutate the caller's schema.
     params = copy.deepcopy(params)
     # Dedupe only. One remaining name becomes a string. An empty list
     # becomes "string". Do not collapse a real union to one member:

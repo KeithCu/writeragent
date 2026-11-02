@@ -44,9 +44,7 @@ class SendCancelled(Exception):
 def wait_for_approval(event: threading.Event, stop_checker: Callable[[], bool] | None, timeout: float = 0.2) -> bool:
     """Block until *event* is set, or the send is stopped.
 
-    Approval used to call ``event.wait()`` with no stop check. Closing the
-    sidebar latches stop and never signals the event, so the worker stayed
-    parked after the drain ended. A set event wins a race with stop.
+    A set event wins a race with stop.
     """
     while not event.is_set():
         if stop_checker is not None and stop_checker():
@@ -130,8 +128,7 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
 
     When both *scope* and *fallback* are set, either latch is enough: Stop can
     fire after SEND_CLICKED but before the deferred drain enters ``agent_session``.
-    A checker that raises used to look like "not stopped" when the caller
-    ignored the exception. Fail closed so a broken latch still aborts the send.
+    Fails closed if a checker raises so a broken latch still aborts the send.
     """
     def _cancelled() -> bool:
         try:

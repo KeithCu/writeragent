@@ -375,14 +375,7 @@ class LlmClient:
         return h
 
     def _resolve_auth(self) -> dict[str, Any]:
-        """Resolve auth info from config.
-
-        Swallowing ``AuthError`` here used to return ``{}``, so hosted missing
-        keys looked like provider ``custom`` and the HTTP layer reported 401.
-        Let ``missing_api_key`` / ``missing_endpoint`` / ``invalid_api_key``
-        propagate. Ollama and custom empty keys never raise in
-        ``resolve_auth_for_config``.
-        """
+        """Resolve auth info from config, propagating any AuthError."""
         return resolve_auth_for_config(self.config)
 
     def _get_provider(self) -> str:
@@ -535,11 +528,10 @@ class LlmClient:
         # log.debug...
         init_logging(self.ctx)
         log.debug("=== Image Request ===")
-        # Path/query must not include API keys (Google image used to put ?key= here).
+        # Path/query must not include API keys.
         log.debug("URL: %s" % urllib.parse.urlunparse(urllib.parse.urlparse(url)._replace(query="", fragment="")))
 
-        # Image generate/edit used sync_request, which Stop cannot abort and
-        # which does not retry 429/503. The persistent transport does both.
+        # Persistent transport supports cancellation and 429/503 retries.
         try:
             res = self._request_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
         except NetworkError as e:
@@ -776,19 +768,14 @@ class LlmClient:
                             last_finish_reason = "stop"
                             content_finished = True
                             self._stopped = True
-                            # Kill the socket; do not keep reading (continue used to
-                            # fall into finally:response.read() and block ~request_timeout —
-                            # B13 held llm_request_lane for 60s after Stop).
+                            # Close connection immediately on stop so response.read() does not block.
                             self._close_connection()
                             break
 
-                        # A 200 stream can still carry a provider error object. Skipping it
-                        # used to look like a short successful answer.
+                        # Check for mid-stream provider error objects inside a 200 stream.
                         stream_err = stream_error_message(chunk)
                         if stream_err is not None:
-                            # Chat HTTP errors already redact an echoed key. A 200
-                            # SSE error used to raise the raw provider string, which
-                            # the sidebar and the debug log then showed.
+                            # Redact API keys from stream error message.
                             api_key = str(self.config.get("api_key") or "").strip()
                             stream_err = redact_secrets(stream_err, [api_key])
                             if (not emitted_any) and stream_error_is_overload(chunk) and sends_left > 1:
@@ -872,11 +859,7 @@ class LlmClient:
                             # snapshot; callbacks have already run.
                             emitted_any = True
                         outgoing: dict[str, Any] | None = delta if isinstance(delta, dict) else None
-                        # The Anthropic shim already put normalized usage on the
-                        # delta (input_tokens → prompt_tokens). Raw chunk usage
-                        # on message_delta used to overwrite those aliases.
-                        # OpenAI and Grok put usage only on the chunk, and their
-                        # delta has no usage key, so this still fills it.
+                        # Preserve normalized usage already present on the delta before checking chunk usage.
                         shim_usage = outgoing.get("usage") if isinstance(outgoing, dict) else None
                         if usage_obj and not (isinstance(shim_usage, dict) and shim_usage):
                             outgoing = dict(outgoing or {})

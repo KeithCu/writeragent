@@ -304,15 +304,7 @@ class ManagedSubprocess:
         self._reaper_passes += 1
         if self._reaper_passes >= _REAPER_MAX_PASSES:
             log.warning("%s pid=%s still alive; reaper giving up", self._label, self.pid)
-            # What was wrong: unkillable processes held in the shutdown registry caused
-            # shutdown_all to attempt closing them; Child._finish unregisters only after
-            # a successful reap.
-            # How it happened: reaper give-up returned without unregistering the instance,
-            # leaving it registered forever, while dropping the queue reference could trigger
-            # Popen.__del__ calling wait() with no timeout on the reaper thread.
-            # Why this change fixes it: call unregister() to remove the instance from
-            # shutdown_all, and keep the instance alive in _reaper_given_up off the reaper
-            # stack so Popen.__del__ does not execute wait() on the reaper thread.
+            # Unregister and keep alive so Popen.__del__ does not block the reaper thread.
             self.unregister()
             if self not in _reaper_given_up:
                 _reaper_given_up.append(self)
@@ -388,13 +380,7 @@ class ManagedSubprocess:
                 else list(self._cmd_line)
             )
 
-            # What was wrong: if start_stderr_drain (or any step after Popen) raised,
-            # self._proc was left assigned without being registered in _instances,
-            # leaking the spawned process without a tree kill or cleanup.
-            # How it happened: self._proc was assigned before start_stderr_drain ran.
-            # Why this change fixes it: keep the Popen instance in a local variable,
-            # clean up both the process and pipes on failure, and only assign self._proc
-            # and register once all startup operations have succeeded.
+            # Hold the Popen instance locally until startup succeeds to avoid leaking on failure.
             proc: subprocess.Popen[bytes] | None = None
             drain: StderrTail | None = None
             try:
@@ -471,11 +457,6 @@ class ManagedSubprocess:
             raise ValueError("raw_spawn does not optimize pipes")
         if self._base_env is not None:
             raise ValueError("raw_spawn does not merge base_env")
-        # What was wrong: raw_spawn rejected drain_stderr=False even though raw mode never drains,
-        # while the constructor default drain_stderr=True was accepted and ignored.
-        # How it happened: the validation check included "or not self._drain_stderr".
-        # Why this change fixes it: only reject explicit stderr-tail options; raw mode never
-        # starts a stderr drain regardless of drain_stderr.
         if (
             self._stderr_tail_chars is not None
             or self._stderr_name is not None
@@ -520,12 +501,7 @@ class ManagedSubprocess:
         Windows CREATE_NO_WINDOW comes from get_subprocess_creationflags().
         Timeouts and OSError propagate.
         """
-        # What was wrong: probe_webview_import passed **get_subprocess_creationflags() until
-        # the editor migration (6e831e293) routed it through ManagedSubprocess.run, which omitted
-        # the flags; the Monaco doc still described CREATE_NO_WINDOW.
-        # How it happened: ManagedSubprocess.run was implemented as a bare subprocess.run wrapper
-        # without passing creationflags.
-        # Why this change fixes it: pass **get_subprocess_creationflags() to both subprocess.run branches.
+        # Pass creationflags to subprocess.run.
         if capture_output:
             if stdout is not None or stderr is not None:
                 raise ValueError("stdout and stderr arguments may not be used with capture_output.")
@@ -597,15 +573,7 @@ def kill_process_tree(proc: subprocess.Popen[Any]) -> None:
         _kill_direct(proc)
         return
 
-    # What was wrong: in containerized environments (such as CI containers or restricted
-    # sandboxes) or when dealing with recycled PIDs or foreign process groups, os.getpgid(pid)
-    # or os.killpg(pgid, signal.SIGKILL) could fail with PermissionError [Errno 1] Operation not permitted.
-    # Furthermore, if pgid != pid, signalling pgid would attempt to kill a process group the child
-    # does not own.
-    # How it happened: kill_process_tree only caught ProcessLookupError and lacked an ownership check
-    # against pgid != pid.
-    # Why this change fixes it: catches (PermissionError, OSError) when querying or signalling groups,
-    # verifies ownership (pgid == pid) for session leaders, and safely falls back to killing only the direct child.
+    # Safely signal process group when owned by pid, falling back to direct process kill.
     try:
         pgid = os.getpgid(pid)
         fallback = False
@@ -728,11 +696,7 @@ def shutdown_all() -> None:
 
     Does not call ``close()``, does not close pipes, and does not wait.
     """
-    # What was wrong: close() on this thread waited out SIGTERM (3s per child) and closed
-    # stdout/stderr under ACP's readline and the compute io-owner.
-    # How it happened: shutdown_all walked the registry calling inst.close().
-    # Why this change fixes it: kill_tree signals the group and does not touch pipes.
-    # abandon reaps on managed-subprocess-reaper without waiting on the caller.
+    # Signals process groups without touching pipes or blocking the caller.
     with _registry_lock:
         targets = list(_instances)
     for inst in targets:
@@ -755,11 +719,7 @@ def _enqueue_reaper(item: ManagedSubprocess) -> None:
         _reaper_queue.put(item)
         if _reaper_started:
             return
-        # What was wrong: the flag was set before run_in_background; a raised start
-        # left it true and later enqueues wrote to a queue nobody drained.
-        # How it happened: _reaper_started was set before run_in_background returned.
-        # Why this change fixes it: the flag is set only after the call returns so the
-        # next enqueue retries, and the item put before the call stays on the queue.
+        # Set flag only after run_in_background succeeds so failed starts can retry.
         run_in_background(
             _reaper_loop,
             daemon=True,

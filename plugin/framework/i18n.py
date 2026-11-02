@@ -24,7 +24,7 @@ that, ``_()`` is a read of the loaded catalog — no lock. A background
 ``_()`` before that init does not install a catalog: ``get_lo_locale``
 off the main thread returns English rather than calling
 ``uno.getComponentContext()`` (a second, wrong UNO context breaks
-dialogs), and storing that English catalog used to stick for the process.
+dialogs).
 """
 
 from __future__ import annotations
@@ -155,8 +155,7 @@ def init_i18n(ctx: Any | None = None) -> None:
     if ctx is None:
         from plugin.framework.thread_guard import on_main_thread
 
-        # Off-main _() before init used to call get_lo_locale (English, no UNO)
-        # and then this early return above froze that catalog for the process.
+        # Do not initialize default locale off the main thread.
         if not on_main_thread():
             return
 
