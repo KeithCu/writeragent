@@ -440,7 +440,9 @@ def _commit_toc_mutation(
     *mutate* returns an error payload to roll back, or None on success.
     """
     if dry_run:
-        return _ok(preview, True)
+        preview["status"] = "ok"
+        preview["dry_run"] = True
+        return preview
 
     from ..edit_review import next_agent_edit_undo_title
 
@@ -490,12 +492,8 @@ def _commit_toc_mutation(
     )
     if error is not None:
         return error
-    return _ok(preview, False)
-
-
-def _ok(preview: dict[str, Any], dry_run: bool) -> dict[str, Any]:
     preview["status"] = "ok"
-    preview["dry_run"] = bool(dry_run)
+    preview["dry_run"] = False
     return preview
 
 
@@ -871,6 +869,13 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             ctx, doc, idx, found, content, override, preview, bool(kwargs.get("dry_run"))
         )
 
+    def _override_error(self, override: Any, snapshot: Any) -> dict[str, Any] | None:
+        if override and len(snapshot.links) != 1:
+            return self._tool_error(
+                "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
+                code="INVALID_PARAM")
+        return None
+
     def _preview(self, found: Any, content: str, override: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         from ..hyperlink_fixup import (
             capture_outline_hyperlinks,
@@ -880,10 +885,9 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
 
         # capture_outline_hyperlinks returns a snapshot and does not raise.
         snapshot = capture_outline_hyperlinks(found)
-        if override and len(snapshot.links) != 1:
-            return None, self._tool_error(
-                "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
-                code="INVALID_PARAM")
+        err = self._override_error(override, snapshot)
+        if err is not None:
+            return None, err
         plans = plan_outline_updates(snapshot.links, snapshot.matched, content, override)
         reports = public_hyperlink_reports(plans)
         before, after = _entry_before(found, content)
@@ -915,10 +919,9 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         def mutate() -> dict[str, Any] | None:
             # capture_outline_hyperlinks returns a snapshot and does not raise.
             snapshot = capture_outline_hyperlinks(found)
-            if override and len(snapshot.links) != 1:
-                return self._tool_error(
-                    "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
-                    code="INVALID_PARAM")
+            err = self._override_error(override, snapshot)
+            if err is not None:
+                return err
             point = collapsed_anchor(found)
             replace_preserving_format(
                 doc, found, content, ctx.ctx, in_undo_context=True, split_author=False)
@@ -1112,7 +1115,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
         level = kwargs.get("level")
-        if level is not None and (isinstance(level, bool) or type(level) is not int or level < 1 or level > 10):
+        if level is not None and (type(level) is not int or not 1 <= level <= 10):
             return self._tool_error("level must be an integer from 1 to 10.", code="INVALID_PARAM")
         idx, anchor, _pos, err = _resolve_toc_target(self, doc, kwargs.get("index"))
         if err is not None:
@@ -1134,10 +1137,9 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
                 "The table of contents has no paragraph to insert beside.",
                 code="TOOL_EXECUTION_ERROR")
         style_name, style_error = self._style_name(doc, ref, level)
-        if style_error or not style_name:
-            return self._tool_error(
-                style_error or "Could not choose a TOC paragraph style.",
-                code="INVALID_PARAM")
+        if style_error:
+            return self._tool_error(style_error, code="INVALID_PARAM")
+        assert style_name is not None
         sibling_text = _entry_text(ref)
         line, page_used, page_from_sibling = _compose_toc_line(content, page, sibling_text)
         ref_is_contents = _outline_level(_para_style_name(ref)) is not None
@@ -1357,15 +1359,17 @@ class IndexesCreate(ToolWriterIndexBase):
         except ValueError as ve:
             return self._tool_error(str(ve))
 
+        replace_match = target == "search" and bool(old_content)
+
         def mutate() -> dict[str, Any] | None:
-            if target == "search" and old_content:
+            if replace_match:
                 cursor.setString("")
             text = cursor.getText()
             text.insertTextContent(cursor, index, False)
             index.update()
             return None
 
-        if target == "search" and old_content:
+        if replace_match:
             from ..edit_review import next_agent_edit_undo_title
             from plugin.doc.undo import commit_or_rollback_mutation
 
