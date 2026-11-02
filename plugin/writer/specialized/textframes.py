@@ -61,11 +61,10 @@ def _frame_or_error(tool: Any, ctx: Any, name: str | None) -> Any:
     )
 
 
-def text_content_anchor(index: int) -> Any | None:
+def text_content_anchor(index: int) -> Any:
     from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER
 
-    anchor_map = {0: AT_PARAGRAPH, 1: AS_CHARACTER, 2: AT_PAGE, 3: AT_FRAME, 4: AT_CHARACTER}
-    return anchor_map.get(index)
+    return (AT_PARAGRAPH, AS_CHARACTER, AT_PAGE, AT_FRAME, AT_CHARACTER)[index]
 
 
 class FrameList(ToolWriterTextFramesBase):
@@ -178,17 +177,16 @@ class FrameSetProperties(ToolWriterTextFramesBase):
         hori_orient = kwargs.get("hori_orient")
         vert_orient = kwargs.get("vert_orient")
 
-        if (
-            width_mm is None
-            and height_mm is None
-            and anchor_type is None
-            and hori_orient is None
-            and vert_orient is None
+        for param_name, val in (
+            ("width_mm", width_mm),
+            ("height_mm", height_mm),
+            ("anchor_type", anchor_type),
+            ("hori_orient", hori_orient),
+            ("vert_orient", vert_orient),
         ):
-            return self._tool_error("No properties to set.", code="NO_CHANGES")
-
-        for param_name, val in (("width_mm", width_mm), ("height_mm", height_mm)):
-            if val is not None:
+            if val is None:
+                continue
+            if param_name in ("width_mm", "height_mm"):
                 try:
                     fval = float(val)
                     if type(val) is bool or not (math.isfinite(fval) and fval > 0):
@@ -199,24 +197,22 @@ class FrameSetProperties(ToolWriterTextFramesBase):
                         code="INVALID_PARAMETER",
                         parameter=param_name,
                     )
+            elif param_name == "anchor_type":
+                if type(val) is not int or not (0 <= val <= 4):
+                    return self._tool_error(
+                        "anchor_type must be an integer between 0 and 4.",
+                        code="INVALID_PARAMETER",
+                        parameter="anchor_type",
+                    )
+            else:
+                if type(val) is not int:
+                    return self._tool_error(
+                        f"{param_name} must be an integer.",
+                        code="INVALID_PARAMETER",
+                        parameter=param_name,
+                    )
 
-        if anchor_type is not None:
-            if type(anchor_type) is not int or not (0 <= anchor_type <= 4):
-                return self._tool_error(
-                    "anchor_type must be an integer between 0 and 4.",
-                    code="INVALID_PARAMETER",
-                    parameter="anchor_type",
-                )
-
-        for param_name, val in (("hori_orient", hori_orient), ("vert_orient", vert_orient)):
-            if val is not None and type(val) is not int:
-                return self._tool_error(
-                    f"{param_name} must be an integer.",
-                    code="INVALID_PARAMETER",
-                    parameter=param_name,
-                )
-
-        pending: list[tuple[str, str, Any]] = []
+        pending: dict[str, tuple[str, Any]] = {}
         if width_mm is not None or height_mm is not None:
             from com.sun.star.awt import Size
 
@@ -224,17 +220,20 @@ class FrameSetProperties(ToolWriterTextFramesBase):
             new_size = Size()
             new_size.Width = mm_to_unit(width_mm) if width_mm is not None else current.Width
             new_size.Height = mm_to_unit(height_mm) if height_mm is not None else current.Height
-            pending.append(("size", "Size", new_size))
+            pending["size"] = ("Size", new_size)
 
         if anchor_type is not None:
-            pending.append(("anchor_type", "AnchorType", text_content_anchor(anchor_type)))
+            pending["anchor_type"] = ("AnchorType", text_content_anchor(anchor_type))
         if hori_orient is not None:
-            pending.append(("hori_orient", "HoriOrient", hori_orient))
+            pending["hori_orient"] = ("HoriOrient", hori_orient)
         if vert_orient is not None:
-            pending.append(("vert_orient", "VertOrient", vert_orient))
+            pending["vert_orient"] = ("VertOrient", vert_orient)
+
+        if not pending:
+            return self._tool_error("No properties to set.", code="NO_CHANGES")
 
         def _apply() -> None:
-            for _, prop, val in pending:
+            for prop, val in pending.values():
                 frame.setPropertyValue(prop, val)
 
         err = commit_or_rollback_mutation(
@@ -249,4 +248,4 @@ class FrameSetProperties(ToolWriterTextFramesBase):
         if err is not None:
             return err
 
-        return {"status": "ok", "frame_name": frame_name, "updated": [label for label, _, _ in pending]}
+        return {"status": "ok", "frame_name": frame_name, "updated": list(pending)}

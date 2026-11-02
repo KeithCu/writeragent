@@ -984,10 +984,8 @@ class ImageSetProperties(ToolWriterImageBase):
                 if anchor_type is not None:
                     from plugin.writer.specialized.textframes import text_content_anchor
 
-                    anchor_val = text_content_anchor(anchor_type)
-                    if anchor_val is not None:
-                        graphic.setPropertyValue("AnchorType", anchor_val)
-                        updated.append("anchor_type")
+                    graphic.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
+                    updated.append("anchor_type")
 
                 # Orientation
                 if "HoriOrient" in resolved_orient:
