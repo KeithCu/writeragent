@@ -75,7 +75,11 @@ log = logging.getLogger("writeragent.writer")
 # entry is many creates old, and its destructor no longer races this lookup.
 _CREATED_STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
 
-_TEXT_STYLE_FAMILIES = ["ParagraphStyles", "CharacterStyles"]
+_CLONE_TEXT_SERVICES = {
+    "ParagraphStyles": "com.sun.star.style.ParagraphStyle",
+    "CharacterStyles": "com.sun.star.style.CharacterStyle",
+}
+_TEXT_STYLE_FAMILIES = list(_CLONE_TEXT_SERVICES)
 
 # Families style_list will report and enumerate. PageStyles is listed because the page tools take
 # a page-style NAME and a document converted from .docx rarely uses "Standard" — without it the
@@ -519,11 +523,6 @@ _CLONE_SKIP_PROPS = frozenset({
     "HeaderText", "HeaderTextLeft", "HeaderTextRight", "HeaderTextFirst",
     "FooterText", "FooterTextLeft", "FooterTextRight", "FooterTextFirst",
 })
-
-_CLONE_TEXT_SERVICES = {
-    "ParagraphStyles": "com.sun.star.style.ParagraphStyle",
-    "CharacterStyles": "com.sun.star.style.CharacterStyle",
-}
 
 
 def _copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], list[str]]:
