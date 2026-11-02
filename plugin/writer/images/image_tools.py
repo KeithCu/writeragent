@@ -53,12 +53,7 @@ def _path_under_dir(path: str, directory: str) -> bool:
 
 def _should_link_image_path(img_path: str) -> bool:
     """User file paths are linked; temp/cache/generated paths stay embedded."""
-    if not img_path or not os.path.isfile(img_path):
-        return False
-    abs_path = os.path.abspath(img_path)
-    if _path_under_dir(abs_path, tempfile.gettempdir()):
-        return False
-    return True
+    return bool(img_path) and os.path.isfile(img_path) and not _path_under_dir(os.path.abspath(img_path), tempfile.gettempdir())
 
 
 def _file_url_for_path(img_path: str) -> str:
@@ -397,7 +392,6 @@ def _insert_embedded_at_writer_cursor(
         height=height,
         title=title,
         description=description,
-        anchor_type=AS_CHARACTER,
     )
 
     if text_cursor is not None:

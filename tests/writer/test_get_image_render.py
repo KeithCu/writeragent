@@ -297,7 +297,16 @@ def test_execute_named_image_missing_is_clear_error():
 
 
 def test_execute_selection_none_is_clear_error():
-    with patch("plugin.writer.get_image.get_selected_image_base64", return_value=None):
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None):
+        res = GetImage().execute(_tctx(FakeDrawDoc()), selection=True)
+    assert res["status"] == "error"
+    assert "No image selected" in res["message"]
+
+    fake_obj = object()
+    with (
+        patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=fake_obj),
+        patch("plugin.writer.get_image.export_graphic_object_to_bytes", return_value=None),
+    ):
         res = GetImage().execute(_tctx(FakeDrawDoc()), selection=True)
     assert res["status"] == "error"
     assert "No image selected" in res["message"]
@@ -364,7 +373,7 @@ def test_execute_rejects_selection_false():
 
 
 def test_execute_empty_args_defaults_to_selection_path():
-    with patch("plugin.writer.get_image.get_selected_image_base64", return_value=None):
+    with patch("plugin.doc.visual_helpers.selected_graphic_object", return_value=None):
         res = GetImage().execute(_tctx(FakeDrawDoc()))
     assert res["status"] == "error"
     assert "No image selected" in res["message"]

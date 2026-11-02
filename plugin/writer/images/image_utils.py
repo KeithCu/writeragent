@@ -84,6 +84,10 @@ def write_temp_image(data: bytes, suffix: str) -> str:
         raise
 
 
+def _write_temp_image(data: bytes) -> str:
+    return write_temp_image(data, suffix=validated_image_suffix(data))
+
+
 def _unlink_temp_paths(paths: list[str]) -> None:
     temp_dir = os.path.realpath(tempfile.gettempdir())
     for p in paths:
@@ -128,9 +132,7 @@ class EndpointImageProvider:
     def _save_b64(self, b64_data: str) -> str:
         if len(b64_data) > (IMAGE_DOWNLOAD_MAX_BYTES * 4) // 3 + 4:
             raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
-        raw_bytes = base64.b64decode(b64_data)
-        suffix = validated_image_suffix(raw_bytes)
-        return write_temp_image(raw_bytes, suffix=suffix)
+        return _write_temp_image(base64.b64decode(b64_data))
 
     def _save_url(self, url: str, *, stop_checker: Any = None, status_callback: Any = None) -> str:
         resp = sync_request(
@@ -146,8 +148,7 @@ class EndpointImageProvider:
         content_type = (getattr(resp, "content_type", "") or "").split(";")[0].strip().lower()
         if content_type in IMAGE_CONTENT_TYPE_DENYLIST:
             raise RuntimeError("Invalid Content-Type '%s' for image download" % content_type)
-        suffix = validated_image_suffix(body)
-        return write_temp_image(body, suffix=suffix)
+        return _write_temp_image(body)
 
     def _save_image_ref(
         self,
@@ -219,17 +220,18 @@ class EndpointImageProvider:
             log.info("Requesting image via endpoint: %s", model)
 
             is_openrouter = self.client.config.get("is_openrouter")
+            completion_log: str | None = None
             if not is_openrouter:
-                return self._run_image_completion(
-                    prompt, model, width, height, steps, source_image, stop_checker, status_callback,
-                    "Image generation failed",
-                )
+                completion_log = "Image generation failed"
+            else:
+                from plugin.framework.client.model_fetcher import is_image_only_model
 
-            from plugin.framework.client.model_fetcher import is_image_only_model
-            if is_image_only_model(self.client._endpoint(), model):
+                if is_image_only_model(self.client._endpoint(), model):
+                    completion_log = "OpenRouter dedicated image generation failed"
+            if completion_log:
                 return self._run_image_completion(
                     prompt, model, width, height, steps, source_image, stop_checker, status_callback,
-                    "OpenRouter dedicated image generation failed",
+                    completion_log,
                 )
 
             content: Any
@@ -238,7 +240,6 @@ class EndpointImageProvider:
             else:
                 content = prompt
             messages = [{"role": "user", "content": content}]
-            fallback_content = ""
 
             _method, _path, body, _headers = self.client.make_chat_request(messages, max_tokens=1000, model=model)
             body_dict = json.loads(body)
@@ -274,7 +275,6 @@ class EndpointImageProvider:
                     status_callback=status_callback,
                 )
                 raw_content = chat_resp.get("content")
-                fallback_content = raw_content if isinstance(raw_content, str) else ""
 
                 # Parse response: OpenRouter etc. may put image in message.images[].image_url.url
                 for img in chat_resp.get("images") or []:
@@ -302,13 +302,13 @@ class EndpointImageProvider:
                     return paths, ""
 
                 # Fallback: image in content string (some endpoints)
-                if fallback_content:
+                if isinstance(raw_content, str) and raw_content:
                     log_message = "Image fallback content processing failed"
                     path = self._save_image_ref(
-                        fallback_content,
+                        raw_content,
                         stop_checker=stop_checker,
                         status_callback=status_callback,
-                        http_text=fallback_content.strip(),
+                        http_text=raw_content.strip(),
                         fetch_http_if_data_failed=True,
                     )
                     if path:
