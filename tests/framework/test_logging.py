@@ -39,7 +39,7 @@ class TestInitLogging:
 
         self._saved_config_path = config_mod._resolved_config_path
         self._saved_debug_path = logging_mod._shared()["debug_log_path"]
-        self._saved_hooks = getattr(sys, "_writeragent_exception_hooks_installed", False)
+        self._saved_hooks = getattr(sys, "_writeragent_excepthook", None)
         self._saved_excepthook = sys.excepthook
         import threading
 
@@ -57,7 +57,7 @@ class TestInitLogging:
         # What was wrong: these lived on the logging module. A second import
         # did not see them. Tests must reset the sys copies or they leak.
         setattr(sys, "_writeragent_debug_file_handler", None)
-        setattr(sys, "_writeragent_exception_hooks_installed", False)
+        sys.__dict__.pop("_writeragent_excepthook", None)
         for h in list(log.handlers):
             log.removeHandler(h)
 
@@ -85,7 +85,10 @@ class TestInitLogging:
         config_mod._resolved_config_path = self._saved_config_path
         logging_mod._shared()["debug_log_path"] = self._saved_debug_path
         setattr(sys, "_writeragent_debug_file_handler", None)
-        setattr(sys, "_writeragent_exception_hooks_installed", self._saved_hooks)
+        if self._saved_hooks is not None:
+            setattr(sys, "_writeragent_excepthook", self._saved_hooks)
+        else:
+            sys.__dict__.pop("_writeragent_excepthook", None)
         sys.excepthook = self._saved_excepthook
         import threading
 
@@ -720,25 +723,28 @@ def test_excepthook_is_not_wrapped_twice() -> None:
 
     saved_hook = sys.excepthook
     saved_thread = getattr(threading, "excepthook", None)
-    saved_flag = getattr(sys, "_writeragent_exception_hooks_installed", False)
+    saved_flag = getattr(sys, "_writeragent_excepthook", None)
     try:
         def sentinel(*_args):
             return None
 
         sys.excepthook = sentinel
-        setattr(sys, "_writeragent_exception_hooks_installed", False)
+        sys.__dict__.pop("_writeragent_excepthook", None)
         logging_mod._install_global_exception_hooks()
         first = sys.excepthook
         assert getattr(first, "_writeragent_hook", False) is True
         assert first is not sentinel
-        setattr(sys, "_writeragent_exception_hooks_installed", False)
+        sys.__dict__.pop("_writeragent_excepthook", None)
         logging_mod._install_global_exception_hooks()
         assert sys.excepthook is first
     finally:
         sys.excepthook = saved_hook
         if saved_thread is not None:
             threading.excepthook = saved_thread
-        setattr(sys, "_writeragent_exception_hooks_installed", saved_flag)
+        if saved_flag is not None:
+            setattr(sys, "_writeragent_excepthook", saved_flag)
+        else:
+            sys.__dict__.pop("_writeragent_excepthook", None)
 
 
 def test_log_record_factory_is_not_wrapped_twice() -> None:
@@ -820,17 +826,20 @@ def test_start_watchdog_is_dedicated_and_idempotent() -> None:
 
     import plugin.framework.logging as logging_mod
 
-    saved = getattr(sys, "_writeragent_watchdog_started", False)
+    saved = getattr(sys, "_writeragent_watchdog", None)
     try:
-        setattr(sys, "_writeragent_watchdog_started", False)
+        sys.__dict__.pop("_writeragent_watchdog", None)
         with patch("plugin.framework.worker_pool.run_in_background") as run:
             logging_mod.start_watchdog_thread(None, status_control=None)
             logging_mod.start_watchdog_thread(None, status_control=None)
         assert run.call_count == 1
         assert run.call_args.kwargs.get("dedicated") is True
-        assert getattr(sys, "_writeragent_watchdog_started") is True
+        assert getattr(sys, "_writeragent_watchdog", False) is True
     finally:
-        setattr(sys, "_writeragent_watchdog_started", saved)
+        if saved is not None:
+            setattr(sys, "_writeragent_watchdog", saved)
+        else:
+            sys.__dict__.pop("_writeragent_watchdog", None)
 
 
 def test_watchdog_dumps_thread_stacks_on_stall() -> None:
@@ -1370,21 +1379,24 @@ def test_start_watchdog_resets_flag_when_background_start_fails() -> None:
     import sys
     import plugin.framework.logging as logging_mod
 
-    saved = getattr(sys, "_writeragent_watchdog_started", False)
+    saved = getattr(sys, "_writeragent_watchdog", None)
     try:
-        setattr(sys, "_writeragent_watchdog_started", False)
+        sys.__dict__.pop("_writeragent_watchdog", None)
         with patch("plugin.framework.worker_pool.run_in_background", side_effect=RuntimeError("pool down")):
             with pytest.raises(RuntimeError, match="pool down"):
                 logging_mod.start_watchdog_thread(None)
-        assert getattr(sys, "_writeragent_watchdog_started") is False
+        assert getattr(sys, "_writeragent_watchdog", False) is False
 
         with patch("plugin.framework.worker_pool.run_in_background") as mock_run:
             logging_mod.start_watchdog_thread(None)
             assert mock_run.call_count == 1
             assert mock_run.call_args.kwargs.get("dedicated") is True
-            assert getattr(sys, "_writeragent_watchdog_started") is True
+            assert getattr(sys, "_writeragent_watchdog", False) is True
     finally:
-        setattr(sys, "_writeragent_watchdog_started", saved)
+        if saved is not None:
+            setattr(sys, "_writeragent_watchdog", saved)
+        else:
+            sys.__dict__.pop("_writeragent_watchdog", None)
 
 
 def test_log_record_factory_pyuno_str_failure_uses_placeholder() -> None:
