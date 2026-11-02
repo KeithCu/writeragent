@@ -1390,7 +1390,7 @@ class SendButtonListener(BaseActionListener):
 
         # begin_send_turn aborts the turn already in flight. A pump re-entry
         # during Whisper must not do that, and must not clear the WAV.
-        # Missing means not transcribing, same as the mixin default.
+        # False means not transcribing, initialized in panel __init__.
         # Reading self._stt_inflight raises AttributeError on the smol
         # _do_send double: that SimpleNamespace never ran __init__.
         if self._stt_inflight:

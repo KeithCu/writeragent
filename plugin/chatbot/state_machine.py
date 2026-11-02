@@ -99,7 +99,7 @@ class EffectInterpreter:
                 # it; dropping the flag appends a web-research THINKING chunk
                 # (show_search_thinking on) as a normal assistant row.
                 self.handler._append_response(text, is_thinking=is_thinking, role=role)
-            case SendHandlerUIEffect("status", text, _):
+            case SendHandlerUIEffect(kind="status", text=text):
                 self.handler._set_status(text)
             case CompleteJobEffect(terminal_status=status):
                 terminal = status if status in ("Error", "Stopped") else "Ready"
