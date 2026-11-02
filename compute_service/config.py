@@ -303,13 +303,7 @@ def _as_float(value: Any, *, field: str) -> float:
 
 
 def _key_file_access_detail(key_path: Path) -> str:
-    """Uid and mode suffix for a PermissionError on the key file.
-
-    What was wrong: the message was only the path plus ``Permission denied``.
-    A mode-600 mount read as another uid (rootless remap, or ``--user`` that
-    does not own the file) looks like a bad path. The process ids and the
-    file owner show the mismatch. ``geteuid`` is absent on Windows.
-    """
+    """Process uid/gid and file mode/owner, so a PermissionError shows a uid mismatch (empty on Windows)."""
     geteuid = getattr(os, "geteuid", None)
     getegid = getattr(os, "getegid", None)
     if geteuid is None or getegid is None:

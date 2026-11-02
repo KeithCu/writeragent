@@ -507,13 +507,7 @@ def _read_request_json(environ: dict[str, Any], settings: ComputeSettings, start
     if not isinstance(data, dict):
         return None, _error(start_response, "400 Bad Request", "JSON body must be an object")
 
-    # What was wrong: {"id":[1e999]} was cached and echoed. json.dumps(..., allow_nan=False)
-    # raised, and _gated's 500 fallback echoed the same id and raised again, so the
-    # client got a plaintext 500.
-    # How: json.loads turns 1e999 into inf without parse_constant, and the old check
-    # only rejected a top-level float. A list or object id skipped it.
-    # Why: /v1/execute rejects a non-scalar id and then runs _reject_nonfinite_number
-    # on it. The same two checks run here, before the id is cached or copied onto an error.
+    # The id is echoed on every reply, so it must be a finite scalar before it is cached.
     req_id = data.get("id")
     try:
         if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):

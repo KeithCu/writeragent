@@ -55,19 +55,12 @@ def listener_thread_count(max_threads: int | None) -> int:
 
 
 def _listener_budget(settings: ComputeSettings) -> tuple[int, int]:
-    """Return ``(listeners, sticky)`` from one formula.
+    """Return ``(listeners, sticky)``.
 
-    ``listeners`` is ``max(listener_thread_count(settings.threads), needed)``.
-    ``needed`` is formula workers, plus ``max(1, ocr_workers)`` vision permits,
-    plus one sticky slot per formula worker, plus two threads that are not
-    given a permit. ``sticky`` is what remains after the isolated workers, the
-    vision permits, and those two. Admitted work cannot fill every listener,
-    so ``GET /health`` is not stuck behind a permit. A header or body read
-    still occupies its listener before that permit. When the historical floor
-    wins, sticky is larger than the worker count (default: 8 listeners and 3
-    sticky slots). ``settings.threads`` plus four left one spare once vision
-    and the two unpermitted threads were counted, so a second sticky workbook
-    got 503 while other workers were idle.
+    ``listeners`` is at least workers + vision permits (``max(1, ocr_workers)``)
+    + one sticky slot per worker + 2 unpermitted threads, so ``GET /health``
+    always has a listener. ``sticky`` is the listeners left after the workers,
+    the vision permits and those 2 (at least 1).
     """
     vision_permits = max(1, settings.ocr_workers)
     sticky_floor = max(1, settings.workers)
@@ -328,11 +321,7 @@ class DeadlineRequestHandler(WSGIRequestHandler):
             if remaining <= 0:
                 raise socket.timeout("Header read deadline expired")
             self.connection.settimeout(max(0.01, remaining))
-            # Bugfix: what was wrong: returning 0 on non-int or non-callable made the HTTP
-            # parser treat a bad read as EOF and close the connection without a 408 response.
-            # How it happened: silent fallback `return 0` masked invalid states.
-            # Why this change fixes it: assert orig_readinto is callable and returned int,
-            # which is guaranteed for a timeout socket's readinto.
+            # A timeout socket's readinto is callable and returns an int.
             assert callable(orig_readinto)
             res = orig_readinto(b)
             assert isinstance(res, int)

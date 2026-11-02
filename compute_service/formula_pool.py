@@ -98,29 +98,18 @@ class FormulaProcessPool(BaseProcessPool):
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
 
     def _clear_pool_state_unlocked(self) -> None:
-        # Base shutdown drops workers and idle slots. These maps used to
-        # survive, so a pool object kept after shutdown still advertised sessions.
+        # A pool kept after shutdown advertises no sessions.
         self._sessions.clear()
         self._session_locks.clear()
         self._recycling.clear()
 
     @contextmanager
     def _session_gate(self, session_id: str) -> Generator[None, None, None]:
-        """Placement gate for *session_id* (reference-counted).
+        """Serialize placement for *session_id* from lookup through worker release.
 
-        Held from lookup through worker release on shared execute/reset calls
-        to prevent concurrent first-calls from selecting different workers.
-        The lock entry in ``_session_locks`` is pruned as soon as no caller holds
-        or waits on it.
-
-        Bugfix: what was wrong: _session_locks accumulated an entry per shared session
-        id that was never pruned (only cleared at shutdown), leaking a Lock for the life
-        of the service.
-        How it happened: _session_gate used setdefault to create Lock instances without
-        tracking when callers finished using them.
-        Why this change fixes it: reference-counts active callers [lock, users] under
-        self._cond, acquiring the lock outside self._cond, and deletes the entry in finally
-        when users drops to 0.
+        Each ``_SessionGate`` counts its holders and waiters under ``self._cond``;
+        the lock itself is taken outside ``self._cond``, and the entry is removed
+        when ``users`` reaches 0.
         """
         with self._cond:
             entry = self._session_locks.get(session_id)
@@ -385,16 +374,7 @@ class FormulaProcessPool(BaseProcessPool):
             try:
                 decoded = decode_worker_result(res)
             except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, MemoryError) as exc:
-                # What was wrong: json.loads on result_json escaped execute, and the
-                # catch that stopped that labeled the failure WORKER_CRASHED. The child
-                # did not die.
-                # How: deeply nested JSON raises RecursionError, and a huge value can
-                # raise MemoryError. JSONDecodeError and UnicodeDecodeError are the
-                # same path. The pickle frame was already consumed and tasks_executed
-                # already counted.
-                # Why: RESULT_DECODE_ERROR names a decode failure. The child stays up,
-                # so a bad inner blob does not drop shared sessions. HTTP stays 500
-                # via _HTTP_STATUS_BY_CODE.
+                # A bad result blob is a decode failure, not a crash: the child stays up.
                 failed = error_dict("RESULT_DECODE_ERROR", f"Worker result_json could not be decoded: {exc}", req_id=req_id)
                 if expect_namespace and created:
                     failed["session_reset"] = True
@@ -412,16 +392,7 @@ class FormulaProcessPool(BaseProcessPool):
         *,
         result: dict[str, Any] | None = None,
     ) -> None:
-        """Update session mapping and release leased worker.
-
-        Bugfix: what was wrong: session was inserted into _sessions before lease_specific
-        returned, with child None when worker was recycling or dead.
-        How it happened: _select_shared_worker inserted the row early to prevent another
-        call picking a different worker.
-        Why this change fixes it: the per-session gate (_session_gate) serializes placement
-        for that session id. _finalize_session is now the only insert, recording the session
-        only after a cell ran and the worker child is live.
-        """
+        """Record the session (the only insert into ``_sessions``) after a cell ran, then release *leased*."""
         try:
             with self._cond:
                 result_code = result.get("code") if isinstance(result, dict) else None
@@ -558,12 +529,7 @@ class FormulaProcessPool(BaseProcessPool):
         payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "init_script": init_script}
         blob = data_json
         if blob is None and data is not None:
-            # Convenience for pool tests / in-process callers. The HTTP
-            # path always supplies data_json so the host never dumps the grid.
-            # allow_nan=False raises ValueError for NaN/Inf and TypeError for
-            # a non-JSON object. That escaped execute() before any lease.
-            # execute() already turns ExecuteRequestError into an error
-            # payload. Do not validate data_json: those bytes are the wire.
+            # In-process callers only; HTTP supplies data_json, which is forwarded unvalidated.
             try:
                 blob = json.dumps(data, allow_nan=False).encode("utf-8")
             except (TypeError, ValueError) as exc:
