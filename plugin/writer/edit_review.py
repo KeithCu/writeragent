@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from plugin.doc.compound_undo import WriterCompoundUndo
 
 from plugin.doc.text_helpers import go_right
-from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.i18n import N_, _
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
@@ -398,7 +398,9 @@ class EditReviewSession:
         if not self._active:
             return apply_fn()
 
-        mgr = _try_enter_undo_context(self.doc, _AGENT_EDIT_UNDO_TITLE)
+        from plugin.doc.compound_undo import WriterCompoundUndo
+
+        group = WriterCompoundUndo.try_enter(self.doc, _AGENT_EDIT_UNDO_TITLE)
         try:
             # We rescan all redlines per edit, not track deltas, because only a complete scan lets us fail closed; batches are capped at _MAX_SURGICAL_RUNS.
             before, before_ok = self._redline_idents()
@@ -484,8 +486,8 @@ class EditReviewSession:
                     bookmark_name = ""
                     log.debug("EditReviewSession: anchoring failed for change %d", n, exc_info=True)
         finally:
-            if mgr is not None:
-                best_effort(mgr.leaveUndoContext, "EditReviewSession: leaveUndoContext failed")
+            if group is not None:
+                group.close()
 
         # No bookmark → do not register. ChangeRecord with bookmark="" makes _outcome guess
         # rejected/modified (current is None). That is a lie to the model. Same as failed tagging:
@@ -811,43 +813,17 @@ def next_agent_edit_undo_title() -> str:
     return "%s#%d" % (_AGENT_EDIT_UNDO_TITLE, next(_surgical_batch_counter))
 
 
-def _try_enter_undo_context(doc: Any, title: str) -> Any | None:
-    def enter() -> Any:
-        mgr = doc.getUndoManager()
-        if mgr.isLocked():
-            raise RuntimeError("undo manager is locked; enterUndoContext would be a no-op")
-        mgr.enterUndoContext(title)
-        return mgr
-
-    # None means "no usable undo", and callers then refuse or edit directly.
-    # A closed document is not that case.
-    return uno_read(enter, None)
-
-
-def close_surgical_context(undo_mgr: Any, session: EditReviewSession, changes_before: int,
-                           applied_ok: bool, undo_title: str) -> bool:
-    """Close the surgical undo context -- pairing the earlier enterUndoContext exactly once -- and,
-    on failure, roll the partial batch back."""
-    left = False
-    try:
-        undo_mgr.leaveUndoContext()
-        left = True
-    except Exception:
-        log.warning("edit_review: leaveUndoContext failed; the undo stack may be inconsistent", exc_info=True)
-
+def close_surgical_context(group: Any, session: EditReviewSession, changes_before: int,
+                           applied_ok: bool) -> bool:
+    """Close the surgical undo context and, on failure, roll the partial batch back."""
+    close_ok = group.close()
     if applied_ok:
-        return True  # success: edits stand; a failed leave was already surfaced above
+        return True
 
     undone = False
-    if left:
-        try:
-            titles = undo_mgr.getAllUndoActionTitles()  # newest-first per XUndoManager
-            if titles and titles[0] == undo_title:
-                undo_mgr.undo()
-                undone = True
-        except Exception:
-            log.warning("edit_review: undo of partial surgical batch failed; document may be partially "
-                        "edited", exc_info=True)
+    if close_ok:
+        undone = group.rollback_if_top()
+
     # Trim records when the document mutations were reverted, or when nothing was applied at all
     # (empty context -> changes unchanged). Keep them when undo() demonstrably failed (or couldn't
     # run because the context wouldn't close) so a live partial edit keeps a reviewable record.
@@ -866,17 +842,19 @@ def close_surgical_context(undo_mgr: Any, session: EditReviewSession, changes_be
 
 @contextlib.contextmanager
 def _undo_batch(doc: Any, session: EditReviewSession, undo_title: str) -> Generator[Any | None, None, None]:
-    undo_mgr = _try_enter_undo_context(doc, undo_title)
-    if undo_mgr is None:
+    from plugin.doc.compound_undo import WriterCompoundUndo
+
+    group = WriterCompoundUndo.try_enter(doc, undo_title)
+    if group is None:
         yield None
         return
     changes_before = len(session.changes)
     applied_ok = False
     try:
-        yield undo_mgr
+        yield group
         applied_ok = True
     finally:
-        close_surgical_context(undo_mgr, session, changes_before, applied_ok, undo_title)
+        close_surgical_context(group, session, changes_before, applied_ok)
 
 
 def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callable[[], Any],
@@ -1349,19 +1327,9 @@ class WriterStreamedRewriteSession:
         """Restore the original text and recording state after an error."""
         try:
             # We close the compound undo first, so we can undo the whole streamed operation
-            was_open = self._compound_undo._open
-            self._compound_undo.close()
             restored_via_undo = False
-            if was_open:
-                try:
-                    um = self.doc.getUndoManager()
-                    if um is not None:
-                        titles = um.getAllUndoActionTitles()
-                        if titles and titles[0] == self._UNDO_CONTEXT_TITLE:
-                            um.undo()
-                            restored_via_undo = True
-                except Exception:
-                    log.warning("streamed rewrite: undo failed during abort_and_restore", exc_info=True)
+            if self._compound_undo.close():
+                restored_via_undo = self._compound_undo.rollback_if_top()
             if not restored_via_undo:
                 log.warning("streamed rewrite: compound undo never opened or undo failed; restoring original text via setString")
                 try:

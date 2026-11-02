@@ -752,24 +752,10 @@ def resolve_agent_change(
 @contextlib.contextmanager
 def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
     """Group dispatches into one undo step; keeps landed edits on failure."""
-    um = None
-    try:
-        candidate = model.getUndoManager()
-        if not candidate.isLocked():
-            candidate.enterUndoContext(_("Resolve agent changes"))
-            um = candidate
-        else:
-            log.warning("inline_review: undo manager is locked, undo grouping skipped")
-    except Exception:
-        log.warning("inline_review: could not access undo manager, undo grouping skipped", exc_info=True)
-    try:
+    from plugin.doc.compound_undo import WriterCompoundUndo
+
+    with WriterCompoundUndo(model, _("Resolve agent changes")):
         yield
-    finally:
-        if um is not None:
-            try:
-                um.leaveUndoContext()
-            except Exception:
-                log.warning("inline_review: leaveUndoContext failed", exc_info=True)
 
 
 def _resolve_overlapping_agent_changes(

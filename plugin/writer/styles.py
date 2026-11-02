@@ -51,7 +51,6 @@ from plugin.doc.visual_helpers import parse_color_to_uno_int
 from plugin.framework.errors import is_disposed_exception, reraise_if_disposed
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
-from plugin.writer.html_import import _rollback_undo_action
 from .format import CLEARABLE_PARA_PROPERTIES, FONT_SLANT_TO_INT, ParagraphStyleApplyReport, apply_paragraph_style_preserving_direct_char
 from .page import get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
@@ -1017,23 +1016,15 @@ class ApplyStyle(FrameworkToolBase):
                 ranges = [ranges[occ_raw]]
             reports = []
 
-            mgr = None
-            title = ""
+            group = None
             if len(ranges) > 1:
                 from .edit_review import next_agent_edit_undo_title
-                try:
-                    candidate = ctx.doc.getUndoManager()
-                    # `is True`: MagicMock isLocked() is truthy and must not look locked.
-                    if candidate is not None and candidate.isLocked() is not True:
-                        mgr = candidate
-                except Exception as e:
-                    if is_disposed_exception(e):
-                        raise
-                if mgr is None:
-                    return self._tool_error("Cannot apply the style to every match in one undo step. Nothing was changed.")
+                from plugin.doc.compound_undo import WriterCompoundUndo
 
                 title = next_agent_edit_undo_title()
-                mgr.enterUndoContext(title)
+                group = WriterCompoundUndo.try_enter(ctx.doc, title)
+                if group is None:
+                    return self._tool_error("Cannot apply the style to every match in one undo step. Nothing was changed.")
 
             error: Exception | None = None
             for found in ranges:
@@ -1041,23 +1032,17 @@ class ApplyStyle(FrameworkToolBase):
                     c = cursor_spanning_range(found)
                     reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
                 except Exception as e:
-                    if mgr is None:
+                    if group is None:
                         raise
                     error = e
                     break
 
-            if mgr is not None:
+            if group is not None:
                 undone = False
-                leave_error: Exception | None = None
-                try:
-                    mgr.leaveUndoContext()
-                except Exception as leave_exc:
-                    log.exception("apply_style: leaveUndoContext failed")
-                    reraise_if_disposed(leave_exc)
-                    leave_error = leave_exc
-                else:
+                left = group.close()
+                if left:
                     if error is not None:
-                        undone = _rollback_undo_action(mgr, title, "apply_style rollback failed")
+                        undone = group.rollback_if_top()
                 if error is not None:
                     if is_disposed_exception(error):
                         raise error
@@ -1067,16 +1052,11 @@ class ApplyStyle(FrameworkToolBase):
                         "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
                         % (len(reports), len(ranges), error)
                     )
-                if leave_error is not None:
-                    # What was wrong: a failed leave with no apply error returned ok
-                    # and left the undo context open, so the next edit folded into it.
-                    # How it happened: leaveUndoContext's exception was only logged.
-                    # Why this fixes it: disposal propagates; any other failed leave
-                    # is an error after the matches were styled.
+                if not left:
                     return self._tool_error(
                         "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
                         "The changes are in the document and the undo context is still open."
-                        % (style_name, len(reports), leave_error)
+                        % (style_name, len(reports), group.leave_error)
                     )
 
             return _finish_success({

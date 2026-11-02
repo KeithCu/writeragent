@@ -45,6 +45,7 @@ from plugin.writer.edit_review import (
     next_agent_edit_undo_title,
     close_surgical_context,
 )
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
@@ -272,26 +273,6 @@ def _table_insert_failed(doc: Any, before: int | None) -> bool:
     if after is None:
         return False
     return after == 0 if before is None else after <= before
-
-
-def _enter_atomic_undo(doc: Any) -> tuple[Any, str] | None:
-    """Enter one undo context for an atomic edit, or None when there is none.
-
-    Disposal propagates: a closed document is not "no undo context".
-    `isLocked() is True` (not truthy): a MagicMock return must not look locked.
-    """
-    # Invariant: disposal propagates (never UNDO_UNAVAILABLE); `is True` keeps a MagicMock from looking locked.
-    title = next_agent_edit_undo_title()
-    try:
-        mgr = doc.getUndoManager()
-        if mgr is None or mgr.isLocked() is True:
-            return None
-        mgr.enterUndoContext(title)
-        return mgr, title
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        log.exception("apply_document_content: undo context failed")
-        return None
 
 
 def build_search_replace_response(
@@ -560,13 +541,12 @@ class ApplyDocumentContent(ToolBase):
         The HTML path and a surgical review replace each close their own undo context
         before returning. Without this outer step the URL write would be a second undo.
         """
-        entered = _enter_atomic_undo(doc)
-        if entered is None:
+        group = WriterCompoundUndo.try_enter(doc, next_agent_edit_undo_title())
+        if group is None:
             return None, self._tool_error(
                 "Cannot update the outline hyperlink atomically (no usable undo context); "
                 "refusing rather than risk a text change that leaves the link stale.",
                 code="UNDO_UNAVAILABLE")
-        mgr, undo_title = entered
         changes_before = len(session.changes)
         applied_ok = False
         reports = None
@@ -580,7 +560,7 @@ class ApplyDocumentContent(ToolBase):
             log.exception("apply_document_content: outline hyperlink update failed")
             error_exc = exc
         finally:
-            rolled_back = close_surgical_context(mgr, session, changes_before, applied_ok, undo_title)
+            rolled_back = close_surgical_context(group, session, changes_before, applied_ok)
 
         if applied_ok:
             return reports, None
@@ -614,23 +594,18 @@ class ApplyDocumentContent(ToolBase):
                     "message": search_mod.shape_only_search_message("old_content", shape_name, review=True),
                     "replaced_count": 0,
                 }
-            entered = _enter_atomic_undo(doc)
-            if entered is None:
+            group = WriterCompoundUndo.try_enter(doc, next_agent_edit_undo_title())
+            if group is None:
                 return self._tool_error(
                     "Cannot edit text inside the drawing shape '%s' atomically "
                     "(no usable undo context); refusing rather than leave an edit "
                     "that is not one Ctrl+Z." % shape_name,
                     code="UNDO_UNAVAILABLE",
                 )
-            undo, _unused_title = entered
             try:
                 edited = replace_text_in_shape(shape, search_string, new_text)
             finally:
-                try:
-                    undo.leaveUndoContext()
-                except Exception as leave_exc:
-                    reraise_if_disposed(leave_exc)
-                    log.exception("apply_document_content: shape edit leaveUndoContext failed")
+                group.close()
             if edited:
                 result = attach_edited_context(
                     {"status": "ok",
@@ -1163,13 +1138,12 @@ class ApplyDocumentContent(ToolBase):
                 anchor = collapsed_anchor(anchor_range) if anchor_range is not None else None
             else:
                 anchor = collapsed_anchor(ranges[0])
-            entered = _enter_atomic_undo(doc)
-            if entered is None:
+            group = WriterCompoundUndo.try_enter(doc, next_agent_edit_undo_title())
+            if group is None:
                 return self._tool_error(
                     "Cannot apply all_matches atomically (no usable undo context); "
                     "refusing rather than risk a half-applied edit.",
                     code="UNDO_UNAVAILABLE"), session
-            mgr, undo_title = entered
             changes_before = len(session.changes)
             count = 0
             link_failure: dict[str, Any] | None = None
@@ -1198,7 +1172,7 @@ class ApplyDocumentContent(ToolBase):
                         tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             except Exception as e:
                 log.exception("apply_document_content all_matches failed mid-batch")
-                rolled_back = close_surgical_context(mgr, session, changes_before, False, undo_title)
+                rolled_back = close_surgical_context(group, session, changes_before, False)
                 # Invariant: disposal re-raises after the rollback; every other failure keeps its code.
                 reraise_if_disposed(e)
                 payload: dict[str, Any]
@@ -1217,7 +1191,7 @@ class ApplyDocumentContent(ToolBase):
                 payload["attempted"] = count
                 return payload, session
             else:
-                close_surgical_context(mgr, session, changes_before, True, undo_title)
+                close_surgical_context(group, session, changes_before, True)
             if doomed and count == 0:
                 resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
             else:

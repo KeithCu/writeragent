@@ -704,17 +704,6 @@ def replace_single_range_with_content(
 
 
 
-def _rollback_undo_action(mgr: Any, title: str | None, log_message: str) -> bool:
-    try:
-        titles = mgr.getAllUndoActionTitles()
-        if titles and titles[0] == title:
-            mgr.undo()
-            return True
-    except Exception:
-        log.exception(log_message)
-    return False
-
-
 def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
     """Clear *text_obj* and import *html* via the shared StarWriter path.
 
@@ -738,19 +727,11 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
     cursor.gotoEnd(True)
 
     from .edit_review import next_agent_edit_undo_title
+    from plugin.doc.compound_undo import WriterCompoundUndo
 
     title = next_agent_edit_undo_title()
-    mgr = None
-    try:
-        candidate = model.getUndoManager()
-        # `is True`: MagicMock isLocked() is truthy and must not look locked.
-        if candidate is not None and candidate.isLocked() is not True:
-            candidate.enterUndoContext(title)
-            mgr = candidate
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        mgr = None
-    if mgr is None:
+    group = WriterCompoundUndo.try_enter(model, title)
+    if group is None:
         raise ToolExecutionError("Could not enter undo context for header/footer import.")
 
     try:
@@ -801,22 +782,14 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
             reraise_if_disposed(e)
             log.debug("Failed to inspect trailing paragraph: %s", e)
     except Exception as exc:
-        leave_ok = False
-        try:
-            mgr.leaveUndoContext()
-            leave_ok = True
-        except Exception:
-            log.exception("replace_xtext_with_html: leaveUndoContext failed")
-        if not (leave_ok and _rollback_undo_action(mgr, title, "replace_xtext_with_html: undo failed")):
+        left = group.close()
+        if not (left and group.rollback_if_top()):
             raise ToolExecutionError(
                 f"the header/footer was written and could not be rolled back: {exc}"
             ) from exc
         raise
 
-    try:
-        mgr.leaveUndoContext()
-    except Exception:
-        log.exception("replace_xtext_with_html: leaveUndoContext failed")
+    group.close()
 
 
 def content_has_markup(content: str | None) -> bool:

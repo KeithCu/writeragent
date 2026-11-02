@@ -673,6 +673,7 @@ def test_target_end_entity_decoded_proposed_preview():
 
 
 def test_shape_edit_leave_undo_context_failure_logged():
+    from unittest.mock import ANY
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -686,13 +687,13 @@ def test_shape_edit_leave_undo_context_failure_logged():
          patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
          patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=True), \
-         patch("plugin.writer.apply_document_content.log.exception") as mock_log_exc:
+         patch("plugin.doc.compound_undo.log.exception") as mock_log_exc:
         res = ApplyDocumentContent().execute(
             ctx, target="search", old_content="foo", content="bar"
         )
     assert res["status"] == "ok"
     assert res["replaced_count"] == 1
-    mock_log_exc.assert_called_once_with("apply_document_content: shape edit leaveUndoContext failed")
+    mock_log_exc.assert_called_once_with("leaveUndoContext failed (title=%r)", ANY)
 
 
 def test_content_list_item_must_be_string():
