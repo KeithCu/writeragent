@@ -451,13 +451,15 @@ class SlashPopupController:
         text = get_control_text(self.query_control) or ""
         dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(str(text).strip())))
 
-    def on_query_text(self, text: str) -> None:
-        """Open or narrow the popup from the current Ask-box contents."""
+    def on_query_text(self, text: str) -> bool:
+        """Open or narrow the popup from the current Ask-box contents. Returns True if TEXT_UPDATED should be skipped."""
         if not ENABLE_SLASH:
             _ovlog("on_query_text disabled (ENABLE_SLASH=False)")
-            return
+            return False
+        snippet = text[:40] if isinstance(text, str) else text
+        _ovlog("query_text entered raw=%r", snippet)
         prefix = slash_typed_prefix(text)
-        _ovlog("on_query_text prefix=%r text=%r", prefix, (text[:40] if isinstance(text, str) else text))
+        _ovlog("on_query_text prefix=%r text=%r", prefix, snippet)
         if prefix is None:
             _ovlog("on_query_text hide (not a slash prefix)")
             # Bugfix: post_to_main_thread raises TimeoutError when the pending
@@ -465,20 +467,17 @@ class SlashPopupController:
             # hide() / _show_matches() on this Ask textChanged stack deadlock
             # VCL. _defer_to_next_turn logs the failure and does not run them.
             _defer_to_next_turn(self.hide)
-            return
+            return False
         matches = filter_slash_commands(text, load_slash_lru())
         _ovlog("on_query_text matches=%s names=%s", len(matches), [c.name for c in matches[:8]])
         if not matches:
             _ovlog("on_query_text hide (no matches)")
             _defer_to_next_turn(self.hide)
-            return
-        # Never createWindow/setVisible inside Ask textChanged — returning from that
-        # callback after a mapped TOP overlay deadlocks VCL and eats later keystrokes.
-        if self._open and matches == self._matches:
-            _ovlog("on_query_text same matches skip recreate")
-            return
-        _defer_to_next_turn(self._show_matches, matches)
-        _ovlog("on_query_text posted show n=%s", len(matches))
+        elif not (self._open and matches == self._matches):
+            _defer_to_next_turn(self._show_matches, matches)
+            _ovlog("on_query_text posted show n=%s", len(matches))
+        _ovlog("query_text skip TEXT_UPDATED slash prefix")
+        return True
 
     def _show_matches(self, matches: list[SlashCommand]) -> None:
         _ovlog(
@@ -539,6 +538,8 @@ class SlashPopupController:
         from_overlay: bool = False,
     ) -> bool:
         """True when the popup consumed the key (do not Send / insert newline)."""
+        if not ENABLE_SLASH:
+            return False
         _ovlog("handle_key code=%s mods=%s open=%s overlay=%s", key_code, modifiers, self._open, from_overlay)
         if not self._open:
             return False

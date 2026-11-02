@@ -10,7 +10,7 @@ import os
 import posixpath
 from typing import Any, Mapping
 
-from plugin.framework.html_stripper import strip_html_tags
+from plugin.chatbot.chat_session import message_text
 
 HISTORY_CLIP_CHARS = 4000
 
@@ -45,19 +45,6 @@ def clip_sub_agent_history(history_text: str | None) -> str | None:
     return head + tail
 
 
-def _message_text(content: Any) -> str:
-    """Normalize user/assistant message content to plain text."""
-    if content is None:
-        return ""
-    if isinstance(content, list):
-        bits = []
-        for part in content:
-            if isinstance(part, dict) and part.get("type") == "text":
-                bits.append(str(part.get("text", "")))
-        return strip_html_tags("\n".join(bits))
-    return strip_html_tags(str(content))
-
-
 def format_sub_agent_conversation_history(session: Any, *, current_query: str | None = None) -> str:
     """Build CONVERSATION HISTORY text for web-research / librarian sub-agents from ChatSession (one User:/Assistant: turn per message)."""
     # Compare whitespace-collapsed text so a padded or &nbsp; variant of the query still dedupes.
@@ -67,7 +54,7 @@ def format_sub_agent_conversation_history(session: Any, *, current_query: str | 
         role = msg.get("role", "")
         if role in ("system", "tool"):
             continue
-        content = _message_text(msg.get("content"))
+        content = message_text(msg.get("content"), strip_html=True)
         if role == "user":
             if current_query is not None and i == len(session.messages) - 1 and " ".join(content.split()) == query_line:
                 continue

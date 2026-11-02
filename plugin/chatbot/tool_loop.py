@@ -74,6 +74,7 @@ from plugin.chatbot.tool_loop_state import (
     ToolLoopState,
     ToolLoopEvent,
     EventKind,
+    as_dict,
     next_state,
     object_dict_or_empty,
 )
@@ -124,11 +125,7 @@ def _parsed_tool_call_args(tc: object) -> dict[str, Any]:
     """Arguments for one streamed tool call. Missing, non-dict, and bad JSON are {}."""
     func = tc.get("function") if isinstance(tc, dict) else None
     raw_args = func.get("arguments") if isinstance(func, dict) else None
-    if isinstance(raw_args, dict):
-        return raw_args
-    if isinstance(raw_args, str):
-        return object_dict_or_empty(safe_json_loads(raw_args))
-    return {}
+    return as_dict(raw_args)
 
 
 def _live_text(turn: TurnController | None, callback: Callable[[str], None]) -> Callable[[str], None]:
@@ -280,7 +277,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 except OSError as rem_err:
                     log.debug("Failed to remove audio_wav_path after STT fallback: %s", rem_err)
             if not (transcript or "").strip():
-                # G27: empty STT must not spawn a blank chat POST.
+                # Empty STT must not spawn a blank chat POST.
                 # The drain keeps running only when on_error returns True,
                 # which means a replacement worker was spawned. Empty speech
                 # spawns nothing and posts no STREAM_DONE, so returning True
@@ -642,7 +639,7 @@ class ToolCallingMixin:
             emit((StreamQueueKind.STOPPED,))
             return
         try:
-            # B13: Stop before first SSE — do not acquire llm_request_lane.
+            # Stop before first SSE — do not acquire llm_request_lane.
             # The checker and scope were captured at spawn. Resolving here
             # would bind the next send after Stop cleared the panel field.
             if stopped_for_this_send():

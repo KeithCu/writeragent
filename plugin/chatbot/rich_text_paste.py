@@ -42,6 +42,8 @@ import unicodedata
 from html import unescape
 from typing import Any, Sequence, cast
 
+from plugin.chatbot.chat_session import message_text
+
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
     ChatTheme,
@@ -427,23 +429,6 @@ def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> b
     return True
 
 
-def _visible_message_text(content: Any) -> str:
-    """Text the paint can import. A multimodal user row keeps its text parts."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for part in content:
-            if isinstance(part, str):
-                parts.append(part)
-            elif isinstance(part, dict) and isinstance(part.get("text"), str):
-                parts.append(part["text"])
-        return "\n".join(part for part in parts if part)
-    if content is None:
-        return ""
-    return str(content)
-
-
 def plain_transcript_text(session: Any, greeting: str = "") -> str:
     """Plain sidebar text for ``session.messages``. The control is this string."""
     # The plain box is a text field. Panel wiring paints history before the
@@ -458,7 +443,7 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
         if not isinstance(msg, dict):
             continue
         role = msg.get("role", "")
-        content = _plain_fallback_text(_visible_message_text(msg.get("content", "")))
+        content = _plain_fallback_text(message_text(msg.get("content", "")))
         if role == "user":
             text += "\nYou: %s\n" % content
         elif role == "assistant":
@@ -483,10 +468,10 @@ def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, s
         role = msg.get("role", "")
         content = msg.get("content", "")
         if role == "user":
-            items.append(("user", _visible_message_text(content)))
+            items.append(("user", message_text(content)))
         elif role == "assistant":
             if content:
-                text = _visible_message_text(content)
+                text = message_text(content)
                 if text.strip() == _STOP_BANNER:
                     _append_stop_banner(items, text)
                 else:

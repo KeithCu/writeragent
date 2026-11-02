@@ -26,7 +26,6 @@ from plugin.framework.errors import (
     is_disposed_exception,
     suppress_disposed,
 )
-from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.config import get_config, get_config_int_safe
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
 from plugin.framework.prompts import get_core_directives_for_type
@@ -195,10 +194,10 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
 
 
 def _tool_result_dict(res: Any, tool_label: str = "web search", doc_type: str = "unknown") -> dict[str, Any]:
-    if isinstance(res, dict):
-        return res
-    data = safe_json_loads(res) if isinstance(res, (str, bytes)) else None
-    if isinstance(data, dict):
+    from plugin.chatbot.tool_loop_state import as_dict
+
+    data = as_dict(res)
+    if data or (isinstance(res, (dict, str, bytes)) and res in ({}, "{}", b"{}")):
         return data
     log.error("Failed to parse %s result [doc: %s]", tool_label, doc_type)
     parsed_err = AgentParsingError(f"Invalid JSON from {tool_label} tool.", details={"raw_result": str(res)})

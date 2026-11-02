@@ -19,6 +19,7 @@ from plugin.framework.client.model_fetcher import (
     get_tts_model,
     ENDPOINT_PRESETS,
 )
+from plugin.chatbot.dialogs import set_combo_items
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.default_models import (
     DEFAULT_MODELS,
@@ -150,17 +151,6 @@ def _resolve_display_model_for_combobox(
 _PLAIN_LRU_KEYS: frozenset[str] = frozenset({"prompt_lru", "image_base_size_lru"})
 
 
-def _paint_combo(ctrl: Any, items: list[str], selected: str) -> None:
-    # Always clear existing items so an empty list clears stale choices.
-    ctrl.removeItems(0, ctrl.getItemCount())
-    if items:
-        ctrl.addItems(tuple(items), 0)
-    if selected:
-        ctrl.setText(selected)
-    elif ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
-        ctrl.setText("")
-
-
 def populate_combobox_with_lru(
     ctrl: Any,
     current_val: Any,
@@ -190,7 +180,7 @@ def populate_combobox_with_lru(
         items = [str(m).strip() for m in lru if str(m).strip()]
         if curr_val_str and curr_val_str not in items:
             items.insert(0, curr_val_str)
-        _paint_combo(ctrl, items, curr_val_str)
+        set_combo_items(ctrl, items, curr_val_str)
         return curr_val_str
 
     if endpoint and not endpoint_url_suitable_for_v1_models_fetch(endpoint):
@@ -312,7 +302,7 @@ def populate_combobox_with_lru(
                 to_show.append(_("(Connection failed)"))
 
     display_val = _resolve_display_model_for_combobox(curr_val_str, is_incompatible, to_show, provider, req_cap)
-    _paint_combo(ctrl, to_show, display_val)
+    set_combo_items(ctrl, to_show, display_val)
     return display_val
 
 
@@ -392,7 +382,7 @@ def populate_endpoint_selector(ctrl: Any, current_endpoint: Any) -> None:
     if current_url and current_url not in preset_urls_normalized and current_url not in to_show:
         to_show.append(current_url)
 
-    _paint_combo(ctrl, to_show, current_url)
+    set_combo_items(ctrl, to_show, current_url)
 
 
 def populate_image_model_selector(
@@ -472,26 +462,10 @@ def populate_reasoning_effort_selector(ctrl: Any, endpoint: str | None = None) -
     """Populate reasoning effort selector items ('def', 'lo', ...) and select the current endpoint's saved level."""
     if ctrl is None:
         return
-    model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-    if model is not None and hasattr(model, "StringItemList"):
-        if getattr(model, "StringItemList", None) != REASONING_EFFORT_DISPLAY_LABELS:
-            model.StringItemList = REASONING_EFFORT_DISPLAY_LABELS
-    if hasattr(ctrl, "setStringItemList"):
-        ctrl.setStringItemList(REASONING_EFFORT_DISPLAY_LABELS)
-    if hasattr(ctrl, "getItemCount") and hasattr(ctrl, "removeItems") and hasattr(ctrl, "addItems"):
-        if ctrl.getItemCount() != len(REASONING_EFFORT_DISPLAY_LABELS):
-            count = ctrl.getItemCount()
-            if count:
-                ctrl.removeItems(0, count)
-            ctrl.addItems(REASONING_EFFORT_DISPLAY_LABELS, 0)
-    elif hasattr(ctrl, "addItem") and not hasattr(ctrl, "addItems"):
-        if hasattr(ctrl, "getItemCount") and ctrl.getItemCount() != len(REASONING_EFFORT_DISPLAY_LABELS):
-            for item in REASONING_EFFORT_DISPLAY_LABELS:
-                ctrl.addItem(item, 0)
-
     target_endpoint = endpoint if endpoint is not None else get_current_endpoint()
     stored_effort = get_reasoning_effort_for_endpoint(target_endpoint)
     display_label = reasoning_effort_to_display(stored_effort)
+    set_combo_items(ctrl, REASONING_EFFORT_DISPLAY_LABELS, display_label)
     set_reasoning_effort_selector_value(ctrl, display_label)
 
 

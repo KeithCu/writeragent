@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import logging
 from typing import Any
 
+from plugin.chatbot.dialogs import set_combo_items
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.i18n import _
 
@@ -165,30 +166,6 @@ def mode_from_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> str:
     return CHAT_MODE_CHAT
 
 
-def _set_combobox_items(ctrl: Any, labels: tuple[str, ...]) -> None:
-    """Populate a sidebar ComboBox the same way as other working selectors (model StringItemList + addItems)."""
-    # crosshair: off
-    model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-    if model is not None and hasattr(model, "StringItemList"):
-        model.StringItemList = labels
-
-    if hasattr(ctrl, "setStringItemList"):
-        ctrl.setStringItemList(labels)
-
-    if hasattr(ctrl, "getItemCount") and hasattr(ctrl, "removeItems"):
-        count = ctrl.getItemCount()
-        if count:
-            ctrl.removeItems(0, count)
-
-    if hasattr(ctrl, "addItems") and labels:
-        ctrl.addItems(labels, 0)
-        return
-
-    if hasattr(ctrl, "addItem") and labels:
-        for label in reversed(labels):
-            ctrl.addItem(label, 0)
-
-
 def populate_mode_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> None:
     """Fill the mode combobox with translated items."""
     if not ctrl:
@@ -198,7 +175,7 @@ def populate_mode_selector_with_flags(ctrl: Any, flags: SidebarModeFlags) -> Non
         model = ctrl.getModel()
         if model is not None and hasattr(model, "Dropdown"):
             model.Dropdown = True
-    _set_combobox_items(ctrl, get_mode_labels(flags))
+    set_combo_items(ctrl, get_mode_labels(flags))
 
 
 def set_selector_mode_with_flags(ctrl: Any, mode: str, flags: SidebarModeFlags) -> None:

@@ -467,7 +467,7 @@ class PanelVoiceController:
                         typed_after = (get_control_text(self._panel.query_control) or "").strip()
 
                     if self._panel._terminal_status == "Stopped":
-                        # R10: Do not auto-send late transcript into the new typed turn.
+                        # Do not auto-send late transcript into the new typed turn.
                         # Put it back in Ask so it is not silently lost.
                         new_text = _join_voice_text(query_text, transcript)
                         if typed_after and typed_after != query_text:
@@ -500,7 +500,7 @@ class PanelVoiceController:
                     return query_text, True
 
                 # WAV is deleted in _transcribe_audio finally. Empty STT must not
-                # fall through into a chat POST with a blank user message (G27).
+                # fall through into a chat POST with a blank user message.
                 if not query_text.strip():
                     self._panel._append_response("\n" + _("[No speech detected.]") + "\n")
                     self._panel._terminal_status = "Stopped"

@@ -66,6 +66,7 @@ from plugin.chatbot.grammar_status import (
 from plugin.chatbot.chat_sidebar_mode import SidebarModeController
 from plugin.chatbot.panel_events import PanelEventsController, _relabel_button
 from plugin.chatbot.panel_voice import PanelVoiceController, _stop_tts
+from plugin.chatbot.slash_commands import KEY_MODIFIER_SHIFT, KEY_RETURN
 
 
 # ---------------------------------------------------------------------------
@@ -130,58 +131,19 @@ class QueryTextListener(BaseTextListener):
         raw = model.Text or ""
         text = raw.strip()
 
-        # ENABLE_SLASH is parked. Keep this listener so Send enablement still
-        # sees TEXT_UPDATED, but do not call the overlay or emit per-keystroke
-        # [SLASH-OV] lines. Breadcrumbs go through _ovlog (silent unless
-        # SLASH_OV_VERBOSE_DEBUG).
-        from plugin.chatbot.slash_popup import ENABLE_SLASH, _ovlog
-
-        if ENABLE_SLASH:
-            from plugin.chatbot.slash_commands import slash_typed_prefix
-
-            # Overlay first. TEXT_UPDATED UpdateUI has hung before on_query_text ran.
-            # Do not getPosSize Ask here: after the TOP overlay exists it deadlocks VCL.
-            snippet = raw[:40] if isinstance(raw, str) else raw
-            _ovlog("query_text entered")
-            _ovlog("query_text raw=%r", snippet)
-            popup = getattr(self.send_listener, "slash_popup", None)
-            on_text = getattr(popup, "on_query_text", None) if popup is not None else None
-            _ovlog(
-                "query_text popup=%s call_show=%s raw=%r",
-                popup is not None,
-                callable(on_text),
-                snippet,
-            )
-            if callable(on_text):
-                owner = getattr(on_text, "__self__", None)
-                _ovlog(
-                    "query_text invoking on_query_text ENABLE_SLASH=%s id=%s",
-                    bool(ENABLE_SLASH),
-                    id(owner) if owner is not None else None,
-                )
-                try:
-                    on_text(raw)
-                except Exception:
-                    log.exception("[SLASH-OV] query_text on_query_text raised")
-                _ovlog("query_text on_query_text returned")
-            # UpdateUI after creating/mapping a TOP overlay deadlocks VCL.
-            if slash_typed_prefix(raw) is not None:
-                _ovlog("query_text skip TEXT_UPDATED slash prefix")
-                return
-            _ovlog("query_text before dispatch")
+        popup = getattr(self.send_listener, "slash_popup", None)
+        if popup is not None:
+            try:
+                if popup.on_query_text(raw):
+                    return
+            except Exception:
+                log.exception("[SLASH-OV] query_text on_query_text raised")
         self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(text)))
-        if ENABLE_SLASH:
-            _ovlog("query_text after dispatch")
-
-
-# UNO Key.RETURN / KeyModifier.SHIFT (test-friendly integer codes)
-_QUERY_KEY_RETURN = 1280
-_QUERY_KEY_MODIFIER_SHIFT = 1
 
 
 def query_enter_triggers_primary_send(key_code: int, modifiers: int) -> bool:
     """True when this key event should run the same primary action as Send (Enter without Shift)."""
-    return bool(key_code == _QUERY_KEY_RETURN and (modifiers & _QUERY_KEY_MODIFIER_SHIFT) == 0)
+    return bool(key_code == KEY_RETURN and (modifiers & KEY_MODIFIER_SHIFT) == 0)
 
 
 _CHAT_ENTER_SENDS = "chatbot.chat_enter_key_sends_message"
@@ -198,24 +160,13 @@ class QueryKeyListener(BaseKeyListener):
     def on_key_pressed(self, e: Any) -> None:
         # Popup Enter must not also Send. Consume only when handle_key is True
         # (MagicMock hosts in unit tests return a mock, which is not True).
-        # While ENABLE_SLASH is false, skip the overlay so keystrokes do not
-        # run slash work or emit [SLASH-OV] query_key lines. Enter-to-send stays.
-        from plugin.chatbot.slash_popup import ENABLE_SLASH, _ovlog
-
-        if ENABLE_SLASH:
-            popup = getattr(self.send_listener, "slash_popup", None)
-            handle = getattr(popup, "handle_key", None) if popup is not None else None
-            _ovlog(
-                "query_key code=%s mods=%s has_handle=%s",
-                int(getattr(e, "KeyCode", -1) or -1),
-                int(getattr(e, "Modifiers", 0) or 0),
-                callable(handle),
-            )
-            if callable(handle) and handle(e.KeyCode, e.Modifiers) is True:
-                with suppress_disposed("QueryKeyListener slash Consume", logger=log):
-                    if hasattr(e, "Consume"):
-                        setattr(e, "Consume", True)
-                return
+        popup = getattr(self.send_listener, "slash_popup", None)
+        handle = getattr(popup, "handle_key", None) if popup is not None else None
+        if callable(handle) and handle(getattr(e, "KeyCode", -1), getattr(e, "Modifiers", 0)) is True:
+            with suppress_disposed("QueryKeyListener slash Consume", logger=log):
+                if hasattr(e, "Consume"):
+                    setattr(e, "Consume", True)
+            return
         if not query_enter_triggers_primary_send(e.KeyCode, e.Modifiers):
             return
         from plugin.framework.config import get_config_bool
@@ -947,7 +898,7 @@ class SendButtonListener(BaseActionListener):
                 # Bug: drain used to run inside Send actionPerformed. On GTK,
                 # processEventsToIdle from that stack does not deliver a second
                 # dialog ActionEvent, so Stop looked enabled but never fired
-                # (Packet B ramble completed all 200 words). Post to the next
+                # (streaming completed without interruption). Post to the next
                 # VCL tick so the listener returns first.
                 self.queue_executor.post(self._run_send_drain)
 
@@ -1598,8 +1549,8 @@ def notify_stop_mouse_pressed(send_listener: Any) -> None:
     """Stop mousePressed: drop query restore and cancel if a send is in flight.
 
     Bug: stream SelectAll called ``query.setFocus()`` every chunk. That aborts
-    the Stop ``ActionEvent`` on GTK (Packet B1: no ``STOP_CLICKED`` in the log,
-    ramble ran to word199). mousePressed is earlier; latching cancel here is
+    the Stop ``ActionEvent`` on GTK (no ``STOP_CLICKED`` in the log,
+    generation ran to word199). mousePressed is earlier; latching cancel here is
     belt-and-suspenders if ActionEvent still never fires. Change/Reject during
     web-search approval stays on ActionEvent — do not treat those as Stop.
     """

@@ -435,8 +435,8 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     def relayout_now(self, win: Any, viewport_w: int = 0) -> None:
         if not win:
             return
-        # Do not wait for deck negotiation. Keith create-time: root=320 with
-        # max_child_right=1087 seeded the H-bar until the first widen.
+        # Do not wait for deck negotiation: initial root width with
+        # wider child bounds seeds the horizontal scrollbar until the first widen.
         if viewport_w > 0:
             self._viewport_w = viewport_w
         if self._in_relayout:
@@ -495,7 +495,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         # Cap h against the parent window height (getPosSize().Height) and
         # 3000px. In Calc's sidebar, moving bottom controls down resizes the
         # container, which fires windowResized with a larger height and
-        # repeats (test_e12).
+        # repeats in Calc dual-panel resize loops.
         if self._parent_window is not None:
             pr = uno_probe(self._parent_window.getPosSize, None)
             if pr is not None and pr.Height > 0 and h > pr.Height:
