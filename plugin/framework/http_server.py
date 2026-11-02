@@ -291,9 +291,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     executor: _RequestThreads
     _queued_lock: threading.Lock
     _last_queue_full_warn: float = 0.0
-    _park_lock: threading.Lock
-    _park_queue: queue.SimpleQueue[Any]
-    _parking_closed: bool
     address_family: int
     server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
     sockets: list[Socket]
@@ -319,9 +316,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._accept_backoff_sec = 0.05
         self._last_accept_error_warn = 0.0
         self._last_queue_full_warn = 0.0
-        self._park_lock = threading.Lock()
-        self._park_queue = queue.SimpleQueue()
-        self._parking_closed = False
         # Keyed by the connection object, not id(conn). CPython reuses ids
         # after the socket is freed, so an id key could read a later accept's
         # timestamp. shutdown_request pops the entry on every path that
@@ -474,29 +468,17 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             except OSError:
                 pass
 
-    def _park_poll_timeout(self, timeout: float) -> float:
-        return timeout
+    # Keep-alive parking hooks; used only when park_idle_connections is set.
+    def _park_register(self, request: Any, client_address: Any) -> bool:
+        """Take an idle connection (new, or after a response) from the caller; False leaves it with the caller."""
+        return False
 
-    def _park_on_readable(self, state: Any, fileobj: Any, selector: selectors.BaseSelector) -> None:
-        pass
-
-    def _park_service_loop(self, selector: selectors.BaseSelector) -> None:
-        pass
-
-    def _park_close_one_on_select_overflow(self, selector: selectors.BaseSelector) -> None:
-        pass
+    def _park_tick(self, selector: selectors.BaseSelector, ready: list[tuple[Any, int]]) -> float | None:
+        """Accept thread, once per loop: service parked connections; return seconds until the next one expires."""
+        return None
 
     def _park_shutdown(self, selector: selectors.BaseSelector) -> None:
-        pass
-
-    def _park_accepted(self, conn: Socket, client_address: Any, selector: selectors.BaseSelector) -> bool:
-        return False
-
-    def _park_hand_off(self, request: Any, client_address: Any) -> bool:
-        return False
-
-    def _on_queue_full(self, request: Any) -> None:
-        pass
+        """Accept thread, on exit: close every parked connection."""
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         """A stalled read is a closed request, not a traceback on the console.
@@ -522,7 +504,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             return
         super().handle_error(request, client_address)
 
-    def _accept_one(self, ready_sock: Socket, selector: selectors.BaseSelector | None = None) -> None:
+    def _accept_one(self, ready_sock: Socket) -> None:
         """Accept one connection, wrap it, and hand it to the pool."""
         try:
             raw_conn, client_address = ready_sock.accept()
@@ -560,11 +542,11 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             self.shutdown_request(conn)
             return
         self._accept_times[conn] = time.monotonic()
-        if self.park_idle_connections and selector is not None and self._park_accepted(conn, client_address, selector):
+        if self.park_idle_connections and self._park_register(conn, client_address):
             return
         self.process_request(conn, client_address)
 
-    def _serve_ready(self, ready: list[tuple[Any, int]], selector: selectors.BaseSelector, wake_read: Socket | None) -> None:
+    def _serve_ready(self, ready: list[tuple[Any, int]], wake_read: Socket | None) -> None:
         for key, _unused in ready:
             if self._dual_shutdown_request:
                 break
@@ -572,12 +554,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             if fileobj is wake_read:
                 assert wake_read is not None
                 _drain_wake_socket(wake_read)
-            elif key.data is not None:
-                self._park_on_readable(key.data, fileobj, selector)
-            elif isinstance(fileobj, socket.socket):
+            elif key.data is None and isinstance(fileobj, socket.socket):
                 if time.monotonic() < self._accept_pause_until:
                     continue
-                self._accept_one(fileobj, selector)
+                self._accept_one(fileobj)
 
     def serve_forever(self, poll_interval: float = 0.5) -> None:
         self._serving = True
@@ -596,6 +576,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             with selectors.DefaultSelector() as selector:
                 selector.register(wake_read, selectors.EVENT_READ)
                 listeners_registered = False
+                park_wait: float | None = None
 
                 try:
                     while not self._dual_shutdown_request:
@@ -620,22 +601,15 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                                 listeners_registered = True
                             timeout = poll_interval
 
-                        if self.park_idle_connections:
-                            timeout = self._park_poll_timeout(timeout)
+                        if park_wait is not None:
+                            timeout = min(timeout, max(0.0, park_wait))
 
-                        try:
-                            ready = selector.select(timeout)
-                        except ValueError as exc:
-                            if self.park_idle_connections and "too many file descriptors" in str(exc).lower():
-                                self._park_close_one_on_select_overflow(selector)
-                                continue
-                            raise
-
+                        ready = selector.select(timeout)
                         if self._dual_shutdown_request:
                             break
-                        self._serve_ready(ready, selector, wake_read)
+                        self._serve_ready(ready, wake_read)
                         if self.park_idle_connections:
-                            self._park_service_loop(selector)
+                            park_wait = self._park_tick(selector, ready)
                         self.service_actions()
                 finally:
                     if self.park_idle_connections:
@@ -678,7 +652,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                         exc.pending,
                         exc.limit,
                     )
-                self._on_queue_full(request)
             else:
                 log.exception("Failed to submit accepted connection")
             try:
@@ -698,12 +671,9 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     def process_request_thread(self, request: Any, client_address: Any) -> None:
         """Process incoming request inside a pooled worker thread."""
-        failed = False
         try:
             self.finish_request(request, client_address)
         except Exception:
-            failed = True
             self.handle_error(request, client_address)
         finally:
-            if not (self.park_idle_connections and not failed and self._park_hand_off(request, client_address)):
-                self.shutdown_request(request)
+            self.shutdown_request(request)
