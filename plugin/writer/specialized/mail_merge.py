@@ -340,7 +340,7 @@ class InsertField(ToolWriterMailMergeBase):
         except ValueError as ve:
             return self._tool_error(str(ve))
 
-        cmd_type_val = _COMMAND_TYPES.get(command_type_str.lower(), 0)
+        cmd_type_val = _COMMAND_TYPES[command_type_str]
 
         # 1. Create or retrieve Database FieldMaster
         master = None
@@ -611,8 +611,8 @@ class RunMerge(ToolWriterMailMergeBase):
             return self._tool_error("Failed to instantiate com.sun.star.text.MailMerge service.")
 
         # Map types
-        cmd_type = _COMMAND_TYPES.get(command_type_str.lower(), 0)
-        out_type = _OUTPUT_TYPES.get(output_type_str.lower(), 2)
+        cmd_type = _COMMAND_TYPES[command_type_str]
+        out_type = _OUTPUT_TYPES[output_type_str]
 
         # Configure MailMerge properties
         mail_merge.DocumentURL = doc_url
