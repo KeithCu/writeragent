@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, index_to_column
 from plugin.calc.array_formula import skip_quoted
-from plugin.calc.python.formula_edit import py_call_open_end
+from plugin.calc.python.formula_edit import PyFormula
 
 
 @dataclass(frozen=True)
@@ -85,7 +85,7 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
     if not formula or (dcol == 0 and drow == 0):
         return formula
 
-    is_py = py_call_open_end(formula, require_equals=True) is not None
+    is_py = PyFormula.open_end(formula, require_equals=True) is not None
     if is_py and axis is None:
         axis = "both" if dcol and drow else "cols" if dcol else "rows"
 

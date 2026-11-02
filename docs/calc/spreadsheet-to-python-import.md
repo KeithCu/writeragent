@@ -265,7 +265,7 @@ There is **no separate file importer** in v1: LibreOffice is the loader. Convers
 | Constant date | Serial or formatted | Same (document `#` formats copied) |
 | Calc formula | `=SUM(A1:A10)` | `=PY("result = np.sum(data)"; A1:A10)` |
 | Homogeneous column | `=A2*2` filled down | Single matrix `=PY` with vectorized `data` (Phase 4) |
-| Existing `=PY()` / `=PYTHON()` | As-is | Normalize via `parse_python_formula` / `rebuild_python_formula_with_data` |
+| Existing `=PY()` / `=PYTHON()` | As-is | Normalize via `PyFormula.parse` / `PyFormula.compose` |
 | Array formula | `{=…}` | **TODO** — keep Calc formula |
 | Reference to other sheet | `=Sheet2.A1` | `=PY(…; Sheet2.A1)` if UNO range resolves; else TODO |
 | Pivot / CF / chart | N/A | Unchanged (not formula cells) |
@@ -400,7 +400,7 @@ flowchart TB
 | `calc_addin_data_to_python` | Shape check for `data` | Max cells `scripting.python_max_data_cells` |
 | `to_calc_compatible` | Egress type coercion | No raw int in matrices |
 | `write_formula_range` | Apply converted grid | Semicolon formulas; `=` prefix → formula |
-| `parse_python_formula` / `rebuild_python_formula_with_data` | Round-trip existing PY | String-level only |
+| `PyFormula.parse` / `PyFormula.compose` | Round-trip existing PY | String-level only |
 | `python_editor` / Monaco | Edit generated code | Manual fix for TODO cells |
 | `run_venv_python_script` | Chat dry-run | Does not write sheet alone |
 | `WorkerResultSession` | Matrix spill cache | Manual range today |

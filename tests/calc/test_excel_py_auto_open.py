@@ -845,7 +845,8 @@ def test_convert_uno_doc_to_excel_large_range_chunked_exports_later_window():
 
 
 def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
-    """Unparseable =PY formula names the cell issue and blocks package write."""
+    """Unparseable =PY formula is skipped and blocks nothing; export on error stops write."""
+    from plugin.calc.excel_py_convert.models import ConversionReport
     from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
 
     doc = CalcDocStub()
@@ -853,15 +854,17 @@ def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
     sheet.getCellRangeByName("B2").setFormula('=PY("x = 1" NOTANARG)')
 
     report = convert_uno_doc_to_excel(doc)
-    assert not report.ok
-    assert any("Sheet1!B2: =PY formula could not be parsed" in i for i in report.issues)
+    assert report.ok
+    assert not report.issues
+    assert not report.cells
 
     ctx = MagicMock()
     path = tmp_path / "bad_py.xlsx"
     path.touch()
+    mock_report = ConversionReport(direction="to_excel", issues=["conversion error"])
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
-        patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
+        patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=mock_report),
         patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as mock_write,
         patch("plugin.chatbot.dialogs.msgbox") as box,
     ):

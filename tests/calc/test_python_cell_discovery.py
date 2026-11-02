@@ -8,59 +8,47 @@ from __future__ import annotations
 
 from plugin.calc.python.cell_discovery import (
     _MAX_PYTHON_CELLS_FOUND,
-    canonicalize_py_formula_for_parse,
     discover_python_cells_on_sheet,
     is_py_formula_text,
-    python_code_from_formula,
 )
-from plugin.calc.python.formula_edit import normalize_formula_string
+from plugin.calc.python.formula_edit import PyFormula
 from plugin.tests.testing_utils import CalcDocStub, CalcSheetStub
 import pytest
 
 
-@pytest.mark.parametrize(
-    "value, value_2",
-    [
-        pytest.param('=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("result = 1")', "=PYTHON(", id="test_canonicalize_writeragent_addin_prefix"),
-        pytest.param('=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("result = 1")', "=PY(", id="test_canonicalize_collabora_getpy_prefix"),
-    ],
-)
-def test_canonicalize_writeragent_addin_prefix(value, value_2):
-    raw = value
-    assert canonicalize_py_formula_for_parse(raw).upper().startswith(value_2)
-    assert is_py_formula_text(raw)
-    assert python_code_from_formula(raw) == "result = 1"
+def test_py_formula_parse_addin_prefixes():
+    wa_raw = '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("result = 1")'
+    parsed_wa = PyFormula.parse(wa_raw)
+    assert parsed_wa is not None
+    assert parsed_wa.code == "result = 1"
+    assert parsed_wa.spelling == "py"
+    assert is_py_formula_text(wa_raw)
 
+    lp_raw = '=ORG.EXTENSION.LIBREPY.PYTHONFUNCTION.PYTHON("result = 2")'
+    parsed_lp = PyFormula.parse(lp_raw)
+    assert parsed_lp is not None
+    assert parsed_lp.code == "result = 2"
+    assert parsed_lp.spelling == "python"
+    assert is_py_formula_text(lp_raw)
 
-def test_canonicalize_librepy_addin_prefix():
-    raw = '=ORG.EXTENSION.LIBREPY.PYTHONFUNCTION.PYTHON("result = 2")'
-    assert is_py_formula_text(raw)
-    assert python_code_from_formula(raw) == "result = 2"
-
-
-def test_canonicalize_py_formula_for_parse_variations():
-    lower_wa = '=org.extension.writeragent.pythonfunction.py("x")'
-    assert canonicalize_py_formula_for_parse(lower_wa).upper().startswith("=PYTHON(")
-    assert python_code_from_formula(lower_wa) == "x"
-
-    spaced_lp = '=  ORG.EXTENSION.LIBREPY.PYTHONFUNCTION.PYTHON ("y")'
-    assert canonicalize_py_formula_for_parse(spaced_lp) == '=PYTHON("y")'
-    assert python_code_from_formula(spaced_lp) == "y"
-
-    py_formula = '=PY("z")'
-    assert canonicalize_py_formula_for_parse(py_formula) == normalize_formula_string(py_formula)
-
-    python_formula = '=PYTHON("z")'
-    assert canonicalize_py_formula_for_parse(python_formula) == normalize_formula_string(python_formula)
+    collab_raw = '=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("result = 3")'
+    parsed_collab = PyFormula.parse(collab_raw)
+    assert parsed_collab is not None
+    assert parsed_collab.code == "result = 3"
+    assert parsed_collab.spelling == "getpy"
+    assert is_py_formula_text(collab_raw)
 
 
 def test_short_py_formula():
     assert is_py_formula_text('=PY("result = 3")')
-    assert python_code_from_formula('=PY("result = 3")') == "result = 3"
-    assert python_code_from_formula('=PY("")') == ""
+    parsed = PyFormula.parse('=PY("result = 3")')
+    assert parsed is not None and parsed.code == "result = 3"
+    empty = PyFormula.parse('=PY("")')
+    assert empty is not None and empty.code == ""
     assert is_py_formula_text('=PY("")')
     assert not is_py_formula_text("=SUM(A1:A2)")
-    assert python_code_from_formula("=SUM(A1:A2)") is None
+    assert not is_py_formula_text('=PY("x"+1)')
+    assert PyFormula.parse("=SUM(A1:A2)") is None
 
 
 def test_discover_python_cells_on_sheet_filters_non_py():
@@ -134,15 +122,16 @@ def test_cell_address_quotes_sheet_name(sheet_name, expected):
 
 def test_non_py_formula_is_rejected_before_parsing(monkeypatch):
     import plugin.calc.python.cell_discovery as cd
+    from plugin.calc.python.formula_edit import PyFormula
 
     calls: list[str] = []
 
     def _record(formula):
         calls.append(formula)
-        return formula
+        return None
 
-    monkeypatch.setattr(cd, "canonicalize_py_formula_for_parse", _record)
-    assert cd.python_code_from_formula("=SUM(A1:A2)") is None
+    monkeypatch.setattr(PyFormula, "parse", _record)
+    assert cd.is_py_formula_text("=SUM(A1:A2)") is False
     assert calls == []
 
 

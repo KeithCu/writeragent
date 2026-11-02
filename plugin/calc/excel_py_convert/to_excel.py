@@ -36,7 +36,7 @@ from plugin.calc.excel_py_convert.to_dag import (
     analyze_xl_calls,
     format_python_syntax_issue,
 )
-from plugin.calc.python.formula_edit import format_data_binding_display, parse_data_binding_text, parse_python_formula
+from plugin.calc.python.formula_edit import PyFormula
 from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
 
 # Calc ``Sheet.A1`` → Excel ``Sheet!A1`` for _xlws.PY deps (leave ranges without a sheet alone).
@@ -315,14 +315,13 @@ def assign_script_bank(cells: Sequence[ConvertedCell]) -> list[str]:
 
 def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: str = "A1", return_type: int = 0, meta: dict[str, Any] | None = None) -> ConvertedCell:
     """Convert one DAG-style ``=PY("…"; ranges)`` formula string to Excel shape."""
-    parts = parse_python_formula(formula)
+    parts = PyFormula.parse(formula)
     if parts is None:
         return ConvertedCell(sheet=sheet, cell=cell, direction="excel", original_code=formula, converted_code="", issues=["not a =PY/=PYTHON formula"], converted=False, return_type=return_type)
 
     meta = meta or {}
     rt = int(meta.get("return_type", return_type) or 0)
-    data_text = format_data_binding_display(parts.data_suffix)
-    all_args = parse_data_binding_text(data_text)
+    all_args = parts.data_args()
 
     # Prefer explicit data_args / ordering_args from report metadata.
     if "data_args" in meta or "ordering_args" in meta:

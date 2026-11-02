@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
-from plugin.calc.python.cell_discovery import canonicalize_py_formula_for_parse, is_py_formula_text
+from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
-from plugin.calc.python.formula_edit import parse_python_formula
+from plugin.calc.python.formula_edit import PyFormula
 from plugin.framework.errors import DocumentDisposedError
 import pytest
 
@@ -62,12 +62,10 @@ def test_rewrite_preserves_quotes_and_brackets():
 
 
 def test_canonicalize_and_parse_collabora_getpy():
-    canonical = canonicalize_py_formula_for_parse(_GETPY)
-    assert canonical.upper().startswith("=PY(")
     assert is_py_formula_text(_GETPY)
-    parts = parse_python_formula(canonical)
-    assert parts is not None
-    assert parts.code == "result = 1"
+    parsed = PyFormula.parse(_GETPY)
+    assert parsed is not None
+    assert parsed.code == "result = 1"
 
 
 def test_maybe_rewrite_skips_non_calc():

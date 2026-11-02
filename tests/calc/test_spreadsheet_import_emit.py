@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import re
 
+from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model, emit_py_formula
-from plugin.calc.spreadsheet_import.extract import py_formula_semantics
 from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
 from plugin.calc.spreadsheet_import.translate import translate_formula
 
@@ -49,11 +49,10 @@ def test_emit_round_trip_semantics():
     translation = translate_formula("=AVERAGE(B2:B3)")
     assert translation.ok
     emitted = emit_py_formula(translation.code, translation.data_ranges or [])
-    semantics = py_formula_semantics(emitted)
-    assert semantics is not None
-    code, data_args = semantics
-    assert "np.mean" in code
-    assert data_args == ["B2:B3"]
+    parsed = PyFormula.parse(emitted)
+    assert parsed is not None
+    assert "np.mean" in parsed.code
+    assert parsed.data_args() == ["B2:B3"]
 
 
 def test_emit_vectorized_column():
