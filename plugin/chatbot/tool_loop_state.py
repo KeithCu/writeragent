@@ -29,6 +29,20 @@ def object_dict_or_empty(value: object) -> dict[str, Any]:
     return cast("dict[str, Any]", value) if type(value) is dict else {}
 
 
+def as_dict(value: object) -> dict[str, Any]:
+    """Return *value* if a dict, or parsed from a JSON string of a dict; otherwise ``{}``."""
+    # crosshair: off
+    if type(value) is dict:
+        return cast("dict[str, Any]", value)
+    if isinstance(value, (str, bytes)):
+        from plugin.framework.json_utils import safe_json_loads
+
+        parsed = safe_json_loads(value)
+        if type(parsed) is dict:
+            return cast("dict[str, Any]", parsed)
+    return {}
+
+
 def _non_blank_name(value: object) -> str:
     return value if isinstance(value, str) and value.strip() else "unknown"
 

@@ -25,7 +25,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, final
 
 from plugin.framework.i18n import _
 from plugin.framework.tool import ToolBase
@@ -35,23 +35,12 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
-from plugin.framework.json_utils import safe_json_loads
 from plugin.contrib.smolagents.agents import ToolCallingAgent
+from plugin.chatbot.tool_loop_state import as_dict
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
 from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
 
 log = logging.getLogger("writeragent.web_research")
-
-# Page visits and Chrome teardown share this count. Stop shuts the deep pool
-# down without joining, so the last run must not kill the browser until forward
-# returns. Runs share one local Chrome: a second frame can be researching while
-# the first execute() is still inside visit_webpage.
-_cdp_visits_cond = threading.Condition()
-_cdp_visits_inflight = 0
-_cdp_closing = False
-_cdp_runs = 0
-_cdp_launch_lock = threading.Lock()
-_CDP_LOCK_TIMEOUT_SECONDS = 35.0
 
 # Web-research sub-agent only (main chat delegate + web-research checkbox). Facts in plain text;
 # main agent applies HTML, memory colors, and apply_document_content when the user wanted a doc edit.
@@ -230,94 +219,106 @@ class _VisitWebpageDedupTool(Tool):
         return text
 
 
-def _cdp_visit_enter() -> bool:
-    """Count one in-flight page read. False once teardown has started."""
-    global _cdp_visits_inflight
-    with _cdp_visits_cond:
-        if _cdp_closing:
-            return False
-        _cdp_visits_inflight += 1
-        return True
+@final
+class CdpRefCount:
+    """Shared-Chrome refcount and condition variable for page visits and teardown."""
+
+    cond: threading.Condition
+    visits_inflight: int
+    closing: bool
+    runs: int
+    launch_lock: threading.Lock
+    timeout_seconds: float
+
+    def __init__(self, timeout_seconds: float = 35.0) -> None:
+        self.cond = threading.Condition()
+        self.visits_inflight = 0
+        self.closing = False
+        self.runs = 0
+        self.launch_lock = threading.Lock()
+        self.timeout_seconds = timeout_seconds
+
+    def visit_enter(self) -> bool:
+        """Count one in-flight page read. False once teardown has started."""
+        with self.cond:
+            if self.closing:
+                return False
+            self.visits_inflight += 1
+            return True
+
+    def visit_leave(self) -> None:
+        with self.cond:
+            self.visits_inflight = max(0, self.visits_inflight - 1)
+            if self.visits_inflight == 0:
+                self.cond.notify_all()
+
+    def run_enter(self) -> None:
+        """Count one execute() using the shared local browser.
+
+        Waits out a teardown already in progress so this run does not attach to
+        a Chrome process that is about to be killed.
+        """
+        with self.cond:
+            start_wait = time.monotonic()
+            while self.closing:
+                self.cond.wait(1.0)
+                if time.monotonic() - start_wait > self.timeout_seconds:
+                    raise RuntimeError("previous CDP browser still closing")
+            self.runs += 1
+
+    def finish(self) -> None:
+        """Release this research run's hold on the shared local browser.
+
+        Visit state and the Chrome process are process-global. Count active
+        runs. Only the last one sets the closing flag, waits until in-flight
+        visits leave forward, and then terminates Chrome.
+        """
+        from plugin.contrib.cdp.browser_cdp_tool import cleanup_local_chrome
+
+        with self.cond:
+            if self.runs <= 0:
+                return
+            self.runs -= 1
+            if self.runs > 0:
+                return
+            self.closing = True
+            start_wait = time.monotonic()
+            while self.visits_inflight > 0:
+                self.cond.wait(1.0)
+                if time.monotonic() - start_wait > self.timeout_seconds:
+                    log.warning("Timeout waiting for in-flight CDP visits to finish")
+                    break
+        try:
+            cleanup_local_chrome()
+        except Exception as exc:
+            log.warning("Failed to clean up local Chrome process: %s", exc)
+        finally:
+            with self.cond:
+                self.closing = False
+                self.cond.notify_all()
+
+    def reset_for_tests(self) -> None:
+        with self.cond:
+            self.visits_inflight = 0
+            self.closing = False
+            self.runs = 0
+            self.cond.notify_all()
 
 
-def _cdp_visit_leave() -> None:
-    global _cdp_visits_inflight
-    with _cdp_visits_cond:
-        _cdp_visits_inflight = max(0, _cdp_visits_inflight - 1)
-        if _cdp_visits_inflight == 0:
-            _cdp_visits_cond.notify_all()
-
-
-def _cdp_run_enter() -> None:
-    """Count one execute() using the shared local browser.
-
-    Waits out a teardown already in progress so this run does not attach to
-    a Chrome process that is about to be killed.
-    """
-    global _cdp_runs
-    with _cdp_visits_cond:
-        start_wait = time.monotonic()
-        while _cdp_closing:
-            _cdp_visits_cond.wait(1.0)
-            if time.monotonic() - start_wait > _CDP_LOCK_TIMEOUT_SECONDS:
-                raise RuntimeError("previous CDP browser still closing")
-        _cdp_runs += 1
+_cdp_refcount = CdpRefCount()
 
 
 def _begin_shared_cdp(uno_ctx: Any, browser_type: str) -> str:
-    """Attach this run to the process-wide local browser.
-
-    The caller must call _finish_cdp_browser once after this returns. A failed
-    launch drops the run count here and re-raises, so the caller must not
-    finish again. The launch lock keeps two runs from both missing the port
-    probe and spawning a second Chrome that the process-global handle drops.
-    """
+    """Attach this run to the process-wide local browser."""
     from plugin.contrib.cdp.browser_cdp_tool import get_local_chrome_cdp_url
 
-    with _cdp_launch_lock:
-        _cdp_run_enter()
+    with _cdp_refcount.launch_lock:
+        _cdp_refcount.run_enter()
         try:
             return get_local_chrome_cdp_url(uno_ctx, browser_type)
         except Exception:
-            _finish_cdp_browser()
+            _cdp_refcount.finish()
             raise
-
-
-def _finish_cdp_browser() -> None:
-    """Release this research run's hold on the shared local browser.
-
-    Visit state and the Chrome process are process-global. Count active
-    runs. Only the last one sets the closing flag, waits until in-flight
-    visits leave forward, and then terminates Chrome. An earlier finish
-    leaves the browser up. Killing it on every execute() drops a second
-    run (another frame, or any execute still inside visit_webpage), and
-    Stop must not kill Chrome while its own worker is still inside
-    Page.navigate.
-    """
-    global _cdp_closing, _cdp_runs
-    from plugin.contrib.cdp.browser_cdp_tool import cleanup_local_chrome
-
-    with _cdp_visits_cond:
-        if _cdp_runs <= 0:
-            return
-        _cdp_runs -= 1
-        if _cdp_runs > 0:
-            return
-        _cdp_closing = True
-        start_wait = time.monotonic()
-        while _cdp_visits_inflight > 0:
-            _cdp_visits_cond.wait(1.0)
-            if time.monotonic() - start_wait > _CDP_LOCK_TIMEOUT_SECONDS:
-                log.warning("Timeout waiting for in-flight CDP visits to finish")
-                break
-    try:
-        cleanup_local_chrome()
-    except Exception as exc:
-        log.warning("Failed to clean up local Chrome process: %s", exc)
-    finally:
-        with _cdp_visits_cond:
-            _cdp_closing = False
-            _cdp_visits_cond.notify_all()
 
 
 class VisitWebpageCdpTool(Tool):
@@ -343,7 +344,7 @@ class VisitWebpageCdpTool(Tool):
 
         # Each visit opens and closes its own target. Reusing the first page
         # tab meant two deep-research workers navigated the same document.
-        if not _cdp_visit_enter():
+        if not _cdp_refcount.visit_enter():
             return "Error visiting webpage via CDP: browser is closing"
         target_id = None
         try:
@@ -393,7 +394,7 @@ class VisitWebpageCdpTool(Tool):
                     lambda: browser_cdp("Target.closeTarget", {"targetId": target_id}),
                     f"visit_webpage: closeTarget failed for {target_id}",
                 )
-            _cdp_visit_leave()
+            _cdp_refcount.visit_leave()
 
 
 def _unpack_approval(result: Any) -> tuple[bool, str | None]:
@@ -487,7 +488,7 @@ def _run_web_agent(
                 if params.chat_append_callback:
                     params.chat_append_callback(web_search_engine_step_chat_text(q))
 
-            args = _coerce_args_dict(step.arguments)
+            args = as_dict(step.arguments)
             q = str(args.get("query", ""))
             if params.append_thinking_callback:
                 params.append_thinking_callback(f"Running tool: {step.name} with {{'query': '{q}'}}\n")
@@ -840,18 +841,8 @@ class WebResearchTool(ToolBase):
             return {**final_ans, **cache_fields}
         finally:
             if cdp_held:
-                _finish_cdp_browser()
+                _cdp_refcount.finish()
             best_effort(smol_model.api.stop, "Error stopping smol_model api")
-
-
-def _coerce_args_dict(arguments: Any) -> dict[str, Any]:
-    if isinstance(arguments, dict):
-        return arguments
-    if isinstance(arguments, str):
-        data = safe_json_loads(arguments)
-        if isinstance(data, dict):
-            return data
-    return {}
 
 
 def _norm_research_query(q: str) -> str:

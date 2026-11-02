@@ -87,7 +87,7 @@ def test_message_to_dict_null_or_non_str_text_part():
         {"type": "text"},
         {"type": "text", "text": 12},
     ])
-    assert row["content"] == " keep  12"
+    assert row["content"] == "keep\n12"
 
 
 def test_json_history_hashes_session_ids(tmp_path):
@@ -177,7 +177,7 @@ def test_existing_sqlite_db_does_not_fall_back_to_json(tmp_path, monkeypatch):
 def test_json_history_saves_null_text_part(tmp_path):
     history = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
     history.add_message("user", [{"type": "text", "text": None}, {"type": "text", "text": "keep"}])
-    assert history.get_messages()[0]["content"] == " keep"
+    assert history.get_messages()[0]["content"] == "keep"
 
 
 def test_sqlite_closes_connection_and_saves_null_text(tmp_path, monkeypatch):

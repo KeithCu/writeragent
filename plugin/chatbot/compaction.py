@@ -30,6 +30,8 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from plugin.chatbot.chat_session import message_text
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -230,23 +232,17 @@ def estimate_tokens_rough(text: Any) -> int:
 
 def flatten_content(content: Any) -> tuple[str, int, int]:
     """Return (text, image_count, audio_count). Never str() a content list."""
-    if isinstance(content, str):
-        return content, 0, 0
     if not isinstance(content, list):
-        return "", 0, 0
-    texts = []
+        return (message_text(content), 0, 0) if isinstance(content, str) else ("", 0, 0)
     n_img = n_aud = 0
     for part in content:
-        if not isinstance(part, dict):
-            continue
-        kind = part.get("type")
-        if kind == "text" and isinstance(part.get("text"), str):
-            texts.append(part["text"])
-        elif kind == "image_url":
-            n_img += 1
-        elif kind == "input_audio":
-            n_aud += 1
-    return " ".join(texts), n_img, n_aud
+        if isinstance(part, dict):
+            kind = part.get("type")
+            if kind == "image_url":
+                n_img += 1
+            elif kind == "input_audio":
+                n_aud += 1
+    return message_text(content), n_img, n_aud
 
 
 def estimate_message_tokens(msg: dict[str, Any]) -> int:

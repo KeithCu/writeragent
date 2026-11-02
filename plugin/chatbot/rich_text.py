@@ -28,6 +28,7 @@ import re
 from typing import Any, cast
 
 from plugin.calc.navigation import WRITERAGENT_CELL_URL_PREFIX, normalize_cell_address
+from plugin.chatbot.dialogs import set_prop
 from plugin.framework.appearance import get_theme_colors
 from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.html_stripper import strip_html_tags, text_has_real_html_tag
@@ -72,7 +73,7 @@ CHAT_PARA_SIDE_MARGIN = 250
 
 def _set_props(obj: Any, pairs: tuple[tuple[str, Any], ...]) -> None:
     for name, val in pairs:
-        uno_probe(cast("Any", lambda n=name, v=val: setattr(obj, n, v)), None)
+        set_prop(obj, name, val)
 
 
 def apply_chat_char_props(target: Any, *, bg_color: int | None = None) -> None:

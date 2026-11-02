@@ -706,11 +706,11 @@ class TestPopulateComboboxWithLruFetchOptions:
 
 
 def test_paint_combo_clears_stale_items_on_empty_list():
-    from plugin.chatbot.config_ui_helpers import _paint_combo
+    from plugin.chatbot.dialogs import set_combo_items
 
     ctrl = MagicMock()
     ctrl.getItemCount.return_value = 2
-    _paint_combo(ctrl, [], "")
+    set_combo_items(ctrl, [], "")
     ctrl.removeItems.assert_called_once_with(0, 2)
     ctrl.addItems.assert_not_called()
 

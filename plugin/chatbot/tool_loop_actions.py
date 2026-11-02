@@ -468,16 +468,16 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     Skip HTML rerender after an API error. Drain ERROR appends ``[API error: …]``;
     rerender looks up the previous HTML assistant message and
     ``rollback_rich_insert`` would delete that error line
-    (Packet F HTTP 429/500 looked like a leftover hello).
+    (HTTP 429/500 errors looked like a leftover hello).
 
     Skip rerender after Stop. The Stop path already stored the partial answer
     and the ``[Stopped by user]`` row, then painted that list. A second paint
     is not required. The old splice truncated the tail and pasted the answer
-    without the marker (Packet B1).
+    without the marker.
 
     Empty / truncated STREAM_DONE must AddMessageEffect the banner (see
     ``tool_loop_state``) so this path does not paste the previous HTML assistant
-    over ``[Response truncated]`` / ``[No text from model]`` (Packet C).
+    over ``[Response truncated]`` / ``[No text from model]``.
     """
     # Append a leftover unclosed tag when the rerender did not replace
     # the control. The Error path clears the stripper without finalize(),
@@ -732,11 +732,13 @@ class ToolLoopActionHost(Protocol):
     image_model_selector: Any
     audio_wav_path: str | None
     _terminal_status: str
+    _tool_calling: Any
+    _tool_loop_interpreter: Any
+    rich_text_widget: Any
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _set_status(self, text: str) -> None: ...
     def _get_document_model(self) -> Any: ...
-    _tool_calling: Any
     def resolve_stop_checker(self) -> Callable[[], bool]: ...
 
 

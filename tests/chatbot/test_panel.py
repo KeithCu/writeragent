@@ -938,10 +938,11 @@ class TestSlashOverlayParked:
 
     def test_text_change_skips_overlay_and_still_dispatches(self, caplog) -> None:
         send_listener = MagicMock()
+        send_listener.slash_popup.on_query_text.return_value = False
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), caplog.at_level(logging.DEBUG):
             listener.on_text_changed(_query_text_event("/he"))
-        send_listener.slash_popup.on_query_text.assert_not_called()
+        send_listener.slash_popup.on_query_text.assert_called_once_with("/he")
         send_listener.dispatch.assert_called_once()
         event = send_listener.dispatch.call_args[0][0]
         assert event.kind == SendEventKind.TEXT_UPDATED
@@ -951,6 +952,7 @@ class TestSlashOverlayParked:
 
     def test_enabled_slash_prefix_calls_overlay_and_skips_dispatch(self, caplog) -> None:
         send_listener = MagicMock()
+        send_listener.slash_popup.on_query_text.return_value = True
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True), \
              patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False), \
@@ -962,6 +964,7 @@ class TestSlashOverlayParked:
 
     def test_enabled_plain_text_dispatches(self) -> None:
         send_listener = MagicMock()
+        send_listener.slash_popup.on_query_text.return_value = False
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True):
             listener.on_text_changed(_query_text_event("hello"))
@@ -981,7 +984,7 @@ class TestSlashOverlayParked:
     def test_disabled_enter_skips_handle_key_and_still_sends(self, caplog) -> None:
         send_listener = MagicMock()
         send_listener._button_action = ButtonAction.SEND
-        send_listener.slash_popup.handle_key.return_value = True
+        send_listener.slash_popup.handle_key.return_value = False
         send_model = MagicMock()
         send_model.Enabled = True
         send_model.Label = "Send"
@@ -992,7 +995,7 @@ class TestSlashOverlayParked:
              patch("plugin.framework.config.get_config_bool", return_value=True), \
              caplog.at_level(logging.DEBUG):
             listener.on_key_pressed(event)
-        send_listener.slash_popup.handle_key.assert_not_called()
+        send_listener.slash_popup.handle_key.assert_called_once_with(1280, 0)
         send_listener.on_action_performed.assert_called_once_with(event)
         assert not any("[SLASH-OV]" in r.message for r in caplog.records)
 

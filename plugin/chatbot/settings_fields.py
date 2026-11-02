@@ -14,6 +14,7 @@ from plugin.chatbot.dialogs import (
     get_control_text,
     is_checkbox_control,
     set_checkbox_state,
+    set_combo_items,
     set_control_text,
 )
 from plugin.framework.config import get_config, set_configs
@@ -174,9 +175,8 @@ def populate_settings_control(ctrl: Any, field: dict[str, Any]) -> None:
     if "options" in field:
         try:
             labels = _settings_option_labels(field)
-            model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-            if labels and model is not None and hasattr(model, "StringItemList"):
-                model.StringItemList = labels
+            if labels:
+                set_combo_items(ctrl, labels)
         except Exception:
             log.debug("set options failed for %s", field.get("name"), exc_info=True)
     if field_type in ("int", "float") and hasattr(ctrl, "setValue"):

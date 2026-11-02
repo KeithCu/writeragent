@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 from plugin.framework.uno_listeners import BaseActionListener
 
 if TYPE_CHECKING:
@@ -651,6 +651,56 @@ def is_checkbox_control(ctrl: Any) -> bool:
             return True
         return hasattr(ctrl.getModel(), "State")
     return bool(best_effort(_check, "is_checkbox_control exception", default=False))
+
+
+def set_prop(obj: Any, name: str, value: Any) -> bool:
+    """Safely set a property on a UNO object or model via setattr or setPropertyValue."""
+    if obj is None:
+        return False
+    try:
+        setattr(obj, name, value)
+        return True
+    except Exception:  # noqa: S110 - setattr failed; probe setPropertyValue
+        pass
+    if hasattr(obj, "setPropertyValue"):
+        try:
+            obj.setPropertyValue(name, value)
+            return True
+        except Exception:  # noqa: S110 - setPropertyValue failed on UNO object
+            pass
+    return False
+
+
+def set_combo_items(ctrl: Any, items: Sequence[str], selected: str = "") -> None:
+    """Populate a UNO ComboBox or ListBox with items and optionally set selected text."""
+    if not ctrl:
+        return
+    labels = tuple(items)
+    model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
+    if model is not None and hasattr(model, "StringItemList"):
+        try:
+            model.StringItemList = labels
+        except Exception:  # noqa: S110 - StringItemList attribute assignment failed
+            pass
+    if hasattr(ctrl, "setStringItemList"):
+        try:
+            ctrl.setStringItemList(labels)
+        except Exception:  # noqa: S110 - setStringItemList call failed
+            pass
+    if hasattr(ctrl, "getItemCount") and hasattr(ctrl, "removeItems"):
+        count = ctrl.getItemCount()
+        if count:
+            ctrl.removeItems(0, count)
+    if hasattr(ctrl, "addItems") and labels:
+        ctrl.addItems(labels, 0)
+    elif hasattr(ctrl, "addItem") and labels:
+        for label in reversed(labels):
+            ctrl.addItem(label, 0)
+
+    if selected:
+        set_control_text(ctrl, selected)
+    elif hasattr(ctrl, "getItemCount") and ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
+        ctrl.setText("")
 
 
 def _set_control_prop(ctrl: Any, value: bool | int, method_name: str, prop_name: str, log_label: str) -> None:
