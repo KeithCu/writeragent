@@ -6,19 +6,19 @@
 
 from __future__ import annotations
 
+from plugin.scripting.helper_registry import specs
 from plugin.scripting.symbolic import (
-    _DEFAULT_PARAMS,
-    _HELPER_DESCRIPTIONS,
     get_math_script_templates,
 )
 
 
 def test_get_math_script_templates_include_run_call():
     templates = get_math_script_templates()
+    sym_specs = specs("symbolic")
     expected_keys = {"differentiate", "integrate", "solve_equation", "symbolic_simplify"}
     assert set(templates) == expected_keys
-    assert set(_DEFAULT_PARAMS) == expected_keys
-    assert set(_HELPER_DESCRIPTIONS) == expected_keys
+    assert {s.name for s in sym_specs if s.shipped_template} == expected_keys
+    assert {s.name for s in sym_specs if s.description and s.shipped_template} == expected_keys
     assert "latex_to_math_object" not in templates
 
     assert "solve_equation" in templates

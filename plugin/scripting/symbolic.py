@@ -15,87 +15,23 @@ from plugin.doc.doc_type import is_calc, is_writer
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES as HELPER_NAMES
-from plugin.scripting.client import run_symbolic as client_run_symbolic
-from plugin.scripting.helper_domain import (
-    DomainFacadeConfig,
-    is_status_helper_result,
-)
+from plugin.scripting.helper_registry import names
 
-_DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    "solve_equation": {"equation": "x**2 - 4", "variable": "x"},
-    "symbolic_simplify": {"expression": "(x + 1)**2 - x**2 - 2*x"},
-    "integrate": {"expression": "sin(x)", "variable": "x"},
-    "differentiate": {"expression": "x**2", "variable": "x"},
-}
-
-_HELPER_DESCRIPTIONS: dict[str, str] = {
-    "solve_equation": "Solve an equation for a variable (use = or expression equal to zero).",
-    "symbolic_simplify": "Simplify a symbolic expression.",
-    "integrate": "Integrate an expression (add lower/upper for definite integrals).",
-    "differentiate": "Differentiate an expression with respect to a variable (default x).",
-}
-
-_SYMBOLIC_VENV_EXPORTS = HELPER_NAMES | {"run_symbolic"}
+_SYMBOLIC_VENV_EXPORTS = names("symbolic") | {"run_symbolic"}
 
 install_lazy_exports(globals(), "symbolic", _SYMBOLIC_VENV_EXPORTS)
 
 
 # --- Templates ---
 
-_API = DomainFacadeConfig(
-    tag="math",
-    helper_names=HELPER_NAMES,
-    default_params=_DEFAULT_PARAMS,
-    descriptions=_HELPER_DESCRIPTIONS,
-    import_module="writeragent.scripting.symbolic",
-    run_name="run_symbolic",
-    # latex_to_math_object is callable but not a Math Helpers template.
-    shipped_templates=frozenset(_DEFAULT_PARAMS),
-    data_expr="None",
-)
 
-get_math_script_templates = _API.get_templates
+def get_math_script_templates() -> dict[str, str]:
+    from plugin.scripting.domain_registry import get_domain_wiring
 
-
-# --- Runner ---
-
-
-def run_trusted_symbolic(
-    uno_ctx: Any,
-    doc: Any,
-    *,
-    helper: str,
-    params: dict[str, Any] | None = None,
-    task_hint: str | None = None,
-    doc_type: str | None = None,
-) -> dict[str, Any]:
-    """Run a trusted symbolic helper in the user venv."""
-    name = str(helper or "").strip()
-    if not name:
-        raise ToolExecutionError("helper is required", code="SYMBOLIC_ERROR")
-    if name not in HELPER_NAMES:
-        raise ToolExecutionError(f"Unknown helper {name!r}", code="SYMBOLIC_ERROR")
-    if doc_type not in ("calc", "writer"):
-        raise ToolExecutionError("Symbolic helpers require a Writer or Calc document.", code="SYMBOLIC_ERROR")
-
-    spec: dict[str, Any] = {"helper": name}
-    if isinstance(params, dict) and params:
-        spec["params"] = params
-
-    return client_run_symbolic(
-        uno_ctx, spec, None, context={"task_hint": str(task_hint)} if task_hint else None
-    )
+    return get_domain_wiring("math").templates()
 
 
 # --- Egress ---
-
-# A truthy 'latex' key is not enough: ordinary dicts are not symbolic
-# helper results. Match HELPER_NAMES and SYMBOLIC_ERROR through
-# is_status_helper_result.
-def is_symbolic_result(value: Any) -> bool:
-    """True when *value* matches the compact symbolic helper result contract."""
-    return is_status_helper_result(value, HELPER_NAMES, frozenset({"SYMBOLIC_ERROR"}))
 
 
 def format_symbolic_for_calc(result: dict[str, Any]) -> list[list[Any]]:

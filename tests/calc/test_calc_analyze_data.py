@@ -45,7 +45,7 @@ def test_output_anchor_quoted_dotted_sheet_and_range():
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_output_range_quoted_sheet(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "describe_data"}
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -74,7 +74,7 @@ def _disposed():
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_sheet_write_failure_keeps_the_result(
     mock_run_trusted,
     mock_main_thread,
@@ -103,7 +103,7 @@ def test_analyze_data_sheet_write_failure_keeps_the_result(
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_sheet_write_reraises_disposed(
     mock_run_trusted,
     mock_main_thread,
@@ -237,7 +237,7 @@ def test_analyze_data_requires_data_source(calc_ctx):
 
 
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "describe_data", "metrics": {"row_count": 1}}
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -252,8 +252,8 @@ def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 
     assert result["status"] == "ok"
     assert result["helper"] == "describe_data"
-    # execute_on_main_thread is now inside run_trusted_analysis for reading data only,
-    # but since run_trusted_analysis is mocked entirely here, main_thread won't be called.
+    # execute_on_main_thread is now inside run_domain for reading data only,
+    # but since run_domain is mocked entirely here, main_thread won't be called.
     mock_run_trusted.assert_called_once()
     _, kwargs = mock_run_trusted.call_args
     assert kwargs["helper"] == "describe_data"
@@ -263,7 +263,7 @@ def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 
 @patch("plugin.framework.thread_guard.on_main_thread", return_value=False)
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.analysis_runner.run_analysis")
+@patch("plugin.scripting.client.run_analysis")
 @patch("plugin.calc.calc_addin_data._resolve_python_data")
 def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_resolve, mock_run_analysis, mock_main_thread, mock_on_main, calc_ctx):
     del mock_on_main
@@ -289,7 +289,7 @@ def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_resolve, moc
 
 
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_worker_error(mock_run_trusted, mock_main_thread, calc_ctx):
     from plugin.framework.errors import ToolExecutionError
 

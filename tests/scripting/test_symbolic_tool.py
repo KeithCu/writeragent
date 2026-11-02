@@ -24,7 +24,7 @@ def writer_ctx():
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
 @patch("plugin.calc.symbolic_math.execute_on_main_thread")
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_happy_path(mock_run, mock_main_thread, mock_insert, writer_ctx):
     mock_run.return_value = {
         "status": "ok",
@@ -66,7 +66,7 @@ def test_symbolic_math_in_python_domain():
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
 @patch("plugin.calc.symbolic_math.execute_on_main_thread")
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_keeps_ipc_off_main_thread(mock_run, mock_main_thread, mock_insert, writer_ctx):
     inside = {"flag": False}
 
@@ -124,10 +124,11 @@ def test_symbolic_math_not_offered_on_draw():
 @pytest.mark.parametrize("doc_type", ["draw", "impress"])
 def test_run_trusted_symbolic_rejects_draw(doc_type):
     from plugin.framework.errors import ToolExecutionError
-    from plugin.scripting.symbolic import run_trusted_symbolic
+    from plugin.scripting.helper_domain import run_domain
 
     with pytest.raises(ToolExecutionError) as exc_info:
-        run_trusted_symbolic(
+        run_domain(
+            "math",
             MagicMock(),
             MagicMock(),
             helper="symbolic_simplify",
@@ -140,12 +141,13 @@ def test_run_trusted_symbolic_rejects_draw(doc_type):
 @patch("plugin.framework.thread_guard.on_main_thread", return_value=True)
 def test_run_trusted_symbolic_rejects_non_writer_calc_without_hint(mock_main_thread):
     from plugin.framework.errors import ToolExecutionError
-    from plugin.scripting.symbolic import run_trusted_symbolic
+    from plugin.scripting.helper_domain import run_domain
 
     doc = MagicMock()
     doc.supportsService.return_value = False
     with pytest.raises(ToolExecutionError) as exc_info:
-        run_trusted_symbolic(
+        run_domain(
+            "math",
             MagicMock(),
             doc,
             helper="symbolic_simplify",
@@ -154,9 +156,9 @@ def test_run_trusted_symbolic_rejects_non_writer_calc_without_hint(mock_main_thr
     assert "Writer or Calc" in str(exc_info.value)
 
 
-@patch("plugin.scripting.symbolic.client_run_symbolic")
+@patch("plugin.scripting.client.run_symbolic")
 def test_run_trusted_symbolic_accepts_writer_without_hint(mock_client_run):
-    from plugin.scripting.symbolic import run_trusted_symbolic
+    from plugin.scripting.helper_domain import run_domain
 
     mock_client_run.return_value = {
         "status": "ok",
@@ -165,7 +167,8 @@ def test_run_trusted_symbolic_accepts_writer_without_hint(mock_client_run):
         "text": "x",
     }
     doc = MagicMock()
-    result = run_trusted_symbolic(
+    result = run_domain(
+        "math",
         MagicMock(),
         doc,
         helper="symbolic_simplify",
@@ -176,18 +179,19 @@ def test_run_trusted_symbolic_accepts_writer_without_hint(mock_client_run):
     mock_client_run.assert_called_once()
 
 
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_forwards_tool_context_for_stop(mock_run, writer_ctx):
     mock_run.return_value = {"status": "ok", "helper": "symbolic_simplify", "latex": "x", "text": "x"}
     tool = SymbolicMathTool()
     tool.execute(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
     mock_run.assert_called_once()
-    assert mock_run.call_args.args[0] is writer_ctx
-    assert mock_run.call_args.args[1] is writer_ctx.doc
+    assert mock_run.call_args.args[0] == "math"
+    assert mock_run.call_args.args[1] is writer_ctx
+    assert mock_run.call_args.args[2] is writer_ctx.doc
 
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_does_not_insert_stopped_result(mock_run, mock_insert, writer_ctx):
     mock_run.return_value = {"status": "error", "code": "USER_STOPPED", "message": "Stopped."}
     tool = SymbolicMathTool()
@@ -197,7 +201,7 @@ def test_symbolic_math_does_not_insert_stopped_result(mock_run, mock_insert, wri
     assert "math_inserted" not in result
 
 
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_rejects_non_object_params(mock_run, writer_ctx):
     tool = SymbolicMathTool()
     result = tool.execute(writer_ctx, helper="symbolic_simplify", params="x^2")
@@ -206,7 +210,7 @@ def test_symbolic_math_rejects_non_object_params(mock_run, writer_ctx):
     mock_run.assert_not_called()
 
 
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_rejects_unknown_param_key(mock_run, writer_ctx):
     tool = SymbolicMathTool()
     result = tool.execute(writer_ctx, helper="solve_equation", params={"variabel": "t"})
@@ -217,7 +221,7 @@ def test_symbolic_math_rejects_unknown_param_key(mock_run, writer_ctx):
     mock_run.assert_not_called()
 
 
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_rejects_extra_param_key(mock_run, writer_ctx):
     tool = SymbolicMathTool()
     result = tool.execute(writer_ctx, helper="integrate", params={"expression": "x", "constant": "C"})
@@ -227,7 +231,7 @@ def test_symbolic_math_rejects_extra_param_key(mock_run, writer_ctx):
     mock_run.assert_not_called()
 
 
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_accepts_the_latex_expression_alias(mock_run, writer_ctx):
     mock_run.return_value = {"status": "ok", "helper": "latex_to_math_object", "latex": "x^2", "text": "x^2"}
     tool = SymbolicMathTool()
@@ -236,7 +240,7 @@ def test_symbolic_math_accepts_the_latex_expression_alias(mock_run, writer_ctx):
     mock_run.assert_called_once()
 
 
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_accepts_numeric_zero_param(mock_run, writer_ctx):
     mock_run.return_value = {"status": "ok", "helper": "integrate", "latex": "0", "text": "0"}
     tool = SymbolicMathTool()
@@ -247,7 +251,7 @@ def test_symbolic_math_accepts_numeric_zero_param(mock_run, writer_ctx):
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
 @patch("plugin.calc.symbolic_math.execute_on_main_thread")
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_calc_does_not_claim_math_inserted(mock_run, mock_main_thread, mock_insert, writer_ctx):
     mock_run.return_value = {
         "status": "ok",
@@ -268,7 +272,7 @@ def test_symbolic_math_calc_does_not_claim_math_inserted(mock_run, mock_main_thr
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
 @patch("plugin.calc.symbolic_math.execute_on_main_thread")
-@patch("plugin.calc.symbolic_math.run_trusted_symbolic")
+@patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_calc_refuses_when_target_occupied(mock_run, mock_main_thread, mock_insert, writer_ctx):
     from plugin.framework.errors import CalcError
 

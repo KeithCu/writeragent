@@ -33,7 +33,7 @@ from plugin.framework.errors import (
 from plugin.framework.tool import ToolBaseDummy
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.calc_utils import resolve_sheet_and_cell
-from plugin.scripting.analysis import HELPER_NAMES
+from plugin.scripting.helper_registry import names
 
 
 if TYPE_CHECKING:
@@ -293,7 +293,7 @@ class SolverTool(ToolBaseDummy):
             raise ToolExecutionError(str(e)) from e
 
 
-_ANALYZE_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
+_ANALYZE_DATA_HELPERS = ", ".join(sorted(names("analysis")))
 
 
 def extract_calc_data_tool_args(
@@ -387,11 +387,11 @@ class AnalyzeDataTool(ToolBaseDummy):
         if getattr(ctx, "active_domain", None) == "analysis" and data is not None:
             return self._tool_error("analysis domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
 
-        from plugin.calc.analysis_runner import run_trusted_analysis
+        from plugin.scripting.helper_domain import run_domain
         from plugin.calc.analysis_egress import insert_analysis_result_into_calc
 
         try:
-            result = run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
+            result = run_domain("analysis", ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "ANALYSIS_ERROR"))
         except Exception as exc:

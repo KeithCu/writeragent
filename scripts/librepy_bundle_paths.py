@@ -72,7 +72,6 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/calc/navigation.py",
     "plugin/calc/tabular_egress.py",
     "plugin/calc/rich_html.py",
-    "plugin/calc/analysis_runner.py",
     "plugin/calc/analysis_egress.py",
     "plugin/calc/viz_auto_plot.py",
     "plugin/calc/forecast_auto_plot.py",

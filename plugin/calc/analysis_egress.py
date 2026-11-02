@@ -9,16 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.calc.tabular_egress import format_tabular_helper_for_calc, insert_tabular_result_into_calc
-from plugin.scripting.calc_functions_common import ANALYSIS_HELPER_NAMES as HELPER_NAMES
-from plugin.scripting.helper_domain import is_status_helper_result
-
-def is_analysis_result(value: Any) -> bool:
-    """True when *value* matches the compact analysis helper result contract."""
-    return is_status_helper_result(
-        value,
-        HELPER_NAMES,
-        frozenset({"ANALYSIS_ERROR"}),
-    )
 
 
 def format_analysis_for_calc(result: dict[str, Any]) -> list[list[Any]]:

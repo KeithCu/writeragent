@@ -242,16 +242,17 @@ def test_run_trusted_viz_reads_on_main_and_runs_client_off_main():
     with (
         patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=exec_main) as mock_main,
-        patch("plugin.scripting.viz.is_calc", return_value=True),
-        patch("plugin.scripting.viz.is_writer", return_value=False),
+        patch("plugin.doc.doc_type.is_calc", return_value=True),
+        patch("plugin.doc.doc_type.is_writer", return_value=False),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
-        patch("plugin.scripting.viz.client_run_viz", side_effect=client) as mock_client,
+        patch("plugin.scripting.client.run_viz", side_effect=client) as mock_client,
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):
         mock_bridge.return_value.get_active_sheet.return_value.getName.return_value = "Sheet1"
-        from plugin.scripting.viz import run_trusted_viz
+        from plugin.scripting.helper_domain import run_domain
 
-        result = run_trusted_viz(
+        result = run_domain(
+            "viz",
             MagicMock(),
             MagicMock(),
             helper="time_series_plot",
@@ -287,13 +288,14 @@ def test_run_trusted_viz_doc_type_check_runs_inside_main_thread_hop():
         patch("plugin.doc.doc_type.is_calc", side_effect=check_is_calc),
         patch("plugin.doc.doc_type.is_writer", side_effect=check_is_writer),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
-        patch("plugin.scripting.viz.client_run_viz", return_value={"status": "ok", "helper": "time_series_plot"}),
+        patch("plugin.scripting.client.run_viz", return_value={"status": "ok", "helper": "time_series_plot"}),
     ):
         from plugin.framework.errors import ToolExecutionError
-        from plugin.scripting.viz import run_trusted_viz
+        from plugin.scripting.helper_domain import run_domain
 
         with pytest.raises(ToolExecutionError, match="Viz helpers require a Writer or Calc document."):
-            run_trusted_viz(
+            run_domain(
+                "viz",
                 MagicMock(),
                 MagicMock(),
                 helper="time_series_plot",
@@ -803,7 +805,7 @@ def test_correlation_heatmap_seaborn_failure_uses_imshow(mock_plt, _mock_payload
 
 
 def test_run_trusted_viz_sheet_disposal_propagates():
-    from plugin.scripting.viz import run_trusted_viz
+    from plugin.scripting.helper_domain import run_domain
     from plugin.framework.errors import DocumentDisposedError
 
     class DisposedException(Exception):
@@ -812,15 +814,16 @@ def test_run_trusted_viz_sheet_disposal_propagates():
     client_mock = MagicMock()
     with (
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
-        patch("plugin.scripting.viz.is_calc", return_value=True),
-        patch("plugin.scripting.viz.is_writer", return_value=False),
+        patch("plugin.doc.doc_type.is_calc", return_value=True),
+        patch("plugin.doc.doc_type.is_writer", return_value=False),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["x"], [1]], None)),
-        patch("plugin.scripting.viz.client_run_viz", client_mock),
+        patch("plugin.scripting.client.run_viz", client_mock),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):
         mock_bridge.return_value.get_active_sheet.side_effect = DisposedException("disposed")
         with pytest.raises(DocumentDisposedError):
-            run_trusted_viz(
+            run_domain(
+                "viz",
                 MagicMock(),
                 MagicMock(),
                 helper="quick_plot",
@@ -830,19 +833,20 @@ def test_run_trusted_viz_sheet_disposal_propagates():
 
 
 def test_run_trusted_viz_sheet_name_failure_is_best_effort():
-    from plugin.scripting.viz import run_trusted_viz
+    from plugin.scripting.helper_domain import run_domain
 
     client_mock = MagicMock(return_value={"status": "ok", "helper": "quick_plot"})
     with (
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
-        patch("plugin.scripting.viz.is_calc", return_value=True),
-        patch("plugin.scripting.viz.is_writer", return_value=False),
+        patch("plugin.doc.doc_type.is_calc", return_value=True),
+        patch("plugin.doc.doc_type.is_writer", return_value=False),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["x"], [1]], None)),
-        patch("plugin.scripting.viz.client_run_viz", client_mock),
+        patch("plugin.scripting.client.run_viz", client_mock),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):
         mock_bridge.return_value.get_active_sheet.side_effect = RuntimeError("no sheet")
-        result = run_trusted_viz(
+        result = run_domain(
+            "viz",
             MagicMock(),
             MagicMock(),
             helper="quick_plot",

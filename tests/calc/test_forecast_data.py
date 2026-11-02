@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.forecast import ForecastDataTool
-from plugin.scripting.forecast import HELPER_NAMES
+from plugin.scripting.helper_registry import names
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def calc_ctx():
 
 def test_forecast_data_lists_helpers():
     tool = ForecastDataTool()
-    for name in HELPER_NAMES:
+    for name in names("forecast"):
         assert name in tool.description
     params_desc = tool.get_parameters()["properties"]["params"]["description"]
     for word in ("date_col", "seasonal_periods", "include_all"):
@@ -48,7 +48,7 @@ def test_forecast_data_requires_data_source(calc_ctx):
 
 
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.forecast.run_trusted_forecast")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "forecast_time_series", "metrics": {"periods": 6}}
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -71,7 +71,7 @@ def test_forecast_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.forecast.run_trusted_forecast")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     inside = {"flag": False}
 
@@ -112,7 +112,7 @@ def test_forecast_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
 
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.forecast.run_trusted_forecast")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_data_output_range_keeps_sheet_prefix(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "forecast_time_series"}
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -205,11 +205,11 @@ def test_run_trusted_forecast_resolves_on_main_and_runs_client_off_main(mock_on_
     mock_main_thread.side_effect = exec_main
     mock_client.side_effect = client
 
-    from plugin.scripting.forecast import run_trusted_forecast
+    from plugin.scripting.helper_domain import run_domain
 
     doc = MagicMock()
     doc.getCurrentController.return_value.getActiveSheet.return_value.getName.return_value = "Sheet1"
-    result = run_trusted_forecast(MagicMock(), doc, helper="forecast_time_series", data_range="Sheet1.A1:B2")
+    result = run_domain("forecast", MagicMock(), doc, helper="forecast_time_series", data_range="Sheet1.A1:B2")
 
     assert result["status"] == "ok"
     mock_main_thread.assert_called_once()
@@ -231,7 +231,7 @@ def test_forecast_data_rejects_raw_data_in_analysis_domain(calc_ctx):
 @patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast", return_value=None)
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc", side_effect=RuntimeError("disk full"))
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.forecast.run_trusted_forecast")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_sheet_write_failure_keeps_the_result(
     mock_run_trusted, mock_main_thread, mock_insert, mock_auto_plot, calc_ctx
 ):

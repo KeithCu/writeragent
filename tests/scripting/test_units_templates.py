@@ -6,12 +6,8 @@
 
 from __future__ import annotations
 
-from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES
-from plugin.scripting.units import (
-    _DEFAULT_PARAMS,
-    _HELPER_DESCRIPTIONS,
-    get_units_script_templates,
-)
+from plugin.scripting.helper_registry import names, specs
+from plugin.scripting.units import get_units_script_templates
 
 
 def test_get_units_script_templates_include_run_call():
@@ -29,7 +25,11 @@ def test_units_template_body_includes_helper_params():
 
 
 def test_units_template_sets_match_helpers():
-    assert set(get_units_script_templates()) == set(_DEFAULT_PARAMS) <= set(UNITS_HELPER_NAMES)
-    assert set(_HELPER_DESCRIPTIONS) == set(UNITS_HELPER_NAMES)
-    assert "format_quantity" in UNITS_HELPER_NAMES
-    assert "format_quantity" not in _DEFAULT_PARAMS
+    unit_specs = {s.name: s for s in specs("units")}
+    unit_names = names("units")
+    templates = get_units_script_templates()
+    shipped = {s.name for s in unit_specs.values() if s.shipped_template}
+    assert set(templates) == shipped <= unit_names
+    assert {s.name for s in unit_specs.values() if s.description} == unit_names
+    assert "format_quantity" in unit_names
+    assert "format_quantity" not in shipped

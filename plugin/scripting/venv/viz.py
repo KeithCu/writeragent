@@ -17,15 +17,12 @@ from plugin.scripting.venv.coerce import (
     resolve_columns,
     resolve_df as _resolve_df,
 )
+from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    _sheet_layout_flags,
-    dispatch_common_kwargs,
     missing_package_error as _missing_package_error,
-    resolve_spec_helper,
+    run_domain,
 )
-
-from plugin.scripting.calc_functions_common import VIZ_HELPER_NAMES as HELPER_NAMES
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +89,7 @@ def _require_matplotlib() -> Any | None:
         return None
 
 
+@helper("viz")
 def quick_plot(
     data: Any,
     *,
@@ -169,6 +167,7 @@ def _parse_chart_type(raw: Any) -> str | dict[str, Any]:
     )
 
 
+@helper("viz")
 def plot_data(
     data: Any,
     *,
@@ -250,6 +249,7 @@ def plot_data(
         return _ok_viz("plot_data", fig, chart_type=chart_type, title=title)
 
 
+@helper("viz")
 def correlation_heatmap(
     data: Any,
     *,
@@ -305,6 +305,7 @@ def correlation_heatmap(
         return _ok_viz("correlation_heatmap", fig, chart_type="heatmap", title=ax.get_title())
 
 
+@helper("viz")
 def time_series_plot(
     data: Any,
     *,
@@ -434,55 +435,10 @@ def time_series_plot(
         return _ok_viz("time_series_plot", fig, chart_type="line", title=ax.get_title())
 
 
-def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
-    common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
-
-    if name == "quick_plot":
-        if "y_cols" in params:
-            return _error_result("INVALID_PARAMS", "quick_plot takes y_col, not y_cols", helper="quick_plot")
-        return quick_plot(data, x_col=params.get("x_col"), y_col=params.get("y_col"), **common)
-    if name == "plot_data":
-        return plot_data(data, spec=params.get("spec") if isinstance(params.get("spec"), dict) else params, **common)
-    if name == "correlation_heatmap":
-        return correlation_heatmap(data, method=params.get("method", "pearson"), **common)
-    if name == "time_series_plot":
-        if not params.get("date_col") or not params.get("value_col"):
-            return _error_result(
-                "MISSING_PARAM",
-                "time_series_plot requires params.date_col and params.value_col",
-                helper=name,
-            )
-        optional: dict[str, Any] = {key: str(params[key]) if params.get(key) else None for key in ("forecast_col", "lower_col", "upper_col", "historical_value_col")}
-        return time_series_plot(
-            data,
-            date_col=str(params["date_col"]),
-            value_col=str(params["value_col"]),
-            **optional,
-            **common,
-        )
-    return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
-
-
 def run_viz(
     spec: dict[str, Any] | str,
     data: Any,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher for trusted viz helpers."""
-    res = resolve_spec_helper(spec, helper_names=HELPER_NAMES)
-    if isinstance(res, dict):
-        return res
-    helper, spec_dict = res
-
-    params = spec_dict.get("params")
-    if params is None:
-        params = {k: v for k, v in spec_dict.items() if k not in ("helper", "headers", "header_row")}
-    if not isinstance(params, dict):
-        params = {}
-
-    layout = _sheet_layout_flags(spec_dict)
-    if isinstance(layout, dict):
-        return layout
-    headers, header_row = layout
-    ctx = context if isinstance(context, dict) else {}
-    return _dispatch_helper(helper, data, params, headers=headers, header_row=header_row, context=ctx)
+    return run_domain("viz", spec, data, context=context)

@@ -7,9 +7,11 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import logging
 from typing import Any
 
+from plugin.scripting.helper_registry import bound, get_spec, names
 from plugin.scripting.sheet_layout import extract_sheet_layout
 from plugin.scripting.venv.coerce import coerce_bool, coerce_int
 from plugin.scripting.venv.results import error_result
@@ -102,41 +104,221 @@ def resolve_spec_helper(
     return helper, spec_dict
 
 
-def dispatch_common_kwargs(
-    context: dict[str, Any],
-    *,
-    headers: bool,
-    header_row: int,
-) -> dict[str, Any]:
-    """Shared kwargs dictionary for analysis, forecast, optimize, and viz dispatch."""
-    sheet_hint = context.get("sheet_name") if isinstance(context.get("sheet_name"), str) else None
-    return {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
-
-
-def run_trusted_spec(
-    spec: dict[str, Any] | str,
-    data: Any,
-    context: dict[str, Any] | None = None,
-    *,
-    helper_names: frozenset[str] | set[str],
-    dispatch_fn: Any,
-    domain: str,
-    error_code: str,
-) -> dict[str, Any]:
-    """Shared execution body for run_analysis / run_forecast / run_optimize."""
-    parsed = parse_trusted_spec(spec, helper_names=helper_names, context=context)
-    if isinstance(parsed, dict):
-        return parsed
-    helper, params, headers, header_row, ctx = parsed
-
+def _decimals(params: dict[str, Any], default: int, helper: str) -> int | dict[str, Any]:
     try:
-        result = dispatch_fn(helper, data, params, headers=headers, header_row=header_row, context=ctx)
-    except Exception as exc:
-        log.exception("%s helper %s failed", domain, helper)
-        return error_result(error_code, str(exc), helper=helper)
+        decimals = coerce_int(params.get("decimals", default), name="decimals")
+    except ValueError as exc:
+        return error_result("INVALID_PARAM", str(exc), helper=helper)
+    if decimals < 0:
+        return error_result("INVALID_PARAM", f"decimals must be an integer >= 0, got {decimals!r}", helper=helper)
+    return decimals
 
-    if isinstance(result, dict) and result.get("status") == "ok" and ctx:
-        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
+
+def run_domain(
+    domain: str,
+    spec: dict[str, Any] | str,
+    data: Any = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a trusted helper within *domain*."""
+    ctx = context if isinstance(context, dict) else {}
+
+    # 1. Spec parsing
+    if domain in ("analysis", "forecast", "optimize", "quant", "symbolic"):
+        parsed = parse_trusted_spec(spec, helper_names=names(domain), context=context)
+        if isinstance(parsed, dict):
+            return parsed
+        helper, params, headers, header_row, ctx = parsed
+    elif domain == "viz":
+        res = resolve_spec_helper(spec, helper_names=names("viz"))
+        if isinstance(res, dict):
+            return res
+        helper, spec_dict = res
+        raw_params = spec_dict.get("params")
+        if raw_params is None:
+            params = {k: v for k, v in spec_dict.items() if k not in ("helper", "headers", "header_row")}
+        elif isinstance(raw_params, dict):
+            params = raw_params
+        else:
+            params = {}
+        layout = _sheet_layout_flags(spec_dict)
+        if isinstance(layout, dict):
+            return layout
+        headers, header_row = layout
+    elif domain == "units":
+        res = resolve_spec_helper(spec, helper_names=names("units"))
+        if isinstance(res, dict):
+            return res
+        helper, spec_dict = res
+        raw_params = spec_dict.get("params")
+        if raw_params is None:
+            params = {k: v for k, v in spec_dict.items() if k not in ("helper", "params", "headers", "header_row")}
+        elif isinstance(raw_params, dict):
+            params = raw_params
+        else:
+            return error_result("INVALID_SPEC", "params must be a dict", helper=helper)
+        clean = dict(params)
+        clean.pop("output_style", None)
+        params = clean
+        from plugin.scripting.venv.units import _get_ureg
+        if _get_ureg() is None:
+            return missing_package_error(helper, "pint")
+        headers = True
+        header_row = 0
+    elif domain == "text":
+        if isinstance(spec, dict):
+            helper = str(spec.get("helper") or spec.get("type") or "full")
+            raw_params = spec.get("params")
+            params = raw_params if isinstance(raw_params, dict) else {}
+        else:
+            helper = str(spec or "full")
+            params = {}
+        from plugin.scripting.venv.text_analytics import dispatch_text_analytics
+        return dispatch_text_analytics(helper, data, params, context=ctx)
+    else:
+        return error_result("UNKNOWN_DOMAIN", f"Unknown domain {domain!r}")
+
+    spec_obj = get_spec(domain, helper)
+    if spec_obj is None:
+        return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
+
+    # 2. Pre-execution checks
+    for forbid_key, forbid_code, forbid_msg in spec_obj.forbid:
+        if forbid_key in params:
+            return error_result(forbid_code, forbid_msg, helper=helper)
+
+    if spec_obj.reject_unknown:
+        unknown = sorted(set(params) - set(spec_obj.allow))
+        if unknown:
+            return error_result(
+                "INVALID_PARAM",
+                f"{helper} does not accept {', '.join(unknown)}. Allowed: {', '.join(sorted(spec_obj.allow))}.",
+                helper=helper,
+            )
+
+    if spec_obj.required_present:
+        if any(k not in params for k in spec_obj.required_present):
+            return error_result("MISSING_PARAM", spec_obj.required_message, helper=helper)
+
+    if spec_obj.required_truthy:
+        if any(not params.get(k) for k in spec_obj.required_truthy):
+            return error_result("MISSING_PARAM", spec_obj.required_message, helper=helper)
+
+    # 3. Invocation according to bind mode
+    bind = spec_obj.bind
+
+    def _execute() -> dict[str, Any]:
+        fn = bound(domain, helper)
+        if bind == "present":
+            sig = inspect.signature(fn)
+            present_kwargs: dict[str, Any] = {k: params[k] for k in spec_obj.allow if k in params}
+            sheet_hint = ctx.get("sheet_name") if isinstance(ctx.get("sheet_name"), str) else None
+            if "headers" in sig.parameters:
+                present_kwargs["headers"] = headers
+            if "header_row" in sig.parameters:
+                present_kwargs["header_row"] = header_row
+            if "sheet_hint" in sig.parameters:
+                present_kwargs["sheet_hint"] = sheet_hint
+            return fn(data, **present_kwargs)
+
+        if bind == "format":
+            values = params.get("values", data)
+            if helper == "format_currency":
+                symbol = params.get("symbol", "$")
+                if not isinstance(symbol, str):
+                    return error_result("INVALID_PARAM", f"symbol must be a string, got {symbol!r}", helper=helper)
+                decimals = _decimals(params, 2, helper)
+                if isinstance(decimals, dict):
+                    return decimals
+                from plugin.scripting.venv.analysis import _format_cells_result
+                return _format_cells_result(helper, fn(values, symbol=symbol, decimals=decimals))
+            if helper == "format_percent":
+                decimals = _decimals(params, 1, helper)
+                if isinstance(decimals, dict):
+                    return decimals
+                from plugin.scripting.venv.analysis import _format_cells_result
+                return _format_cells_result(helper, fn(values, decimals=decimals))
+            return error_result("UNKNOWN_HELPER", f"Unknown format helper {helper!r}", helper=helper)
+
+        if bind == "spec":
+            sig = inspect.signature(fn)
+            chart_spec = params["spec"] if isinstance(params.get("spec"), dict) else params
+            spec_kwargs: dict[str, Any] = {"spec": chart_spec}
+            sheet_hint = ctx.get("sheet_name") if isinstance(ctx.get("sheet_name"), str) else None
+            if "headers" in sig.parameters:
+                spec_kwargs["headers"] = headers
+            if "header_row" in sig.parameters:
+                spec_kwargs["header_row"] = header_row
+            if "sheet_hint" in sig.parameters:
+                spec_kwargs["sheet_hint"] = sheet_hint
+            return fn(data, **spec_kwargs)
+
+        if bind == "time_series":
+            sig = inspect.signature(fn)
+            optional = {
+                key: str(params[key]) if params.get(key) else None
+                for key in ("forecast_col", "lower_col", "upper_col", "historical_value_col")
+            }
+            ts_kwargs: dict[str, Any] = {
+                "date_col": str(params["date_col"]),
+                "value_col": str(params["value_col"]),
+                **optional,
+            }
+            sheet_hint = ctx.get("sheet_name") if isinstance(ctx.get("sheet_name"), str) else None
+            if "headers" in sig.parameters:
+                ts_kwargs["headers"] = headers
+            if "header_row" in sig.parameters:
+                ts_kwargs["header_row"] = header_row
+            if "sheet_hint" in sig.parameters:
+                ts_kwargs["sheet_hint"] = sheet_hint
+            return fn(data, **ts_kwargs)
+
+        if bind == "params":
+            if helper == "fetch_historical_data":
+                return fn(params)
+            return fn(params, data, headers=headers, header_row=header_row)
+
+        if bind == "symbolic":
+            sig = inspect.signature(fn)
+            kwargs: dict[str, Any] = {}
+            for pname, param in sig.parameters.items():
+                value = params.get(pname)
+                if value is None:
+                    if param.default is not inspect.Parameter.empty:
+                        continue
+                    value = ""
+                kwargs[pname] = value
+            if helper == "latex_to_math_object" and is_blank_param(kwargs.get("latex"), strip=True):
+                expression = params.get("expression")
+                if not is_blank_param(expression, strip=True):
+                    kwargs["latex"] = expression
+            return fn(**kwargs)
+
+        if bind == "units":
+            return fn(params)
+
+        return error_result("UNKNOWN_HELPER", f"Unhandled bind mode {bind!r}", helper=helper)
+
+    # 4. Error wrapping (analysis, forecast, optimize only)
+    if domain in ("analysis", "forecast", "optimize"):
+        label = "Optimization" if domain == "optimize" else domain.capitalize()
+        code = "OPTIMIZATION_FAILED" if domain == "optimize" else f"{domain.upper()}_FAILED"
+        try:
+            result = _execute()
+        except Exception as exc:
+            log.exception("%s helper %s failed", label, helper)
+            return error_result(code, str(exc), helper=helper)
+    else:
+        result = _execute()
+
+    # 5. Context stamping
+    if isinstance(result, dict) and result.get("status") == "ok":
+        if domain in ("analysis", "forecast", "optimize", "quant", "symbolic"):
+            if ctx:
+                result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
+        elif domain == "units":
+            if ctx and "task_hint" in ctx:
+                result["task_hint"] = ctx["task_hint"]
 
     return result
 
@@ -187,13 +369,11 @@ def dispatch_spec_domain(data: dict[str, Any]) -> Any:
 
 
 def dispatch_text(data: dict[str, Any]) -> Any:
-    from plugin.scripting.venv.text_analytics import run_text_analytics
-
     spec, data_range, context = _packet_parts(data)
     raw_text = data.get("text")
     # Empty string is real text. Only a missing value falls back to data_range.
     text = raw_text if raw_text is not None else data_range
-    return run_text_analytics(spec, text, context)
+    return run_domain("text", spec, text, context)
 
 
 def dispatch_vision(data: dict[str, Any]) -> Any:

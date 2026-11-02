@@ -11,7 +11,7 @@ import logging
 import math
 from typing import Any
 
-from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
+from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.coerce import (
     date_column,
     flat_label,
@@ -23,7 +23,7 @@ from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
-    parse_trusted_spec as _parse_trusted_spec,
+    run_domain,
 )
 
 log = logging.getLogger(__name__)
@@ -136,6 +136,7 @@ def _returns_frame_from_df(df: Any) -> tuple[Any, Any]:
     return numeric_df, dates
 
 
+@helper("quant")
 def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
     try:
         import yfinance as yf  # type: ignore
@@ -196,6 +197,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
         return _error_result("EXECUTION_ERROR", str(e), helper="fetch_historical_data")
 
 
+@helper("quant")
 def technical_analysis(
     params: dict[str, Any],
     data: Any,
@@ -270,6 +272,7 @@ def technical_analysis(
         return _error_result("EXECUTION_ERROR", str(e), helper="technical_analysis")
 
 
+@helper("quant")
 def portfolio_tearsheet(
     params: dict[str, Any],
     data: Any,
@@ -361,6 +364,7 @@ def portfolio_tearsheet(
         return _error_result("EXECUTION_ERROR", str(e), helper="portfolio_tearsheet")
 
 
+@helper("quant")
 def efficient_frontier(
     params: dict[str, Any],
     data: Any,
@@ -464,24 +468,4 @@ def run_quant(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC and Run Python Script."""
-    parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
-    if isinstance(parsed, dict):
-        return parsed
-    helper, params, headers, header_row, ctx = parsed
-
-    # Every data helper needs headers and header_row. Dropping them makes
-    # tearsheet and frontier treat a header row as a price.
-    if helper == "fetch_historical_data":
-        result = fetch_historical_data(params)
-    elif helper == "technical_analysis":
-        result = technical_analysis(params, data, headers=headers, header_row=header_row)
-    elif helper == "portfolio_tearsheet":
-        result = portfolio_tearsheet(params, data, headers=headers, header_row=header_row)
-    elif helper == "efficient_frontier":
-        result = efficient_frontier(params, data, headers=headers, header_row=header_row)
-    else:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
-
-    if result.get("status") == "ok" and ctx:
-        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
-    return result
+    return run_domain("quant", spec, data, context=context)

@@ -11,16 +11,14 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.framework.errors import CalcError, ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
-from plugin.scripting.symbolic import (
-    HELPER_NAMES,
-    insert_symbolic_result_into_doc,
-    run_trusted_symbolic,
-)
+from plugin.scripting.helper_domain import run_domain
+from plugin.scripting.helper_registry import names
+from plugin.scripting.symbolic import insert_symbolic_result_into_doc
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-_SYMBOLIC_HELPERS = ", ".join(sorted(HELPER_NAMES))
+_SYMBOLIC_HELPERS = ", ".join(sorted(names("symbolic")))
 
 # Mirrors the venv helper signatures (plugin/scripting/venv/symbolic.py).
 # The venv still owns required-key and default checks.
@@ -49,7 +47,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
         },
         "required": ["helper"],
     }
-    # Draw and Impress are doc_type "draw", and run_trusted_symbolic accepts
+    # Draw and Impress are doc_type "draw", and run_domain accepts
     # only Writer and Calc, so the tool was offered and then failed with
     # "Symbolic helpers require a Writer or Calc document." Draw and Impress
     # insert formulas with insert_math.
@@ -66,7 +64,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
         helper = kwargs["helper"].strip()
         if not helper:
             return self._tool_error("helper is required")
-        if helper not in HELPER_NAMES:
+        if helper not in names("symbolic"):
             return self._tool_error(f"Unknown helper {helper!r}")
 
         params = kwargs.get("params")
@@ -88,7 +86,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
         try:
             # Pass ToolContext (not ctx.ctx) so run_trusted_worker_action reads
             # stop_checker / send_cancellation; the UNO context has neither.
-            result = run_trusted_symbolic(ctx, ctx.doc, helper=helper, params=params, task_hint=task_hint, doc_type=ctx.doc_type)
+            result = run_domain("math", ctx, ctx.doc, helper=helper, params=params, task_hint=task_hint, doc_type=ctx.doc_type)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "SYMBOLIC_ERROR"))
         except Exception as exc:
