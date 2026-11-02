@@ -23,6 +23,7 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+from compute_service import error_codes as ec
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
 from compute_service.worker_base import BaseProcessPool, Deadline, PoolSingleton, error_dict, resolve_override, run_compute_worker
@@ -69,7 +70,7 @@ class VisionProcessPool(BaseProcessPool):
         again before ``open``, so this layer does not add a third answer.
         """
         if not self.is_enabled():
-            return error_dict("VISION_SERVICE_DISABLED", "Vision / OCR service is not enabled on this instance (ocr_workers=0).", req_id=req_id)
+            return error_dict(ec.VISION_SERVICE_DISABLED, "Vision / OCR service is not enabled on this instance (ocr_workers=0).", req_id=req_id)
 
         # Only None means "use the default". Zero is an explicit timeout.
         clock = deadline if deadline is not None else Deadline(float(self.default_timeout_sec if timeout_sec is None else timeout_sec))
@@ -77,10 +78,10 @@ class VisionProcessPool(BaseProcessPool):
         payload = {"id": req_id, "helper": helper, "image_bytes": image, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
 
         if clock.usable() is None:
-            return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
+            return error_dict(ec.VISION_POOL_BUSY, "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
         with self.leased(timeout_sec=max(clock.left(), 0.0)) as worker:
             if worker is None or clock.usable() is None:
-                return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
+                return error_dict(ec.VISION_POOL_BUSY, "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
             return worker.execute(payload, timeout_sec=clock.run_for(), req_id=req_id)
 
 
@@ -128,7 +129,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     try:
         from plugin.vision.venv.vision import run_vision
     except (ModuleNotFoundError, ImportError):
-        return {"id": req_id, "status": "error", "code": "VISION_UNAVAILABLE", "error": "OCR is not installed in this server"}
+        return {"id": req_id, "status": "error", "code": ec.VISION_UNAVAILABLE, "error": "OCR is not installed in this server"}
 
     try:
         spec = {"helper": helper, "params": params}
@@ -138,7 +139,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         return res
     except Exception as exc:
         # Omit traceback — server paths on the kit wire; see formula_worker.py.
-        return {"id": req_id, "status": "error", "code": "VISION_WORKER_ERROR", "error": str(exc)}
+        return {"id": req_id, "status": "error", "code": ec.VISION_WORKER_ERROR, "error": str(exc)}
 
 
 def main() -> int:

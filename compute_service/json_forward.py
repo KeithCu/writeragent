@@ -24,6 +24,7 @@ import json
 import math
 from dataclasses import dataclass
 from typing import Any
+from compute_service import error_codes as ec
 
 # HTTP max_body_bytes is 32 MiB; pickle of the envelope needs a little slack.
 COMPUTE_MAX_PAYLOAD_BYTES = 33 * 1024 * 1024
@@ -100,10 +101,10 @@ def validate_session_id(session_id: Any) -> str:
     internal init-script snapshotting and cannot be claimed by callers.
     """
     if not isinstance(session_id, str) or not session_id.strip():
-        raise ExecuteRequestError("session_id must be a non-empty string.", code="INVALID_SESSION_ID")
+        raise ExecuteRequestError("session_id must be a non-empty string.", code=ec.INVALID_SESSION_ID)
     sid = session_id.strip()
     if sid.endswith(":init") or sid.startswith("isolated:"):
-        raise ExecuteRequestError(f"Invalid session_id {sid!r}: names ending in ':init' or starting with 'isolated:' are reserved.", code="INVALID_SESSION_ID")
+        raise ExecuteRequestError(f"Invalid session_id {sid!r}: names ending in ':init' or starting with 'isolated:' are reserved.", code=ec.INVALID_SESSION_ID)
     return sid
 
 
@@ -496,7 +497,7 @@ def _parse_meta_object(meta_bytes: bytes, forbidden_keys: tuple[str, ...] | froz
         raise ExecuteRequestError("meta part must be a JSON object")
     for key in forbidden_keys:
         if key in obj:
-            raise ExecuteRequestError(f"meta part must not include a {key!r} field", code="INVALID_REQUEST")
+            raise ExecuteRequestError(f"meta part must not include a {key!r} field", code=ec.INVALID_REQUEST)
     req_id = obj.get("id")
     timeout_ms = obj.get("timeout_ms")
     # 1e9999 survives parse_constant (that hook only sees NaN / Infinity
@@ -505,9 +506,9 @@ def _parse_meta_object(meta_bytes: bytes, forbidden_keys: tuple[str, ...] | froz
     _reject_nonfinite_number(req_id)
     _reject_nonfinite_number(timeout_ms)
     if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
-        raise ExecuteRequestError("id must be a scalar", code="INVALID_REQUEST")
+        raise ExecuteRequestError("id must be a scalar", code=ec.INVALID_REQUEST)
     if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
-        raise ExecuteRequestError("timeout_ms must be a scalar", code="INVALID_REQUEST")
+        raise ExecuteRequestError("timeout_ms must be a scalar", code=ec.INVALID_REQUEST)
     return obj
 
 
