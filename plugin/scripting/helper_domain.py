@@ -523,64 +523,75 @@ def plot_insert_ok_outcome(
     return rps_ok_outcome(status_ok, result=result, stdout=stdout)
 
 
-# --- Host Facade Factory ---
+def run_domain(
+    wiring_id: str,
+    uno_ctx: Any,
+    doc: Any,
+    *,
+    helper: str,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Execute trusted helper within *wiring_id* on the host."""
+    from plugin.scripting.domain_registry import get_domain_wiring
+    from plugin.scripting.helper_registry import names
 
+    row = get_domain_wiring(wiring_id)
+    if row.runner == "symbolic":
+        from plugin.framework.errors import ToolExecutionError
 
-@dataclass(frozen=True)
-class DomainFacadeConfig:
-    tag: str                          # "viz", "math", "units", "quant", "optimize", "forecast"
-    helper_names: frozenset[str]      # from domains_common
-    default_params: dict[str, dict[str, Any]]
-    descriptions: dict[str, str]
-    import_module: str                # e.g. "writeragent.scripting.viz"
-    run_name: str                     # e.g. "run_viz"
-    shipped_templates: frozenset[str] | None = None
-    data_expr: str = "data"
-    context_expr: str = "{}"
-    positional_args: dict[str, tuple[str, ...]] | None = None
-    extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
-    # Sheet helpers take the injected range as the first argument. Quant and
-    # text call ``run_*`` instead of the helper name (those callables do not
-    # match ``helper(**params)``).
-    leading_data: bool = False
-    invoke: str = "direct"
+        name = str(helper or "").strip()
+        if not name:
+            raise ToolExecutionError("helper is required", code="SYMBOLIC_ERROR")
+        h_names = names("symbolic")
+        if name not in h_names:
+            raise ToolExecutionError(f"Unknown helper {name!r}", code="SYMBOLIC_ERROR")
 
-    # crosshair: off
-    def _template_body(self, helper: str) -> str:
-        desc = self.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
-        pos = self.positional_args.get(helper, ()) if self.positional_args else ()
-        return build_helper_script_template(
+        doc_type = kwargs.get("doc_type")
+        if doc_type is None and doc is not None:
+            from plugin.doc.doc_type import is_calc, is_writer
+
+            if is_calc(doc):
+                doc_type = "calc"
+            elif is_writer(doc):
+                doc_type = "writer"
+        if doc_type not in ("calc", "writer"):
+            raise ToolExecutionError("Symbolic helpers require a Writer or Calc document.", code="SYMBOLIC_ERROR")
+
+        spec: dict[str, Any] = {"helper": name}
+        params = kwargs.get("params")
+        if isinstance(params, dict) and params:
+            spec["params"] = params
+
+        task_hint = kwargs.get("task_hint")
+        from plugin.scripting.client import run_symbolic as client_run_symbolic
+
+        return client_run_symbolic(
+            uno_ctx,
+            spec,
+            None,
+            context={"task_hint": str(task_hint)} if task_hint else None,
+        )
+
+    if row.runner == "sheet":
+        import plugin.scripting.client as client
+
+        rpc = row.rpc_domain or row.helper_domain or wiring_id
+        client_run = getattr(client, f"run_{rpc}")
+        h_names = names(row.helper_domain or wiring_id)
+        return run_trusted_calc_data_helper(
+            uno_ctx,
+            doc,
             helper=helper,
-            params=self.default_params.get(helper, {}),
-            description=desc,
-            import_module=self.import_module,
-            run_name=self.run_name,
-            data_expr=self.data_expr,
-            context_expr=self.context_expr,
-            extra_comment_lines=self.extra_comment_lines,
-            positional_args=pos,
-            leading_data=self.leading_data,
-            invoke=self.invoke,
+            helper_names=h_names,
+            error_code=row.error_code or "",
+            empty_data_message=row.empty_data_message or "",
+            client_run=client_run,
+            require_calc_or_writer=row.require_calc_or_writer,
+            force_queue=row.force_queue,
+            **kwargs,
         )
 
-    # crosshair: off
-    def get_templates(self) -> dict[str, str]:
-        shipped = self.shipped_templates if self.shipped_templates is not None else self.helper_names
-        return {h: self._template_body(h) for h in sorted(shipped & self.helper_names)}
-
-    # crosshair: off
-    def parse_header(self, code: str) -> HelperScriptMeta | None:
-        return parse_helper_script_header(
-            code,
-            tag=self.tag,
-            helper_names=self.helper_names,
-        )
-
-    # crosshair: off
-    def template_for(self, helper: str) -> str | None:
-        if helper not in self.helper_names:
-            return None
-        return self._template_body(helper)
+    raise ValueError(f"No host runner configured for wiring id {wiring_id!r}")
 
 
 def is_status_helper_result(

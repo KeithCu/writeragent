@@ -13,7 +13,7 @@ from plugin.scripting.python_runner import execute_and_insert_result
 
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
-@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+@patch("plugin.scripting.helper_domain.run_domain")
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
 def test_execute_and_insert_analysis_skips_fast_path(mock_venv, mock_run, mock_insert):
     ctx = MagicMock()

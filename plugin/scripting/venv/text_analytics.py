@@ -618,25 +618,13 @@ def _text_analytics_error(helper: str, message: str, result: dict[str, Any]) -> 
     }
 
 
-def run_text_analytics(
-    spec: dict[str, Any] | str,
-    text: str | list[str] | None = None,
+def dispatch_text_analytics(
+    helper: str,
+    text: Any,
+    params: dict[str, Any],
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Dispatcher used by the trusted worker stub (and by Run Python Script templates).
-
-    `spec` can be a string like "full", "readability", "entities", "key_phrases"
-    or a dict {"helper": "...", "params": {...}}.
-
-    `text` is the document text (or list of section texts).
-    """
-    if isinstance(spec, dict):
-        helper = spec.get("helper") or spec.get("type") or "full"
-        params = spec.get("params", {}) or {}
-    else:
-        helper = str(spec or "full")
-        params = {}
-
+    """Execute text analytics helper or alias on *text*."""
     lang = params.get("lang") or (context or {}).get("lang")
     if helper in ("diagnostics", "check"):
         return {"status": "ok", "helper": helper, "result": check_diagnostics(lang=lang)}
@@ -712,3 +700,20 @@ def run_text_analytics(
         "helper": str(helper),
         "message": f"Unknown text analytics helper {helper!r}",
     }
+
+
+def run_text_analytics(
+    spec: dict[str, Any] | str,
+    text: str | list[str] | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Dispatcher used by the trusted worker stub (and by Run Python Script templates).
+
+    `spec` can be a string like "full", "readability", "entities", "key_phrases"
+    or a dict {"helper": "...", "params": {...}}.
+
+    `text` is the document text (or list of section texts).
+    """
+    from plugin.scripting.venv.trusted_dispatch import run_domain
+
+    return run_domain("text", spec, text, context=context)

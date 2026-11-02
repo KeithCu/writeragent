@@ -54,7 +54,7 @@ def test_build_viz_request_regression():
 @patch("plugin.scripting.viz.insert_viz_result_into_doc")
 @patch("plugin.calc.viz_auto_plot.run_auto_plot_after_analysis")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_auto_plot_inserts_chart(
     mock_run_analysis,
     mock_main_thread,
@@ -90,7 +90,7 @@ def test_analyze_data_auto_plot_inserts_chart(
 @patch("plugin.scripting.viz.insert_viz_result_into_doc")
 @patch("plugin.calc.viz_auto_plot.run_auto_plot_after_analysis")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.analysis_runner.run_trusted_analysis")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_auto_plot_does_not_marshal_viz_read(
     mock_run_analysis,
     mock_main_thread,

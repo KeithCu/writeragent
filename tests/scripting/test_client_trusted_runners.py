@@ -84,7 +84,7 @@ def test_headers_false_survives_client_path(ctx):
     the spec without headers, and parse_trusted_spec defaulted headers=True,
     so the first data row was consumed as column names.
     """
-    from plugin.scripting.calc_functions_common import FORECAST_HELPER_NAMES
+    from plugin.scripting.helper_registry import names
     from plugin.scripting.venv.trusted_dispatch import _packet_parts, parse_trusted_spec
 
     grid = [["Date", "Value"], ["2024-01-01", 1]]
@@ -107,7 +107,7 @@ def test_headers_false_survives_client_path(ctx):
     assert payload["header_row"] == 1
     assert payload["params"] == {"periods": 2}
     rebuilt, data_range, rebuilt_context = _packet_parts(payload)
-    parsed = parse_trusted_spec(rebuilt, helper_names=FORECAST_HELPER_NAMES, context=rebuilt_context)
+    parsed = parse_trusted_spec(rebuilt, helper_names=names("forecast"), context=rebuilt_context)
     assert not isinstance(parsed, dict)
     assert parsed[2] is False
     assert parsed[3] == 1
@@ -115,7 +115,7 @@ def test_headers_false_survives_client_path(ctx):
 
 
 def test_string_false_header_is_not_coerced_on_the_host(ctx):
-    from plugin.scripting.calc_functions_common import FORECAST_HELPER_NAMES
+    from plugin.scripting.helper_registry import names
     from plugin.scripting.venv.trusted_dispatch import _packet_parts, parse_trusted_spec
 
     grid = [["Date", "Value"], ["2024-01-01", 1]]
@@ -137,7 +137,7 @@ def test_string_false_header_is_not_coerced_on_the_host(ctx):
     assert payload["headers"] == "false"
     assert payload["header_row"] == "abc"
     rebuilt, _data_range, rebuilt_context = _packet_parts(payload)
-    parsed = parse_trusted_spec(rebuilt, helper_names=FORECAST_HELPER_NAMES, context=rebuilt_context)
+    parsed = parse_trusted_spec(rebuilt, helper_names=names("forecast"), context=rebuilt_context)
     assert isinstance(parsed, dict)
     assert parsed["status"] == "error"
     assert parsed["code"] == "INVALID_SPEC"
@@ -161,7 +161,7 @@ def test_string_false_header_is_not_coerced_on_the_host(ctx):
     assert payload2["headers"] == "false"
     assert payload2["header_row"] == 1
     rebuilt2, _data_range2, rebuilt_context2 = _packet_parts(payload2)
-    parsed2 = parse_trusted_spec(rebuilt2, helper_names=FORECAST_HELPER_NAMES, context=rebuilt_context2)
+    parsed2 = parse_trusted_spec(rebuilt2, helper_names=names("forecast"), context=rebuilt_context2)
     assert not isinstance(parsed2, dict)
     assert parsed2[2] is False
     assert parsed2[3] == 1

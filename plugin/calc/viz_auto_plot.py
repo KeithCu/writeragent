@@ -87,6 +87,6 @@ def run_auto_plot_after_analysis(uno_ctx: Any, doc: Any, *, analysis_helper: str
     if request is None:
         return None
     viz_helper, viz_params = request
-    from plugin.scripting.viz import run_trusted_viz
+    from plugin.scripting.helper_domain import run_domain
 
-    return run_trusted_viz(uno_ctx, doc, helper=viz_helper, params=viz_params, data_range=data_range, task_hint=task_hint)
+    return run_domain("viz", uno_ctx, doc, helper=viz_helper, params=viz_params, data_range=data_range, task_hint=task_hint)

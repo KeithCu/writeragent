@@ -103,7 +103,7 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         from plugin.calc.calc_addin_data import _resolve_python_data
         from plugin.framework.queue_executor import run_on_main
 
-        # Sheet read is UNO. Viz IPC (run_trusted_viz) stays on the caller.
+        # Sheet read is UNO. Viz IPC (run_domain) stays on the caller.
         py_data, err = run_on_main(lambda: _resolve_python_data(doc, data_range=data_range, data=None))
         if err:
             return {"status": "error", "message": f"Could not read forecast history: {err}"}
@@ -121,9 +121,9 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         if "upper" in header:
             viz_params["upper_col"] = "upper"
 
-        from plugin.scripting.viz import run_trusted_viz
+        from plugin.scripting.helper_domain import run_domain
 
-        return run_trusted_viz(uno_ctx, doc, helper="time_series_plot", params=viz_params, data=merged, data_range=None, task_hint=task_hint)
+        return run_domain("viz", uno_ctx, doc, helper="time_series_plot", params=viz_params, data=merged, data_range=None, task_hint=task_hint)
     except Exception as exc:
         reraise_if_disposed(exc, object_type="calc")
         log.exception("Forecast auto-plot failed")

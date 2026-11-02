@@ -22,47 +22,17 @@ from plugin.doc.text_helpers import (
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.helper_domain import DomainFacadeConfig
+from plugin.scripting.domain_registry import get_domain_wiring
 
 _TEXT_VENV_EXPORTS = frozenset({"analyze_text", "check_diagnostics", "run_text_analytics"})
 
 install_lazy_exports(globals(), "text_analytics", _TEXT_VENV_EXPORTS)
 
-
-from plugin.scripting.calc_functions_common import TEXT_ANALYTICS_HELPER_NAMES as HELPER_NAMES
-
 log = logging.getLogger(__name__)
 
-_DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    "topics": {"n_topics": 4},
-}
 
-_HELPER_DESCRIPTIONS: dict[str, str] = {
-    "full": "Full spaCy + textdescriptives analysis (readability, entities, key phrases)",
-    "readability": "Readability scores and descriptive stats via textdescriptives",
-    "entities": "Named entity recognition (multilingual NER)",
-    "key_phrases": "Key phrases via noun chunks (lemmatized)",
-    "topics": "Topic modeling (NMF + TF-IDF). Best results when whole document yields section list.",
-    "sentiment": "transformers + multilingual model (XLM-RoBERTa default) sentiment (score + label). Best with whole document for per-section results. Override model via JSON config.",
-}
-
-_SHIPPED_TEMPLATES = HELPER_NAMES - {"diagnostics", "check"}
-
-_API = DomainFacadeConfig(
-    tag="text",
-    helper_names=HELPER_NAMES,
-    default_params=_DEFAULT_PARAMS,
-    descriptions=_HELPER_DESCRIPTIONS,
-    import_module="writeragent.scripting.text_analytics",
-    run_name="run_text_analytics",
-    shipped_templates=_SHIPPED_TEMPLATES,
-    data_expr="text",
-    context_expr="document_context",
-    invoke="runner",
-    extra_comment_lines=("# Works on Writer documents (document text is injected on Run).",),
-)
-
-get_text_analytics_script_templates = _API.get_templates
+def get_text_analytics_script_templates() -> dict[str, str]:
+    return get_domain_wiring("text").templates()
 
 def resolve_text_analytics_document_inputs(
     doc: Any,
@@ -254,9 +224,11 @@ def is_text_analytics_result(value: Any) -> bool:
     # raw dict as generic Writer text and reported success.
     status = value.get("status")
     helper = value.get("helper")
+    from plugin.scripting.helper_registry import names
+
     if status == "error":
         return str(value.get("code") or "") in ("TEXT_ANALYTICS_ERROR", "UNKNOWN_HELPER") or (
-            isinstance(helper, str) and helper in HELPER_NAMES
+            isinstance(helper, str) and helper in names("text")
         )
     if isinstance(helper, str) and helper in ("diagnostics", "check"):
         return status == "ok"

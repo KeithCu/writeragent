@@ -18,14 +18,7 @@ from plugin.calc.tabular_egress import (
     _error_grid,
     insert_tabular_result_into_calc,
 )
-from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES
-from plugin.scripting.helper_domain import is_status_helper_result
 
-
-def is_quant_result(value: Any) -> bool:
-    """True when *value* matches the compact quant helper result contract."""
-    # No host-side error code: every quant error carries helper= or a helper name.
-    return is_status_helper_result(value, QUANT_HELPER_NAMES, frozenset())
 
 
 def format_quant_for_calc(result: dict[str, Any]) -> list[list[Any]]:

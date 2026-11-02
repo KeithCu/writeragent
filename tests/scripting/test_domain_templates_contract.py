@@ -12,17 +12,23 @@ import inspect
 
 import pytest
 
-from plugin.scripting.analysis import HELPER_NAMES as ANALYSIS_HELPERS, get_analysis_script_templates, parse_analysis_script_header
-from plugin.scripting.forecast import HELPER_NAMES as FORECAST_HELPERS, get_forecast_template, parse_forecast_script_header
-from plugin.scripting.optimize import HELPER_NAMES as OPTIMIZE_HELPERS, get_optimize_template, parse_optimize_script_header
-from plugin.scripting.quant import HELPER_NAMES as QUANT_HELPERS, get_quant_template, parse_quant_script_header
+from plugin.scripting.analysis import get_analysis_script_templates, parse_analysis_script_header
+from plugin.scripting.forecast import get_forecast_template, parse_forecast_script_header
+from plugin.scripting.helper_registry import names, specs
+from plugin.scripting.optimize import get_optimize_template, parse_optimize_script_header
+from plugin.scripting.quant import get_quant_template, parse_quant_script_header
 from plugin.scripting.text_analytics import (
-    HELPER_NAMES as TEXT_HELPERS,
     get_text_analytics_script_templates,
 )
 from plugin.scripting.units import (
     get_units_script_templates,
 )
+
+ANALYSIS_HELPERS = names("analysis")
+FORECAST_HELPERS = names("forecast")
+OPTIMIZE_HELPERS = names("optimize")
+QUANT_HELPERS = names("quant")
+TEXT_HELPERS = names("text")
 
 
 @pytest.mark.parametrize(
@@ -38,19 +44,17 @@ def test_domain_templates_cover_helpers(templates_fn, helper_names, parse_fn, pu
 
 
 def test_units_templates_cover_shipped_helpers():
-    from plugin.scripting.units import _DEFAULT_PARAMS
-
+    shipped = {s.name for s in specs("units") if s.shipped_template}
     templates = get_units_script_templates()
-    assert set(templates.keys()) == set(_DEFAULT_PARAMS)
+    assert set(templates.keys()) == shipped
     for helper, code in templates.items():
         assert f"from writeragent.scripting.units import {helper}" in code
 
 
 def test_text_templates_cover_shipped_helpers():
-    from plugin.scripting.text_analytics import _SHIPPED_TEMPLATES
-
+    shipped = {s.name for s in specs("text") if s.shipped_template}
     templates = get_text_analytics_script_templates()
-    assert set(templates.keys()) == set(_SHIPPED_TEMPLATES)
+    assert set(templates.keys()) == shipped
     public = {h for h in TEXT_HELPERS if h not in ("diagnostics", "check")}
     assert set(templates.keys()) == public
     for helper, code in templates.items():

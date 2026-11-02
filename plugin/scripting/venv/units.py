@@ -14,15 +14,15 @@ import math
 from functools import lru_cache
 from typing import Any, Callable
 
-from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.calc_range import ensure_rectangular_2d
+from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.map_range import inspect_input, map_over_range
 from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
     is_blank_param,
     missing_package_error,
     ok_result,
-    resolve_spec_helper,
+    run_domain,
 )
 
 class _FormatSpecError(Exception):
@@ -406,7 +406,8 @@ def _convert_formatted(flat: list[Any], suffixes: list[str]) -> list[Any]:
     return out
 
 
-def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
+@helper("units", "convert_quantity")
+def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
     name = "convert_quantity"
     raw_from, from_conflict = _resolve_unit_alias(params.get("from_unit"), params.get("from"))
     if from_conflict:
@@ -450,7 +451,8 @@ def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
+@helper("units", "parse_quantity")
+def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
     name = "parse_quantity"
     # What was wrong: parse_quantity("") and parse_quantity(quantity=None)
     # returned MISSING_PARAM, while run_units with quantity "" or None returned
@@ -480,7 +482,8 @@ def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
+@helper("units", "format_quantity")
+def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
     name = "format_quantity"
     raw_mag = params.get("magnitude")
     raw_units = params.get("units")
@@ -505,21 +508,14 @@ def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _dispatch_check(params: dict[str, Any]) -> dict[str, Any]:
+@helper("units", "check_dimensionality")
+def _dispatch_check(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
     return check_dimensionality(
         quantity_a=str(params.get("quantity_a") or ""),
         quantity_b=str(params.get("quantity_b") or ""),
         unit_a=str(params.get("unit_a") or ""),
         unit_b=str(params.get("unit_b") or ""),
     )
-
-
-_DISPATCH: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
-    "convert_quantity": _dispatch_convert,
-    "parse_quantity": _dispatch_parse,
-    "format_quantity": _dispatch_format,
-    "check_dimensionality": _dispatch_check,
-}
 
 
 def run_units(
@@ -529,25 +525,4 @@ def run_units(
 ) -> dict[str, Any]:
     """Spec-driven dispatcher for trusted units helpers."""
     del data
-    res = resolve_spec_helper(spec, helper_names=HELPER_NAMES)
-    if isinstance(res, dict):
-        return res
-    helper, spec_dict = res
-
-    params = spec_dict.get("params")
-    if params is None:
-        params = {k: v for k, v in spec_dict.items() if k not in ("helper", "params", "headers", "header_row")}
-    if not isinstance(params, dict):
-        # A list or string used to become {}. The helper then reported
-        # MISSING_PARAM ("from and to units are required") instead of a bad spec.
-        return _error_result("INVALID_SPEC", "params must be a dict", helper=helper)
-
-    # output_style is host egress only. Pop it so it is not a helper argument.
-    clean = dict(params)
-    clean.pop("output_style", None)
-    if _get_ureg() is None:
-        return missing_package_error(helper, "pint")
-    result = _DISPATCH[helper](clean)
-    if result.get("status") == "ok" and context and "task_hint" in context:
-        result["task_hint"] = context["task_hint"]
-    return result
+    return run_domain("units", spec, context=context)

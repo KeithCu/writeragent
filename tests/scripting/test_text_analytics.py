@@ -105,8 +105,10 @@ def test_run_text_analytics_unknown_helper_is_an_error():
 
 
 def test_text_analytics_helper_names():
-    assert hasattr(ta, "HELPER_NAMES")
-    assert "full" in ta.HELPER_NAMES
+    from plugin.scripting.helper_registry import names
+
+    text_names = names("text")
+    assert "full" in text_names
 
 
 def test_check_diagnostics():
@@ -154,7 +156,9 @@ def test_run_text_analytics_diagnostics_dispatch():
     ],
 )
 def test_text_analytics_topics_in_helernames_and_templates(value, value_2, value_3, value_4, value_5):
-    assert value in ta.HELPER_NAMES
+    from plugin.scripting.helper_registry import names
+
+    assert value in names("text")
     temps = ta.get_text_analytics_script_templates()
     assert value_2 in temps
     code = temps[value_3]

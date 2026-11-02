@@ -826,6 +826,9 @@ def test_run_analysis_dispatches_helper(monkeypatch):
         recorded["kwargs"] = kwargs
         return {"status": "ok", "helper": "describe_data"}
 
+    from plugin.scripting import helper_registry
+
+    monkeypatch.setitem(helper_registry._BOUND, ("analysis", "describe_data"), stub_describe)
     monkeypatch.setattr("plugin.scripting.venv.analysis.describe_data", stub_describe)
     result = analysis.run_analysis("describe_data", SALES_GRID)
     assert result["status"] == "ok"
