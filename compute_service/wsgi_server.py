@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Accept loop, listener budget, and the deadline clock.
 
-Route handlers import the clock and the sticky cap. ``server.py`` builds
+Route handlers import the clock and the admission permit count. ``server.py`` builds
 one ``WSGIDualStackServer`` and still owns process startup.
 """
 
@@ -41,42 +41,20 @@ _REQUEST_WRITE_TIMEOUT_SEC = 30.0
 
 
 def listener_thread_count(max_threads: int | None) -> int:
-    """Listener threads when the server is built with an explicit ``max_threads``.
-
-    ``None`` is the class default of 16. A configured count keeps four spare
-    threads and never goes below 8. Tests and the benchmark pass ``max_threads``
-    this way. A running service uses ``service_listener_threads`` instead, so
-    the sticky cap cannot drift from the accept pool.
-    """
+    """Listener threads for ``max_threads``: ``None`` is the class default of 16, otherwise ``max(8, n + 4)``."""
     if max_threads is None:
         return 16
     return max(8, max_threads + 4)
 
 
-def _listener_budget(settings: ComputeSettings) -> tuple[int, int]:
-    """Return ``(listeners, sticky)``.
-
-    ``listeners`` is at least workers + vision permits (``max(1, ocr_workers)``)
-    + one sticky slot per worker + 2 unpermitted threads, so ``GET /health``
-    always has a listener. ``sticky`` is the listeners left after the workers,
-    the vision permits and those 2 (at least 1).
-    """
-    vision_permits = max(1, settings.ocr_workers)
-    sticky_floor = max(1, settings.workers)
-    needed = settings.workers + vision_permits + sticky_floor + 2
-    listeners = max(listener_thread_count(settings.threads), needed)
-    spare = listeners - 2 - settings.workers - vision_permits
-    return listeners, max(1, spare)
-
-
 def service_listener_threads(settings: ComputeSettings) -> int:
     """Accept-pool size for one running compute service."""
-    return _listener_budget(settings)[0]
+    return listener_thread_count(settings.threads)
 
 
-def sticky_listener_slots(settings: ComputeSettings) -> int:
-    """How many sticky execute / session-reset requests may hold a listener."""
-    return _listener_budget(settings)[1]
+def admission_permits(settings: ComputeSettings) -> int:
+    """Permits shared by execute, session reset and vision; two listeners stay free for ``GET /health``."""
+    return service_listener_threads(settings) - 2
 
 
 # =============================================================================

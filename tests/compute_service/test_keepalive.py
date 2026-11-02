@@ -57,7 +57,7 @@ class ConnectionReader:
 
 def _start_server(
     max_threads: int = 2,
-    worker_semaphore: threading.Semaphore | None = None,
+    semaphore: threading.Semaphore | None = None,
     settings_override: dict[str, Any] | None = None,
 ) -> tuple[WSGIDualStackServer, int, threading.Thread]:
     opts: dict[str, Any] = {"log_level": "DEBUG", "api_key": ""}
@@ -66,7 +66,7 @@ def _start_server(
     def _exec(code: str, **kwargs: Any) -> dict[str, Any]:
         return {"status": "ok", "result": 1, "id": kwargs.get("req_id")}
 
-    app = create_wsgi_app(ComputeSettings(**opts), execute_fn=_exec, worker_semaphore=worker_semaphore)
+    app = create_wsgi_app(ComputeSettings(**opts), execute_fn=_exec, semaphore=semaphore)
     server = WSGIDualStackServer("127.0.0.1", 0, max_threads=max_threads)
     server.set_app(app)
     t = threading.Thread(target=server.serve_forever, daemon=True)
@@ -254,7 +254,7 @@ def test_expect_100_continue_sent_once() -> None:
 def test_reuse_after_503_queue_timeout() -> None:
     sem = threading.Semaphore(0)
     try:
-        with _server(worker_semaphore=sem) as (_s, port), _client(port) as c:
+        with _server(semaphore=sem) as (_s, port), _client(port) as c:
             c.sock.sendall(_execute("req-503", timeout_ms=50))
             _ver, status, hdrs, _body = c.read_response()
             assert status == 503 and "close" not in hdrs.get("connection", "")
