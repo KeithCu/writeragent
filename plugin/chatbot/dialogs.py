@@ -51,13 +51,21 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
     from com.sun.star.datatransfer import DataFlavor
 from plugin.framework.errors import best_effort
-from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url
+from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url, process_events_to_idle
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.dialogs")
 
 
 # ── Simple message box ──────────────────────────────────────────────
+
+
+def _frame_container(ctx: Any, frame: Any = None) -> tuple[Any, Any]:
+    if frame is None:
+        frame = get_desktop(ctx).getCurrentFrame()
+    if frame is None:
+        return None, None
+    return frame, frame.getContainerWindow()
 
 
 def _execute_message_box(
@@ -104,16 +112,12 @@ def msgbox(
         # there can open behind it. None keeps the frame lookup.
         window = parent_window
         if window is None:
-            desktop = get_desktop(ctx)
-            frame = desktop.getCurrentFrame()
+            frame, window = _frame_container(ctx)
             if frame is None:
                 log.info("MSGBOX (no frame) - %s: %s", title, message)
                 return
-            window = frame.getContainerWindow()
         log.debug("msgbox execute start title=%s", title)
         _execute_message_box(ctx, window, box_type, 1, _(title), str(message))
-        from plugin.framework.uno_context import process_events_to_idle
-
         process_events_to_idle(ctx)
         log.debug("msgbox execute done title=%s", title)
     except Exception:
@@ -131,14 +135,10 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
         log.warning("show_approval_dialog: no ctx")
         return False
     try:
-        frame = parent_frame
-        if frame is None:
-            desktop = get_desktop(ctx)
-            frame = desktop.getCurrentFrame()
+        frame, window = _frame_container(ctx, parent_frame)
         if frame is None:
             log.warning("show_approval_dialog: no frame (parent_frame=%r, getCurrentFrame=None)", parent_frame)
             return False
-        window = frame.getContainerWindow()
         if window is None:
             log.warning("show_approval_dialog: frame has no container window")
             return False
@@ -343,13 +343,11 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
             dlg.getModel().Title = _(title)
 
         msg_ctrl = dlg.getControl("Msg")
-        if msg_ctrl is not None:
-            msg_ctrl.getModel().Label = str(message)
+        msg_ctrl.getModel().Label = str(message)
 
         copy_btn = dlg.getControl("CopyBtn")
-        if copy_btn is not None:
-            copy_btn.getModel().Label = _("Copy URL")
-            copy_btn.addActionListener(CopyListener(dlg, ctx, report_url))
+        copy_btn.getModel().Label = _("Copy URL")
+        copy_btn.addActionListener(CopyListener(dlg, ctx, report_url))
 
         class _ReportListener(BaseActionListener):
             _ctx: Any
@@ -363,13 +361,11 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
                 open_url_in_browser(self._ctx, self._url)
 
         report_btn = dlg.getControl("ReportBtn")
-        if report_btn is not None:
-            report_btn.getModel().Label = _("Report bug...")
-            report_btn.addActionListener(_ReportListener(ctx, report_url))
+        report_btn.getModel().Label = _("Report bug...")
+        report_btn.addActionListener(_ReportListener(ctx, report_url))
 
         ok_btn = dlg.getControl("OKBtn")
-        if ok_btn is not None:
-            ok_btn.addActionListener(_DismissDialogListener(dlg))
+        ok_btn.addActionListener(_DismissDialogListener(dlg))
 
         dlg.execute()
         dlg.dispose()
@@ -522,30 +518,10 @@ def _nested_exception_object(val: Any) -> BaseException | None:
         return None
     if isinstance(val, BaseException):
         return val
-    if hasattr(val, "Message") or hasattr(val, "Target") or hasattr(val, "Context"):
-        return _UnoExceptionAdapter(val)
     text = str(val).strip()
     if text:
         return RuntimeError(text)
     return None
-
-
-class _UnoExceptionAdapter(BaseException):
-    """Minimal BaseException wrapper for pyuno UNO exception objects."""
-
-    uno_type_name: str
-
-    def __init__(self, uno_exc: Any) -> None:
-        self.uno_type_name = type(uno_exc).__name__
-        message = ""
-        if hasattr(uno_exc, "Message"):
-            message = str(best_effort(lambda: uno_exc.Message, "read uno_exc.Message", default="") or "").strip()
-        if not message:
-            message = type(uno_exc).__name__
-        super().__init__(message)
-        for attr in ("Message", "Name", "ArgumentName", "ArgumentPosition", "SQLError", "Target", "Context"):
-            if hasattr(uno_exc, attr):
-                setattr(self, attr, getattr(uno_exc, attr))
 
 
 def _collect_xdl_load_diagnostics(ctx: Any, dialog_url: str, dialog_name: str) -> str:
