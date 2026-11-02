@@ -12,17 +12,17 @@ from unittest.mock import MagicMock, patch
 from plugin.chatbot.module_config_dialog import (
     ModuleConfigDialog,
     get_module_config_dialog_id,
-    get_module_config_field_specs,
 )
 from plugin.chatbot.settings_fields import (
     apply_field_specs_result,
+    build_module_field_specs,
     populate_settings_control,
 )
 
 
 def test_get_module_config_dialog_id_for_vision():
     with patch(
-        "plugin.chatbot.settings_fields.find_module_manifest",
+        "plugin.chatbot.module_config_dialog.find_module_manifest",
         return_value={
             "name": "vision",
             "config_dialog": {"id": "VisionSettingsDialog", "library": "Dialogs"},
@@ -54,7 +54,7 @@ def test_get_module_config_field_specs_skips_internal_and_non_persisted():
     }
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", return_value="auto"):
-        specs = get_module_config_field_specs(ctx, "vision")
+        specs = build_module_field_specs("vision", ctx=ctx, control_ids="flat")
 
     assert len(specs) == 1
     assert specs[0]["name"] == "device"
@@ -126,7 +126,7 @@ def test_apply_module_config_result_stores_select_option_values():
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", side_effect=lambda key: disk[key]), \
          patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
-        specs = get_module_config_field_specs(ctx, "demo")
+        specs = build_module_field_specs("demo", ctx=ctx, control_ids="flat")
         apply_field_specs_result({"count": "42", "mode": "Fast Mode"}, specs)
         mock_set_configs.assert_called_once_with({"demo.count": "42"})
 
@@ -158,8 +158,8 @@ def test_extract_result_prefers_numeric_getvalue_over_stale_gettext():
     dialog._dlg = dlg
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", return_value=1):
-        specs = get_module_config_field_specs(dialog._ctx, "demo")
-        result = dialog._extract_result(specs)
+        dialog._specs = build_module_field_specs("demo", ctx=dialog._ctx, control_ids="flat")
+        result = dialog._extract_result()
     assert result == {"count": 42}
 
 
@@ -188,8 +188,8 @@ def test_extract_result_checkbox_bool_skips_write_when_already_true():
 
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", return_value=True):
-        specs = get_module_config_field_specs(dialog._ctx, "demo")
-        result = dialog._extract_result(specs)
+        dialog._specs = build_module_field_specs("demo", ctx=dialog._ctx, control_ids="flat")
+        result = dialog._extract_result()
 
     assert result == {"enabled": True}
     assert result["enabled"] is True
@@ -201,7 +201,7 @@ def test_extract_result_checkbox_bool_skips_write_when_already_true():
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", return_value=True), \
          patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
-        specs = get_module_config_field_specs(MagicMock(), "demo")
+        specs = build_module_field_specs("demo", ctx=MagicMock(), control_ids="flat")
         apply_field_specs_result(result, specs)
         mock_set_configs.assert_not_called()
 
@@ -224,8 +224,9 @@ def test_apply_stays_open_when_save_fails():
     dialog = ModuleConfigDialog(MagicMock(), "demo")
     dialog._dlg = MagicMock()
     dialog.close = MagicMock()
+    dialog._specs = []
     with patch.object(dialog, "_extract_result", side_effect=RuntimeError("bad")), \
-         patch("plugin.chatbot.dialogs.msgbox") as box:
+         patch("plugin.chatbot.module_config_dialog.msgbox") as box:
         dialog._apply(close=True)
     dialog.close.assert_not_called()
     box.assert_called_once()
@@ -272,7 +273,7 @@ def test_window_closing_does_not_dispose_and_pops_active_dialogs():
     with (
         patch("plugin.chatbot.module_config_dialog.get_module_config_dialog_id", return_value="VisionSettingsDialog"),
         patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", return_value=(dlg, "")),
-        patch("plugin.chatbot.module_config_dialog.get_module_config_field_specs", return_value=[]),
+        patch("plugin.chatbot.module_config_dialog.build_module_field_specs", return_value=[]),
     ):
         ModuleConfigDialog.show(ctx, "vision")
         assert "vision" in _active_dialogs
@@ -302,7 +303,7 @@ def test_disposing_without_window_closing_pops_active_dialogs():
     with (
         patch("plugin.chatbot.module_config_dialog.get_module_config_dialog_id", return_value="VisionSettingsDialog"),
         patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", return_value=(dlg, "")),
-        patch("plugin.chatbot.module_config_dialog.get_module_config_field_specs", return_value=[]),
+        patch("plugin.chatbot.module_config_dialog.build_module_field_specs", return_value=[]),
     ):
         ModuleConfigDialog.show(ctx, "vision")
         assert "vision" in _active_dialogs
@@ -328,7 +329,7 @@ def test_disposing_from_old_dialog_does_not_evict_replacement():
     with (
         patch("plugin.chatbot.module_config_dialog.get_module_config_dialog_id", return_value="VisionSettingsDialog"),
         patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", side_effect=[(dlg_a, ""), (dlg_b, ""), (dlg_c, "")]),
-        patch("plugin.chatbot.module_config_dialog.get_module_config_field_specs", return_value=[]),
+        patch("plugin.chatbot.module_config_dialog.build_module_field_specs", return_value=[]),
     ):
         # 1. show() A, windowClosing on A. Registry is empty, dispose() was not called.
         ModuleConfigDialog.show(ctx, "vision")
@@ -374,7 +375,7 @@ def test_show_recreates_when_to_front_raises_disposed():
     with (
         patch("plugin.chatbot.module_config_dialog.get_module_config_dialog_id", return_value="VisionSettingsDialog"),
         patch("plugin.chatbot.module_config_dialog.load_writeragent_dialog_detail", side_effect=[(dlg_a, ""), (dlg_b, "")]),
-        patch("plugin.chatbot.module_config_dialog.get_module_config_field_specs", return_value=[]),
+        patch("plugin.chatbot.module_config_dialog.build_module_field_specs", return_value=[]),
     ):
         ModuleConfigDialog.show(ctx, "vision")
         assert _active_dialogs.get("vision") is not None

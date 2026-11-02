@@ -753,8 +753,8 @@ def test_populate_reasoning_effort_selector():
     model = MagicMock()
     ctrl.getModel.return_value = model
 
-    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com/v1"), \
-         patch("plugin.framework.config.get_reasoning_effort_for_endpoint", return_value="high"):
+    with patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value="https://api.openai.com/v1"), \
+         patch("plugin.chatbot.config_ui_helpers.get_reasoning_effort_for_endpoint", return_value="high"):
         populate_reasoning_effort_selector(ctrl)
 
     assert model.StringItemList == REASONING_EFFORT_DISPLAY_LABELS
@@ -768,25 +768,25 @@ def test_sync_sidebar_reasoning_effort():
     ctrl = MagicMock()
     ctrl.getText.return_value = "med"
 
-    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com/v1"), \
-         patch("plugin.framework.config.get_reasoning_effort_for_endpoint", return_value=""), \
-         patch("plugin.framework.config.set_reasoning_effort_for_endpoint") as mock_set:
+    with patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value="https://api.openai.com/v1"), \
+         patch("plugin.chatbot.config_ui_helpers.get_reasoning_effort_for_endpoint", return_value=""), \
+         patch("plugin.chatbot.config_ui_helpers.set_reasoning_effort_for_endpoint") as mock_set:
         sync_sidebar_reasoning_effort(ctrl)
         mock_set.assert_called_once_with("https://api.openai.com/v1", "medium")
 
     # Selecting 'default' clears the slot
     ctrl.getText.return_value = "default"
-    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com/v1"), \
-         patch("plugin.framework.config.get_reasoning_effort_for_endpoint", return_value="medium"), \
-         patch("plugin.framework.config.set_reasoning_effort_for_endpoint") as mock_set:
+    with patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value="https://api.openai.com/v1"), \
+         patch("plugin.chatbot.config_ui_helpers.get_reasoning_effort_for_endpoint", return_value="medium"), \
+         patch("plugin.chatbot.config_ui_helpers.set_reasoning_effort_for_endpoint") as mock_set:
         sync_sidebar_reasoning_effort(ctrl)
         mock_set.assert_called_once_with("https://api.openai.com/v1", "")
 
     # Selecting unchanged does not re-save
     ctrl.getText.return_value = "hi"
-    with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.openai.com/v1"), \
-         patch("plugin.framework.config.get_reasoning_effort_for_endpoint", return_value="high"), \
-         patch("plugin.framework.config.set_reasoning_effort_for_endpoint") as mock_set:
+    with patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value="https://api.openai.com/v1"), \
+         patch("plugin.chatbot.config_ui_helpers.get_reasoning_effort_for_endpoint", return_value="high"), \
+         patch("plugin.chatbot.config_ui_helpers.set_reasoning_effort_for_endpoint") as mock_set:
         sync_sidebar_reasoning_effort(ctrl)
         mock_set.assert_not_called()
 

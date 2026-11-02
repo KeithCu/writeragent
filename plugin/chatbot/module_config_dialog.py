@@ -9,8 +9,22 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.chatbot.dialogs import TabListener, get_optional, load_writeragent_dialog_detail
+from plugin.chatbot.dialogs import (
+    TabListener,
+    _dialog_model_element_names,
+    get_optional,
+    load_writeragent_dialog_detail,
+    msgbox,
+)
+from plugin.chatbot.settings_fields import (
+    apply_field_specs_result,
+    build_module_field_specs,
+    find_module_manifest,
+    populate_settings_control,
+    read_settings_control,
+)
 from plugin.framework.errors import best_effort, is_disposed_exception, suppress_disposed
+from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseTopWindowListener
 
@@ -28,8 +42,6 @@ class _CallbackActionListener(BaseActionListener):
 
 def _tab_buttons_in_order(dlg: Any) -> list[Any]:
     """btn_tab_* controls in dialog-model order (the order the XDL generator writes)."""
-    from plugin.chatbot.dialogs import _dialog_model_element_names
-
     buttons: list[Any] = []
     for name in _dialog_model_element_names(dlg):
         if not str(name).startswith("btn_tab_"):
@@ -41,8 +53,6 @@ def _tab_buttons_in_order(dlg: Any) -> list[Any]:
 
 
 def get_module_config_dialog_id(module_name: str) -> str | None:
-    from plugin.chatbot.settings_fields import find_module_manifest
-
     manifest = find_module_manifest(module_name)
     if not manifest:
         return None
@@ -51,19 +61,13 @@ def get_module_config_dialog_id(module_name: str) -> str | None:
     return dialog_id or None
 
 
-def get_module_config_field_specs(ctx: Any, module_name: str) -> list[dict[str, Any]]:
-    """Field specs for a standalone module config dialog (flat control ids)."""
-    from plugin.chatbot.settings_fields import build_module_field_specs
-
-    return build_module_field_specs(module_name, ctx=ctx, control_ids="flat")
-
-
 class ModuleConfigDialog:
     """Modeless settings dialog for one MODULES entry with config_dialog metadata."""
 
     _ctx: Any
     _module_name: str
     _closed: bool
+    _specs: list[dict[str, Any]]
 
     def __init__(self, ctx: Any, module_name: str) -> None:
         self._ctx = ctx
@@ -71,13 +75,14 @@ class ModuleConfigDialog:
         self._dlg: Any | None = None
         self._closed = False
         self._top_listener: Any | None = None
+        self._specs = []
 
     @classmethod
     @main_thread_only
     def show(cls, ctx: Any, module_name: str) -> ModuleConfigDialog:
         # Re-raising a live dialog with toFront preserves unsaved edits instead of destroying it.
         existing = _active_dialogs.get(module_name)
-        if existing is not None and not existing._closed and existing._dlg is not None:
+        if existing is not None:
             try:
                 to_front = getattr(existing._dlg, "toFront", None)
                 if callable(to_front):
@@ -90,8 +95,6 @@ class ModuleConfigDialog:
                 if not is_disposed_exception(exc):
                     raise
                 existing.close()
-        elif existing is not None:
-            existing.close()
 
         dialog = cls(ctx, module_name)
         dialog._open()
@@ -135,9 +138,10 @@ class ModuleConfigDialog:
 
         self._dlg = dlg
         try:
+            self._specs = build_module_field_specs(self._module_name, ctx=self._ctx, control_ids="flat")
             self._setup_tabs()
             self._wire_buttons()
-            self._populate_fields(get_module_config_field_specs(ctx, self._module_name))
+            self._populate_fields()
 
             owner = self
 
@@ -177,11 +181,9 @@ class ModuleConfigDialog:
             if btn:
                 btn.addActionListener(_CallbackActionListener(callback))
 
-    def _populate_fields(self, field_specs: list[dict[str, Any]]) -> None:
-        from plugin.chatbot.settings_fields import populate_settings_control
-
+    def _populate_fields(self) -> None:
         assert self._dlg is not None
-        for field in field_specs:
+        for field in self._specs:
             ctrl = get_optional(self._dlg, field["name"])
             if ctrl is None:
                 log.warning(
@@ -192,12 +194,10 @@ class ModuleConfigDialog:
                 continue
             populate_settings_control(ctrl, field)
 
-    def _extract_result(self, field_specs: list[dict[str, Any]]) -> dict[str, Any]:
-        from plugin.chatbot.settings_fields import read_settings_control
-
+    def _extract_result(self) -> dict[str, Any]:
         assert self._dlg is not None
         result: dict[str, Any] = {}
-        for field in field_specs:
+        for field in self._specs:
             name = field["name"]
             ctrl = get_optional(self._dlg, name)
             if ctrl is None:
@@ -209,14 +209,9 @@ class ModuleConfigDialog:
         return result
 
     def _apply(self, *, close: bool) -> None:
-        from plugin.chatbot.dialogs import msgbox
-        from plugin.chatbot.settings_fields import apply_field_specs_result
-        from plugin.framework.i18n import _
-
         try:
-            specs = get_module_config_field_specs(self._ctx, self._module_name)
-            result = self._extract_result(specs)
-            apply_field_specs_result(result, specs)
+            result = self._extract_result()
+            apply_field_specs_result(result, self._specs)
         except Exception as exc:
             # A failed save stays open. Closing here dismisses the dialog
             # after the values were not stored.
