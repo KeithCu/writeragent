@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 from plugin.calc.base import ToolCalcErrorBase
 from plugin.calc.manipulator import _quiet_probe_cleanup
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 
 class _EvaluationUndoGuard:

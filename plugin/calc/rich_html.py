@@ -30,7 +30,7 @@ from plugin.calc.address_utils import parse_address
 from plugin.calc.bridge import CalcBridge
 import plugin.writer.format as format_support
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 # Not "_blank" or "_default": a shared target collides with testing_runner's
 # Windows Hidden-Writer keeper and hung CI. CREATE|GLOBAL = FrameSearchFlag

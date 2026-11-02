@@ -30,7 +30,7 @@ import uno
 
 from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import query_interface as _query_interface
+from plugin.calc.calc_utils import query_interface as _query_interface, range_args
 from plugin.calc.sheet_filter_criteria import (
     FILTER_OPERATOR2_LABELS,
     parse_sheet_filter_criterion,
@@ -40,7 +40,7 @@ from plugin.framework.errors import UnoObjectError, uno_read
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 _RANGE_PARAM_SCHEMA: dict[str, Any] = {
     "type": "array",
@@ -113,13 +113,6 @@ def _build_filter_fields2(uno_obj: Any, criteria: list[dict[str, Any]], range_wi
     return tuple(fields)
 
 
-def _first_range_name(kwargs: dict[str, Any]) -> str:
-    range_arg = kwargs.get("range")
-    if not isinstance(range_arg, list) or len(range_arg) != 1 or not isinstance(range_arg[0], str) or not range_arg[0].strip():
-        raise UnoObjectError("Pass exactly one range.")
-    return range_arg[0].strip()
-
-
 def _filter_descriptor(
     cell_range: Any,
     *,
@@ -147,7 +140,7 @@ def _run_filter(
     kwargs: dict[str, Any],
     criteria: list[dict[str, Any]],
 ) -> str:
-    range_name = _first_range_name(kwargs)
+    range_name = range_args(kwargs.get("range"), exactly_one=True)[0]
     has_header = bool(kwargs.get("has_header", True))
     cell_range = CalcBridge(ctx.doc).resolve_range_or_address(range_name)
     ra = cell_range.getRangeAddress()
@@ -242,7 +235,7 @@ class GetSheetFilter(ToolCalcSheetBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": _RANGE_PARAM_SCHEMA}, "required": ["range"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        range_name = _first_range_name(kwargs)
+        range_name = range_args(kwargs.get("range"), exactly_one=True)[0]
         cell_range = CalcBridge(ctx.doc).resolve_range_or_address(range_name)
         _xf, fd, fd2 = _filter_descriptor(
             cell_range,
