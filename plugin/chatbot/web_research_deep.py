@@ -38,7 +38,7 @@ from plugin.framework.errors import ToolExecutionError, format_error_payload
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
-from plugin.chatbot.web_research import _norm_research_query
+from plugin.chatbot.web_research import _norm_research_query, _user_stopped_payload
 
 log = logging.getLogger("writeragent.web_research_deep")
 
@@ -238,10 +238,6 @@ def _trim_evidence(
 
 def _is_user_stopped(exc: Any) -> bool:
     return getattr(exc, "code", None) == "USER_STOPPED"
-
-
-def _user_stopped_payload() -> dict[str, Any]:
-    return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
 
 
 def _check_stopped(stop_checker: StopChecker) -> dict[str, Any] | None:

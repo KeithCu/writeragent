@@ -60,19 +60,16 @@ def _message_text(content: Any) -> str:
 
 def format_sub_agent_conversation_history(session: Any, *, current_query: str | None = None) -> str:
     """Build CONVERSATION HISTORY text for web-research / librarian sub-agents from ChatSession (one User:/Assistant: turn per message)."""
-    messages = getattr(session, "messages", None) or []
     # Compare whitespace-collapsed text so a padded or &nbsp; variant of the query still dedupes.
     query_line = " ".join((current_query or "").split())
     parts: list[str] = []
-    for i, msg in enumerate(messages):
-        if not isinstance(msg, dict):
-            continue
+    for i, msg in enumerate(session.messages):
         role = msg.get("role", "")
         if role in ("system", "tool"):
             continue
         content = _message_text(msg.get("content"))
         if role == "user":
-            if current_query is not None and i == len(messages) - 1 and " ".join(content.split()) == query_line:
+            if current_query is not None and i == len(session.messages) - 1 and " ".join(content.split()) == query_line:
                 continue
             if not content.strip():
                 continue

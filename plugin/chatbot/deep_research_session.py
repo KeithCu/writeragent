@@ -42,15 +42,17 @@ TOOLS:
 - apply_document_content: the ONLY way to write research into the document.
 - reply_to_user: short chat confirmation when the turn is complete."""
 
-_DEEP_RESEARCH_CORE_TOOLS = frozenset(["get_document_content", "get_document_tree", "search_in_document", "apply_document_content"])
-
-
 class DeepResearchWebTool(SubAgentResearchWebBase):
     """Multi-step public web research (sidebar Deep Research only; not shallow web_research)."""
 
     specialized_domain: ClassVar[str | None] = "deep_research"
     specialized_cross_cutting: ClassVar[bool] = True
-    required_core_tools: ClassVar[frozenset[str] | None] = _DEEP_RESEARCH_CORE_TOOLS
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset([
+        "get_document_content",
+        "get_document_tree",
+        "search_in_document",
+        "apply_document_content",
+    ])
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     name: str | None = "deep_research_web"
     description: str = (

@@ -889,7 +889,7 @@ def test_chat_completion_sync_stop_checker_not_finish_reason():
     assert raised_latch.value.code == "USER_STOPPED"
 
 
-def _deep_preview_params(approval_callback, *, prompt: bool):
+def _deep_preview_params(approval_callback):
     from plugin.chatbot.web_research import WebAgentRunParams
 
     api = MagicMock()
@@ -910,7 +910,6 @@ def _deep_preview_params(approval_callback, *, prompt: bool):
         append_thinking_callback=None,
         approval_callback=approval_callback,
         chat_append_callback=None,
-        prompt_for_web_research=prompt,
         outer_query="topic",
         cancellation_scope=object(),
     )
@@ -920,7 +919,7 @@ def test_deep_preview_reject_stops_the_run():
     from plugin.chatbot.web_research import _run_deep_web_research
 
     for decision in (False, (False, None)):
-        params = _deep_preview_params(lambda q, tool, args, decision=decision: decision, prompt=True)
+        params = _deep_preview_params(lambda q, tool, args, decision=decision: decision)
         with patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg, \
              patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
              patch("plugin.framework.config.get_config_int", return_value=1), \
@@ -942,11 +941,10 @@ def test_deep_preview_approval_uses_edited_query():
         assert query == "topic"
         return True, "edited topic"
 
-    params = _deep_preview_params(approval, prompt=True)
+    params = _deep_preview_params(approval)
     captured: dict[str, object] = {}
 
     def _capture_agent(_ctx, _query, _history, sub_params, research_goal=None):
-        captured["prompt"] = sub_params.prompt_for_web_research
         captured["approval"] = sub_params.approval_callback
         return "sub"
 
@@ -967,7 +965,6 @@ def test_deep_preview_approval_uses_edited_query():
     ddg.return_value.forward.assert_called_once_with("edited topic")
     assert run_deep.call_args.args[0] == "edited topic"
     assert run_deep.call_args.kwargs["initial_search_snippet"] == "snippet text"
-    assert captured["prompt"] is False
     assert captured["approval"] is None
 
 
