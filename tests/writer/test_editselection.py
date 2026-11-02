@@ -128,7 +128,7 @@ def test_edit_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_c
     with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
          patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("make it better", "")):
 
-        do_edit_selection(ctx, model, MagicMock())
+        do_edit_selection(ctx, model)
 
         # apply_chunk should be passed to stream_completion
         assert mock_stream_completion.called
@@ -237,7 +237,7 @@ def test_edit_selection_on_error_long_error_does_not_raise_contract_error(mock_c
     long_err = ValueError("x" * (DEAL_MAX_MSGID + 50))
     with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="some text"), \
          patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("make it better", "")):
-        do_edit_selection(ctx, model, MagicMock())
+        do_edit_selection(ctx, model)
         on_error_fn = mock_stream_completion.call_args.args[7]
         on_error_fn(long_err)
         mock_msgbox.assert_called_once()
@@ -265,7 +265,7 @@ def test_edit_selection_none_selection_shows_message_and_returns(mock_get_str, m
     model = MagicMock()
     model.CurrentController.getSelection.return_value = None
 
-    do_edit_selection(ctx, model, MagicMock())
+    do_edit_selection(ctx, model)
 
     mock_msgbox.assert_called_once()
     assert "Select text first" in mock_msgbox.call_args.args[2]
@@ -285,7 +285,7 @@ def test_edit_selection_empty_text_shows_message_before_prompt(mock_get_str, moc
     selection.getByIndex.return_value = text_range
     model.CurrentController.getSelection.return_value = selection
 
-    do_edit_selection(ctx, model, MagicMock())
+    do_edit_selection(ctx, model)
 
     mock_msgbox.assert_called_once()
     assert "Select text first" in mock_msgbox.call_args.args[2]
@@ -306,7 +306,7 @@ def test_edit_selection_no_client_skips_prompt(mock_create_client, mock_prompt, 
     model.CurrentController.getSelection.return_value = selection
 
     with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"):
-        do_edit_selection(ctx, model, MagicMock())
+        do_edit_selection(ctx, model)
 
     mock_prompt.assert_not_called()
     mock_stream.assert_not_called()
@@ -368,7 +368,7 @@ def test_both_commands_write_model_lru_once(
 
         mock_update_lru.reset_mock()
 
-        do_edit_selection(ctx, model, MagicMock())
+        do_edit_selection(ctx, model)
         assert mock_update_lru.call_args_list == [(("m", "model_lru", "ep"),)]
 
 
@@ -420,7 +420,7 @@ def test_edit_selection_uses_edit_system_prompt(mock_create_client, mock_stream)
 
     with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="hello selection"), \
          patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("shorter", "")):
-        do_edit_selection(ctx, model, MagicMock())
+        do_edit_selection(ctx, model)
 
     assert mock_stream.called
     assert mock_stream.call_args.args[3] == "edit sys"
@@ -447,7 +447,7 @@ def test_edit_selection_dialog_extras_win_over_config(mock_create_client, mock_s
 
     with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="hello selection"), \
          patch("plugin.writer.editselection.prompt_for_edit_instructions", return_value=("shorter", "dialog extra")):
-        do_edit_selection(ctx, model, MagicMock())
+        do_edit_selection(ctx, model)
 
     assert mock_stream.called
     assert mock_stream.call_args.args[3] == "dialog extra"

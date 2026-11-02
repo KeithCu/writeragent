@@ -250,7 +250,7 @@ def greeting_for_sidebar_mode(mode: str, model: Any) -> str:
     return get_greeting_for_document(model)
 
 
-def librarian_default_mode(ctx: Any = None) -> str:
+def librarian_default_mode() -> str:
     """Librarian once on first sidebar open; later opens start on Chat even if USER.md is empty.
 
     USER.md is not the ongoing gate. If a profile already exists (pre-flag installs),
@@ -260,11 +260,9 @@ def librarian_default_mode(ctx: Any = None) -> str:
 
     if get_config_bool_safe("chatbot.librarian_invoked"):
         return CHAT_MODE_CHAT
-    profile_exists = False
-    if ctx is not None:
-        from plugin.chatbot.memory import user_profile_exists
+    from plugin.chatbot.memory import user_profile_exists
 
-        profile_exists = user_profile_exists()
+    profile_exists = user_profile_exists()
     mark_librarian_invoked()
     return CHAT_MODE_CHAT if profile_exists else CHAT_MODE_LIBRARIAN
 
@@ -312,17 +310,18 @@ class SidebarModeController:
         else:
             self._show_mode(CHAT_MODE_CHAT)
 
+    def _finish_to_chat(self, mode: str) -> None:
+        _clear_mode_topic_session(self._panel, mode)
+        self._show_mode(CHAT_MODE_CHAT)
+
     def on_librarian_session_finished(self) -> None:
         """Reset sidebar after switch_to_document_mode (dropdown returns to Chat). History is kept."""
-        clear_librarian_session(self._panel)
-        self._show_mode(CHAT_MODE_CHAT)
+        self._finish_to_chat(CHAT_MODE_LIBRARIAN)
 
     def on_writing_plan_session_finished(self) -> None:
         """Reset sidebar after writing_plan_finished (dropdown returns to Chat)."""
-        _clear_mode_topic_session(self._panel, CHAT_MODE_WRITING_PLAN)
-        self._show_mode(CHAT_MODE_CHAT)
+        self._finish_to_chat(CHAT_MODE_WRITING_PLAN)
 
     def on_ppt_master_session_finished(self) -> None:
         """Reset sidebar after ppt_master_finished (dropdown returns to Chat)."""
-        clear_ppt_master_session(self._panel)
-        self._show_mode(CHAT_MODE_CHAT)
+        self._finish_to_chat(CHAT_MODE_PPT_MASTER)

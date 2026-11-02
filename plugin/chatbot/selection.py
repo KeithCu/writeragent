@@ -57,10 +57,10 @@ def create_validated_client(ctx: Any, title: str) -> LlmClient | None:
     return LlmClient(api_config, ctx)
 
 
-def prompt_for_edit_instructions(ctx: Any, input_box_fn: Any, title: str) -> tuple[str, str] | None:
+def prompt_for_edit_instructions(ctx: Any, title: str) -> tuple[str, str] | None:
     """Show the edit dialog and persist shared prompt history when supplied."""
     try:
-        user_input, extra_instructions = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")
+        user_input, extra_instructions = input_box(ctx, _("Please enter edit instructions!"), _("Input"), "")
     except Exception as e:
         msgbox(ctx, title, format_error_message(e))
         return None
@@ -164,9 +164,8 @@ def do_selection_action_for_document(ctx: Any, model: Any, is_edit: bool) -> Non
     if doc_type == DocumentType.WRITER:
         from plugin.writer.editselection import do_edit_selection, do_extend_selection
 
-        # Extend no longer takes input_box_fn (168-wr_format); Edit still does.
         if is_edit:
-            do_edit_selection(ctx, model, input_box)
+            do_edit_selection(ctx, model)
         else:
             do_extend_selection(ctx, model)
         return
@@ -174,7 +173,7 @@ def do_selection_action_for_document(ctx: Any, model: Any, is_edit: bool) -> Non
     if doc_type == DocumentType.CALC:
         from plugin.calc.editselection import do_calc_extend_edit
 
-        do_calc_extend_edit(ctx, model, input_box, is_edit)
+        do_calc_extend_edit(ctx, model, is_edit)
         return
 
     action = _("Edit") if is_edit else _("Extend")

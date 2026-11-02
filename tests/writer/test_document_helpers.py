@@ -803,7 +803,7 @@ def test_do_edit_selection_refuses_tracked_insert_before_prompt(monkeypatch):
     )
     monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
 
-    editselection.do_edit_selection(object(), doc, object())
+    editselection.do_edit_selection(object(), doc)
 
     assert prompts == []
     assert streams == []
@@ -855,7 +855,7 @@ def test_do_edit_selection_clean_range_still_clears_and_streams(monkeypatch):
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
     monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
 
-    editselection.do_edit_selection(object(), doc, object())
+    editselection.do_edit_selection(object(), doc)
 
     assert messages == []
     assert len(streams) == 1
@@ -926,7 +926,7 @@ def test_do_edit_selection_observes_stop_checker(monkeypatch):
 
     monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
 
-    editselection.do_edit_selection(_Ctx(), doc, object())
+    editselection.do_edit_selection(_Ctx(), doc)
 
     assert len(streams) == 1
     assert text_range.getString() == "more"

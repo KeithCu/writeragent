@@ -117,7 +117,7 @@ def do_extend_selection(ctx: Any, model: Any) -> None:
     _stream_into_session(ctx, title, client, original_text, system_prompt, max_tokens, session)
 
 
-def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
+def do_edit_selection(ctx: Any, model: Any) -> None:
     title = _("WriterAgent: Edit Selection")
     target = _selection_target(ctx, model, title)
     if target is None:
@@ -128,7 +128,7 @@ def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
     if client is None:
         return
 
-    edit_request = prompt_for_edit_instructions(ctx, input_box_fn, title)
+    edit_request = prompt_for_edit_instructions(ctx, title)
     if edit_request is None:
         return
     user_input, extra_instructions = edit_request
