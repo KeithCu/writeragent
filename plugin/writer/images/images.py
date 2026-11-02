@@ -112,9 +112,7 @@ def resolve_generation_size(
     height: int | None = None,
 ) -> tuple[int, int, str | None]:
     """Resolve pixel dimensions and wire aspect ratio for image generation."""
-    normalized = canonical_aspect_ratio(named=aspect) if aspect else "1:1"
-    if not normalized:
-        normalized = "1:1"
+    normalized = (canonical_aspect_ratio(named=aspect) if aspect else None) or "1:1"
 
     num, den = map(int, normalized.split(":"))
 
@@ -142,7 +140,7 @@ def resolve_generation_size(
 
 def _nearest_multiple_of_64(value: float) -> int:
     snapped = int(round(value / 64.0)) * 64
-    return snapped if snapped >= 64 else 64
+    return max(64, snapped)
 
 
 def _short_edge_for_ratio(long_edge: int, ideal_short: float, expected: float, *, width_is_long: bool) -> int:
@@ -152,8 +150,7 @@ def _short_edge_for_ratio(long_edge: int, ideal_short: float, expected: float, *
     window, and OpenRouter then sends a raw ``size`` instead of ``aspect_ratio``.
     """
     center = max(1, int(round(ideal_short / 64.0)))
-    best_inside: tuple[float, int] | None = None
-    best_any: tuple[float, int] | None = None
+    cands: list[tuple[float, int]] = []
     for step in range(0, 6):
         offsets = (0,) if step == 0 else (step, -step)
         for offset in offsets:
@@ -162,13 +159,9 @@ def _short_edge_for_ratio(long_edge: int, ideal_short: float, expected: float, *
                 continue
             short = multiple * 64
             width, height = (long_edge, short) if width_is_long else (short, long_edge)
-            gap = abs((width / height) / expected - 1) if height and expected else 1.0
-            if best_any is None or gap < best_any[0]:
-                best_any = (gap, short)
-            if gap <= 0.07 and (best_inside is None or gap < best_inside[0]):
-                best_inside = (gap, short)
-    chosen = best_inside or best_any
-    return chosen[1] if chosen else 64
+            gap = abs((width / height) / expected - 1)
+            cands.append((gap, short))
+    return min(cands, key=lambda c: (c[0] > 0.07, c[0]))[1]
 
 
 def resolve_edit_generation_size(base_size: int, src_width: int, src_height: int) -> tuple[int, int, str | None]:
@@ -259,89 +252,82 @@ class ImageGenerate(ToolWriterImageBase):
                 parameter="source_image",
             )
 
-        explicit_edit = bool(source_image and source_image.lower() == "selection")
-        target_obj = None
-        source_b64 = None
-        edit_width, edit_height = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
-        display_width, display_height = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
-        is_edit = False
-
         # Peek selection when the caller asked to edit, or omitted source_image
         # (omitted + selected graphic → img2img; omitted + no selection → create).
-        if explicit_edit or source_image is None:
+        def _read_selection_for_edit() -> tuple[str, tuple[Any, str, int, int, int, int] | None]:
+            # Export failures propagate. execute_safe logs once and maps them
+            # to TOOL_EXECUTION_ERROR, or DOCUMENT_DISPOSED. An empty export
+            # is "no selection", not a failed read.
+            obj = visual_helpers.selected_graphic_object(ctx.doc)
+            if obj is None:
+                return ("no_selection", None)
+            try:
+                png_bytes = export_graphic_object_to_bytes(ctx.ctx, obj)
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                raise
+            if not png_bytes:
+                return ("no_selection", None)
+            if len(png_bytes) > IMAGE_DOWNLOAD_MAX_BYTES:
+                return ("too_large", None)
+            import base64
 
-            def _read_selection_for_edit() -> tuple[str, tuple[Any, str, int, int, int, int] | None]:
-                # Export failures propagate. execute_safe logs once and maps them
-                # to TOOL_EXECUTION_ERROR, or DOCUMENT_DISPOSED. An empty export
-                # is "no selection", not a failed read.
-                obj = visual_helpers.selected_graphic_object(ctx.doc)
-                if obj is None:
-                    return ("no_selection", None)
+            b64 = base64.b64encode(png_bytes).decode("ascii")
+
+            # Native pixel size for generation resolution
+            graphic = visual_helpers.graphic_from_object(obj)
+            nw, nh = None, None
+            if graphic is not None:
                 try:
-                    png_bytes = export_graphic_object_to_bytes(ctx.ctx, obj)
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    raise
-                if not png_bytes:
-                    return ("no_selection", None)
-                if len(png_bytes) > IMAGE_DOWNLOAD_MAX_BYTES:
-                    return ("too_large", None)
-                import base64
-
-                b64 = base64.b64encode(png_bytes).decode("ascii")
-
-                # Native pixel size for generation resolution
-                graphic = visual_helpers.graphic_from_object(obj)
-                nw, nh = None, None
-                if graphic is not None:
-                    try:
-                        px = visual_helpers.safe_get_property(graphic, "SizePixel")
-                        if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
-                            nw, nh = int(px.Width), int(px.Height)
-                    except Exception as ex:
-                        reraise_if_disposed(ex)
-                        log.debug("Failed to read SizePixel: %s", ex)
-
-                # Frame size in 1/100 mm for on-page display
-                frame_w, frame_h = None, None
-                try:
-                    size = obj.getSize()
-                    if size is not None and getattr(size, "Width", 0) > 0 and getattr(size, "Height", 0) > 0:
-                        frame_w, frame_h = int(size.Width), int(size.Height)
+                    px = visual_helpers.safe_get_property(graphic, "SizePixel")
+                    if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
+                        nw, nh = int(px.Width), int(px.Height)
                 except Exception as ex:
                     reraise_if_disposed(ex)
-                    log.debug("Failed to read frame size: %s", ex)
+                    log.debug("Failed to read SizePixel: %s", ex)
 
-                if nw is None or nh is None:
-                    if frame_w is not None and frame_h is not None:
-                        nw, nh = visual_helpers.units_to_px(frame_w, frame_h)
-                    else:
-                        nw, nh = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
-                if frame_w is None or frame_h is None:
-                    frame_w, frame_h = visual_helpers.px_to_display_units(nw, nh)
+            # Frame size in 1/100 mm for on-page display
+            frame_w, frame_h = None, None
+            try:
+                size = obj.getSize()
+                if size is not None and getattr(size, "Width", 0) > 0 and getattr(size, "Height", 0) > 0:
+                    frame_w, frame_h = int(size.Width), int(size.Height)
+            except Exception as ex:
+                reraise_if_disposed(ex)
+                log.debug("Failed to read frame size: %s", ex)
 
-                return ("ok", (obj, b64, nw, nh, frame_w, frame_h))
+            if nw is None or nh is None:
+                if frame_w is not None and frame_h is not None:
+                    nw, nh = visual_helpers.units_to_px(frame_w, frame_h)
+                else:
+                    nw, nh = DEFAULT_IMAGE_BASE_SIZE, DEFAULT_IMAGE_BASE_SIZE
+            if frame_w is None or frame_h is None:
+                frame_w, frame_h = visual_helpers.px_to_display_units(nw, nh)
 
-            tag, payload = run_on_main(_read_selection_for_edit, timeout=mt_timeout)
-            if tag == "too_large":
-                return self._tool_error(
-                    "Selected image is larger than %d MB; crop it or choose a smaller image to edit."
-                    % (IMAGE_DOWNLOAD_MAX_BYTES // (1024 * 1024)),
-                    code="INVALID_PARAMETER",
-                    parameter="source_image",
-                )
-            selection_available = tag == "ok"
-            is_edit = explicit_edit or (source_image is None and selection_available)
-            if explicit_edit and not selection_available:
-                return self._tool_error("No image selected. Please select an image in the document first.", code="NO_SELECTION", action="edit_image")
-            if is_edit:
-                picked = typing.cast("tuple[Any, str, int, int, int, int]", payload)
-                target_obj, source_b64, edit_width, edit_height = (picked[0], str(picked[1]), int(picked[2]), int(picked[3]))
-                display_width, display_height = int(picked[4]), int(picked[5])
+            return ("ok", (obj, b64, nw, nh, frame_w, frame_h))
 
+        tag, payload = run_on_main(_read_selection_for_edit, timeout=mt_timeout)
+        if tag == "too_large":
+            return self._tool_error(
+                "Selected image is larger than %d MB; crop it or choose a smaller image to edit."
+                % (IMAGE_DOWNLOAD_MAX_BYTES // (1024 * 1024)),
+                code="INVALID_PARAMETER",
+                parameter="source_image",
+            )
+        if source_image is not None and tag != "ok":
+            return self._tool_error("No image selected. Please select an image in the document first.", code="NO_SELECTION", action="edit_image")
+        is_edit = tag == "ok"
         base_size = args.get("base_size", get_config_int("image_base_size"))
+        gen_kwargs: dict[str, Any] = {}
+        image_model = args.get("image_model")
+        if image_model:
+            gen_kwargs["image_model"] = image_model
 
         if is_edit:
+            picked = typing.cast("tuple[Any, str, int, int, int, int]", payload)
+            target_obj, source_b64, edit_width, edit_height = (picked[0], str(picked[1]), int(picked[2]), int(picked[3]))
+            display_width, display_height = int(picked[4]), int(picked[5])
+            gen_kwargs["source_image"] = source_b64
             arg_w = args.get("width")
             arg_h = args.get("height")
             # Omitted size is the Settings base-size grid. The file's pixels
@@ -363,12 +349,6 @@ class ImageGenerate(ToolWriterImageBase):
             )
 
         image_svc = ImageService(ctx.ctx)
-        gen_kwargs: dict[str, Any] = {}
-        image_model = args.get("image_model")
-        if image_model:
-            gen_kwargs["image_model"] = image_model
-        if is_edit:
-            gen_kwargs["source_image"] = source_b64
 
         try:
             paths, error_msg = image_svc.generate_image(
@@ -396,23 +376,21 @@ class ImageGenerate(ToolWriterImageBase):
             if is_edit:
                 replaced = False
                 try:
-                    if target_obj is not None:
-                        replaced = replace_graphic_source(
-                            ctx.ctx,
-                            ctx.doc,
-                            target_obj,
-                            img_path,
-                            display_width,
-                            display_height,
-                            title=prompt,
-                            description="Edited by endpoint",
-                        )
-                        if replaced and add_to_gallery:
-                            add_image_to_gallery(ctx.ctx, img_path)
+                    replaced = replace_graphic_source(
+                        ctx.ctx,
+                        ctx.doc,
+                        target_obj,  # pyright: ignore[reportPossiblyUnboundVariable]
+                        img_path,
+                        display_width,  # pyright: ignore[reportPossiblyUnboundVariable]
+                        display_height,  # pyright: ignore[reportPossiblyUnboundVariable]
+                        title=prompt,
+                        description="Edited by endpoint",
+                    )
+                    if replaced and add_to_gallery:
+                        add_image_to_gallery(ctx.ctx, img_path)
                 except Exception as ex:
                     reraise_if_disposed(ex)
                     log.debug("replace_graphic_source failed: %s", ex)
-                    replaced = False
 
                 if not replaced:
                     insert_image(
@@ -425,7 +403,7 @@ class ImageGenerate(ToolWriterImageBase):
                         description="Edited by endpoint",
                         add_to_gallery=add_to_gallery,
                         add_frame=add_frame,
-                        size_units=(display_width, display_height),
+                        size_units=(display_width, display_height),  # pyright: ignore[reportPossiblyUnboundVariable]
                     )
                 return "Image edited and inserted from endpoint."
             insert_image(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Generated by endpoint", add_to_gallery=add_to_gallery, add_frame=add_frame)
@@ -569,7 +547,8 @@ class ImageList(ToolWriterImageBase):
         doc_type = visual_helpers.get_visual_doc_type(doc)
         is_calc = doc_type == "calc"
         is_draw = doc_type in ("draw", "impress")
-        if not is_calc and not is_draw and not hasattr(doc, "getGraphicObjects"):
+        is_writer = not is_calc and not is_draw
+        if is_writer and not hasattr(doc, "getGraphicObjects"):
             return self._tool_error("Document does not support graphic objects.")
         graphics_names = visual_helpers.list_graphic_objects(doc, doc_type=doc_type)
 
@@ -577,7 +556,7 @@ class ImageList(ToolWriterImageBase):
         para_ranges = None
         text_obj = None
         entries = None
-        if not is_calc and not is_draw and doc_svc:
+        if is_writer and doc_svc:
             para_ranges = doc_svc.get_paragraph_ranges(doc)
             from plugin.doc.paragraph_search import paragraph_entries
 
@@ -602,30 +581,38 @@ class ImageList(ToolWriterImageBase):
                     # Read anchor once and reuse for paragraph index and page
                     anchor = None
                     paragraph_index = -1
-                    if not is_calc and not is_draw:
+                    if is_writer:
                         try:
                             anchor = graphic.getAnchor()
-                            if doc_svc and anchor is not None and para_ranges is not None:
+                            if anchor is not None and para_ranges is not None:
                                 paragraph_index = _paragraph_index_for(doc_svc, anchor, para_ranges, text_obj, entries=entries)
                         except Exception as exc:
                             reraise_if_disposed(exc)
 
-                    # Page number
-                    page = None
-                    entry_pos: dict[str, typing.Any] = {}
+                    entry = {
+                        "name": name,
+                        "width_mm": size.Width / 100.0,
+                        "height_mm": size.Height / 100.0,
+                        "width_100mm": size.Width,
+                        "height_100mm": size.Height,
+                        "title": title,
+                        "description": description,
+                        "paragraph_index": paragraph_index,
+                    }
                     if is_draw:
                         try:
                             pos = graphic.getPosition()
-                            entry_pos = {"x_mm": pos.X / 100.0, "y_mm": pos.Y / 100.0}
+                            entry["x_mm"] = pos.X / 100.0
+                            entry["y_mm"] = pos.Y / 100.0
                         except Exception as exc:
                             reraise_if_disposed(exc)
-                    elif not is_calc:
+                    elif is_writer:
                         if _is_at_page(graphic):
                             page_no = visual_helpers.safe_get_property(graphic, "AnchorPageNo", 0)
                             try:
                                 p = int(page_no)
                                 if p > 0:
-                                    page = p
+                                    entry["page"] = p
                             except (TypeError, ValueError):
                                 pass
                         else:
@@ -639,38 +626,33 @@ class ImageList(ToolWriterImageBase):
                                 except Exception:
                                     saved_vc = None
                             try:
-                                if saved_vc is not None and anchor is not None and vc is not None:
+                                if saved_vc is not None and anchor is not None:
+                                    assert vc is not None
                                     start = anchor.getStart()
                                     if start is not None:
                                         vc.gotoRange(start, False)
                                         try:
                                             p = int(vc.getPage())
                                             if p > 0:
-                                                page = p
+                                                entry["page"] = p
                                         except (TypeError, ValueError):
                                             pass
                             except Exception as exc:
                                 reraise_if_disposed(exc)
 
-                    entry = {"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "title": title, "description": description, "paragraph_index": paragraph_index}
                     if is_calc:
-                        s_idx = getattr(item, "sheet_index", None)
-                        s_name = getattr(item, "sheet_name", None)
-                        if s_idx is not None:
-                            entry["sheet_index"] = s_idx
-                        if s_name is not None:
-                            entry["sheet_name"] = s_name
-                    if page is not None:
-                        entry["page"] = page
-                    if is_draw:
-                        entry.update(entry_pos)
+                        for attr in ("sheet_index", "sheet_name"):
+                            val = getattr(item, attr, None)
+                            if val is not None:
+                                entry[attr] = val
                     images.append(entry)
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.exception("image_list: could not read '%s'", name)
                     skipped.append({"name": name, "error": resolve_exception_message(exc)})
         finally:
-            if vc is not None and saved_vc is not None:
+            if saved_vc is not None:
+                assert vc is not None
                 best_effort(lambda: vc.gotoRange(saved_vc, False), "image_list: restore view cursor failed")
 
         result: dict[str, Any] = {"status": "ok", "images": images, "count": len(images)}
@@ -840,6 +822,9 @@ def _resolve_orient(value: typing.Any, axis: str) -> tuple[Any | None, str | Non
     return uno.getConstantByName("%s.%s" % (group, member)), None
 
 
+_CROP_KEYS = ("crop_top_mm", "crop_bottom_mm", "crop_left_mm", "crop_right_mm")
+
+
 def _resolve_crop_edges(kwargs: typing.Any, current: typing.Any) -> tuple[int, int, int, int]:
     """Return (top, bottom, left, right) in 1/100 mm for the GraphicCrop struct. Each crop_*_mm
     given (in mm) overrides that edge; edges not passed keep their current value. `current` is the
@@ -848,11 +833,9 @@ def _resolve_crop_edges(kwargs: typing.Any, current: typing.Any) -> tuple[int, i
         mm = kwargs.get(key)
         return int(round(mm * 100)) if mm is not None else int(cur)
 
-    return (
-        _edge("crop_top_mm", current[0]),
-        _edge("crop_bottom_mm", current[1]),
-        _edge("crop_left_mm", current[2]),
-        _edge("crop_right_mm", current[3]),
+    return typing.cast(
+        "tuple[int, int, int, int]",
+        tuple(_edge(k, c) for k, c in zip(_CROP_KEYS, current)),
     )
 
 
@@ -904,7 +887,7 @@ class ImageSetProperties(ToolWriterImageBase):
                 parameter="anchor_type",
             )
 
-        for crop_key in ("crop_top_mm", "crop_bottom_mm", "crop_left_mm", "crop_right_mm"):
+        for crop_key in _CROP_KEYS:
             crop_val = kwargs.get(crop_key)
             if crop_val is not None and (isinstance(crop_val, bool) or not isinstance(crop_val, (int, float)) or crop_val < 0):
                 return self._tool_error(f"{crop_key} must be 0 or greater.", code="INVALID_PARAMETER", parameter=crop_key)
@@ -934,7 +917,7 @@ class ImageSetProperties(ToolWriterImageBase):
             if not has_size:
                 return self._tool_error("Graphic does not support setting size.", code="UNSUPPORTED_DOC_TYPE")
 
-        has_crop = any(kwargs.get(k) is not None for k in ("crop_top_mm", "crop_bottom_mm", "crop_left_mm", "crop_right_mm"))
+        has_crop = any(kwargs.get(k) is not None for k in _CROP_KEYS)
         for prop, requested in (
             ("AnchorType", anchor_type is not None),
             ("HoriOrient", "HoriOrient" in resolved_orient),
