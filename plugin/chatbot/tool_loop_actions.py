@@ -42,7 +42,6 @@ from plugin.framework.config import get_config_bool
 from plugin.framework.errors import (
     DocumentDisposedError,
     ToolExecutionError,
-    UnoObjectError,
     best_effort,
     format_error_payload,
     is_tool_document_disposed,
@@ -177,15 +176,16 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
     """Chat append body for a tool result (error or success); does not mutate *result_data*."""
     # crosshair: off
     status = result_data.get("status")
-    note = _result_note(result_data)
     if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
         detailed_text = format_delegate_result_chat_line(func_args, result_data)
-    elif status == "error":
-        detailed_text = f"[{func_name} failed: {note}]\n"
-    elif func_name == "web_research":
-        detailed_text = web_research_cache_chat_text(result_data) + f"[{func_name}: {note}]\n"
     else:
-        detailed_text = f"[{func_name}: {note}]\n"
+        note = _result_note(result_data)
+        if status == "error":
+            detailed_text = f"[{func_name} failed: {note}]\n"
+        elif func_name == "web_research":
+            detailed_text = web_research_cache_chat_text(result_data) + f"[{func_name}: {note}]\n"
+        else:
+            detailed_text = f"[{func_name}: {note}]\n"
 
     if status == "error":
         raw_details = result_data.get("details", {})
@@ -368,18 +368,6 @@ class TurnController:
 
         return fold_transcript_chunk(self.session, text, role)
 
-    def persist_assistant(
-        self,
-        host: Any,
-        content: Any = None,
-        tool_calls: Any = None,
-        reasoning_replay: Any = None,
-    ) -> None:
-        if not self.can_write(host):
-            return
-        assert self.session is not None
-        self.session.add_assistant_message(content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
-
     def take_stripper_tail(self) -> str:
         """Finish the HTML stripper and return any held fragment.
 
@@ -423,11 +411,11 @@ class TurnController:
         fallback = partial.strip() if isinstance(partial, str) else ""
         chosen = emitted or (fallback if fallback != "No response." else "")
         if chosen:
-            self.persist_assistant(host, content=chosen)
+            persist_assistant_on_turn(host, content=chosen)
         closed = _append_cancelled_tool_rows(self.messages) if isinstance(self.messages, list) else 0
         if not chosen and closed == 0:
-            self.persist_assistant(host, content="No response.")
-        self.persist_assistant(host, content=_STOP_LINE)
+            persist_assistant_on_turn(host, content="No response.")
+        persist_assistant_on_turn(host, content=_STOP_LINE)
 
 
 def note_stop_partial(turn: Any, response: Any) -> None:
@@ -516,7 +504,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
     if stop_requested and getattr(listener, "_terminal_status", None) != "Error":
         if turn is not None:
-            if getattr(turn, "_stop_banner_appended", False):
+            if turn._stop_banner_appended:
                 return
             turn._stop_banner_appended = True
         from plugin.chatbot.dialogs import get_control_text, set_control_text
@@ -668,9 +656,8 @@ def persist_assistant_on_turn(
     reasoning_replay: Any = None,
 ) -> None:
     turn = current_turn(host)
-    if turn is None:
-        return
-    turn.persist_assistant(host, content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
+    if turn is not None and turn.can_write(host):
+        turn.session.add_assistant_message(content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
 
 
 def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: TurnController, *, model: Any) -> None:
@@ -794,11 +781,7 @@ def build_tool_execute_fn(
         needs_web_research_ui = name == "web_research" or delegate_domain == "web_research"
         needs_document_research_ui = delegate_domain == "document_research"
         if needs_web_research_ui or needs_document_research_ui:
-
-            def _sub_agent_chat_append(text: str) -> None:
-                put_for_turn(captured_turn, (StreamQueueKind.CHUNK, text))
-
-            chat_append_cb = _sub_agent_chat_append
+            chat_append_cb = lambda text: put_for_turn(captured_turn, (StreamQueueKind.CHUNK, text))  # noqa: E731
 
         prompt_for_web = False
         if needs_web_research_ui:
@@ -951,11 +934,17 @@ class ToolLoopEffectInterpreter:
         """
         host = self.host
         turn = running_turn(host)
-        session = turn.session if turn is not None else None
-        if session is None:
+        if turn is None:
             # Clear replaced the message list, or the turn was aborted.
             # Do not write [DOCUMENT CONTENT] onto the wiped chat.
             return True
+
+        def _fail(message: str) -> bool:
+            host._append_response(message)
+            host._terminal_status = "Error"
+            host._set_status("Error")
+            return True
+
         doc = None
         try:
             # The frame document is the live snapshot. The model captured on
@@ -964,19 +953,16 @@ class ToolLoopEffectInterpreter:
             # capture.
             doc = host._get_document_model()
             if not doc:
-                raise UnoObjectError("Document closed or unavailable.", code="DOCUMENT_UNAVAILABLE")
-            session.refresh_document_context(doc, host.ctx)
+                log.debug("Tool loop: document disposed during context refresh")
+                return _fail("\n[Document closed or unavailable.]\n")
+            turn.session.refresh_document_context(doc, host.ctx)
             return False
         except Exception as exc:
-            if isinstance(exc, UnoObjectError) or is_tool_document_disposed(exc, doc):
+            if is_tool_document_disposed(exc, doc):
                 log.debug("Tool loop: document disposed during context refresh", exc_info=True)
-                host._append_response("\n[Document closed or unavailable.]\n")
-            else:
-                log.exception("Tool loop: failed to refresh document context after mutating tool")
-                host._append_response(f"\n[Error reading document: {resolve_exception_message(exc)}]\n")
-            host._terminal_status = "Error"
-            host._set_status("Error")
-            return True
+                return _fail("\n[Document closed or unavailable.]\n")
+            log.exception("Tool loop: failed to refresh document context after mutating tool")
+            return _fail(f"\n[Error reading document: {resolve_exception_message(exc)}]\n")
 
     def _execute_ui_effect(self, effect: ToolLoopUIEffect) -> None:
         host = self.host

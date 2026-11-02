@@ -754,7 +754,7 @@ def test_abort_discards_a_late_write():
     """After abort, enqueue is a no-op and a write against a replaced list does not land."""
     import queue
 
-    from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn, put_for_turn
+    from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn, persist_assistant_on_turn, put_for_turn
     from plugin.framework.stream_batch import StreamQueueKind
 
     class Session:
@@ -776,7 +776,7 @@ def test_abort_discards_a_late_write():
     assert put_for_turn(turn, (StreamQueueKind.CHUNK, "late")) is False
     assert first_q.empty()
     host.session.messages = []
-    turn.persist_assistant(host, content="late-row")
+    persist_assistant_on_turn(host, content="late-row")
     assert host.session.messages == []
 
 
@@ -784,7 +784,7 @@ def test_second_send_replaces_the_turn():
     """The previous turn cannot enqueue or append once a new send owns the host."""
     import queue
 
-    from plugin.chatbot.tool_loop_actions import begin_send_turn, put_for_turn
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, persist_assistant_on_turn, put_for_turn
     from plugin.framework.stream_batch import StreamQueueKind
 
     class Session:
@@ -809,9 +809,11 @@ def test_second_send_replaces_the_turn():
     assert not first.alive
     assert put_for_turn(first, (StreamQueueKind.CHUNK, "stale")) is False
     assert first_q.empty()
-    first.persist_assistant(host, content="from-first")
+    assert first.can_write(host) is False
+    first.close_stopped(host)
+    assert len(host.session.messages) == 1
     assert all(message.get("content") != "from-first" for message in host.session.messages)
-    second.persist_assistant(host, content="from-second")
+    persist_assistant_on_turn(host, content="from-second")
     assert any(message.get("content") == "from-second" for message in host.session.messages)
 
 
