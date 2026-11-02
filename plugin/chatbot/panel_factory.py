@@ -108,26 +108,26 @@ def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
     drops the other window of the same model. Clearing the focus pin also
     drops it when another sidebar owns it.
     """
-    if getattr(panel, "_released", False):
+    if panel._released:
         return
     panel._released = True
     unregister_debug_live_panel(panel)
     try:
         from plugin.doc.live_panels import unregister_live_panel
 
-        uid = getattr(panel, "_live_panel_uid", "") or ""
+        uid = panel._live_panel_uid
         if uid:
             unregister_live_panel(uid, panel)
     except Exception as exc:
         log.debug("live panel unregister on dispose: %s", exc)
     try:
-        listener = getattr(panel, "send_listener", None)
+        listener = panel.send_listener
         if listener:
             listener.disposing(None)
     except Exception as exc:
         log.info("send_listener.disposing raised from sidebar release: %s", exc)
     with suppress_disposed("frame session release on dispose", logger=log):
-        session = getattr(panel, "frame_session", None)
+        session = panel.frame_session
         if session is not None:
             session.release_panel(panel, query_control)
 
@@ -703,11 +703,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     if cur != want:
                         chk_voice.setState(want)
 
-            try:
-                # Backend indicator: show backend name when external agent backend is enabled
-                self._update_backend_indicator(root)
-            except Exception:
-                log.exception("_refresh_controls_from_config backend indicator failed")
+            # Backend indicator: show backend name when external agent backend is enabled
+            self._update_backend_indicator(root)
         finally:
             self._in_refresh_controls = False
 
@@ -725,16 +722,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             ctrl = get_optional_control(root, "backend_indicator")
             if ctrl:
+                text = ""
                 if is_external:
                     cls = AGENT_BACKEND_REGISTRY.get(backend_id)
                     display_en = cls.display_name if cls is not None else backend_id.capitalize()
-                    set_control_text(ctrl, _(display_en))
-                    if hasattr(ctrl, "setVisible"):
-                        ctrl.setVisible(True)
-                else:
-                    set_control_text(ctrl, "")
-                    if hasattr(ctrl, "setVisible"):
-                        ctrl.setVisible(False)
+                    text = _(display_en)
+                set_control_text(ctrl, text)
+                if hasattr(ctrl, "setVisible"):
+                    ctrl.setVisible(is_external)
 
             # Enable/disable the LLM model selector based on the agent backend
             for name in ("model_selector", "reasoning_effort_selector", "chat_mode_selector"):
