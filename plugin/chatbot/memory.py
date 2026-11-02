@@ -193,21 +193,21 @@ _deal_memory_chat_line_ok = _profile(_deal_memory_chat_line_ok_crosshair)
 def format_upsert_memory_chat_line(arguments: object) -> str:
     """One-line chat preview when upsert_memory starts (main chat tool loop)."""
     # crosshair: off
-    if isinstance(arguments, Mapping):
-        key = arguments.get("key")
-        if not isinstance(key, str):
-            return "[Running tool: upsert_memory...]\n"
-        raw = arguments.get("content", "")
-        val = "" if raw is None else str(raw)
-        one_line = val.replace("\n", " ").replace("\r", " ")
-        if len(one_line) > UPSERT_MEMORY_CHAT_VALUE_MAX:
-            one_line = one_line[: UPSERT_MEMORY_CHAT_VALUE_MAX - 3] + "..."
-        return f"[Memory update: key {key!r} value {one_line!r}]\n"
+    if not isinstance(arguments, Mapping):
+        arguments = upsert_memory_arguments_dict(arguments)
+        if arguments is None:
+            return "[Memory update: upsert_memory]\n"
 
-    d = upsert_memory_arguments_dict(arguments)
-    if not d:
-        return "[Memory update: upsert_memory]\n"
-    return format_upsert_memory_chat_line(d)
+    mapping = cast("Mapping[str, Any]", arguments)
+    key = mapping.get("key")
+    if not isinstance(key, str):
+        return "[Running tool: upsert_memory...]\n"
+    raw = mapping.get("content", "")
+    val = "" if raw is None else str(raw)
+    one_line = val.replace("\n", " ").replace("\r", " ")
+    if len(one_line) > UPSERT_MEMORY_CHAT_VALUE_MAX:
+        one_line = one_line[: UPSERT_MEMORY_CHAT_VALUE_MAX - 3] + "..."
+    return f"[Memory update: key {key!r} value {one_line!r}]\n"
 
 
 class MemoryTool(ToolBase):

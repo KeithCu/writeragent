@@ -93,9 +93,9 @@ def _run_librarian_agent(
         from plugin.framework.errors import ToolExecutionError, format_error_payload
         return format_error_payload(ToolExecutionError(f"Failed to load dependencies: {e}"))
 
-    status_callback = getattr(ctx, "status_callback", None)
-    append_thinking_callback = getattr(ctx, "append_thinking_callback", None)
-    chat_append_callback = getattr(ctx, "chat_append_callback", None)
+    status_callback = ctx.status_callback
+    append_thinking_callback = ctx.append_thinking_callback
+    chat_append_callback = ctx.chat_append_callback
 
     if suggested_user_name:
         hint_block = f"[SUGGESTED USER NAME]\n{suggested_user_name}\n[/SUGGESTED USER NAME]"

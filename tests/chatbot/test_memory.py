@@ -114,6 +114,10 @@ class TestMemory:
         assert ("'a'") in (line)
         assert ("'b'") in (line)
 
+    def test_format_upsert_memory_chat_line_non_str_key_or_empty(self):
+        assert format_upsert_memory_chat_line({}) == "[Running tool: upsert_memory...]\n"
+        assert format_upsert_memory_chat_line({"key": 1}) == "[Running tool: upsert_memory...]\n"
+
     def test_upsert_memory_arguments_dict(self):
         assert (upsert_memory_arguments_dict({"key": "x", "content": "y"})) == ({"key": "x", "content": "y"})
         assert (upsert_memory_arguments_dict("not json")) is None
