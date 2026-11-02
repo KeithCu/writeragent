@@ -185,7 +185,7 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
 
 def _find_marker(model: Any, search: Any) -> Any:
     found = model.findFirst(search)
-    if found is not None or not hasattr(model, "getTextTables"):
+    if found is not None:
         return found
     try:
         tables = model.getTextTables()

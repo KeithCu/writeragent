@@ -195,14 +195,6 @@ def _insert_mixed_html_and_math_at_cursor(
 ) -> None:
     """Insert alternating HTML (via filter) and math (MathML or TeX) as formula objects."""
     _segs = segment_html_with_mixed_math(unescaped)
-    if log.isEnabledFor(logging.DEBUG) and html_fragment_contains_mixed_math(unescaped):
-        _math_i = 0
-        for _si, _s in enumerate(_segs):
-            if _s.kind == "html":
-                log.debug("mixed_html_math: segment[%d] html nl=%d len=%d", _si, _s.text.count("\n"), len(_s.text))
-            else:
-                _math_i += 1
-                log.debug("mixed_html_math: segment[%d] %s#%d display_block=%s src_nl=%d src_len=%d", _si, _s.kind, _math_i, _s.display_block, _s.text.count("\n"), len(_s.text))
     tail = _parked_cursor(cursor)
     for seg in _segs:
         if seg.kind == "html":
@@ -228,8 +220,6 @@ def _insert_mixed_html_and_math_at_cursor(
             res = convert_latex_to_starmath(ctx, seg.text, display_block=seg.display_block)
         else:
             res = convert_mathml_to_starmath(ctx, seg.text)
-        if res.ok and res.starmath and log.isEnabledFor(logging.DEBUG):
-            log.debug("mixed_html_math: StarMath from converter nl=%d len=%d repr=%r", res.starmath.count("\n"), len(res.starmath), res.starmath[:500])
         if res.ok and res.starmath:
             insert_writer_math_formula(model, cursor, res.starmath, display_block=seg.display_block)
         else:
@@ -557,7 +547,7 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
                     if not hasattr(cursor, "insertDocumentFromURL"):
                         raise AttributeError("insertDocumentFromURL")
                     # Clear only real text selections (never shapes).
-                    if hasattr(rng, "setString") and not _selection_is_draw_shape(rng):
+                    if hasattr(rng, "setString"):
                         from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
 
                         raise_if_range_hosts_nested_table(rng)

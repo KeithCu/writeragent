@@ -323,9 +323,6 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
             log.debug("_restore_fields_by_cursor createEnumeration failed: %s", exc)
             continue
 
-        if enum is None:
-            continue
-
         try:
             while enum.hasMoreElements() is True:
                 try:
