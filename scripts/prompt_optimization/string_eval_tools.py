@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from plugin.framework.errors import safe_json_loads
+from plugin.framework.json_utils import safe_json_loads
 
 _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:

@@ -24,8 +24,7 @@ from plugin.framework.send_cancellation import get_current_send_cancellation
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-# Same logger name as before the move so warning records do not change logger.
-log = logging.getLogger("writeragent.framework.queue_executor")
+log = logging.getLogger(__name__)
 
 _LLM_REQUEST_LOCK = threading.Lock()
 _GRAMMAR_INFLIGHT_CV = threading.Condition(threading.Lock())

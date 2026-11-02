@@ -29,7 +29,7 @@ import logging
 from typing import Any, Callable, NoReturn, TypeVar, overload
 
 from plugin.framework.i18n import _
-from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from plugin.framework.json_utils import safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 from plugin.framework.deal_shim import DEAL_MAX_MSGID, UNDER_CROSSHAIR, deal
 

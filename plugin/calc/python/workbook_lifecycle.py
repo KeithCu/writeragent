@@ -25,7 +25,7 @@ from typing import Any
 
 from plugin.framework.errors import best_effort
 from plugin.framework.thread_guard import _unwrap_uno
-from plugin.framework.uno_context import _read_runtime_uid
+from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.uno_listeners import _HAVE_UNO as _HAVE_UNO_DOC_EVENTS
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from plugin.scripting.session_manager import calc_workbook_base_session_id
@@ -138,8 +138,8 @@ def _lifecycle_key(doc: Any) -> str:
     stored for this object. A new session id is computed only the first time.
     A RuntimeUID read still replaces that fallback.
     """
-    # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute and accepted non-strings. _read_runtime_uid walks method, attribute, then property, and keeps only str or int, with no thread check.
-    uid = _read_runtime_uid(doc)
+    # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute and accepted non-strings. get_runtime_uid walks method, attribute, then property, and keeps only str or int.
+    uid = get_runtime_uid(doc)
     if uid:
         _remember_doc_lifecycle_key(doc, uid)
         return uid
@@ -370,6 +370,6 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
         ensure_calc_workbook_unload_resets_python(ctx, doc)
         return
     # Writer/Draw key. Must not record a Calc session id. Same RuntimeUID ladder as _lifecycle_key.
-    uid = _read_runtime_uid(doc)
+    uid = get_runtime_uid(doc)
     key = f"py:{uid or session_id}"
     _register(doc, key, lambda: _CalcPythonUnloadListener(ctx, session_id, key, calc_cleanup=False), lambda existing: existing.note_session(session_id))

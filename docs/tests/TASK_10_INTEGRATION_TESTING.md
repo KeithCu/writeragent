@@ -225,7 +225,7 @@ class TestPerformance(IntegrationTestBase):
     def test_error_handling_overhead(self):
         """Test that error handling doesn't add excessive overhead."""
         import time
-        from plugin.framework.errors import safe_json_loads
+        from plugin.framework.json_utils import safe_json_loads
         
         # Test data
         test_json = '{"key": "value", "array": [1, 2, 3]}'

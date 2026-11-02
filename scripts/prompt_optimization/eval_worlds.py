@@ -14,7 +14,7 @@ import re
 from html.parser import HTMLParser
 from typing import Any
 
-from plugin.framework.errors import safe_json_loads
+from plugin.framework.json_utils import safe_json_loads
 
 _COMMENT_RE = re.compile(r"\[([^\]]+)\]")
 _HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})

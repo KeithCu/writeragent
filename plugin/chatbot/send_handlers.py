@@ -24,9 +24,9 @@ from plugin.framework.errors import (
     best_effort,
     format_error_payload,
     is_disposed_exception,
-    safe_json_loads,
     suppress_disposed,
 )
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.config import get_config, get_config_int_safe
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
 from plugin.framework.prompts import get_core_directives_for_type
