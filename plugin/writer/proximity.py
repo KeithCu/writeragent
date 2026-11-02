@@ -152,14 +152,14 @@ class ProximityService(ServiceBase):
 
         if ctx_idx is None:
             if direction != "next":
-                _before_any_errors = {
-                    "previous": "No previous heading — position is before any heading",
-                    "parent": "No parent heading — position is before any heading",
-                    "first_child": "No child headings — position is before any heading",
-                    "next_sibling": "No sibling headings — position is before any heading",
-                    "previous_sibling": "No sibling headings — position is before any heading",
+                noun = {
+                    "previous": "previous heading",
+                    "parent": "parent heading",
+                    "first_child": "child headings",
+                    "next_sibling": "sibling headings",
+                    "previous_sibling": "sibling headings",
                 }
-                return fail(_before_any_errors[direction])
+                return fail("No %s — position is before any heading" % noun[direction])
             target_entry = flat[0]
 
         elif direction == "next":
