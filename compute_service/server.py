@@ -28,7 +28,7 @@ from compute_service import __version__
 from compute_service import error_codes as ec
 from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
 # Internal server clocks and timeouts shared with the route module; not public wsgi_server exports.
-from compute_service.wsgi_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, service_listener_threads, sticky_listener_slots  # pyright: ignore[reportPrivateUsage]
+from compute_service.wsgi_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, admission_permits, service_listener_threads  # pyright: ignore[reportPrivateUsage]
 from compute_service.worker_base import Deadline
 from compute_service.json_forward import (
     ExecuteRequestError,
@@ -865,28 +865,22 @@ class _Route:
     handler: Callable[[dict[str, Any], Any], list[bytes]]
 
 
-def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None = None, reset_fn: ResetFn | None = None, worker_semaphore: threading.Semaphore | None = None, vision_semaphore: threading.Semaphore | None = None) -> Callable[[dict[str, Any], Any], list[bytes]]:
+def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None = None, reset_fn: ResetFn | None = None, semaphore: threading.Semaphore | None = None) -> Callable[[dict[str, Any], Any], list[bytes]]:
     """Build a WSGI app bound to *settings* (and optional test hooks).
 
     The formula pool is imported on the request path so config/auth startup
     does not pull WriterAgent ``plugin.framework.config``. Each execute and
     reset resolves the current pool.
 
-    Isolated ``/v1/execute`` takes a permit sized to ``settings.workers``.
-    ``/v1/vision`` takes one sized to the vision pool. Sticky execute
-    (``?session_id=``) and ``/v1/session/reset`` take a separate permit sized
-    by ``sticky_listener_slots``. Execute and vision wait until the clamped
-    ``timeout_ms`` (the pool default when it is omitted). Session reset waits
-    until ``default_timeout_sec``. Two listeners are not given a permit, so
-    ``GET /health`` is not stuck behind admitted work. Header and body reads
-    still occupy a listener before the permit. ``worker_semaphore`` and
-    ``vision_semaphore`` override those gates in tests.
+    Execute (isolated or sticky), session reset and vision share one
+    semaphore of ``admission_permits`` (listeners minus two, so ``GET /health``
+    always has a listener). Execute and vision wait until the clamped
+    ``timeout_ms`` (the pool default when it is omitted); session reset waits
+    until ``default_timeout_sec``. The pools queue for their own workers past
+    the permit. Header and body reads occupy a listener before the permit.
+    ``semaphore`` overrides the gate in tests.
     """
-    if worker_semaphore is None:
-        worker_semaphore = threading.Semaphore(settings.workers)
-    if vision_semaphore is None:
-        vision_semaphore = threading.Semaphore(max(1, settings.ocr_workers))
-    sticky_semaphore = threading.Semaphore(sticky_listener_slots(settings))
+    permits = semaphore if semaphore is not None else threading.Semaphore(admission_permits(settings))
 
     def _current_formula_pool() -> Any:
         # Resolve the pool on each call. shutdown_formula_pool() can replace
@@ -917,12 +911,11 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             session_err = exc
         env["compute.session_id"] = session_id
         env["compute.session_err"] = session_err
-        route_sem = sticky_semaphore if session_id else worker_semaphore
         return _gated(
             env,
             start,
             settings,
-            route_sem,
+            permits,
             busy_code=ec.WORKER_POOL_BUSY,
             busy_message="All compute workers are currently busy.",
             route_fn=lambda s, admission: _handle_execute(env, s, settings, _get_execute(), admission),
@@ -947,7 +940,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             env,
             start,
             settings,
-            sticky_semaphore,
+            permits,
             busy_code=ec.WORKER_POOL_BUSY,
             busy_message="All compute workers are currently busy.",
             route_fn=lambda s, admission: _handle_session_reset(env, s, settings, _get_reset(), admission),
@@ -959,7 +952,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             env,
             start,
             settings,
-            vision_semaphore,
+            permits,
             busy_code=ec.VISION_POOL_BUSY,
             busy_message="All vision workers are currently busy.",
             route_fn=lambda s, admission: _handle_vision(env, s, settings, admission),
