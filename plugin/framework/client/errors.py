@@ -18,7 +18,8 @@ from typing import Any
 import urllib.parse
 
 from plugin.framework.i18n import _
-from plugin.framework.errors import NetworkError, http_status_message, safe_json_loads
+from plugin.framework.errors import NetworkError, http_status_message
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.client.http_security import redact_secrets
 from .responses_shim import responses_failed_message
 

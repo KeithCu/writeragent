@@ -449,15 +449,23 @@ def normalize_doc_url(url: Any) -> str:
     return s
 
 
-def _read_runtime_uid(model: Any) -> str:
-    """RuntimeUID ladder with no thread check.
+def get_runtime_uid(model: Any) -> str:
+    """Stable per-session id for an open component.
 
-    File Open ``XFilter.filter`` runs on Dummy-2 (detect reload on Dummy-3),
-    not ``threading.main_thread()``. Notebook ``_doc_key`` must use this so
-    the guard on ``get_runtime_uid`` does not make ``filter()`` return False.
-    Same acceptance rules as ``get_runtime_uid``: plain ``str`` / ``int`` only.
+    Unlike the document URL, ``RuntimeUID`` exists even for unsaved/untitled
+    documents, so it can address a document that has no file on disk yet.
+    Returns "" if unavailable.
+
+    Tries ``getRuntimeUID()``, attribute access, and ``getPropertyValue("RuntimeUID")`` in turn
+    because LibreOffice builds expose the id through different UNO surfaces. Only plain ``str`` /
+    ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
+    cannot masquerade as a real uid.
     """
-    for accessor in (lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None, lambda m: getattr(m, "RuntimeUID", None), lambda m: m.getPropertyValue("RuntimeUID")):
+    for accessor in (
+        lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None,
+        lambda m: getattr(m, "RuntimeUID", None),
+        lambda m: m.getPropertyValue("RuntimeUID"),
+    ):
         try:
             raw = accessor(model)
             if isinstance(raw, bool):
@@ -470,30 +478,6 @@ def _read_runtime_uid(model: Any) -> str:
             log.debug("runtime uid accessor failed", exc_info=True)
             continue
     return ""
-
-
-@main_thread_only
-def get_runtime_uid(model: Any) -> str:
-    """Stable per-session id for an open component.
-
-    Unlike the document URL, ``RuntimeUID`` exists even for unsaved/untitled
-    documents, so it can address a document that has no file on disk yet.
-    Returns "" if unavailable.
-
-    Tries ``getRuntimeUID()``, attribute access, and ``getPropertyValue("RuntimeUID")`` in turn
-    because LibreOffice builds expose the id through different UNO surfaces. Only plain ``str`` /
-    ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
-    cannot masquerade as a real uid.
-
-    ``@main_thread_only`` raises before the loop when the guard is on.
-    Every accessor sitting in ``except Exception`` swallows
-    ``assert_main_thread``'s ``RuntimeError`` and returns ``""`` (an
-    untitled document with no id) — the same ladder ``uno_same`` used
-    before it was decorated. On-thread disposal still returns ``""``.
-    An untagged Dummy upcall may call this; notebook File Open still uses
-    ``_read_runtime_uid`` so it does not depend on the guard.
-    """
-    return _read_runtime_uid(model)
 
 
 # @main_thread_only (same decorator as resolve_document_by_url) never
@@ -568,12 +552,12 @@ def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bo
     return True
 
 
-def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]
+def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by document_scripts.py
     """False when *enum* is exhausted or past ``_ENUM_CAP``.
 
     Swallows ``hasMoreElements`` errors and returns False. Callers that need
-    disposal re-raising (such as :func:`iter_open_models`) must handle
-    ``hasMoreElements`` themselves and call :func:`_desktop_enum_value_continues`
+    disposal re-raising (such as :func:`iter_open_models` with strict=True) must
+    handle ``hasMoreElements`` themselves and call :func:`_desktop_enum_value_continues`
     instead.
     """
     try:
@@ -583,14 +567,70 @@ def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  
     return _desktop_enum_value_continues(has_more, seen, label=label)
 
 
-def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
+def iter_open_models(
+    desktop_or_ctx: Any,
+    *,
+    strict: bool = True,
+    label: str = "iter_open_models",
+) -> Generator[Any, None, None]:
     """Iterate open document models from desktop components enumeration.
 
-    Handles frame controller unwrapping, guards against truthy mock loops,
-    stops on nextElement failure, and re-raises real disposal.
+    When *strict* is True (the default), handles frame controller unwrapping,
+    guards against truthy mock loops, stops on nextElement failure, and
+    re-raises real disposal. *desktop_or_ctx* is the Desktop instance.
+
+    When *strict* is False, swallows disposal and element errors, and probes
+    each model via ``check_disposed`` and ``getCurrentController``.
+    *desktop_or_ctx* is the ComponentContext (or Desktop).
     """
+    if desktop_or_ctx is None:
+        return
+    if strict:
+        desktop = desktop_or_ctx
+    else:
+        desktop = get_desktop(desktop_or_ctx)
+        if desktop is None and hasattr(desktop_or_ctx, "getComponents"):
+            desktop = desktop_or_ctx
     if desktop is None:
         return
+    if not strict:
+        from plugin.framework.errors import check_disposed
+        from plugin.framework.thread_guard import _unwrap_uno
+
+        comps = desktop.getComponents() if hasattr(desktop, "getComponents") else None
+        if comps is None or not hasattr(comps, "createEnumeration"):
+            return
+        try:
+            enum = comps.createEnumeration()
+        except Exception:
+            return
+        if enum is None:
+            return
+        seen = 0
+        while True:
+            if not _enumeration_should_continue(enum, seen, label=label):
+                break
+            seen += 1
+            try:
+                elem = enum.nextElement()
+            except Exception:
+                break
+            model = None
+            if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
+                model = elem
+            elif hasattr(elem, "getController"):
+                ctrl = elem.getController()
+                if ctrl:
+                    model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
+            if model is not None:
+                try:
+                    check_disposed(_unwrap_uno(model))
+                    getattr(model, "getCurrentController", lambda: None)()
+                    yield model
+                except Exception:
+                    log.debug("%s: skipping broken model", label, exc_info=True)
+        return
+
     try:
         comps = desktop.getComponents()
         if comps is None:
@@ -601,7 +641,7 @@ def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
         seen = 0
         while True:
             more = enum.hasMoreElements()
-            if not _desktop_enum_value_continues(more, seen, label="iter_open_models"):
+            if not _desktop_enum_value_continues(more, seen, label=label):
                 break
             seen += 1
             elem = enum.nextElement()
@@ -618,48 +658,11 @@ def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
                 if model is not None:
                     yield model
             except Exception as e:
-                log.debug("iter_open_models element error: %s", type(e).__name__)
+                log.debug("%s element error: %s", label, type(e).__name__)
                 continue
     except Exception as e:
         reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
         return
-
-
-def iter_desktop_models(ctx: Any, *, label: str = "session_manager") -> Generator[Any, None, None]:
-    """Yield all valid open models from desktop component enumeration."""
-    from plugin.framework.errors import check_disposed
-    from plugin.framework.thread_guard import _unwrap_uno
-
-    desktop = get_desktop(ctx)
-    if desktop is None:
-        return
-    comps = desktop.getComponents() if hasattr(desktop, "getComponents") else None
-    if comps is None or not hasattr(comps, "createEnumeration"):
-        return
-    enum = comps.createEnumeration()
-    seen = 0
-    while True:
-        if not _enumeration_should_continue(enum, seen, label=label):
-            break
-        seen += 1
-        try:
-            elem = enum.nextElement()
-        except Exception:
-            break
-        model = None
-        if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
-            model = elem
-        elif hasattr(elem, "getController"):
-            ctrl = elem.getController()
-            if ctrl:
-                model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-        if model is not None:
-            try:
-                check_disposed(_unwrap_uno(model))
-                getattr(model, "getCurrentController", lambda: None)()
-                yield model
-            except Exception:
-                log.debug("session_manager: skipping broken model", exc_info=True)
 
 
 @main_thread_only

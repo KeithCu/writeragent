@@ -3,7 +3,8 @@ import queue
 import pytest
 import sys
 from typing import Any
-from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload, safe_json_loads
+from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.tool import ToolBase
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import run_stream_drain_loop

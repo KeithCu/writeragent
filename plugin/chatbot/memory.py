@@ -165,7 +165,7 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     if isinstance(arguments, dict):
         return cast("dict[str, Any]", arguments)
     if isinstance(arguments, str):
-        from plugin.framework.errors import safe_json_loads
+        from plugin.framework.json_utils import safe_json_loads
 
         parsed = safe_json_loads(arguments)
         return parsed if isinstance(parsed, dict) else None

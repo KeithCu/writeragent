@@ -54,10 +54,10 @@ from plugin.framework.errors import (
     ToolExecutionError,
     format_error_payload,
     reraise_if_disposed,
-    safe_json_loads,
     uno_probe,
     uno_read,
 )
+from plugin.framework.json_utils import safe_json_loads
 from plugin.writer import search as search_mod
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,

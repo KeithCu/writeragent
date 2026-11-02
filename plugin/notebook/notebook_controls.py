@@ -392,18 +392,11 @@ def _doc_key(doc: Any) -> str:
     the cell multiple times (``[In [4]]`` jumped to ``[In [7]]``).
     ``RuntimeUID`` is the same object for every wrapper of that document.
 
-    Read it with ``_read_runtime_uid``, the same ladder without
-    ``@main_thread_only``. ``get_runtime_uid`` raises off the main thread
-    when the dev UNO thread guard is on. File Open ``XFilter.filter`` runs
-    on Dummy-2 and the extensionless detect reload on Dummy-3 (see the
-    wire_all comment above). ``filter()`` would catch that ``RuntimeError``
-    and return False, and ``loadComponentFromURL`` would return None.
-    Decorating this path or hopping to the main thread deadlocks the
-    waiting host (#402).
+    Read it with ``get_runtime_uid``.
     """
-    from plugin.framework.uno_context import _read_runtime_uid
+    from plugin.framework.uno_context import get_runtime_uid
 
-    uid = _read_runtime_uid(doc)
+    uid = get_runtime_uid(doc)
     if uid:
         return f"uid:{uid}"
     url = uno_probe(lambda: doc.getURL(), "")

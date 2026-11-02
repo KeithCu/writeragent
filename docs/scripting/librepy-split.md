@@ -209,7 +209,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/framework/config_schema.py`](../../plugin/framework/config_schema.py) | `WriterAgentConfig`, `MODULES`, coerce/clamp/defaults (no disk I/O). Imports `MODULES` from `_manifest` and binds `CONFIG_DEFAULTS` via `set_manifest_modules` at import. Import schema names from here. |
 | [`plugin/framework/constants.py`](../../plugin/framework/constants.py) | `get_plugin_dir`, `AUTO_IMPORTS`, worker pool ids |
 | [`plugin/framework/errors.py`](../../plugin/framework/errors.py) | `format_error_payload`, `ConfigError`, `safe_call` |
-| [`plugin/framework/json_utils.py`](../../plugin/framework/json_utils.py) | `safe_json_loads` (via `client/errors.py`) |
+| [`plugin/framework/json_utils.py`](../../plugin/framework/json_utils.py) | `safe_json_loads` |
 | [`plugin/framework/i18n.py`](../../plugin/framework/i18n.py) | `_()` for translated errors |
 | [`plugin/framework/event_bus.py`](../../plugin/framework/event_bus.py) | `get_event_bus()` — imported by `config.py` |
 | [`plugin/framework/service.py`](../../plugin/framework/service.py) | `ServiceBase` — imported by `event_bus.py` |

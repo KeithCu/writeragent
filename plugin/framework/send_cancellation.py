@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from plugin.framework.queue_executor import QueueExecutor
 
-log = logging.getLogger("writeragent.framework.queue_executor")
+log = logging.getLogger(__name__)
 
 _AGENT_ACTIVE_LOCK = threading.Lock()
 # Scopes whose agent_session has not exited yet (identity, under the lock).

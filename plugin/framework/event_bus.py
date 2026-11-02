@@ -29,10 +29,11 @@ docs/framework/threading.md.
 from __future__ import annotations
 
 import logging
-import sys
 import threading
 import weakref
-from typing import Any, cast
+from typing import Any
+
+from plugin.framework.process_global import process_global
 
 log = logging.getLogger("writeragent.events")
 
@@ -195,6 +196,4 @@ def get_event_bus() -> EventBus:
 
     All callers call this at the point of use; there is deliberately no module-level alias.
     """
-    if not hasattr(sys, "_writeragent_event_bus"):
-        setattr(sys, "_writeragent_event_bus", EventBus())
-    return cast("EventBus", getattr(sys, "_writeragent_event_bus"))
+    return process_global("event_bus", EventBus)

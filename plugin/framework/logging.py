@@ -22,12 +22,8 @@ Also: redaction helpers for debug logs that would otherwise embed large base64 (
 Concurrency: ``init_logging`` may run from bootstrap while workers already
 log. The debug log path, ``enable_agent_log``, the init lock, the activity dict,
 the activity lock, and the watchdog hung_shown / stacks_dumped flags live in
-``sys._writeragent_logging_shared``, for the same reason as the debug-file handler,
-the exception-hook flag, and the watchdog-started flag (``_writeragent_debug_file_handler``,
-``_writeragent_exception_hooks_installed``, ``_writeragent_watchdog_started``):
-LibreOffice can import this module twice, and a module global is a different
-object in each copy. ``_shared`` installs that dict with ``sys.__dict__.setdefault``
-on the first miss so two threads cannot replace each other's box. ``_debug_log_flush_lock`` rate-limits ``flush()`` so every log
+``sys._writeragent_logging_shared``, accessed via ``process_global``.
+``_debug_log_flush_lock`` rate-limits ``flush()`` so every log
 line does not fsync. Actual line writes go through Python’s ``logging`` handler lock;
 you do not need another mutex around ``log.info``.
 """
@@ -46,6 +42,7 @@ from typing import Any, TypedDict, cast
 
 from plugin.framework.errors import ConfigError, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.process_global import process_global
 from plugin.framework import config
 
 
@@ -59,32 +56,25 @@ class _LoggingShared(TypedDict):
     stacks_dumped: bool
 
 
+def _create_logging_shared() -> _LoggingShared:
+    return {
+        "debug_log_path": None,
+        "enable_agent_log": False,
+        "init_lock": threading.Lock(),
+        "activity": {
+            "phase": "",
+            "round_num": -1,
+            "tool_name": None,
+            "last_activity": 0.0,
+        },
+        "activity_lock": threading.Lock(),
+        "hung_shown": False,
+        "stacks_dumped": False,
+    }
+
+
 def _shared() -> _LoggingShared:
-    box = getattr(sys, "_writeragent_logging_shared", None)
-    if not isinstance(box, dict):
-        fresh: dict[str, Any] = {
-            "debug_log_path": None,
-            "enable_agent_log": False,
-            "init_lock": threading.Lock(),
-            "activity": {
-                "phase": "",
-                "round_num": -1,
-                "tool_name": None,
-                "last_activity": 0.0,
-            },
-            "activity_lock": threading.Lock(),
-            "hung_shown": False,
-            "stacks_dumped": False,
-        }
-        # Atomic setdefault prevents replacing the shared logging state across workers.
-        stored = sys.__dict__.setdefault("_writeragent_logging_shared", fresh)
-        if isinstance(stored, dict):
-            box = stored
-        else:
-            setattr(sys, "_writeragent_logging_shared", fresh)
-            box = fresh
-    raw: Any = box
-    return cast("_LoggingShared", raw)
+    return process_global("logging_shared", _create_logging_shared)
 
 
 log = logging.getLogger("writeragent")
@@ -460,69 +450,63 @@ def init_logging(ctx: Any | None = None) -> None:
 
 
 def _install_global_exception_hooks() -> None:
-    """Install sys.excepthook and threading.excepthook to log unhandled exceptions.
+    """Install sys.excepthook and threading.excepthook to log unhandled exceptions."""
+    def _install() -> bool:
+        current_hook = sys.excepthook
+        if not getattr(current_hook, "_writeragent_hook", False):
+            _original_excepthook = current_hook
 
-    The installed flag lives on sys, and we also return when the current hook
-    is already ours. A module global let LibreOffice import this package
-    twice and wrap sys.excepthook again.
-    """
-    current_hook = sys.excepthook
-    if getattr(current_hook, "_writeragent_hook", False):
-        setattr(sys, "_writeragent_exception_hooks_installed", True)
-        return
-    if getattr(sys, "_writeragent_exception_hooks_installed", False):
-        return
-    setattr(sys, "_writeragent_exception_hooks_installed", True)
+            def _writeragent_excepthook(exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
+                try:
+                    tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
+                    msg = "Unhandled exception:\n" + "".join(tb_lines)
+                    try:
+                        payload = format_error_payload(exc_value)
+                        msg += f"\nPayload context: {payload.get('details', {})}"
+                    except Exception:
+                        log.debug("excepthook: format_error_payload failed", exc_info=True)
+                    log.error(f"[Excepthook] {msg.strip()}")
+                except Exception:  # noqa: S110  excepthook log.error failed; another log call can recurse
+                    pass
+                try:
+                    _original_excepthook(exc_type, exc_value, exc_tb)
+                except Exception:
+                    log.debug("original sys.excepthook failed", exc_info=True)
 
-    _original_excepthook = current_hook
+            setattr(_writeragent_excepthook, "_writeragent_hook", True)
+            sys.excepthook = _writeragent_excepthook
 
-    def _writeragent_excepthook(exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
-        try:
-            tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
-            msg = "Unhandled exception:\n" + "".join(tb_lines)
-            try:
-                payload = format_error_payload(exc_value)
-                msg += f"\nPayload context: {payload.get('details', {})}"
-            except Exception:
-                log.debug("excepthook: format_error_payload failed", exc_info=True)
-            log.error(f"[Excepthook] {msg.strip()}")
-        except Exception:  # noqa: S110  excepthook log.error failed; another log call can recurse
-            pass
-        try:
-            _original_excepthook(exc_type, exc_value, exc_tb)
-        except Exception:
-            log.debug("original sys.excepthook failed", exc_info=True)
+        if getattr(threading, "excepthook", None) is not None:
+            if not getattr(threading.excepthook, "_writeragent_hook", False):
+                _original_threading_excepthook = threading.excepthook
 
-    setattr(_writeragent_excepthook, "_writeragent_hook", True)
-    sys.excepthook = _writeragent_excepthook
+                def _writeragent_threading_excepthook(args: Any) -> None:
+                    try:
+                        msg = "Unhandled exception in thread %s: %s\n%s" % (
+                            getattr(args, "thread", None),
+                            getattr(args, "exc_type", args),
+                            "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
+                            if getattr(args, "exc_type", None)
+                            else "",
+                        )
+                        try:
+                            payload = format_error_payload(args.exc_value)
+                            msg += f"\nPayload context: {payload.get('details', {})}"
+                        except Exception:
+                            log.debug("threading excepthook: format_error_payload failed", exc_info=True)
+                        log.error(f"[Excepthook] {msg.strip()}")
+                    except Exception:  # noqa: S110  threading excepthook log.error failed; another log call can recurse
+                        pass
+                    try:
+                        _original_threading_excepthook(args)
+                    except Exception:
+                        log.debug("original threading.excepthook failed", exc_info=True)
 
-    if getattr(threading, "excepthook", None) is None:
-        return
-    # Same marker as the sys hook. Resetting only sys.excepthook (tests, or
-    # a second import that already wrapped sys) must not wrap
-    # threading.excepthook again.
-    if getattr(threading.excepthook, "_writeragent_hook", False):
-        return
-    _original_threading_excepthook = threading.excepthook
+                setattr(_writeragent_threading_excepthook, "_writeragent_hook", True)
+                threading.excepthook = _writeragent_threading_excepthook
+        return True
 
-    def _writeragent_threading_excepthook(args: Any) -> None:
-        try:
-            msg = "Unhandled exception in thread %s: %s\n%s" % (getattr(args, "thread", None), getattr(args, "exc_type", args), "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)) if getattr(args, "exc_type", None) else "")
-            try:
-                payload = format_error_payload(args.exc_value)
-                msg += f"\nPayload context: {payload.get('details', {})}"
-            except Exception:
-                log.debug("threading excepthook: format_error_payload failed", exc_info=True)
-            log.error(f"[Excepthook] {msg.strip()}")
-        except Exception:  # noqa: S110  threading excepthook log.error failed; another log call can recurse
-            pass
-        try:
-            _original_threading_excepthook(args)
-        except Exception:
-            log.debug("original threading.excepthook failed", exc_info=True)
-
-    setattr(_writeragent_threading_excepthook, "_writeragent_hook", True)
-    threading.excepthook = _writeragent_threading_excepthook
+    process_global("excepthook", _install)
 
 
 def log_exception(ex: BaseException, context: str = "WriterAgent") -> None:
@@ -761,19 +745,10 @@ def _watchdog_loop(status_control: Any) -> None:
 
 
 def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
-    """Start the hang-detection watchdog (idempotent). Pass status_control to set Hung: ... in UI.
-
-    The flag is on sys. A module global let a second import start another
-    job, and the pool imports ran at module import (LibrePy imports logging
-    and never starts the watchdog). The job is a dedicated pool task, not a
-    raw thread. ctx is unused; callers still pass the component context.
-    """
+    """Start the hang-detection watchdog (idempotent). Pass status_control to set Hung: ... in UI."""
     del ctx
-    with _shared()["activity_lock"]:
-        if getattr(sys, "_writeragent_watchdog_started", False):
-            return
-        setattr(sys, "_writeragent_watchdog_started", True)
-    try:
+
+    def _start() -> bool:
         from plugin.framework.thread_guard import background
         from plugin.framework.worker_pool import run_in_background
 
@@ -782,58 +757,53 @@ def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
             _watchdog_loop(status)
 
         run_in_background(_watchdog_job, status_control, name="watchdog", daemon=True, dedicated=True)
-    except Exception:
-        # Reset the started flag on launch failure so subsequent attempts can retry.
-        with _shared()["activity_lock"]:
-            setattr(sys, "_writeragent_watchdog_started", False)
-        raise
+        return True
+
+    process_global("watchdog", _start)
 
 
 def _install_safe_log_record_factory() -> None:
     """Install a custom LogRecord factory to prevent TypeError in Python 3.12+
     when logging a single PyUNO proxy object.
-
-    A marker on the factory and a sys flag make a second import a no-op.
-    A module global wrapped the factory again.
     """
-    current = logging.getLogRecordFactory()
-    if getattr(current, "_writeragent_safe_factory", False):
-        setattr(sys, "_writeragent_log_record_factory_installed", True)
-        return
-    if getattr(sys, "_writeragent_log_record_factory_installed", False):
-        return
+    def _install() -> bool:
+        current = logging.getLogRecordFactory()
+        if getattr(current, "_writeragent_safe_factory", False):
+            return True
 
-    _original_factory = current
+        _original_factory = current
 
-    def safe_logRecordFactory(*args: Any, **kwargs: Any) -> Any:
-        def _coerce_logged_arg(x: Any) -> Any:
-            if type(x).__name__ == "pyuno":
-                try:
-                    return str(x)
-                except Exception:
-                    # Fall back to "<pyuno>" if string conversion of a proxy raises.
-                    return "<pyuno>"
-            return x
+        def safe_logRecordFactory(*args: Any, **kwargs: Any) -> Any:
+            def _coerce_logged_arg(x: Any) -> Any:
+                if type(x).__name__ == "pyuno":
+                    try:
+                        return str(x)
+                    except Exception:
+                        # Fall back to "<pyuno>" if string conversion of a proxy raises.
+                        return "<pyuno>"
+                return x
 
-        # args contains (name, level, fn, lno, msg, args, exc_info, func, sinfo)
-        # args is at index 5.
-        if len(args) > 5:
-            log_args = args[5]
-            if isinstance(log_args, tuple):
-                if any(type(x).__name__ == "pyuno" for x in log_args):
-                    new_args = list(args)
-                    new_args[5] = tuple(_coerce_logged_arg(x) for x in log_args)
-                    args = tuple(new_args)
-        if "args" in kwargs:
-            log_args = kwargs["args"]
-            if isinstance(log_args, tuple):
-                if any(type(x).__name__ == "pyuno" for x in log_args):
-                    kwargs["args"] = tuple(_coerce_logged_arg(x) for x in log_args)
-        return _original_factory(*args, **kwargs)
+            # args contains (name, level, fn, lno, msg, args, exc_info, func, sinfo)
+            # args is at index 5.
+            if len(args) > 5:
+                log_args = args[5]
+                if isinstance(log_args, tuple):
+                    if any(type(x).__name__ == "pyuno" for x in log_args):
+                        new_args = list(args)
+                        new_args[5] = tuple(_coerce_logged_arg(x) for x in log_args)
+                        args = tuple(new_args)
+            if "args" in kwargs:
+                log_args = kwargs["args"]
+                if isinstance(log_args, tuple):
+                    if any(type(x).__name__ == "pyuno" for x in log_args):
+                        kwargs["args"] = tuple(_coerce_logged_arg(x) for x in log_args)
+            return _original_factory(*args, **kwargs)
 
-    setattr(safe_logRecordFactory, "_writeragent_safe_factory", True)
-    logging.setLogRecordFactory(safe_logRecordFactory)
-    setattr(sys, "_writeragent_log_record_factory_installed", True)
+        setattr(safe_logRecordFactory, "_writeragent_safe_factory", True)
+        logging.setLogRecordFactory(safe_logRecordFactory)
+        return True
+
+    process_global("safe_log_record_factory", _install)
 
 
 _install_safe_log_record_factory()

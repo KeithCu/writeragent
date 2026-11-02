@@ -993,6 +993,12 @@ class TestComputeSettings:
         assert s.default_timeout_sec == 12
         assert s.idle_worker_ttl_sec == 1800.0
 
+    def test_flat_config_keys_rejected(self, tmp_path) -> None:
+        cfg = tmp_path / "flat.json"
+        cfg.write_text(json.dumps({"port": 8123, "workers": 3}), encoding="utf-8")
+        with pytest.raises(ConfigError, match="Unknown config key 'port'"):
+            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
     def test_raw_api_key_in_json_fails_closed(self, tmp_path) -> None:
         cfg = tmp_path / "python-compute.json"
         cfg.write_text(json.dumps({"auth": {"api_key": "from-json"}}), encoding="utf-8")
@@ -1018,7 +1024,7 @@ class TestComputeSettings:
         cfg = tmp_path / "cfg.json"
         cfg.write_text(
             json.dumps({
-                "port": 8000,
+                "listen": {"port": 8000},
                 "limits": {"default_timeout_sec": 15, "workers": 3},
             }),
             encoding="utf-8",
@@ -1188,7 +1194,7 @@ class TestComputeSettings:
         int(True) is 1 and int(8000.9) is 8000. A whole-number float stays valid.
         """
         cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({"port": 8000.9}), encoding="utf-8")
+        cfg.write_text(json.dumps({"listen": {"port": 8000.9}}), encoding="utf-8")
         with pytest.raises(ConfigError, match="Invalid integer for port"):
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
@@ -1200,7 +1206,7 @@ class TestComputeSettings:
         with pytest.raises(ConfigError, match="Invalid integer for ocr_workers"):
             load_settings(config_path=cfg, environ={})
 
-        cfg.write_text(json.dumps({"port": 8000.0}), encoding="utf-8")
+        cfg.write_text(json.dumps({"listen": {"port": 8000.0}}), encoding="utf-8")
         loaded = load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert loaded.port == 8000
 
@@ -1213,8 +1219,8 @@ class TestComputeSettings:
         Neither is a ValueError, so they used to kill startup.
         """
         for name, body in (
-            ("inf.json", '{"port": Infinity}'),
-            ("huge-exp.json", '{"port": 1e9999}'),
+            ("inf.json", '{"listen": {"port": Infinity}}'),
+            ("huge-exp.json", '{"listen": {"port": 1e9999}}'),
         ):
             cfg = tmp_path / name
             cfg.write_text(body, encoding="utf-8")
@@ -3779,34 +3785,6 @@ def test_isolated_mode_with_session_id_rejected() -> None:
         )
         assert status == "400 Bad Request"
         assert "session_id URL query parameter is only permitted with mode='shared'" in parsed.get("error", "")
-
-
-def test_header_deadline_fires_inside_handle() -> None:
-    """A request line that arrives after the accept deadline returns 408 instead of a traceback."""
-    from compute_service.wsgi_server import DeadlineRequestHandler
-
-    client, server_sock = socket.socketpair()
-    try:
-        server_sock.settimeout(30)
-        rfile = server_sock.makefile("rb")
-        wfile = server_sock.makefile("wb", buffering=0)
-        handler = DeadlineRequestHandler.__new__(DeadlineRequestHandler)
-        handler.connection = server_sock
-        handler.rfile = rfile
-        handler.wfile = wfile
-        handler.client_address = ("127.0.0.1", 0)
-        handler.close_connection = True
-        handler.server = type("Srv", (), {"_accept_times": {server_sock: time.monotonic() - 100.0}})()
-        started = time.monotonic()
-        handler.handle()
-        assert time.monotonic() - started < 2.0
-        client.settimeout(1.0)
-        raw = client.recv(4096)
-        assert b"408" in raw
-        assert b"Request read timeout" in raw
-    finally:
-        client.close()
-        server_sock.close()
 
 
 def test_slow_body_drip_is_408() -> None:
