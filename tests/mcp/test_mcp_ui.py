@@ -440,7 +440,7 @@ def test_sync_pops_a_retired_url_under_the_cache_lock(monkeypatch: Any) -> None:
     mcp_ui._active_settings_dialog_lock = lock  # type: ignore[assignment]
 
     dlg, snippet = _snippet_dialog()
-    monkeypatch.setattr("plugin.mcp._shared_tunnel", None)
+    monkeypatch.setattr("plugin.mcp.current_tunnel", lambda: None)
 
     t = threading.Thread(target=sync_mcp_config_snippet, args=(dlg,))
     try:

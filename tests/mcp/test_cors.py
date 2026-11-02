@@ -673,9 +673,9 @@ def test_get_configured_tunnel_host_reads_shared_tunnel_public_url(monkeypatch):
     class _Tunnel:
         public_url = "https://abc.trycloudflare.com"
 
-    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", _Tunnel(), raising=False)
+    monkeypatch.setattr(mcp_pkg, "current_tunnel", lambda: _Tunnel())
     assert get_configured_tunnel_host() == "abc.trycloudflare.com"
-    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", None, raising=False)
+    monkeypatch.setattr(mcp_pkg, "current_tunnel", lambda: None)
     assert get_configured_tunnel_host() is None
 
 
@@ -768,7 +768,7 @@ def test_tunnel_host_lookup_does_not_swallow(monkeypatch):
         def public_url(self):
             raise RuntimeError("broken tunnel")
 
-    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", _Boom(), raising=False)
+    monkeypatch.setattr(mcp_pkg, "current_tunnel", lambda: _Boom())
     with pytest.raises(RuntimeError, match="broken tunnel"):
         get_configured_tunnel_host()
 

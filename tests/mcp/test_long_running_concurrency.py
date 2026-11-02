@@ -11,8 +11,8 @@
 # UNO is marshalled to the LibreOffice main thread; these tests measure logical
 # overlap in tool bodies (where mutation would happen), not raw UNO thread safety.
 #
-# _execute_with_backpressure: global Semaphore(1) + main thread + per-doc gate.
-# _execute_long_running: HTTP worker thread, no global semaphore + per-doc gate.
+# _run_tool (sync): global Semaphore(1) + main thread + per-doc gate.
+# _run_tool (async): HTTP worker thread, no global semaphore + per-doc gate.
 #   - backpressure MUTATING, same document              -> serialized (1)
 #   - long-running MUTATING, same document              -> serialized (1)
 #   - long-running MUTATING, different documents        -> concurrent (2)
@@ -63,10 +63,15 @@ class _FakeDocSvc:
 class _ToolInfo:
     """Mimics the relevant ToolBase contract used by the handler."""
 
-    def __init__(self, is_mutation, lock_required=None, lock_raises=False):
+    def __init__(self, is_mutation, lock_required=None, lock_raises=False, is_async=True):
         self.is_mutation = is_mutation
         self._lock_required = lock_required
         self._lock_raises = lock_raises
+        self._is_async = is_async
+        self.timeout = 60.0
+
+    def is_async(self):
+        return self._is_async
 
     def detects_mutation(self):
         return bool(self.is_mutation)
@@ -83,20 +88,25 @@ class _Registry:
     """Stub tool_registry: .get(name) reports the lock contract; .execute is
     instrumented to measure the max concurrency observed inside the tool body."""
 
-    def __init__(self, is_mutation=True, hold=0.05, lock_required=None, lock_raises=False, tool_info=None):
+    def __init__(self, is_mutation=True, hold=0.05, lock_required=None, lock_raises=False, tool_info=None, is_async=None):
         self._is_mutation = is_mutation
         self._lock_required = lock_required
         self._lock_raises = lock_raises
         self._tool_info = tool_info
+        self._is_async = is_async
         self._hold = hold
         self._active = 0
         self.max_concurrency = 0
         self._lock = threading.Lock()
 
     def get(self, name):
-        if self._tool_info is None:
-            return _ToolInfo(self._is_mutation, self._lock_required, self._lock_raises)
-        return self._tool_info
+        if self._tool_info is not None:
+            return self._tool_info
+        if self._is_async is not None:
+            async_flag = self._is_async
+        else:
+            async_flag = not (name.startswith("fast") or name == "readonly_tool" or name == "bp_tool")
+        return _ToolInfo(self._is_mutation, self._lock_required, self._lock_raises, is_async=async_flag)
 
     def execute(self, name, context, **kwargs):
         with self._lock:
@@ -137,11 +147,11 @@ def _run_concurrent(method, doc_urls, *, kwargs_list=None):
 
 
 def test_backpressure_path_serializes_via_semaphore():
-    """Non-long-running tools go through _execute_with_backpressure (semaphore + gate)."""
-    reg = _Registry(is_mutation=True)
+    """Non-long-running tools go through _run_tool with is_async=False (semaphore + gate)."""
+    reg = _Registry(is_mutation=True, is_async=False)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
-    errors = _run_concurrent(handler._execute_with_backpressure, ["file:///x.odt"] * 2)
+    errors = _run_concurrent(handler._run_tool, ["file:///x.odt"] * 2)
 
     assert not errors, "backpressure should not error: %s" % errors
     assert reg.max_concurrency == 1, "expected SERIALIZED (1), got %d" % reg.max_concurrency
@@ -155,10 +165,10 @@ def test_backpressure_path_serializes_via_semaphore():
     ],
 )
 def test_long_running_mutating_same_document_serializes(is_mutation, value, expected, value_2):
-    reg = _Registry(is_mutation=is_mutation)
+    reg = _Registry(is_mutation=is_mutation, is_async=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
-    errors = _run_concurrent(handler._execute_long_running, ["file:///same.odt"] * 2)
+    errors = _run_concurrent(handler._run_tool, ["file:///same.odt"] * 2)
 
     assert not errors, value % errors
     assert reg.max_concurrency == expected, (
@@ -175,10 +185,10 @@ def test_long_running_mutating_same_document_serializes(is_mutation, value, expe
     ],
 )
 def test_long_running_mutating_different_documents_run_concurrently(value, value_2, expected, value_3):
-    reg = _Registry(is_mutation=True)
+    reg = _Registry(is_mutation=True, is_async=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
-    errors = _run_concurrent(handler._execute_long_running, [value, value_2])
+    errors = _run_concurrent(handler._run_tool, [value, value_2])
 
     assert not errors, "long_running should not error: %s" % errors
     assert reg.max_concurrency == expected, (
@@ -186,10 +196,10 @@ def test_long_running_mutating_different_documents_run_concurrently(value, value
     )
 
 def test_long_running_tool_can_opt_out_of_document_lock():
-    reg = _Registry(is_mutation=True, lock_required=False)
+    reg = _Registry(is_mutation=True, lock_required=False, is_async=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
-    errors = _run_concurrent(handler._execute_long_running, ["file:///same.odt"] * 2)
+    errors = _run_concurrent(handler._run_tool, ["file:///same.odt"] * 2)
 
     assert not errors, "long_running should not error: %s" % errors
     assert reg.max_concurrency == 2, (
@@ -208,7 +218,7 @@ def test_unknown_tool_is_rejected_up_front_without_executing():
     reg = _UnknownRegistry(is_mutation=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
-    result = handler._execute_long_running("totally_bogus_tool", {}, document_url="file:///same.odt")
+    result = handler._run_tool("totally_bogus_tool", {}, document_url="file:///same.odt")
 
     assert result["status"] == "error" and result["code"] == "UNKNOWN_TOOL"
     assert "tools/list" in result["message"]
@@ -219,7 +229,7 @@ def test_requires_document_lock_exception_propagates():
     reg = _Registry(is_mutation=True, lock_raises=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
-    errors = _run_concurrent(handler._execute_long_running, ["file:///same.odt"] * 2)
+    errors = _run_concurrent(handler._run_tool, ["file:///same.odt"] * 2)
 
     assert errors, "a broken requires_document_lock must surface: %s" % errors
     assert all("hook failed" in msg for msg in errors)
@@ -234,13 +244,13 @@ def test_cross_path_long_running_and_backpressure_same_document_serializes():
 
     def run_long():
         try:
-            handler._execute_long_running("any_tool", {}, document_url="file:///same.odt")
+            handler._run_tool("long_tool", {}, document_url="file:///same.odt")
         except Exception as e:  # noqa: BLE001
             errors.append("long: %s" % e)
 
     def run_backpressure():
         try:
-            handler._execute_with_backpressure("any_tool", {}, document_url="file:///same.odt")
+            handler._run_tool("fast_tool", {}, document_url="file:///same.odt")
         except Exception as e:  # noqa: BLE001
             errors.append("bp: %s" % e)
 
@@ -282,7 +292,7 @@ class _DepthMainThread:
 def test_backpressure_waits_for_document_gate_off_the_main_thread():
     """A mutating backpressure call must not occupy the main thread while the gate is held.
 
-    What was wrong: _execute_with_backpressure marshalled _execute_tool_on_main, and
+    What was wrong: the old execution path marshalled _execute_tool_on_main, and
     that function acquired the per-document gate. The UI thread blocked until the
     30s timeout (BusyError) while a long-running mutator held the same gate.
     """
@@ -307,13 +317,13 @@ def test_backpressure_waits_for_document_gate_off_the_main_thread():
 
     def run_long():
         try:
-            handler._execute_long_running("any_tool", {}, document_url="file:///same.odt")
+            handler._run_tool("long_tool", {}, document_url="file:///same.odt")
         except Exception as e:  # noqa: BLE001
             errors.append("long: %s" % e)
 
     def run_bp():
         try:
-            handler._execute_with_backpressure("any_tool", {}, document_url="file:///same.odt")
+            handler._run_tool("fast_tool", {}, document_url="file:///same.odt")
         except Exception as e:  # noqa: BLE001
             errors.append("bp: %s" % e)
 
@@ -360,7 +370,7 @@ def test_readonly_backpressure_does_not_wait_on_held_mutation_gate():
 
     class _Reg(_Registry):
         def get(self, name):
-            return _ToolInfo(name != "readonly_tool")
+            return _ToolInfo(name != "readonly_tool", is_async=(name != "readonly_tool"))
 
         def execute(self, name, context, **kwargs):
             if name == "readonly_tool":
@@ -376,13 +386,13 @@ def test_readonly_backpressure_does_not_wait_on_held_mutation_gate():
 
     def run_long():
         try:
-            handler._execute_long_running("mutator", {}, document_url="file:///same.odt")
+            handler._run_tool("mutator", {}, document_url="file:///same.odt")
         except Exception as e:  # noqa: BLE001
             errors.append("long: %s" % e)
 
     def run_bp():
         try:
-            handler._execute_with_backpressure("readonly_tool", {}, document_url="file:///same.odt")
+            handler._run_tool("readonly_tool", {}, document_url="file:///same.odt")
         except Exception as e:  # noqa: BLE001
             errors.append("bp: %s" % e)
 
@@ -426,19 +436,19 @@ def test_gate_wait_does_not_hold_global_semaphore():
 
     def run_long():
         try:
-            handler._execute_long_running("long_tool", {}, document_url="file:///a.odt")
+            handler._run_tool("long_tool", {}, document_url="file:///a.odt")
         except Exception as e:  # noqa: BLE001
             errors.append("long: %s" % e)
 
     def run_fast_a():
         try:
-            handler._execute_with_backpressure("fast_a", {}, document_url="file:///a.odt")
+            handler._run_tool("fast_a", {}, document_url="file:///a.odt")
         except Exception as e:  # noqa: BLE001
             errors.append("fast_a: %s" % e)
 
     def run_fast_b():
         try:
-            handler._execute_with_backpressure("fast_b", {}, document_url="file:///b.odt")
+            handler._run_tool("fast_b", {}, document_url="file:///b.odt")
         except Exception as e:  # noqa: BLE001
             errors.append("fast_b: %s" % e)
 

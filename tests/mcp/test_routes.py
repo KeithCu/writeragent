@@ -122,15 +122,8 @@ def test_mcp_module_toggle_keeps_route_snapshots_consistent(monkeypatch) -> None
     import plugin.mcp as mcp_mod
     from plugin.mcp import McpModule
 
-    saved = (
-        mcp_mod._primary_http_module,
-        mcp_mod._shared_http_server,
-        mcp_mod._shared_tunnel,
-    )
-    with mcp_mod._http_peer_lock:
-        mcp_mod._primary_http_module = None
-        mcp_mod._shared_http_server = None
-        mcp_mod._shared_tunnel = None
+    saved_module = mcp_mod._current_module
+    mcp_mod._current_module = None
 
     services = MagicMock()
     services.config.proxy_for.return_value = {
@@ -184,9 +177,4 @@ def test_mcp_module_toggle_keeps_route_snapshots_consistent(monkeypatch) -> None
             mod.shutdown()
         except Exception:
             pass
-        with mcp_mod._http_peer_lock:
-            (
-                mcp_mod._primary_http_module,
-                mcp_mod._shared_http_server,
-                mcp_mod._shared_tunnel,
-            ) = saved
+        mcp_mod._current_module = saved_module

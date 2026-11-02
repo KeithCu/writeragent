@@ -30,9 +30,7 @@ def mcp_server():
     import plugin.mcp as http_mod
 
     def _reset_globals():
-        with http_mod._http_peer_lock:
-            http_mod._primary_http_module = None
-            http_mod._shared_http_server = None
+        http_mod._current_module = None
 
     _reset_globals()
 

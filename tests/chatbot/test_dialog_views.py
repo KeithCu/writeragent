@@ -649,7 +649,7 @@ def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
     tunnel.mcp_public_url.return_value = ""
 
     try:
-        with patch("plugin.mcp._shared_tunnel", tunnel), \
+        with patch("plugin.mcp.current_tunnel", return_value=tunnel), \
              patch("time.sleep") as mock_sleep, \
              patch("plugin.framework.worker_pool.run_in_background") as background:
             mcp_ui.sync_mcp_config_snippet(dlg)

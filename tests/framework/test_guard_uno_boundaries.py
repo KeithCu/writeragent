@@ -76,7 +76,7 @@ class TestGuardUnoBoundaries:
             patch("plugin.mcp.mcp_protocol._resolve_mcp_doc_key", return_value="key"),
             patch("plugin.mcp.document_mutation_gate._document_mutation_gate"),
         ):
-            handler._execute_long_running("noop", {}, document_url=None)
+            handler._run_tool("noop", {}, document_url=None)
 
         mock_get_ctx.assert_called()
 
