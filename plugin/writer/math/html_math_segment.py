@@ -69,8 +69,6 @@ class MathSegment:
 
 def html_fragment_contains_mathml(fragment: str) -> bool:
     """Fast check for MathML root elements."""
-    if not fragment:
-        return False
     return _MATH_OPEN_RE.search(_mask_html_nontext(fragment)) is not None
 
 
@@ -131,9 +129,7 @@ def html_fragment_contains_tex_math(fragment: str) -> bool:
     there is complete or not). A ``<math>`` span can swallow a complete TeX
     region, so ``True`` here does not guarantee a ``tex`` segment.
     """
-    if not fragment:
-        return False
-    return _next_complete_tex_region(_mask_html_nontext(fragment), 0) is not None
+    return _next_complete_tex_region(_mask_html_nontext(fragment), 0, set()) is not None
 
 
 def html_fragment_contains_mixed_math(fragment: str) -> bool:
@@ -211,7 +207,7 @@ def _try_close_tex(s: str, open_start: int, delim: TexDelim) -> int | None:
 
 
 def _next_complete_tex_region(
-    s: str, pos: int, no_close: set[TexDelim] | None = None
+    s: str, pos: int, no_close: set[TexDelim]
 ) -> tuple[int, int, TexDelim, bool] | None:
     """First closed TeX region at/after *pos*: ``(start, end, delimiter, display)``.
 
@@ -219,7 +215,6 @@ def _next_complete_tex_region(
     *s*; such a kind cannot close later either. Share it across calls so prose with
     unclosed ``$`` does not rescan the tail per opener.
     """
-    no_close = set() if no_close is None else no_close
     while True:
         opened = _scan_next_tex_open(s, pos)
         if opened is None:
@@ -236,8 +231,6 @@ def _next_complete_tex_region(
 
 def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
     """Split *fragment* into ``html``, ``math``, and ``tex`` segments in order."""
-    if not fragment:
-        return []
     masked = _mask_html_nontext(fragment)
     out: list[MathSegment] = []
     no_close: set[TexDelim] = set()
@@ -264,15 +257,14 @@ def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
             math_start = m_open.start()
             if math_start > pos:
                 out.append(MathSegment(kind="html", text=fragment[pos:math_start]))
-            open_start = math_start
-            gt = _tag_end(fragment, open_start)
+            gt = _tag_end(fragment, math_start)
             close_m = _MATH_CLOSE_RE.search(masked, gt + 1) if gt >= 0 else None
             if not close_m:
-                out.append(MathSegment(kind="html", text=fragment[open_start:]))
+                out.append(MathSegment(kind="html", text=fragment[math_start:]))
                 break
-            open_tag = fragment[open_start : gt + 1]
+            open_tag = fragment[math_start : gt + 1]
             display = _display_block_from_open_tag(open_tag)
-            math_xml = fragment[open_start : close_m.end()]
+            math_xml = fragment[math_start : close_m.end()]
             out.append(MathSegment(kind="math", text=math_xml, display_block=display))
             pos = close_m.end()
             continue

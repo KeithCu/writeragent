@@ -25,9 +25,9 @@ from plugin.framework.uno_context import get_desktop, uno_same
 from plugin.framework.url_utils import path_to_file_url
 from plugin.writer.math.math_mml_convert import (
     MATH_CLSID,
+    _MATH_ROOT_RE,
     _exception_message,
     _math_inner,
-    iter_math_roots,
     math_root,
 )
 
@@ -92,10 +92,11 @@ def convert_mathml_to_latex(mathml_fragment: str) -> MathExportResult:
 def _export_doc_to_mathml(doc: Any, starmath: str, path: str) -> str | None:
     from plugin.writer.format import create_property_value
 
+    stripped = starmath.strip()
     try:
-        doc.setPropertyValue("Formula", starmath.strip())
+        doc.setPropertyValue("Formula", stripped)
     except Exception:
-        doc.Formula = starmath.strip()
+        doc.Formula = stripped
 
     props = (
         create_property_value("FilterName", MATHML_EXPORT_FILTER),
@@ -196,7 +197,7 @@ def inject_math_tex_into_html(model: Any, ctx: Any, html: str) -> str:
     """
     if not html:
         return html
-    math_matches = list(iter_math_roots(html))
+    math_matches = list(_MATH_ROOT_RE.finditer(html))
     if not math_matches:
         return html
 
@@ -328,16 +329,14 @@ def selected_math_embeds(doc: Any) -> list[Any]:
     _add(sel)
     embed_objects = [obj for _name, obj in _iter_named_embeds(doc) if _is_math_embed(obj)]
 
-    get_by_index: Any = None
     try:
         count_val = sel.getCount()
         n = count_val if isinstance(count_val, int) else int(str(count_val))
-        get_by_index = sel.getByIndex
     except Exception:
         n = 0
     for i in range(n):
         try:
-            el = get_by_index(i)
+            el = sel.getByIndex(i)
         except Exception:
             log.debug("selected_math_embeds: getByIndex(%s) failed", i, exc_info=True)
             continue
