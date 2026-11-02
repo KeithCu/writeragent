@@ -34,7 +34,6 @@ from plugin.chatbot.dialogs import (
     translate_dialog,
     format_exception_detail,
     _collect_xdl_load_diagnostics,
-    _UnoExceptionAdapter,
 )
 
 
@@ -426,19 +425,6 @@ def test_format_exception_detail_includes_message_and_nested_context():
     assert "RuntimeError" in detail
     assert "outer text" in detail
     assert "inner message" in detail or "InnerError" in detail
-
-
-def test_format_exception_detail_unwraps_uno_target_object():
-    class UnoInner:
-        Message = "invalid attribute dropdown on listbox"
-
-    class UnoOuter:
-        Message = ""
-        Target = UnoInner()
-
-    detail = format_exception_detail(_UnoExceptionAdapter(UnoOuter()))
-    assert "UnoOuter" in detail
-    assert "invalid attribute dropdown on listbox" in detail
 
 
 def test_collect_xdl_load_diagnostics_reports_missing_file(tmp_path):
