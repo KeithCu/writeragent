@@ -127,7 +127,6 @@ rules:
         - "**/plugin/scripting/ipc.py"
         - "**/plugin/scripting/venv/editor_main.py"
         - "**/plugin/scripting/venv/audio_record_main.py"
-        - "**/plugin/writer/locale/grammar_work_queue.py"
         - "**/plugin/chatbot/dialog_views.py"
         - "**/plugin/calc/python/function.py"
         - "**/plugin/mcp/tunnel.py"

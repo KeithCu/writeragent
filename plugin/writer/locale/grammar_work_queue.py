@@ -2,74 +2,46 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Grammar work queue: work items, batch dedup, pure enqueue/stale helpers, parallel LLM workers.
+"""Grammar work queue: work items, pure enqueue/stale helpers, parallel LLM drain workers.
 
-Queue dedup / stale-suppression mental model
-=============================================
+The invariant: for any ``inflight_key`` only the **newest** snapshot (highest
+``enqueue_seq``) is sent to the LLM or written to the sentence cache.
 
-The grammar queue must ensure that for any given ``inflight_key``, only the
-**newest** snapshot (highest ``enqueue_seq``) ever reaches the LLM.  Two
-remaining layers (plus the ``_latest_seq`` generation map) enforce this
-invariant.  (A third Layer 1 "tail-replace" existed historically — see below.)
+**Supersede map** (``_latest_seq``) -- the one source of truth for staleness.
 
-**Layer 2 — Batch-drain dedup** (``_drain_loop`` dict accumulator)
+    ``enqueue`` records the newest ``enqueue_seq`` per ``inflight_key`` under
+    ``_lock`` (pruned by ``forget_document``). A worker drops an item when
+    ``inflight_superseded`` says a newer seq exists: once before the LLM call
+    and again before writing the cache, which catches items superseded during
+    the HTTP round-trip. In-place locale retargets record their new key via
+    ``note_inflight_generation``.
 
-    After the worker wakes on the first ``get()``, it separates items into
-    complete and partial sentences. Partial sentences wait out a 1.0s quiet
-    period (``GRAMMAR_WORKER_PAUSE_TIMEOUT_S``) reset on each keystroke, while
-    complete sentences coalesce for a fixed 50ms window (``GRAMMAR_COMPLETE_COALESCE_S``)
-    before dispatch. For each key only the item with the highest ``enqueue_seq``
-    is kept (same rule as the drain dict accumulator).
+**Batching / debounce policy** (the ``completes`` / ``partials`` dicts in ``_drain_loop``)
 
-    *Blind spot*: The dict cannot detect items that were already consumed in a
-    *previous* batch and whose ``inflight_key`` was re-enqueued while the
-    worker was busy with the LLM.
+    This is scheduling, not a dedup layer. Partial sentences wait out a 1.0s
+    quiet period (``GRAMMAR_WORKER_PAUSE_TIMEOUT_S``) reset by each newer seq
+    for the same key; complete sentences coalesce for a fixed 50ms window
+    (``GRAMMAR_COMPLETE_COALESCE_S``). Keeping only the highest seq per key in
+    the dicts just avoids sending items the supersede map would drop anyway.
 
-**Layer 3 — Pre-execute and post-LLM stale checks** (``_latest_seq`` map)
+**N workers** (``grammar_max_in_flight``)
 
-    ``enqueue`` records the newest ``enqueue_seq`` per ``inflight_key`` in
-    ``_latest_seq`` (under ``_lock``; pruned when the document closes via
-    ``forget_document``).  Before sending a batch item to
-    the LLM, the worker checks inflight_superseded — if a newer enqueue has been
-    recorded since this item was drained, it is skipped.  After the LLM
-    returns, ``inflight_superseded`` is checked again before writing to the
-    sentence cache, catching items superseded during the (possibly slow)
-    HTTP round-trip.
+    Up to N drain workers share one ``queue.Queue``. Each worker owns its own
+    ``completes`` / ``partials`` dicts, so with N > 1 the 1.0s quiet period is
+    per worker: two keystrokes for the same key can land on different workers,
+    and each worker debounces only what it pulled. That is intentional; the
+    supersede map is shared, so the older snapshot is still dropped as stale.
 
-**Historical Layer 1 (removed)**
+**``inflight_key``**
 
-    An earlier O(1) "tail-replace" lived in ``enqueue()``: it acquired
-    ``self._q.mutex`` and directly mutated ``self._q.queue[-1]`` when the
-    tail shared the same ``inflight_key`` and the incoming item had a higher
-    seq.  This was the classic "clever" bit (direct access to a ``Queue``'s
-    internal deque + ``unfinished_tasks`` / ``not_empty.notify()``).
+    Complete sentences: ``{doc_id}|{locale}|{fingerprint_for_text}`` -- unique
+    per sentence, stable while the sentence is unchanged.
+    Incomplete sentences: ``{doc_id}|{locale}|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING``
+    -- every partial draft at the typing spot shares one key, so each keystroke
+    supersedes the previous draft.
 
-    It was removed because:
-    - The worker drains so quickly that the queue is *usually empty* on the
-      next enqueue during real typing bursts (the exact scenario the comment
-      in the old Layer 2 section called out).
-    - Layer 2 (the drain dict) + Layer 3 (``_latest_seq`` guards, including
-      the language-requeue path) already provide complete protection.
-    - Removing it eliminates the highest-cognitive-load construct while
-      changing no observable behavior for squiggles, cache, or LLM calls.
-
-**``inflight_key`` design**
-
-    Complete sentences: ``{doc_id}|{locale}|{fingerprint_for_text}`` (24 hex characters).  Unique
-    per sentence, stable if the sentence is unchanged — so two different
-    sentences in the same paragraph never collide.
-
-    Incomplete sentences: ``{doc_id}|{locale}|INCOMPLETE_WRITER_AGENT_INTERNAL_STRING``.
-    All partial drafts for the active typing spot share one key, ensuring
-    every keystroke supersedes the previous draft.
-
-**``enqueue_seq`` as generation stamp**
-
-    A global monotonic counter (``next_enqueue_seq``), not a queue position.
-    It records *when* a snapshot was created.  Queue FIFO only orders
-    ``get()`` calls; ``enqueue_seq`` records supersede relationships across
-    batches and stale checks (the old tail-replace path is no longer one of
-    them).
+**``enqueue_seq``** is a global monotonic generation stamp (``next_enqueue_seq``),
+not a queue position: FIFO orders ``get()`` calls, the seq orders supersedes.
 """
 
 from __future__ import annotations
@@ -141,7 +113,7 @@ def next_enqueue_seq() -> int:
 
 
 def enqueue_misses(
-    queue: Any,
+    work_queue: Any,
     ctx: Any,
     a_doc_id: str,
     loc_key: str,
@@ -176,7 +148,7 @@ def enqueue_misses(
             slice_len=len(sent_text),
             partial_sentence_arg=not complete_sentence,
         )
-        queue.enqueue(
+        work_queue.enqueue(
             GrammarWorkItem(
                 ctx=ctx,
                 text=sent_text,
@@ -196,15 +168,8 @@ def enqueue_misses(
 class GrammarWorkQueue:
     """Multi-worker queue for grammar LLM requests (stampede + per-key supersede).
 
-    Up to ``doc.grammar_proofreader_max_in_flight`` daemon drain threads share one
+    Up to ``doc.grammar_proofreader_max_in_flight`` daemon drain workers share one
     ``queue.Queue``; each batch still respects ``grammar_llm_request_gate`` for HTTP.
-
-    TD4 note: an ``InflightTracker`` wrapper around ``_lock`` + ``_latest_seq``
-    was evaluated and rejected — the tracker would absorb 2 fields and 3 thin methods
-    but ``GrammarWorkQueue`` is already small enough that an extra indirection adds more
-    cognitive load than it removes.  The pure functions (``filter_stale_and_group``,
-    ``inflight_superseded``)
-    keep the logic testable without wrapping the state.
     """
 
     def __init__(self) -> None:
@@ -299,12 +264,16 @@ class GrammarWorkQueue:
         that sentence cannot supersede it. An older seq does not replace a
         newer one, so the older generation stays droppable.
         """
+        return self._record_generation(inflight_key, enqueue_seq) is not None
+
+    def _record_generation(self, inflight_key: str, enqueue_seq: int) -> int | None:
+        """Record *enqueue_seq* unless older; return the newer latest seq when stale, else None."""
         with self._lock:
             latest = self._latest_seq.get(inflight_key)
             if latest is not None and enqueue_seq < latest:
-                return True
+                return latest
             self._latest_seq[inflight_key] = enqueue_seq
-            return False
+            return None
 
     def forget_document(self, doc_id: str) -> None:
         """Drop generation stamps for a closed document (keys start with ``doc_id + '|'``)."""
@@ -318,23 +287,17 @@ class GrammarWorkQueue:
     def enqueue(self, item: GrammarWorkItem) -> None:
         """Add a work item; starts the drain worker on first call.
 
-        Same-key deduplication for rapid typing is the Layer 2 ``batch_by_key``
-        dict inside ``_drain_loop`` (the worker drains so quickly that the queue
-        is usually empty on the next enqueue during bursts). Cross-batch and
-        in-flight supersedes use ``_latest_seq`` (Layer 3), including
-        language-detection requeues and in-place locale retargets that mint
-        a fresh higher seq (``note_inflight_generation``).
+        Records the seq in the supersede map (``_latest_seq``) first, so any
+        older snapshot of the same key is dropped as stale wherever it is.
         """
-        key = item.inflight_key
-        if self.note_inflight_generation(key, item.enqueue_seq):
-            latest = self._latest_seq.get(key)
-            if latest is not None:
-                log.error(
-                    "[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable",
-                    key,
-                    item.enqueue_seq,
-                    latest,
-                )
+        newer_seq = self._record_generation(item.inflight_key, item.enqueue_seq)
+        if newer_seq is not None:
+            log.error(
+                "[grammar] queue enqueue: out-of-order seq detected for key=%s: incoming seq=%s < latest seq=%s; stale detection may be unreliable",
+                item.inflight_key,
+                item.enqueue_seq,
+                newer_seq,
+            )
         grammar_obs(
             "queue_enqueue",
             sentences_queued=1,
@@ -347,9 +310,6 @@ class GrammarWorkQueue:
             preview=slice_preview_debug(item.text),
         )  # fmt: skip
 
-        # Normal append.  (Historical Layer 1 "tail-replace" under _q.mutex was
-        # removed in the TD4 simplification pass because it was ineffective
-        # during the common rapid-drain burst case; see the module docstring.)
         if item.doc_id and item.grammar_bcp47:
             from .grammar_persistence import grammar_registry
 
@@ -358,6 +318,8 @@ class GrammarWorkQueue:
         self._ensure_workers()
 
     def _ensure_workers(self) -> None:
+        from plugin.framework.worker_pool import run_in_background
+
         desired = grammar_proofread_locale.grammar_max_in_flight()
         while True:
             with self._lock:
@@ -365,11 +327,11 @@ class GrammarWorkQueue:
                     return
                 i = self._worker_count
                 self._worker_count += 1
-            t = threading.Thread(target=self._drain_loop, name=f"writeragent-grammar-queue-{i}", daemon=True)
-            t.start()
+            # Infinite loop: a dedicated daemon thread, never a shared pool slot.
+            run_in_background(self._drain_loop, name=f"writeragent-grammar-queue-{i}", dedicated=True)
 
     def _drain_loop(self) -> None:
-        """Block-dequeue, batch-drain pending items, deduplicate, process one batch.
+        """Block-dequeue, batch-drain pending items (newest seq per key), process one batch.
 
         ``None`` is a poison-pill; nothing enqueues it today. A real shutdown must
         put one ``None`` per drain thread, or extra workers block forever.

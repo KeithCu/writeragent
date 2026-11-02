@@ -254,10 +254,7 @@ def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tu
 
 def _doc_table_count(doc: Any) -> int | None:
     """Table count from doc.getTextTables(); None when unreadable (a mock). Disposal propagates."""
-    # What was wrong: catching DocumentDisposedError returned None ("unreadable"),
-    # causing table verification to swallow disposal and falsely report success.
-    # How it happened: defensive try/except DocumentDisposedError hid closed docs.
-    # Why this change fixes it: let uno_read raise DocumentDisposedError so callers abort.
+    # Invariant: uno_read raises DocumentDisposedError, so table verification never reports success on a closed doc.
     tables = uno_read(lambda: doc.getTextTables(), None)
     if tables is None:
         return None
@@ -283,12 +280,7 @@ def _enter_atomic_undo(doc: Any) -> tuple[Any, str] | None:
     Disposal propagates: a closed document is not "no undo context".
     `isLocked() is True` (not truthy): a MagicMock return must not look locked.
     """
-    # What was wrong: catching generic Exception masked DisposedException as
-    # UNDO_UNAVAILABLE instead of propagating disposal; truthy isLocked()
-    # treated MagicMock returns as locked.
-    # How it happened: inconsistent undo manager acquisition across three call sites.
-    # Why this change fixes it: reraise_if_disposed allows disposal to propagate,
-    # and explicit `is True` checks prevent MagicMocks from appearing locked.
+    # Invariant: disposal propagates (never UNDO_UNAVAILABLE); `is True` keeps a MagicMock from looking locked.
     title = next_agent_edit_undo_title()
     try:
         mgr = doc.getUndoManager()
@@ -531,12 +523,7 @@ class ApplyDocumentContent(ToolBase):
         that does not touch an outline link does not open a hidden document. An override
         on a non-outline match is not previewed as a new link; the caller rejects it.
         """
-        # What was wrong: a failed outline read looked like "no outline link".
-        # dry_run omitted the link, and hyperlink_url became INVALID_PARAM
-        # ("overlaps exactly one") instead of a read failure. Disposal was swallowed.
-        # How it happened: the except logged at debug and returned {}.
-        # Why this fixes it: disposal propagates; any other failure is
-        # HYPERLINK_UPDATE_FAILED and is not merged into the match row.
+        # Invariant: a failed outline read is HYPERLINK_UPDATE_FAILED (never "no link"); disposal propagates.
         snapshot, err = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink preview failed")
         if err:
             return {}, err
@@ -589,6 +576,7 @@ class ApplyDocumentContent(ToolBase):
             reports = run()
             applied_ok = True
         except Exception as exc:
+            reraise_if_disposed(exc)
             log.exception("apply_document_content: outline hyperlink update failed")
             error_exc = exc
         finally:
@@ -669,12 +657,7 @@ class ApplyDocumentContent(ToolBase):
         from . import format as format_support
 
         anchor = collapsed_anchor(found)
-        # What was wrong: a failed capture with no hyperlink_url still replaced
-        # the text on an empty snapshot, so the outline URL was not restored.
-        # With hyperlink_url, a closed document was HYPERLINK_UPDATE_FAILED.
-        # How it happened: the except used an empty snapshot unless override was set.
-        # Why this fixes it: disposal propagates before the text change; any
-        # other failure refuses the edit with HYPERLINK_UPDATE_FAILED.
+        # Invariant: a failed capture refuses the edit (HYPERLINK_UPDATE_FAILED) before any text change; disposal propagates.
         snapshot, err = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink capture failed")
         if err:
             return None, err
@@ -1059,9 +1042,7 @@ class ApplyDocumentContent(ToolBase):
         # get_config_bool_safe tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled()
 
-        # What was wrong: EditReviewSession was created before search param checks, registering with session_sink on invalid params.
-        # How it happened: session was instantiated and appended to session_sink at the start of _execute_edit.
-        # Why this change fixes it: _open_session() is called only after search param checks pass (or at start of target branches).
+        # Invariant: the session registers with session_sink only after param checks pass.
         def _open_session() -> EditReviewSession:
             s = EditReviewSession(ctx.doc, ctx.ctx, enabled=track_reviewable)
             if session_sink is not None:
@@ -1139,9 +1120,7 @@ class ApplyDocumentContent(ToolBase):
         # double space (same for " paragrafo inteiro" -> " inteiro"). A
         # deletion takes the space on one side along with the word.
         separator = 0
-        # What was wrong: not content_has_markup(content) re-checked decoded string, skipping edge space if entity was decoded to markup.
-        # How it happened: checked content_has_markup on decoded content rather than use_preserve.
-        # Why this change fixes it: check use_preserve directly.
+        # Invariant: branch on use_preserve, not on the decoded content (an entity may decode to markup).
         if (position == "replace" and not kwargs.get("regex")
                 and use_preserve
                 and not format_support.content_has_markup(str(old_content))):
@@ -1163,7 +1142,6 @@ class ApplyDocumentContent(ToolBase):
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
         # if a replace raises mid-all_matches the existing abort behavior stands.
-        # TODO(follow-up): share search-path return dicts with string_eval_tools.py to avoid drift.
         # Explicit regex / case control (opt-in): a direct SearchDescriptor find that bypasses the
         # default lenient matcher, so "search with options then replace" agrees with search_in_document.
 
@@ -1221,11 +1199,7 @@ class ApplyDocumentContent(ToolBase):
             except Exception as e:
                 log.exception("apply_document_content all_matches failed mid-batch")
                 rolled_back = close_surgical_context(mgr, session, changes_before, False, undo_title)
-                # What was wrong: every failure, including a closed document and a
-                # ToolExecutionError, became status=error with no code.
-                # How it happened: this except returned a hand-built dict.
-                # Why this fixes it: disposal is re-raised after the rollback;
-                # every other result keeps its code.
+                # Invariant: disposal re-raises after the rollback; every other failure keeps its code.
                 reraise_if_disposed(e)
                 payload: dict[str, Any]
                 if isinstance(e, ToolExecutionError):
@@ -1310,16 +1284,12 @@ class ApplyDocumentContent(ToolBase):
             # opened right after it. A line break is a paragraph too: plain
             # "Novo A\n\nNovo B" on the inline path goes in as manual line
             # breaks glued onto the matched paragraph.
-            # What was wrong: is_block checked "\\n" in str(content), snapping markup with literal backslashes to paragraph boundary.
-            # How it happened: backslash-n string disjunct treated literal escapes in markup as block delimiters.
-            # Why this change fixes it: plain-text escapes are already expanded when use_preserve; branch on use_preserve and check real newlines.
+            # Invariant: only real newlines make plain content a block; literal backslash-n in markup does not.
             if use_preserve:
                 is_block = "\n" in content
             else:
                 is_block = format_support._content_has_block_markup(str(content)) or "\n" in str(content)
             text_obj = found.getText()
-            # execute_safe reports a failed cursor. This catch hid a closed document
-            # as "Could not anchor".
             if is_block:
                 insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)
             else:
@@ -1392,9 +1362,6 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(doc) if has_table else None
         doomed = writer_tables_emptied_by_matches([found], content)
         if doomed:
-            # execute_safe reports a failed delete. This catch hid a closed
-            # document as "Could not delete table". _execute still releases
-            # the session.
             with session:
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete), session

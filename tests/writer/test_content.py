@@ -795,6 +795,21 @@ def test_outline_undo_says_when_rollback_fails():
     assert "could not be rolled back" not in err2["message"]
 
 
+def test_outline_undo_propagates_disposed_document():
+    doc = MagicMock()
+    doc.getUndoManager.return_value.isLocked.return_value = False
+    session = MagicMock()
+    session.changes = []
+
+    def disposed_run():
+        raise type("DisposedException", (Exception,), {})("gone")
+
+    with patch("plugin.writer.apply_document_content.close_surgical_context", return_value=True) as close:
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent()._outline_undo(doc, session, disposed_run)
+    close.assert_called_once()
+
+
 def test_get_document_content_warns_when_redlines_are_not_listed():
     from plugin.writer.get_document_content import GetDocumentContent
 
