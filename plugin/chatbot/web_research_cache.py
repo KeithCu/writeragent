@@ -426,13 +426,6 @@ def _get_embedding_model_or_none() -> str | None:
         return None
 
 
-def _embed_by_index(ctx: Any, texts: list[str], model: str) -> dict[int, list[float]]:
-    from plugin.embeddings.embedding_client import embed_texts
-
-    batch = embed_texts(ctx, texts, model=model)
-    return dict(zip(batch.indices, batch.vectors))
-
-
 def find_embedding_research_match(
     ctx: Any,
     cache_path: str,
@@ -454,9 +447,12 @@ def find_embedding_research_match(
     if not stored:
         return None
 
+    from plugin.embeddings.embedding_client import embed_texts
+
     query_text = str(embedding_text or "").strip() or word_key
     # Omit timeout_sec so embed_texts uses embeddings_worker_timeout_sec (long trusted budget).
-    query_vector = _embed_by_index(ctx, [query_text], model).get(0)
+    batch = embed_texts(ctx, [query_text], model=model)
+    query_vector = next((v for idx, v in zip(batch.indices, batch.vectors) if idx == 0), None)
     if not query_vector:
         return None
 
@@ -473,12 +469,14 @@ def find_embedding_research_match(
 
 
 def _embed_and_store(ctx: Any, cache_path: str, model: str, pairs: list[tuple[str, str]]) -> bool:
+    from plugin.embeddings.embedding_client import embed_texts
+
     texts = [text for _raw_key, text in pairs]
-    by_index = _embed_by_index(ctx, texts, model)
+    batch = embed_texts(ctx, texts, model=model)
     rows: list[tuple[str, str, list[float]]] = []
-    for idx, (raw_key, text) in enumerate(pairs):
-        vector = by_index.get(idx)
+    for idx, vector in zip(batch.indices, batch.vectors):
         if vector:
+            raw_key, text = pairs[idx]
             rows.append((raw_key, text, vector))
     if rows:
         store_research_cache_embeddings(cache_path, rows, embedding_model=model)
@@ -532,10 +530,7 @@ def enqueue_research_cache_embedding_backfill(ctx: Any, cache_path: str, max_age
 
 def _research_cache_embedding_row_worker(ctx: Any, cache_path: str, raw_key: str, embedding_text: str, embedding_model: str) -> None:
     try:
-        text = str(embedding_text or "").strip()
-        if not text:
-            return
-        _embed_and_store(ctx, cache_path, embedding_model, [(raw_key, text)])
+        _embed_and_store(ctx, cache_path, embedding_model, [(raw_key, embedding_text)])
     except Exception as e:
         log.debug("research cache embedding row skipped: %s", e)
 
@@ -605,8 +600,8 @@ def lookup_research_cache(
     jaccard_percent: int,
     min_overlap: int,
     *,
+    embedding_percent: int,
     ctx: Any | None = None,
-    embedding_percent: int | None = None,
     embedding_text: str | None = None,
     mode: str = "",
 ) -> tuple[str, str | None, float, str] | None:
@@ -639,7 +634,7 @@ def lookup_research_cache(
             return ("hit", matched, 1.0, cached)
 
     jaccard_min = max(0.0, min(1.0, jaccard_percent / 100.0))
-    embedding_min = max(0.0, min(1.0, (embedding_percent if embedding_percent is not None else jaccard_percent) / 100.0))
+    embedding_min = max(0.0, min(1.0, embedding_percent / 100.0))
     if ctx is not None:
         try:
             embedding = find_embedding_research_match(

@@ -300,8 +300,7 @@ def parse_assessment_response(response: str) -> dict[str, Any]:
         # handles standard boolean token strings. Parse tokens the way score
         # is coerced above: only a real boolean counts, and bad input falls
         # back to "do not stop".
-        if stop_flag is not None:
-            out["stop"] = as_bool(stop_flag)
+        out["stop"] = as_bool(stop_flag)
         out["reasoning"] = str(parsed.get("reasoning") or "")
     return out
 
@@ -537,7 +536,7 @@ def _process_one_sub_query(
     sources = list(
         dict.fromkeys(
             [
-                *list(dict.fromkeys(URL_PATTERN.findall(sub_context))),
+                *URL_PATTERN.findall(sub_context),
                 *(u for urls in citation_map.values() for u in urls if u),
             ]
         )
