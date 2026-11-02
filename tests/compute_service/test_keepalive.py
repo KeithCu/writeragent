@@ -179,7 +179,7 @@ def test_fresh_accept_parks_without_holding_a_worker() -> None:
 
 
 def test_idle_timeout_closes_without_408(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cs_http, "_REQUEST_READ_TIMEOUT_SEC", 0.15)
+    monkeypatch.setattr(cs_http, "REQUEST_READ_TIMEOUT_SEC", 0.15)
     with _server() as (_server_obj, port), _client(port) as c:
         c.sock.sendall(_execute("req-1"))
         assert c.read_response()[1] == 200
@@ -306,7 +306,7 @@ def test_unread_body_closes_connection(settings: dict[str, Any], raw: bytes, sta
         c.assert_eof()
 
 
-def test_head_keeps_content_length_and_sends_no_body() -> None:
+def test_head_is_rejected_bodiless_and_closes() -> None:
     with _server() as (_s, port), _client(port) as c:
         c.sock.sendall(b"HEAD /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
         c.sock.settimeout(2.0)
@@ -320,20 +320,16 @@ def test_head_keeps_content_length_and_sends_no_body() -> None:
         lines = head.decode("latin1").split("\r\n")
         assert "405" in lines[0]
         hdrs = {k.strip().lower(): v.strip() for k, v in (line.split(":", 1) for line in lines[1:])}
-        assert hdrs.get("content-length") == "18"
-        assert hdrs.get("allow") == "GET"
-        assert hdrs.get("connection") != "close"
-        c.sock.settimeout(0.3)
-        with pytest.raises(TimeoutError):
-            c.sock.recv(1024)
-        c.sock.sendall(_HEALTH)
-        assert json.loads(c.read_response()[3])["status"] == "healthy"
+        assert hdrs.get("content-length") == "0"
+        assert hdrs.get("allow") == "GET, POST"
+        assert hdrs.get("connection") == "close"
+        c.assert_eof()
 
 
 def test_body_drain_stops_at_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
     import compute_service.server as cs_server
 
-    monkeypatch.setattr(cs_server, "_REQUEST_READ_TIMEOUT_SEC", 0.3)
+    monkeypatch.setattr(cs_server, "REQUEST_READ_TIMEOUT_SEC", 0.3)
     stop = threading.Event()
     with _server(settings_override={"api_key": "correct-key"}) as (_s, port), _client(port) as c:
 
@@ -424,7 +420,7 @@ def test_tick_dispatches_readable_and_sweeps_idle() -> None:
         try:
             now = time.monotonic()
             readable = ConnState(r1, ("127.0.0.1", 1), r1.makefile("rb", -1), now)
-            quiet = ConnState(q1, ("127.0.0.1", 2), q1.makefile("rb", -1), now - cs_http._REQUEST_READ_TIMEOUT_SEC - 1)
+            quiet = ConnState(q1, ("127.0.0.1", 2), q1.makefile("rb", -1), now - cs_http.REQUEST_READ_TIMEOUT_SEC - 1)
             for st in (readable, quiet):
                 server._conns[st.sock] = st
                 selector.register(st.sock, selectors.EVENT_READ, data=st)
