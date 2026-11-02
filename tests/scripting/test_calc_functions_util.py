@@ -19,6 +19,7 @@ from plugin.scripting.venv.calc_functions_a_c import (
 from plugin.scripting.venv.calc_functions_d_h import _dollar_frac
 from plugin.scripting.venv.calc_functions_t_z import _find_match_index
 from plugin.scripting.venv.calc_functions_util import (
+    CalcError,
     _build_holiday_set,
     _collect_a_values,
     _criteria_numbers,
@@ -27,6 +28,7 @@ from plugin.scripting.venv.calc_functions_util import (
     _parse_weekend,
     _serial_to_date,
     _wildcard_fullmatch,
+    calc_function,
     match_criteria,
 )
 
@@ -447,6 +449,64 @@ def test_get_coupon_dates_calendar_stepping():
     # Settlement >= maturity raises ValueError
     with pytest.raises(ValueError):
         _get_coupon_dates(43983, 43831, 2, 0)
+
+
+def test_calc_error():
+    err = CalcError(CalcError.VALUE)
+    assert str(err) == "#VALUE!"
+    assert err.token == "#VALUE!"
+
+    for tok in (CalcError.VALUE, CalcError.NUM, CalcError.DIV0, CalcError.NA):
+        e = CalcError(tok)
+        assert e.token == tok
+
+    with pytest.raises(ValueError):
+        CalcError("NOT_AN_ERROR")
+
+
+def test_calc_function():
+    @calc_function
+    def normal_fn(x):
+        return x * 2
+
+    assert normal_fn(5) == 10
+
+    @calc_function
+    def error_fn(kind):
+        if kind == "value_err":
+            raise ValueError("bad value")
+        if kind == "type_err":
+            raise TypeError("bad type")
+        if kind == "overflow_err":
+            raise OverflowError("overflow")
+        if kind == "calc_num":
+            raise CalcError(CalcError.NUM)
+        if kind == "calc_val":
+            raise CalcError(CalcError.VALUE)
+        if kind == "calc_div0":
+            raise CalcError(CalcError.DIV0)
+        if kind == "calc_na":
+            raise CalcError(CalcError.NA)
+        if kind == "zero_div":
+            raise ZeroDivisionError("zero")
+        if kind == "index_err":
+            raise IndexError("index")
+        return "ok"
+
+    assert math.isnan(error_fn("value_err"))
+    assert math.isnan(error_fn("type_err"))
+    assert math.isnan(error_fn("overflow_err"))
+    assert math.isnan(error_fn("calc_num"))
+    assert error_fn("calc_val") == "#VALUE!"
+    assert error_fn("calc_div0") == "#DIV/0!"
+    assert error_fn("calc_na") == "#N/A"
+
+    with pytest.raises(ZeroDivisionError):
+        error_fn("zero_div")
+    with pytest.raises(IndexError):
+        error_fn("index_err")
+    assert error_fn("none") == "ok"
+
 
 
 

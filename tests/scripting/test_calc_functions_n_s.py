@@ -33,10 +33,10 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("n", ("",), 0.0, "n-blank"),
     ("n", (0,), 0.0, "n-zero"),
     ("n", (_INF,), "inf", "n-out-of-range"),
-    ("negbinomdist", ("text", 5, 0.5), "nan", "negbinomdist-text"),
-    ("negbinomdist", ("", 5, 0.5), "nan", "negbinomdist-blank"),
+    ("negbinomdist", ("text", 5, 0.5), ValueError, "negbinomdist-text"),
+    ("negbinomdist", ("", 5, 0.5), ValueError, "negbinomdist-blank"),
     ("negbinomdist", (2, 5, 0), "nan", "negbinomdist-zero-prob"),
-    ("negbinomdist", (_INF, 5, 0.5), "nan", "negbinomdist-out-of-range"),
+    ("negbinomdist", (_INF, 5, 0.5), OverflowError, "negbinomdist-out-of-range"),
     ("networkdays", ("text", 46185), "nan", "networkdays-text"),
     ("networkdays", ("", 46185), "nan", "networkdays-blank"),
     ("networkdays", (0, 0), 0.0, "networkdays-zero"),
@@ -45,35 +45,35 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("networkdays_intl", ("", 46185), "nan", "networkdays-intl-blank"),
     ("networkdays_intl", (0, 0), 0.0, "networkdays-intl-zero"),
     ("networkdays_intl", (1e20, 1e20), "nan", "networkdays-intl-out-of-range"),
-    ("nominal", ("text", 4), "nan", "nominal-text"),
-    ("nominal", ("", 4), "nan", "nominal-blank"),
-    ("nominal", (0.1, _INF), "nan", "nominal-out-of-range"),
+    ("nominal", ("text", 4), ValueError, "nominal-text"),
+    ("nominal", ("", 4), ValueError, "nominal-blank"),
+    ("nominal", (0.1, _INF), OverflowError, "nominal-out-of-range"),
     ("nominal", (_INF, 4), "nan", "nominal-inf-rate"),
-    ("normdist", ("text", 0, 1), "nan", "normdist-text"),
-    ("normdist", ("", 0, 1), "nan", "normdist-blank"),
+    ("normdist", ("text", 0, 1), ValueError, "normdist-text"),
+    ("normdist", ("", 0, 1), ValueError, "normdist-blank"),
     ("normdist", (0, 0, 0), "nan", "normdist-zero-stdev"),
     ("normdist", (0, 0, -1), "nan", "normdist-out-of-range"),
-    ("norminv", ("text", 0, 1), "nan", "norminv-text"),
-    ("norminv", ("", 0, 1), "nan", "norminv-blank"),
+    ("norminv", ("text", 0, 1), ValueError, "norminv-text"),
+    ("norminv", ("", 0, 1), ValueError, "norminv-blank"),
     ("norminv", (0, 0, 1), "nan", "norminv-zero"),
     ("norminv", (1, 0, 1), "nan", "norminv-out-of-range"),
-    ("normsdist", ("text",), "nan", "normsdist-text"),
-    ("normsdist", ("",), "nan", "normsdist-blank"),
+    ("normsdist", ("text",), ValueError, "normsdist-text"),
+    ("normsdist", ("",), ValueError, "normsdist-blank"),
     ("normsdist", (0,), 0.5, "normsdist-zero"),
     ("normsdist", (_INF,), 1.0, "normsdist-out-of-range"),
-    ("normsinv", ("text",), "nan", "normsinv-text"),
-    ("normsinv", ("",), "nan", "normsinv-blank"),
+    ("normsinv", ("text",), ValueError, "normsinv-text"),
+    ("normsinv", ("",), ValueError, "normsinv-blank"),
     ("normsinv", (0,), "nan", "normsinv-zero"),
     ("normsinv", (1,), "nan", "normsinv-out-of-range"),
-    ("nper", ("text", -100, 1000), "nan", "nper-text"),
-    ("nper", ("", -100, 1000), "nan", "nper-blank"),
-    ("npv", ("", 100, 200), "nan", "npv-blank"),
-    ("npv", (None, 100, 200), "nan", "npv-blank-none"),
+    ("nper", ("text", -100, 1000), ValueError, "nper-text"),
+    ("nper", ("", -100, 1000), ValueError, "nper-blank"),
+    ("npv", ("", 100, 200), ValueError, "npv-blank"),
+    ("npv", (None, 100, 200), TypeError, "npv-blank-none"),
     ("numbervalue", ("text",), "nan", "numbervalue-text"),
     ("numbervalue", ("",), 0.0, "numbervalue-blank"),
     ("numbervalue", (0,), 0.0, "numbervalue-zero"),
     ("numbervalue", ("1.2.3",), "nan", "numbervalue-out-of-range"),
-    ("odd", ("",), "nan", "odd-blank"),
+    ("odd", ("",), ValueError, "odd-blank"),
     ("odd", (0,), 1.0, "odd-zero"),
     ("odd", (_INF,), "nan", "odd-out-of-range"),
     ("oddfprice", ("text", 41000, 39900, 40100, 0.05, 0.06, 100, 2), "nan", "oddfprice-text"),
@@ -94,46 +94,46 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     # Significance < 1 returns NaN (#NUM! in Excel/Calc).
     ("percentrank", ([1, 2, 3, 4], 3, 0), "nan", "percentrank-zero-significance"),
     ("percentrank", ([1, 2, 3, 4], 3, _INF), "nan", "percentrank-out-of-range"),
-    ("permut", ("text", 2), "nan", "permut-text"),
-    ("permut", ("", 2), "nan", "permut-blank"),
+    ("permut", ("text", 2), ValueError, "permut-text"),
+    ("permut", ("", 2), ValueError, "permut-blank"),
     ("permut", (0, 1), "nan", "permut-zero"),
-    ("permut", (_INF, 2), "nan", "permut-out-of-range"),
-    ("pmt", ("", 12, 1000), "nan", "pmt-blank"),
+    ("permut", (_INF, 2), OverflowError, "permut-out-of-range"),
+    ("pmt", ("", 12, 1000), ValueError, "pmt-blank"),
     # Zero rate is the closed form -pv/nper, not #DIV/0!.
     ("pmt", (0, 12, 1000), -1000 / 12, "pmt-zero-rate"),
     ("pmt", (-1, 12, 1000), 0.0, "pmt-out-of-range"),
-    ("poisson", ("text", 1), "nan", "poisson-text"),
-    ("poisson", ("", 1), "nan", "poisson-blank"),
+    ("poisson", ("text", 1), ValueError, "poisson-text"),
+    ("poisson", ("", 1), ValueError, "poisson-blank"),
     ("poisson", (0, 0), 1.0, "poisson-zero"),
-    ("poisson", (_INF, 1), "nan", "poisson-out-of-range"),
+    ("poisson", (_INF, 1), OverflowError, "poisson-out-of-range"),
     ("prob", ("text", [0.2, 0.3, 0.5], 1), "nan", "prob-text"),
     ("prob", ("", [0.2, 0.3, 0.5], 1), "nan", "prob-blank"),
     ("prob", ([1, 2], [0, 0], 1), "nan", "prob-zero"),
     ("prob", ([1, 2], [0.2, 0.2], 1), "nan", "prob-out-of-range"),
-    ("pv", ("", 12, -100), "nan", "pv-blank"),
+    ("pv", ("", 12, -100), ValueError, "pv-blank"),
     ("pv", (0.01, 0, -100), 0.0, "pv-zero-nper"),
     ("pv", (-1, 12, -100), "nan", "pv-out-of-range"),
     ("quartile", ([1.0, 2.0, 3.0, 4.0], ""), "nan", "quartile-blank"),
     ("quartile", ([1.0, 2.0, 3.0, 4.0], None), "nan", "quartile-blank-none"),
-    ("rank", ("text", [1, 2, 3]), "nan", "rank-text"),
-    ("rank", ("", [1, 2, 3]), "nan", "rank-blank"),
+    ("rank", ("text", [1, 2, 3]), ValueError, "rank-text"),
+    ("rank", ("", [1, 2, 3]), ValueError, "rank-blank"),
     ("rank", (0, [0, 1, 2]), 3.0, "rank-zero"),
     ("rank", (9, [1, 2, 3]), "#N/A", "rank-out-of-range"),
     ("regex", ("abc", ""), "", "regex-blank-pattern"),
-    ("rept", ("ab", "text"), "nan", "rept-text-count"),
-    ("rept", ("ab", ""), "nan", "rept-blank-count"),
+    ("rept", ("ab", "text"), ValueError, "rept-text-count"),
+    ("rept", ("ab", ""), ValueError, "rept-blank-count"),
     ("rsq", ("", [1.0, 2.0, 3.0]), "nan", "rsq-blank"),
     ("rsq", (None, [1.0, 2.0, 3.0]), "nan", "rsq-blank-none"),
     ("rsq", ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]), "nan", "rsq-zero"),
     ("rsq", ([1.0, 2.0, 3.0], [1.0, 2.0]), "nan", "rsq-out-of-range"),
-    ("sec", ("text",), "nan", "sec-text"),
-    ("sec", ("",), "nan", "sec-blank"),
+    ("sec", ("text",), ValueError, "sec-text"),
+    ("sec", ("",), ValueError, "sec-blank"),
     ("sec", (0,), 1.0, "sec-zero"),
     ("sec", (_INF,), "nan", "sec-out-of-range"),
-    ("sech", ("text",), "nan", "sech-text"),
-    ("sech", ("",), "nan", "sech-blank"),
+    ("sech", ("text",), ValueError, "sech-text"),
+    ("sech", ("",), ValueError, "sech-blank"),
     ("sech", (0,), 1.0, "sech-zero"),
-    ("sech", (_INF,), 0.0, "sech-out-of-range"),
+    ("sech", (_INF,), "nan", "sech-out-of-range"),
     ("seriessum", ("text", 1, 1, [1]), "nan", "seriessum-text"),
     ("seriessum", ("", 1, 1, [1]), "nan", "seriessum-blank"),
     ("seriessum", (0, 1, 1, [1, 2]), 0.0, "seriessum-zero"),
@@ -154,12 +154,12 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("sortby", ("text", [1]), "nan", "sortby-text"),
     ("sortby", ("", [1]), "nan", "sortby-blank"),
     ("sortby", (0, [0]), "nan", "sortby-zero"),
-    ("sqrtpi", ("text",), "nan", "sqrtpi-text"),
-    ("sqrtpi", ("",), "nan", "sqrtpi-blank"),
+    ("sqrtpi", ("text",), ValueError, "sqrtpi-text"),
+    ("sqrtpi", ("",), ValueError, "sqrtpi-blank"),
     ("sqrtpi", (0,), 0.0, "sqrtpi-zero"),
     ("sqrtpi", (-1,), "nan", "sqrtpi-out-of-range"),
-    ("standardize", ("text", 0, 1), "nan", "standardize-text"),
-    ("standardize", ("", 0, 1), "nan", "standardize-blank"),
+    ("standardize", ("text", 0, 1), ValueError, "standardize-text"),
+    ("standardize", ("", 0, 1), ValueError, "standardize-blank"),
     ("standardize", (1, 0, 0), "nan", "standardize-zero-stdev"),
     ("standardize", (1, 0, -1), "nan", "standardize-out-of-range"),
     ("stdeva", ("text",), "nan", "stdeva-text"),
@@ -208,6 +208,10 @@ def _assert_calc_result(result: object, expected: object) -> None:
     ids=[case[3] for case in _CASES],
 )
 def test_n_s_bad_inputs(name: str, args: tuple[object, ...], expected: object) -> None:
+    if isinstance(expected, type) and issubclass(expected, BaseException):
+        with pytest.raises(expected):
+            getattr(calc, name)(*args)
+        return
     result = getattr(calc, name)(*args)
     _assert_calc_result(result, expected)
 
@@ -314,6 +318,10 @@ def test_sech_overflow():
     # Bug Z8: sech(1000) returns 0.0 on overflow instead of crashing
     assert calc.sech(1000) == 0.0
     assert calc.sech(-1000) == 0.0
+    assert math.isnan(calc.sech(float("inf")))
+    assert math.isnan(calc.sech(float("-inf")))
+    with pytest.raises(ValueError):
+        calc.sech("x")
 
 
 def test_seriessum_complex_returns_nan():
@@ -391,8 +399,10 @@ def test_rept_length_cap_and_bad_count():
     assert len(calc.rept("ab", 16383)) == 32766
     assert math.isnan(calc.rept("ab", 16384))
     assert calc.rept("", 10**9) == ""
-    assert math.isnan(calc.rept("a", "x"))
-    assert math.isnan(calc.rept("ab", "text"))
+    with pytest.raises(ValueError):
+        calc.rept("a", "x")
+    with pytest.raises(ValueError):
+        calc.rept("ab", "text")
 
 
 def test_subtotal_sumproduct_sumsq_ignore_text_keep_bools():
@@ -521,7 +531,8 @@ def test_poisson_text_cumulative_flag():
     assert math.isclose(calc.poisson(2, 2, ""), pmf)
     assert math.isclose(calc.poisson(2, 2, None), pmf)
     assert math.isclose(calc.poisson(2, 2, "1"), cdf)
-    assert math.isnan(calc.poisson(2, 2, "abc"))
+    with pytest.raises(ValueError):
+        calc.poisson(2, 2, "abc")
 
 
 def test_sort_flat_vector_index():

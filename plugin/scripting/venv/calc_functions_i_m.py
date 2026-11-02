@@ -5,7 +5,6 @@
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
-Type errors are left to the worker exception path, which returns #VALUE!.
 """
 
 from __future__ import annotations

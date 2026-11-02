@@ -509,7 +509,8 @@ def test_besseli():
     assert math.isclose(calc.besseli(1.5, 1), scipy.special.iv(1, 1.5))
     assert math.isclose(calc.besseli(0.0, 1), scipy.special.iv(1, 0.0))
     assert math.isnan(calc.besseli(1.5, -1))
-    assert math.isnan(calc.besseli("invalid", 1))
+    with pytest.raises(ValueError):
+        calc.besseli("invalid", 1)
 
 def test_besselj():
     import scipy.special
@@ -858,7 +859,8 @@ def test_numpy_financial_annuity_keeps_excel_errors():
     assert math.isnan(calc.nper(0.01, 0, 1000))
     # nper == 0 used to raise ZeroDivisionError. numpy-financial returns ±inf.
     assert math.isnan(calc.pmt(0.1, 0, 1000))
-    assert math.isnan(calc.pmt("x", 12, 1000))
+    with pytest.raises(ValueError):
+        calc.pmt("x", 12, 1000)
 
 
 def test_irr_honors_guess_when_two_real_roots():
@@ -975,14 +977,16 @@ def test_time_wraps_modulo_one_day_and_rejects_negative_remainder():
     assert math.isnan(calc.time(-1, 0, 0))
     assert math.isnan(calc.time(0, -1, 0))
     assert math.isnan(calc.time(0, 0, -0.5))
-    assert math.isnan(calc.time("x", 0, 0))
+    with pytest.raises(ValueError):
+        calc.time("x", 0, 0)
 
 
 def test_trimmean_skips_blanks_and_text():
     # Excel/Calc TRIMMEAN skips blanks, text, and booleans in ranges; propagates errors and checks percent.
     assert calc.trimmean(["a", 1.0, 2.0], 0.2) == 1.5
     assert math.isnan(calc.trimmean([1.0, "#VALUE!", 3.0], 0.2))
-    assert math.isnan(calc.trimmean([1.0, 2.0, 3.0], "bad"))
+    with pytest.raises(ValueError):
+        calc.trimmean([1.0, 2.0, 3.0], "bad")
     assert calc.trimmean([1.0, 2.0, 3.0, 4.0, 5.0], 0.4) == 3.0
     assert calc.trimmean([1.0, "2", 3.0, 4.0, 5.0], 0.2) == 3.25
     assert calc.trimmean([1.0, True, 3.0, 4.0, 5.0], 0.2) == 3.25
@@ -1210,19 +1214,24 @@ def test_regex_invalid_pattern_is_nan():
 
 
 def test_n_s_text_cells_return_nan():
-    assert math.isnan(calc.npv("bad", [100.0, 200.0]))
+    with pytest.raises(ValueError):
+        calc.npv("bad", [100.0, 200.0])
     assert math.isnan(calc.npv(-1, [100.0, 200.0]))
     assert abs(calc.npv(0.1, 100.0, 200.0) - (100.0 / 1.1 + 200.0 / 1.21)) < 1e-9
-    assert math.isnan(calc.pmt("x", 12, 1000))
-    assert math.isnan(calc.pv("x", 12, -100))
-    assert math.isnan(calc.odd("x"))
+    with pytest.raises(ValueError):
+        calc.pmt("x", 12, 1000)
+    with pytest.raises(ValueError):
+        calc.pv("x", 12, -100)
+    with pytest.raises(ValueError):
+        calc.odd("x")
     assert calc.odd(2) == 3.0
     assert calc.odd(-2) == -3.0
     assert calc.rank(1, [1, "a", 3]) == 2.0
     assert calc.rank(2, [1, 2, 3]) == 2.0
     assert calc.rank(1, [1, "", 2]) == 2.0
     assert calc.small([1, "a", 3], 1) == 1.0
-    assert math.isnan(calc.small([1.0, 5.0, 3.0], "k"))
+    with pytest.raises(ValueError):
+        calc.small([1.0, 5.0, 3.0], "k")
     assert calc.small([1.0, 5.0, 3.0], 1) == 1.0
     assert math.isnan(calc.rsq([1.0, "a"], [1.0, 2.0]))
     assert abs(calc.rsq([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) - 1.0) < 1e-9
@@ -1274,7 +1283,8 @@ def test_irr_subtotal_workday_iseven_bad_input_does_not_raise():
         calc.irr(["a", "b"])
     with pytest.raises(ValueError):
         calc.irr([-100.0, 110.0], guess="nope")
-    assert math.isnan(calc.subtotal("nope", [1.0, 2.0, 3.0]))
+    with pytest.raises(ValueError):
+        calc.subtotal("nope", [1.0, 2.0, 3.0])
     assert calc.subtotal(9, [1.0, 2.0, 3.0]) == 6.0
     assert math.isnan(calc.workday(46181, "nope"))
     assert calc.workday(46181, 1) == 46182.0
@@ -1474,10 +1484,14 @@ def test_norm_stdlib_ignores_missing_scipy():
 
 def test_nper_overflow_is_nan():
     huge = 10**10000
-    assert math.isnan(calc.nper(huge, -100, 1000))
-    assert math.isnan(calc.nper(0.01, huge, 1000))
-    assert math.isnan(calc.nper(0.01, -100, huge))
-    assert math.isnan(calc.nper(0.01, -100, 1000, 0, huge))
+    with pytest.raises(OverflowError):
+        calc.nper(huge, -100, 1000)
+    with pytest.raises(OverflowError):
+        calc.nper(0.01, huge, 1000)
+    with pytest.raises(OverflowError):
+        calc.nper(0.01, -100, huge)
+    with pytest.raises(OverflowError):
+        calc.nper(0.01, -100, 1000, 0, huge)
     assert not math.isnan(calc.nper(0.01, -100, 1000))
 
 
