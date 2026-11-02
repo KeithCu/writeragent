@@ -37,7 +37,7 @@ from .grammar_proofread_locale import (
 )
 
 # v2 blobs with LLM-style errors have no model id. First `llm:…` identity to
-# touch the document adopts the rows (young-codebase hack; avoids a full recheck).
+# touch the document adopts the rows (avoids a full recheck on older documents).
 _V2_LLM_PENDING = "llm"
 
 # v2/v3 rows have no CharLocale. Empty cannot collide with a BCP-47 tag.
@@ -516,7 +516,7 @@ class DocumentPersistence:
             return previous
 
     def _persist_to_udprops(self) -> None:
-        # Note (Backlog P22): _persist_to_udprops only serializes _session_accessed keys.
+        # _persist_to_udprops only serializes _session_accessed keys.
         # LibreOffice calls proofreading for the entire document on open, which populates
         # _session_accessed for active sentences and naturally trims old/deleted sentences
         # from the persisted user-defined property payload.

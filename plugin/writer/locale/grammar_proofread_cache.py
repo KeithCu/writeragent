@@ -10,7 +10,10 @@ Sentence-boundary tables and ``looks_complete_sentence`` live in ``grammar_proof
 from __future__ import annotations
 
 import copy
-from typing import Any
+import logging
+from typing import Any, Iterable
+
+log = logging.getLogger("writeragent.grammar")
 
 from plugin.writer.locale import grammar_settings
 from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_registry
@@ -274,4 +277,35 @@ def cache_put_sentence(
                 scan_count += 1
             for k in to_remove:
                 grammar_registry.sentence_cache.pop(k, None)
+
+
+def store_sentence_result(
+    ctx: Any,
+    doc_id: str,
+    locale: str,
+    text: str,
+    raw_errors: Iterable[dict[str, Any]],
+    checker_identity: str | None = None,
+    *,
+    alt_locale: str = "",
+    ignore_set: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Normalize raw errors, cache the sentence payload, and return active (non-ignored) errors."""
+    from dataclasses import asdict
+    from plugin.framework.grammar_rule_ids import grammar_bcp47_tags_match
+    from .grammar_ignore_rules import IgnoreSet
+    from .grammar_proofread_text import normalize_errors_for_text
+
+    norm_errors = normalize_errors_for_text(text, raw_errors, ctx, locale)
+    if ignore_set is None:
+        ignore_set = IgnoreSet.for_document(ctx, doc_id)
+
+    payload = [asdict(e) for e in norm_errors]
+    cache_put_sentence(locale, text, payload, ctx=ctx, doc_id=doc_id, checker_identity=checker_identity)
+    if alt_locale and not grammar_bcp47_tags_match(alt_locale, locale):
+        log.debug("[grammar] Double caching for %s (detected %s)", alt_locale, locale)
+        cache_put_sentence(alt_locale, text, payload, ctx=ctx, doc_id=doc_id, checker_identity=checker_identity)
+
+    active_payload = [d for d in payload if ignore_set.allows(str(d.get("rule_identifier", "")))]
+    return active_payload
 

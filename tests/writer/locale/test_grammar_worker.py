@@ -917,7 +917,9 @@ def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status()
         rule_identifier="wa_g_rule||agr",
     )
 
+    mock_status = MagicMock()
     with (
+        patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=mock_status),
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[norm_err]),
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"agr"}),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
@@ -934,8 +936,8 @@ def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status()
         assert payload2[0]["rule_identifier"] == "wa_g_rule||agr"
 
         # Status text summary excludes the ignored rule (0 issues)
-        ec.gq.record_done_status.assert_called_once()
-        assert "0 issues" in ec.gq.record_done_status.call_args[1]["result"]
+        mock_status.record_done_status.assert_called_once()
+        assert "0 issues" in mock_status.record_done_status.call_args[1]["result"]
 def test_call_grammar_llm_and_cache_cap_prefix() -> None:
     """Keeper 1: LLM boundaries prompt and cache checked prefix while apply_language_change gets full text."""
     from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch

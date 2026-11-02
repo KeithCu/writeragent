@@ -177,51 +177,6 @@ class GrammarWorkQueue:
         self._lock: threading.Lock = threading.Lock()
         self._latest_seq: dict[str, int] = {}
         self._worker_count: int = 0
-        self._status_inflight: int = 0
-        self._pending_done: tuple[str, dict[str, Any]] | None = None
-
-    def begin_status_cycle(self) -> None:
-        """Mark one ``run_llm_and_cache_batch`` in flight (sidebar ``done`` is deferred)."""
-        with self._lock:
-            self._status_inflight += 1
-
-    def record_done_status(
-        self,
-        text: str,
-        *,
-        result: str = "",
-        elapsed_ms: int | None = None,
-        preview_source: str | None = None,
-        length_hint: int | None = None,
-    ) -> None:
-        """Remember the latest chunk result; emitted when the last in-flight batch finishes."""
-        with self._lock:
-            self._pending_done = (
-                text,
-                {
-                    "result": result,
-                    "elapsed_ms": elapsed_ms,
-                    "preview_source": preview_source,
-                    "length_hint": length_hint,
-                },
-            )
-
-    def end_status_cycle(self) -> None:
-        """Drop in-flight count; emit one terminal sidebar ``done`` when all parallel batches finish."""
-        pending: tuple[str, dict[str, Any]] | None = None
-        with self._lock:
-            had_cycle = self._status_inflight > 0
-            if had_cycle:
-                self._status_inflight -= 1
-            last = self._status_inflight == 0
-            if last:
-                pending = self._pending_done
-                self._pending_done = None
-        if pending is not None:
-            text, kw = pending
-            emit_grammar_status("done", text, **kw)
-        elif had_cycle and last:
-            emit_grammar_status("done", "batch", result="skipped")
 
     def inflight_superseded(self, inflight_key: str, enqueue_seq: int) -> bool:
         """True if a newer grammar enqueue has been recorded for this key (e.g. user kept typing)."""
