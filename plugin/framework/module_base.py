@@ -144,8 +144,6 @@ class ModuleLoader:
 
                 # Match ModuleBase by MRO ``__name__``, not type identity. LibreOffice
                 # can import this class twice via sys.path, so ``issubclass`` misses it.
-                # ``dir()`` is alphabetical; the first hit used to win with no signal
-                # when a package exposed two subclasses.
                 candidates: list[Any] = []
                 for attr_name in dir(mod_pkg):
                     attr = getattr(mod_pkg, attr_name)

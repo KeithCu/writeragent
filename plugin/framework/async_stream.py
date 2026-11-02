@@ -253,9 +253,7 @@ def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None
     state.finish_display()
     if not state.on_approval_required:
         # There is no dialog to answer. Set the event so the worker sees
-        # approved still false and denies the request. Returning without
-        # the event leaves the worker in wait_for_approval; only the
-        # handler used to set it.
+        # Unblock worker waiting on approval when no handler is present.
         log.warning("APPROVAL_REQUIRED with no handler; unblocking worker")
         _set_approval_event(item)
         return
@@ -344,9 +342,8 @@ def _apply_display_item(state: _DrainState, item: Any) -> None:
 def _apply_queued_display(state: _DrainState) -> None:
     """Apply CHUNK/THINKING already on the queue. Drop other kinds.
 
-    Stop used to break without reading them, so text flushed from the 250ms
-    batcher never reached the sidebar. Control items from the stopped attempt
-    (STREAM_DONE, ERROR) are discarded with the get. An approval event is set.
+    Control items from the stopped attempt (STREAM_DONE, ERROR) are discarded with the get.
+    An approval event is set.
     """
     # crosshair: off
     while True:
@@ -361,13 +358,8 @@ def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None
     """Show text Stop would otherwise drop, then close thinking.
 
     Apply the unconsumed display tail, flush the producer batcher, apply
-    what it just queued, then close thinking. The idle path used to call
-    on_stopped without flushing buffers or closing thinking, and text still
-    inside the 250ms batcher was dropped. A stop after ``_drain_batch`` only
-    read ``state.q``. CHUNK and THINKING already pulled into the local batch
-    were gone, including the whole batch when Stop tripped on the first
-    item. Control items in the tail are not dispatched. An approval event
-    in that tail is set.
+    what it just queued, then close thinking. Control items in the tail are
+    not dispatched. An approval event in that tail is set.
     """
     # crosshair: off
     if pending_items:
@@ -450,14 +442,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
             except Exception:
                 log.exception("on_error after stream handler failure also failed")
             if recovered:
-                # Tail items already pulled belong to the failed attempt.
-                # Continuing used to run STREAM_DONE and set job_done, so the
-                # replacement worker's chunks were ignored. Leave job_done
-                # clear so the drain waits for that worker.
-                # on_error already ran; return so we do not flush again. A
-                # second flush that raises would call on_error again, and a
-                # deferred NEXT_TOOL must not set job_done after a recovered
-                # error.
+                # Tail items belong to failed attempt; leave job_done clear for replacement worker.
                 return
             state.job_done[0] = True
             return
@@ -635,8 +620,7 @@ class _IdleRearmThread:
                         self._failures += 1
                         failures = self._failures
                         if self._failures >= _IDLE_REARM_MAX_FAILURES:
-                            # Bugfix: unbounded 1 s retries held the drain owner until process
-                            # exit when addCallback stayed dead (dispose/shutdown).
+                            # Give up when addCallback repeatedly fails (e.g. during disposal/shutdown).
                             self._fire = None
                             give_up = True
                             give_up_cb = self._on_give_up
@@ -714,13 +698,7 @@ class _AsyncCallbackRearm:
         """Queue one slice. A second writer cannot replace it.
 
         Append this closure. ``notify`` runs one and pokes again if more
-        are waiting, so a late idle callback cannot replace a slice already
-        queued. ``post`` and the idle timer both used to write ``_target``,
-        then both called ``addCallback``. The idle fire could already be
-        past its generation check, so it overwrote the new slice. Both
-        ``notify`` calls then ran that stale closure, which returned on the
-        generation mismatch, and nothing re-armed. The drain kept the pump
-        owner. One slot, two writers.
+        are waiting, so a late idle callback cannot replace a slice already queued.
         """
         # crosshair: off
         with self._lock:
@@ -730,12 +708,7 @@ class _AsyncCallbackRearm:
         try:
             self._poke()
         except Exception:
-            # Bugfix: what was wrong: the slice stayed in _pending when addCallback raised.
-            # How: the idle timer's retry calls the same fire, which is lambda: self._enqueue(fn),
-            # so each failure appended another copy of that closure.
-            # Why this fixes it: that append is removed on exception, and the retry enqueues one copy.
-            # We take _lock and del the last entry that is the callable this call appended
-            # (not pop() the tail, because another writer can append during _poke).
+            # Remove appended closure on exception so retry re-enqueues a single copy.
             with self._lock:
                 for idx in range(len(self._pending) - 1, -1, -1):
                     if self._pending[idx] is fn:
@@ -844,9 +817,7 @@ class _EventDrain:
             self._fail(exc)
             return
         if self._on_started is not None:
-            # Bugfix: the worker used to start before the first slice was armed,
-            # so a failed addCallback left an LLM/tool thread writing into an
-            # unread queue with no drain to see Stop.
+            # Worker starts only after the first drain slice is armed.
             try:
                 self._on_started()
             except Exception as exc:
@@ -899,12 +870,9 @@ class _EventDrain:
         already holds SolarMutex (recursive). ``VCLXToolkit::processEventsToIdle``
         takes another ``SolarMutexGuard`` for the whole call
         (toolkit/source/awt/vclxtoolkit.cxx). GTK's ``Yield`` releases that
-        mutex only during ``g_main_context_iteration``, and the drain used to
-        spend the rest of each idle in ``Queue.get(0.1)`` back in Python, so
-        the acquire count was non-zero again. A worker GC that drops a PyUNO
-        proxy takes SolarMutex from the C++ destructor while that worker holds
-        the GIL; the main thread then cannot leave ``get`` or enter the next
-        yield. Returning to the top-level VCL loop drops both. Do not put the
+        mutex only during ``g_main_context_iteration``; holding it across idle
+        waits blocks worker GC from taking SolarMutex while holding the GIL.
+        Returning to the top-level VCL loop drops both. Do not put the
         ``while`` back, and do not call ``processEventsToIdle`` from this
         slice — paints that create hidden documents keep that nested loop from
         returning, and the executor's own ``AsyncCallback`` runs marshaled UNO
@@ -996,9 +964,6 @@ def _notify_drain_failure(
     """Log *exc*, report it once, and end the drain.
 
     Set ``job_done`` first, notify once, and log if that notify raises.
-    Each crash tail used to copy this sequence, and the queue-drain tail
-    called ``on_error`` outside a try. A raising handler then hit the outer
-    except and was reported again.
     """
     # crosshair: off
     if level == logging.WARNING:
@@ -1037,9 +1002,9 @@ def run_stream_drain_loop(
     items already queued and return to the VCL loop. The next slice is an
     ``addCallback`` (queue non-empty) or a ~100 ms idle re-arm (queue empty).
     That event-driven path does **not** call ``pump_ui_idle``; each slice
-    returns to VCL so paints and Stop stay responsive. Callers that used to
-    run after this function returns must use :func:`defer_until_drain_done`
-    so that work still waits for the terminal slice. Without a callback
+    returns to VCL so paints and Stop stay responsive. Callers must use
+    :func:`defer_until_drain_done` so that work still waits for the terminal slice.
+    Without a callback
     (unit tests via :func:`set_drain_scheduler_override`, eval harness,
     force-marshal) the blocking loop still runs ``q.get`` + ``pump_ui_idle``.
 
@@ -1373,11 +1338,7 @@ def run_async_worker_with_drain(
             except BaseException as e:
                 error_item = (StreamQueueKind.ERROR, format_error_payload(e))
                 if saw_terminal[0]:
-                    # Bugfix: A worker that already queued a terminal item (ERROR, STREAM_DONE,
-                    # etc.) and then raised had its exception silently dropped without any log.
-                    # This happened because saw_terminal[0] prevents a duplicate ERROR from being
-                    # queued (which would trigger recovery twice). We now log.exception here so
-                    # the traceback is preserved without queuing a duplicate ERROR.
+                    # Log exception if worker raises after a terminal item without queuing a duplicate ERROR.
                     log.exception("Worker raised after terminal item was already queued; exception not queued")
             try:
                 if _flush is not None:
@@ -1416,12 +1377,8 @@ def run_async_worker_with_drain(
     def on_stream_done_wrapper(item: Any) -> bool:
         if on_done_fn:
             _call_item_or_zero_arg(on_done_fn, item)
-        # Return True so _handle_stream_done_like sets job_done[0] and the
-        # drain loop exits. This is the sole exit path now that the worker
-        # thread no longer sets job_done directly (see worker_wrapper comment).
-        # NEXT_TOOL is not that exit. Returning true here used to stop the
-        # pump before the next tool round. STREAM_DONE / FINAL_DONE /
-        # TOOL_DONE still end the drain.
+        # Return True so _handle_stream_done_like sets job_done[0] and the drain loop exits.
+        # NEXT_TOOL is not a terminal exit; STREAM_DONE / FINAL_DONE / TOOL_DONE end the drain.
         kind, _payload = split_stream_item(item)
         if kind == StreamQueueKind.NEXT_TOOL:
             return False
@@ -1435,10 +1392,7 @@ def run_async_worker_with_drain(
         else (lambda: None)
     )
 
-    # Chat's tool loop passes flush_pending so Stop emits text still inside
-    # the 250ms batcher. This helper accepted a batcher and only flushed it
-    # in the worker finally, so Stop could return with up to one interval
-    # of already-produced text still buffered.
+    # Chat's tool loop passes flush_pending so Stop emits text still inside the 250ms batcher.
     def _spawn_worker() -> None:
         run_in_background(worker_wrapper, daemon=True, name=name, dedicated=True)
 

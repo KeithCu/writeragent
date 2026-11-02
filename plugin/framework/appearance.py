@@ -10,7 +10,7 @@ Python editor (so the webview chrome + Monaco theme track the LO UI automaticall
 
 Detection is heuristic (luminance of FieldColor) because LO exposes limited
 color tokens via UNO and "System" mode reflects the desktop at the time the
-window was created. This matches the logic previously only in rich_text.py.
+window was created. This matches the logic in rich_text.py.
 """
 
 from __future__ import annotations

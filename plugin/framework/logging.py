@@ -76,11 +76,7 @@ def _shared() -> _LoggingShared:
             "hung_shown": False,
             "stacks_dumped": False,
         }
-        # What was wrong: the later setattr replaced the box init_logging was filling,
-        # so debug_log_path stayed None and the locks diverged.
-        # How it happened: check-then-set while workers already log.
-        # Why this change fixes it: setdefault is one dict operation; the common path
-        # returns the existing dict and does not build locks.
+        # Atomic setdefault prevents replacing the shared logging state across workers.
         stored = sys.__dict__.setdefault("_writeragent_logging_shared", fresh)
         if isinstance(stored, dict):
             box = stored
@@ -241,12 +237,7 @@ class OptionalFlushFileHandler(logging.FileHandler):
         except RecursionError:
             raise
         except Exception:
-            # What was wrong: stream.flush and a failed rotate escaped flush.
-            # How it happened: emit force-flushes WARNING+ outside StreamHandler.emit's
-            # try, and _flush_debug_log calls flush directly, so Handler.handle on
-            # Python 3.14 does not catch it.
-            # Why this change fixes it: swallow every Exception except RecursionError,
-            # which logging re-raises to avoid a logging-error loop.
+            # Swallows flush exceptions except RecursionError to avoid logging-error loops.
             return
 
     def _rotate_if_large(self) -> None:
@@ -285,11 +276,7 @@ class OptionalFlushFileHandler(logging.FileHandler):
                 try:
                     self.stream = self._open()
                 except OSError:
-                    # What was wrong: a second OSError from _open() replaced the
-                    # caught rotation error and left flush.
-                    # How it happened: disk full or a bad path during reopen.
-                    # Why this change fixes it: leave stream None and return;
-                    # the next FileHandler.emit opens or handleErrors.
+                    # Leave stream as None on reopen failure; subsequent emits will handle errors.
                     pass
         finally:
             self.release()
@@ -627,11 +614,7 @@ def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any 
             payload["hypothesisId"] = hypothesis_id
         if run_id is not None:
             payload["runId"] = run_id
-        # Bugfix: Release stripping deleted this .debug call, so enable_agent_log
-        # wrote nothing in a shipped OXT. Calling Logger.log(logging.DEBUG, ...)
-        # fixes this because 'log' is outside LOGGER_STRIP_ATTRS, while the level
-        # remains DEBUG so the agent logger's own level still admits the line
-        # when the parent log_level is set to WARN.
+        # Call Logger.log directly so release build stripping preserves this statement.
         _agent_logger.log(logging.DEBUG, "[Agent] %s", json.dumps(payload, ensure_ascii=False))
     except Exception as exc:
         log.debug("agent_log dropped payload (%s)", type(exc).__name__)
@@ -669,12 +652,7 @@ def update_activity_state(phase: str, round_num: Any = None, tool_name: str | No
         act["last_activity"] = time.monotonic()
         if round_num is not None:
             act["round_num"] = round_num
-        # What was wrong: previously tool_name was only overwritten when not None.
-        # How it happened: callers such as tool_loop and exhausted_rounds omit
-        # tool_name, causing round 2 to still display round 1's tool.
-        # Why this change fixes it: always assign tool_name so omitted tool_name
-        # (default None) properly clears it; the only caller that has an active
-        # tool already passes tool_name explicitly.
+        # Always assign tool_name so omitting it clears any previous tool.
         act["tool_name"] = tool_name
         if status_control is not None:
             act["status_control"] = status_control
@@ -775,11 +753,7 @@ def _watchdog_loop(status_control: Any) -> None:
         except RecursionError:
             raise
         except Exception:
-            # What was wrong: one OSError from _watchdog_check ended the dedicated thread.
-            # How it happened: run_in_background's _worker logs the exception and
-            # returns; dedicated=True does not respawn.
-            # Why this change fixes it: the next sleep still runs the check; the tick
-            # log is itself guarded so a broken handler cannot end the thread.
+            # Catch tick errors so a failed check does not terminate the watchdog thread.
             try:
                 log.exception("watchdog tick failed")
             except Exception:  # noqa: S110  watchdog tick logger failed; a nested log can kill this dedicated thread
@@ -809,12 +783,7 @@ def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
 
         run_in_background(_watchdog_job, status_control, name="watchdog", daemon=True, dedicated=True)
     except Exception:
-        # What was wrong: the flag was set before run_in_background, so an import
-        # or start failure left _writeragent_watchdog_started true.
-        # How it happened: panel_factory calls this on each sidebar wire and
-        # would otherwise no-op for the rest of the process.
-        # Why this change fixes it: clear and re-raise so the next wire can start
-        # it; the flag is still set before start so two callers cannot both launch.
+        # Reset the started flag on launch failure so subsequent attempts can retry.
         with _shared()["activity_lock"]:
             setattr(sys, "_writeragent_watchdog_started", False)
         raise
@@ -842,9 +811,7 @@ def _install_safe_log_record_factory() -> None:
                 try:
                     return str(x)
                 except Exception:
-                    # What was wrong: str(x) on a disposed proxy raised out of record creation.
-                    # How it happened: the factory runs inside the logging call.
-                    # Why this change fixes it: fall back to "<pyuno>" so the log call still returns.
+                    # Fall back to "<pyuno>" if string conversion of a proxy raises.
                     return "<pyuno>"
             return x
 

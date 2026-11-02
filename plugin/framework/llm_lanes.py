@@ -65,10 +65,7 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
             notified_status = True
 
     try:
-        # Bugfix: the resume callback ran after acquire and before this try, so a
-        # raise skipped release() and every later lane wait (chat, grammar limit 1,
-        # compaction) timed out for the process. Keep it inside the hold so another
-        # request cannot pass it; finally still releases, and the with-body does not run.
+        # Run resume callback inside try so exceptions do not leak the acquired lock.
         if notified_status and status_callback is not None:
             status_callback(resume_status or "")
         yield
@@ -92,8 +89,7 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
         return
     global _GRAMMAR_INFLIGHT_COUNT
     with _GRAMMAR_INFLIGHT_CV:
-        # Bugfix: wait(timeout=timeout) restarted the full timeout on every full-gate
-        # wakeup. wait_for keeps one deadline from entry and still takes a free slot.
+        # wait_for enforces a single overall deadline across wakeups.
         if not _GRAMMAR_INFLIGHT_CV.wait_for(lambda: _GRAMMAR_INFLIGHT_COUNT < max_in_flight, timeout):
             log.warning("grammar_llm_request_gate timed out after %ss waiting for slot", timeout)
             raise TimeoutError("Timed out waiting for grammar request gate slot after %ss" % timeout)

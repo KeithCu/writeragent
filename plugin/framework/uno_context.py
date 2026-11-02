@@ -510,9 +510,7 @@ def uno_same(a: Any, b: Any) -> bool:
     PyUNO often hands out **distinct Python wrappers** for one UNO identity.
     Bare ``is`` / ``==`` / ``!=`` can then miss that a draw shape's
     ``shape.getAnchor().getText()`` is the same header ``XText`` as
-    ``style.getPropertyValue("HeaderText")``. That false miss hid logos from
-    ``_scan_region_content`` (get/metadata wrong; historically a wipe could
-    look "safe").
+    ``style.getPropertyValue("HeaderText")``.
 
     This is **not** a requirement of the debug viral UNO thread proxy
     (``_UnoThreadGuardProxy`` in ``thread_guard.py``). That proxy is a
@@ -525,14 +523,12 @@ def uno_same(a: Any, b: Any) -> bool:
     proxy↔unwrapped. ``uno.isSame`` is a UNO/C++ identity test and must see
     real PyUNO objects, so step 3 unwraps via ``_unwrap_uno`` first.
 
-    Ladder (a false miss is still wrong for get/metadata, and was the
-    disaster when wipe used this scan as a refuse gate):
+    Ladder:
 
     1. ``a is b``
     2. try ``a == b`` (covers viral-proxy ``__eq__`` unwrap when GUARD_ON)
     3. try ``uno.isSame`` on unwrapped objects when the function exists
-       (not all LibreOffice Python-UNO builds ship it; same fallback as
-       ``_page_index_for`` historically)
+       (not all LibreOffice Python-UNO builds ship it)
     4. else False
     """
     if a is b:
@@ -563,13 +559,7 @@ _ENUM_CAP = 32
 
 def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bool:
     """True when *has_more* indicates more elements and *seen* is below ``_ENUM_CAP``."""
-    # What was wrong: is not True treats SAL integer 1 as the end of the enum,
-    # so iter_desktop_models yields nothing and session lookup/reset misses
-    # every open model.
-    # How: 8a8e33d42 replaced not has_more, which treated 1 as more, while
-    # stopping MagicMock.
-    # Why: != 1 matches iter_open_models, and a mock still stops because its
-    # inequality is truthy.
+    # SAL integer 1 or boolean True indicates more elements.
     if has_more is not True and has_more != 1:
         return False
     if seen >= _ENUM_CAP:
@@ -578,7 +568,7 @@ def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bo
     return True
 
 
-def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by document_scripts.py and session_manager.py
+def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]
     """False when *enum* is exhausted or past ``_ENUM_CAP``.
 
     Swallows ``hasMoreElements`` errors and returns False. Callers that need

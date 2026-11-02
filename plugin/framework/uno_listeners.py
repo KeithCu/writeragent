@@ -252,10 +252,7 @@ def _catch_and_log(func: Any = None, *, failure: Any = None) -> Any:
 class BaseListener(_BaseParent, _XEventListenerParent):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        # What was wrong: a hand-maintained frozenset missed new callbacks, so a
-        # subclass override entered the bridge without _catch_and_log.
-        # How it happened: adding or wrapping new listener methods required updating _UNO_CALLBACK_NAMES.
-        # Why this change: discover callback names dynamically from base classes on the MRO with _CATCH_LOGGED_ATTR.
+        # Discover callback names dynamically from base classes on the MRO with _CATCH_LOGGED_ATTR.
         for name, method in list(cls.__dict__.items()):
             if method is None or getattr(method, _CATCH_LOGGED_ATTR, None) is not None:
                 continue

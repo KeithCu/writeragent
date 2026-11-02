@@ -62,10 +62,6 @@ _OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many requ
 
 # Explicit HTTP status indicator (e.g. "HTTP 429", "status 503", "HTTP status 429", "error code 503").
 # Bare 429 or 503 (such as "limit is 503 tokens" or "4290 tokens") must never match.
-# Bugfix: previously _OVERLOAD_STATUS_RE matched any bare \b(?:429|503)\b, which caused non-overload
-# errors like "limit is 503 tokens" to be wrongly identified as overload and retried until timeout.
-# We fix this by checking structured error codes (including OpenRouter error.code) and explicit
-# HTTP status indicators first, while the text fallback matches only phrases.
 _HTTP_STATUS_OVERLOAD_RE = re.compile(
     r"\b(?:https?|status(?:\s+code)?|http\s+error|error\s+code)\s*(?:is\s*|:\s*)?(?:429|503)\b",
     re.IGNORECASE,
@@ -368,13 +364,7 @@ def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, sta
     if status_callback is not None:
         with _host_gap_lock:
             stored_gap = _host_gap_sec.get(host, 0.0)
-        # Bugfix: Previously wait_host_gap unconditionally called emit_retry_status,
-        # showing "Provider busy, retrying in {0}s…" even during initial pre-send pacing
-        # for free-tier models (3s floor on :free keys).
-        # What was wrong: False "Provider busy" warning appeared before any failure occurred.
-        # How it happened: Both rate-limit retries and proactive rate pacing used the same status formatter.
-        # Why this change fixes it: If the pacing key is a :free model and stored gap is <= the free floor,
-        # show a dedicated pacing message; real retry delays (> 3s) still show "Provider busy".
+        # Free-tier model pacing shows dedicated spacing message instead of retry status.
         if host.endswith(":free") and stored_gap <= OPENROUTER_FREE_MIN_GAP_SEC:
             from plugin.framework.i18n import _
 
@@ -383,9 +373,7 @@ def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, sta
             emit_retry_status(status_callback, remaining)
     ok = wait_abortable(remaining, stop_checker, monotonic=monotonic)
     if not ok:
-        # Bugfix: Stop during the wait left last_sent at now + wait, so the next caller
-        # waited an extra gap. _reserve_host_send_slot wrote the future stamp before the sleep;
-        # rollback restores the previous stamp only if nobody else has reserved past it.
+        # Roll back host reservation on abort so subsequent callers do not wait extra gap.
         _rollback_host_reservation(host, reserved_at, previous_last)
         return False
     return True
@@ -431,9 +419,7 @@ def ssl_mode_for(scheme: str, host: str) -> str:
 
     Public HTTPS is always verified. Local HTTPS starts verified and
     switches to unverified only after ``enable_local_unverified`` records a
-    certificate failure (self-signed Ollama/LM Studio). Previously this
-    returned ``unverified`` for every non-local host, which silently
-    disabled TLS checks for OpenAI, Anthropic, OpenRouter, and similar.
+    certificate failure (self-signed Ollama/LM Studio).
     """
     if scheme != "https":
         return "plain"

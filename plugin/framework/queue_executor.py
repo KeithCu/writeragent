@@ -163,10 +163,7 @@ class QueueExecutor:
                 self._async_callback_service = None
                 self._callback_instance = None
                 self._logged_callback_problem = False
-        # Posts queued before AsyncCallback existed used to sit until the next
-        # marshal created it. When any are waiting, create the callback now and
-        # flush them. _get_async_callback takes _init_lock; call it only after
-        # that lock is released, or bootstrap deadlocks.
+        # When posts are waiting, create AsyncCallback and flush them outside _init_lock.
         with self._pending_lock:
             has_pending = bool(self._pending_posts)
         if has_pending:
@@ -188,8 +185,7 @@ class QueueExecutor:
     def _await_pending_slot_locked(self) -> bool:
         """True when the pending list can take one post. Caller holds the lock.
 
-        A full list used to return from ``post`` after a warning. Waiters
-        sleep on ``_pending_lock`` until a flush or cancel frees a slot.
+        Waiters sleep on ``_pending_lock`` until a flush or cancel frees a slot.
         """
         deadline = time.monotonic() + _PENDING_POST_WAIT_SEC
         while len(self._pending_posts) >= _PENDING_POST_CAP:
@@ -205,8 +201,7 @@ class QueueExecutor:
     def _flush_pending_posts(self) -> None:
         """Enqueue posts that arrived before AsyncCallback existed.
 
-        ``_order_lock`` covers the swap and the puts. A direct ``_enqueue_work``
-        from another thread used to land between them, ahead of older posts.
+        ``_order_lock`` covers the swap and the puts to preserve order against concurrent enqueues.
         The poke happens after the lock is released.
 
         A partial failure puts the failed item and the tail back in front
@@ -226,14 +221,7 @@ class QueueExecutor:
                     self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope, poke=False)
                     enqueued += 1
             except Exception:
-                # Bugfix: a flush error used to propagate out of execute, post, and set_context.
-                # What was wrong: enqueue of an older pending post raised, and this caller's
-                # own marshal never ran. Bootstrap set_context could abort on that raise.
-                # How it happened: the tail was restored, then flush_error was re-raised, and
-                # every caller treated that as its own failure.
-                # Why this change: the tail is already pending and the error is logged. This
-                # caller's callable is not in that list, so execute/post/set_context continue.
-                # A later flush retries the tail.
+                # Keep tail pending and continue caller work; later flush retries the tail.
                 with self._pending_lock:
                     self._pending_posts = list(pending[enqueued:]) + self._pending_posts
                 log.exception("QueueExecutor: flush failed after %d pending post(s); %d put back", enqueued, len(pending) - enqueued)
@@ -299,9 +287,7 @@ class QueueExecutor:
                 self._initialized = True
                 log.info("QueueExecutor initialized (AsyncCallback ready)")
             except Exception as exc:
-                # A one-shot toolkit failure used to set _initialized, after which
-                # execute() raised and post() dropped work until set_context saw
-                # a different context object. Leave the flag clear and retry.
+                # Leave initialized flag clear on toolkit failure so subsequent calls retry.
                 self._async_callback_service = None
                 self._callback_instance = None
                 if not self._logged_callback_problem:
@@ -373,12 +359,9 @@ class QueueExecutor:
 
         if skipped:
             log.debug("QueueExecutor: skipping cancelled item %s (%s)", id(item), _fn_label(item.fn))
-            # A timed-out head used to return here and leave the next item
-            # queued until some later poke. Wake the main thread now.
         else:
             # The item is claimed: anything that raises from here must reach the
-            # ``finally`` that sets the event. ``_fn_label`` and the start log used
-            # to run before ``try``, so a raise there left the waiter parked.
+            # ``finally`` that sets the event.
             fn_label = "<fn>"
             try:
                 fn_label = _fn_label(item.fn)
@@ -387,7 +370,6 @@ class QueueExecutor:
             except BaseException as exc:
                 # Store KeyboardInterrupt/SystemExit too so the waiter re-raises
                 # instead of seeing result=None while the exception hits VCL.
-                # Non-blocking posts have no waiter, so the exception used to vanish.
                 item.exception = exc
                 if item.event is None:
                     log.exception("QueueExecutor: non-blocking main-thread work failed (%s)", fn_label)
@@ -420,17 +402,11 @@ class QueueExecutor:
         Drain, mark, and put survivors back under ``_order_lock`` then
         ``_claim_lock`` — the same order as ``_enqueue_work``. Releasing
         ``_claim_lock`` and re-queuing survivors afterwards lets a put in
-        that gap land ahead of older work from another send. A put that
-        only took ``_claim_lock`` after the drain had already seen an empty
-        queue used to stay runnable too. The poke runs after both locks
-        drop: a test handler re-enters ``process_queue``, and holding a
-        lock across that poke deadlocks. The puts below stay inline:
-        ``_enqueue_work`` re-takes ``_claim_lock``, which is not
-        re-entrant.
+        that gap land ahead of older work from another send. Taking both locks
+        prevents interleaving. The poke runs after both locks drop.
 
-        A *scope* cancels only items enqueued under that send. Other items go
-        back in order. Stop used to wipe MCP, grammar, and peer marshals that
-        share ``default_executor``. No scope still drains the whole queue.
+        A *scope* cancels only items enqueued under that send; other items go
+        back in order. No scope drains the whole queue.
         """
         kept_any = False
         with self._order_lock:
@@ -452,9 +428,7 @@ class QueueExecutor:
                 kept_any = bool(keep)
         if kept_any:
             self._poke_main_thread()
-        # Pending posts are not on the work queue yet. A later flush used to
-        # enqueue them under whatever send was current then, so Stop did not
-        # drop the posts from the cancelled scope.
+        # Cancel matching pending posts before they reach the work queue.
         with self._pending_lock:
             if scope is None:
                 self._pending_posts.clear()
@@ -744,11 +718,7 @@ def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor |
     """
     from plugin.framework.thread_guard import on_main_thread
 
-    # Bugfix: This helper ran process_queue on the =PROMPT() bridge thread.
-    # That happened because the 0.1s poll in run_blocking_in_thread was added so a
-    # main-thread waiter with no toolkit could unblock execute_on_main_thread.
-    # Returning early when not on_main_thread() fixes it because off-main yellow
-    # recalc leaves the items queued for the UI thread, while on-main callers still drain.
+    # Off-main callers leave items queued for the UI thread.
     if not on_main_thread():
         return
 
