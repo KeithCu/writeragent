@@ -369,11 +369,13 @@ def dispatch_spec_domain(data: dict[str, Any]) -> Any:
 
 
 def dispatch_text(data: dict[str, Any]) -> Any:
+    from plugin.scripting.venv.text_analytics import run_text_analytics
+
     spec, data_range, context = _packet_parts(data)
     raw_text = data.get("text")
     # Empty string is real text. Only a missing value falls back to data_range.
     text = raw_text if raw_text is not None else data_range
-    return run_domain("text", spec, text, context)
+    return run_text_analytics(spec, text, context)
 
 
 def dispatch_vision(data: dict[str, Any]) -> Any:
