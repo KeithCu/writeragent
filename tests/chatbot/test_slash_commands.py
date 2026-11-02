@@ -264,5 +264,5 @@ def test_enable_mock_slash_commands_adds_stubs(monkeypatch):
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         host = MagicMock()
         assert run_slash_command("mock-bravo", host) is True
-    slash.enable_mock_slash_commands(False)
+    slash._mock_commands_enabled = False
     assert "mock-bravo" not in [c.name for c in slash.registered_slash_commands()]

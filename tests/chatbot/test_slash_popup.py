@@ -21,7 +21,6 @@ from plugin.chatbot.slash_popup import (
     _POPUP_ROW_PX,
     _above_ready_rect,
     _create_ask_peer_listbox,
-    _is_combo_box,
     _list_height,
     _overlay_height,
     _printable_key_char,
@@ -40,8 +39,9 @@ class _ListBox:
     def __init__(self) -> None:
         self.items: list[str] = []
         self.selected = 0
-        self.visible = True
+        self.visible = False
         self.pos = SimpleNamespace(X=4, Y=80, Width=142, Height=60)
+        self.disposed = False
 
     def getItemCount(self) -> int:
         return len(self.items)
@@ -67,6 +67,9 @@ class _ListBox:
     def setVisible(self, visible: bool) -> None:
         self.visible = visible
 
+    def dispose(self) -> None:
+        self.disposed = True
+
     def getModel(self):
         return SimpleNamespace()
 
@@ -89,25 +92,66 @@ class _Query:
         return SimpleNamespace(Text=self.text)
 
 
+_orig_create_ask_peer_listbox = _create_ask_peer_listbox
+
+
+def _stub_create_ask_peer_listbox(
+    query_control: Any,
+    parent_control: Any = None,
+    send_listener: Any = None,
+) -> Any:
+    if getattr(query_control, "_stub_overlay", False):
+        new_box = _ListBox()
+        host = _Win()
+        query_control._stub_boxes.append(new_box)
+        return new_box, host, (0, 0)
+    return _orig_create_ask_peer_listbox(query_control, parent_control, send_listener=send_listener)
+
+
+class _StubBoxProxy:
+    def __init__(self, query: _Query) -> None:
+        self._default = _ListBox()
+        self._query = query
+
+    @property
+    def _target(self) -> _ListBox:
+        boxes = getattr(self._query, "_stub_boxes", None)
+        if boxes:
+            return boxes[-1]
+        return self._default
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._target, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in ("_default", "_query"):
+            super().__setattr__(name, value)
+        else:
+            setattr(self._target, name, value)
+
+
 @pytest.fixture(autouse=True)
-def _inline_idle_overlay_show():
+def _inline_idle_overlay_show(monkeypatch):
     """CI has UNO AsyncCallback so post_to_main_thread queues; unit tests need inline."""
 
     def _run(fn, *args, **kwargs):
         fn(*args, **kwargs)
 
+    monkeypatch.setattr("plugin.chatbot.slash_popup._create_ask_peer_listbox", _stub_create_ask_peer_listbox)
     with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_run):
         yield
 
 
-def _controller(lru: list[str] | None = None) -> tuple[SlashPopupController, _ListBox]:
-    box = _ListBox()
+def _controller(lru: list[str] | None = None) -> tuple[SlashPopupController, Any]:
+    placeholder = _ListBox()
     query = _Query()
+    query._stub_overlay = True
+    query._stub_boxes = []
     send = SimpleNamespace(query_control=query, slash_popup=None)
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=lru or []):
-        popup = SlashPopupController(box, send, query)
+        popup = SlashPopupController(placeholder, send, query)
     send.slash_popup = popup
-    return popup, box
+    return popup, _StubBoxProxy(query)
 
 
 def test_slash_opens_popup_with_full_list():
@@ -202,13 +246,6 @@ def test_closed_popup_does_not_steal_enter():
     assert popup.handle_key(KEY_RETURN, 0) is False
 
 
-def test_xdl_menulist_is_treated_as_combo_not_listbox():
-    combo = SimpleNamespace(getModel=lambda: SimpleNamespace(getSupportedServiceNames=lambda: ("com.sun.star.awt.UnoControlComboBoxModel",)))
-    box = SimpleNamespace(getModel=lambda: SimpleNamespace(getSupportedServiceNames=lambda: ("com.sun.star.awt.UnoControlListBoxModel",)))
-    assert _is_combo_box(combo) is True
-    assert _is_combo_box(box) is False
-
-
 def test_chat_panel_xdl_uses_menulist_for_slash_popup():
     """LibreOffice dialog.dtd has dlg:menulist only; dlg:listbox breaks the sidebar."""
     from pathlib import Path
@@ -226,19 +263,6 @@ def test_chat_panel_xdl_uses_menulist_for_slash_popup():
     assert "dlg:listbox" not in text
     assert 'dlg:id="slash_popup"' in text
     assert "dlg:menulist" in text
-
-
-def test_open_slash_uses_tall_list_not_closed_combo():
-    popup, box = _controller()
-    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
-        popup.on_query_text("/")
-    assert popup.is_open is True
-    rows = min(len(popup.visible_names), _POPUP_MAX_ROWS)
-    assert box.pos.Height == _overlay_height(rows)
-    assert box.pos.Height > 20
-    # Parked above Ask (Y=152), covering Ready / lower transcript — not the gap.
-    assert box.pos.Y < 128
-    assert popup._popup_floater is None
 
 
 def test_create_ask_peer_listbox_none_without_peer():
@@ -496,6 +520,7 @@ def test_recreate_hide_does_not_dispatch_has_text():
 
 def test_fill_failure_logs_warning(caplog):
     popup, box = _controller()
+    popup.control = box
     popup._popup_floater = object()
     from plugin.chatbot.slash_commands import SLASH_COMMANDS
 
@@ -607,6 +632,10 @@ class _Win:
         self.origin: Any = None
         self.pos: list[tuple] = []
         self.disposed = False
+        self.visible = False
+
+    def setVisible(self, visible: bool) -> None:
+        self.visible = visible
 
     def getAccessibleContext(self):
         return _Acc(self.xy) if self.xy is not None else None

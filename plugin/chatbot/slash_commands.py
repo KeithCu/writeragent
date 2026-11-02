@@ -61,13 +61,12 @@ MOCK_SLASH_COMMANDS: tuple[SlashCommand, ...] = (
 )
 
 _mock_commands_enabled = False
-_MOCK_SLASH_NAMES = frozenset(c.name for c in MOCK_SLASH_COMMANDS)
 
 
-def enable_mock_slash_commands(enabled: bool = True) -> None:
+def enable_mock_slash_commands() -> None:
     """Mock-LLM harness only: show the ``[mock]`` stubs in the popup and /help."""
     global _mock_commands_enabled
-    _mock_commands_enabled = bool(enabled)
+    _mock_commands_enabled = True
 
 
 def registered_slash_commands() -> tuple[SlashCommand, ...]:
@@ -125,7 +124,7 @@ def classify_slash_key(key_code: int, modifiers: int = 0) -> str | None:
 
 
 def format_slash_item(cmd: SlashCommand) -> str:
-    tag = " [mock]" if cmd.name in _MOCK_SLASH_NAMES else ""
+    tag = " [mock]" if cmd in MOCK_SLASH_COMMANDS else ""
     return "/%s%s — %s" % (cmd.name, tag, _(cmd.description))
 
 
