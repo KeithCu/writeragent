@@ -2049,3 +2049,15 @@ def test_line_display_cols():
     # Trailing \r does not add a column
     assert _line_display_cols("hello\r") == 5
 
+
+def test_insert_image_in_flow_propagates_disposed_document(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.notebook import writer_importer
+
+    def _disposed(*_args: Any, **_kwargs: Any) -> Any:
+        raise type("DisposedException", (Exception,), {})("gone")
+
+    monkeypatch.setattr(writer_importer, "insert_image_at_locator", _disposed)
+    monkeypatch.setattr(writer_importer, "_display_size_units", lambda *_a, **_k: (1000, 1000))
+    with pytest.raises(DocumentDisposedError):
+        writer_importer._insert_image_in_flow(MagicMock(), raw=b"\x89PNG", mime="image/png", images_before=0, ctx=MagicMock(), field_w=10000)

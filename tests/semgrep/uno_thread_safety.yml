@@ -249,6 +249,94 @@ rules:
         - "**/tests/**"
         - "**/plugin/tests/**"
 
+  # Advisory (WARNING): ~1250 existing sites in plugin/ as of 2026-11-02, too many
+  # to enforce. Promote to ERROR once the count is small. Suppress a deliberate
+  # catch-all with `# nosemgrep: broad-except-swallows-disposal` on the try line.
+  - id: broad-except-swallows-disposal
+    languages: [python]
+    severity: WARNING
+    message: >-
+      Broad except (Exception / BaseException / bare) neither re-raises nor calls
+      reraise_if_disposed, so a closed document turns into a generic failure.
+      Call reraise_if_disposed(exc) first, or use uno_read / best_effort deliberately.
+      See docs/framework/uno-thread-safety.md.
+    patterns:
+      - pattern-either:
+          - pattern: |
+              try:
+                  ...
+              except Exception as $E:
+                  ...
+          - pattern: |
+              try:
+                  ...
+              except Exception:
+                  ...
+          - pattern: |
+              try:
+                  ...
+              except BaseException as $E:
+                  ...
+          - pattern: |
+              try:
+                  ...
+              except BaseException:
+                  ...
+          - pattern: |
+              try:
+                  ...
+              except:
+                  ...
+      - pattern-not: |
+          try:
+              ...
+          except $T as $E:
+              ...
+              reraise_if_disposed($E, ...)
+              ...
+      - pattern-not: |
+          try:
+              ...
+          except $T as $E:
+              ...
+              raise
+      - pattern-not: |
+          try:
+              ...
+          except $T:
+              ...
+              raise
+      - pattern-not: |
+          try:
+              ...
+          except $T as $E:
+              ...
+              raise $X
+      - pattern-not: |
+          try:
+              ...
+          except $T:
+              ...
+              raise $X
+      - pattern-not: |
+          try:
+              ...
+          except $T as $E:
+              ...
+              raise $X from $Y
+      - pattern-not: |
+          try:
+              ...
+          except $T:
+              ...
+              raise $X from $Y
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/plugin/tests/**"
+        - "**/plugin/contrib/**"
+        - "**/plugin/lib/**"
+
   - id: blocking-marshal-in-sync-dispatch
     languages: [python]
     severity: ERROR

@@ -39,3 +39,30 @@ def approved_vcl_pump(ctx):
 
     # ok: raw-process-events-to-idle
     process_events_to_idle(ctx)
+
+
+def broad_except_reraises_disposed(doc):
+    from plugin.framework.errors import reraise_if_disposed
+
+    # ok: broad-except-swallows-disposal
+    try:
+        doc.getText()
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return None
+
+
+def broad_except_reraises(doc):
+    # ok: broad-except-swallows-disposal
+    try:
+        doc.getText()
+    except Exception:
+        raise
+
+
+def narrow_except(doc):
+    # ok: broad-except-swallows-disposal
+    try:
+        doc.getText()
+    except ValueError:
+        return None

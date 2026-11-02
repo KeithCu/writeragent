@@ -799,3 +799,14 @@ def test_search_in_document_reads_each_hit_once():
     found.getString.assert_called_once()
 
 
+def test_build_page_map_propagates_disposed_document():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.search import _build_page_map
+
+    doc = MagicMock()
+    enum = doc.getText.return_value.createEnumeration.return_value
+    enum.hasMoreElements.side_effect = [True, False]
+    vc = doc.getCurrentController.return_value.getViewCursor.return_value
+    vc.getPage.side_effect = type("DisposedException", (Exception,), {})("gone")
+    with pytest.raises(DocumentDisposedError):
+        _build_page_map(doc)

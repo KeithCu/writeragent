@@ -394,4 +394,14 @@ def test_section_read_missing_section():
     assert res["details"]["available"] == ["Intro"]
 
 
+def test_clone_heading_block_without_writer_tree_service_is_tool_error():
+    from plugin.framework.service import ServiceRegistry
 
+    services = ServiceRegistry()
+    services.register("document", DocumentService())
+    ctx = MagicMock()
+    ctx.doc = _doc()
+    ctx.services = services
+    result = CloneHeadingBlock().execute(ctx, paragraph_index=1)
+    assert result["status"] == "error"
+    assert result.get("code") == "SERVICE_UNAVAILABLE"

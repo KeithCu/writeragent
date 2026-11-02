@@ -15,7 +15,7 @@ import threading
 import logging
 from typing import Any, Callable
 
-from plugin.framework.i18n import _
+from plugin.framework.i18n import N_, _
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_async_worker_with_drain
 from plugin.framework.errors import (
@@ -116,7 +116,7 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         error_tag="Librarian",
         default_error=_("Unknown librarian error."),
         error_flag="in_librarian_mode",
-        finish_msgid="Perfect! I'm switching you to the main assistant now.",
+        finish_msgid=N_("Perfect! I'm switching you to the main assistant now."),
         finish_flag="librarian_switch_to_chat",
         callback_name="on_librarian_session_finished",
         dispatch_log="_do_send: using librarian onboarding agent",
@@ -130,7 +130,7 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         error_tag="Brainstorming",
         default_error=_("Unknown brainstorming error."),
         error_flag="in_brainstorming_mode",
-        finish_msgid="Brainstorming complete.",
+        finish_msgid=N_("Brainstorming complete."),
         finish_flag="brainstorming_finished",
         copy_key="spec_saved",
         callback_name="on_brainstorming_session_finished",
@@ -148,7 +148,7 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         error_tag="Writing plan",
         default_error=_("Unknown writing plan error."),
         error_flag="in_writing_plan_mode",
-        finish_msgid="Writing plan complete.",
+        finish_msgid=N_("Writing plan complete."),
         finish_flag="writing_plan_finished",
         callback_name="on_writing_plan_session_finished",
         clear_topic=True,
@@ -164,7 +164,7 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         error_tag="PPT-Master",
         default_error=_("Unknown PPT-Master error."),
         error_flag="in_ppt_master_mode",
-        finish_msgid="PPT-Master session complete.",
+        finish_msgid=N_("PPT-Master session complete."),
         finish_flag="ppt_master_finished",
         copy_key="exported",
         callback_name="on_ppt_master_session_finished",

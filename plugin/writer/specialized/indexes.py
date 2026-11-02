@@ -902,7 +902,8 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
                 doc, found, content, ctx.ctx, in_undo_context=True, split_author=False)
             try:
                 lived = (_select_paragraph(point).getString() or "")[:160]
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 lived = ""
             if lived:
                 preview["text_after"] = lived

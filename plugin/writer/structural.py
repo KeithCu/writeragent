@@ -357,10 +357,12 @@ class CloneHeadingBlock(ToolBaseDummy):
         if para_index is None:
             return self._tool_error("Provide locator or paragraph_index.")
 
-        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
-
         # Use writer_tree service to find the heading node and block size.
-        tree_svc = ctx.services.writer_tree
+        tree_svc = getattr(ctx.services, "writer_tree", None)
+        if tree_svc is None:
+            return self._tool_error("Writer tree service unavailable.", code="SERVICE_UNAVAILABLE")
+
+        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
         tree = tree_svc.build_heading_tree(ctx.doc)
         node = tree_svc.find_heading_by_para_index(tree, para_index)

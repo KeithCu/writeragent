@@ -1592,6 +1592,35 @@ def _prune_image_cache(cache_dir: str, keep_path: str) -> None:
                 pass
 
 
+def _response_socket(response: Any) -> Any | None:
+    """The socket under a urllib response: ``.sock``, ``fp.raw._sock`` (HTTP/HTTPS), or ``fp._sock``."""
+    sock = getattr(response, "sock", None)
+    if sock is None:
+        fp = getattr(response, "fp", None)
+        if fp is not None:
+            raw_io = getattr(fp, "raw", None)
+            sock = getattr(raw_io, "_sock", None) if raw_io is not None else getattr(fp, "_sock", None)
+    return sock if sock is not None and hasattr(sock, "settimeout") else None
+
+
+def _set_read_timeout(response: Any, seconds: float) -> bool:
+    """Shorten the per-read socket timeout so Stop is checked between chunks.
+
+    Returns False (and warns) when no socket is reachable or settimeout fails:
+    reads then block up to request_timeout each, so Stop is slow but still bounded.
+    """
+    sock = _response_socket(response)
+    if sock is None:
+        log.warning("image download: no socket on response; Stop may wait up to request_timeout")
+        return False
+    try:
+        sock.settimeout(seconds)
+    except (OSError, ValueError):
+        log.warning("image download: could not set socket timeout; Stop may wait up to request_timeout", exc_info=True)
+        return False
+    return True
+
+
 def _download_image_to_cache(
     url: str,
     verify_ssl: bool = True,
@@ -1671,7 +1700,7 @@ def _download_image_to_cache(
 
                 # Socket timeout is ~1s for responsive Stop during read chunks.
                 # Connect/DNS and silent stall before the first byte can take full request_timeout.
-                best_effort(lambda: response.fp.raw._sock.settimeout(1.0), "image download: could not set socket timeout")
+                _set_read_timeout(response, 1.0)
 
                 total = 0
                 initial_bytes = b""
