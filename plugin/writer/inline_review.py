@@ -195,8 +195,7 @@ def resolve_change_at_cursor(
     if token is None:
         if not view.reliable:
             return False, _review_message(ResolveStatus.UNRELIABLE, accept=accept)
-        tokens = agent_tokens(view)
-        if not tokens:
+        if not any(r.token is not None for r in view.rows):
             return False, _("No agent changes to review in this document.")
         return False, _("Put the cursor on a highlighted agent change first.")
 
@@ -517,32 +516,25 @@ def _classify_span_conflicts(
         return True, False
     has_sibling = False
 
-    def mark(is_sibling: bool, row: RedlineRow, record: bool = False) -> bool:
-        nonlocal has_sibling
-        if is_sibling:
-            has_sibling = True
-            if record and sibling_tokens is not None and row.token is not None:
-                sibling_tokens.add(row.token)
-            return False
-        return True
-
     for r in view.rows:
         if r.token is not None and r.token == target_token:
             continue
         is_sibling = bool(r.token is not None)
         if r.start is None or r.end is None:
-            if mark(is_sibling, r):
-                return True, False
-            continue
+            if is_sibling:
+                has_sibling = True
+                continue
+            return True, False
         try:
             rl_span = text.createTextCursorByRange(r.start)
             rl_span.gotoRange(r.end, True)
         except Exception:
             if _in_other_text(r.start, text):
                 continue
-            if mark(is_sibling, r):
-                return True, False
-            continue
+            if is_sibling:
+                has_sibling = True
+                continue
+            return True, False
 
         try:
             if is_sibling and strict_sibling_edges:
@@ -553,15 +545,20 @@ def _classify_span_conflicts(
                             or _span_contains_point(text, span, rl_span.getEnd())
                             or _span_contains_point(text, rl_span, span.getStart()))
         except Exception:
-            if mark(is_sibling, r):
-                return True, False
-            continue
+            if is_sibling:
+                has_sibling = True
+                continue
+            return True, False
 
         if not overlaps and not is_sibling:
             overlaps = _user_redline_whitespace_adjacent(text, span, rl_span)
 
         if overlaps:
-            if mark(is_sibling, r, record=True):
+            if is_sibling:
+                has_sibling = True
+                if sibling_tokens is not None and r.token is not None:
+                    sibling_tokens.add(r.token)
+            else:
                 return True, False
     return False, has_sibling
 
@@ -594,9 +591,7 @@ def _refusal_for_span(
     return None
 
 
-def _tracked_change_command(accept: bool, *, all_redlines: bool = False) -> str:
-    if all_redlines:
-        return ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
+def _tracked_change_command(accept: bool) -> str:
     return ".uno:AcceptTrackedChange" if accept else ".uno:RejectTrackedChange"
 
 
@@ -903,7 +898,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
     if _is_all_redlines_agent(entry_view):
         try:
             controller = model.getCurrentController()
-            command = _tracked_change_command(accept, all_redlines=True)
+            command = ".uno:AcceptAllTrackedChanges" if accept else ".uno:RejectAllTrackedChanges"
             _execute_dispatch(ctx, controller, command)
         except Exception:
             log.exception("inline_review: resolve-all global dispatch failed")
@@ -930,13 +925,6 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
         # strictly shrinks. An unreliable re-read aborts (PARTIAL once dispatched, else UNRELIABLE)
         # instead of silently leaving changes pending.
         while True:
-            if not cur_view.reliable:
-                log.warning("inline_review: resolve-all aborted mid-pass -- redline snapshot unreliable")
-                return ResolveAllResult(
-                    status=ResolveStatus.PARTIAL if dispatched else ResolveStatus.UNRELIABLE,
-                    resolved=0,
-                    total=total,
-                )
             cur_tokens = agent_tokens(cur_view)
             pending = sorted(t for t in cur_tokens if t not in skip_reasons)
             if not pending:

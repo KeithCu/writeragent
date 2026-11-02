@@ -176,18 +176,15 @@ def _make_handler(model: Any) -> Any:
 
 def cleanup_disposed_controllers() -> None:
     """Passively remove any disposed controllers/handlers from tracking lists."""
-    try:
-        with _lock:
-            alive: list[tuple[Any, Any]] = []
-            for ctrl, handler in _attached:
-                try:
-                    if ctrl.getModel() is not None:
-                        alive.append((ctrl, handler))
-                except Exception:  # noqa: S110 - disposed controller; getModel() failing is the liveness check
-                    pass
-            _attached[:] = alive
-    except Exception:
-        log.debug("review_click_popup: cleanup failed", exc_info=True)
+    with _lock:
+        alive: list[tuple[Any, Any]] = []
+        for ctrl, handler in _attached:
+            try:
+                if ctrl.getModel() is not None:
+                    alive.append((ctrl, handler))
+            except Exception:  # noqa: S110 - disposed controller; getModel() failing is the liveness check
+                pass
+        _attached[:] = alive
 
 
 def register_click_review(controller: Any) -> None:
