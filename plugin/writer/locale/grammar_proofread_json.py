@@ -19,9 +19,9 @@ def _as_mapping(value: object) -> Mapping[str, Any] | None:
 
 def _coerce_json_object(content: str) -> Mapping[str, Any] | None:
     """Extract and parse a JSON object from assistant response text."""
-    if not content or not content.strip():
-        return None
     text = content.strip()
+    if not text:
+        return None
     start = text.find("{")
     end = text.rfind("}")
     if 0 <= start < end:
