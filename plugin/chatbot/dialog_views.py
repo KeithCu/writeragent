@@ -80,13 +80,6 @@ from .dialogs import (
 
 log = logging.getLogger(__name__)
 
-# PushButton ImageURL with ImagePosition LeftCenter places the icon directly on the button.
-_PROVIDER_STARTER_ICONS = {
-    "btn_openrouter": "openrouter",
-    "btn_together": "together",
-    "btn_hf": "huggingface",
-    "btn_nvidia": "nvidia",
-}
 # com.sun.star.awt.ImagePosition.LeftCenter
 _IMAGE_POSITION_LEFT_CENTER = 1
 
@@ -239,6 +232,11 @@ class SettingsDialog:
 
             self._setup_tabs()
             self._populate_fields(field_specs, current_endpoint)
+            test_conn_btn = get_optional(self._dlg, "btn_test_conn")
+            if test_conn_btn:
+                test_conn_btn.addActionListener(
+                    TestConnectionListener(self._ctx, self._dlg, self._endpoint_listener)
+                )
             self._schedule_initial_models_fetch(current_endpoint)
             self._apply_sqlite_restrictions()
 
@@ -279,29 +277,19 @@ class SettingsDialog:
         if edit_config_btn:
             edit_config_btn.addActionListener(EditConfigListener(self._ctx))
 
-        starters = [
-            ("btn_openrouter", "https://openrouter.ai/api", "https://openrouter.ai/keys"),
-            ("btn_together", "https://api.together.xyz", "https://api.together.ai/settings/api-keys"),
-            ("btn_hf", "https://router.huggingface.co/v1", "https://huggingface.co/settings/tokens"),
-            ("btn_nvidia", "https://integrate.api.nvidia.com/v1", "https://build.nvidia.com/settings/api-keys"),
-        ]
-        for btn_id, ep_url, signup_url in starters:
+        starters = (
+            ("btn_openrouter", "openrouter", "https://openrouter.ai/api", "https://openrouter.ai/keys"),
+            ("btn_together", "together", "https://api.together.xyz", "https://api.together.ai/settings/api-keys"),
+            ("btn_hf", "huggingface", "https://router.huggingface.co/v1", "https://huggingface.co/settings/tokens"),
+            ("btn_nvidia", "nvidia", "https://integrate.api.nvidia.com/v1", "https://build.nvidia.com/settings/api-keys"),
+        )
+        for btn_id, stem, ep_url, signup_url in starters:
             btn = get_optional(self._dlg, btn_id)
             if not btn:
                 continue
             starter = ProviderStarterListener(self._ctx, self._dlg, ep_url, signup_url)
             btn.addActionListener(starter)
-            stem = _PROVIDER_STARTER_ICONS.get(btn_id)
-            if stem:
-                apply_provider_button_icon(btn, self._ctx, stem)
-
-        test_conn_btn = get_optional(self._dlg, "btn_test_conn")
-        if test_conn_btn:
-            test_conn_btn.addActionListener(
-                TestConnectionListener(
-                    self._ctx, self._dlg, catalog_recheck=self._force_catalog_recheck, api_key_override=self._endpoint_api_key_override
-                )
-            )
+            apply_provider_button_icon(btn, self._ctx, stem)
 
         setup_module_tabs(self._dlg)
         action_buttons = (
@@ -397,7 +385,7 @@ class SettingsDialog:
         if not (prov_ctrl or voice_ctrl or model_ctrl):
             return
 
-        tts_listener = TtsSettingsListener(self._dlg)
+        tts_listener = _SyncComboListener(self._dlg, sync_tts_ui)
 
         if prov_ctrl:
             self._attach_combo(prov_ctrl, tts_listener)
@@ -405,28 +393,15 @@ class SettingsDialog:
         if model_ctrl:
             self._attach_combo(model_ctrl, tts_listener)
 
-        tts_listener.sync_ui()
+        sync_tts_ui(self._dlg)
 
     def _setup_stt_listeners(self) -> None:
         prov_ctrl = get_optional(self._dlg, "audio__stt_provider")
         if prov_ctrl is None:
             return
-        stt_listener = SttSettingsListener(self._dlg)
+        stt_listener = _SyncComboListener(self._dlg, sync_stt_ui)
         self._attach_combo(prov_ctrl, stt_listener)
-        stt_listener.sync_ui()
-
-    def _endpoint_api_key_override(self) -> str | None:
-        """The key the model fetch would send for the current URL, or None."""
-        listener = self._endpoint_listener
-        if listener is None:
-            return None
-        return listener._api_key_override()
-
-    def _force_catalog_recheck(self) -> None:
-        """Test Connection: refetch catalogs even when the process memo is warm."""
-        listener = self._endpoint_listener
-        if listener is not None:
-            listener.force_catalog_refresh()
+        sync_stt_ui(self._dlg)
 
     def _schedule_initial_models_fetch(self, endpoint: str) -> None:
         """Every provider: combos are already LRU. Fetch the catalog off the UI thread.
@@ -502,7 +477,7 @@ class SettingsDialog:
                 with suppress_disposed("detach settings listener", logger=log, suppress_all=False):
                     getattr(ctrl, method)(listener)
         clear_active_settings_dialog(self._dlg)
-        if self._dlg:
+        if self._dlg is not None:
             with suppress_disposed("dispose settings dialog", logger=log, suppress_all=False):
                 self._dlg.dispose()
 
@@ -578,17 +553,12 @@ class ProviderStarterListener(BaseActionListener):
 class TestConnectionListener(BaseActionListener):
     _ctx: Any
     _dlg: Any
-    _catalog_recheck: Any
-    _api_key_override: Any
+    _endpoint_listener: Any
 
-    def __init__(self, ctx: Any, dlg: Any, catalog_recheck: Any, api_key_override: Any) -> None:
+    def __init__(self, ctx: Any, dlg: Any, endpoint_listener: Any = None) -> None:
         self._ctx = ctx
         self._dlg = dlg
-        # Returns the key the endpoint listener would send for the current URL.
-        self._api_key_override = api_key_override
-        # Test Connection is the explicit catalog recheck. Opening Settings,
-        # typing, and OK do not refetch a warm OpenRouter/Together memo.
-        self._catalog_recheck = catalog_recheck
+        self._endpoint_listener = endpoint_listener
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.chatbot.quick_setup import check_endpoint_connection
@@ -601,7 +571,11 @@ class TestConnectionListener(BaseActionListener):
             set_control_text(lbl_status, _("Testing connection..."))
         # UI thread: reads the endpoint controls, then the catalog GET runs
         # on the settings worker. Do not wait for the connection probe.
-        self._catalog_recheck()
+        if self._endpoint_listener is not None:
+            self._endpoint_listener.force_catalog_refresh()
+            override = self._endpoint_listener._api_key_override()
+        else:
+            override = None
 
         endpoint_ctrl = get_optional(self._dlg, "endpoint")
         endpoint_text = str(get_control_text(endpoint_ctrl)) if endpoint_ctrl else ""
@@ -609,7 +583,6 @@ class TestConnectionListener(BaseActionListener):
 
         # Same key decision as the model fetch (effective_api_key via the
         # endpoint listener), so Test Connection never sends a stale key.
-        override = self._api_key_override()
         api_key = "" if override is None else override
 
         def _worker() -> None:
@@ -697,115 +670,103 @@ def _apply_stt_model_visibility(dlg: Any, provider_text: str) -> None:
             set_control_enabled(ctrl, enabled)
 
 
-class SttSettingsListener(BaseListener, XItemListener, XTextListener):
-    """Enables the endpoint STT model or the local Whisper size, not both."""
+def sync_stt_ui(dlg: Any) -> None:
+    def _sync() -> None:
+        prov_ctrl = get_optional(dlg, "audio__stt_provider")
+        raw = str(prov_ctrl.getText() or "") if prov_ctrl is not None else ""
+        _apply_stt_model_visibility(dlg, raw)
 
+    best_effort(_sync, "Error syncing STT provider controls")
+
+
+def sync_tts_ui(dlg: Any) -> None:
+    try:
+        from plugin.audio.tts_voices import (
+            clean_provider_name,
+            clean_voice_name,
+            pick_voice_id,
+            resolve_voice_context,
+            voice_choice_to_id,
+        )
+        from plugin.framework import config
+
+        prov_ctrl = get_optional(dlg, "audio__tts_provider")
+        model_ctrl = get_optional(dlg, "audio__tts_model")
+        voice_ctrl = get_optional(dlg, "audio__tts_voice")
+
+        raw_prov = str(prov_ctrl.getText() or "") if prov_ctrl else ""
+        provider = clean_provider_name(raw_prov)
+        raw_model = str(model_ctrl.getText() or "") if model_ctrl else ""
+        endpoint = _dialog_endpoint_url(dlg)
+
+        if model_ctrl:
+            set_control_enabled(model_ctrl, provider == "endpoint")
+
+        if voice_ctrl:
+            context = resolve_voice_context(
+                provider, raw_model, endpoint=endpoint,
+            )
+            catalog = context.rows
+            labels = tuple(opt["label"] for opt in catalog)
+
+            model = voice_ctrl.getModel()
+            if model is not None:
+                current_items = model.StringItemList
+                # UNO returns a tuple. A missing list is not one — assigning
+                # is what fills the dropdown. Do not iterate arbitrary objects.
+                if not isinstance(current_items, (tuple, list)) or tuple(current_items) != labels:
+                    model.StringItemList = labels
+
+            # Empty catalog: OpenRouter or Together speech model with no voice
+            # list yet. Leave the combo editable. Do not fill it with alloy.
+            if not catalog:
+                return
+
+            current_text = str(voice_ctrl.getText() or "")
+            # Display text is the parenthetical, not the id. Match this list.
+            current_id = voice_choice_to_id(current_text, catalog)
+            stored = clean_voice_name(str(config.get_config(f"audio.tts_voice_{context.family}") or ""))
+            chosen = pick_voice_id(
+                family=context.family,
+                model=raw_model,
+                options=catalog,
+                current_id=current_id,
+                stored_id=stored,
+            )
+
+            by_value = {opt["value"]: opt["label"] for opt in catalog}
+            target_label = by_value.get(chosen, "")
+            # Promote a raw voice id (or a previous family's label) to the catalog label.
+            if target_label and current_text != target_label:
+                voice_ctrl.setText(target_label)
+    except Exception:
+        log.exception("Error syncing TTS UI settings")
+
+
+class _SyncComboListener(BaseListener, XItemListener, XTextListener):
     _dlg: Any
-
-    def __init__(self, dialog: Any) -> None:
-        self._dlg = dialog
-
-    def sync_ui(self) -> None:
-        if not self._dlg:
-            return
-
-        def _sync() -> None:
-            prov_ctrl = get_optional(self._dlg, "audio__stt_provider")
-            raw = str(prov_ctrl.getText() or "") if prov_ctrl is not None else ""
-            _apply_stt_model_visibility(self._dlg, raw)
-
-        best_effort(_sync, "Error syncing STT provider controls")
-
-    def itemStateChanged(self, rEvent: ItemEvent) -> None:
-        self.sync_ui()
-
-    def textChanged(self, rEvent: TextEvent) -> None:
-        self.sync_ui()
-
-
-class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
-    """Synchronizes TTS voice choices and model enablement when provider/model changes."""
-
-    _dlg: Any
+    _sync_fn: Callable[[Any], None]
     _syncing: bool
 
-    def __init__(self, dialog: Any) -> None:
-        self._dlg = dialog
+    def __init__(self, dlg: Any, sync_fn: Callable[[Any], None]) -> None:
+        self._dlg = dlg
+        self._sync_fn = sync_fn
         self._syncing = False
 
-    def sync_ui(self) -> None:
-        if self._syncing or not self._dlg:
+    def _sync(self) -> None:
+        if self._syncing:
             return
         self._syncing = True
         try:
-            from plugin.audio.tts_voices import (
-                clean_provider_name,
-                clean_voice_name,
-                pick_voice_id,
-                resolve_voice_context,
-                voice_choice_to_id,
-            )
-            from plugin.framework import config
-
-            prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
-            model_ctrl = get_optional(self._dlg, "audio__tts_model")
-            voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
-
-            raw_prov = str(prov_ctrl.getText() or "") if prov_ctrl else ""
-            provider = clean_provider_name(raw_prov)
-            raw_model = str(model_ctrl.getText() or "") if model_ctrl else ""
-            endpoint = _dialog_endpoint_url(self._dlg)
-
-            if model_ctrl:
-                set_control_enabled(model_ctrl, provider == "endpoint")
-
-            if voice_ctrl:
-                context = resolve_voice_context(
-                    provider, raw_model, endpoint=endpoint,
-                )
-                catalog = context.rows
-                labels = tuple(opt["label"] for opt in catalog)
-
-                model = voice_ctrl.getModel()
-                if model is not None:
-                    current_items = model.StringItemList
-                    # UNO returns a tuple. A missing list is not one — assigning
-                    # is what fills the dropdown. Do not iterate arbitrary objects.
-                    if not isinstance(current_items, (tuple, list)) or tuple(current_items) != labels:
-                        model.StringItemList = labels
-
-                # Empty catalog: OpenRouter or Together speech model with no voice
-                # list yet. Leave the combo editable. Do not fill it with alloy.
-                if not catalog:
-                    return
-
-                current_text = str(voice_ctrl.getText() or "")
-                # Display text is the parenthetical, not the id. Match this list.
-                current_id = voice_choice_to_id(current_text, catalog)
-                stored = clean_voice_name(str(config.get_config(f"audio.tts_voice_{context.family}") or ""))
-                chosen = pick_voice_id(
-                    family=context.family,
-                    model=raw_model,
-                    options=catalog,
-                    current_id=current_id,
-                    stored_id=stored,
-                )
-
-                by_value = {opt["value"]: opt["label"] for opt in catalog}
-                target_label = by_value.get(chosen, "")
-                # Promote a raw voice id (or a previous family's label) to the catalog label.
-                if target_label and current_text != target_label:
-                    voice_ctrl.setText(target_label)
-        except Exception:
-            log.exception("Error syncing TTS UI settings")
+            self._sync_fn(self._dlg)
         finally:
             self._syncing = False
 
     def itemStateChanged(self, rEvent: ItemEvent) -> None:
-        self.sync_ui()
+        self._sync()
 
     def textChanged(self, rEvent: TextEvent) -> None:
-        self.sync_ui()
+        self._sync()
 
 
 class _TtsTestProgressBox:
@@ -944,13 +905,11 @@ class TtsTestVoiceListener(BaseActionListener):
         if box is not None:
             box.close()
 
-    def _control_text(self, *names: str) -> str:
-        for name in names:
-            ctrl = get_optional(self._dlg, name)
-            if ctrl is None or not hasattr(ctrl, "getText"):
-                continue
-            return str(ctrl.getText() or "")
-        return ""
+    def _control_text(self, name: str) -> str:
+        ctrl = get_optional(self._dlg, name)
+        if ctrl is None or not hasattr(ctrl, "getText"):
+            return ""
+        return str(ctrl.getText() or "")
 
     def _speak_sample(self) -> None:
         from plugin.audio.tts_service import speak_text_async
@@ -1152,7 +1111,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                     skip_remote_fetch=skip_fetch,
                 )
                 if lru_key == "tts_model_lru":
-                    TtsSettingsListener(self._dlg).sync_ui()
+                    sync_tts_ui(self._dlg)
 
     def _speech_remote_models(
         self,
@@ -1178,7 +1137,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             # No key and no fetched catalog yet: same placeholder as the text combo.
             if not api_key_ov and remote is None:
                 return None
-            return together_speech_ids("tts" if kind == "tts" else "stt", remote)
+            return together_speech_ids(kind, remote)
         if resolved_provider != "openrouter":
             return models
         # The modality GET runs in _bg_fetch. A cache miss stays empty rather
@@ -1197,7 +1156,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
     def _start_bg_fetch(self, gen: int, resolved: str, name: str) -> None:
         key_ov = self._api_key_override()
-        tts_model_id = self._tts_model_id_for_voice_fetch()
+        ctrl = get_optional(self._dlg, "audio__tts_model")
+        tts_model_id = str(ctrl.getText() or "").strip() if ctrl is not None else ""
         run_in_background(
             lambda: self._bg_fetch(gen, resolved, tts_model_id, key_ov), name=name,
         )
@@ -1245,17 +1205,6 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 self._syncing_api_key = False
             self._user_edited_key = False
         self._synced_endpoint = resolved
-
-    def _tts_model_id_for_voice_fetch(self) -> str:
-        """Speech-model id captured on the UI thread for the voices GET.
-
-        The worker must not read the combo. ``_run_fetch`` and Test Connection
-        call this before ``run_in_background``.
-        """
-        ctrl = get_optional(self._dlg, "audio__tts_model")
-        if ctrl is None:
-            return ""
-        return str(ctrl.getText() or "").strip()
 
     def _bg_fetch(self, gen: int, resolved: str, tts_model_id: str = "", key_ov: str | None = None) -> None:
         if self._closed or gen != self._debounce_gen: return
@@ -1314,18 +1263,17 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             )
             return
         gen = self._cancel_pending()
-        self._timer = threading.Timer(1.0, lambda: post_to_main_thread(lambda: self._run_fetch(gen)))
+
+        def _fetch() -> None:
+            if self._closed or gen != self._debounce_gen:
+                return
+            resolved = endpoint_from_selector_text(self._ctrl.getText())
+            if resolved:
+                self._start_bg_fetch(gen, resolved, "settings-fetch")
+
+        self._timer = threading.Timer(1.0, lambda: post_to_main_thread(_fetch))
         self._timer.daemon = True
         self._timer.start()
-
-    def _run_fetch(self, gen: int) -> None:
-        # close() bumps the generation and cancels the timer. A callback already
-        # posted to the UI thread must not start the worker.
-        if self._closed or gen != self._debounce_gen:
-            return
-        resolved = endpoint_from_selector_text(self._ctrl.getText())
-        if resolved:
-            self._start_bg_fetch(gen, resolved, "settings-fetch")
 
     def force_catalog_refresh(self) -> None:
         """Clear this endpoint+key memo and refetch off the UI thread."""
@@ -1463,6 +1411,8 @@ __all__ = [
     "open_system_url",
     "settings_box",
     "setup_module_tabs",
+    "sync_stt_ui",
+    "sync_tts_ui",
 ]
 
 

@@ -76,7 +76,9 @@ def test_test_connection_uses_endpoint_listener_key():
     controls = {"endpoint": endpoint_ctrl, "api_key": key_ctrl}
     sent = []
 
-    listener = TestConnectionListener(MagicMock(), MagicMock(), catalog_recheck=lambda: None, api_key_override=lambda: "")
+    ep_listener = MagicMock()
+    ep_listener._api_key_override.return_value = ""
+    listener = TestConnectionListener(MagicMock(), MagicMock(), ep_listener)
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda dlg, name: controls.get(name)), \
          patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c, *a, **k: c.getText()), \
          patch("plugin.chatbot.quick_setup.check_endpoint_connection", side_effect=lambda ep, key: sent.append((ep, key)) or (True, "ok")), \
