@@ -189,30 +189,28 @@ def process_grammar_results(
     from .grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
 
     summary = _BatchResultSummary()
-    doc_id = chunk[0][0].doc_id if chunk else ""
+    doc_id = chunk[0][0].doc_id
     ignored = doc_ignored_rules(ec.ctx, doc_id) if doc_id else set()
     global_ignored = grammar_proofread_cache.ignored_rules_snapshot()
-    for idx, (item, text) in enumerate(chunk):
+    for (item, text), errors in zip(chunk, results):
         if ec.gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
             continue
-        if idx < len(results):
-            errors = results[idx]
-            norm_errors = grammar_proofread_text.normalize_errors_for_text(text, errors, ec.ctx, bcp47)
+        norm_errors = grammar_proofread_text.normalize_errors_for_text(text, errors, ec.ctx, bcp47)
 
-            active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
-            payload = [asdict(e) for e in norm_errors]
+        active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
+        payload = [asdict(e) for e in norm_errors]
 
-            checker_ident = _item_cache_identity(item)
+        checker_ident = _item_cache_identity(item)
+        grammar_proofread_cache.cache_put_sentence(
+            bcp47, text, payload, ctx=ec.ctx, doc_id=item.doc_id, checker_identity=checker_ident
+        )
+        if original_bcp47 and not grammar_bcp47_tags_match(original_bcp47, bcp47):
+            log.debug("[grammar] Double caching for %s (detected %s)", original_bcp47, bcp47)
             grammar_proofread_cache.cache_put_sentence(
-                bcp47, text, payload, ctx=ec.ctx, doc_id=item.doc_id, checker_identity=checker_ident
+                original_bcp47, text, payload, ctx=ec.ctx, doc_id=item.doc_id, checker_identity=checker_ident
             )
-            if original_bcp47 and not grammar_bcp47_tags_match(original_bcp47, bcp47):
-                log.debug("[grammar] Double caching for %s (detected %s)", original_bcp47, bcp47)
-                grammar_proofread_cache.cache_put_sentence(
-                    original_bcp47, text, payload, ctx=ec.ctx, doc_id=item.doc_id, checker_identity=checker_ident
-                )
 
-            summary.record(text, len(active_errors))
+        summary.record(text, len(active_errors))
 
     if summary.n_written:
         preview_src = summary.preview_source()
@@ -231,10 +229,10 @@ def process_grammar_results(
 
 def run_single_sentence_provider(
     spec: _ProviderSpec,
-    runner_fn: Any,
     chunk: list[tuple[Any, str]],
     bcp47: str,
     original_bcp47: str,
+    cfg_dir: str,
     ec: Any,
 ) -> None:
     """Execute a single-sentence local checker (Harper, LanguageTool, Vale), record metrics, and cache results."""
@@ -243,7 +241,7 @@ def run_single_sentence_provider(
             if spec.emit_request_status:
                 emit_grammar_status("request", text, result=f"{spec.name} check")
             request_start = time.monotonic()
-            res = runner_fn(text)
+            res = spec.run(ec.ctx, text, bcp47, cfg_dir)
             elapsed_ms = int((time.monotonic() - request_start) * 1000)
 
             errors = res.get("errors", []) if isinstance(res, dict) else []
@@ -258,32 +256,32 @@ def run_single_sentence_provider(
 class _ProviderSpec:
     name: str
     obs_event: str
-    runner_factory: Any
+    run: Any
     emit_request_status: bool = False
 
 
-def _make_languagetool_runner(ctx: Any, bcp47: str, cfg_dir: str) -> Any:
+def _run_languagetool(ctx: Any, text: str, bcp47: str, _cfg_dir: str) -> Any:
     from plugin.scripting.client import run_languagetool_check
 
-    return lambda t: run_languagetool_check(ctx, t, bcp47)
+    return run_languagetool_check(ctx, text, bcp47)
 
 
-def _make_vale_runner(ctx: Any, bcp47: str, cfg_dir: str) -> Any:
+def _run_vale(ctx: Any, text: str, _bcp47: str, cfg_dir: str) -> Any:
     from plugin.scripting.client import run_vale_check
 
-    return lambda t: run_vale_check(ctx, t, cfg_dir, "Microsoft,Google,write-good")
+    return run_vale_check(ctx, text, cfg_dir, "Microsoft,Google,write-good")
 
 
-def _make_harper_runner(ctx: Any, bcp47: str, cfg_dir: str) -> Any:
+def _run_harper(ctx: Any, text: str, bcp47: str, cfg_dir: str) -> Any:
     from plugin.writer.locale.harper import run_harper_check
 
-    return lambda t: run_harper_check(ctx, t, cfg_dir, bcp47=bcp47)
+    return run_harper_check(ctx, text, cfg_dir, bcp47=bcp47)
 
 
 _SINGLE_SENTENCE_PROVIDERS: dict[str, _ProviderSpec] = {
-    "languagetool": _ProviderSpec("LanguageTool", "worker_grammar_done", _make_languagetool_runner),
-    "vale": _ProviderSpec("Vale", "worker_style_done", _make_vale_runner),
-    "harper": _ProviderSpec("Harper", "worker_harper_done", _make_harper_runner, emit_request_status=True),
+    "languagetool": _ProviderSpec("LanguageTool", "worker_grammar_done", _run_languagetool),
+    "vale": _ProviderSpec("Vale", "worker_style_done", _run_vale),
+    "harper": _ProviderSpec("Harper", "worker_harper_done", _run_harper, emit_request_status=True),
 }
 
 
@@ -417,22 +415,19 @@ def run_grammar_check(
 ) -> None:
     """Grammar check dispatcher: executes LLM, LanguageTool, Vale, or Harper, then caches results."""
     try:
-        from plugin.framework.config import user_config_dir
-
         # Always use the job's explicit provider if present, even if it is not
         # the current default config, so that background retry and cache
         # identity don't desync with the UI check that enqueued it.
         provider = chunk[0][0].provider if chunk and chunk[0][0].provider else get_grammar_provider()
         spec = _SINGLE_SENTENCE_PROVIDERS.get(provider)
         if spec is not None:
-            cfg_dir = user_config_dir() or ""
-            runner = spec.runner_factory(ec.ctx, bcp47, cfg_dir)
+            cfg_dir = config.user_config_dir() or ""
             run_single_sentence_provider(
                 spec,
-                runner,
                 chunk,
                 bcp47,
                 original_bcp47,
+                cfg_dir,
                 ec,
             )
             return
@@ -607,6 +602,12 @@ def _obs_lang_detect_item(idx: int, source: str, raw: str | None, canon: str | N
     )
 
 
+def _remember_language(text: str, raw: str) -> str:
+    canon = normalize_detected_bcp47(raw) or raw
+    grammar_persistence.grammar_registry.put_cached_language(text, canon)
+    return canon
+
+
 def _fill_from_cache_and_persistence(
     chunk: list[tuple[Any, str]],
     ec: Any,
@@ -621,8 +622,7 @@ def _fill_from_cache_and_persistence(
             _obs_lang_detect_item(idx, "cache", cached, canon, text)
         elif persisted_grammar_skip_lang_detect(ec.ctx, item.doc_id, text, ec.grammar_bcp47):
             grammar_obs("lang_detect_skip", reason="persisted_grammar_heuristic", doc_id=item.doc_id[:32] if item.doc_id else "")
-            canon = normalize_detected_bcp47(ec.grammar_bcp47) or ec.grammar_bcp47
-            grammar_persistence.grammar_registry.put_cached_language(text, canon)
+            canon = _remember_language(text, ec.grammar_bcp47)
             detected_langs.append(canon)
             _obs_lang_detect_item(idx, "persisted", ec.grammar_bcp47, canon, text)
         else:
@@ -684,21 +684,15 @@ def _detect_via_llm_batch(
     grammar_obs("lang_detect_batch_parse", chunk_len=len(texts), parsed_len=len(parsed_langs), ok=ok)
 
     results: list[str | None] = []
-    if ok:
-        for idx, d_lang in enumerate(parsed_langs):
-            text = texts[idx]
-            if d_lang:
-                canon = normalize_detected_bcp47(d_lang) or d_lang
-                grammar_persistence.grammar_registry.put_cached_language(text, canon)
-                results.append(canon)
-                _obs_lang_detect_item(idx, "llm", d_lang, canon, text)
-            else:
-                results.append(None)
-                _obs_lang_detect_item(idx, "none", None, None, text)
-    else:
-        if detect_content:
-            log.warning("[grammar] language detect batch parse mismatch: chunk=%s parsed=%s", len(texts), len(parsed_langs))
-        for idx, text in enumerate(texts):
+    if not ok and detect_content:
+        log.warning("[grammar] language detect batch parse mismatch: chunk=%s parsed=%s", len(texts), len(parsed_langs))
+    langs = parsed_langs if ok else [None] * len(texts)
+    for idx, (text, d_lang) in enumerate(zip(texts, langs)):
+        if d_lang:
+            canon = _remember_language(text, d_lang)
+            results.append(canon)
+            _obs_lang_detect_item(idx, "llm", d_lang, canon, text)
+        else:
             results.append(None)
             _obs_lang_detect_item(idx, "none", None, None, text)
     return results
@@ -726,8 +720,7 @@ def _detect_via_llm_single(
     parsed_lang = grammar_proofread_json.parse_language_detect_json(detect_content or "")
     grammar_obs("lang_detect_single_parse", parsed=bool(parsed_lang), text_preview=slice_preview_debug(text, 48))
     if parsed_lang:
-        canon = normalize_detected_bcp47(parsed_lang) or parsed_lang
-        grammar_persistence.grammar_registry.put_cached_language(text, canon)
+        canon = _remember_language(text, parsed_lang)
         _obs_lang_detect_item(0, "llm", parsed_lang, canon, text)
         return canon
     if detect_content:
@@ -981,14 +974,6 @@ def run_llm_and_cache_batch(
                 detected_langs = detect_languages_for_chunk(d_chunk, detect_lang_instruction, ec)
                 for idx, (item, text) in enumerate(d_chunk):
                     target_bcp47 = _detected_target_bcp47(detected_langs[idx], grammar_bcp47)
-                    grammar_obs(
-                        "lang_validation_decision",
-                        chunk_len=1,
-                        target_bcp47=grammar_bcp47,
-                        result_chunk_len=1,
-                        requeue_count=0,
-                        dropped_none_count=0,
-                    )
                     if target_bcp47 != grammar_bcp47:
                         new_item = _retarget_item_locale(item, text, target_bcp47, ec)
                         if new_item is not None:
