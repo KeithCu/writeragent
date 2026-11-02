@@ -45,23 +45,9 @@ class _RubySpan(NamedTuple):
 
 
 
-def _inside_ruby_element(html: str, index: int) -> bool:
-    """True when *index* sits inside an existing ``<ruby>…</ruby>``."""
-    last_open = html.rfind("<ruby", 0, index)
-    if last_open < 0:
-        return False
-    last_close = html.rfind("</ruby>", 0, index)
-    return last_close < last_open
-
-
-
-def _index_in_tag(html: str, index: int) -> bool:
-    """True when *index* is inside ``<...>`` (attribute text is not body text)."""
-    last_lt = html.rfind("<", 0, index)
-    if last_lt < 0:
-        return False
-    last_gt = html.rfind(">", 0, index)
-    return last_gt < last_lt
+def _inside(html: str, index: int, open_tok: str, close_tok: str) -> bool:
+    """True when *index* sits inside an unclosed pair of tokens."""
+    return html.rfind(open_tok, 0, index) > html.rfind(close_tok, 0, index)
 
 
 
@@ -74,7 +60,7 @@ def _find_contiguous(html: str, needle: str, start: int = 0) -> tuple[int, int] 
         found = html.find(needle, idx)
         if found < 0:
             return None
-        if not _index_in_tag(html, found):
+        if not _inside(html, found, "<", ">"):
             return found, found + len(needle)
         idx = found + 1
 
@@ -134,15 +120,15 @@ def inject_ruby_into_html(html: str, spans: Sequence[_RubySpan]) -> str:
             continue
         extra = ""
         glued = _find_contiguous(html, base + reading, pos)
-        if glued is not None and not _inside_ruby_element(html, glued[0]):
+        if glued is not None and not _inside(html, glued[0], "<ruby", "</ruby>"):
             start, end, next_pos = glued[0], glued[1], glued[1]
         else:
             base_at = _find_contiguous(html, base, pos)
-            if base_at is None or _inside_ruby_element(html, base_at[0]):
+            if base_at is None or _inside(html, base_at[0], "<ruby", "</ruby>"):
                 continue
             start, end = base_at
             reading_at = _reading_after(html, end, reading)
-            if reading_at is not None and not _inside_ruby_element(html, reading_at):
+            if reading_at is not None and not _inside(html, reading_at, "<ruby", "</ruby>"):
                 # Bold/span around the base: keep those tags, drop the glued reading.
                 extra, next_pos = html[end:reading_at], reading_at + len(reading)
             else:
@@ -207,13 +193,6 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
 
 
 
-def iter_ruby_spans(text_obj: Any) -> Iterator[_RubySpan]:
-    """Document-order ruby pairs under *text_obj* (body or cell), including tables."""
-    for para in range_copy._iter_xtext_paragraphs(text_obj):
-        yield from _iter_ruby_spans_in_paragraph(para)
-
-
-
 def _ruby_spans_in_window(para: Any, trim_start: int, trim_end: int) -> list[_RubySpan]:
     """Ruby pairs whose entire base lies inside the copied visible-text window."""
     return [
@@ -234,7 +213,14 @@ def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None
         return content
     if fodt_has_ruby is False:
         return content
-    spans = best_effort(lambda: list(iter_ruby_spans(model.getText())), "_inject_ruby_from_model: portion walk failed")
+    spans = best_effort(
+        lambda: [
+            span
+            for para in range_copy._iter_xtext_paragraphs(model.getText())
+            for span in _iter_ruby_spans_in_paragraph(para)
+        ],
+        "_inject_ruby_from_model: portion walk failed",
+    )
     if spans is None:
         return content
     return inject_ruby_into_html(content, spans)
@@ -337,7 +323,7 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
     come from ``getString()`` then ``goRight`` — they agree on plain imported
     body text (no fields/ruby yet).
     """
-    if not spans or text_obj is None:
+    if not spans:
         return
     def read_imported() -> tuple[Any, str]:
         origin = text_obj.getStart()

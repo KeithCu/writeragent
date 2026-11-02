@@ -666,14 +666,12 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
     if got is None:
         return
     draw_page, count = got
-    shapes: list[Any] = []
+    dest_text = dest_doc.getText()
     for i in range(min(count, 5000)):
         try:
-            shapes.append(draw_page.getByIndex(i))
+            shape = draw_page.getByIndex(i)
         except Exception:
             break
-    dest_text = dest_doc.getText()
-    for shape in shapes:
         try:
             anchor = shape.getAnchor()
             if not uno_same(anchor.getText(), src_text):
