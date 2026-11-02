@@ -28,7 +28,7 @@ from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import uno_same
 from plugin.framework.worker_pool import run_in_background
-from plugin.writer.review_scan import document_has_tracked_deletions
+from plugin.writer.review_scan import document_has_tracked_deletions, scan_redlines
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -67,6 +67,12 @@ _SPACE_CODEPOINTS = (
 )
 SPACE_NORMALIZE_MAP = {cp: " " for cp in _SPACE_CODEPOINTS}
 HORIZONTAL_SPACE_CLASS = r"[ \t" + "".join("\\u%04x" % cp for cp in _SPACE_CODEPOINTS) + "]"
+
+# Typographic quotes -> straight ones, also length-preserving. A model types "Hi," where the
+# document has autocorrected “Hi,” (#1318). LibreOffice's plain search already treats them
+# alike; its regex search, which the edit tools use, does not.
+QUOTE_NORMALIZE_MAP = str.maketrans("\u201c\u201d\u201e\u201f\u2018\u2019\u201a\u201b", "\"\"\"\"''''")
+_QUOTE_CLASS = {'"': r'["\u201c\u201d\u201e\u201f]', "'": r"['\u2018\u2019\u201a\u201b]"}
 
 
 def find_next_after_match(doc: Any, found: Any, sd: Any) -> Any:
@@ -200,9 +206,10 @@ def find_text_ranges(
     cursor.gotoStart(False)
 
     matches = []
+    deleted = tracked_deletion_spans(model)
     found = model.findNext(cursor, sd)
     while found:
-        if not body_only or uno_same(found.getText(), model.getText()):
+        if (not body_only or uno_same(found.getText(), model.getText())) and not inside_tracked_deletion(found, deleted):
             measure = found.getText().createTextCursor()
             measure.gotoStart(False)
             measure.gotoRange(found.getStart(), True)
@@ -226,14 +233,16 @@ def _search_try_strings(search_string: str) -> Iterator[str]:
 
 
 def escape_for_lo_regex(s: str) -> str:
-    """Escape regular expression characters and match any horizontal space sequence."""
-    s = s.translate(SPACE_NORMALIZE_MAP)
+    """Escape regular expression characters, match any horizontal space sequence and match
+    straight and typographic quotes alike."""
+    s = s.translate(SPACE_NORMALIZE_MAP).translate(QUOTE_NORMALIZE_MAP)
     escaped = re_mod.sub(r'([\\^$.|?*+()\[\]{}])', r'\\\1', s)
+    escaped = re_mod.sub(r'["\']', lambda m: _QUOTE_CLASS[m.group()], escaped)
     return re_mod.sub(r' +', lambda m: HORIZONTAL_SPACE_CLASS + '+', escaped)
 
 
 def _compare_normalize(s: str) -> str:
-    return normalize_linebreaks(s).translate(SPACE_NORMALIZE_MAP).strip().lower()
+    return normalize_linebreaks(s).translate(SPACE_NORMALIZE_MAP).translate(QUOTE_NORMALIZE_MAP).strip().lower()
 
 
 def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, tail: bool = False) -> tuple[bool, int | None]:
@@ -258,10 +267,42 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     return actual_norm == expected_norm, None
 
 
+def tracked_deletion_spans(doc: Any) -> list[tuple[Any, Any]]:
+    """(start, end) of each pending tracked deletion. LO search still sees deleted text."""
+    spans: list[tuple[Any, Any]] = []
+
+    def on_redline(rl: Any) -> bool:
+        if rl.getPropertyValue("RedlineType") == "Delete":
+            spans.append((rl.getPropertyValue("RedlineStart"), rl.getPropertyValue("RedlineEnd")))
+        return True
+
+    scan_redlines(doc, on_redline)
+    return spans
+
+
+def inside_tracked_deletion(found: Any, spans: list[tuple[Any, Any]]) -> bool:
+    """True when the search hit *found* lies wholly inside one of *spans*: text the user
+    deleted with Track Changes on is not a hit (#1318)."""
+    if not spans:
+        return False
+    text = found.getText()
+    for start, end in spans:
+        if not uno_same(start.getText(), text):
+            continue
+        # compareRegionStarts(a, b) is 1 when a comes first; RedlineStart can be the later end.
+        if text.compareRegionStarts(start, end) < 0:
+            start, end = end, start
+        if text.compareRegionStarts(start, found) >= 0 and text.compareRegionEnds(found, end) >= 0:
+            return True
+    return False
+
+
 def _iter_descriptor_hits(doc: Any, sd: Any) -> Iterator[Any]:
+    deleted = tracked_deletion_spans(doc)
     found = doc.findFirst(sd)
     while found is not None:
-        yield found
+        if not inside_tracked_deletion(found, deleted):
+            yield found
         found = find_next_after_match(doc, found, sd)
 
 
@@ -727,15 +768,17 @@ def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensiti
     if use_regex:
         flags = 0 if case_sensitive else re_mod.IGNORECASE
         return _regex_find_hits(pattern, shape_text, flags)
+    # Fold quotes like LibreOffice's plain search of the body text does.
     if case_sensitive:
-        hay = shape_text
-        needle = pattern
+        hay = shape_text.translate(QUOTE_NORMALIZE_MAP)
+        needle = pattern.translate(QUOTE_NORMALIZE_MAP)
 
         def slice_hit(idx: int) -> str:
             return shape_text[idx:idx + len(pattern)]
     else:
         hay, origins = _lower_with_origins(shape_text)
-        needle = pattern.lower()
+        hay = hay.translate(QUOTE_NORMALIZE_MAP)
+        needle = pattern.lower().translate(QUOTE_NORMALIZE_MAP)
 
         def slice_hit(idx: int) -> str:
             return shape_text[origins[idx]:origins[idx + len(needle) - 1] + 1]
@@ -822,7 +865,7 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
             raise ValueError(invalid_regex_tool_message(err))
     sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
     if not all_matches:
-        return doc.findFirst(sd)
+        return next(_iter_descriptor_hits(doc, sd), None)
     return _collect_capped(doc, sd)
 
 
@@ -930,6 +973,7 @@ class SearchInDocument(ToolBase):
         label_cache: dict[int, str] = {}
         try:
             sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
+            deleted = tracked_deletion_spans(doc)
             found = doc.findFirst(sd)
         except Exception as exc:
             reraise_if_disposed(exc)
@@ -957,13 +1001,14 @@ class SearchInDocument(ToolBase):
                 # Why this change: warn and still sweep shapes and comments; do not step one character
                 warning = "Search stopped on a zero-width match; count may be incomplete."
                 break
-            total_count += 1
-            if len(matches) < max_results:
-                add(
-                    hit_text,
-                    describe_match_location(found, doc, label_cache=label_cache),
-                    enclosing_paragraph_text(found),
-                )
+            if not inside_tracked_deletion(found, deleted):
+                total_count += 1
+                if len(matches) < max_results:
+                    add(
+                        hit_text,
+                        describe_match_location(found, doc, label_cache=label_cache),
+                        enclosing_paragraph_text(found),
+                    )
             try:
                 # hit_text is non-empty here, so skip find_next_after_match's second getString.
                 found = doc.findNext(found.getEnd(), sd)

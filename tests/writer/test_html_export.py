@@ -70,7 +70,7 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
     source = MagicMock()
     source.getText.return_value = text
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, deletion_state=None):
         yield (_Portion(), "Hello")
 
     with (
@@ -537,7 +537,7 @@ def test_range_offset_failure_is_not_a_successful_slice():
     temp = MagicMock()
     temp.getText.return_value = MagicMock()
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, deletion_state=None):
         yield (_Portion(), "Hello")
 
     with (
@@ -591,7 +591,7 @@ def test_range_xhtml_disposal_does_not_fall_back():
     source = MagicMock()
     source.getText.return_value = text
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, deletion_state=None):
         yield (_Portion(), "Hello")
 
     with (
@@ -630,7 +630,7 @@ def test_range_export_does_not_read_para_style_on_a_table():
     source = MagicMock()
     source.getText.return_value = text
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, deletion_state=None):
         if element is not table:
             yield (_Portion(), "Hello")
 
@@ -948,7 +948,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
     source = MagicMock()
     source.getText.return_value = text
 
-    def _portions(element, truncated_out=None):
+    def _portions(element, truncated_out=None, deletion_state=None):
         yield (_Portion(), "Hello")
 
     temp_doc = MagicMock()
@@ -1006,3 +1006,27 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         autostyle_mock.assert_called_once_with(temp_doc)
         semantic_mock.assert_called_once_with(xhtml_auto, expected_parents, expected_overrides)
 
+
+
+def test_full_read_exports_a_copy_with_tracked_changes_accepted():
+    """#1318: the XHTML filter writes pending deleted text as live text, so a full read of a
+    document with tracked deletions exports a hidden copy with the changes accepted."""
+    from plugin.writer import html_export as hx
+
+    model, ctx, copy = MagicMock(), MagicMock(), MagicMock()
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = copy
+    dispatcher = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
+    with patch.object(hx, "document_has_tracked_deletions", return_value=True), \
+            patch.object(hx, "get_desktop", return_value=desktop):
+        with hx._without_tracked_deletions(model, ctx) as source:
+            assert source is copy
+            copy.close.assert_not_called()
+    model.storeToURL.assert_called_once()
+    assert dispatcher.executeDispatch.call_args[0][1] == ".uno:AcceptAllTrackedChanges"
+    copy.close.assert_called_once_with(True)
+    model.close.assert_not_called()
+
+    with patch.object(hx, "document_has_tracked_deletions", return_value=False):
+        with hx._without_tracked_deletions(model, ctx) as source:
+            assert source is model

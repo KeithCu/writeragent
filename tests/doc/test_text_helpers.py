@@ -149,16 +149,19 @@ class _Enum:
 
 
 class _Portion:
-    def __init__(self, text="", portion_type="Text", redline_type=None):
+    def __init__(self, text="", portion_type="Text", redline_type=None, is_start=None):
         self._text = text
         self._portion_type = portion_type
         self._redline_type = redline_type
+        self._is_start = is_start
 
     def getPropertyValue(self, name):
         if name == "TextPortionType":
             return self._portion_type
         if name == "RedlineType":
             return self._redline_type
+        if name == "IsStart" and self._is_start is not None:
+            return self._is_start
         raise Exception(name)
 
     def getString(self):
@@ -195,9 +198,9 @@ def test_get_string_without_tracked_deletions_skips_deleted_portions():
             _Paragraph(
                 [
                     _Portion("Keep "),
-                    _Portion(portion_type="Redline", redline_type="Delete"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
                     _Portion("remove me"),
-                    _Portion(portion_type="Redline", redline_type="Delete"),
+                    _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
                     _Portion("text"),
                 ],
                 fallback_text="Keep remove metext",
@@ -701,9 +704,9 @@ def test_get_string_without_tracked_deletions_table_cell_redline():
         "A1": _TextRange([
             _Paragraph([
                 _Portion("A1 "),
-                _Portion(portion_type="Redline", redline_type="Delete"),
+                _Portion(portion_type="Redline", redline_type="Delete", is_start=True),
                 _Portion("hidden"),
-                _Portion(portion_type="Redline", redline_type="Delete"),
+                _Portion(portion_type="Redline", redline_type="Delete", is_start=False),
                 _Portion("cell"),
             ], fallback_text="A1 cell"),
         ]),
@@ -756,3 +759,42 @@ def test_get_document_length_non_writer_is_zero():
     model.getText.assert_not_called()
 
 
+
+
+def _del_mark(is_start):
+    return _Portion(portion_type="Redline", redline_type="Delete", is_start=is_start)
+
+
+def test_tracked_deletion_across_paragraphs_is_hidden():
+    """#1318: a deletion over several paragraphs has its start mark in the first, nothing in
+    the middle ones, and its end mark at the start of the last. Toggling on each mark showed
+    the deleted text and hid the live tail of the last paragraph."""
+    text_range = _TextRange([
+        _Paragraph([_Portion("Keep "), _del_mark(True), _Portion("gone one")]),
+        _Paragraph([_Portion("gone two")]),
+        _Paragraph([_Portion("gone three"), _del_mark(False), _Portion(" live three")]),
+        _Paragraph([_Portion("live four")]),
+    ])
+    assert get_string_without_tracked_deletions(text_range) == "Keep \n\n live three\nlive four"
+
+
+def test_paragraph_starting_with_end_mark_drops_text_before_it():
+    """A single-paragraph read: text before an end mark belongs to a deletion opened earlier."""
+    para = _ParagraphService([_Portion("gone"), _del_mark(False), _Portion("live")])
+    assert get_string_without_tracked_deletions(para) == "live"
+    para = _ParagraphService([_Portion("gone")])
+    assert get_string_without_tracked_deletions(para, starts_in_deletion=True) == ""
+
+
+def test_skip_tracked_deletions_carries_state():
+    from plugin.doc.text_helpers import skip_tracked_deletions
+
+    state = [False]
+    pairs = [(_Portion("a"), "Text"), (_del_mark(True), "Redline"), (_Portion("b"), "Text")]
+    assert [p.getString() for p, _k in skip_tracked_deletions(pairs, state)] == ["a"]
+    assert state == [True]
+    assert list(skip_tracked_deletions([(_Portion("c"), "Text")], state)) == []
+    assert state == [True]
+    pairs = [(_Portion("d"), "Text"), (_del_mark(False), "Redline"), (_Portion("e"), "Text")]
+    assert [p.getString() for p, _k in skip_tracked_deletions(pairs, state)] == ["e"]
+    assert state == [False]
