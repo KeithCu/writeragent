@@ -15,19 +15,23 @@ On Draw/Impress, page=N is the vision screenshot (0-based, same as list_pages / 
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import tempfile
 from typing import TYPE_CHECKING, Any
 
+from plugin.doc import visual_helpers
 from plugin.doc.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase
-from plugin.writer.images.image_tools import export_graphic_object_to_bytes, get_selected_image_base64
+from plugin.writer.images.image_tools import export_graphic_object_to_bytes
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
+
+log = logging.getLogger(__name__)
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
@@ -37,7 +41,8 @@ def _is_draw_family(doc: Any) -> bool:
     return bool(doc.supportsService(IMPRESS_DOCUMENT_SERVICE)) or bool(doc.supportsService(DRAW_DOCUMENT_SERVICE))
 
 
-def _ok_image(source: str, b64: str) -> dict[str, Any]:
+def _ok_image(source: str, raw: bytes) -> dict[str, Any]:
+    b64 = base64.b64encode(raw).decode("utf-8")
     return {"status": "ok", "source": source, "_mcp_image": {"data": b64, "mimeType": "image/png"}}
 
 
@@ -207,7 +212,6 @@ class GetImage(ToolBase):
 
         name = kwargs.get("image")
         page = kwargs.get("page")
-        b64: str | None
         if page is not None:
             if isinstance(page, bool) or not isinstance(page, int) or page < 0:
                 return self._tool_error("page must be a non-negative integer (0-based).")
@@ -216,8 +220,7 @@ class GetImage(ToolBase):
             raw, reason = _render_page_png(ctx.ctx, doc, page)
             if raw is None:
                 return self._tool_error(reason or "Could not render the page.")
-            b64 = base64.b64encode(raw).decode("utf-8")
-            return _ok_image(f"page {page}", b64)
+            return _ok_image(f"page {page}", raw)
 
         if name is not None:
             if not isinstance(name, str) or not name.strip():
@@ -235,15 +238,18 @@ class GetImage(ToolBase):
             raw = export_graphic_object_to_bytes(ctx.ctx, obj)
             if not raw:
                 return self._tool_error(f"Could not export image '{name}'.")
-            b64 = base64.b64encode(raw).decode("utf-8")
             source = name
         elif selection is False:
             return self._tool_error("selection=false means no mode was chosen; pass image=<name>, page=<n>, or selection=true.")
         else:
-            b64 = get_selected_image_base64(doc, ctx.ctx)
-            if not b64:
+            obj = visual_helpers.selected_graphic_object(doc)
+            if obj is None:
+                log.debug("get_selected_image_base64: no graphic in selection")
+                return self._tool_error("No image selected. Select an image in the document, or pass image=<name> (see image_list).")
+            raw = export_graphic_object_to_bytes(ctx.ctx, obj)
+            if not raw:
                 return self._tool_error("No image selected. Select an image in the document, or pass image=<name> (see image_list).")
             source = "selection"
         # _mcp_image is recognized by the MCP tools/call serializer (mcp_protocol) and returned as a
         # native image content block; over non-image transports it is just an ignorable marker.
-        return _ok_image(source, b64)
+        return _ok_image(source, raw)
