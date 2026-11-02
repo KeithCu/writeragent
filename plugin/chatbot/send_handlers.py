@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import threading
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
 from plugin.framework.i18n import _
 from plugin.framework.stream_batch import StreamQueueKind
@@ -99,6 +99,14 @@ class _SpecializedRunnerSpec:
     callback_name: str | None = None
     pass_spec_saved: bool = False
     clear_topic: bool = False
+    allowed_docs: tuple[str, ...] | None = None
+    dispatch_log: str = ""
+    topic_policy: str = ""
+    prefetch_suggested_name: bool = False
+    set_active_mode: bool = True
+    extra_kwarg: str | None = None
+    extra_attr: str | None = None
+    prepend_web_cache: bool = False
 
 
 _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
@@ -111,6 +119,10 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         finish_msgid="Perfect! I'm switching you to the main assistant now.",
         finish_flag="librarian_switch_to_chat",
         callback_name="on_librarian_session_finished",
+        dispatch_log="_do_send: using librarian onboarding agent",
+        prefetch_suggested_name=True,
+        extra_kwarg="suggested_user_name",
+        extra_attr="_librarian_suggested_user_name",
     ),
     CHAT_MODE_BRAINSTORMING: _SpecializedRunnerSpec(
         tool_name="brainstorming_session",
@@ -124,6 +136,11 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         callback_name="on_brainstorming_session_finished",
         pass_spec_saved=True,
         clear_topic=True,
+        allowed_docs=("writer",),
+        dispatch_log="_do_send: using brainstorming sub-agent",
+        topic_policy="switch",
+        extra_kwarg="topic",
+        extra_attr="_mode_topic",
     ),
     CHAT_MODE_WRITING_PLAN: _SpecializedRunnerSpec(
         tool_name="writing_plan_session",
@@ -135,6 +152,11 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         finish_flag="writing_plan_finished",
         callback_name="on_writing_plan_session_finished",
         clear_topic=True,
+        allowed_docs=("writer",),
+        dispatch_log="_do_send: using writing plan sub-agent",
+        topic_policy="fill",
+        extra_kwarg="topic",
+        extra_attr="_mode_topic",
     ),
     CHAT_MODE_PPT_MASTER: _SpecializedRunnerSpec(
         tool_name="ppt_master_session",
@@ -147,18 +169,27 @@ _SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
         copy_key="exported",
         callback_name="on_ppt_master_session_finished",
         clear_topic=True,
+        allowed_docs=("draw", "impress"),
+        dispatch_log="_do_send: using PPT-Master sub-agent",
+        topic_policy="switch",
+        extra_kwarg="topic",
+        extra_attr="_mode_topic",
     ),
     CHAT_MODE_DEEP_RESEARCH: _SpecializedRunnerSpec(
         tool_name="deep_research_session",
         tool_label="deep research",
         error_tag="Deep research",
         default_error=_("Unknown deep research error."),
+        dispatch_log="_do_send: using deep web research sub-agent — skip chat model and direct image",
     ),
     CHAT_MODE_WEB_RESEARCH: _SpecializedRunnerSpec(
         tool_name="web_research",
         tool_label="web search",
         error_tag="Research",
         default_error=_("Unknown research error."),
+        dispatch_log="_do_send: using web research sub-agent — skip chat model and direct image",
+        set_active_mode=False,
+        prepend_web_cache=True,
     ),
 }
 
@@ -174,11 +205,6 @@ def _tool_result_dict(res: Any, tool_label: str = "web search", doc_type: str = 
     return format_error_payload(parsed_err)
 
 
-def _update_mode_topic(panel: Any, mode: str, query_text: str) -> None:
-    if getattr(panel, "_active_mode", "") != mode or not getattr(panel, "_mode_topic", ""):
-        panel._mode_topic = query_text
-
-
 def dispatch_sidebar_send(
     panel: Any,
     sidebar_mode: str,
@@ -186,35 +212,25 @@ def dispatch_sidebar_send(
     model: Any,
     doc_type_label: str,
 ) -> bool:
-    research_msgs = {
-        CHAT_MODE_LIBRARIAN: "_do_send: using librarian onboarding agent",
-        CHAT_MODE_WEB_RESEARCH: "_do_send: using web research sub-agent — skip chat model and direct image",
-        CHAT_MODE_DEEP_RESEARCH: "_do_send: using deep web research sub-agent — skip chat model and direct image",
-    }
-    if sidebar_mode in research_msgs:
-        log.info(research_msgs[sidebar_mode])
-        panel._send_handlers._run_specialized(query_text, model, mode=sidebar_mode)
-        return True
-
     if sidebar_mode == CHAT_MODE_IMAGE:
         log.debug("_do_send: using image model (direct, level=logging.INFO) — skip chat model")
         panel._send_handlers._do_send_direct_image(query_text, model)
         return True
 
-    specialized_modes = (
-        (CHAT_MODE_BRAINSTORMING, ("writer",), "_do_send: using brainstorming sub-agent", True),
-        (CHAT_MODE_WRITING_PLAN, ("writer",), "_do_send: using writing plan sub-agent", False),
-        (CHAT_MODE_PPT_MASTER, ("draw", "impress"), "_do_send: using PPT-Master sub-agent", True),
-    )
-    for mode, allowed_docs, log_msg, update_topic in specialized_modes:
-        if sidebar_mode == mode and doc_type_label in allowed_docs:
-            if update_topic:
-                _update_mode_topic(panel, mode, query_text)
-            elif not getattr(panel, "_mode_topic", ""):
+    spec = _SPECIALIZED_SPECS.get(sidebar_mode)
+    if spec is not None:
+        if spec.allowed_docs is not None and doc_type_label not in spec.allowed_docs:
+            return False
+        if spec.topic_policy == "switch":
+            if getattr(panel, "_active_mode", "") != sidebar_mode or not getattr(panel, "_mode_topic", ""):
                 panel._mode_topic = query_text
-            log.info(log_msg)
-            panel._send_handlers._run_specialized(query_text, model, mode=mode)
-            return True
+        elif spec.topic_policy == "fill":
+            if not getattr(panel, "_mode_topic", ""):
+                panel._mode_topic = query_text
+        if spec.dispatch_log:
+            log.info(spec.dispatch_log)
+        panel._send_handlers._run_specialized(query_text, model, mode=sidebar_mode)
+        return True
 
     return False
 
@@ -232,10 +248,6 @@ def _send_worker_queues(host: Any) -> tuple[StreamQueue, Any]:
         turn.queue = raw
         turn.batcher = None
     return raw, turn
-
-
-if TYPE_CHECKING:
-    from plugin.framework.client.llm_client import LlmClient
 
 
 def _step_and_interpret(
@@ -256,30 +268,19 @@ class SendHandlersMixin:
         if panel is not None:
             self._panel = panel
 
-    # Defaults satisfy basedpyright reportUninitializedInstanceVariable; panel __init__ overwrites.
-    client: LlmClient | None = None
-    audio_wav_path: str | None = None
-    _terminal_status: str = "Ready"
-    _stt_inflight: bool = False
-    _stt_kill: Any = None
-    _acp_backend: Any = None
-    _acp_backend_id: str | None = None
-    _librarian_suggested_user_name: str | None = None
-    _active_mode: str = ""
-    _mode_topic: str = ""
-    _turn: Any = None
-
     def _run_unified_worker_drain_loop(
         self,
         q: StreamQueue,
         worker_fn: Callable[[], None],
-        current_state: "SendHandlerState",
-        interpreter: "EffectInterpreter",
+        handler_type: str,
+        status: str = "starting",
         show_thinking: bool = True,
         on_stopped_callback: Callable[[], None] | None = None,
         on_approval_callback: Callable[[Any], None] | None = None,
         on_finished: Callable[[], None] | None = None,
     ) -> None:
+        current_state = SendHandlerState(handler_type=handler_type, status=status)
+        interpreter = EffectInterpreter(self._panel)
 
         def dispatch_event(event: SendHandlerEvent) -> list[str]:
             nonlocal current_state
@@ -311,14 +312,15 @@ class SendHandlersMixin:
             for mode, spec in _SPECIALIZED_SPECS.items():
                 if spec.finish_flag is None:
                     continue
-                if payload.get(spec.finish_flag) or (spec.error_flag and payload.get(spec.error_flag) is False):
+                errored = spec.error_flag is not None and payload.get(spec.error_flag) is False
+                if payload.get(spec.finish_flag) or errored:
                     finished_cb = getattr(self._panel, spec.callback_name, None) if spec.callback_name else None
                     if callable(finished_cb):
                         if spec.pass_spec_saved:
                             finished_cb(spec_saved=bool(payload.get("spec_saved", False)))
                         else:
                             finished_cb()
-                    if (not callable(finished_cb) or (spec.error_flag and payload.get(spec.error_flag) is False)) and self._panel._active_mode == mode:
+                    if (not callable(finished_cb) or errored) and self._panel._active_mode == mode:
                         self._panel._active_mode = ""
                         if spec.clear_topic:
                             self._panel._mode_topic = ""
@@ -434,8 +436,6 @@ class SendHandlersMixin:
         turn_session = turn_session_or_stop(self._panel)
         if turn_session is None:
             return
-        current_state = SendHandlerState(handler_type="image", status="starting")
-        interpreter = EffectInterpreter(self._panel)
         # The user row was stored by _do_send_direct_image before StartEvent.
         drain_q, turn = _send_worker_queues(self._panel)
         # Probe on the UI thread. The tool re-reads the selection when it
@@ -524,7 +524,7 @@ class SendHandlersMixin:
                 finalize_sidebar_assistant_response(self._panel, allow_rerender=False)
             self._finalize_terminal_ready()
 
-        self._run_unified_worker_drain_loop(drain_q, run_direct_image, current_state, interpreter, on_finished=_image_ready)
+        self._run_unified_worker_drain_loop(drain_q, run_direct_image, "image", on_finished=_image_ready)
 
     def _finalize_terminal_ready(self) -> None:
         if self._panel._terminal_status not in ("Error", "Stopped"):
@@ -685,11 +685,12 @@ class SendHandlersMixin:
             if request_id is not None and hasattr(adapter, "submit_approval"):
                 best_effort(lambda: adapter.submit_approval(request_id, approved), "submitting agent backend approval")
 
-        self._run_unified_worker_drain_loop(drain_q, run_agent, current_state, interpreter, on_approval_callback=on_approval_required, on_finished=self._finalize_terminal_ready)
+        self._run_unified_worker_drain_loop(drain_q, run_agent, "agent", on_approval_callback=on_approval_required, on_finished=self._finalize_terminal_ready)
 
     def _run_specialized(self, query_text: str, model: Any, mode: str = "") -> None:
         """Run a specialized mode (or web research) and stream its result into the response area."""
-        if mode == CHAT_MODE_LIBRARIAN:
+        spec = _SPECIALIZED_SPECS.get(mode)
+        if spec and spec.prefetch_suggested_name:
             if not getattr(self._panel, "_librarian_suggested_user_name_fetched", False):
                 from plugin.chatbot.librarian import get_suggested_user_name
 
@@ -701,7 +702,7 @@ class SendHandlersMixin:
         if turn_session is None:
             return
 
-        if mode and mode != CHAT_MODE_WEB_RESEARCH:
+        if mode and spec and spec.set_active_mode:
             self._panel._active_mode = mode
 
         turn_session.add_user_message(query_text)
@@ -710,9 +711,6 @@ class SendHandlersMixin:
 
     def _execute_web_research_effect(self, query_text: str, model: Any, mode: str = "") -> None:
         from plugin.main import get_tools
-
-        current_state = SendHandlerState(handler_type="web", status="starting")
-        interpreter = EffectInterpreter(self._panel)
 
         spec = _SPECIALIZED_SPECS.get(mode, _SPECIALIZED_SPECS[CHAT_MODE_WEB_RESEARCH])
 
@@ -769,10 +767,9 @@ class SendHandlersMixin:
                 tctx = ToolContext(doc=model, ctx=self._panel.ctx, stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
 
                 extra_args: dict[str, Any] = {}
-                if spec.tool_name == "librarian_onboarding":
-                    extra_args["suggested_user_name"] = getattr(self._panel, "_librarian_suggested_user_name", None)
-                elif spec.tool_name in ("brainstorming_session", "writing_plan_session", "ppt_master_session"):
-                    extra_args["topic"] = getattr(self._panel, "_mode_topic", "") or ""
+                if spec.extra_kwarg and spec.extra_attr:
+                    val = getattr(self._panel, spec.extra_attr, None)
+                    extra_args[spec.extra_kwarg] = (val or "") if spec.extra_attr == "_mode_topic" else val
 
                 res = get_tools().execute(
                     spec.tool_name,
@@ -789,7 +786,7 @@ class SendHandlersMixin:
                     answer = data.get("result", "")
                     if not isinstance(answer, str):
                         answer = str(answer)
-                    if spec.tool_name == "web_research":
+                    if spec.prepend_web_cache:
                         from plugin.chatbot.web_research_chat import web_research_cache_chat_text
 
                         cache_block = web_research_cache_chat_text(data)
@@ -838,7 +835,7 @@ class SendHandlersMixin:
 
             finalize_sidebar_assistant_response(self._panel, allow_rerender=not self._panel.stop_requested)
 
-        self._run_unified_worker_drain_loop(drain_q, run_search, current_state, interpreter, show_thinking=show_thinking, on_approval_callback=on_approval_required, on_finished=_finalize_research)
+        self._run_unified_worker_drain_loop(drain_q, run_search, "web", show_thinking=show_thinking, on_approval_callback=on_approval_required, on_finished=_finalize_research)
 
     def _get_mcp_url(self) -> str | None:
         """Construct the local MCP streamable-HTTP endpoint URL from config."""

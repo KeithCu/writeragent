@@ -9,7 +9,6 @@ from plugin.chatbot.chat_sidebar_mode import (
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import StreamQueue
 from plugin.chatbot.send_handlers import SendHandlersMixin
-from plugin.chatbot.state_machine import EffectInterpreter, SendHandlerState
 from plugin.tests.testing_utils import MockContext, MockDocument
 import pytest
 pytest.importorskip("requests")
@@ -587,7 +586,7 @@ def test_direct_image_stop_keeps_stopped_status():
     panel = DummyChatbotPanel()
     panel._terminal_status = "Ready"
 
-    def fake_drain(q, worker, current_state, interpreter, **kwargs):
+    def fake_drain(q, worker, handler_type, *args, **kwargs):
         panel._terminal_status = "Stopped"
 
     with patch("plugin.chatbot.send_handlers.update_lru_history"):
@@ -672,8 +671,6 @@ def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
     if current_turn(panel) is None:
         begin_send_turn(panel)
     q: StreamQueue = StreamQueue()
-    state = SendHandlerState(handler_type=handler_type, status="starting")
-    interpreter = EffectInterpreter(panel)
 
     def fake_run_bg(func, **kwargs):
         func()
@@ -704,7 +701,7 @@ def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
 
     with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
         with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=fake_drain_loop):
-            panel._run_unified_worker_drain_loop(q, lambda: worker_fn(q), state, interpreter)
+            panel._run_unified_worker_drain_loop(q, lambda: worker_fn(q), handler_type)
 
 
 def test_agent_stream_persists_visible_text_once_on_done():
@@ -1607,13 +1604,10 @@ def test_handler_errors_persist_assistant_banner():
 
 def test_on_error_after_stopped_or_done_writes_no_history_row():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
-    from plugin.chatbot.state_machine import SendHandlerState, EffectInterpreter
 
     for status in ("stopped", "done"):
         panel = DummyChatbotPanel()
         begin_send_turn(panel)
-        state = SendHandlerState(handler_type="web", status=status)
-        interpreter = EffectInterpreter(panel)
         q = StreamQueue()
 
         def fake_drain_loop(drain_q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
@@ -1622,7 +1616,7 @@ def test_on_error_after_stopped_or_done_writes_no_history_row():
 
         with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
             with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=fake_drain_loop):
-                panel._run_unified_worker_drain_loop(q, lambda: None, state, interpreter)
+                panel._run_unified_worker_drain_loop(q, lambda: None, "web", status=status)
 
         assert panel.session.add_assistant_message.call_count == 0
 
@@ -2211,7 +2205,7 @@ def test_approval_dialog_submit_false_on_error():
 
     # We will grab the on_approval_required function by mocking _run_unified_worker_drain_loop
     cb_capture = []
-    def capture_drain(q, run_agent, current_state, interpreter, on_approval_callback=None, **kwargs):
+    def capture_drain(q, run_agent, handler_type, status="starting", on_approval_callback=None, **kwargs):
         cb_capture.append(on_approval_callback)
 
     panel._run_unified_worker_drain_loop = capture_drain
@@ -2243,13 +2237,12 @@ def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
         setattr(panel, callback_name, callback)
 
         q = StreamQueue()
-        current_state = SendHandlerState("web", "ready")
         error_payload = {payload_key: False, "assistant_content": "[error message]"}
 
         def worker_fn():
             q.put((StreamQueueKind.STREAM_DONE, error_payload))
 
-        panel._run_unified_worker_drain_loop(q, worker_fn, current_state, MagicMock())
+        panel._run_unified_worker_drain_loop(q, worker_fn, "web", "ready")
 
         assert panel._active_mode == ""
         callback.assert_called_once()
