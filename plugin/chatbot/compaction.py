@@ -406,12 +406,6 @@ def _tool_stub(messages: list[dict[str, Any]], idx: int, text: str) -> str:
     return "[%s] (%d chars)" % (_tool_name_for(messages, idx), len(text))
 
 
-def _stub_copy(messages: list[dict[str, Any]], idx: int, msg: dict[str, Any], text: str) -> dict[str, Any]:
-    copied = dict(msg)
-    copied["content"] = _tool_stub(messages, idx, text)
-    return copied
-
-
 def newest_assistant_tool_span(messages: list[dict[str, Any]], start_index: int) -> tuple[int, int] | None:
     """(asst_idx, end_idx exclusive) of the newest assistant+tool_calls group.
 
@@ -471,7 +465,7 @@ def pressure_stub_newest_tool_group(messages: list[dict[str, Any]], keep_tokens:
         text = flatten_content(work[j].get("content"))[0]
         if len(text) <= PRUNE_MIN_CHARS:
             continue
-        work[j] = _stub_copy(messages, j, work[j], text)
+        work[j] = {**work[j], "content": _tool_stub(messages, j, text)}
         cid = work[j].get("tool_call_id")
         if cid:
             stubbed.append(cid)
@@ -606,13 +600,13 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _apply_tail_stubs(messages: list[dict[str, Any]], first_kept_index: int, stubbed_ids: Any) -> list[dict[str, Any]]:
-    ids = set(stubbed_ids or ())
+    ids = set(stubbed_ids)
     tail = []
     for i in range(first_kept_index, len(messages)):
         msg = messages[i]
         if msg.get("role") == "tool" and msg.get("tool_call_id") in ids:
             text = flatten_content(msg.get("content"))[0]
-            tail.append(_stub_copy(messages, i, msg, text))
+            tail.append({**msg, "content": _tool_stub(messages, i, text)})
         else:
             tail.append(msg)
     return tail
@@ -718,19 +712,21 @@ def _choose_cut(messages: list[dict[str, Any]], keep: int, prev_kept: int) -> tu
 
     Returns ``(new_cut, stubbed_ids)`` or ``(None, stubbed_ids)``.
     """
-    work, stubbed_ids = messages, ()
-    for attempt in range(2):
-        new_cut = find_cut_index(work, keep, start_index=prev_kept)
-        if new_cut is not None:
-            new_cut = ensure_last_user_in_tail(work, new_cut, prev_kept, keep)
-            if new_cut is not None and new_cut > prev_kept:
-                return new_cut, stubbed_ids
-        if attempt:
-            break
-        # #10896: the group fit keep, but last user + group did not. Stub once,
-        # then re-walk and re-snap; the stub fits the pair.
-        work, stubbed_ids = pressure_stub_newest_tool_group(messages, keep, prev_kept)
-    return None, stubbed_ids
+    def cut_for(msgs: list[dict[str, Any]]) -> int | None:
+        cut = find_cut_index(msgs, keep, start_index=prev_kept)
+        if cut is not None:
+            cut = ensure_last_user_in_tail(msgs, cut, prev_kept, keep)
+            if cut is not None and cut > prev_kept:
+                return cut
+        return None
+
+    first = cut_for(messages)
+    if first is not None:
+        return first, ()
+    # #10896: the group fit keep, but last user + group did not. Stub once,
+    # then re-walk and re-snap; the stub fits the pair.
+    work, stubbed_ids = pressure_stub_newest_tool_group(messages, keep, prev_kept)
+    return cut_for(work), stubbed_ids
 
 
 def _summarizer_user_body(conversation_text: str, previous_summary: str) -> str:
@@ -755,9 +751,6 @@ def _next_summary_chunk(
     max_out: int,
     previous_summary: str,
 ) -> tuple[str, int] | None:
-    if start >= len(lines):
-        return None
-
     def fits(text: str) -> bool:
         body = _summarizer_user_body(text, previous_summary)
         tokens = (
@@ -801,8 +794,7 @@ def _summarize_bounded(
     max_out: int,
     previous_summary: str,
     stop_checker: Callable[[], bool] | None,
-    session: Any,
-    messages: list[dict[str, Any]],
+    stale: Callable[[], bool],
 ) -> tuple[str | None, str]:
     lines = _summary_lines(slice_messages)
     if not lines:
@@ -812,9 +804,7 @@ def _summarize_bounded(
     idx = 0
 
     while idx < len(lines):
-        if stop_checker and stop_checker():
-            return None, "aborted"
-        if getattr(session, "messages", None) is not messages:
+        if (stop_checker and stop_checker()) or stale():
             return None, "aborted"
 
         next_chunk = _next_summary_chunk(
@@ -898,7 +888,7 @@ def compact_session(
 
     prev_kept = state.first_kept_index if state is not None else 1
     new_cut, stubbed_ids = _choose_cut(messages, keep, prev_kept)
-    if new_cut is None or new_cut <= prev_kept:
+    if new_cut is None:
         return CompactResult(False, "nothing_to_compact", before, before)
 
     # NEVER messages[0]; originals (stubs are view-only / serialize-only).
@@ -923,8 +913,7 @@ def compact_session(
         max_out=max_out,
         previous_summary=previous,
         stop_checker=stop_checker,
-        session=session,
-        messages=messages,
+        stale=lambda: getattr(session, "messages", None) is not messages,
     )
     if summary is None:
         return CompactResult(False, reason, before, before)
