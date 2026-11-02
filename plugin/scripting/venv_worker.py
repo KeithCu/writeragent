@@ -20,7 +20,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, IO, Generator, NoReturn
+from typing import Any, Callable, IO, Generator, Literal
 
 from plugin.framework.config import get_config_bool, get_config_str
 from plugin.framework.thread_guard import background, on_main_thread
@@ -111,27 +111,26 @@ def parse_worker_stdout_frame(payload: bytes) -> dict[str, Any]:
     return data
 
 
-class _NonReplayableIpcWriteTimeout(RuntimeError):
-    """A mid-turn host response timed out after side effects may have occurred."""
+ReadFailureKind = Literal["cancel", "read_timeout", "bad_frame", "after_start", "closed"]
 
 
-class _WorkerRetired(RuntimeError):
-    """This manager was replaced by a new venv path and must not be restarted."""
-
-    def __init__(self, message: str = "Python worker was replaced by a new venv path and will not be restarted") -> None:
-        super().__init__(message)
+@dataclass(frozen=True)
+class Terminal:
+    response: dict[str, Any]
 
 
-class _StopRequested(Exception):
-    """The user pressed Stop while the host waited on the worker pipe."""
+@dataclass(frozen=True)
+class NotStarted:
+    error: BaseException  # replayable; child has not started this id
 
 
-class _NoTerminalFrame(Exception):
-    """The request was written and the child died before a terminal frame.
+@dataclass(frozen=True)
+class FailedAfterStart:
+    error: BaseException
+    kind: ReadFailureKind  # never replay
 
-    Not an OSError/RuntimeError: those still retry a failed initial write.
-    This one must not, or the same request id runs again.
-    """
+
+_RETIRED_MESSAGE = "Python worker was replaced by a new venv path and will not be restarted"
 
 
 _SHARED_WORKER_RESTART_HINT = " Shared Python process restarted (all workbooks)."
@@ -323,11 +322,24 @@ class _TurnState:
         return self.execution_started or self.dispatched_intermediate
 
 
+def _classify_read_failure(exc: BaseException, state: _TurnState) -> NotStarted | FailedAfterStart:
+    if isinstance(exc, (subprocess.TimeoutExpired, IpcPartialFrameTimeout)):
+        return FailedAfterStart(exc, "read_timeout")
+    if isinstance(exc, ValueError):
+        return FailedAfterStart(exc, "bad_frame")
+    if isinstance(exc, (OSError, RuntimeError)):
+        if state.may_have_run:
+            return FailedAfterStart(exc, "after_start")
+        return NotStarted(exc)
+    raise exc
+
+
 @dataclass
 class _SpawnJob:
     done: threading.Event
     start: Callable[[], None]
     error: BaseException | None = None
+    retired: bool = False
 
 
 @dataclass(frozen=True)
@@ -636,7 +648,7 @@ class PythonWorkerManager:
         write_timeout_sec: float,
         allowed_tools: frozenset[str] | None,
         resolved_script_session_id: str | None,
-    ) -> dict[str, Any]:
+    ) -> Terminal | NotStarted | FailedAfterStart:
         """Serve intermediate frames until a terminal one; flags go into *state*.
 
         *state* is the caller's object so its except handlers still see
@@ -644,6 +656,7 @@ class PythonWorkerManager:
         """
 
         def _stdin_write(blob: bytes) -> None:
+            state.dispatched_intermediate = True
             try:
                 self._write_packed_frame_with_timeout(
                     stdin,
@@ -654,70 +667,79 @@ class PythonWorkerManager:
             except subprocess.TimeoutExpired as exc:
                 # The worker requested host work before this write. Retrying the
                 # whole turn could duplicate UNO mutations already performed.
-                raise _NonReplayableIpcWriteTimeout(
+                raise RuntimeError(
                     f"host RPC response timed out after {write_timeout_sec:g} seconds"
                 ) from exc
 
-        def _closed_without_response() -> NoReturn:
+        def _closed_without_response() -> NotStarted | FailedAfterStart:
             stderr_out = self._drain_stderr()
             message = f"Worker closed stdout without a response{stderr_out}"
             if state.may_have_run:
                 # Work may already have run. Resending this id would
                 # run it again. A close before exec_started is a
                 # failed start and falls through to the retry.
-                raise _NoTerminalFrame(message)
-            raise RuntimeError(message)
+                return FailedAfterStart(RuntimeError(message), "closed")
+            return NotStarted(RuntimeError(message))
 
-        while True:
-            if req.allow_heartbeat:
-                # Already unpickled. A second unpack of a multi-megabyte
-                # result frame was pure CPU on this path.
-                response = self._read_response_with_heartbeats(
-                    stdout,
-                    host_read_timeout_sec,
-                    EMBEDDINGS_HEARTBEAT_GRACE_S,
-                    req.on_heartbeat,
-                    stop_checker=req.stop_checker,
-                )
-                if response is None:
-                    _closed_without_response()
-            else:
-                response_bytes = self._read_response_bytes(stdout, host_read_timeout_sec, stop_checker=req.stop_checker)
-                if not response_bytes:
-                    _closed_without_response()
-                response = parse_worker_stdout_frame(response_bytes)
-            if response.get("type") == EXEC_STARTED:
-                state.execution_started = True
-                if response.get("id") != wire.get("id"):
-                    # Hand the mismatched frame back; the caller's id check
-                    # refuses it without replaying the request.
-                    return response
-                continue
+        try:
+            while True:
+                if req.allow_heartbeat:
+                    # Already unpickled. A second unpack of a multi-megabyte
+                    # result frame was pure CPU on this path.
+                    response = self._read_response_with_heartbeats(
+                        stdout,
+                        host_read_timeout_sec,
+                        EMBEDDINGS_HEARTBEAT_GRACE_S,
+                        req.on_heartbeat,
+                        stop_checker=req.stop_checker,
+                    )
+                    if isinstance(response, FailedAfterStart):
+                        return response
+                    if response is None:
+                        return _closed_without_response()
+                else:
+                    response_bytes = self._read_response_bytes(
+                        stdout, host_read_timeout_sec, stop_checker=req.stop_checker
+                    )
+                    if isinstance(response_bytes, FailedAfterStart):
+                        return response_bytes
+                    if not response_bytes:
+                        return _closed_without_response()
+                    response = parse_worker_stdout_frame(response_bytes)
+                if response.get("type") == EXEC_STARTED:
+                    state.execution_started = True
+                    if response.get("id") != wire.get("id"):
+                        # Hand the mismatched frame back; the caller's id check
+                        # refuses it without replaying the request.
+                        return Terminal(response)
+                    continue
 
-            # A tool_call (or ppt llm_request / worker_event) can mutate the
-            # document and then raise. The flag used to flip only after
-            # dispatch returned, so a RuntimeError with no exec_started left
-            # may_have_run false and the attempt loop sent the request again.
-            if response.get("type") in ("tool_call", "llm_request", "worker_event"):
-                state.dispatched_intermediate = True
-            self._serving_tool_call = True
-            try:
-                is_intermediate = _maybe_dispatch_intermediate_response(
-                    response,
-                    stdin_write=_stdin_write,
-                    allowed_tools=allowed_tools,
-                    caller=req.caller,
-                    on_worker_event=req.on_worker_event,
-                    stop_checker=req.stop_checker,
-                    cancellation_scope=req.cancellation_scope,
-                    script_session_id=resolved_script_session_id,
-                )
-            finally:
-                self._serving_tool_call = False
-            if is_intermediate:
-                state.dispatched_intermediate = True
-                continue
-            return response
+                # A tool_call (or ppt llm_request / worker_event) can mutate the
+                # document and then raise. The flag used to flip only after
+                # dispatch returned, so a RuntimeError with no exec_started left
+                # may_have_run false and the attempt loop sent the request again.
+                if response.get("type") in ("tool_call", "llm_request", "worker_event"):
+                    state.dispatched_intermediate = True
+                self._serving_tool_call = True
+                try:
+                    is_intermediate = _maybe_dispatch_intermediate_response(
+                        response,
+                        stdin_write=_stdin_write,
+                        allowed_tools=allowed_tools,
+                        caller=req.caller,
+                        on_worker_event=req.on_worker_event,
+                        stop_checker=req.stop_checker,
+                        cancellation_scope=req.cancellation_scope,
+                        script_session_id=resolved_script_session_id,
+                    )
+                finally:
+                    self._serving_tool_call = False
+                if is_intermediate:
+                    state.dispatched_intermediate = True
+                    continue
+                return Terminal(response)
+        except (subprocess.TimeoutExpired, IpcPartialFrameTimeout, ValueError, OSError, RuntimeError) as exc:
+            return _classify_read_failure(exc, state)
 
     def _execute_ipc_unlocked(self, req: _ExecRequest) -> dict[str, Any]:
         wire = req.wire()
@@ -739,7 +761,9 @@ class PythonWorkerManager:
             return self._err("WORKER_IPC_ERROR", f"Failed to prepare request: {exc}")
         for attempt in range(2):
             try:
-                self._ensure_running()
+                if self._ensure_running() is False:
+                    log.warning("Python worker retired: %s", _RETIRED_MESSAGE)
+                    return self._err("WORKER_IPC_ERROR", _RETIRED_MESSAGE)
                 proc = self._proc
                 # shutdown_all can terminate without _io_lock; an assert here
                 # escaped execute() as AttributeError (or vanished under -O).
@@ -761,57 +785,74 @@ class PythonWorkerManager:
                     # session.
                     log.warning("Python worker request not sent: %s", e)
                     return self._err("WORKER_IPC_ERROR", f"Failed to serialize request: {e}")
+            except subprocess.TimeoutExpired as e:
+                # Initial stdin write only. _write_packed_frame_with_timeout already
+                # detached the child and started the reap. Terminating again
+                # made it unclear who kills the worker, and a second wait
+                # would block on that reap. Host read timeouts return above.
+                log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
+                if self._proc is not None:
+                    self._terminate_worker(wait=False)
+                    self._clear_host_state_after_worker_death()
+                if attempt == 0:
+                    continue
+                return self._err("VENV_TIMEOUT", _worker_error_message(e), attempt=attempt + 1)
+            except (ValueError, RuntimeError, OSError) as e:
+                log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
+                # Do not join the reap on this thread. A retry calls
+                # _ensure_running, which joins before Popen. The last attempt
+                # returns the error while the reap continues.
+                self._terminate_worker(wait=False)
+                self._clear_host_state_after_worker_death()
+                if attempt == 0:
+                    continue
+                return self._err("WORKER_IPC_ERROR", _worker_error_message(e), attempt=attempt + 1)
 
-                # A tool_call frame can already have mutated the document. A later
-                # pipe error must not resend the original script (the write-timeout
-                # path below is the same rule). exec_started is the same rule for
-                # side effects that never sent a tool_call frame. A death before
-                # that marker has not run the request, so the outer loop may retry.
-                state = _TurnState()
-                try:
-                    response = self._read_until_terminal(
-                        stdout,
-                        stdin,
-                        req,
-                        wire,
-                        state,
-                        host_read_timeout_sec=host_read_timeout_sec,
-                        write_timeout_sec=write_timeout_sec,
-                        allowed_tools=allowed_tools,
-                        resolved_script_session_id=resolved_script_session_id,
-                    )
-                except (subprocess.TimeoutExpired, IpcPartialFrameTimeout) as e:
-                    # Hung user code / C-extension: do not kill and replay (doubles the
-                    # wait and side effects). Windows used to raise IpcPartialFrameTimeout
-                    # (OSError) after buffering any byte, which missed this branch while
-                    # may_have_run was still false, so the outer handler resent the script.
-                    # Both platforms: partial chunk -> IpcPartialFrameTimeout; empty buffer
-                    # -> TimeoutExpired. Catch both here so neither replays.
-                    log.warning("Python worker read timed out: %s", e)
+            state = _TurnState()
+            outcome = self._read_until_terminal(
+                stdout,
+                stdin,
+                req,
+                wire,
+                state,
+                host_read_timeout_sec=host_read_timeout_sec,
+                write_timeout_sec=write_timeout_sec,
+                allowed_tools=allowed_tools,
+                resolved_script_session_id=resolved_script_session_id,
+            )
+
+            if isinstance(outcome, NotStarted):
+                log.warning("Python worker failed (attempt %s): %s", attempt + 1, outcome.error)
+                self._terminate_worker(wait=False)
+                self._clear_host_state_after_worker_death()
+                if attempt == 0:
+                    continue
+                return self._err("WORKER_IPC_ERROR", _worker_error_message(outcome.error), attempt=attempt + 1)
+
+            if isinstance(outcome, FailedAfterStart):
+                if outcome.kind == "cancel":
+                    log.info("Python worker stopped by user")
+                    return self._fail_no_replay("CANCELLED", "Python worker stopped by user")
+                if outcome.kind == "read_timeout":
+                    log.warning("Python worker read timed out: %s", outcome.error)
                     return self._fail_no_replay(
                         "VENV_TIMEOUT",
-                        _worker_error_message(e) + _SHARED_WORKER_RESTART_HINT,
+                        _worker_error_message(outcome.error) + _SHARED_WORKER_RESTART_HINT,
                         details={"timeout_sec": timeout_sec},
                     )
-                except ValueError as e:
-                    # A bad pickle must not kill the child and resend the same request.
-                    # Side effects that already ran (DuckDB writes, a trusted
-                    # update) would run twice. Id mismatch already refuses that
-                    # replay; unpickle does too.
-                    log.warning("Python worker frame rejected (not replaying): %s", e)
-                    return self._fail_ipc_no_replay(e)
-                except (OSError, RuntimeError) as e:
-                    # After may_have_run, do not replay on RuntimeError (bad frame,
-                    # closed pipe, or mid-turn host-response write timeout —
-                    # _NonReplayableIpcWriteTimeout). Looking only at
-                    # dispatched_intermediate used to re-raise into the attempt
-                    # loop and run the script again. Before the turn starts, re-raise
-                    # so the dedicated handler below can refuse the replay.
-                    if not state.may_have_run:
-                        raise
-                    log.warning("Python worker failed after execution started (not replaying): %s", e)
-                    return self._fail_ipc_no_replay(e)
-                req_id = wire.get("id")
+                if outcome.kind == "bad_frame":
+                    log.warning("Python worker frame rejected (not replaying): %s", outcome.error)
+                    return self._fail_ipc_no_replay(outcome.error)
+                if outcome.kind == "after_start":
+                    log.warning("Python worker failed after execution started (not replaying): %s", outcome.error)
+                    return self._fail_ipc_no_replay(outcome.error)
+                if outcome.kind == "closed":
+                    log.warning("Python worker failed without replay: %s", outcome.error)
+                    return self._fail_ipc_no_replay(outcome.error)
+                raise AssertionError(f"unexpected FailedAfterStart kind: {outcome.kind!r}")
+
+            if isinstance(outcome, Terminal):
+                response = outcome.response
                 # Empty-id error before exec: the harness rejected the pickle and is
                 # back at read(). Return its message and keep the worker. Treating this
                 # as an id mismatch used to kill a healthy child. After exec_started or
@@ -825,6 +866,7 @@ class PythonWorkerManager:
                     text = message if isinstance(message, str) and message else "Invalid pickle request"
                     log.warning("Python worker rejected the request frame (worker kept): %s", text)
                     return self._err("WORKER_IPC_ERROR", text)
+                req_id = wire.get("id")
                 if response.get("id") != req_id:
                     # exchange_tool_call already checks ids. A mismatched terminal
                     # frame used to be accepted, so one cell could receive another's result.
@@ -850,42 +892,8 @@ class PythonWorkerManager:
                 except _HOST_UNPACK_ERRORS as e:
                     log.warning("Python worker result rejected (not replaying): %s", e)
                     return self._fail_ipc_no_replay(e)
-            except _StopRequested:
-                # Stop while waiting on the pipe: the child may be mid-script, so
-                # it is killed (never replayed) and the caller sees CANCELLED.
-                log.info("Python worker stopped by user")
-                return self._fail_no_replay("CANCELLED", "Python worker stopped by user")
-            except (_NoTerminalFrame, _NonReplayableIpcWriteTimeout) as e:
-                log.warning("Python worker failed without replay: %s", e)
-                return self._fail_ipc_no_replay(e)
-            except _WorkerRetired as e:
-                # The registry already dropped this manager. The generic handler
-                # below would terminate it and clear the Calc add-in cache twice
-                # even though no worker died.
-                log.warning("Python worker retired: %s", e)
-                return self._err("WORKER_IPC_ERROR", str(e))
-            except subprocess.TimeoutExpired as e:
-                # Initial stdin write only. _write_packed_frame_with_timeout already
-                # detached the child and started the reap. Terminating again
-                # made it unclear who kills the worker, and a second wait
-                # would block on that reap. Host read timeouts return above.
-                log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
-                if self._proc is not None:
-                    self._terminate_worker(wait=False)
-                    self._clear_host_state_after_worker_death()
-                if attempt == 0:
-                    continue
-                return self._err("VENV_TIMEOUT", _worker_error_message(e), attempt=attempt + 1)
-            except (ValueError, RuntimeError, OSError) as e:
-                log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
-                # Do not join the reap on this thread. A retry calls
-                # _ensure_running, which joins before Popen. The last attempt
-                # returns the error while the reap continues.
-                self._terminate_worker(wait=False)
-                self._clear_host_state_after_worker_death()
-                if attempt == 0:
-                    continue
-                return self._err("WORKER_IPC_ERROR", _worker_error_message(e), attempt=attempt + 1)
+
+            raise TypeError(f"Unexpected reader outcome: {outcome!r}")
         raise AssertionError("worker attempt loop exited without a result")
 
     def execute(
@@ -1056,11 +1064,11 @@ class PythonWorkerManager:
         out["traceback"] = str(tb or "")
         return out
 
-    def _ensure_spawn_thread(self) -> None:
+    def _ensure_spawn_thread(self) -> bool:
         if self._retired:
-            raise _WorkerRetired()
+            return False
         if self._spawn_handle is not None and self._spawn_handle.is_alive():
-            return
+            return True
         spawn_queue: queue.Queue[_SpawnJob | None] = queue.Queue()
         ready = threading.Event()
         self._spawn_queue = spawn_queue
@@ -1073,6 +1081,7 @@ class PythonWorkerManager:
         )
         if not ready.wait(timeout=5.0):
             raise RuntimeError("venv worker spawn thread did not start")
+        return True
 
     def _spawn_loop(self) -> None:
         self._spawn_ident = threading.get_ident()
@@ -1087,7 +1096,7 @@ class PythonWorkerManager:
                 return
             try:
                 if self._retired:
-                    job.error = _WorkerRetired()
+                    job.retired = True
                 else:
                     try:
                         job.start()
@@ -1096,22 +1105,28 @@ class PythonWorkerManager:
             finally:
                 job.done.set()
 
-    def _start_child(self, managed: ManagedSubprocess) -> None:
+    def _start_child(self, managed: ManagedSubprocess) -> bool:
         if threading.get_ident() == self._spawn_ident:
+            if self._retired:
+                return False
             managed.start()
-            return
-        self._ensure_spawn_thread()
+            return True
+        if self._ensure_spawn_thread() is False:
+            return False
         if self._spawn_queue is None:
             raise RuntimeError("venv worker spawn queue is missing")
         job = _SpawnJob(done=threading.Event(), start=managed.start)
         self._spawn_queue.put(job)
         job.done.wait()
+        if job.retired:
+            return False
         if job.error is not None:
             raise job.error
+        return True
 
-    def _ensure_running(self) -> None:
+    def _ensure_running(self) -> bool:
         if self._retired:
-            raise _WorkerRetired()
+            return False
         # A settings change reaps the previous interpreter off the UI thread.
         # Join that reap before reuse or spawn so the old tree is gone first.
         self._join_reaps()
@@ -1120,12 +1135,11 @@ class PythonWorkerManager:
         if proc is not None and proc.poll() is None:
             # Re-check _retired after _join_reaps: the flag can flip while that
             # wait blocks, and returning the still-live child would hand a retired
-            # worker to the writer. Same _WorkerRetired as the spawn path. No lock
-            # here — holding _proc_lock across the later write deadlocks a
-            # concurrent retire.
+            # worker to the writer. No lock here — holding _proc_lock across the
+            # later write deadlocks a concurrent retire.
             if self._retired:
-                raise _WorkerRetired()
-            return
+                return False
+            return True
         # The join above ran before this reap existed. wait=False starts it
         # without blocking; the join below is the one that runs before Popen,
         # so the new child does not overlap the old tree.
@@ -1136,7 +1150,7 @@ class PythonWorkerManager:
         # before spawn so that retry cannot start an untracked child.
         with self._proc_lock:
             if self._retired:
-                raise _WorkerRetired()
+                return False
             # preexec_fn=os.setsid runs between fork and exec and deadlocks a threaded host.
             # start_new_session is the C spawn path, same new process group, pgid == pid.
             # register=False because desktop shutdown_all would kill_tree this child.
@@ -1146,13 +1160,16 @@ class PythonWorkerManager:
             # macOS do not; quit does not wait on this process.
             # log_start_failure=False because a missing interpreter must stay OSError.
             managed = self._start_worker_child()
+            if managed is None:
+                return False
             # Publish the drain before _proc. A reader can observe _proc without
             # _proc_lock. The old order let that reader see a live proc with no drain.
             self._stderr_drain = managed.stderr_tail
             self._proc = managed.popen
             log.debug("Started Python worker pid=%s exe=%s", managed.pid, self.exe)
+            return True
 
-    def _start_worker_child(self) -> ManagedSubprocess:
+    def _start_worker_child(self) -> ManagedSubprocess | None:
         global _systemd_scope_disabled
         # Spawn on this manager's long-lived venv-worker-spawn thread, not
         # the caller. On Linux, PR_SET_PDEATHSIG kills the child when the
@@ -1160,7 +1177,8 @@ class PythonWorkerManager:
         # call, which dropped shared sessions while LibreOffice was still up.
         managed = self._new_managed_worker(wrap_worker_command)
         try:
-            self._start_child(managed)
+            if self._start_child(managed) is False:
+                return None
         except OSError as exc:
             if _systemd_scope_disabled or not any(_systemd_run_for_worker.values()):
                 raise
@@ -1168,7 +1186,8 @@ class PythonWorkerManager:
             with _systemd_scope_lock:
                 _systemd_scope_disabled = True
             managed = self._new_managed_worker(wrap_command_for_sandbox)
-            self._start_child(managed)
+            if self._start_child(managed) is False:
+                return None
         return managed
 
     def _new_managed_worker(self, command_wrapper: Callable[..., list[str]]) -> ManagedSubprocess:
@@ -1184,7 +1203,12 @@ class PythonWorkerManager:
             label="Python worker",
         )
 
-    def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
+    def _read_response_bytes(
+        self,
+        stdout: IO[bytes],
+        timeout_sec: float | int,
+        stop_checker: Callable[[], bool] | None = None,
+    ) -> bytes | FailedAfterStart:
         if self._proc is None:
             raise RuntimeError("worker terminated concurrently")
         return self._read_frame_bytes(stdout, timeout_sec, stop_checker=stop_checker)
@@ -1196,10 +1220,10 @@ class PythonWorkerManager:
         stop_checker: Callable[[], bool] | None = None,
         *,
         deadline: float | None = None,
-    ) -> bytes:
-        """Read one frame payload via ipc, mapping Stop to _StopRequested.
+    ) -> bytes | FailedAfterStart:
+        """Read one frame payload via ipc, returning FailedAfterStart on Stop.
 
-        ipc owns the wait; this method only maps Stop to _StopRequested, passes
+        ipc owns the wait; this method maps Stop to FailedAfterStart, passes
         self._is_worker_alive, and forces DEFAULT_MAX_PAYLOAD_BYTES plus
         frame_label="venv worker frame".
         """
@@ -1219,7 +1243,7 @@ class PythonWorkerManager:
             # (IpcPartialFrameTimeout). Re-check the checker so Windows peek and
             # the POSIX loop both become CANCELLED.
             if _stop_requested(stop_checker):
-                raise _StopRequested() from None
+                return FailedAfterStart(RuntimeError("Python worker stopped by user"), "cancel")
             raise
         return payload or b""
 
@@ -1231,7 +1255,7 @@ class PythonWorkerManager:
         on_heartbeat: Callable[[dict[str, Any]], None] | None,
         stop_checker: Callable[[], bool] | None = None,
         absolute_cap_sec: float | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, Any] | None | FailedAfterStart:
         from plugin.scripting.ipc import FRAME_HEARTBEAT, FRAME_RESULT
 
         # Each heartbeat used to set the deadline to now+grace with no end.
@@ -1266,6 +1290,8 @@ class PythonWorkerManager:
             frame_bytes = self._read_frame_bytes(
                 stdout, timeout_label, stop_checker=stop_checker, deadline=deadline
             )
+            if isinstance(frame_bytes, FailedAfterStart):
+                return frame_bytes
             if not frame_bytes:
                 return None
             data = parse_worker_stdout_frame(frame_bytes)
