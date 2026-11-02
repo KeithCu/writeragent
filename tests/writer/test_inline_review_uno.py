@@ -9,12 +9,11 @@
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
+from plugin.tests.testing_utils import agent_changes, skip_windows_leftover_hidden_load, with_native_doc
 from plugin.writer.edit_review import EditReviewSession
 from plugin.writer.inline_review import (
     _build_bounds_from_view,
     _resolve_all_agent_changes,
-    agent_changes,
     cursor_in_agent_change,
     goto_adjacent_agent_change,
     ResolveStatus,

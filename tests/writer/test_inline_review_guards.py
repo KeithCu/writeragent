@@ -31,7 +31,6 @@ from plugin.writer.inline_review import (
     _resolve_all_agent_changes,
     _resolve_overlapping_agent_changes,
     _span_contains_point,
-    agent_changes,
     agent_self_resolution_block_reason,
     agent_tokens,
     cursor_in_agent_change,
@@ -42,6 +41,7 @@ from plugin.writer.inline_review import (
     scan_redline_view,
 )
 from plugin.writer.review_scan import TOKEN_PREFIX, agent_change_presence, redline_identity_key, redline_is_agent_change
+from tests.testing_utils import agent_changes
 
 
 def _sign(n):
@@ -426,16 +426,16 @@ def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_
         rows = []
         for i, t in enumerate(sorted(toks)):
             if t == token:
-                rows.append(RedlineRow(token=t, start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"))
+                rows.append(RedlineRow(token=t, start=FakeRange(10, 15), end=FakeRange(15, 20)))
             else:
-                rows.append(RedlineRow(token=t, start=FakeRange(30 + 10 * i, 35 + 10 * i), end=FakeRange(35 + 10 * i, 40 + 10 * i), kind="Insert"))
+                rows.append(RedlineRow(token=t, start=FakeRange(30 + 10 * i, 35 + 10 * i), end=FakeRange(35 + 10 * i, 40 + 10 * i)))
         for j, f in enumerate(frn):
             if isinstance(f, RedlineRow):
                 rows.append(f)
             elif isinstance(f, tuple):
-                rows.append(RedlineRow(token=None, start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j), kind=f[1] if len(f) > 1 else "Insert", identity=f))
+                rows.append(RedlineRow(token=None, start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j), identity=f))
             else:
-                rows.append(RedlineRow(token=None, start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j), kind="Insert"))
+                rows.append(RedlineRow(token=None, start=FakeRange(100 + 10 * j, 105 + 10 * j), end=FakeRange(105 + 10 * j, 110 + 10 * j)))
         return RedlineView(reliable=reliable, total=len(rows), rows=tuple(rows))
 
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=_fake_scan), \
@@ -617,13 +617,6 @@ def test_scan_redline_view_property_read_counts():
     assert agent_rl.reads["RedlineEnd"] == 1
     assert view_agent.rows[0].identity is None
 
-    # preview=True adds one type read
-    agent_rl_preview = CountingFakeRedline(TOKEN_PREFIX + "s:1", 0, 5)
-    model_agent_preview = FakeModel(FakeRedlines([agent_rl_preview]))
-    view_agent_preview = scan_redline_view(model_agent_preview, preview=True)
-    assert view_agent_preview.reliable is True
-    assert agent_rl_preview.reads["RedlineType"] == 1
-
     # Foreign row reads identifier, type, author, date once each; comment is not read twice
     user_rl = CountingFakeRedline("user note", 10, 15, author="Alice", stamp=_Stamp)
     model_user = FakeModel(FakeRedlines([user_rl]))
@@ -731,7 +724,7 @@ def test_resolve_does_not_dispatch_when_before_token_snapshot_unreliable():
     unreliable_view = RedlineView(
         reliable=False,
         total=1,
-        rows=(RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),),
+        rows=(RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20)),),
     )
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=unreliable_view), \
          patch("plugin.writer.inline_review._execute_dispatch") as dispatch:
@@ -746,8 +739,8 @@ def test_resolve_does_not_dispatch_when_before_foreign_snapshot_unreliable():
         reliable=False,
         total=2,
         rows=(
-            RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),
-            RedlineRow(token=None, start=FakeRange(30, 40), end=FakeRange(40, 50), kind="Insert"),
+            RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20)),
+            RedlineRow(token=None, start=FakeRange(30, 40), end=FakeRange(40, 50)),
         ),
     )
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=unreliable_view), \
@@ -996,7 +989,7 @@ def test_cursor_resolve_extra_token_removed_does_not_call_group_helper_and_retur
     # Extra token removed on exact path -> PARTIAL -> cursor resolve does NOT run group helper
     model = MagicMock()
     ctx = MagicMock()
-    fake_view = RedlineView(reliable=True, total=1, rows=(RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),))
+    fake_view = RedlineView(reliable=True, total=1, rows=(RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20)),))
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=fake_view), \
          patch("plugin.writer.inline_review.cursor_in_agent_change", return_value="T"), \
          patch("plugin.writer.inline_review.resolve_agent_change",
@@ -1013,8 +1006,8 @@ def test_cursor_resolve_group_dispatch_with_mismatched_after_snapshot_is_partial
     model = MagicMock()
     ctx = MagicMock()
     fake_view = RedlineView(reliable=True, total=2, rows=(
-        RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),
-        RedlineRow(token="S", start=FakeRange(15, 18), end=FakeRange(18, 25), kind="Insert"),
+        RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20)),
+        RedlineRow(token="S", start=FakeRange(15, 18), end=FakeRange(18, 25)),
     ))
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=fake_view), \
          patch("plugin.writer.inline_review.cursor_in_agent_change", return_value="T"), \
@@ -1032,8 +1025,8 @@ def test_cursor_resolve_group_unreliable_reports_try_again():
     model = MagicMock()
     ctx = MagicMock()
     fake_view = RedlineView(reliable=True, total=2, rows=(
-        RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),
-        RedlineRow(token="S", start=FakeRange(15, 18), end=FakeRange(18, 25), kind="Insert"),
+        RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20)),
+        RedlineRow(token="S", start=FakeRange(15, 18), end=FakeRange(18, 25)),
     ))
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=fake_view), \
          patch("plugin.writer.inline_review.cursor_in_agent_change", return_value="T"), \
@@ -1049,7 +1042,7 @@ def test_cursor_resolve_group_unreliable_reports_try_again():
 
 
 def test_resolve_all_returns_unreliable_when_first_refused_before_dispatch_and_next_unreliable():
-    rows = (RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20), kind="Insert"),)
+    rows = (RedlineRow(token="T", start=FakeRange(10, 15), end=FakeRange(15, 20)),)
     entry_view = RedlineView(reliable=True, total=1, rows=rows)
     unreliable_view = RedlineView(reliable=False, total=1, rows=rows)
     with patch("plugin.writer.inline_review.scan_redline_view", return_value=entry_view), \

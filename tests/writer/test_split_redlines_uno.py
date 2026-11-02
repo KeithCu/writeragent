@@ -10,10 +10,10 @@
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import agent_changes, with_native_doc
 from plugin.writer.edit_review import record_preserve_replace
 from plugin.writer.edit_review import EditReviewSession
-from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
+from plugin.writer.inline_review import ResolveStatus, resolve_agent_change
 
 _PARA_BREAK = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
 

@@ -16,6 +16,7 @@
 import contextlib
 import sys
 import types
+from typing import Any
 from unittest.mock import MagicMock
 
 # GHA 34595675515: ``python -m plugin.testing_runner`` imported
@@ -2202,3 +2203,45 @@ def create_mock_http_response(
     else:
         mock_resp.__iter__.return_value = iter(lines)
     return mock_resp
+
+
+def agent_changes(model: Any) -> list[dict[str, Any]]:
+    """Pending agent changes, one entry per logical change (grouped by token), in document
+    order of first appearance: ``{"token", "old", "new"}``.
+
+    Primarily a preview helper for tests.
+    """
+    from plugin.writer import review_scan as _review_scan
+
+    grouped: dict[str, dict[str, Any]] = {}
+
+    def on_item(rl: Any) -> bool:
+        comment_raw = rl.getPropertyValue("RedlineComment")
+        comment_str = _review_scan.normalize_redline_comment(comment_raw)
+        token = comment_str if (comment_str and _review_scan.is_agent_token(comment_str)) else None
+        if token is None:
+            return True
+        entry = grouped.setdefault(token, {"token": token, "old": "", "new": ""})
+        start = rl.getPropertyValue("RedlineStart")
+        end = rl.getPropertyValue("RedlineEnd")
+        if start is None or end is None:
+            return True
+        try:
+            t = start.getText()
+            if t is None:
+                return True
+            span = t.createTextCursorByRange(start)
+            span.gotoRange(end, True)
+            text = span.getString()
+            kind_raw = rl.getPropertyValue("RedlineType")
+            kind = str(kind_raw) if kind_raw is not None else None
+            if kind == "Delete":
+                entry["old"] += text
+            elif kind == "Insert":
+                entry["new"] += text
+        except Exception:
+            pass
+        return True
+
+    _review_scan.scan_redlines(model, on_item)
+    return list(grouped.values())
