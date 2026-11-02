@@ -141,7 +141,8 @@ def _grow_over_edge_space(found: Any, separator: int) -> Any:
 _ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
 
 
-def _table_deletion_parts(names: list[str], tracked: bool) -> tuple[str, str | list[str]]:
+def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
+    """Result fields when an empty replacement removed the table, not just its text."""
     label = ", ".join("'%s'" % name for name in names)
     if tracked:
         message = (
@@ -153,30 +154,19 @@ def _table_deletion_parts(names: list[str], tracked: bool) -> tuple[str, str | l
         message = "Table %s deleted." % label
     else:
         message = "Tables deleted: %s." % label
-    return message, names[0] if len(names) == 1 else names
-
-
-def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
-    """Result fields when an empty replacement removed the table, not just its text."""
-    message, table_deleted = _table_deletion_parts(names, tracked)
     result: dict[str, Any] = {
         "status": "ok",
         "message": message,
-        "table_deleted": table_deleted,
+        "table_deleted": names[0] if len(names) == 1 else names,
     }
     if tracked:
         result["pending_review"] = True
     return result
 
 
-def _table_from_range(found: Any) -> Any:
-    """The TextTable that owns *found*, or None when the match is not in a cell."""
-    return uno_probe(lambda: found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable"), None)
-
-
 def _table_and_name(found: Any) -> tuple[Any, str | None]:
     """The TextTable and name for a search match, or (None, None) when not in a cell."""
-    table = _table_from_range(found)
+    table = uno_probe(lambda: found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable"), None)
     if table is None:
         return None, None
     return table, uno_probe(lambda: str(table.getName() or ""), "") or None
@@ -315,30 +305,17 @@ def _enter_atomic_undo(doc: Any) -> tuple[Any, str] | None:
 
 def build_search_replace_response(
     replaced_count: int,
-    message: str | None = None,
     *,
     use_preserve: bool = False,
-    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Standardized search-replace response dictionary shared across production and eval harnesses."""
-    if replaced_count <= 0:
-        msg = message or "Replaced 0 occurrence(s). No matches found. Try a shorter substring."
-        res: dict[str, Any] = {"status": "error", "message": msg, "replaced_count": 0}
+    """Standardized search-replace response dictionary."""
+    if replaced_count == 1:
+        msg = "Replaced 1 occurrence (by old_content)."
     else:
-        if message:
-            msg = message
-        elif replaced_count == 1:
-            msg = "Replaced 1 occurrence (by old_content)."
-            if use_preserve:
-                msg += " (formatting preserved)"
-        else:
-            msg = f"Replaced {replaced_count} occurrence(s)."
-            if use_preserve:
-                msg += " (formatting preserved)"
-        res = {"status": "ok", "message": msg, "replaced_count": replaced_count}
-    if extra:
-        res.update(extra)
-    return res
+        msg = f"Replaced {replaced_count} occurrence(s)."
+    if use_preserve:
+        msg += " (formatting preserved)"
+    return {"status": "ok", "message": msg, "replaced_count": replaced_count}
 
 
 def _find_ranges(
@@ -773,15 +750,11 @@ class ApplyDocumentContent(ToolBase):
 
         return self._outline_undo(doc, session, once)
 
-    @staticmethod
-    def _occurrence_oor_message(occurrence: int, count: int) -> str:
-        """LLMs guess 1-based; say the valid 0-based range like apply_style."""
-        return "occurrence %s out of range (found %d match(es), use 0..%d)." % (
-            occurrence, count, count - 1)
-
     def _occurrence_oor(self, occurrence: int, count: int, **details: Any) -> dict[str, Any]:
+        # LLMs guess 1-based; say the valid 0-based range like apply_style.
         return self._tool_error(
-            self._occurrence_oor_message(occurrence, count),
+            "occurrence %s out of range (found %d match(es), use 0..%d)." % (
+                occurrence, count, count - 1),
             code="OCCURRENCE_OUT_OF_RANGE",
             count=count,
             **details,
@@ -1112,11 +1085,7 @@ class ApplyDocumentContent(ToolBase):
         use_preserve = not format_support.content_has_markup(content)
 
         if use_preserve:
-            _nl_before_esc = content.count("\n")
             content = content.replace("\\n", "\n").replace("\\t", "\t")
-            _nl_after_esc = content.count("\n")
-            if _nl_after_esc != _nl_before_esc:
-                log.debug("apply_document_content: literal \\\\n/\\\\t escape expand (plain text) newline_count %d -> %d", _nl_before_esc, _nl_after_esc)
             # HTML entry points decode complete references once, and the StarWriter
             # filter decodes what remains in markup. This format-preserving path must
             # do the same, or content lands verbatim. content_has_markup() sees no tag
@@ -1125,13 +1094,7 @@ class ApplyDocumentContent(ToolBase):
             # string also expands semicolon-less names ("&sect 2o" -> "§ 2o"). A bare "&"
             # in "Banco & Cia" is never touched.
             if _ENTITY_RE.search(content):
-                _before_ent = content
                 content = _ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), content)
-                if content != _before_ent:
-                    log.debug(
-                        "apply_document_content: decoded HTML entities on the plain-text path (len %d -> %d)",
-                        len(_before_ent), len(content),
-                    )
 
         # Opt-in review mode: when doc.agent_edit_review_mode is record/wait, EditReviewSession records
         # the agent's edits as native tracked changes (redlines) the user can accept/reject --
@@ -1350,10 +1313,11 @@ class ApplyDocumentContent(ToolBase):
                 if count > 1:
                     resp["message"] += " edited_context shows the first occurrence's neighborhood."
                 if doomed:
-                    del_msg, resp["table_deleted"] = _table_deletion_parts([name for _table, name in doomed], tracked_delete)
-                    if tracked_delete:
-                        resp["pending_review"] = True
-                    resp["message"] = (resp.get("message") or "").rstrip() + " " + del_msg
+                    deletion = _table_deletion_result([name for _table, name in doomed], tracked_delete)
+                    resp["table_deleted"] = deletion["table_deleted"]
+                    if "pending_review" in deletion:
+                        resp["pending_review"] = deletion["pending_review"]
+                    resp["message"] = (resp.get("message") or "").rstrip() + " " + deletion["message"]
             self._attach_hyperlink_reports(resp, link_reports)
             return attach_edited_context(resp, anchor), session
         if occurrence is not None:
