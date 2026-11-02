@@ -141,7 +141,7 @@ def test_refresh_controls_does_not_recurse_when_combo_fires_listeners():
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value=_MODEL),
         patch("plugin.framework.client.model_fetcher.set_text_model"),
     ):
-        ChatPanelElement._wire_model_selectors(panel, combo, None)
+        ChatPanelElement._wire_model_selectors(panel, {"model_selector": combo})
         bus.emit("config:changed")
 
     assert panel.refresh_count == 1
@@ -170,7 +170,7 @@ def test_typed_image_model_is_saved_unless_refreshing():
         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]),
         patch("plugin.chatbot.config_ui_helpers.set_configs") as mock_set_configs,
     ):
-        ChatPanelElement._wire_model_selectors(panel, None, image)
+        ChatPanelElement._wire_model_selectors(panel, {"image_model_selector": image})
         image.setText("vendor/typed-image")
         assert mock_set_configs.call_count == 1
         assert "image_model" in mock_set_configs.call_args[0][0]

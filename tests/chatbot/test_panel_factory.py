@@ -101,6 +101,7 @@ def _thin_panel_element():
     el._rich_control_listener = None
     el.xFrame = None
     el._last_mode_labels = None
+    el._current_mode = ""
     el._doc_type_label = "unknown"
     el._doc_type_title = "Unknown"
     el._doc_uno_services = frozenset()
@@ -505,7 +506,7 @@ def test_sidebar_model_selectors_skip_remote_fetch():
          patch("plugin.chatbot.panel_factory.get_config", return_value=""), \
          patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value="http://127.0.0.1:9"), \
          patch("plugin.chatbot.panel_factory.get_optional_control", side_effect=get_optional):
-        el._wire_model_selectors(model_selector, image_selector)
+        el._wire_model_selectors({"model_selector": model_selector, "image_model_selector": image_selector})
         el._refresh_controls_from_config()
 
     assert pop.call_count == 2
@@ -652,7 +653,7 @@ def test_refresh_restores_mode_captured_before_populate():
     el._update_backend_indicator = MagicMock()
     el._get_document_model = MagicMock(return_value=MagicMock())
     el.send_listener = MagicMock()
-    el.send_listener.cached_doc_type = "writer"
+    el._doc_type_label = "writer"
     selector = MagicMock()
     flags = sidebar_mode_flags_for_doc_type("writer")
 
@@ -706,7 +707,7 @@ def test_chat_mode_listener_ignores_refresh():
     send = MagicMock()
     send.sidebar_state.send.is_busy = False
     flags = SidebarModeFlags()
-    el._wire_chat_mode_listener(selector, MagicMock(), None, send, None, lambda _mode: None, flags)
+    el._wire_chat_mode_listener(selector, MagicMock(), None, send, None, flags)
     listener = selector.addItemListener.call_args[0][0]
     listener.on_item_state_changed(None)
     el._apply_sidebar_mode.assert_not_called()
@@ -732,7 +733,7 @@ def test_chat_mode_listener_ignores_combo_while_send_is_busy():
     send = MagicMock()
     send.sidebar_state.send.is_busy = True
     flags = SidebarModeFlags()
-    el._wire_chat_mode_listener(selector, MagicMock(), None, send, None, lambda _mode: None, flags)
+    el._wire_chat_mode_listener(selector, MagicMock(), None, send, None, flags)
     listener = selector.addItemListener.call_args[0][0]
     listener.on_item_state_changed(None)
     el._apply_sidebar_mode.assert_not_called()
@@ -787,7 +788,6 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
         "btn_hamburger": None,
     }
     sentinel = MagicMock(name="send_listener")
-    toggle = MagicMock()
 
     with (
         patch("plugin.chatbot.chat_sidebar_mode.greeting_for_sidebar_mode", return_value=""),
@@ -804,12 +804,11 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
         patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
     ):
-        el._wire_buttons(controls, MagicMock(), "chat", None, toggle)
+        el._wire_buttons(controls, MagicMock(), "chat", None)
 
     send.addActionListener.assert_called_once_with(sentinel)
     stop.addActionListener.assert_called_once()
     el._apply_sidebar_mode.assert_called_once()
-    assert el._apply_sidebar_mode.call_args.args[-1] is toggle
 
 
 def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_path):
@@ -941,7 +940,7 @@ def test_chat_mode_listener_reverts_selector_when_busy() -> None:
         patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as revert_mock,
     ):
             el._wire_chat_mode_listener(
-                selector, MagicMock(), MagicMock(), send_listener, MagicMock(), MagicMock(), mode_flags
+                selector, MagicMock(), MagicMock(), send_listener, MagicMock(), mode_flags
             )
             mode_listener = selector.addItemListener.call_args[0][0]
 
@@ -1045,7 +1044,7 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
     ):
         mode_flags = el._sidebar_mode_flags()
-        el._wire_buttons(controls, MagicMock(), "chat", mode_flags, MagicMock())
+        el._wire_buttons(controls, MagicMock(), "chat", mode_flags)
 
     send.addActionListener.assert_called_once_with(sentinel)
     stop.addActionListener.assert_called_once()
@@ -1297,7 +1296,7 @@ def test_wire_buttons_send_constructor_failure_clears_stale_listener():
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
         pytest.raises(RuntimeError, match="constructor fail"),
     ):
-        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
+        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags())
 
     assert el.send_listener is None
     send.addActionListener.assert_not_called()
@@ -1473,7 +1472,7 @@ def test_wire_buttons_send_add_action_listener_failure_disposes_and_reraises() -
         patch("plugin.doc.live_panels.register_live_panel") as mock_reg_live,
         pytest.raises(RuntimeError, match="send attach failed"),
     ):
-        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
+        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags())
 
     sentinel.disposing.assert_called_once_with(None)
     mock_release.assert_called_once_with(el)
@@ -1492,7 +1491,7 @@ def test_wire_buttons_send_add_action_listener_failure_disposes_and_reraises() -
         patch("plugin.doc.live_panels.register_live_panel"),
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
     ):
-        ret = el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
+        ret = el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags())
 
     assert ret is sentinel
     stop.addActionListener.assert_called_once()
@@ -1547,7 +1546,7 @@ def test_wire_buttons_stop_failure_aborts_registration() -> None:
         patch("plugin.doc.live_panels.register_live_panel") as mock_reg_live,
         pytest.raises(RuntimeError, match="stop attach failed"),
     ):
-        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
+        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags())
 
     assert "sidebar_include_brainstorming" not in ctor.call_args.kwargs
     sentinel.disposing.assert_called_once_with(None)
@@ -1593,7 +1592,7 @@ def test_refresh_controls_populates_model_combos_without_readding_listeners() ->
     el.ctx = MagicMock()
     el.m_panelRootWindow = MagicMock()
     el.send_listener = MagicMock()
-    el.send_listener.cached_doc_type = "writer"
+    el._doc_type_label = "writer"
 
     model_sel = MagicMock()
     image_sel = MagicMock()
@@ -1609,7 +1608,7 @@ def test_refresh_controls_populates_model_combos_without_readding_listeners() ->
     ):
         mock_pop_text.return_value = "gpt-4o"
         mock_pop_img.return_value = "dall-e-3"
-        el._wire_model_selectors(model_sel, image_sel)
+        el._wire_model_selectors(controls)
         assert model_sel.addItemListener.call_count == 1
         assert image_sel.addItemListener.call_count == 1
         assert mock_pop_text.call_count == 1
@@ -1630,7 +1629,7 @@ def test_refresh_controls_mode_selector_caching() -> None:
     el.ctx = MagicMock()
     el.m_panelRootWindow = MagicMock()
     el.send_listener = MagicMock()
-    el.send_listener.cached_doc_type = "writer"
+    el._doc_type_label = "writer"
 
     chat_mode = MagicMock()
     chat_mode.getSelectedItemPos.return_value = 1
@@ -1654,7 +1653,7 @@ def test_refresh_controls_mode_selector_caching() -> None:
         assert mock_pop_mode.call_count == 1
 
         # Third refresh: doc type changes -> labels differ -> populate runs again
-        el.send_listener.cached_doc_type = "calc"
+        el._doc_type_label = "calc"
         el._refresh_controls_from_config()
         assert mock_pop_mode.call_count == 2
 
@@ -1666,7 +1665,7 @@ def test_sidebar_reasoning_effort_wires_and_refreshes() -> None:
     el.ctx = MagicMock()
     el.m_panelRootWindow = MagicMock()
     el.send_listener = MagicMock()
-    el.send_listener.cached_doc_type = "writer"
+    el._doc_type_label = "writer"
 
     effort_sel = MagicMock()
     controls = {"reasoning_effort_selector": effort_sel}
@@ -1678,7 +1677,7 @@ def test_sidebar_reasoning_effort_wires_and_refreshes() -> None:
         patch("plugin.chatbot.panel_factory.ChatPanelElement._populate_model_combos"),
         patch("plugin.chatbot.panel_factory.ChatPanelElement._update_backend_indicator"),
     ):
-        el._wire_model_selectors(None, None, effort_sel)
+        el._wire_model_selectors(controls)
         assert effort_sel.addItemListener.call_count == 1
         assert mock_pop_effort.call_count == 1
 

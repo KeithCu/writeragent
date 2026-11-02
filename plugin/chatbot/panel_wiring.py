@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 from plugin.chatbot.dialogs import get_optional as get_optional_control, get_control_text, set_control_text, set_control_visible, translate_dialog
 from plugin.chatbot.panel_resize import _PanelResizeListener
@@ -80,26 +78,14 @@ def _install_frame_session_listeners(
         log.debug("frame session focus install: %s", exc)
 
 
-def make_toggle_image_ui(panel: Any, controls: dict[str, Any]) -> Callable[[bool], None]:
-    """Toggle visibility of text vs image model controls and relayout."""
-
-    def toggle_image_ui(is_image: bool) -> None:
-        set_control_visible(controls.get("model_label"), not is_image)
-        set_control_visible(controls.get("model_selector"), not is_image)
-        set_control_visible(controls.get("reasoning_effort_selector"), not is_image)
-        set_control_visible(controls.get("image_model_selector"), is_image)
-        set_control_visible(controls.get("aspect_ratio_selector"), is_image)
-        set_control_visible(controls.get("base_size_input"), is_image)
-        set_control_visible(controls.get("base_size_label"), is_image)
-        tp = getattr(panel, "toolpanel", None)
-        root = getattr(panel, "m_panelRootWindow", None)
-        rl = getattr(tp, "resize_listener", None) if tp else None
-        if rl and root:
-            with suppress_disposed("relayout after toggling image UI", logger=log):
-                rl.invalidate_measurements()
-                rl.relayout_now(root)
-
-    return toggle_image_ui
+def _pin_button_width(ctrl: Any, labels: list[str]) -> None:
+    """Measure and pin control width across toggle labels."""
+    if not ctrl:
+        return
+    w = _measure_button_max_width(ctrl, labels)
+    if w:
+        r = ctrl.getPosSize()
+        ctrl.setPosSize(r.X, r.Y, w, r.Height, 15)
 
 
 def setup_rich_control_ready(
@@ -168,8 +154,7 @@ def setup_rich_control_ready(
     if rl:
         rl.on_control_replaced = _on_control_replaced
 
-    if controls.get("response"):
-        set_control_visible(controls["response"], False)
+    set_control_visible(controls.get("response"), False)
     log_rich_control_context(
         panel.ctx,
         "hide_plain",
@@ -194,7 +179,7 @@ def setup_rich_control_ready(
     best_effort(lambda: widget.reveal_caret(reason="on_ready"), "on_rich_control_ready reveal caret")
 
 
-def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
+def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # imported as wire_chatpanel_controls by panel_factory
     """Main entry point to wire all controls for the panel."""
     log.debug("_wireControls entered")
     if not hasattr(root_window, "getControl"):
@@ -244,7 +229,9 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
                 current = get_control_text(controls["response"]) or ""
                 set_control_text(controls["response"], current + "[Init error: %s]\n" % msg)
 
-    ensure_extension_on_path(self.ctx)
+    from plugin.chatbot.panel_factory import _initialize_extension_paths
+
+    _initialize_extension_paths(self.ctx)
 
     extra_instructions = ""
     model = self._get_document_model()
@@ -273,8 +260,6 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
 
     mode_flags: SidebarModeFlags = SidebarModeFlags()
 
-    toggle_image_ui = make_toggle_image_ui(self, controls)
-
     # 1. Config, Models, and UI
     try:
         extra_instructions = get_config("additional_instructions")
@@ -283,11 +268,7 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
         log.exception("Config instructions read failed")
 
     try:
-        self._wire_model_selectors(
-            controls["model_selector"],
-            controls["image_model_selector"],
-            controls.get("reasoning_effort_selector"),
-        )
+        self._wire_model_selectors(controls)
     except Exception as e:
         # Model selector wiring is its own try so a failure here still
         # wires the chat mode UI.
@@ -295,16 +276,7 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
         log.exception("Model selectors wiring failed")
 
     try:
-        initial_mode, mode_flags = self._wire_chat_mode_ui(
-            controls["aspect_ratio_selector"],
-            controls["base_size_input"],
-            controls["base_size_label"],
-            controls["chat_mode_selector"],
-            controls["model_label"],
-            controls["model_selector"],
-            controls["image_model_selector"],
-            toggle_image_ui=toggle_image_ui,
-        )
+        initial_mode, mode_flags = self._wire_chat_mode_ui(controls)
     except Exception as e:
         _show_init_error("Mode UI: %s" % e)
         log.exception("Chat mode UI wiring failed")
@@ -315,7 +287,7 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
     self._setup_sessions(model, extra_instructions)
 
     # 3. Buttons (applies initial mode, session history, and mode listener)
-    send_listener = self._wire_buttons(controls, model, initial_mode, mode_flags, toggle_image_ui)
+    send_listener = self._wire_buttons(controls, model, initial_mode, mode_flags)
 
     # Wire query listener to update Record/Send button label (fixed width captured in snapshot before relayout)
     query_text_listener = None
@@ -365,18 +337,11 @@ def _wireControls(self: Any, root_window: Any, ensure_extension_on_path: Any) ->
         from plugin.chatbot.panel import HAS_RECORDING
 
         send_labels = ["Send", "Record", "Stop Rec", "Accept"] if HAS_RECORDING else ["Send", "Accept"]
-        for label, items in (
-            ("send button width stabilize", ((controls["send"], send_labels),)),
-            ("stop/clear button width stabilize", ((controls.get("stop"), ["Stop", "Change", "Reject"]), (controls.get("clear"), ["Clear", "Reject"]))),
-        ):
-            with suppress_disposed(label, logger=log):
-                for c, lab_list in items:
-                    if not c:
-                        continue
-                    w = _measure_button_max_width(c, lab_list)
-                    if w:
-                        r = c.getPosSize()
-                        c.setPosSize(r.X, r.Y, w, r.Height, 15)
+        with suppress_disposed("send button width stabilize", logger=log):
+            _pin_button_width(controls["send"], send_labels)
+        with suppress_disposed("stop/clear button width stabilize", logger=log):
+            _pin_button_width(controls.get("stop"), ["Stop", "Change", "Reject"])
+            _pin_button_width(controls.get("clear"), ["Clear", "Reject"])
 
     _frame_session = self.frame_session
     _restore_focus = _frame_session.restore_focus if _frame_session is not None else None

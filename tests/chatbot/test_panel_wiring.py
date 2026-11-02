@@ -100,8 +100,8 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
         def _setup_sessions(self, *_args: object) -> None:
             return None
 
-        def _wire_buttons(self, controls: Any, model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> None:
-            self.captured = (controls, model, initial_mode, mode_flags, toggle_image_ui)
+        def _wire_buttons(self, controls: Any, model: Any, initial_mode: str, mode_flags: Any) -> None:
+            self.captured = (controls, model, initial_mode, mode_flags)
 
         def _update_backend_indicator(self, _root: object) -> None:
             return None
@@ -141,19 +141,12 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
         patch("plugin.framework.config.get_config_bool_safe", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
-        _wireControls(host, root, lambda _ctx: None)
+        _wireControls(host, root)
 
-    _controls, _model, initial_mode, mode_flags, toggle = host.captured
+    _controls, _model, initial_mode, mode_flags = host.captured
     assert initial_mode == "chat"
     assert isinstance(mode_flags, SidebarModeFlags)
     assert mode_flags == SidebarModeFlags()
-    toggle(False)
-    named["image_model_selector"].setVisible.assert_called_with(False)
-    named["model_selector"].setVisible.assert_called_with(True)
-    named["aspect_ratio_selector"].setVisible.assert_called_with(False)
-    named["base_size_input"].setVisible.assert_called_with(False)
-    named["base_size_label"].setVisible.assert_called_with(False)
-    named["model_label"].setVisible.assert_called_with(True)
 
 
 def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
@@ -183,14 +176,13 @@ def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
         def _wire_chat_mode_ui(self, *_args: object, **kwargs: object) -> tuple[str, SidebarModeFlags]:
             nonlocal mode_ui_called
             mode_ui_called = True
-            self.mode_ui_toggle = kwargs.get("toggle_image_ui")
             return ("web", custom_flags)
 
         def _setup_sessions(self, *_args: object) -> None:
             return None
 
-        def _wire_buttons(self, controls: Any, model: Any, initial_mode: str, mode_flags: Any, toggle_image_ui: Any) -> None:
-            self.captured = (controls, model, initial_mode, mode_flags, toggle_image_ui)
+        def _wire_buttons(self, controls: Any, model: Any, initial_mode: str, mode_flags: Any) -> None:
+            self.captured = (controls, model, initial_mode, mode_flags)
 
         def _update_backend_indicator(self, _root: object) -> None:
             return None
@@ -230,18 +222,17 @@ def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
         patch("plugin.framework.config.get_config_bool_safe", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
-        _wireControls(host, root, lambda _ctx: None)
+        _wireControls(host, root)
 
     assert mode_ui_called is True
-    _controls, _model, initial_mode, mode_flags, toggle = host.captured
+    _controls, _model, initial_mode, mode_flags = host.captured
     assert initial_mode == "web"
     assert mode_flags is custom_flags
-    assert toggle is host.mode_ui_toggle
 
 
 def test_make_toggle_image_ui_swaps_visibility_and_relayouts() -> None:
-    """make_toggle_image_ui toggles text vs image controls and invokes resize relayout."""
-    from plugin.chatbot.panel_wiring import make_toggle_image_ui
+    """ChatPanelElement._toggle_image_ui toggles text vs image controls and invokes resize relayout."""
+    from plugin.chatbot.panel_factory import ChatPanelElement
 
     panel = MagicMock()
     root = MagicMock()
@@ -253,18 +244,19 @@ def test_make_toggle_image_ui_swaps_visibility_and_relayouts() -> None:
     controls = {
         "model_label": MagicMock(),
         "model_selector": MagicMock(),
+        "reasoning_effort_selector": MagicMock(),
         "image_model_selector": MagicMock(),
         "aspect_ratio_selector": MagicMock(),
         "base_size_input": MagicMock(),
         "base_size_label": MagicMock(),
     }
-
-    toggle = make_toggle_image_ui(panel, controls)
+    root.getControl.side_effect = lambda n: controls.get(n)
 
     # Image mode = True
-    toggle(True)
+    ChatPanelElement._toggle_image_ui(panel, True)
     controls["model_label"].setVisible.assert_called_with(False)
     controls["model_selector"].setVisible.assert_called_with(False)
+    controls["reasoning_effort_selector"].setVisible.assert_called_with(False)
     controls["image_model_selector"].setVisible.assert_called_with(True)
     controls["aspect_ratio_selector"].setVisible.assert_called_with(True)
     controls["base_size_input"].setVisible.assert_called_with(True)
@@ -273,9 +265,10 @@ def test_make_toggle_image_ui_swaps_visibility_and_relayouts() -> None:
 
     # Image mode = False
     rl.relayout_now.reset_mock()
-    toggle(False)
+    ChatPanelElement._toggle_image_ui(panel, False)
     controls["model_label"].setVisible.assert_called_with(True)
     controls["model_selector"].setVisible.assert_called_with(True)
+    controls["reasoning_effort_selector"].setVisible.assert_called_with(True)
     controls["image_model_selector"].setVisible.assert_called_with(False)
     controls["aspect_ratio_selector"].setVisible.assert_called_with(False)
     controls["base_size_input"].setVisible.assert_called_with(False)
@@ -349,7 +342,7 @@ def test_wire_controls_installs_frame_session_when_rich_text_disabled() -> None:
         patch("plugin.framework.config.get_config_bool_safe", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
-        _wireControls(host, root, lambda _ctx: None)
+        _wireControls(host, root)
 
     host.frame_session.set_focus_pin.assert_called_once()
     host.frame_session.install.assert_called_once()
