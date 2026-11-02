@@ -57,27 +57,26 @@ def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str
     # Don't persist MBs of base64 audio or images to history db.
     if isinstance(content, list):
         text_parts = []
-        has_audio = False
-        has_image = False
+        kinds: set[str] = set()
         for item in content:
             if isinstance(item, dict):
-                if item.get("type") == "text":
+                t = item.get("type")
+                if t == "text":
                     # A present "text" of None, or any non-str, used to reach
                     # " ".join and raise TypeError here. add_message calls
                     # this before its try, so the turn never saved. str(... or
                     # "") is always a str (None and missing become "").
                     text_parts.append(str(item.get("text") or ""))
-                elif item.get("type") == "input_audio":
-                    has_audio = True
-                elif item.get("type") == "image_url":
-                    has_image = True
-        content = " ".join(text_parts)
-        if has_audio:
-            content = f"{content} [Audio Attached]" if content else "[Audio Attached]"
-        if has_image:
+                elif t in ("input_audio", "image_url"):
+                    kinds.add(t)
+        markers = []
+        if "input_audio" in kinds:
+            markers.append("[Audio Attached]")
+        if "image_url" in kinds:
             # A vision turn used to reload as ordinary text, with the image
             # parts dropped and no marker that one had been attached.
-            content = f"{content} [Image Attached]" if content else "[Image Attached]"
+            markers.append("[Image Attached]")
+        content = " ".join(p for p in [" ".join(text_parts), *markers] if p)
 
     row: dict[str, Any] = {"role": role, "content": content}
     # tool_calls: null on user and system rows makes strict
