@@ -22,7 +22,7 @@ import pytest
 from plugin.chatbot.chat_session import ChatSession
 from plugin.chatbot.panel import SendButtonListener
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from tests.chatbot.test_panel import _make_send_listener
 
 
@@ -89,7 +89,7 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         run_stream_drain_loop(
             q,
             MagicMock(),
-            [False],
+            DrainOutcome(),
             lambda _text, _thinking: None,
             on_stream_done=lambda _item: True,
             on_stopped=lambda: None,
@@ -173,7 +173,7 @@ def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
         run_stream_drain_loop(
             q,
             MagicMock(),
-            [False],
+            DrainOutcome(),
             lambda _text, _thinking: None,
             on_stream_done=lambda _item: True,
             on_stopped=lambda: None,
@@ -254,7 +254,7 @@ def test_event_drain_slice_is_bounded() -> None:
         run_stream_drain_loop(
             q,
             MagicMock(),
-            [False],
+            DrainOutcome(),
             listener._append_response,
             on_stream_done=lambda _item: True,
             on_stopped=lambda: None,
@@ -297,7 +297,7 @@ def test_each_slice_that_applies_chunks_notes_watchdog_activity() -> None:
         run_stream_drain_loop(
             q,
             MagicMock(),
-            [False],
+            DrainOutcome(),
             listener._append_response,
             on_stream_done=lambda _item: True,
             on_stopped=lambda: None,

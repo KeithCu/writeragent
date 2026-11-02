@@ -53,7 +53,7 @@ def _clear_event_drain() -> None:
 def _start_event_drain(
     q: queue.Queue[Any],
     rearm: _RecordingRearm,
-    job_done: list[bool],
+    outcome: Any,
     applied: list[str],
 ) -> None:
     """Convenience helper to start an event-driven drain loop with RecordingRearm."""
@@ -62,7 +62,7 @@ def _start_event_drain(
     run_stream_drain_loop(
         q,
         DummyToolkit(),
-        job_done,
+        outcome,
         lambda text, _thinking: applied.append(text),
         on_stream_done=lambda _item: True,
         on_stopped=lambda: None,

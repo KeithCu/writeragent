@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
-from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_stream_drain_loop
+from plugin.framework.async_stream import DrainOutcome, StreamQueue, defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_payload, is_tool_document_disposed, resolve_exception_message, suppress_disposed, UnoObjectError
 from plugin.framework.client.errors import (
@@ -1029,7 +1029,7 @@ class ToolCallingMixin:
             run_stream_drain_loop(
                 turn.queue,
                 toolkit,
-                [False],
+                DrainOutcome(),
                 self._panel._append_response,
                 on_stream_done=self._handle_stream_completion,
                 on_stopped=self._handle_stream_stopped,
