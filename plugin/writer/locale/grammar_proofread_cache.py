@@ -130,16 +130,6 @@ def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len
     return clipped
 
 
-def evict_sentence_cache_for_identity(checker_identity: str) -> None:
-    """Drop L1 rows for one checker identity (mid-session Harper ↔ LLM switch)."""
-    ident = _sanitize_checker_identity(checker_identity)
-    needle = f"|{ident}|"
-    with grammar_registry.lock:
-        to_remove = [k for k in grammar_registry.sentence_cache if needle in k]
-        for k in to_remove:
-            grammar_registry.sentence_cache.pop(k, None)
-
-
 def dump_l1_sentence_cache() -> None:
     """Clear the global in-memory sentence LRU (all checker identities)."""
     with grammar_registry.lock:
@@ -196,7 +186,12 @@ def _align_persistence_identity(p: Any, ident: str) -> None:
     """Apply checker identity to L2; evict L1 for a mid-session switch."""
     switched = p.ensure_identity(ident)
     if switched:
-        evict_sentence_cache_for_identity(switched)
+        evicted_ident = _sanitize_checker_identity(switched)
+        needle = f"|{evicted_ident}|"
+        with grammar_registry.lock:
+            to_remove = [k for k in grammar_registry.sentence_cache if needle in k]
+            for k in to_remove:
+                grammar_registry.sentence_cache.pop(k, None)
 
 
 def cache_get_sentence(

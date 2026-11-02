@@ -15,6 +15,8 @@ from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
+from plugin.framework.grammar_rule_ids import bcp47_to_uno_lang_country
+
 log = logging.getLogger("writeragent.grammar")
 
 
@@ -138,11 +140,8 @@ def get_break_iterator_and_locale(ctx: Any, loc_key: str | None) -> tuple[Any, A
 
     smgr = ctx.ServiceManager
     bi = smgr.createInstanceWithContext("com.sun.star.i18n.BreakIterator", ctx)
-    parts = (loc_key or "").split("-")
-    if len(parts) > 1:
-        loc = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0], Country=parts[1])
-    else:
-        loc = uno.createUnoStruct("com.sun.star.lang.Locale", Language=parts[0])
+    la, ctry = bcp47_to_uno_lang_country(loc_key or "")
+    loc = uno.createUnoStruct("com.sun.star.lang.Locale", Language=la, Country=ctry)
     return bi, loc
 
 
