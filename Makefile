@@ -157,7 +157,7 @@ endif
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
-        log log-tail lo-log test pytest test-uno test-uno-soak test-mock-sidebar test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full check-ext check-setup deploy ensure-uno _check-lo-python \
+        log log-tail lo-log test pytest test-uno test-uno-soak test-mock-sidebar demo-video test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full check-ext check-setup deploy ensure-uno _check-lo-python \
         verify crosshair-check crosshair-cover crosshair-check-all crosshair-check-all-deep \
         crosshair-cover-all crosshair-cover-all-deep \
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
@@ -727,6 +727,11 @@ test-uno-soak: _check-lo-python
 test-mock-sidebar: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
 	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_UNO_TEST_TIMEOUT=120 -- -u -m plugin.testing_runner --user-profile $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
+
+# Scripted product-video scenes (visible soffice, your profile). SCENE=scene3 re-runs one.
+demo-video: _check-lo-python
+	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_DEMO=1 --set WRITERAGENT_UNO_TEST_TIMEOUT=600 -- -u -m plugin.testing_runner --user-profile tests/demo/test_demo_video_uno.py $(SCENE); EXIT_CODE=$$?; exit $$EXIT_CODE
 
 # Cap xdist at 6 so subprocess-heavy compute_service / venv worker tests
 # do not starve handshake timeouts on an 8-core box (PYTEST_WORKERS=auto).

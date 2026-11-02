@@ -670,13 +670,12 @@ class PythonWorkerManager:
 
         while True:
             if req.allow_heartbeat:
-                grace = int(EMBEDDINGS_HEARTBEAT_GRACE_S)
                 # Already unpickled. A second unpack of a multi-megabyte
                 # result frame was pure CPU on this path.
                 response = self._read_response_with_heartbeats(
                     stdout,
                     host_read_timeout_sec,
-                    grace,
+                    EMBEDDINGS_HEARTBEAT_GRACE_S,
                     req.on_heartbeat,
                     stop_checker=req.stop_checker,
                 )
@@ -877,7 +876,7 @@ class PythonWorkerManager:
                 if attempt == 0:
                     continue
                 return self._err("VENV_TIMEOUT", _worker_error_message(e), attempt=attempt + 1)
-            except (BrokenPipeError, ValueError, RuntimeError, OSError) as e:
+            except (ValueError, RuntimeError, OSError) as e:
                 log.warning("Python worker failed (attempt %s): %s", attempt + 1, e)
                 # Do not join the reap on this thread. A retry calls
                 # _ensure_running, which joins before Popen. The last attempt
@@ -1250,6 +1249,7 @@ class PythonWorkerManager:
         # silence allowed after a heartbeat; using the max made a short timeout
         # wait for grace instead. After a heartbeat:
         # deadline = min(now + grace, ceiling).
+        grace = float(grace_sec)
         window = float(timeout_sec)
         deadline = start + window
         if deadline > ceiling:
@@ -1277,13 +1277,13 @@ class PythonWorkerManager:
                         on_heartbeat(payload)
                     except Exception:
                         log.exception("Heartbeat callback failed (ignoring)")
-                extended = time.monotonic() + float(grace_sec)
+                extended = time.monotonic() + grace
                 if extended > ceiling:
                     deadline = ceiling
                     timeout_label = cap
                 else:
                     deadline = extended
-                    timeout_label = float(grace_sec)
+                    timeout_label = grace
                 continue
             if frame_type == FRAME_RESULT or frame_type is None:
                 return data

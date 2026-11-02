@@ -773,8 +773,9 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     assert mgr._terminate_worker.call_count == 1
 
 
-def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch):
-    """A tool_call that raises mid-dispatch must not be sent again.
+@pytest.mark.parametrize("frame_type", ["tool_call", "llm_request", "worker_event"])
+def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch, frame_type):
+    """An intermediate frame that raises mid-dispatch must not be sent again.
 
     The flag used to be set only after dispatch returned. A RuntimeError
     from the handler, with no exec_started frame, left may_have_run false
@@ -792,7 +793,7 @@ def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch):
     mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
     mgr._read_response_bytes = MagicMock(  # type: ignore[method-assign]
         return_value=pickle.dumps(
-            {"type": "tool_call", "id": "t1", "tool": "apply_document_content", "args": {}},
+            {"type": frame_type, "id": "t1", "tool": "apply_document_content", "args": {}},
             protocol=5,
         )
     )

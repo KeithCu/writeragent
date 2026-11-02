@@ -103,9 +103,6 @@ def dispatch_worker_response(
     cancellation_scope: Any | None = None,
 ) -> bool:
     """Handle intermediate worker frames. Returns True if caller should keep reading."""
-    if not isinstance(response, dict):
-        return False
-
     frame_type = response.get("type")
     if frame_type == "worker_event":
         event = response.get("event")

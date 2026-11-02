@@ -28,6 +28,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `chat_max_tokens` | `int` | `16384` |  |  |
 | `chat_compaction_enabled` | `boolean` | `true` |  |  |
 | `request_timeout` | `int` | `120` |  |  |
+| `reasoning_effort` | `dict` | `{}` |  |  |
 | `image_base_size` | `int` | `1024` |  |  |
 | `image_default_aspect` | `string` | `"Square"` |  |  |
 | `image_steps` | `int` | `-1` |  |  |
@@ -108,7 +109,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `web_research_cache_embedding_percent` | `int` | `75` | `0`–`100` | Internal. Minimum cosine similarity (0-100) for an embedding cache hit. JSON only (internal); default 75. |
 | `web_research_cache_min_overlap` | `int` | `8` | `0`–`50` | Internal. Minimum shared stem count for a fuzzy cache hit (0 disables). JSON only (internal); default 8. |
 | `deep_research_breadth` | `int` | `4` | `1`–`10` | Internal. Sub-queries per depth level when Deep Research sidebar mode is used (internal). |
-| `deep_research_depth` | `int` | `2` | `1`–`4` | Internal. Legacy alias for max_rounds when deep_research_max_rounds is 0 (internal). |
+| `deep_research_depth` | `int` | `2` | `1`–`4` | Internal. Legacy alias for max_rounds (internal). |
 | `deep_research_concurrency` | `int` | `2` | `1`–`5` | Internal. Parallel sub-query workers in Deep Research sidebar mode (internal). |
 | `deep_research_max_sub_queries` | `int` | `14` | `1`–`40` | Internal. Global cap on shallow sub-agent runs per deep research session (internal). |
 | `deep_research_max_rounds` | `int` | `3` | `1`–`6` | Internal. Adaptive research rounds; deep_research_depth JSON override maps here if max_rounds unset (internal). |
