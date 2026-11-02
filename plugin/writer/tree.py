@@ -40,16 +40,6 @@ from plugin.doc.text_helpers import (
 log = logging.getLogger("writeragent.writer.nav.tree")
 
 
-def _bookmark_anchor_not_placed(bookmark_name: str) -> ToolExecutionError:
-    """Bookmark name exists, but its anchor is not a paragraph in this document."""
-    return ToolExecutionError(
-        "Bookmark '%s' anchor is not in the document. "
-        "It may be stale after an edit, save, or bookmark_cleanup. "
-        "Use heading_text:<text> or call get_document_tree to refresh bookmarks."
-        % bookmark_name
-    )
-
-
 def _collect_heading_indices(node: dict[str, Any]) -> list[int]:
     """Heading paragraph indices in document order (iter_heading_nodes yields them ordered)."""
     return [n["para_index"] for n in iter_heading_nodes(node) if n.get("para_index", -1) >= 0]
@@ -184,17 +174,15 @@ class TreeService(ServiceBase):
         self,
         node: dict[str, Any],
         strategy: str,
-        *,
-        para_ranges: list[Any],
-        next_heading_map: dict[int, int],
+        ctx: _TreeContext,
     ) -> None:
         if strategy in ("first_lines", "full"):
             para_idx = node.get("para_index", -1)
-            next_idx = next_heading_map.get(para_idx, len(para_ranges))
+            next_idx = ctx.next_heading_map.get(para_idx, len(ctx.para_ranges))
             if strategy == "first_lines":
                 preview_parts = []
                 current_len = 0
-                for _idx, element in _iter_body_paragraphs(para_ranges, para_idx + 1, next_idx):
+                for _idx, element in _iter_body_paragraphs(ctx.para_ranges, para_idx + 1, next_idx):
                     para_text = get_string_without_tracked_deletions(element).strip()
                     if para_text:
                         preview_parts.append(para_text)
@@ -206,7 +194,7 @@ class TreeService(ServiceBase):
             else:
                 parts = [
                     get_string_without_tracked_deletions(element)
-                    for _idx, element in _iter_body_paragraphs(para_ranges, para_idx + 1, next_idx)
+                    for _idx, element in _iter_body_paragraphs(ctx.para_ranges, para_idx + 1, next_idx)
                 ]
                 node["body_text"] = "\n".join(parts)
 
@@ -215,23 +203,20 @@ class TreeService(ServiceBase):
         child: dict[str, Any],
         content_strategy: str,
         depth: int,
+        ctx: _TreeContext,
         current_depth: int = 1,
-        bookmark_map: dict[Any, Any] | None = None,
-        *,
-        para_ranges: list[Any],
-        next_heading_map: dict[int, int],
     ) -> dict[str, Any]:
         node = {
             "type": "heading",
             **heading_ref(
                 child,
-                bookmark_map,
+                ctx.bookmark_map,
                 include_body=True,
                 include_children_count=True,
                 include_chapter=True,
             ),
         }
-        self._apply_content_strategy(node, content_strategy, para_ranges=para_ranges, next_heading_map=next_heading_map)
+        self._apply_content_strategy(node, content_strategy, ctx)
         if depth == 0 or current_depth < depth:
             if child.get("children"):
                 node["children"] = [
@@ -239,10 +224,8 @@ class TreeService(ServiceBase):
                         sub,
                         content_strategy,
                         depth,
+                        ctx,
                         current_depth + 1,
-                        bookmark_map,
-                        para_ranges=para_ranges,
-                        next_heading_map=next_heading_map,
                     )
                     for sub in child["children"]
                 ]
@@ -273,9 +256,7 @@ class TreeService(ServiceBase):
                 child,
                 content_strategy,
                 depth,
-                bookmark_map=ctx.bookmark_map,
-                para_ranges=ctx.para_ranges,
-                next_heading_map=ctx.next_heading_map,
+                ctx,
             )
             for child in ctx.tree["children"]
         ]
@@ -325,9 +306,7 @@ class TreeService(ServiceBase):
                 child,
                 content_strategy,
                 depth,
-                bookmark_map=ctx.bookmark_map,
-                para_ranges=ctx.para_ranges,
-                next_heading_map=ctx.next_heading_map,
+                ctx,
             )
             children.append(node)
 
@@ -477,7 +456,14 @@ class TreeService(ServiceBase):
         # is inside that paragraph. Anything else is an error, not a
         # location.
         para_idx = self._confirm_anchor_placement(
-            doc, bm, _bookmark_anchor_not_placed(bookmark_name)
+            doc,
+            bm,
+            ToolExecutionError(
+                "Bookmark '%s' anchor is not in the document. "
+                "It may be stale after an edit, save, or bookmark_cleanup. "
+                "Use heading_text:<text> or call get_document_tree to refresh bookmarks."
+                % bookmark_name
+            ),
         )
         return {"para_index": para_idx}
 

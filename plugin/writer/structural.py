@@ -120,7 +120,7 @@ class GetPageObjects(ToolBase):
             para_idx = kwargs.get("paragraph")
             if locator:
                 try:
-                    para_idx = _resolve_para_index(ctx, {"locator": locator})
+                    para_idx = _resolve_para_index(ctx, locator=locator)
                 except (ValueError, ToolExecutionError) as e:
                     return self._tool_error(str(e))
             if para_idx is not None:
@@ -317,22 +317,19 @@ class SectionRead(ToolWriterStructuralBase):
         return {"status": "ok", "section": section_name, "section_name": section_name, "paragraphs": paragraphs, "content": content, "length": len(content)}
 
 
-def _resolve_para_index(ctx: ToolContext, kwargs: dict[str, Any]) -> int | None:
-    """Resolve locator or paragraph_index from tool kwargs.
+def _resolve_para_index(
+    ctx: ToolContext,
+    locator: str | None = None,
+    paragraph_index: int | None = None,
+) -> int | None:
+    """Resolve locator or paragraph_index.
 
     Returns an integer paragraph index, or None if neither is provided.
     """
-    locator = kwargs.get("locator")
-    para_index = kwargs.get("paragraph_index")
+    if locator is not None and paragraph_index is None:
+        return ctx.services.document.resolve_locator(ctx.doc, locator)["para_index"]
 
-    if locator is not None and para_index is None:
-        doc_svc = ctx.services.document
-        resolved = doc_svc.resolve_locator(ctx.doc, locator)
-        para_index = resolved.get("para_index")
-        if para_index is None:
-            raise ToolExecutionError("Cannot resolve locator: %s" % locator)
-
-    return para_index
+    return paragraph_index
 
 
 class CloneHeadingBlock(ToolBaseDummy):
@@ -350,7 +347,11 @@ class CloneHeadingBlock(ToolBaseDummy):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         try:
-            para_index = _resolve_para_index(ctx, kwargs)
+            para_index = _resolve_para_index(
+                ctx,
+                locator=kwargs.get("locator"),
+                paragraph_index=kwargs.get("paragraph_index"),
+            )
         except ToolExecutionError as exc:
             return self._tool_error(str(exc))
         if para_index is None:
@@ -385,6 +386,9 @@ class CloneHeadingBlock(ToolBaseDummy):
         if not elements:
             return self._tool_error("Could not collect heading block paragraphs.")
 
+        def _is_text_table(el: Any) -> bool:
+            return hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable") is True
+
         # Insert duplicates after the last element of the block.
         # Snapshot text and style first. The cursor is created from the last
         # block paragraph, and insertControlCharacter(PARAGRAPH_BREAK) at that
@@ -399,7 +403,7 @@ class CloneHeadingBlock(ToolBaseDummy):
         for el in elements:
             # Why-comment: a table is in this enumeration and has no ParaStyleName
             # (same fact as html_export.py:767-772); do not add a table copier.
-            if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable") is True:
+            if _is_text_table(el):
                 skipped_tables += 1
                 continue
             clones.append((
@@ -408,7 +412,7 @@ class CloneHeadingBlock(ToolBaseDummy):
             ))
 
         last = elements[-1]
-        if hasattr(last, "supportsService") and last.supportsService("com.sun.star.text.TextTable") is True:
+        if _is_text_table(last):
             cursor = doc_text.createTextCursorByRange(last.getAnchor())
             cursor.collapseToEnd()
         else:

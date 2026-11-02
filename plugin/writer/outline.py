@@ -73,7 +73,6 @@ class GetDocumentTree(ToolBase):
         heading_tree = tree_svc.build_heading_tree(ctx.doc)
         stats = collect_document_stats(
             ctx.doc,
-            ctx.services.document,
             heading_tree=heading_tree,
             paragraph_count=result.get("total_paragraphs"),
             page_count=result.get("page_count"),
@@ -83,7 +82,6 @@ class GetDocumentTree(ToolBase):
 
 def collect_document_stats(
     doc: Any,
-    doc_svc: Any,
     *,
     heading_tree: Any,
     paragraph_count: int,

@@ -332,18 +332,15 @@ def test_get_document_tree_single_enumeration_and_stats():
     assert doc.enum_calls == 1
     doc_svc.get_page_count.assert_called_once()
 
-    # 3. collect_document_stats given heading_tree, paragraph_count, and page_count does not enumerate or call doc_svc again
+    # 3. collect_document_stats given heading_tree, paragraph_count, and page_count does not enumerate
     doc.enum_calls = 0
-    doc_svc.get_page_count.reset_mock()
     stats = collect_document_stats(
         doc,
-        doc_svc,
         heading_tree=tree_svc.build_heading_tree(doc),
         paragraph_count=res_fl["total_paragraphs"],
         page_count=res_fl["page_count"],
     )
     assert doc.enum_calls == 0
-    doc_svc.get_page_count.assert_not_called()
     assert stats["heading_count"] == 2
     assert stats["paragraph_count"] == 4
     assert stats["page_count"] == 1

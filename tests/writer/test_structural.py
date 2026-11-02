@@ -29,12 +29,12 @@ def _ctx(doc):
 
 def test_resolve_para_index_heading_text_is_not_paragraph_zero():
     doc = _doc()
-    assert _resolve_para_index(_ctx(doc), {"locator": "heading_text:Alpha"}) == 1
+    assert _resolve_para_index(_ctx(doc), locator="heading_text:Alpha") == 1
 
 
 def test_resolve_para_index_missing_heading_text_raises():
     with pytest.raises(ToolExecutionError, match="No heading matching 'Missing'"):
-        _resolve_para_index(_ctx(_doc()), {"locator": "heading_text:Missing"})
+        _resolve_para_index(_ctx(_doc()), locator="heading_text:Missing")
 
 
 def test_clone_heading_block_missing_locator_does_not_insert():
