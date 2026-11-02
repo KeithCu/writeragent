@@ -9,9 +9,7 @@ This module holds **Unicode sentence-boundary** tables, scheduling thresholds,
 Thai/Lao/Khmer whitespace chunking, hashing/fingerprinting, and the LLM worker caps/prompts.
 
 Must not import sibling grammar-processing modules under ``plugin.writer.locale``
-(leaf data modules such as ``locale_abbrev`` are fine). ``grammar_max_in_flight`` is the
-one deliberate exception: it lazily imports ``grammar_worker`` because the worker imports
-this module (a top-level import would cycle).
+(leaf data modules such as ``locale_abbrev`` and ``grammar_settings`` are fine).
 """
 
 from __future__ import annotations
@@ -22,6 +20,7 @@ import re
 from typing import Any, Sequence
 
 from plugin.framework.grammar_rule_ids import bcp47_to_uno_lang_country
+from plugin.writer.locale import grammar_settings
 
 _log = logging.getLogger("writeragent.grammar")
 
@@ -78,11 +77,8 @@ def grammar_max_in_flight() -> int:
     Local providers (Harper, LanguageTool, Vale) always use 1 worker; parallel
     drain threads and HTTP slots apply only when the grammar provider is LLM.
     """
-    # Lazy: grammar_worker imports this module at top level, so importing it here would cycle.
-    from plugin.writer.locale.grammar_worker import get_grammar_provider
-
     n = _clamped_int_config("doc.grammar_proofreader_max_in_flight", lo=1, hi=GRAMMAR_MAX_IN_FLIGHT)
-    if get_grammar_provider() != "llm":
+    if grammar_settings.provider() != "llm":
         # Harper / LanguageTool / Vale: never parallel drain threads.
         if n > 1:
             _log.debug("[grammar] max_in_flight=%s ignored for local provider (always 1)", n)

@@ -12,7 +12,8 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_checker_identity, grammar_registry
+from plugin.writer.locale import grammar_settings
+from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_registry
 from .grammar_proofread_locale import (
     GRAMMAR_CACHE_NORMALIZATION_RE,
     MAX_CACHE_SIZE,
@@ -25,13 +26,6 @@ from .grammar_proofread_locale import (
 def _sanitize_checker_identity(identity: str) -> str:
     """Pipe is the L1 key delimiter; model ids must not split the key."""
     return identity.replace("|", "/")
-
-
-def resolve_checker_identity(checker_identity: str | None = None) -> str:
-    """Return the L1/L2 checker identity, defaulting to the active grammar checker."""
-    if checker_identity is not None:
-        return checker_identity
-    return grammar_checker_identity()
 
 
 def ignore_rules_clear() -> None:
@@ -78,7 +72,8 @@ def sentence_identity_fp(sentence: str) -> str:
 
 def sentence_cache_key_prefix(locale_key: str, checker_identity: str | None = None) -> str:
     """Prefix for every sentence-cache OrderedDict key: ``sent|<locale>|<identity>|``."""
-    ident = _sanitize_checker_identity(resolve_checker_identity(checker_identity))
+    ident_raw = grammar_settings.checker_identity() if checker_identity is None else checker_identity
+    ident = _sanitize_checker_identity(ident_raw)
     return f"sent|{locale_key}|{ident}|"
 
 
@@ -202,7 +197,7 @@ def cache_get_sentence(
     checker_identity: str | None = None,
 ) -> list[dict[str, Any]] | None:
     """Return cached errors for this exact sentence (relative to sentence start = 0)."""
-    ident = resolve_checker_identity(checker_identity)
+    ident = grammar_settings.checker_identity() if checker_identity is None else checker_identity
     # The key already ends in fp; one fingerprint serves both (no double SHA-256).
     fp = sentence_identity_fp(sentence)
     key = _sentence_l1_key(locale_key, ident, fp)
@@ -242,7 +237,7 @@ def cache_put_sentence(
     checker_identity: str | None = None,
 ) -> None:
     """Cache errors for this sentence text (errors must have offsets relative to sentence start)."""
-    ident = resolve_checker_identity(checker_identity)
+    ident = grammar_settings.checker_identity() if checker_identity is None else checker_identity
     # Tier 1 (global LRU) + Tier 2 (document persistence): always warm L1; L2 when doc_id is set.
     entry = _populate_memory_cache_only(
         locale_key, sentence, errors, ident

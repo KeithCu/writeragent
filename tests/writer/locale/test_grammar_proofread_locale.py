@@ -181,7 +181,7 @@ def test_fingerprint_for_text() -> None:
 def test_grammar_max_in_flight_local_providers_always_one(provider: str) -> None:
     with (
         patch("plugin.framework.config.get_config_int_safe", return_value=4),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value=provider),
+        patch("plugin.writer.locale.grammar_settings.provider", return_value=provider),
     ):
         assert gl.grammar_max_in_flight() == 1
 
@@ -189,7 +189,7 @@ def test_grammar_max_in_flight_local_providers_always_one(provider: str) -> None
 def test_grammar_max_in_flight_llm_uses_config() -> None:
     with (
         patch("plugin.framework.config.get_config_int_safe", return_value=4),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="llm"),
+        patch("plugin.writer.locale.grammar_settings.provider", return_value="llm"),
     ):
         assert gl.grammar_max_in_flight() == 4
 
@@ -197,7 +197,7 @@ def test_grammar_max_in_flight_llm_uses_config() -> None:
 def test_grammar_max_in_flight_llm_clamps_to_hard_cap() -> None:
     with (
         patch("plugin.framework.config.get_config_int_safe", return_value=99),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="llm"),
+        patch("plugin.writer.locale.grammar_settings.provider", return_value="llm"),
     ):
         assert gl.grammar_max_in_flight() == gl.GRAMMAR_MAX_IN_FLIGHT
 

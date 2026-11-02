@@ -586,12 +586,10 @@ def maybe_start_harper_async(
     LibreHarper from HarperProofreader after init_config (no Jobs.xcu). Returns True if submitted.
     """
     from plugin.framework.config import user_config_dir as get_ucd
-    from plugin.writer.locale.grammar_worker import get_grammar_provider, is_grammar_enabled
-    from plugin.framework.uno_context import is_libreharper
+    from plugin.writer.locale import grammar_settings
 
-    if not is_libreharper():
-        if not is_grammar_enabled() or get_grammar_provider() != "harper":
-            return False
+    if grammar_settings.provider() != "harper":
+        return False
 
     ucd = user_config_dir
     if not ucd:
