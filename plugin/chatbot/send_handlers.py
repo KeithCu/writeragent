@@ -15,7 +15,7 @@ import threading
 import logging
 from typing import Any, Callable
 
-from plugin.framework.i18n import N_, _
+from plugin.framework.i18n import _
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_async_worker_with_drain
 from plugin.framework.errors import (
@@ -56,13 +56,9 @@ from plugin.chatbot.tool_loop_actions import (
     persist_assistant_on_turn,
 )
 from plugin.chatbot.chat_sidebar_mode import (
-    CHAT_MODE_BRAINSTORMING,
-    CHAT_MODE_DEEP_RESEARCH,
-    CHAT_MODE_IMAGE,
-    CHAT_MODE_LIBRARIAN,
-    CHAT_MODE_PPT_MASTER,
     CHAT_MODE_WEB_RESEARCH,
-    CHAT_MODE_WRITING_PLAN,
+    require_sidebar_mode,
+    sidebar_mode,
 )
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.framework.model_lru import update_lru_history
@@ -83,116 +79,6 @@ def _direct_image_source_arg(model: Any) -> str | None:
     return "selection" if selected_graphic_object(model) is not None else None
 
 
-from dataclasses import dataclass
-
-@dataclass(frozen=True)
-class _SpecializedRunnerSpec:
-    tool_name: str
-    tool_label: str
-    error_tag: str
-    default_error: str
-    error_flag: str | None = None
-    finish_msgid: str | None = None
-    finish_flag: str | None = None
-    copy_key: str | None = None
-    callback_name: str | None = None
-    pass_spec_saved: bool = False
-    clear_topic: bool = False
-    allowed_docs: tuple[str, ...] | None = None
-    dispatch_log: str = ""
-    topic_policy: str = ""
-    prefetch_suggested_name: bool = False
-    set_active_mode: bool = True
-    extra_kwarg: str | None = None
-    extra_attr: str | None = None
-    prepend_web_cache: bool = False
-
-
-_SPECIALIZED_SPECS: dict[str, _SpecializedRunnerSpec] = {
-    CHAT_MODE_LIBRARIAN: _SpecializedRunnerSpec(
-        tool_name="librarian_onboarding",
-        tool_label="librarian",
-        error_tag="Librarian",
-        default_error=_("Unknown librarian error."),
-        error_flag="in_librarian_mode",
-        finish_msgid=N_("Perfect! I'm switching you to the main assistant now."),
-        finish_flag="librarian_switch_to_chat",
-        callback_name="on_librarian_session_finished",
-        dispatch_log="_do_send: using librarian onboarding agent",
-        prefetch_suggested_name=True,
-        extra_kwarg="suggested_user_name",
-        extra_attr="_librarian_suggested_user_name",
-    ),
-    CHAT_MODE_BRAINSTORMING: _SpecializedRunnerSpec(
-        tool_name="brainstorming_session",
-        tool_label="brainstorming",
-        error_tag="Brainstorming",
-        default_error=_("Unknown brainstorming error."),
-        error_flag="in_brainstorming_mode",
-        finish_msgid=N_("Brainstorming complete."),
-        finish_flag="brainstorming_finished",
-        copy_key="spec_saved",
-        callback_name="on_brainstorming_session_finished",
-        pass_spec_saved=True,
-        clear_topic=True,
-        allowed_docs=("writer",),
-        dispatch_log="_do_send: using brainstorming sub-agent",
-        topic_policy="switch",
-        extra_kwarg="topic",
-        extra_attr="_mode_topic",
-    ),
-    CHAT_MODE_WRITING_PLAN: _SpecializedRunnerSpec(
-        tool_name="writing_plan_session",
-        tool_label="writing plan",
-        error_tag="Writing plan",
-        default_error=_("Unknown writing plan error."),
-        error_flag="in_writing_plan_mode",
-        finish_msgid=N_("Writing plan complete."),
-        finish_flag="writing_plan_finished",
-        callback_name="on_writing_plan_session_finished",
-        clear_topic=True,
-        allowed_docs=("writer",),
-        dispatch_log="_do_send: using writing plan sub-agent",
-        topic_policy="fill",
-        extra_kwarg="topic",
-        extra_attr="_mode_topic",
-    ),
-    CHAT_MODE_PPT_MASTER: _SpecializedRunnerSpec(
-        tool_name="ppt_master_session",
-        tool_label="PPT-Master",
-        error_tag="PPT-Master",
-        default_error=_("Unknown PPT-Master error."),
-        error_flag="in_ppt_master_mode",
-        finish_msgid=N_("PPT-Master session complete."),
-        finish_flag="ppt_master_finished",
-        copy_key="exported",
-        callback_name="on_ppt_master_session_finished",
-        clear_topic=True,
-        allowed_docs=("draw", "impress"),
-        dispatch_log="_do_send: using PPT-Master sub-agent",
-        topic_policy="switch",
-        extra_kwarg="topic",
-        extra_attr="_mode_topic",
-    ),
-    CHAT_MODE_DEEP_RESEARCH: _SpecializedRunnerSpec(
-        tool_name="deep_research_session",
-        tool_label="deep research",
-        error_tag="Deep research",
-        default_error=_("Unknown deep research error."),
-        dispatch_log="_do_send: using deep web research sub-agent — skip chat model and direct image",
-    ),
-    CHAT_MODE_WEB_RESEARCH: _SpecializedRunnerSpec(
-        tool_name="web_research",
-        tool_label="web search",
-        error_tag="Research",
-        default_error=_("Unknown research error."),
-        dispatch_log="_do_send: using web research sub-agent — skip chat model and direct image",
-        set_active_mode=False,
-        prepend_web_cache=True,
-    ),
-}
-
-
 def _tool_result_dict(res: Any, tool_label: str = "web search", doc_type: str = "unknown") -> dict[str, Any]:
     from plugin.chatbot.tool_loop_state import as_dict
 
@@ -206,32 +92,31 @@ def _tool_result_dict(res: Any, tool_label: str = "web search", doc_type: str = 
 
 def dispatch_sidebar_send(
     panel: Any,
-    sidebar_mode: str,
+    sidebar_mode_key: str,
     query_text: str,
     model: Any,
     doc_type_label: str,
 ) -> bool:
-    if sidebar_mode == CHAT_MODE_IMAGE:
+    mode = sidebar_mode(sidebar_mode_key)
+    if mode is None or mode.kind == "chat":
+        return False
+    if mode.kind == "image":
         log.debug("_do_send: using image model (direct, level=logging.INFO) — skip chat model")
         panel._send_handlers._do_send_direct_image(query_text, model)
         return True
 
-    spec = _SPECIALIZED_SPECS.get(sidebar_mode)
-    if spec is not None:
-        if spec.allowed_docs is not None and doc_type_label not in spec.allowed_docs:
-            return False
-        if spec.topic_policy == "switch":
-            if getattr(panel, "_active_mode", "") != sidebar_mode or not getattr(panel, "_mode_topic", ""):
-                panel._mode_topic = query_text
-        elif spec.topic_policy == "fill":
-            if not getattr(panel, "_mode_topic", ""):
-                panel._mode_topic = query_text
-        if spec.dispatch_log:
-            log.info(spec.dispatch_log)
-        panel._send_handlers._run_specialized(query_text, model, mode=sidebar_mode)
-        return True
-
-    return False
+    if mode.allowed_docs is not None and doc_type_label not in mode.allowed_docs:
+        return False
+    if mode.topic_policy == "switch":
+        if getattr(panel, "_active_mode", "") != sidebar_mode_key or not getattr(panel, "_mode_topic", ""):
+            panel._mode_topic = query_text
+    elif mode.topic_policy == "fill":
+        if not getattr(panel, "_mode_topic", ""):
+            panel._mode_topic = query_text
+    if mode.dispatch_log:
+        log.info(mode.dispatch_log)
+    panel._send_handlers._run_specialized(query_text, model, mode=sidebar_mode_key)
+    return True
 
 
 def _send_worker_queues(host: Any) -> tuple[StreamQueue, Any]:
@@ -298,31 +183,9 @@ class SendHandlersMixin:
             dispatch_event(StreamChunkEvent(chunk_text, is_thinking))
 
         def _finish_specialized_session(payload: dict[str, Any]) -> None:
-            # Brainstorm / writing-plan / PPT used to call these on the send
-            # worker. They touch the mode combo (UNO). Librarian already
-            # rides STREAM_DONE; these three do the same.
-            #
-            # When in_*_mode is False, run the same session-finished
-            # callback as success. That resets the combo and applies Chat
-            # mode. Error branches set in_*_mode=False in the STREAM_DONE
-            # payload; looking only for success keys
-            # (librarian_switch_to_chat, brainstorming_finished) assigns the
-            # host attributes and leaves the combo on the old mode.
-            for mode, spec in _SPECIALIZED_SPECS.items():
-                if spec.finish_flag is None:
-                    continue
-                errored = spec.error_flag is not None and payload.get(spec.error_flag) is False
-                if payload.get(spec.finish_flag) or errored:
-                    finished_cb = getattr(self._panel, spec.callback_name, None) if spec.callback_name else None
-                    if callable(finished_cb):
-                        if spec.pass_spec_saved:
-                            finished_cb(spec_saved=bool(payload.get("spec_saved", False)))
-                        else:
-                            finished_cb()
-                    if (not callable(finished_cb) or errored) and self._panel._active_mode == mode:
-                        self._panel._active_mode = ""
-                        if spec.clear_topic:
-                            self._panel._mode_topic = ""
+            key = payload.get("mode_finished")
+            if isinstance(key, str):
+                self._panel._sidebar_mode.on_mode_finished(key, payload)
 
         def on_stream_done(item: Any) -> None:
             # Stop or a new send already aborted this turn. The worker
@@ -688,7 +551,7 @@ class SendHandlersMixin:
 
     def _run_specialized(self, query_text: str, model: Any, mode: str = "") -> None:
         """Run a specialized mode (or web research) and stream its result into the response area."""
-        spec = _SPECIALIZED_SPECS.get(mode)
+        spec = sidebar_mode(mode)
         if spec and spec.prefetch_suggested_name:
             if not getattr(self._panel, "_librarian_suggested_user_name_fetched", False):
                 from plugin.chatbot.librarian import get_suggested_user_name
@@ -711,7 +574,7 @@ class SendHandlersMixin:
     def _execute_web_research_effect(self, query_text: str, model: Any, mode: str = "") -> None:
         from plugin.main import get_tools
 
-        spec = _SPECIALIZED_SPECS.get(mode, _SPECIALIZED_SPECS[CHAT_MODE_WEB_RESEARCH])
+        spec = sidebar_mode(mode) or require_sidebar_mode(CHAT_MODE_WEB_RESEARCH)
 
         drain_q, turn = _send_worker_queues(self._panel)
         # Read show_thinking before spawning the thread so apply_chunk can use it
@@ -792,17 +655,16 @@ class SendHandlersMixin:
                         answer = cache_block + answer
                     turn.put((StreamQueueKind.CHUNK, answer + "\n"))
                     turn.put((StreamQueueKind.STREAM_DONE, {"assistant_content": answer}))
-                elif spec.finish_flag is not None and data.get("status") in ("finished", "switch_mode"):
+                elif data.get("status") in ("finished", "switch_mode") and spec.leave_status is not None:
                     assert spec.finish_msgid is not None
                     raw = data.get("result", _(spec.finish_msgid))
                     if not isinstance(raw, str):
                         raw = str(raw)
                     done_payload: dict[str, Any] = {
-                        spec.finish_flag: True,
+                        "mode_finished": spec.key,
+                        "spec_saved": bool(data.get("spec_saved", False)) if spec.tracks_spec_saved else False,
                         "assistant_content": raw,
                     }
-                    if spec.copy_key:
-                        done_payload[spec.copy_key] = bool(data.get(spec.copy_key, False))
                     turn.put((StreamQueueKind.CHUNK, raw + "\n"))
                     turn.put((StreamQueueKind.STREAM_DONE, done_payload))
                 else:
@@ -811,9 +673,9 @@ class SendHandlersMixin:
                     turn.put((StreamQueueKind.CHUNK, note))
                     # The painted note is the assistant message, same as a stream error.
                     done_payload = {"assistant_content": note.strip()}
-                    if spec.error_flag:
-                        # Mode flag rides the one STREAM_DONE so the UI thread applies it.
-                        done_payload[spec.error_flag] = False
+                    if spec.leave_status is not None:
+                        done_payload["mode_finished"] = spec.key
+                        done_payload["spec_saved"] = False
                     turn.put((StreamQueueKind.STREAM_DONE, done_payload))
             except Exception as e:
                 log.exception("Web/Librarian path ERROR in _run_web_research [doc: %s]", doc_type)

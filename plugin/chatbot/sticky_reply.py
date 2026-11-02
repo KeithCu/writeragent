@@ -15,13 +15,13 @@ a dict the panel already understands (``switch_mode`` / ``finished``).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.config_schema import as_bool
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
+    from plugin.chatbot.chat_sidebar_mode import SidebarMode
     from plugin.framework.tool import ToolContext
 
 STATUS_OK = "ok"
@@ -29,57 +29,6 @@ STATUS_ERROR = "error"
 STATUS_INCOMPLETE = "incomplete"
 STATUS_FINISHED = "finished"
 STATUS_SWITCH_MODE = "switch_mode"
-
-
-@dataclass(frozen=True)
-class StickyReplySpec:
-    """Per-mode leave flag (old tool name), panel status, and optional extra bools."""
-
-    leave_flag: str
-    leave_status: str
-    tracks_spec_saved: bool = False
-    description: str = (
-        "Reply to the user in the sidebar. Set the leave flag true to end this mode "
-        "and return to Chat."
-    )
-
-    def __post_init__(self) -> None:
-        assert self.leave_flag, "leave_flag must be non-empty"
-        reserved = {"answer", "message", "result", "status"}
-        assert self.leave_flag not in reserved, f"leave_flag {self.leave_flag!r} collision with reserved field"
-
-
-LIBRARIAN_REPLY_SPEC = StickyReplySpec(
-    leave_flag="switch_to_document_mode",
-    leave_status=STATUS_SWITCH_MODE,
-    description=(
-        "Reply to the user in the sidebar. Set switch_to_document_mode true when "
-        "onboarding is done or they want document work (switches the dropdown to Chat)."
-    ),
-)
-
-BRAINSTORMING_REPLY_SPEC = StickyReplySpec(
-    leave_flag="brainstorming_finished",
-    leave_status=STATUS_FINISHED,
-    tracks_spec_saved=True,
-    description=(
-        "Reply to the user in the sidebar (HTML). Set brainstorming_finished true "
-        "to end brainstorming after the spec is saved and reviewed. spec_saved is "
-        "recorded from a successful save_design_spec this turn."
-    ),
-)
-
-WRITING_PLAN_REPLY_SPEC = StickyReplySpec(
-    leave_flag="writing_plan_finished",
-    leave_status=STATUS_FINISHED,
-    # plan_completed was copied onto the leave payload and never read.
-    # on_writing_plan_session_finished takes no extra flag; do not re-add
-    # the bool unless that callback grows a consumer (spec_saved is the pattern).
-    description=(
-        "Reply to the user in the sidebar (HTML). Set writing_plan_finished true "
-        "when the writing plan is done."
-    ),
-)
 
 
 def interpret_sticky_final_answer(output: Any, *, leave_status: str) -> dict[str, Any]:
@@ -113,29 +62,30 @@ class StickyReplyToUserTool(ToolBase):
     is_mutation: bool | None = False
     long_running: bool = False
     requires_document: bool = False
-    spec: StickyReplySpec
+    mode: SidebarMode
     description: str
     parameters: dict[str, Any] | None
     spec_saved: bool
 
-    def __init__(self, spec: StickyReplySpec) -> None:
-        self.spec = spec
-        self.description = spec.description
+    def __init__(self, mode: SidebarMode) -> None:
+        self.mode = mode
+        self.description = mode.reply_description
         self.spec_saved = False
         properties: dict[str, Any] = {
             "answer": {
                 "type": "string",
                 "description": "Message shown in the chat sidebar (HTML where the mode requires it).",
             },
-            spec.leave_flag: {
+        }
+        if mode.leave_flag:
+            properties[mode.leave_flag] = {
                 "type": "boolean",
                 "description": (
-                    f"Set true to end this mode ({spec.leave_flag}) and return to Chat. "
+                    f"Set true to end this mode ({mode.leave_flag}) and return to Chat. "
                     "Omit or false to keep talking."
                 ),
-            },
-        }
-        if spec.tracks_spec_saved:
+            }
+        if mode.tracks_spec_saved:
             properties["spec_saved"] = {
                 "type": "boolean",
                 "description": "Recorded from a successful save_design_spec this turn.",
@@ -158,13 +108,13 @@ class StickyReplyToUserTool(ToolBase):
         del ctx
         answer = kwargs.get("answer")
         answer_text = "" if answer is None else str(answer)
-        if as_bool(kwargs.get(self.spec.leave_flag, False)):
+        if self.mode.leave_flag and as_bool(kwargs.get(self.mode.leave_flag, False)):
             payload: dict[str, Any] = {
-                "status": self.spec.leave_status,
+                "status": self.mode.leave_status,
                 "result": answer_text,
                 "message": answer_text,
             }
-            if self.spec.tracks_spec_saved:
+            if self.mode.tracks_spec_saved:
                 payload["spec_saved"] = bool(self.spec_saved)
             return payload
         return {"status": STATUS_OK, "result": answer_text}

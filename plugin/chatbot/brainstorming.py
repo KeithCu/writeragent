@@ -13,7 +13,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Any, ClassVar
 
-from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
+from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, require_sidebar_mode
 from plugin.chatbot.sub_agent_tools import (
     HtmlContentToolBase,
     SUB_AGENT_DOC_CORE_TOOLS,
@@ -106,7 +106,7 @@ class BrainstormingSessionTool(SubAgentSessionToolBase):
             activity_label="Brainstorming",
             domain="brainstorming",
             base_instructions=BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
-            reply_spec=BRAINSTORMING_REPLY_SPEC,
+            mode=require_sidebar_mode(CHAT_MODE_BRAINSTORMING),
             topic_header="BRAINSTORMING TOPIC",
         )
     )

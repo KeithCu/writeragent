@@ -72,7 +72,8 @@ from plugin.chatbot.librarian import (
     get_os_login_name,
     get_suggested_user_name,
 )
-from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC, StickyReplyToUserTool
+from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, require_sidebar_mode
+from plugin.chatbot.sticky_reply import StickyReplyToUserTool
 from plugin.chatbot.memory import MemoryTool
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
@@ -87,7 +88,7 @@ from plugin.framework.tool import ToolBase
 # =============================================================================
 
 
-def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat") -> SimpleNamespace:
+def _make_listener(*, active_librarian: bool = False, sidebar_mode: str = "chat") -> SimpleNamespace:
     import types
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
     from plugin.chatbot.panel import SendButtonListener
@@ -132,7 +133,7 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         model_selector=MagicMock(),
         status_control=None,
         query_control=query_control,
-        _active_mode="librarian" if in_librarian_mode else "",
+        _active_mode="librarian" if active_librarian else "",
         _mode_topic="",
         _terminal_status="Ready",
         _stt_inflight=False,
@@ -899,7 +900,7 @@ class TestLibrarianSmol:
         ctx.ctx = MagicMock()
 
         memory_tool = MemoryTool()
-        reply_tool = StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC)
+        reply_tool = StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN))
 
         smol_memory = SmolToolAdapter(memory_tool, ctx, safe=False, inputs_style="librarian")
         smol_reply = SmolToolAdapter(reply_tool, ctx, safe=False, inputs_style="librarian")
@@ -936,7 +937,7 @@ class TestLibrarianSmol:
 
         tools = [
             SmolToolAdapter(MemoryTool(), ctx, safe=False, inputs_style="librarian"),
-            SmolToolAdapter(StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC), ctx, safe=False, inputs_style="librarian"),
+            SmolToolAdapter(StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN)), ctx, safe=False, inputs_style="librarian"),
         ]
 
         # This shouldn't raise "All elements must be instance of BaseTool"
@@ -1299,8 +1300,13 @@ def test_do_send_agent_backend_success_skips_builtin():
     listener._append_response.assert_not_called()
 
 
-def test_on_librarian_session_finished_applies_chat_mode():
-    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, SidebarModeController, SidebarModeFlags
+def test_librarian_mode_finished_applies_chat_mode():
+    from plugin.chatbot.chat_sidebar_mode import (
+        CHAT_MODE_CHAT,
+        CHAT_MODE_LIBRARIAN,
+        SidebarModeController,
+        SidebarModeFlags,
+    )
 
     listener = SimpleNamespace(
         sidebar_mode_flags=SidebarModeFlags(include_brainstorming=True, include_writing_plan=True),
@@ -1309,7 +1315,7 @@ def test_on_librarian_session_finished_applies_chat_mode():
         _active_mode="librarian",
     )
     with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
-        SidebarModeController(listener).on_librarian_session_finished()
+        SidebarModeController(listener).on_mode_finished(CHAT_MODE_LIBRARIAN, {})
 
     assert listener._active_mode == ""
     mock_set.assert_called_once()
@@ -1568,15 +1574,17 @@ class TestSmolToolMarshaling:
     @patch("plugin.framework.queue_executor.execute_on_main_thread")
     def test_sticky_reply_tool_marshalled_to_main_thread(self, mock_execute_on_main_thread):
         """Verify StickyReplyToUserTool is async and executes directly on worker without main-thread marshal."""
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, require_sidebar_mode
         from plugin.chatbot.smol_agent import SmolToolAdapter
-        from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC, StickyReplyToUserTool
+        from plugin.chatbot.sticky_reply import StickyReplyToUserTool
 
         ctx = MagicMock()
-        tool = SmolToolAdapter(StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC), ctx, safe=False)
+        mode = require_sidebar_mode(CHAT_MODE_LIBRARIAN)
+        tool = SmolToolAdapter(StickyReplyToUserTool(mode), ctx, safe=False)
 
         res = tool.forward(answer="All done", switch_to_document_mode=True)
 
-        assert (res.get("status")) == (LIBRARIAN_REPLY_SPEC.leave_status)
+        assert (res.get("status")) == (mode.leave_status)
         assert (res.get("result")) == ("All done")
         assert (res.get("message")) == ("All done")
         assert (mock_execute_on_main_thread.call_count) == (0)
@@ -1587,8 +1595,8 @@ class TestSmolToolMarshaling:
 
     def test_max_steps_string_with_reply_spec_is_incomplete(self):
         """When agent reaches max steps and returns a string without reply_to_user, status is incomplete."""
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, require_sidebar_mode
         from plugin.chatbot.smol_agent import run_smol_side_turn
-        from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
 
         ctx = MagicMock()
         with patch("plugin.chatbot.smol_agent.run_inner_tool_agent", return_value="Reached max steps"):
@@ -1599,7 +1607,7 @@ class TestSmolToolMarshaling:
                 collector=lambda c: [],
                 instructions="",
                 examples_key="brainstorming",
-                reply_spec=BRAINSTORMING_REPLY_SPEC,
+                mode=require_sidebar_mode(CHAT_MODE_BRAINSTORMING),
                 status_message="",
                 stop_message="",
                 error_prefix="",

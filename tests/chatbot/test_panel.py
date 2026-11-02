@@ -181,34 +181,34 @@ class TestSidebarModeFinishApplies:
         return listener
 
     def test_saved_spec_keeps_topic_and_applies_writing_plan(self) -> None:
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WRITING_PLAN
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_WRITING_PLAN
 
         listener = self._listener()
         with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
-            SendButtonListener.on_brainstorming_session_finished(listener, spec_saved=True)
+            listener._sidebar_mode.on_mode_finished(CHAT_MODE_BRAINSTORMING, {"spec_saved": True})
         assert listener._mode_topic == "Implement the saved spec: Kitchen remodel"
         assert listener._active_mode == CHAT_MODE_WRITING_PLAN
         assert mock_set.call_args[0][1] == CHAT_MODE_WRITING_PLAN
         listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_WRITING_PLAN)
 
     def test_brainstorm_without_spec_applies_chat(self) -> None:
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_CHAT
 
         listener = self._listener()
         with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
-            SendButtonListener.on_brainstorming_session_finished(listener, spec_saved=False)
+            listener._sidebar_mode.on_mode_finished(CHAT_MODE_BRAINSTORMING, {"spec_saved": False})
         listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
 
     def test_writing_plan_and_ppt_finish_apply_chat(self) -> None:
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, CHAT_MODE_PPT_MASTER, CHAT_MODE_WRITING_PLAN
 
-        for method in (
-            SendButtonListener.on_writing_plan_session_finished,
-            SendButtonListener.on_ppt_master_session_finished,
+        for mode_key in (
+            CHAT_MODE_WRITING_PLAN,
+            CHAT_MODE_PPT_MASTER,
         ):
             listener = self._listener()
             with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
-                method(listener)
+                listener._sidebar_mode.on_mode_finished(mode_key, {})
             listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
 
 
