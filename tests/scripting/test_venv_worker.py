@@ -36,8 +36,9 @@ from plugin.scripting.ipc import (
 import plugin.scripting.venv_worker as venv_worker_module
 from plugin.scripting.sandbox import scrub_subprocess_env
 from plugin.scripting.venv_worker import (
+    FailedAfterStart,
     PythonWorkerManager,
-    _StopRequested,
+    Terminal,
     _worker_error,
     _worker_error_message,
     _ExecRequest,
@@ -686,11 +687,11 @@ def test_write_timeout_skips_terminate_when_writer_already_detached():
             mgr._proc = None
             raise subprocess.TimeoutExpired(cmd=sys.executable, timeout=1)
 
-    def read(*args: object, **kwargs: object) -> dict[str, object]:
+    def read(*args: object, **kwargs: object) -> Terminal:
         del kwargs
         wire = args[3]
         assert isinstance(wire, dict)
-        return {"id": wire.get("id"), "status": "ok", "result": 1}
+        return Terminal({"id": wire.get("id"), "status": "ok", "result": 1})
 
     mgr._ensure_running = MagicMock(side_effect=ensure)  # type: ignore[method-assign]
     mgr._write_frame_with_timeout = write  # type: ignore[method-assign]
@@ -1050,8 +1051,9 @@ def test_win32_partial_frame_timeout_with_stop_is_cancelled(monkeypatch: pytest.
         raise IpcPartialFrameTimeout("timeout mid-frame")
 
     monkeypatch.setattr("plugin.scripting.ipc._poll_pipe", _boom)
-    with pytest.raises(_StopRequested):
-        mgr._read_frame_bytes(_Stdout(), 1.0, stop_checker=lambda: True)
+    res = mgr._read_frame_bytes(_Stdout(), 1.0, stop_checker=lambda: True)
+    assert isinstance(res, FailedAfterStart)
+    assert res.kind == "cancel"
 
     with pytest.raises(IpcPartialFrameTimeout):
         mgr._read_frame_bytes(_Stdout(), 1.0, stop_checker=lambda: False)
@@ -1385,8 +1387,7 @@ def test_retired_worker_does_not_respawn():
             PythonWorkerManager.get("/tmp/python-new-path", {"PATH": "/usr/bin"}, pool=WORKER_POOL_DEFAULT)
         assert first._retired is True
         assert True in seen
-        with pytest.raises(RuntimeError, match="will not be restarted"):
-            first._ensure_running()
+        assert first._ensure_running() is False
         assert first._proc is None
     finally:
         PythonWorkerManager.shutdown_all()
@@ -2793,9 +2794,10 @@ def test_execute_ipc_attempts_stop_checker_aborts() -> None:
         return True
 
     t0 = time.monotonic()
-    with pytest.raises(_StopRequested):
-        mgr._read_response_bytes(io.BufferedReader(MockStdout()), timeout_sec=60, stop_checker=stop_checker)
+    result = mgr._read_response_bytes(io.BufferedReader(MockStdout()), timeout_sec=60, stop_checker=stop_checker)
     assert time.monotonic() - t0 < 1.0
+    assert isinstance(result, FailedAfterStart)
+    assert result.kind == "cancel"
     assert stop_called[0]
 
 
@@ -2881,7 +2883,8 @@ def test_read_until_terminal_uses_parsed_heartbeat_frame(monkeypatch: pytest.Mon
         resolved_script_session_id=None,
     )
 
-    assert result == parsed
+    assert isinstance(result, Terminal)
+    assert result.response == parsed
     mgr._read_response_with_heartbeats.assert_called_once()
 
 
@@ -2905,8 +2908,11 @@ def test_read_response_with_heartbeats_stop_checker() -> None:
         def read(self, n: int = -1) -> bytes:
             return b""
 
-    with pytest.raises(_StopRequested):
-        mgr._read_response_with_heartbeats(MockStdout(), timeout_sec=60, grace_sec=10, on_heartbeat=None, stop_checker=stop_checker)
+    t0 = time.monotonic()
+    result = mgr._read_response_with_heartbeats(MockStdout(), timeout_sec=60, grace_sec=10, on_heartbeat=None, stop_checker=stop_checker)
+    assert time.monotonic() - t0 < 1.0
+    assert isinstance(result, FailedAfterStart)
+    assert result.kind == "cancel"
 
     assert stop_called[0]
 
@@ -2953,8 +2959,6 @@ def test_missing_proc_after_concurrent_terminate():
 
 def test_stop_checker_returns_cancelled_code():
     """Stop during the IPC wait kills the worker, does not replay, and returns CANCELLED."""
-    from plugin.scripting.venv_worker import _StopRequested
-
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
     proc.poll.return_value = None
@@ -2964,7 +2968,9 @@ def test_stop_checker_returns_cancelled_code():
     mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
     mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
-    mgr._read_response_bytes = MagicMock(side_effect=_StopRequested())  # type: ignore[method-assign]
+    mgr._read_response_bytes = MagicMock(  # type: ignore[method-assign]
+        return_value=FailedAfterStart(RuntimeError("Python worker stopped by user"), "cancel")
+    )
 
     result = mgr._execute_ipc_unlocked(_ExecRequest("result = 1", timeout_sec=1, stop_checker=lambda: True))
 
@@ -3357,8 +3363,8 @@ def test_allowed_tools_resolved_before_request_write(monkeypatch: pytest.MonkeyP
 
     mgr._write_frame_with_timeout = _write  # type: ignore[method-assign]
 
-    def _read(stdout: Any, stdin: Any, req: Any, wire: dict[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
-        return {"id": wire["id"], "status": "ok", "result": 1}
+    def _read(stdout: Any, stdin: Any, req: Any, wire: dict[str, Any], *args: Any, **kwargs: Any) -> Terminal:
+        return Terminal({"id": wire["id"], "status": "ok", "result": 1})
 
     mgr._read_until_terminal = _read  # type: ignore[method-assign]
 
@@ -3407,9 +3413,7 @@ def test_ensure_running_retired_during_reap_join_does_not_return_live_proc() -> 
     mgr._join_reaps = _join_reaps_retires  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="will not be restarted"):
-        mgr._ensure_running()
-
+    assert mgr._ensure_running() is False
     assert mgr._terminate_worker.call_count == 0
     assert mgr._proc is proc
 
