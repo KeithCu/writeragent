@@ -44,7 +44,6 @@ class TestGetDocumentTreeMergedStats:
         assert ("children") in (result)
         mock_collect.assert_called_once_with(
             ctx.doc,
-            ctx.services.document,
             heading_tree=tree_svc.build_heading_tree.return_value,
             paragraph_count=5,
             page_count=2,
@@ -70,7 +69,6 @@ def test_collect_document_stats_disposal_is_not_zero_headings():
 
 def test_collect_document_stats_page_failure_keeps_other_counts():
     doc = MagicMock()
-    doc_svc = MagicMock()
     tree = {
         "children": [
             {"children": []},
@@ -80,7 +78,6 @@ def test_collect_document_stats_page_failure_keeps_other_counts():
     with patch("plugin.writer.outline.get_string_without_tracked_deletions", return_value="hello world"):
         stats = collect_document_stats(
             doc,
-            doc_svc,
             heading_tree=tree,
             paragraph_count=4,
             page_count=0,
@@ -89,13 +86,10 @@ def test_collect_document_stats_page_failure_keeps_other_counts():
     assert stats["word_count"] == 2
     assert stats["paragraph_count"] == 4
     assert stats["heading_count"] == 3
-    doc_svc.get_document_length.assert_not_called()
 
 
 def test_collect_document_stats_text_failure_propagates():
     doc = MagicMock()
-    doc_svc = MagicMock()
-    doc_svc.get_document_length.return_value = 42
     with patch(
         "plugin.writer.outline.get_string_without_tracked_deletions",
         side_effect=RuntimeError("no text"),
@@ -103,22 +97,18 @@ def test_collect_document_stats_text_failure_propagates():
         with pytest.raises(RuntimeError):
             collect_document_stats(
                 doc,
-                doc_svc,
                 heading_tree={"children": []},
                 paragraph_count=1,
                 page_count=4,
             )
-    doc_svc.get_document_length.assert_not_called()
 
 
 def test_collect_document_stats_propagates_disposal_on_the_tool_path():
     doc = MagicMock()
     doc.getText.side_effect = DocumentDisposedError("closed", object_type="Document")
-    doc_svc = MagicMock()
     with pytest.raises(DocumentDisposedError):
         collect_document_stats(
             doc,
-            doc_svc,
             heading_tree={"children": []},
             paragraph_count=1,
             page_count=1,
