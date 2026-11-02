@@ -174,10 +174,9 @@ def init_i18n(ctx: Any | None = None) -> None:
         log.debug("i18n init: translation_type=%s", type(_translation).__name__)
 
 
-# Msgids must be <= DEAL_MAX_MSGID (wide in both profiles; SOURCE is 8192/16).
-# CrossHair-on with msgid=1024 wanders for hours. Shrinking DEAL_MAX_MSGID would
-# reject real UI _() strings at import under WRITERAGENT_CROSSHAIR=1. Pytest
-# still checks the contract; check-all skips this wrapper.
+# Msgids must be <= DEAL_MAX_MSGID (1024).
+# CrossHair-on with msgid=1024 wanders for hours. Pytest still checks the
+# contract; check-all skips this wrapper via crosshair: off.
 @deal.pre(lambda message: str_bounded(message, DEAL_MAX_MSGID))
 @deal.post(lambda result: isinstance(result, str))
 def _(message: str) -> str:

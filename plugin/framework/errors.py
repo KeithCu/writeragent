@@ -31,7 +31,7 @@ from typing import Any, Callable, NoReturn, TypeVar, overload
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
-from plugin.framework.deal_shim import DEAL_MAX_MSGID, UNDER_CROSSHAIR, deal
+from plugin.framework.deal_shim import DEAL_MAX_MSGID, deal
 
 _FILESYSTEM_ERRNOS: frozenset[int] = frozenset(
     val
@@ -207,12 +207,9 @@ class WriterAgentException(Exception):
         # Runtime / interpolated strings are not in the gettext catalog; _() is a no-op
         # unless the exact source string was extracted. Long runtime text skips _()
         # to avoid deal.PreContractError (past DEAL_MAX_MSGID, not in catalog).
-        if UNDER_CROSSHAIR:
-            text = "mock"
-        else:
-            text = resolve_exception_message(message)
-            if len(text) <= DEAL_MAX_MSGID:
-                text = _(text)
+        text = resolve_exception_message(message)
+        if len(text) <= DEAL_MAX_MSGID:
+            text = _(text)
         super().__init__(text)
         self.message = text
         if code is not None:
@@ -256,12 +253,8 @@ def format_error_payload(e: BaseException) -> dict[str, Any]:
         return payload
 
     # For unexpected exceptions
-    if UNDER_CROSSHAIR:
-        err_type = "ValueError"
-        err_msg = "mock"
-    else:
-        err_type = type(e).__name__
-        err_msg = resolve_exception_message(e)
+    err_type = type(e).__name__
+    err_msg = resolve_exception_message(e)
     return {"status": "error", "code": "INTERNAL_ERROR", "message": err_msg, "details": {"type": err_type}}
 
 
@@ -300,7 +293,7 @@ def format_error_message(e: BaseException) -> str:
     import socket
     import urllib.error
 
-    msg = "mock" if UNDER_CROSSHAIR else resolve_exception_message(e)
+    msg = resolve_exception_message(e)
     if isinstance(e, ssl.SSLError):
         return _("TLS/SSL Error: {0}").format(msg)
     # Only HTTPError carries a status. RemoteDisconnected, BadStatusLine,
@@ -317,7 +310,7 @@ def format_error_message(e: BaseException) -> str:
             return mapped
         if code >= 500:
             return _("Server error ({0}). The AI provider is having issues.").format(code)
-        reason = "mock" if UNDER_CROSSHAIR else str(getattr(e, "reason", "") or "")
+        reason = str(getattr(e, "reason", "") or "")
         return _("HTTP Error {0}: {1}").format(code, reason)
 
     # Typed exceptions first. Substring checks below are last-resort for
@@ -337,9 +330,7 @@ def format_error_message(e: BaseException) -> str:
     else:
         reason_obj = e
 
-    if UNDER_CROSSHAIR:
-        reason = "mock"
-    elif reason_obj is not None:
+    if reason_obj is not None:
         reason = resolve_exception_message(reason_obj)
     else:
         reason = str(getattr(e, "reason", None) or e)

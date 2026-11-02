@@ -26,11 +26,6 @@ from urllib.parse import urlparse
 log = logging.getLogger("writeragent.mcp.cors")
 
 from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_ORIGIN,
-    UNDER_CROSSHAIR,
-    _profile,
-    ascii_bounded,
     deal,
     inverse_ensure,
 )
@@ -62,16 +57,11 @@ def _deal_origin_ok_pytest(origin: object) -> bool:
     # Browser Origin headers are not limited to DEAL_MAX_ORIGIN or the
     # URL-safe alphabet. A junk or huge Origin used to raise
     # PreContractError out of send_cors_headers (HTTP 500). The body
-    # returns False / None. CrossHair keeps the closed alphabet.
+    # returns False / None.
     return isinstance(origin, str)
 
 
-def _deal_origin_ok_crosshair(origin: object) -> bool:
-    """Closed Origin domain: URL-safe alphabet, DEAL_MAX_ORIGIN length."""
-    return isinstance(origin, str) and len(origin) <= DEAL_MAX_ORIGIN and all(c in _ORIGIN_CHARS for c in origin)
-
-
-_deal_origin_ok = _deal_origin_ok_crosshair if UNDER_CROSSHAIR else _deal_origin_ok_pytest
+_deal_origin_ok = _deal_origin_ok_pytest
 
 
 def _deal_allow_headers_ok_pytest(value: object) -> bool:
@@ -80,34 +70,11 @@ def _deal_allow_headers_ok_pytest(value: object) -> bool:
     return isinstance(value, str)
 
 
-def _deal_allow_headers_ok_crosshair(value: object) -> bool:
-    """Preflight header-list domain: ascii tokens, few commas (not 32-char junk)."""
-    if not isinstance(value, str) or not ascii_bounded(value, DEAL_MAX_ORIGIN):
-        return False
-    if value.count(",") > DEAL_MAX_CMD_ARGS:
-        return False
-    return all(c in _HEADER_LIST_CHARS for c in value)
-
-
-_deal_allow_headers_ok = (
-    _deal_allow_headers_ok_crosshair if UNDER_CROSSHAIR else _deal_allow_headers_ok_pytest
-)
-
-
-def _deal_origins_config_ok_crosshair(value: object) -> bool:
-    return (
-        value is None
-        or (isinstance(value, str) and _deal_origin_ok(value))
-        or (
-            isinstance(value, list)
-            and len(value) <= DEAL_MAX_CMD_ARGS
-            and all(_deal_origin_ok(item) for item in value)
-        )
-    )
-
+_deal_allow_headers_ok = _deal_allow_headers_ok_pytest
 
 # Raw user config: accept anything; the body drops what it cannot use.
-_deal_origins_config_ok = _profile(_deal_origins_config_ok_crosshair)
+def _deal_origins_config_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 @deal.pre(lambda value: value is None or _deal_origin_ok(value))

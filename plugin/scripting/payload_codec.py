@@ -45,9 +45,7 @@ from typing import TYPE_CHECKING, Any, cast
 from plugin.framework.deal_shim import (
     DEAL_MAX_COL_INDEX,
     DEAL_MAX_ROW_INDEX,
-    DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SHAPE_RANK,
-    _profile,
     deal,
     inverse_ensure,
 )
@@ -434,22 +432,8 @@ def _deal_product_grid_ok(grid: object) -> bool:
     return True
 
 
-def _deal_wire_dict_ok_crosshair(obj: object) -> bool:
-    """Short top-level key cap for the CrossHair table only.
-
-    Real split_grid.strings maps have thousands of cell entries (Gemini AFC: 7588);
-    do not deep-walk. Detectors are already crosshair: off. The short table still
-    rejects a dict wider than SHAPE_DIM (4) so the domain stays closed.
-    """
-    if not isinstance(obj, dict):
-        return True
-    return len(obj) <= DEAL_MAX_SHAPE_DIM
-
-
-# Pytest/production: always in domain. A len<=DEAL_MAX_SHAPE_DIM cap raised
-# PreContractError (an AssertionError) on wide plain dicts before host_unpack
-# and json_egress saw them. Release OXTs strip deal and already accept them.
-_deal_wire_dict_ok = _profile(_deal_wire_dict_ok_crosshair)
+def _deal_wire_dict_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 def _is_multi_data_envelope(envelope: object) -> bool:
@@ -720,7 +704,7 @@ def _is_split_grid_envelope(envelope: object) -> bool:
 
 @deal.pre(lambda obj: _deal_wire_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
-def _is_any_payload_envelope(obj: object) -> bool:
+def _is_any_payload_envelope(obj: object) -> bool:  # pyright: ignore[reportUnusedFunction]
     # crosshair: off
     # Body already ORs the five family detectors; a matching ensure re-ran all
     # five on every CrossHair post.
@@ -853,7 +837,7 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     return f"{type(obj).__name__}={repr(obj)[:120]}"
 
 
-_SHAPE_DIM_CAP = _profile(DEAL_MAX_SHAPE_DIM, DEAL_MAX_ROW_INDEX + 1)
+_SHAPE_DIM_CAP = DEAL_MAX_ROW_INDEX + 1
 
 
 def _deal_shape_ok(shape: object) -> bool:
@@ -1742,20 +1726,8 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     return [flat_list[r * ncols : (r + 1) * ncols] for r in range(nrows)]
 
 
-# A narrow type list raised PreContractError on real values (datetime, Decimal,
-# bytes, etc.); pytest/production stays total via _profile's default True.
-# CrossHair keeps that type list.
-def _deal_host_unpack_wire_ok_crosshair(wire: object) -> bool:
-    return (
-        _is_any_payload_envelope(wire)
-        or isinstance(wire, (list, tuple, dict, str, int, float, bool))
-        or wire is None
-        or _is_ndarray(wire)
-        or getattr(type(wire), "__module__", "") == "numpy"
-    )
-
-
-_deal_host_unpack_wire_ok = _profile(_deal_host_unpack_wire_ok_crosshair)
+def _deal_host_unpack_wire_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 @deal.pre(lambda wire, *_unused, **__: _deal_host_unpack_wire_ok(wire))
@@ -1971,20 +1943,8 @@ def _child_unpack_single_data(wire: Any) -> Any:
     return unpacked
 
 
-# Child wire ingest is total on the pytest profile via _profile's default True.
-# Same class of bug as host_unpack_data: an odd but real payload raised
-# PreContractError instead of the body's ValueError/passthrough.
-# CrossHair keeps the closed type list.
-def _deal_child_unpack_wire_ok_crosshair(wire: object) -> bool:
-    return (
-        _is_any_payload_envelope(wire)
-        or isinstance(wire, (list, tuple, dict, str, int, float, bool))
-        or wire is None
-        or (hasattr(wire, "__class__") and wire.__class__.__name__ == "ndarray")
-    )
-
-
-_deal_child_unpack_wire_ok = _profile(_deal_child_unpack_wire_ok_crosshair)
+def _deal_child_unpack_wire_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 @deal.pre(lambda wire, *_unused, **__: _deal_child_unpack_wire_ok(wire))

@@ -7,10 +7,9 @@
 
 from __future__ import annotations
 
-import os
+import io
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -285,16 +284,21 @@ def test_crosshair_formula_edit_fqn_if_available(target: str) -> None:
     crosshair_path = _find_crosshair()
     if not crosshair_path:
         pytest.skip("CrossHair concolic execution engine is not installed.")
-    result = subprocess.run(
-        [crosshair_path, "check", "-v", "--report_all", target],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        env={**os.environ, "WRITERAGENT_CROSSHAIR": "1"},
+    from scripts.crosshair_stream import run_crosshair
+
+    buf = io.StringIO()
+    exit_code, _stats = run_crosshair(
+        "check",
+        ["-v", "--report_all", target],
+        mode="check",
+        raw=True,
+        quiet=False,
+        out=buf,
+        timeout_sec=300,
     )
-    combined = f"{result.stdout}\n{result.stderr}".strip()
+    combined = buf.getvalue().strip()
     print(f"CrossHair output ({target}):\n{combined}")
     errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
     assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
-    if result.returncode == 2:
+    if exit_code == 2:
         pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")

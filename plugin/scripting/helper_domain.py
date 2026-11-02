@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
 
 
 def _deal_user_code_ok_pytest(code: object, run_name: object = "") -> bool:
@@ -28,11 +28,7 @@ def _deal_user_code_ok_pytest(code: object, run_name: object = "") -> bool:
     return isinstance(code, str) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
 
 
-def _deal_user_code_ok_crosshair(code: object, run_name: object = "") -> bool:
-    return str_bounded(code, DEAL_MAX_SOURCE) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
-
-
-_deal_user_code_ok = _deal_user_code_ok_crosshair if UNDER_CROSSHAIR else _deal_user_code_ok_pytest
+_deal_user_code_ok = _deal_user_code_ok_pytest
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.scripting")
@@ -211,9 +207,6 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
     if not code:
         return None
 
-    # CrossHair timing/contract switch, not a test leak.
-    if UNDER_CROSSHAIR:
-        return None
     try:
         tree = ast.parse(code)
     except (SyntaxError, TypeError, ValueError):
@@ -417,8 +410,6 @@ def format_elapsed_time(seconds: float) -> str:
 
 def _elapsed_since(t0: float) -> float:
     """Seconds since *t0*, or 0 while CrossHair is loaded."""
-    if UNDER_CROSSHAIR:
-        return 0.0
     return time.perf_counter() - t0
 
 
