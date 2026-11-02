@@ -87,11 +87,8 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
         return None
     country = str(getattr(char_locale, "Country", "") or "").strip()
     lo_tag = f"{lang}_{country}" if country else lang
-    iso = getattr(char_locale, "Language", None)
-    snowball = _ISO_TO_SNOWBALL.get(iso) if iso else None
-    if lo_tag and snowball:
-        return lo_tag, snowball
-    return None
+    snowball = _ISO_TO_SNOWBALL.get(lang)
+    return (lo_tag, snowball) if snowball else None
 
 
 def _run_on_main_or_none(fn: Callable[[], Any], what: str, *, reraise_disposed: bool = False) -> Any | None:
@@ -320,11 +317,9 @@ def store_research_cache_embeddings(
 
     def do_store(conn: Any) -> None:
         now = time.time()
-        attempted = False
         for raw_key, text, vector in rows:
             if not raw_key or not text or not vector:
                 continue
-            floats = [float(v) for v in vector]
             conn.execute(
                 "INSERT OR REPLACE INTO web_cache_embeddings "
                 "(kind, key, embedding_model, embedding_text, text_hash, dim, vector_json, created_at) "
@@ -335,16 +330,14 @@ def store_research_cache_embeddings(
                     embedding_model,
                     text,
                     _embedding_text_hash(text),
-                    len(floats),
-                    json.dumps(floats, separators=(",", ":")),
+                    len(vector),
+                    json.dumps(vector, separators=(",", ":")),
                     now,
                     _RESEARCH_CACHE_KIND,
                     raw_key,
                 ),
             )
-            attempted = True
-        if attempted:
-            conn.commit()
+        conn.commit()
 
     _web_cache_with_connection(cache_path, do_store)
 
@@ -433,6 +426,13 @@ def _get_embedding_model_or_none() -> str | None:
         return None
 
 
+def _embed_by_index(ctx: Any, texts: list[str], model: str) -> dict[int, list[float]]:
+    from plugin.embeddings.embedding_client import embed_texts
+
+    batch = embed_texts(ctx, texts, model=model)
+    return dict(zip(batch.indices, batch.vectors))
+
+
 def find_embedding_research_match(
     ctx: Any,
     cache_path: str,
@@ -454,12 +454,9 @@ def find_embedding_research_match(
     if not stored:
         return None
 
-    from plugin.embeddings.embedding_client import embed_texts
-
     query_text = str(embedding_text or "").strip() or word_key
     # Omit timeout_sec so embed_texts uses embeddings_worker_timeout_sec (long trusted budget).
-    batch = embed_texts(ctx, [query_text], model=model)
-    query_vector = dict(zip(batch.indices, batch.vectors)).get(0)
+    query_vector = _embed_by_index(ctx, [query_text], model).get(0)
     if not query_vector:
         return None
 
@@ -476,11 +473,8 @@ def find_embedding_research_match(
 
 
 def _embed_and_store(ctx: Any, cache_path: str, model: str, pairs: list[tuple[str, str]]) -> bool:
-    from plugin.embeddings.embedding_client import embed_texts
-
     texts = [text for _raw_key, text in pairs]
-    batch = embed_texts(ctx, texts, model=model)
-    by_index = dict(zip(batch.indices, batch.vectors))
+    by_index = _embed_by_index(ctx, texts, model)
     rows: list[tuple[str, str, list[float]]] = []
     for idx, (raw_key, text) in enumerate(pairs):
         vector = by_index.get(idx)

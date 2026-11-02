@@ -240,10 +240,9 @@ def _is_user_stopped(exc: Any) -> bool:
     return getattr(exc, "code", None) == "USER_STOPPED"
 
 
-def _check_stopped(stop_checker: StopChecker) -> dict[str, Any] | None:
+def _check_stopped(stop_checker: StopChecker) -> None:
     if stop_checker and stop_checker():
-        return _user_stopped_payload()
-    return None
+        raise ToolExecutionError("Web search stopped by user.", code="USER_STOPPED")
 
 
 @dataclass
@@ -474,10 +473,6 @@ def _coerce_agent_result(result: str | dict[str, Any]) -> str:
     return str(result)
 
 
-def _extract_urls_from_text(text: str) -> list[str]:
-    return list(dict.fromkeys(URL_PATTERN.findall(text or "")))
-
-
 def _merge_branch_results(acc: _ResearchAccumulator, branch: dict[str, Any]) -> None:
     acc.learnings.extend(branch["learnings"])
     for learning, urls in branch["citations"].items():
@@ -500,9 +495,7 @@ def _process_one_sub_query(
     progress: ResearchProgress,
     status_callback: StatusCallback,
 ) -> dict[str, Any] | None:
-    stopped = _check_stopped(stop_checker)
-    if stopped is not None:
-        return {"error": stopped}
+    _check_stopped(stop_checker)
 
     sub_query = serp_query["query"]
     research_goal = serp_query.get("researchGoal") or ""
@@ -529,9 +522,7 @@ def _process_one_sub_query(
 
     # The agent returned. Stop during that call must not start extraction,
     # or the pool join waits on another HTTP request.
-    stopped = _check_stopped(stop_checker)
-    if stopped is not None:
-        return {"error": stopped}
+    _check_stopped(stop_checker)
 
     try:
         results = process_research_results(llm_chat, sub_query, sub_context)
@@ -546,7 +537,7 @@ def _process_one_sub_query(
     sources = list(
         dict.fromkeys(
             [
-                *_extract_urls_from_text(sub_context),
+                *list(dict.fromkeys(URL_PATTERN.findall(sub_context))),
                 *(u for urls in citation_map.values() for u in urls if u),
             ]
         )
@@ -614,9 +605,7 @@ def _run_sub_queries_parallel(
 
     try:
         while completed < total:
-            stopped = _check_stopped(stop_checker)
-            if stopped is not None:
-                return stopped
+            _check_stopped(stop_checker)
             try:
                 sq, res = result_q.get(timeout=0.25)
             except queue.Empty:
@@ -680,9 +669,7 @@ def _run_adaptive_research_loop(
     seen: set[str] = set()
 
     for round_num in range(1, max_rounds + 1):
-        stopped = _check_stopped(stop_checker)
-        if stopped is not None:
-            return {"error": stopped}
+        _check_stopped(stop_checker)
 
         progress.current_round = round_num
         if status_callback:
@@ -780,11 +767,8 @@ def run_deep_research(
     quality_threshold: int = 7,
 ) -> str | dict[str, Any]:
     """Run adaptive multi-round deep research; returns report string or error payload dict."""
-    stopped = _check_stopped(stop_checker)
-    if stopped is not None:
-        return stopped
-
     try:
+        _check_stopped(stop_checker)
         search_snippet = initial_search_snippet.strip() or "(No preview search results; proceed from the query alone.)"
         combined_query = f"Initial Query: {query}\n"
         combined_query += f"Preview search results:\n{search_snippet}\n"
@@ -823,9 +807,7 @@ def run_deep_research(
         if status_callback:
             status_callback(_("Deep research: synthesizing report..."))
 
-        stopped = _check_stopped(stop_checker)
-        if stopped is not None:
-            return stopped
+        _check_stopped(stop_checker)
 
         try:
             return synthesize_deep_report(

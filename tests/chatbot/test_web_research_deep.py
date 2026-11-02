@@ -11,7 +11,6 @@ from plugin.chatbot.web_research_deep import (
     ResearchProgress,
     _ResearchAccumulator,
     _coerce_agent_result,
-    _extract_urls_from_text,
     _process_one_sub_query,
     _run_sub_queries_parallel,
     _trim_evidence,
@@ -1110,8 +1109,18 @@ def test_coerce_agent_result():
         _coerce_agent_result({"unexpected": 1})
 
 
-def test_extract_urls_from_text():
-    assert _extract_urls_from_text("see https://a.test/1 and https://b.test/2 and https://a.test/1") == [
+def test_process_one_sub_query_extracts_unique_urls_from_context():
+    branch = _process_one_sub_query(
+        {"query": "links", "researchGoal": "links"},
+        run_web_agent=lambda _query, _goal: "see https://a.test/1 and https://b.test/2 and https://a.test/1",
+        llm_chat=lambda _messages, _max=0: '{"learnings": []}',
+        stop_checker=lambda: False,
+        acc=_ResearchAccumulator(),
+        progress=ResearchProgress(max_sub_queries=3),
+        status_callback=None,
+    )
+    assert branch is not None
+    assert branch["sources"] == [
         "https://a.test/1",
         "https://b.test/2",
     ]
@@ -1156,13 +1165,14 @@ def test_stop_cancels_sub_query_that_has_not_started():
         stop["on"] = True
         return "context"
 
-    result = _run_parallel(
-        [{"query": "q1", "researchGoal": "g1"}, {"query": "q2", "researchGoal": "g2"}],
-        run_web_agent,
-        lambda: stop["on"],
-        concurrency=1,
-    )
-    assert result["code"] == "USER_STOPPED"
+    with pytest.raises(ToolExecutionError) as exc_info:
+        _run_parallel(
+            [{"query": "q1", "researchGoal": "g1"}, {"query": "q2", "researchGoal": "g2"}],
+            run_web_agent,
+            lambda: stop["on"],
+            concurrency=1,
+        )
+    assert exc_info.value.code == "USER_STOPPED"
     assert calls == ["q1"]
     assert _alive_deep_threads() == []
 
@@ -1232,13 +1242,14 @@ def test_stop_joins_the_running_pool_worker():
         stop["on"] = True
         return "ctx1"
 
-    result = _run_parallel(
-        [{"query": "q1", "researchGoal": "g1"}, {"query": "q2", "researchGoal": "g2"}],
-        run_web_agent,
+    with pytest.raises(ToolExecutionError) as exc_info:
+        _run_parallel(
+            [{"query": "q1", "researchGoal": "g1"}, {"query": "q2", "researchGoal": "g2"}],
+            run_web_agent,
             lambda: {"code": "USER_STOPPED", "status": "error"} if stop["on"] else None,
-        concurrency=2,
-    )
-    assert result["code"] == "USER_STOPPED"
+            concurrency=2,
+        )
+    assert exc_info.value.code == "USER_STOPPED"
     assert finished["q2"] is True
     assert _alive_deep_threads() == []
 
@@ -1264,14 +1275,15 @@ def test_stop_join_is_bounded_when_a_worker_ignores_the_checker(monkeypatch):
         return "fast"
 
     try:
-        result = _run_parallel(
-            [{"query": "fast", "researchGoal": "g1"}, {"query": "stuck", "researchGoal": "g2"}],
-            run_web_agent,
-            lambda: stop["on"],
-            concurrency=2,
-        )
+        with pytest.raises(ToolExecutionError) as exc_info:
+            _run_parallel(
+                [{"query": "fast", "researchGoal": "g1"}, {"query": "stuck", "researchGoal": "g2"}],
+                run_web_agent,
+                lambda: stop["on"],
+                concurrency=2,
+            )
         alive = _alive_deep_threads()
-        assert result["code"] == "USER_STOPPED"
+        assert exc_info.value.code == "USER_STOPPED"
         assert alive
     finally:
         release.set()
