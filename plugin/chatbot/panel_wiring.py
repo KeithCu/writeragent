@@ -57,12 +57,14 @@ def _install_frame_session_listeners(
 
 def _pin_button_width(ctrl: Any, labels: list[str]) -> None:
     """Measure and pin control width across toggle labels."""
-    if not ctrl or not hasattr(ctrl, "getModel") or not labels:
+    if not ctrl or not labels:
         return
-    wmax = 0
     with suppress_disposed("measure button width", logger=log):
+        if not hasattr(ctrl, "getModel"):
+            return
         m = ctrl.getModel()
         saved = m.Label
+        wmax = 0
         try:
             cur = ctrl.getPosSize().Width
             for lab in labels:
@@ -76,9 +78,9 @@ def _pin_button_width(ctrl: Any, labels: list[str]) -> None:
             # the last candidate on the button, and suppress_disposed swallows
             # the error before a restore after the loop.
             m.Label = saved
-    if wmax > 0:
-        r = ctrl.getPosSize()
-        ctrl.setPosSize(r.X, r.Y, wmax, r.Height, 15)
+        if wmax > 0:
+            r = ctrl.getPosSize()
+            ctrl.setPosSize(r.X, r.Y, wmax, r.Height, 15)
 
 
 def setup_rich_control_ready(
@@ -128,19 +130,19 @@ def setup_rich_control_ready(
             return doc
         return None
 
-    def _attach_calc_cell_link(ctrl: Any, fail_msg: str) -> None:
+    def _attach_calc_cell_link(ctrl: Any) -> None:
         try:
             from plugin.calc.navigation import attach_calc_cell_link_listener
 
             attach_calc_cell_link_listener(panel.ctx, ctrl, _calc_doc_from_panel)
         except Exception as e:
-            log.debug(fail_msg, e)
+            log.debug("calc cell link listener failed: %s", e)
 
-    _attach_calc_cell_link(rich_control, "calc cell link listener attach failed: %s")
+    _attach_calc_cell_link(rich_control)
 
     def _on_control_replaced(new_ctrl: Any) -> None:
         widget.replace_control(new_ctrl)
-        _attach_calc_cell_link(new_ctrl, "calc cell link listener re-attach failed: %s")
+        _attach_calc_cell_link(new_ctrl)
 
     if panel._rich_control_listener:
         panel._rich_control_listener.on_replaced = _on_control_replaced
@@ -327,11 +329,9 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
         from plugin.chatbot.panel import HAS_RECORDING
 
         send_labels = ["Send", "Record", "Stop Rec", "Accept"] if HAS_RECORDING else ["Send", "Accept"]
-        with suppress_disposed("send button width stabilize", logger=log):
-            _pin_button_width(controls["send"], send_labels)
-        with suppress_disposed("stop/clear button width stabilize", logger=log):
-            _pin_button_width(controls.get("stop"), ["Stop", "Change", "Reject"])
-            _pin_button_width(controls.get("clear"), ["Clear", "Reject"])
+        _pin_button_width(controls["send"], send_labels)
+        _pin_button_width(controls.get("stop"), ["Stop", "Change", "Reject"])
+        _pin_button_width(controls.get("clear"), ["Clear", "Reject"])
 
     _restore_focus = self.frame_session.restore_focus if self.frame_session is not None else None
     _resize: Any = None
