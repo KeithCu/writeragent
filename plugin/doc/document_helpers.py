@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 from plugin.doc import doc_type as _doc_type
 from plugin.doc import text_helpers as _text_helpers
 from plugin.doc.paragraph_search import (
-    find_paragraph_for_range as _find_paragraph_for_range,
+    paragraph_index_for_anchor as _paragraph_index_for_anchor,
     get_paragraph_ranges as _get_paragraph_ranges,
 )
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
@@ -734,7 +734,7 @@ class DocumentService(ServiceBase):
         entries: list[tuple[int, Any]] | None = None,
     ) -> int | None:
         """Return the 0-based paragraph index that contains anchor, or None when it cannot be placed."""
-        return _find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+        return _paragraph_index_for_anchor(anchor, para_ranges, text_obj, entries=entries)
 
     def resolve_locator(self, doc: Any, locator: str) -> dict[str, Any]:
         """Resolve a locator string to a paragraph index.

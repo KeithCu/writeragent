@@ -62,11 +62,11 @@ def _specific_field_service(field: Any) -> str:
 def _iter_body_field_identity(doc: Any, hasher: Any) -> Any:
     # Deferred: plugin.writer.search pulls the UNO document helpers in, and this module is
     # imported wherever the field tools are registered.
-    from ..search import describe_match_location
+    from ..search import LocationLabeler
 
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
-    hf_labels: dict[int, str] = {}
+    labeler = LocationLabeler(doc)
     count = 0
     while enum.hasMoreElements():
         field = enum.nextElement()
@@ -80,7 +80,7 @@ def _iter_body_field_identity(doc: Any, hasher: Any) -> Any:
             reraise_if_disposed(e)
             presentation = ""
         try:
-            location = describe_match_location(field.getAnchor(), doc, hf_labels)
+            location = labeler.describe(field.getAnchor())
         except Exception as e:
             reraise_if_disposed(e)
             location = "unknown"

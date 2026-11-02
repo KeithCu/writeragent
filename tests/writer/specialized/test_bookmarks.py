@@ -317,7 +317,7 @@ def test_ensure_removes_mcp_bookmark_when_heading_is_demoted(monkeypatch):
     def fake_find(anchor, _ranges, _text=None, entries=None):
         return anchor.para
 
-    monkeypatch.setattr("plugin.writer.specialized.bookmarks.find_paragraph_for_range", fake_find)
+    monkeypatch.setattr("plugin.writer.specialized.bookmarks.paragraph_index_for_anchor", fake_find)
     doc = _HeadingDoc(
         [
             _Para("Preamble", 0),
@@ -344,8 +344,8 @@ def test_ensure_removes_mcp_bookmark_when_heading_is_demoted(monkeypatch):
 
 def test_ensure_drops_unplaced_mcp_bookmark_instead_of_paragraph_zero(monkeypatch):
     monkeypatch.setattr(
-        "plugin.writer.specialized.bookmarks.find_paragraph_for_range",
-        lambda *_args, **_kwargs: 0,
+        "plugin.writer.specialized.bookmarks.paragraph_index_for_anchor",
+        lambda *_args, **_kwargs: None,
     )
 
     class _Broken:
@@ -371,7 +371,7 @@ def test_ensure_keeps_demoted_bookmark_during_save_hook(monkeypatch):
     def fake_find(anchor, _ranges, _text=None, entries=None):
         return anchor.para
 
-    monkeypatch.setattr("plugin.writer.specialized.bookmarks.find_paragraph_for_range", fake_find)
+    monkeypatch.setattr("plugin.writer.specialized.bookmarks.paragraph_index_for_anchor", fake_find)
     doc = _HeadingDoc(
         [_Para("Preamble", 0), _Para("Title", 1), _Para("Demoted", 0)],
         {
@@ -518,7 +518,7 @@ def test_save_hook_key_doc_a_does_not_suppress_doc_b(monkeypatch):
     def fake_find(anchor, _ranges, _text=None, entries=None):
         return anchor.para
 
-    monkeypatch.setattr("plugin.writer.specialized.bookmarks.find_paragraph_for_range", fake_find)
+    monkeypatch.setattr("plugin.writer.specialized.bookmarks.paragraph_index_for_anchor", fake_find)
 
     doc_a = _HeadingDoc(
         [_Para("Title A", 1), _Para("Demoted A", 0)],

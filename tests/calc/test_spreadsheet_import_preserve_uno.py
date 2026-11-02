@@ -32,7 +32,7 @@ def _load_generator():
 @with_native_doc("calc")
 def test_preserve_live_py_formulas_round_trip(ctx, doc):
     from plugin.calc.address_utils import format_address
-    from plugin.calc.spreadsheet_import.extract import py_formula_semantics
+    from plugin.calc.python.formula_edit import PyFormula
     from plugin.calc.spreadsheet_import.ingest import ingest_sheet
     from plugin.calc.spreadsheet_import.preserve import apply_output_to_sheet, build_output_model, enrich_number_formats
 
@@ -59,5 +59,8 @@ def test_preserve_live_py_formulas_round_trip(ctx, doc):
     col, row = 1, 1
     src_formula = sheet.getCellByPosition(col, row).getFormula()
     tgt_formula = target.getCellByPosition(col, row).getFormula()
-    assert py_formula_semantics(src_formula) == py_formula_semantics(tgt_formula)
+    src_p = PyFormula.parse(src_formula)
+    tgt_p = PyFormula.parse(tgt_formula)
+    assert src_p is not None and tgt_p is not None
+    assert (src_p.code, src_p.data_args()) == (tgt_p.code, tgt_p.data_args())
     assert format_address(col, row) == "B2"

@@ -203,7 +203,23 @@ def find_paragraph_for_range(
         return None
 
 
-def confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: Any) -> int | None:
+def paragraph_index_for_anchor(
+    anchor: Any,
+    para_ranges: list[Any],
+    text_obj: Any = None,
+    entries: list[tuple[int, Any]] | None = None,
+) -> int | None:
+    """Return the confirmed 0-based paragraph index for *anchor*, or None when unplaced."""
+    if text_obj is None:
+        try:
+            text_obj = anchor.getText()
+        except Exception:
+            text_obj = None
+    raw_idx = find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+    return _confirm_paragraph_index(text_obj, anchor, para_ranges, raw_idx)
+
+
+def _confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: Any) -> int | None:
     """Return *para_idx* when it is a real hit, or None for the unplaced fallback.
 
     ``find_paragraph_for_range`` returns None when unplaced; this guard

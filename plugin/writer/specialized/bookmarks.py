@@ -24,7 +24,7 @@ import uuid
 from typing import Any, ClassVar, Generator
 
 from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.doc.paragraph_search import confirm_paragraph_index, find_paragraph_for_range, get_paragraph_ranges
+from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_index_for_anchor
 from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_listeners import BaseDocumentEventListener
@@ -189,12 +189,7 @@ class BookmarkService(ServiceBase):
             for name in mcp_names:
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
-                para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                # A failed placement returns None, so a stale _mcp_ mark must not be
-                # stored as the bookmark for the first paragraph.
-                # confirm_paragraph_index keeps 0 only when the anchor is actually
-                # there. An unplaced mark is omitted and later removed.
-                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+                placed = paragraph_index_for_anchor(anchor, para_ranges, text_obj, entries=entries)
                 if placed is not None:
                     result[placed] = name
         except Exception as exc:
@@ -688,18 +683,15 @@ class BookmarkResolve(ToolWriterBookmarkBase):
             reraise_if_disposed(exc)
             return self._tool_error("Bookmark '%s' anchor is not in the document." % bookmark_name)
 
-        # Find paragraph index. A failed placement is 0, which is also a real
-        # first paragraph — confirm before reporting it.
+        # Find paragraph index. A failed placement returns None.
         para_ranges = get_paragraph_ranges(doc)
         text_obj = doc.getText()
-        para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj)
-        placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
-        if placed is None:
+        para_idx = paragraph_index_for_anchor(anchor, para_ranges, text_obj)
+        if para_idx is None:
             return self._tool_error(
                 "Bookmark '%s' anchor is not in the document. It may be stale after an edit, save, or bookmark_cleanup."
                 % bookmark_name
             )
-        para_idx = placed
 
         result = {"status": "ok", "bookmark": bookmark_name, "paragraph_index": para_idx}
 

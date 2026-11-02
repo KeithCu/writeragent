@@ -13,11 +13,8 @@ from pathlib import Path
 import pytest
 
 from plugin.calc.python.cell_discovery import is_py_formula_text
-from plugin.calc.spreadsheet_import.extract import (
-    canonicalize_py_formula_for_parse,
-    normalize_py_formula,
-    py_formula_semantics,
-)
+from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.spreadsheet_import.extract import normalize_py_formula
 from plugin.calc.spreadsheet_import.models import CellRecord, output_cell_from_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -38,18 +35,29 @@ else:
 
 def test_canonicalize_libreoffice_addin_python_prefix():
     raw = '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON("np.sum(data)";A1:A2)'
-    assert canonicalize_py_formula_for_parse(raw) == '=PYTHON("np.sum(data)";A1:A2)'
+    parsed = PyFormula.parse(raw)
+    assert parsed is not None
+    assert parsed.code == "np.sum(data)"
+    assert parsed.data_args() == ["A1:A2"]
     assert is_py_formula_text(raw)
     norm = normalize_py_formula(raw)
     assert norm is not None
-    assert py_formula_semantics(raw) == py_formula_semantics(norm)
+    assert norm == '=PY("np.sum(data)";A1:A2)'
+    norm_parsed = PyFormula.parse(norm)
+    assert norm_parsed is not None
+    assert (parsed.code, parsed.data_args()) == (norm_parsed.code, norm_parsed.data_args())
 
 
 def test_canonicalize_collabora_getpy_prefix():
     raw = '=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("np.sum(data)";A1:A2)'
-    assert canonicalize_py_formula_for_parse(raw) == '=PY("np.sum(data)";A1:A2)'
+    parsed = PyFormula.parse(raw)
+    assert parsed is not None
+    assert parsed.code == "np.sum(data)"
+    assert parsed.data_args() == ["A1:A2"]
     assert is_py_formula_text(raw)
-    assert py_formula_semantics(raw) is not None
+    norm = normalize_py_formula(raw)
+    assert norm is not None
+    assert norm == '=PY("np.sum(data)";A1:A2)'
 
 
 def test_normalize_python_to_py_prefix():
@@ -73,7 +81,10 @@ def test_normalize_preserves_code_and_data_args(value):
     formula = value
     norm = normalize_py_formula(formula)
     assert norm is not None
-    assert py_formula_semantics(formula) == py_formula_semantics(norm)
+    raw_p = PyFormula.parse(formula)
+    norm_p = PyFormula.parse(norm)
+    assert raw_p is not None and norm_p is not None
+    assert (raw_p.code, raw_p.data_args()) == (norm_p.code, norm_p.data_args())
 
 def test_normalize_non_python_returns_none():
     assert normalize_py_formula("=SUM(A1)") is None
@@ -85,7 +96,9 @@ def test_extract_py_cells_from_model():
     assert out.formula is not None
     assert out.formula.startswith("=PY(")
     assert ";" in out.formula
-    assert py_formula_semantics(out.formula) == ("np.sum(data)", ["A1"])
+    parsed = PyFormula.parse(out.formula)
+    assert parsed is not None
+    assert (parsed.code, parsed.data_args()) == ("np.sum(data)", ["A1"])
 
 
 def test_extract_skips_unparseable_py_like():
@@ -104,4 +117,7 @@ def test_all_serialization_cases_normalize_semantically():
         formula = _gen._python_formula(case, data_ranges)
         norm = normalize_py_formula(formula)
         assert norm is not None, f"{case.id}: could not normalize {formula!r}"
-        assert py_formula_semantics(formula) == py_formula_semantics(norm), case.id
+        raw_p = PyFormula.parse(formula)
+        norm_p = PyFormula.parse(norm)
+        assert raw_p is not None and norm_p is not None
+        assert (raw_p.code, raw_p.data_args()) == (norm_p.code, norm_p.data_args()), case.id

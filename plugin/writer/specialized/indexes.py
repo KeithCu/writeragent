@@ -1259,12 +1259,12 @@ class IndexesListCites(ToolWriterIndexBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
 
-        from ..search import describe_match_location
+        from ..search import LocationLabeler
 
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
         cites: list[Any] = []
-        hf_labels: dict[int, str] = {}
+        labeler = LocationLabeler(doc)
         scanned = 0
         while _enum_has_more(enum):
             field = enum.nextElement()
@@ -1274,7 +1274,7 @@ class IndexesListCites(ToolWriterIndexBase):
             # Probes degrade; a disposed document must not read as an empty result.
             empty: dict[str, Any] = {}
             mapped = uno_read(lambda: fields_sequence_to_dict(field.getPropertyValue("Fields")), empty)
-            location = uno_read(lambda: describe_match_location(field.getAnchor(), doc, hf_labels), "unknown")
+            location = uno_read(lambda: labeler.describe(field.getAnchor()), "unknown")
             presentation = uno_read(lambda: field.getPresentation(False), "")
             cites.append({
                 "id": len(cites) + 1,

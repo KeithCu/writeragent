@@ -528,7 +528,7 @@ def apply_paragraph_style_preserving_direct_char(
 # paragraph structure, so we must NOT force the original paragraph style onto it.
 
 
-def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) -> None:
+def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) -> Any:
     """Run a Writer document mutation, optionally wrapped in EditReviewSession.
 
     LibrePy omits ``plugin.writer.edit_review``; when that module is absent we apply
@@ -537,12 +537,11 @@ def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) 
     try:
         from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
     except ImportError:
-        apply_fn()
-        return
+        return apply_fn()
     review = EditReviewSession(doc, ctx, enabled=review_recording_enabled())
     try:
         with review:
-            review.record_mutation(apply_fn)
+            return review.record_mutation(apply_fn)
     finally:
         review.cleanup()
 

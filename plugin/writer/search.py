@@ -632,6 +632,23 @@ def describe_match_location(found: Any, doc: Any, label_cache: dict[int, str] | 
     return "body"
 
 
+class LocationLabeler:
+    """Labels match locations (body, table cell, text box, header/footer) with cached page-style lookups."""
+
+    doc: Any
+    _cache: dict[int, str]
+
+    def __init__(self, doc: Any) -> None:
+        self.doc = doc
+        self._cache = {}
+
+    def describe(self, found: Any) -> str:
+        return describe_match_location(found, self.doc, label_cache=self._cache)
+
+    def __call__(self, found: Any) -> str:
+        return self.describe(found)
+
+
 def enclosing_paragraph_text(found: Any) -> str:
     def paragraph() -> str:
         _text, cur = _text_and_cursor(found)
@@ -927,7 +944,7 @@ class SearchInDocument(ToolBase):
                 return self._tool_error(invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
 
         doc = ctx.doc
-        label_cache: dict[int, str] = {}
+        labeler = LocationLabeler(doc)
         try:
             sd = _search_descriptor(doc, pattern, use_regex, case_sensitive)
             found = doc.findFirst(sd)
@@ -961,7 +978,7 @@ class SearchInDocument(ToolBase):
             if len(matches) < max_results:
                 add(
                     hit_text,
-                    describe_match_location(found, doc, label_cache=label_cache),
+                    labeler.describe(found),
                     enclosing_paragraph_text(found),
                 )
             try:

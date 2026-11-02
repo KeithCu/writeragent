@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.calc.base import ToolCalcSpecialTracking
 from plugin.framework.uno_context import uno_same
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
-from plugin.writer.search import describe_match_location
+from plugin.writer.search import LocationLabeler
 from .specialized_base import WriterAgentSpecialTracking, enum_param
 
 if TYPE_CHECKING:
@@ -185,7 +185,7 @@ def _redline_text(redline: Any, start: Any = None) -> str:
     return ""
 
 
-def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int, str] | None = None) -> dict[str, Any]:
+def _describe_redline(redline: Any, index: int, doc: Any, labeler: LocationLabeler | None = None) -> dict[str, Any]:
     entry: dict[str, Any] = {"index": index}
     for prop in ("RedlineType", "RedlineAuthor", "RedlineComment", "RedlineIdentifier"):
         try:
@@ -209,7 +209,7 @@ def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int,
         log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     if start is not None:
         try:
-            entry["location"] = describe_match_location(start, doc, label_cache=label_cache)
+            entry["location"] = (labeler or LocationLabeler(doc)).describe(start)
         except Exception:
             log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     txt = _redline_text(redline, start=start)
@@ -317,11 +317,11 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         # The model can send 0 or a negative number; clamp instead of failing.
         start_index = max(0, int(start_index))
         max_changes = max(1, int(max_changes))
-        label_cache: dict[int, str] = {}
+        labeler = LocationLabeler(doc)
 
         window = redline_objs[start_index:start_index + max_changes]
         changes = [
-            _describe_redline(redline, start_index + offset, doc, label_cache)
+            _describe_redline(redline, start_index + offset, doc, labeler)
             for offset, redline in enumerate(window)
         ]
         end = start_index + len(changes)

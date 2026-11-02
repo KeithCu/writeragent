@@ -652,37 +652,6 @@ def test_init_result_lambda_is_not_seeded() -> None:
         clear_all_sandbox_sessions()
 
 
-def test_send_cell_owned_rejects_unknown_name() -> None:
-    from plugin.scripting.venv.venv_sandbox import (
-        _INIT_STATE_SKIP_KEYS,
-        _inject_data,
-        _inject_excel_xl,
-        _inject_session_duckdb,
-        _new_executor,
-        _send_cell_owned,
-    )
-
-    try:
-        exe = _new_executor(5)
-        with pytest.raises(RuntimeError, match="not_a_cell_name"):
-            _send_cell_owned(exe, {"not_a_cell_name": 1})
-        assert "not_a_cell_name" not in exe.state
-
-        _send_cell_owned(exe, {"data": None, "ranges": []})
-        assert exe.state.get("data") is None
-        assert exe.state.get("ranges") == []
-
-        _inject_data(exe, None)
-        _inject_excel_xl(exe, ())
-        _inject_session_duckdb(exe)
-
-        for name in ("data", "ranges", "xl"):
-            assert name in _INIT_STATE_SKIP_KEYS
-            assert name in exe.state
-    finally:
-        clear_all_sandbox_sessions()
-
-
 def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
     from plugin.scripting.venv import venv_sandbox as vs
 

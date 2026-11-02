@@ -8,10 +8,9 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import contextvars
-import re
 from typing import Any, Generator, Iterator
 
-from plugin.calc.python.formula_edit import parse_python_formula, py_formula_has_unquoted_code_ref
+from plugin.calc.python.formula_edit import PyFormula
 from plugin.framework.errors import uno_read
 
 CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
@@ -31,27 +30,6 @@ def bind_formula_locate_memo() -> Generator[None, None, None]:
         yield
     finally:
         _LOCATE_MEMO.reset(token)
-
-# Handles Calc-escaped double-quotes ("") inside string literals and optional add-in
-# OriginalNames (WriterAgent / LibrePy, or Collabora GETPY before open-rewrite).
-_PY_FORMULA_CODE_REGEX = re.compile(
-    r"^\{?\s*=?\s*"
-    r"(?:ORG\.(?:EXTENSION\.[A-Z0-9_.]+|COLLABORAOFFICE\.SHEET\.ADDIN\.PYTHONCOMPUTEFUNCTIONS)\.)?"
-    r'(?:GETPYTHON|GETPY|PYTHON|PY)\s*\(\s*"((?:[^"]|"")*)"',
-    re.IGNORECASE,
-)
-
-
-def extract_code_from_py_formula(formula: str) -> str | None:
-    """Extract and unescape the Python code string argument from a =PY() / =PYTHON() formula."""
-    if not formula:
-        return None
-    match = _PY_FORMULA_CODE_REGEX.match(formula)
-    if match:
-        raw_code = match.group(1)
-        return raw_code.replace('""', '"')
-    return None
-
 
 def _code_strings_match(extracted: str | None, code_str: str) -> bool:
     if extracted is None:
@@ -87,21 +65,19 @@ def is_matching_py_formula(formula: str, code_str: str, *, sheet: Any | None = N
     """True if formula is a =PY() / =PYTHON() call whose code argument equals code_str."""
     if not formula or not code_str:
         return False
-    upper = formula.upper()
-    if "PY" not in upper:
+    if "PY" not in formula.upper():
         return False
-    extracted = extract_code_from_py_formula(formula)
-    if extracted is not None:
-        return _code_strings_match(extracted, code_str)
-    if sheet is not None:
-        if py_formula_has_unquoted_code_ref(formula):
-            parts = parse_python_formula(formula)
-            if parts is not None and parts.code:
-                ref_cell = _resolve_ref_cell(sheet, doc, parts.code)
-                if ref_cell is not None:
-                    cell_text = uno_read(ref_cell.getString, "") if hasattr(ref_cell, "getString") else ""
-                    return _code_strings_match(cell_text, code_str)
-    return False
+    parsed = PyFormula.parse(formula)
+    if parsed is None:
+        return False
+    if parsed.code_is_ref:
+        if sheet is not None and parsed.code:
+            ref_cell = _resolve_ref_cell(sheet, doc, parsed.code)
+            if ref_cell is not None:
+                cell_text = uno_read(ref_cell.getString, "") if hasattr(ref_cell, "getString") else ""
+                return _code_strings_match(cell_text, code_str)
+        return False
+    return _code_strings_match(parsed.code, code_str)
 
 
 def iter_range_formula_texts(sheet: Any, cell_range: Any, *, skip_cell_errors: bool = False) -> Iterator[tuple[int, int, str]]:

@@ -1042,3 +1042,28 @@ def test_block_safe_for_surgical_rejects_multi_paragraph():
 
     assert _block_safe_for_surgical(_Block([["Text"], ["Text"]])) is False
 
+
+def test_empty_append_finish_closes_undo():
+    from plugin.writer.edit_review import WriterStreamedAppendSession
+
+    undo = MagicMock()
+    doc = MagicMock()
+    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False)):
+        session = WriterStreamedAppendSession(doc, MagicMock(), "orig")
+    undo.reset_mock()
+    session.finish()
+    undo.close.assert_called()
+
+
+def test_empty_rewrite_finish_closes_undo():
+    from plugin.writer.edit_review import WriterStreamedRewriteSession
+
+    undo = MagicMock()
+    doc = MagicMock()
+    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False)):
+        session = WriterStreamedRewriteSession(doc, MagicMock(), "orig")
+    undo.reset_mock()
+    session.finish()
+    undo.close.assert_called()
+
+

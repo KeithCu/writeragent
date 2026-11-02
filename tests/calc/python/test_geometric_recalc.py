@@ -10,10 +10,7 @@ from unittest.mock import patch
 
 from plugin.calc.calc_addin_data import split_python_addin_data_args
 from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
-from plugin.calc.python.formula_edit import (
-    parse_python_formula,
-    py_formula_has_unquoted_code_ref,
-)
+from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.python.geometric_recalc import (
     CONFIG_KEY,
     GEOMETRIC_REGISTRY_PROP,
@@ -55,7 +52,7 @@ def _wb_doc(url: str = "file:///pipe.ods") -> object:
 
 def _cell(addr: str, formula: str, code: str | None = None) -> GeometricCell:
     if code is None:
-        parts = parse_python_formula(formula)
+        parts = PyFormula.parse(formula)
         code = parts.code if parts is not None else ""
     return GeometricCell(address=addr, formula=formula, resolved_code=code)
 
@@ -653,14 +650,16 @@ def test_read_code_ref_text_other_sheet_and_quoted_name():
 
 def test_code_in_cell_splice_keeps_unquoted_ref():
     raw = "=PY($A$1; B1:B10)"
-    assert py_formula_has_unquoted_code_ref(raw)
+    parts = PyFormula.parse(raw)
+    assert parts is not None
+    assert parts.code_is_ref
     rebuilt = rebuild_formula_with_data_args(raw, ["B1:B10", "C1"])
     assert rebuilt is not None
     assert rebuilt.startswith("=PY($A$1")
     assert '"$A$1"' not in rebuilt
     assert "B1:B10" in rebuilt
     assert rebuilt.endswith(";C1)")
-    parts = parse_python_formula(rebuilt)
+    parts = PyFormula.parse(rebuilt)
     assert parts is not None
     assert parts.code == "$A$1"
 
@@ -677,7 +676,7 @@ def test_code_in_cell_repair_and_resolved_source():
     assert new.startswith("=PY($A$1")
     assert '"$A$1"' not in new
     assert formula_data_args(new) == ["C1:C10", "B1"]
-    parts = parse_python_formula('=PY("df = clean(df)")')
+    parts = PyFormula.parse('=PY("df = clean(df)")')
     assert parts is not None and parts.code == "df = clean(df)"
     key = _key(source, 2)
     safe = _safe_after_patches(
@@ -1637,7 +1636,7 @@ def test_dispatcher_flag_off_does_not_rewrite(monkeypatch):
 
 
 def test_dispatcher_insert_retargets_successor(monkeypatch):
-    from plugin.calc.python.formula_edit import parse_python_formula
+    from plugin.calc.python.formula_edit import PyFormula
     from plugin.calc.python.geometric_recalc_core import formula_data_args, same_cell_ref
     from plugin.calc.python.sheet_modify import (
         flush_sheet_modify_pass_for_tests,
@@ -1670,7 +1669,7 @@ def test_dispatcher_insert_retargets_successor(monkeypatch):
     third_after = sheet.getCellByPosition(0, 2).getFormula()
     third_args = formula_data_args(third_after)
     assert third_args and same_cell_ref(third_args[-1], "A2")
-    assert parse_python_formula(mid) is not None
+    assert PyFormula.parse(mid) is not None
 
 
 def test_dispatcher_delete_first_removes_field(monkeypatch):

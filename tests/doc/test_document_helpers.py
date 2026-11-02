@@ -120,7 +120,7 @@ def test_live_bookmark_still_resolves(monkeypatch):
         seen["anchor"] = found_anchor
         return 2
 
-    monkeypatch.setattr("plugin.doc.document_helpers._find_paragraph_for_range", fake_find)
+    monkeypatch.setattr("plugin.doc.document_helpers._paragraph_index_for_anchor", fake_find)
     assert resolve_locator(doc, "bookmark:here")["para_index"] == 2
     assert seen["anchor"] is anchor
 
@@ -140,7 +140,7 @@ def test_section_locator_dispatches_to_writer_resolver(monkeypatch):
         seen["anchor"] = found_anchor
         return 4
 
-    monkeypatch.setattr("plugin.doc.document_helpers._find_paragraph_for_range", fake_find)
+    monkeypatch.setattr("plugin.doc.document_helpers._paragraph_index_for_anchor", fake_find)
     hit = resolve_locator(doc, "section:Notes")
     assert hit["para_index"] == 4
     assert hit["section_name"] == "Notes"
@@ -153,7 +153,7 @@ def test_section_locator_dispatches_to_writer_resolver(monkeypatch):
 
 def test_page_locator_dispatches_and_bad_page_errors(monkeypatch):
     monkeypatch.setattr(
-        "plugin.doc.document_helpers._find_paragraph_for_range",
+        "plugin.doc.document_helpers._paragraph_index_for_anchor",
         lambda *_args, **_kwargs: 6,
     )
     doc = _PageDoc()
@@ -169,7 +169,7 @@ def test_page_locator_dispatches_and_bad_page_errors(monkeypatch):
 
 def test_page_locator_when_clone_fails_skips_body_move(monkeypatch):
     monkeypatch.setattr(
-        "plugin.doc.document_helpers._find_paragraph_for_range",
+        "plugin.doc.document_helpers._paragraph_index_for_anchor",
         lambda *_args, **_kwargs: 6,
     )
     doc = _PageDoc()

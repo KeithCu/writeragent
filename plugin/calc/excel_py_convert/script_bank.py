@@ -23,7 +23,7 @@ from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child
-from plugin.calc.python.formula_edit import rebuild_python_formula_with_code_ref, rebuild_python_formula_with_data
+from plugin.calc.python.formula_edit import PyFormula
 
 if TYPE_CHECKING:
     import zipfile
@@ -103,7 +103,7 @@ def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) 
 
 def should_inline_code(code: str, data_args: Sequence[str] = ()) -> bool:
     """True when the escaped ``=PY("…")`` formula for *code* fits Calc ``MAXSTRLEN`` (budget 1000)."""
-    return len(rebuild_python_formula_with_data(code or "", list(data_args))) <= INLINE_CODE_MAX_CHARS
+    return len(PyFormula.compose(code or "", list(data_args))) <= INLINE_CODE_MAX_CHARS
 
 
 def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";") -> str:
@@ -115,13 +115,14 @@ def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";") -> 
     args = list(cell.data_args)
     excel_syntax = separator == ","
     if should_inline_code(cell.converted_code, args):
-        return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator)
+        return PyFormula.compose(cell.converted_code, args, separator=separator)
     if not cell.cell or not cell.sheet:
         raise ValueError(f"script too long ({len(cell.converted_code)} chars) to inline")
     try:
-        return rebuild_python_formula_with_code_ref(
+        return PyFormula.compose(
             code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax),
             args,
+            code_is_ref=True,
             separator=separator,
         )
     except ValueError as exc:

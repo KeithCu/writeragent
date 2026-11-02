@@ -23,10 +23,9 @@ from typing import Any, Mapping, final
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.python.cell_discovery import (
     _MAX_PYTHON_CELLS_FOUND,
-    canonicalize_py_formula_for_parse,
     discover_python_cells_on_sheet,
 )
-from plugin.calc.python.formula_edit import parse_python_formula, py_formula_has_unquoted_code_ref
+from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.python.geometric_recalc_core import (
     CONFIG_KEY,
     FEATURE_TITLE,
@@ -268,11 +267,10 @@ def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
 
 
 def _resolved_code_for_discovered(doc: Any, sheet: Any, formula: str) -> str:
-    canon = canonicalize_py_formula_for_parse(formula)
-    parts = parse_python_formula(canon)
+    parts = PyFormula.parse(formula)
     if parts is None:
         return ""
-    if py_formula_has_unquoted_code_ref(canon):
+    if parts.code_is_ref:
         return _read_code_ref_text(doc, sheet, parts.code)
     return parts.code
 

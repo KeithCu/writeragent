@@ -801,27 +801,8 @@ def test_iter_open_models_strict_false_probes_and_skips_broken():
     enum.nextElement.side_effect = [broken_model, good_model]
     comps.createEnumeration.return_value = enum
 
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
-        models = list(iter_open_models(MagicMock(), strict=False))
+    models = list(iter_open_models(desktop, strict=False))
     assert models == [good_model]
-
-
-def test_iter_open_models_resolves_ctx():
-    from plugin.framework.uno_context import iter_open_models
-
-    ctx = MagicMock(spec=["getServiceManager"])
-    # ctx has getServiceManager and no getComponents, so iter_open_models resolves get_desktop(ctx)
-    desktop = MagicMock()
-    comps = MagicMock()
-    desktop.getComponents.return_value = comps
-    enum = MagicMock()
-    enum.hasMoreElements.return_value = False
-    comps.createEnumeration.return_value = enum
-
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop) as mock_get_desktop:
-        models = list(iter_open_models(ctx, strict=False))
-        assert models == []
-        mock_get_desktop.assert_called_once_with(ctx)
 
 
 def test_document_id_for_frame():

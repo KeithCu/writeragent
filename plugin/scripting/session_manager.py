@@ -91,7 +91,7 @@ def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "sessi
 
     matches: list[Any] = []
     try:
-        for model in iter_open_models(ctx, strict=False, label=label):
+        for model in iter_open_models(get_desktop(ctx), strict=False, label=label):
             try:
                 if predicate(model):
                     matches.append(guard_uno(model))

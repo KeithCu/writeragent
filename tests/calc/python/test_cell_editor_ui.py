@@ -442,13 +442,13 @@ def test_native_follow_ref_keeps_data_enabled_and_saves_code_cell():
 
 def test_monaco_follow_ref_load_shows_code_cell_and_keeps_data():
     from plugin.calc.python import editor as ed
-    from plugin.calc.python.formula_edit import parse_python_formula
+    from plugin.calc.python.formula_edit import PyFormula
 
     formula_cell = MagicMock()
     formula_cell.getCellAddress.return_value = SimpleNamespace(Column=1, Row=0, Sheet=0)
     code_cell = MagicMock()
     code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=0)
-    parts = parse_python_formula("=PY($A$1; C1:C10)")
+    parts = PyFormula.parse("=PY($A$1; C1:C10)")
     assert parts is not None
     captured: dict = {}
 
@@ -494,7 +494,7 @@ def test_monaco_calc_cell_save_keeps_data_binding_in_follow_mode():
 
 def test_open_unquoted_ref_loads_followed_cell_text():
     from plugin.calc.python import editor as ed
-    from plugin.calc.python.formula_edit import parse_python_formula
+    from plugin.calc.python.formula_edit import PyFormula
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -503,7 +503,7 @@ def test_open_unquoted_ref_loads_followed_cell_text():
     code_cell = MagicMock()
     code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=0)
     code_cell.getString.return_value = "result = 42"
-    parts = parse_python_formula("=PY($A$1; C1:C10)")
+    parts = PyFormula.parse("=PY($A$1; C1:C10)")
     assert parts is not None
     captured: dict = {}
 
@@ -533,13 +533,13 @@ def test_open_unquoted_ref_loads_followed_cell_text():
 
 def test_open_quoted_a1_does_not_follow_code_cell():
     from plugin.calc.python import editor as ed
-    from plugin.calc.python.formula_edit import parse_python_formula
+    from plugin.calc.python.formula_edit import PyFormula
 
     ctx = MagicMock()
     doc = MagicMock()
     cell = MagicMock()
     cell.getCellAddress.return_value = SimpleNamespace(Column=1, Row=0, Sheet=0)
-    parts = parse_python_formula('=PY("A1")')
+    parts = PyFormula.parse('=PY("A1")')
     assert parts is not None
     captured: dict = {}
 
@@ -569,13 +569,13 @@ def test_open_quoted_a1_does_not_follow_code_cell():
 
 def _open_with_formula(formula, *, resolve_cell=None, initial_code=None):
     from plugin.calc.python import editor as ed
-    from plugin.calc.python.formula_edit import parse_python_formula
+    from plugin.calc.python.formula_edit import PyFormula
 
     ctx = MagicMock()
     doc = MagicMock()
     cell = MagicMock()
     cell.getCellAddress.return_value = SimpleNamespace(Column=1, Row=0, Sheet=0)
-    parts = parse_python_formula(formula)
+    parts = PyFormula.parse(formula)
     assert parts is not None
     code = initial_code if initial_code is not None else parts.code
     captured: dict = {}
@@ -653,13 +653,13 @@ def test_open_sheet2_follows_code_cell(Sheet, value, value_2, initial_code, expe
 
 def test_open_missing_code_cell_shows_error():
     from plugin.calc.python import editor as ed
-    from plugin.calc.python.formula_edit import parse_python_formula
+    from plugin.calc.python.formula_edit import PyFormula
 
     ctx = MagicMock()
     doc = MagicMock()
     cell = MagicMock()
     formula = "=PY(Missing.A1)"
-    parts = parse_python_formula(formula)
+    parts = PyFormula.parse(formula)
     assert parts is not None
     with patch.object(ed, "get_active_session", return_value=None), patch.object(
         ed, "_get_active_calc_cell", return_value=(doc, cell)
@@ -679,13 +679,13 @@ def test_open_missing_code_cell_shows_error():
 
 
 def test_native_follow_two_data_ranges_shown_and_saved():
-    from plugin.calc.python.formula_edit import parse_python_formula
+    from plugin.calc.python.formula_edit import PyFormula
 
     formula_cell = MagicMock()
     formula_cell.getCellAddress.return_value = SimpleNamespace(Column=1, Row=0, Sheet=0)
     code_cell = MagicMock()
     code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=0)
-    parts = parse_python_formula("=PY($A$1; B1:B10; C1:C10)")
+    parts = PyFormula.parse("=PY($A$1; B1:B10; C1:C10)")
     dlg, inst = _open_native(
         cell=formula_cell,
         code_cell=code_cell,
@@ -710,13 +710,13 @@ def test_native_follow_two_data_ranges_shown_and_saved():
 
 
 def test_native_follow_python_alias_and_clear_data():
-    from plugin.calc.python.formula_edit import parse_python_formula
+    from plugin.calc.python.formula_edit import PyFormula
 
     formula_cell = MagicMock()
     formula_cell.getCellAddress.return_value = SimpleNamespace(Column=1, Row=0, Sheet=0)
     code_cell = MagicMock()
     code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=0)
-    parts = parse_python_formula("=PYTHON($A$1; C1:C10)")
+    parts = PyFormula.parse("=PYTHON($A$1; C1:C10)")
     dlg, inst = _open_native(
         cell=formula_cell,
         code_cell=code_cell,

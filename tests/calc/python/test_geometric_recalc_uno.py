@@ -36,10 +36,7 @@ def _store(cell, formula: str) -> str:
 @native_test
 @with_native_doc("calc")
 def test_geometric_formula_io_roundtrip(ctx, doc):
-    from plugin.calc.python.formula_edit import (
-        parse_python_formula,
-        py_formula_has_unquoted_code_ref,
-    )
+    from plugin.calc.python.formula_edit import PyFormula
     from plugin.calc.python.geometric_recalc_core import formula_data_args, rebuild_formula_with_data_args
 
     sheet = doc.getSheets().getByIndex(0)
@@ -62,7 +59,7 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
 
     # 1) =PY("y"; $C$5) attach predecessor — $C$5 stays absolute.
     stored = samples["quoted_abs"]
-    parts = parse_python_formula(stored)
+    parts = PyFormula.parse(stored)
     assert parts is not None, stored
     assert parts.prefix, stored
     old_args = formula_data_args(stored)
@@ -73,7 +70,7 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
     assert rebuilt.startswith(parts.prefix), (parts.prefix, rebuilt)
     a2.setFormula(rebuilt)
     after = str(a2.getFormula() or "")
-    reparsed = parse_python_formula(after)
+    reparsed = PyFormula.parse(after)
     assert reparsed is not None, after
     after_args = formula_data_args(after)
     assert after_args is not None and len(after_args) >= 2, after
@@ -91,7 +88,7 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
 
     # 2) Quoted code + range: splice appends a pred; getFormula still parses.
     stored_range = samples["quoted_range"]
-    range_parts = parse_python_formula(stored_range)
+    range_parts = PyFormula.parse(stored_range)
     assert range_parts is not None, stored_range
     range_args = formula_data_args(stored_range)
     assert range_args is not None, stored_range
@@ -101,7 +98,7 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
     assert "np.mean(data)" in rebuilt_range
     b1.setFormula(rebuilt_range)
     after_range = str(b1.getFormula() or "")
-    again = parse_python_formula(after_range)
+    again = PyFormula.parse(after_range)
     assert again is not None, after_range
     assert again.code == "np.mean(data)"
     after_range_args = formula_data_args(after_range)
@@ -109,9 +106,8 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
 
     # 3) Unquoted code-in-cell keeps the unquoted token (or Calc's stored form).
     stored_ref = samples["code_in_cell"]
-    assert py_formula_has_unquoted_code_ref(stored_ref), stored_ref
-    ref_parts = parse_python_formula(stored_ref)
-    assert ref_parts is not None, stored_ref
+    ref_parts = PyFormula.parse(stored_ref)
+    assert ref_parts is not None and ref_parts.code_is_ref, stored_ref
     ref_args = formula_data_args(stored_ref)
     assert ref_args is not None, stored_ref
     rebuilt_ref = rebuild_formula_with_data_args(stored_ref, ref_args + ["C5"])
@@ -120,9 +116,8 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
     assert '"A1"' not in rebuilt_ref
     sheet.getCellByPosition(3, 0).setFormula(rebuilt_ref)
     after_ref = str(sheet.getCellByPosition(3, 0).getFormula() or "")
-    assert py_formula_has_unquoted_code_ref(after_ref), after_ref
-    after_ref_parts = parse_python_formula(after_ref)
-    assert after_ref_parts is not None, after_ref
+    after_ref_parts = PyFormula.parse(after_ref)
+    assert after_ref_parts is not None and after_ref_parts.code_is_ref, after_ref
     assert after_ref_parts.code.replace("$", "").upper().endswith("A1"), after_ref
     if "$" in ref_parts.code:
         assert "$" in after_ref_parts.code, after_ref

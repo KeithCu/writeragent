@@ -48,17 +48,18 @@ def _prop(field: Any, name: str, default: Any = "") -> Any:
 
 def _annotation_reader(ctx: Any) -> Any:
     from plugin.doc.paragraph_search import paragraph_entries
+    from plugin.writer.search import LocationLabeler
 
     doc = ctx.doc
     doc_svc = ctx.services.document
     para_ranges = doc_svc.get_paragraph_ranges(doc)
     text_obj = doc.getText()
     entries = paragraph_entries(para_ranges)
-    label_cache: dict[int, str] = {}
+    labeler = LocationLabeler(doc) if doc is not None else None
 
     def reader(field: Any) -> dict[str, Any]:
         return _read_annotation(
-            field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
+            field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, labeler=labeler
         )
 
     return reader
@@ -608,11 +609,11 @@ def _read_annotation(
     doc_svc: Any,
     doc: Any = None,
     entries: Any = None,
-    label_cache: dict[int, str] | None = None,
+    labeler: Any = None,
 ) -> dict[str, Any]:
     """Extract annotation properties into a plain dict."""
     from plugin.framework.uno_context import uno_same
-    from plugin.writer.search import describe_match_location
+    from plugin.writer.search import LocationLabeler, describe_match_location
 
     entry: dict[str, Any] = {}
     props_read = 0
@@ -657,16 +658,18 @@ def _read_annotation(
         anchor = field.getAnchor()
         preview = ""
         if anchor is not None:
-            entry["location"] = describe_match_location(anchor, doc, label_cache=label_cache)
+            if labeler is not None:
+                entry["location"] = labeler.describe(anchor)
+            elif doc is not None:
+                entry["location"] = LocationLabeler(doc).describe(anchor)
+            else:
+                entry["location"] = describe_match_location(anchor, doc)
             try:
                 anchor_text = anchor.getText()
             except Exception:
                 anchor_text = None
             if anchor_text is not None and text_obj is not None and uno_same(anchor_text, text_obj):
-                raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                from plugin.doc.paragraph_search import confirm_paragraph_index
-
-                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                placed = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
                 if placed is not None:
                     entry["paragraph_index"] = placed
 

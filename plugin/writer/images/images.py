@@ -530,10 +530,7 @@ def _paragraph_index_for(
     text_obj: Any,
     entries: Any = None,
 ) -> int:
-    from plugin.doc.paragraph_search import confirm_paragraph_index
-
-    raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-    placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+    placed = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
     return placed if placed is not None else -1
 
 
