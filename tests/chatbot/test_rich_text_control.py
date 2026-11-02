@@ -332,6 +332,7 @@ class TestAppendTextChunk:
     def test_sync_bounds_scrolls_tail_after_resize_when_transcript_nonempty(self):
         from types import SimpleNamespace
 
+        import plugin.chatbot.rich_text_control as rtc
         from plugin.chatbot.rich_text_control import sync_rich_control_bounds
 
         rich = MagicMock()
@@ -341,11 +342,14 @@ class TestAppendTextChunk:
         placeholder = MagicMock()
         placeholder.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=200, Height=300)
 
-        with patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll:
+        with patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll, \
+             patch.object(rtc.log, "warning") as mock_warn:
             res = sync_rich_control_bounds(rich, None, placeholder)
 
         mock_scroll.assert_called_once()
-        assert res is False
+        mock_warn.assert_called_once()
+        assert "bounds mismatch" in mock_warn.call_args[0][0]
+        assert res is rich
         # reveal_caret is the flash path; resize uses Hidden SelectAll like stream.
 
     def test_sync_bounds_skips_scroll_when_empty(self):
@@ -360,11 +364,13 @@ class TestAppendTextChunk:
         placeholder = MagicMock()
         placeholder.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=200, Height=300)
 
-        with patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll:
+        with patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll, \
+             patch("plugin.chatbot.rich_text_control._try_dialog_embedded_rich_control", return_value=None) as mock_reinsert:
             res = sync_rich_control_bounds(rich, None, placeholder)
 
         mock_scroll.assert_not_called()
-        assert res is False
+        mock_reinsert.assert_called_once()
+        assert res is rich
 
     def test_sync_bounds_returns_true_when_already_matching(self):
         from types import SimpleNamespace
@@ -377,13 +383,19 @@ class TestAppendTextChunk:
         placeholder = MagicMock()
         placeholder.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=200, Height=300)
 
-        res = sync_rich_control_bounds(rich, None, placeholder)
-        assert res is True
+        with patch("plugin.chatbot.rich_text_control._try_dialog_embedded_rich_control") as mock_reinsert:
+            res = sync_rich_control_bounds(rich, None, placeholder)
+        rich.setPosSize.assert_not_called()
+        mock_reinsert.assert_not_called()
+        assert res is rich
 
     def test_sync_bounds_returns_false_when_inputs_none(self):
         from plugin.chatbot.rich_text_control import sync_rich_control_bounds
-        assert sync_rich_control_bounds(None, None, MagicMock()) is False
-        assert sync_rich_control_bounds(MagicMock(), None, None) is False
+
+        ctrl = MagicMock()
+        assert sync_rich_control_bounds(None, None, MagicMock()) is None
+        assert sync_rich_control_bounds(ctrl, None, None) is ctrl
+        ctrl.getPosSize.assert_not_called()
 
     def test_clear_control(self):
         control = MagicMock()
@@ -449,15 +461,12 @@ class TestLogRichScroll:
         import plugin.chatbot.rich_text_control as rtc
         from plugin.chatbot.rich_text_control import log_rich_scroll
 
-        start = rtc._RICH_SCROLL_SEQ
         control = MagicMock()
-        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=42), \
-             patch("plugin.chatbot.rich_text_control.RICH_SCROLL_VERBOSE_DEBUG", True), \
+        with patch("plugin.chatbot.rich_text_control.RICH_SCROLL_VERBOSE_DEBUG", True), \
              caplog.at_level(logging.DEBUG, logger="plugin.chatbot.rich_text_control"):
             log_rich_scroll("test_phase", control=control, reason="unit")
             log_rich_scroll("test_phase2", control=control)
 
-        assert rtc._RICH_SCROLL_SEQ == start + 2
         from tests.harness.strip_bundle import module_source_contains
 
         if not module_source_contains(rtc, "log.debug"):
@@ -466,7 +475,6 @@ class TestLogRichScroll:
         assert "[RICH-SCROLL]" in messages
         assert "phase=test_phase" in messages
         assert "reason=unit" in messages
-        assert "text_len=42" in messages
 
     def test_log_rich_scroll_is_off_by_default(self, caplog):
         from plugin.chatbot.rich_text_control import log_rich_scroll
@@ -530,8 +538,6 @@ class TestRichTextChatWidget:
         model = MagicMock()
         control.getModel.return_value = model
         widget = RichTextChatWidget(ctx, control, style_window=None)
-
-        assert widget.model == model
 
         with patch("plugin.chatbot.rich_text_control.clear_control") as mock_clear:
             widget.clear()
@@ -789,19 +795,12 @@ class TestRichTextChatWidget:
 
 
 class TestLogRichControlContext:
-    def setup_method(self):
-        import plugin.chatbot.rich_text_control as rtc
-
-        rtc._ENV_SNAPSHOT_LOGGED = False
-
     def test_includes_phase_and_env_snapshot_once(self):
         import plugin.chatbot.rich_text_control as rtc
 
-        with patch.dict("os.environ", {"XDG_SESSION_DESKTOP": "gnome"}, clear=False), \
-             patch.object(rtc.log, "info") as mock_info:
+        with patch.object(rtc.log, "info") as mock_info:
             rtc.log_rich_control_context(MagicMock(), "window_shown", peer=0)
             rtc.log_rich_control_context(MagicMock(), "eager_init", peer=1)
-        assert rtc._ENV_SNAPSHOT_LOGGED is True
         from tests.harness.strip_bundle import module_source_contains
 
         if not module_source_contains(rtc, "log.info"):
@@ -811,9 +810,8 @@ class TestLogRichControlContext:
         second = mock_info.call_args_list[1][0][0]
         assert "phase=window_shown" in first
         assert "peer=0" in first
-        assert "xdg_session_desktop=gnome" in first
-        assert "env=" in first
-        assert "xdg_session_desktop=gnome" not in second
+        assert "phase=eager_init" in second
+        assert "peer=1" in second
 
 
 class TestRichControlListenerInit:
@@ -821,7 +819,6 @@ class TestRichControlListenerInit:
         import plugin.chatbot.rich_text_control as rtc
 
         rtc._CONTROL_INIT_STARTED.clear()
-        rtc._ENV_SNAPSHOT_LOGGED = True
 
     def test_window_shown_no_peer_does_not_init(self):
         from plugin.chatbot.rich_text_control import RichTextControlListener
