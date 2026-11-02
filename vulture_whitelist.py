@@ -362,7 +362,7 @@ _.audio_status  # function: plugin/chatbot/sidebar_test_hooks.py:2684
 _.clear_all_sandbox_sessions  # function: plugin/scripting/venv/venv_sandbox.py:1116
 _.clear_fake_stt  # function: plugin/chatbot/sidebar_test_hooks.py:611
 _.clear_fake_tts  # function: plugin/chatbot/sidebar_test_hooks.py:926
-_.clear_page_shapes  # function: plugin/ppt_master/adapter/uno_shape_postprocess.py:225
+_.clear_page_shapes  # function: plugin/ppt_master/adapter/uno_shape_postprocess.py:40
 _.clear_python_code_hot_cache  # function: plugin/scripting/sandbox_cache.py:230
 _.clear_research_fluff_words_cache  # function: plugin/chatbot/web_research_cache.py:165
 _.clear_session  # function: plugin/ppt_master/venv/runner.py:332

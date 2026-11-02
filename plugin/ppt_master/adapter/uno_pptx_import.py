@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Import ppt-master PPTX into Impress via LibreOffice's native PPTX filter.
 
-Picture shapes are reimported in ``uno_shape_postprocess`` so closing the
+Picture shapes are reimported in ``shape_clone`` so closing the
 hidden source does not dispose a graphic the target still references. A
 slide is emptied of its previous shapes only after that slide's copy
 reports at least one shape.
@@ -66,7 +66,7 @@ def _apply_target_page_size(page: Any) -> None:
 def _trim_appended_shapes(page: Any, keep_count: int) -> None:
     """Drop shapes ``add`` appended past *keep_count*.
 
-    ``clone_shape_to_page`` appends. A copy that reports no successes can
+    ``copy_shapes_to_page`` appends. A copy that reports no successes can
     still have added a shape before that clone failed; those are not user
     content and are removed from the end.
     """

@@ -42,6 +42,9 @@ def test_nested_drain_closes_rearm_scheduler():
         def post(self, fn: object) -> None:
             del fn
 
+        def close(self) -> None:
+            pass
+
         def post_after(self, delay: float, fn: object) -> None:
             del delay, fn
 
@@ -105,6 +108,9 @@ def test_event_drain_caps_back_to_back_immediate_rearms(monkeypatch: pytest.Monk
 
         def post(self, fn):
             self.posts.append(("now", fn))
+
+        def close(self) -> None:
+            pass
 
         def post_after(self, delay, fn):
             self.posts.append(("later", delay, fn))
@@ -741,6 +747,9 @@ def test_finish_runs_epilogues_when_idle_callback_raises_recursion_error() -> No
 
         def post(self, fn):
             self.posts.append(("now", fn))
+
+        def close(self) -> None:
+            pass
 
         def post_after(self, delay, fn):
             self.posts.append(("later", delay, fn))

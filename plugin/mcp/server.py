@@ -68,7 +68,7 @@ from plugin.mcp.http_trace import log_cors_preflight, log_http_request, log_no_r
 if TYPE_CHECKING:
     from plugin.mcp.routes import HttpRouteRegistry
 
-log = logging.getLogger("writeragent.framework.http_server")
+log = logging.getLogger("writeragent.mcp.server")
 
 
 def mcp_endpoint_url(host: str, port: int, use_ssl: bool = False) -> str:

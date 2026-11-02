@@ -29,15 +29,15 @@ if TYPE_CHECKING:
 log = logging.getLogger("compute_service")
 
 # Bound the post-accept drain. Matches README 30s termination grace.
-_HTTP_DRAIN_SEC = 30.0
+HTTP_DRAIN_SEC = 30.0
 # Per-read socket timeout while the request line and headers arrive.
 _HEADER_READ_TIMEOUT_SEC = 10.0
-# Body read. Reset to _REQUEST_WRITE_TIMEOUT_SEC once the body is
+# Body read. Reset to REQUEST_WRITE_TIMEOUT_SEC once the body is
 # buffered so long calculations do not trip it during execution. Also the
 # idle timeout of a parked keep-alive socket.
-_REQUEST_READ_TIMEOUT_SEC = 30.0
+REQUEST_READ_TIMEOUT_SEC = 30.0
 # Socket write deadline for sending the response once computation completes.
-_REQUEST_WRITE_TIMEOUT_SEC = 30.0
+REQUEST_WRITE_TIMEOUT_SEC = 30.0
 
 
 def listener_thread_count(max_threads: int | None) -> int:
@@ -47,14 +47,9 @@ def listener_thread_count(max_threads: int | None) -> int:
     return max(8, max_threads + 4)
 
 
-def service_listener_threads(settings: ComputeSettings) -> int:
-    """Accept-pool size for one running compute service."""
-    return listener_thread_count(settings.threads)
-
-
 def admission_permits(settings: ComputeSettings) -> int:
     """Permits shared by execute, session reset and vision; two listeners stay free for ``GET /health``."""
-    return service_listener_threads(settings) - 2
+    return listener_thread_count(settings.threads) - 2
 
 
 # =============================================================================
@@ -103,15 +98,6 @@ class ComputeServerHandler(ServerHandler):
     """WSGI ServerHandler with HTTP/1.1 and keep-alive header enforcement."""
 
     http_version: str = "1.1"
-
-    def write(self, data: bytes) -> None:
-        h = cast("Any", self)
-        if h.environ.get("REQUEST_METHOD") != "HEAD":
-            super().write(data)
-        elif not h.headers_sent:
-            # HEAD sends the headers only; Content-Length still describes the body.
-            h.bytes_sent = len(data)
-            h.send_headers()
 
     def cleanup_headers(self) -> None:
         super().cleanup_headers()
@@ -194,7 +180,15 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         if not self.parse_request():
             self.close_connection = True
             return
-        self.connection.settimeout(_REQUEST_READ_TIMEOUT_SEC)
+        if self.command == "HEAD":
+            # No route serves HEAD. Answering here keeps the WSGI write path free of a bodiless case.
+            self.send_response(405)
+            self.send_header("Allow", "GET, POST")
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            return
+        self.connection.settimeout(REQUEST_READ_TIMEOUT_SEC)
         environ = self.get_environ()
         handler = ComputeServerHandler(self.rfile, cast("Any", self.wfile), self.get_stderr(), environ, multithread=False)
         cast("Any", handler).request_handler = self
@@ -227,22 +221,9 @@ class DeadlineRequestHandler(WSGIRequestHandler):
     def get_environ(self) -> dict[str, Any]:
         environ = super().get_environ()
         environ["compute.connection"] = self.connection
-        environ["compute.accept_time"] = self._connection_accept_time()
+        # Keyed by the socket object: an ``id()`` key is reused after close, so a later accept would inherit the stamp.
+        environ["compute.accept_time"] = cast("Any", self.server)._accept_times.get(self.connection)
         return environ
-
-    def _connection_accept_time(self) -> float | None:
-        """Accept stamp for this connection.
-
-        The map is keyed by the socket object. An ``id()`` key is reused
-        after the socket is closed, so a later accept would inherit this stamp.
-        """
-        times = getattr(self.server, "_accept_times", None)
-        if times is None:
-            return None
-        found = times.get(self.connection)
-        if isinstance(found, (int, float)) and not isinstance(found, bool):
-            return float(found)
-        return None
 
 
 class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
@@ -305,7 +286,7 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
                     log.warning("Failed to park connection (%s); closing", type(exc).__name__)
                 self.shutdown_request(state.sock)
         parked = [key.data for key in list(selector.get_map().values()) if isinstance(key.data, ConnState)]
-        expired = time.monotonic() - _REQUEST_READ_TIMEOUT_SEC
+        expired = time.monotonic() - REQUEST_READ_TIMEOUT_SEC
         over = len(parked) - _MAX_PARKED
         kept: list[ConnState] = []
         for i, state in enumerate(parked):

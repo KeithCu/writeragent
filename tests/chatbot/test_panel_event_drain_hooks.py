@@ -35,6 +35,9 @@ class _Rearm:
     def post(self, fn: Any) -> None:
         self.pending.append(fn)
 
+    def close(self) -> None:
+        pass
+
     def post_after(self, _delay: float, fn: Any) -> None:
         self.pending.append(fn)
 

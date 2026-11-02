@@ -27,8 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 from compute_service import __version__
 from compute_service import error_codes as ec
 from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
-# Internal server clocks and timeouts shared with the route module; not public wsgi_server exports.
-from compute_service.wsgi_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, admission_permits, service_listener_threads  # pyright: ignore[reportPrivateUsage]
+from compute_service.wsgi_server import HTTP_DRAIN_SEC, REQUEST_READ_TIMEOUT_SEC, REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, admission_permits, listener_thread_count
 from compute_service.worker_base import Deadline
 from compute_service.json_forward import (
     ExecuteRequestError,
@@ -213,7 +212,7 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
         except OSError:
             conn = None  # A timeout that cannot be read cannot be restored, so it is left alone.
         read = getattr(stream, "read1", None) or stream.read
-        deadline = min(time.monotonic() + 1.0, _accept_clock(environ.get("compute.accept_time")) + _REQUEST_READ_TIMEOUT_SEC)
+        deadline = min(time.monotonic() + 1.0, _accept_clock(environ.get("compute.accept_time")) + REQUEST_READ_TIMEOUT_SEC)
         try:
             while done < cap and (budget := deadline - time.monotonic()) > 0:
                 if conn is not None:
@@ -255,13 +254,13 @@ def _set_write_deadline(environ: dict[str, Any]) -> None:
     The handler sets a read timeout so a client that accepts and then sends
     nothing cannot hold a worker thread indefinitely. Once the request body
     is buffered, reset that socket timeout to a bounded write deadline
-    (_REQUEST_WRITE_TIMEOUT_SEC) so that in-progress execution is not prematurely
+    (REQUEST_WRITE_TIMEOUT_SEC) so that in-progress execution is not prematurely
     aborted while preparing to stream or complete the calculation.
     """
     conn = environ.get("compute.connection")
     if conn is not None:
         try:
-            conn.settimeout(_REQUEST_WRITE_TIMEOUT_SEC)
+            conn.settimeout(REQUEST_WRITE_TIMEOUT_SEC)
         except OSError:
             pass
 
@@ -355,7 +354,7 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
         return None, _error(start_response, status, msg)
 
     conn = environ.get("compute.connection")
-    read_deadline = _accept_clock(environ.get("compute.accept_time")) + _REQUEST_READ_TIMEOUT_SEC
+    read_deadline = _accept_clock(environ.get("compute.accept_time")) + REQUEST_READ_TIMEOUT_SEC
 
     chunks: list[bytes] = []
     bytes_read = 0
@@ -1019,7 +1018,7 @@ def run_server(settings: ComputeSettings) -> None:
             get_vision_pool(settings)
 
         try:
-            server = WSGIDualStackServer(settings.host, settings.port, listener_threads=service_listener_threads(settings))
+            server = WSGIDualStackServer(settings.host, settings.port, listener_threads=listener_thread_count(settings.threads))
         except OSError as exc:
             print(f"Failed to bind {settings.host}:{settings.port}: {exc}", file=sys.stderr)
             raise
@@ -1050,7 +1049,7 @@ def run_server(settings: ComputeSettings) -> None:
         finally:
             log.info("Stopping Python Compute Service...")
             server.close_sockets()
-            server.drain_executor(_HTTP_DRAIN_SEC)
+            server.drain_executor(HTTP_DRAIN_SEC)
             server.server_close()
     finally:
         from compute_service.formula_pool import shutdown_formula_pool

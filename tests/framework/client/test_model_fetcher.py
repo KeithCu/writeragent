@@ -1472,3 +1472,24 @@ def test_peek_ollama_num_ctx_reads_show_cache_without_http():
         show.assert_not_called()
     finally:
         clear_settings_catalog_cache(endpoint)
+
+
+def test_test_connection_keeps_learned_tts_voices_and_response_format():
+    """Test Connection clears the endpoint memo, not per-model speech state."""
+    import plugin.framework.client.model_fetcher as cfg
+
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
+    endpoint = "https://openrouter.ai/api"
+    model = "google/gemini-2.5-flash-preview-tts"
+    cfg.remember_tts_supported_voices(model, ["Puck", "Kore"])
+    cfg.remember_tts_response_format(model, "pcm")
+    cfg._catalog_memos[cfg._catalog_memo_key(endpoint, "k")] = cfg.CatalogMemo(ids=["a"])
+
+    cfg.clear_settings_catalog_cache(endpoint, api_key_override="k")
+
+    assert cfg._catalog_memo_key(endpoint, "k") not in cfg._catalog_memos
+    assert cfg.cached_tts_supported_voices(model.upper()) == ["Puck", "Kore"]
+    assert cfg.cached_tts_response_format(model) == "pcm"
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()

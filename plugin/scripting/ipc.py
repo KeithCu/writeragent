@@ -153,6 +153,8 @@ _SAFE_PICKLE_BUILTINS = frozenset({
     "complex",
 })
 
+HOST_PICKLE_LEAF_TYPES = (type(None), bool, int, float, str, bytes, bytearray, complex)
+
 # Names a NumPy pickle REDUCE actually invokes (ndarray via _frombuffer,
 # dtype, scalar). Not load, save, or ctypeslib.
 # ("numpy", "ndarray") stays. A contiguous array uses _frombuffer and does

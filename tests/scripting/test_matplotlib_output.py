@@ -99,7 +99,7 @@ def test_host_unpack_data_passthrough():
 def test_figure_to_image_payload_svg_default():
     """Default format is SVG for crisp rendering in LibreOffice."""
     plt = pytest.importorskip("matplotlib.pyplot")
-    from plugin.scripting.venv.venv_sandbox import _figure_to_image_payload
+    from plugin.scripting.venv.to_wire import _figure_to_image_payload
 
     fig, ax = plt.subplots()
     ax.plot([1, 2, 3])
@@ -116,7 +116,7 @@ def test_figure_to_image_payload_svg_default():
 def test_figure_to_image_payload_png_explicit():
     """Explicit fmt='png' produces a PNG raster."""
     plt = pytest.importorskip("matplotlib.pyplot")
-    from plugin.scripting.venv.venv_sandbox import _figure_to_image_payload
+    from plugin.scripting.venv.to_wire import _figure_to_image_payload
 
     fig, ax = plt.subplots()
     ax.plot([1, 2, 3])
