@@ -144,7 +144,7 @@ class PanelEventsController:
         from plugin.chatbot.dialogs import show_web_search_query_edit_dialog
 
         initial = self._panel._approval_query_for_engine or ""
-        text = show_web_search_query_edit_dialog(self._panel.ctx, self._panel.frame, initial)
+        text = show_web_search_query_edit_dialog(self._panel.ctx, initial)
         if text is None:
             return
         log.debug("_open_web_search_change_dialog: applying edited query len=%d", len(text))

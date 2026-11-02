@@ -156,12 +156,8 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
 
 
 def run_dialog_with_listeners(dlg: Any, ok_listener: Any, cancel_listener: Any) -> None:
-    btn_ok = dlg.getControl("BtnOK")
-    if btn_ok is not None:
-        btn_ok.addActionListener(ok_listener)
-    btn_cancel = dlg.getControl("BtnCancel")
-    if btn_cancel is not None:
-        btn_cancel.addActionListener(cancel_listener)
+    dlg.getControl("BtnOK").addActionListener(ok_listener)
+    dlg.getControl("BtnCancel").addActionListener(cancel_listener)
 
     dlg.execute()
     dlg.dispose()
@@ -194,9 +190,7 @@ def _run_text_dialog(
         class _OkListener(BaseActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
-                ec = dlg.getControl(edit_name)
-                m = ec.getModel() if ec else None
-                _outcome = (m.Text or "").strip() if m and hasattr(m, "Text") else ""
+                _outcome = (dlg.getControl(edit_name).getModel().Text or "").strip()
                 dlg.endDialog(1)
 
         run_dialog_with_listeners(dlg, _OkListener(), _DismissDialogListener(dlg, 0))
@@ -206,17 +200,13 @@ def _run_text_dialog(
         return None
 
 
-def show_web_search_query_edit_dialog(ctx: Any, parent_frame: Any, initial_text: str) -> str | None:
+def show_web_search_query_edit_dialog(ctx: Any, initial_text: str) -> str | None:
     """Modal multiline edit for a web-search query before DuckDuckGo runs.
-
-    ``parent_frame`` is typically the sidebar ``XFrame`` so the dialog parents correctly.
 
     Returns the edited text (stripped) if the user clicks OK, or ``None`` if Cancel/close/error.
     """
     def _prepare(dlg: Any) -> None:
-        edit = dlg.getControl("QueryEdit")
-        if edit is not None:
-            edit.setText(initial_text or "")
+        dlg.getControl("QueryEdit").setText(initial_text or "")
 
     return _run_text_dialog(
         ctx,
@@ -235,13 +225,10 @@ def show_text_input_dialog(ctx: Any, message: str, title: str = "", default: str
     def _prepare(dlg: Any) -> None:
         if title:
             dlg.getModel().Title = _(title)
-        lbl = dlg.getControl("PromptLbl")
-        if lbl is not None:
-            lbl.getModel().Label = message
+        dlg.getControl("PromptLbl").getModel().Label = message
         edit = dlg.getControl("TextEdit")
-        if edit is not None:
-            edit.setText(default or "")
-            edit.setFocus()
+        edit.setText(default or "")
+        edit.setFocus()
 
     return _run_text_dialog(
         ctx,

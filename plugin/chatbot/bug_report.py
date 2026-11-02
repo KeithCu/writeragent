@@ -123,13 +123,12 @@ def _issue_sections(ctx: Any | None = None) -> tuple[str, str]:
         lines.append(f"- Python venv path: {venv_path}")
     else:
         endpoint = _redact_endpoint(get_current_endpoint()) or "(not set)"
-        model = "(not set)"
-        try:
-            from plugin.framework.client.model_fetcher import get_text_model
 
-            model = get_text_model() or "(not set)"
-        except Exception:
-            log.debug("bug_report: get_text_model unavailable", exc_info=True)
+        def _model() -> str:
+            from plugin.framework.client.model_fetcher import get_text_model
+            return get_text_model() or "(not set)"
+
+        model = best_effort(_model, "bug_report: get_text_model unavailable", "(not set)")
         lines.append(f"- Endpoint: {endpoint}")
         lines.append(f"- Chat model: {model}")
 
