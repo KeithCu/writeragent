@@ -162,7 +162,7 @@ _ALIASES: dict[str, str] = {
 def _app(doc_type: str | None) -> str:
     if doc_type is None:
         return "generic"
-    label = str(doc_type).strip().lower()
+    label = doc_type.strip().lower()
     return label if label in _MANUALS else "generic"
 
 
@@ -181,13 +181,8 @@ def _resolve_topic(topic: str | None, doc_type: str | None = "writer") -> _Topic
         return None
     manual = _MANUALS[_app(doc_type)]
     key = topic.strip().lower().replace(" ", "-").replace("_", "-")
-    found = next((t for t in manual if t.id == key), None)
-    if found is not None:
-        return found
-    alias = _ALIASES.get(key)
-    if alias is not None:
-        return next((t for t in manual if t.id == alias), None)
-    return None
+    key = _ALIASES.get(key, key)
+    return next((t for t in manual if t.id == key), None)
 
 
 def normalize_topic(topic: str | None, doc_type: str | None = "writer") -> str | None:
