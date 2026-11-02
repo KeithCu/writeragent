@@ -29,6 +29,9 @@ class _RecordingRearm:
     def post(self, fn: Any) -> None:
         self.pending.append(("now", None, fn))
 
+    def close(self) -> None:
+        pass
+
     def post_after(self, delay: float, fn: Any) -> None:
         self.pending.append(("later", delay, fn))
 

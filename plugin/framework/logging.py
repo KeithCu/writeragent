@@ -38,7 +38,7 @@ import traceback
 import threading
 import logging
 from copy import deepcopy
-from typing import Any, TypedDict, cast
+from typing import Any, TypedDict
 
 from plugin.framework.errors import ConfigError, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
@@ -203,7 +203,6 @@ class OptionalFlushFileHandler(logging.FileHandler):
 
     # FileHandler assigns stream in __init__ with no annotation basedpyright can see.
     stream: Any
-    _writeragent_debug_handler: bool = True
 
     def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
@@ -291,12 +290,16 @@ class OptionalFlushFileHandler(logging.FileHandler):
 # a second import of this package does not open another fd.
 
 
+class _DebugHandlerSlot(TypedDict):
+    handler: OptionalFlushFileHandler | None
+
+
+def _debug_slot() -> _DebugHandlerSlot:
+    return process_global("debug_file_handler", lambda: _DebugHandlerSlot(handler=None))
+
+
 def _debug_file_handler_from_sys() -> OptionalFlushFileHandler | None:
-    # Class attribute, so a handler built by a second import of this module still matches.
-    handler = getattr(sys, "_writeragent_debug_file_handler", None)
-    if getattr(handler, "_writeragent_debug_handler", False):
-        return cast("OptionalFlushFileHandler", handler)
-    return None
+    return _debug_slot()["handler"]
 
 
 def _shared_debug_file_handler() -> OptionalFlushFileHandler:
@@ -321,7 +324,7 @@ def _shared_debug_file_handler() -> OptionalFlushFileHandler:
             pass
     handler = OptionalFlushFileHandler(path, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
-    setattr(sys, "_writeragent_debug_file_handler", handler)
+    _debug_slot()["handler"] = handler
     return handler
 
 
@@ -453,57 +456,53 @@ def _install_global_exception_hooks() -> None:
     """Install sys.excepthook and threading.excepthook to log unhandled exceptions."""
     def _install() -> bool:
         current_hook = sys.excepthook
-        if not getattr(current_hook, "_writeragent_hook", False):
-            _original_excepthook = current_hook
+        _original_excepthook = current_hook
 
-            def _writeragent_excepthook(exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
+        def _writeragent_excepthook(exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
+            try:
+                tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
+                msg = "Unhandled exception:\n" + "".join(tb_lines)
                 try:
-                    tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
-                    msg = "Unhandled exception:\n" + "".join(tb_lines)
-                    try:
-                        payload = format_error_payload(exc_value)
-                        msg += f"\nPayload context: {payload.get('details', {})}"
-                    except Exception:
-                        log.debug("excepthook: format_error_payload failed", exc_info=True)
-                    log.error(f"[Excepthook] {msg.strip()}")
-                except Exception:  # noqa: S110  excepthook log.error failed; another log call can recurse
-                    pass
-                try:
-                    _original_excepthook(exc_type, exc_value, exc_tb)
+                    payload = format_error_payload(exc_value)
+                    msg += f"\nPayload context: {payload.get('details', {})}"
                 except Exception:
-                    log.debug("original sys.excepthook failed", exc_info=True)
+                    log.debug("excepthook: format_error_payload failed", exc_info=True)
+                log.error(f"[Excepthook] {msg.strip()}")
+            except Exception:  # noqa: S110  excepthook log.error failed; another log call can recurse
+                pass
+            try:
+                _original_excepthook(exc_type, exc_value, exc_tb)
+            except Exception:
+                log.debug("original sys.excepthook failed", exc_info=True)
 
-            setattr(_writeragent_excepthook, "_writeragent_hook", True)
-            sys.excepthook = _writeragent_excepthook
+        sys.excepthook = _writeragent_excepthook
 
         if getattr(threading, "excepthook", None) is not None:
-            if not getattr(threading.excepthook, "_writeragent_hook", False):
-                _original_threading_excepthook = threading.excepthook
+            _original_threading_excepthook = threading.excepthook
 
-                def _writeragent_threading_excepthook(args: Any) -> None:
+            def _writeragent_threading_excepthook(args: Any) -> None:
+                try:
+                    msg = "Unhandled exception in thread %s: %s\n%s" % (
+                        getattr(args, "thread", None),
+                        getattr(args, "exc_type", args),
+                        "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
+                        if getattr(args, "exc_type", None)
+                        else "",
+                    )
                     try:
-                        msg = "Unhandled exception in thread %s: %s\n%s" % (
-                            getattr(args, "thread", None),
-                            getattr(args, "exc_type", args),
-                            "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
-                            if getattr(args, "exc_type", None)
-                            else "",
-                        )
-                        try:
-                            payload = format_error_payload(args.exc_value)
-                            msg += f"\nPayload context: {payload.get('details', {})}"
-                        except Exception:
-                            log.debug("threading excepthook: format_error_payload failed", exc_info=True)
-                        log.error(f"[Excepthook] {msg.strip()}")
-                    except Exception:  # noqa: S110  threading excepthook log.error failed; another log call can recurse
-                        pass
-                    try:
-                        _original_threading_excepthook(args)
+                        payload = format_error_payload(args.exc_value)
+                        msg += f"\nPayload context: {payload.get('details', {})}"
                     except Exception:
-                        log.debug("original threading.excepthook failed", exc_info=True)
+                        log.debug("threading excepthook: format_error_payload failed", exc_info=True)
+                    log.error(f"[Excepthook] {msg.strip()}")
+                except Exception:  # noqa: S110  threading excepthook log.error failed; another log call can recurse
+                    pass
+                try:
+                    _original_threading_excepthook(args)
+                except Exception:
+                    log.debug("original threading.excepthook failed", exc_info=True)
 
-                setattr(_writeragent_threading_excepthook, "_writeragent_hook", True)
-                threading.excepthook = _writeragent_threading_excepthook
+            threading.excepthook = _writeragent_threading_excepthook
         return True
 
     process_global("excepthook", _install)
@@ -768,9 +767,6 @@ def _install_safe_log_record_factory() -> None:
     """
     def _install() -> bool:
         current = logging.getLogRecordFactory()
-        if getattr(current, "_writeragent_safe_factory", False):
-            return True
-
         _original_factory = current
 
         def safe_logRecordFactory(*args: Any, **kwargs: Any) -> Any:
@@ -799,7 +795,6 @@ def _install_safe_log_record_factory() -> None:
                         kwargs["args"] = tuple(_coerce_logged_arg(x) for x in log_args)
             return _original_factory(*args, **kwargs)
 
-        setattr(safe_logRecordFactory, "_writeragent_safe_factory", True)
         logging.setLogRecordFactory(safe_logRecordFactory)
         return True
 

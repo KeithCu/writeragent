@@ -66,15 +66,6 @@ def split_stream_item(item: Any) -> tuple[Any, Any]:
     return (item, None)
 
 
-def wait_for_timer_deadline(cv: threading.Condition, target: Any) -> float | None:
-    """Wait on condition until target has a deadline or target is stopped."""
-    while target._deadline is None and not target._stopped:
-        cv.wait()
-    if target._stopped:
-        return None
-    return target._deadline
-
-
 class DeadlineThread:
     """One dedicated thread that waits for a deadline, fires once, and waits again.
 
@@ -118,8 +109,10 @@ class DeadlineThread:
     def _run(self) -> None:
         while True:
             with self._cv:
-                deadline = wait_for_timer_deadline(self._cv, self)
-                if deadline is None:
+                while self._deadline is None and not self._stopped:
+                    self._cv.wait()
+                deadline = self._deadline
+                if self._stopped or deadline is None:
                     return
                 remaining = deadline - time.monotonic()
                 if remaining > 0:

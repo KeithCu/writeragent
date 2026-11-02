@@ -56,13 +56,12 @@ class TestInitLogging:
         logging_mod._shared()["debug_log_path"] = None
         # What was wrong: these lived on the logging module. A second import
         # did not see them. Tests must reset the sys copies or they leak.
-        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_slot()["handler"] = None
         sys.__dict__.pop("_writeragent_excepthook", None)
         for h in list(log.handlers):
             log.removeHandler(h)
 
     def _release_debug_handlers(self) -> None:
-        import sys
 
         import plugin.framework.logging as logging_mod
 
@@ -74,7 +73,7 @@ class TestInitLogging:
                 except Exception:
                     pass
         logging_mod._shared()["debug_log_path"] = None
-        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_slot()["handler"] = None
 
     def teardown_method(self):
         import sys
@@ -84,7 +83,7 @@ class TestInitLogging:
 
         config_mod._resolved_config_path = self._saved_config_path
         logging_mod._shared()["debug_log_path"] = self._saved_debug_path
-        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_slot()["handler"] = None
         if self._saved_hooks is not None:
             setattr(sys, "_writeragent_excepthook", self._saved_hooks)
         else:
@@ -661,21 +660,20 @@ class TestOptionalFlushFileHandler:
 
     def test_watchdog_check_flushes_debug_log(self):
         from plugin.framework.logging import _watchdog_check
-        import sys
 
         import plugin.framework.logging as logging_mod
 
         mock_handler = MagicMock(spec=OptionalFlushFileHandler)
-        old_h = getattr(sys, "_writeragent_debug_file_handler", None)
+        old_h = logging_mod._debug_slot()["handler"]
         try:
-            setattr(sys, "_writeragent_debug_file_handler", mock_handler)
+            logging_mod._debug_slot()["handler"] = mock_handler
             # Idle: no phase. A stalled phase left by an earlier test would
             # also run the once-per-stall stack dump, which flushes again.
             with patch.dict(logging_mod._shared()["activity"], {"phase": ""}):
                 _watchdog_check(None)
             mock_handler.flush.assert_called_once_with(force=True)
         finally:
-            setattr(sys, "_writeragent_debug_file_handler", old_h)
+            logging_mod._debug_slot()["handler"] = old_h
 
 
 def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
@@ -732,9 +730,7 @@ def test_excepthook_is_not_wrapped_twice() -> None:
         sys.__dict__.pop("_writeragent_excepthook", None)
         logging_mod._install_global_exception_hooks()
         first = sys.excepthook
-        assert getattr(first, "_writeragent_hook", False) is True
         assert first is not sentinel
-        sys.__dict__.pop("_writeragent_excepthook", None)
         logging_mod._install_global_exception_hooks()
         assert sys.excepthook is first
     finally:
@@ -754,22 +750,20 @@ def test_log_record_factory_is_not_wrapped_twice() -> None:
     logging_mod._install_safe_log_record_factory()
     second = logging.getLogRecordFactory()
     assert second is first
-    assert getattr(second, "_writeragent_safe_factory", False) is True
 
 
 def test_debug_handler_closes_previous_when_path_changes(tmp_path) -> None:
-    import sys
 
     import plugin.framework.logging as logging_mod
 
     path_a = str(tmp_path / "a.log")
     path_b = str(tmp_path / "b.log")
     saved_path = logging_mod._shared()["debug_log_path"]
-    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    saved_handler = logging_mod._debug_slot()["handler"]
     first = None
     second = None
     try:
-        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_slot()["handler"] = None
         logging_mod._shared()["debug_log_path"] = path_a
         first = logging_mod._shared_debug_file_handler()
         closed: list[int] = []
@@ -784,7 +778,7 @@ def test_debug_handler_closes_previous_when_path_changes(tmp_path) -> None:
             second = logging_mod._shared_debug_file_handler()
             assert closed == [1]
             assert second is not first
-            assert getattr(sys, "_writeragent_debug_file_handler") is second
+            assert logging_mod._debug_slot()["handler"] is second
             assert logging_mod._shared_debug_file_handler() is second
             assert closed == [1]
     finally:
@@ -796,29 +790,28 @@ def test_debug_handler_closes_previous_when_path_changes(tmp_path) -> None:
                 logging.FileHandler.close(handler)
             except Exception:
                 pass
-        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+        logging_mod._debug_slot()["handler"] = saved_handler
 
 
 def test_debug_handler_is_stored_on_sys(tmp_path) -> None:
-    import sys
 
     import plugin.framework.logging as logging_mod
 
     path = str(tmp_path / "writeragent_debug.log")
     saved_path = logging_mod._shared()["debug_log_path"]
-    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    saved_handler = logging_mod._debug_slot()["handler"]
     handler = None
     try:
         logging_mod._shared()["debug_log_path"] = path
-        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_slot()["handler"] = None
         handler = logging_mod._shared_debug_file_handler()
-        assert getattr(sys, "_writeragent_debug_file_handler") is handler
+        assert logging_mod._debug_slot()["handler"] is handler
         assert logging_mod._shared_debug_file_handler() is handler
     finally:
         logging_mod._shared()["debug_log_path"] = saved_path
         if handler is not None:
             handler.close()
-        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+        logging_mod._debug_slot()["handler"] = saved_handler
 
 
 def test_start_watchdog_is_dedicated_and_idempotent() -> None:
@@ -1097,14 +1090,13 @@ def test_redact_anthropic_and_google_image_blocks() -> None:
 
 def test_second_import_shares_state_and_handler(tmp_path) -> None:
     import importlib.util
-    import sys
     import plugin.framework.logging as logging_mod
 
     path = str(tmp_path / "writeragent_debug.log")
     saved_path = logging_mod._shared()["debug_log_path"]
-    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    saved_handler = logging_mod._debug_slot()["handler"]
     logging_mod._shared()["debug_log_path"] = path
-    setattr(sys, "_writeragent_debug_file_handler", None)
+    logging_mod._debug_slot()["handler"] = None
     first_handler = logging_mod._shared_debug_file_handler()
     try:
         spec = importlib.util.spec_from_file_location("writeragent_logging_second_copy", logging_mod.__file__)
@@ -1119,14 +1111,14 @@ def test_second_import_shares_state_and_handler(tmp_path) -> None:
         assert act["round_num"] == 4
         assert act["tool_name"] == "edit"
 
-        assert second._shared_debug_file_handler() is getattr(sys, "_writeragent_debug_file_handler")
+        assert second._shared_debug_file_handler() is logging_mod._debug_slot()["handler"]
         assert second._shared_debug_file_handler() is first_handler
     finally:
         update_activity_state("")
         logging_mod._shared()["debug_log_path"] = saved_path
         if first_handler is not None:
             first_handler.close()
-        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+        logging_mod._debug_slot()["handler"] = saved_handler
 
 
 def test_rotate_if_large_second_thread_keeps_oversized_backup(tmp_path) -> None:
@@ -1283,7 +1275,6 @@ def test_rotate_reopen_oserror_does_not_propagate(tmp_path) -> None:
 
 
 def test_watchdog_check_continues_when_flush_raises(tmp_path) -> None:
-    import sys
     import plugin.framework.logging as logging_mod
 
     shared = logging_mod._shared()
@@ -1291,11 +1282,11 @@ def test_watchdog_check_continues_when_flush_raises(tmp_path) -> None:
         saved_activity = dict(shared["activity"])
         saved_hung = shared["hung_shown"]
         saved_stacks = shared["stacks_dumped"]
-    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    saved_handler = logging_mod._debug_slot()["handler"]
 
     log_path = str(tmp_path / "test_watchdog_check.log")
     handler = OptionalFlushFileHandler(log_path, encoding="utf-8")
-    setattr(sys, "_writeragent_debug_file_handler", handler)
+    logging_mod._debug_slot()["handler"] = handler
 
     try:
         with patch("logging.FileHandler.flush", side_effect=OSError("flush failed")):
@@ -1313,7 +1304,7 @@ def test_watchdog_check_continues_when_flush_raises(tmp_path) -> None:
             shared["activity"].update(saved_activity)
             shared["hung_shown"] = saved_hung
             shared["stacks_dumped"] = saved_stacks
-        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+        logging_mod._debug_slot()["handler"] = saved_handler
         handler.close()
 
 

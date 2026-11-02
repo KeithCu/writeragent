@@ -48,7 +48,7 @@ import threading
 import time
 import weakref
 from dataclasses import dataclass, field
-from typing import Any, Callable, cast
+from typing import Any, Callable, Literal, Protocol, cast
 
 from plugin.framework.blocking_wait import automatic_gc_suspended
 from plugin.framework.worker_pool import run_in_background
@@ -96,12 +96,25 @@ def _format_agent_tool_stream_line(prefix: str, data: Any) -> str:
     return "\n%s %s\n" % (prefix, body)
 
 
+DrainReason = Literal["done", "stopped", "next_tool", "error", "recovered"]
+
+
 @dataclass(slots=True)
 class DrainOutcome:
     """Outcome of draining a stream or processing a batch."""
 
     done: bool = False
-    reason: str | None = None
+    reason: DrainReason | None = None
+
+
+class DrainRearm(Protocol):
+    """Schedules drain slices on the main thread; close() drops the callback."""
+
+    def post(self, fn: Callable[[], None]) -> None: ...
+
+    def post_after(self, delay: float, fn: Callable[[], None]) -> None: ...
+
+    def close(self) -> None: ...
 
 
 @dataclass(slots=True)
@@ -627,7 +640,7 @@ class _EventDrain:
     """
 
     _state: _DrainState
-    _scheduler: Any
+    _scheduler: DrainRearm
     _stop_checker: Callable[[], bool] | None
     _flush_pending: Callable[[], None] | None
     _on_started: Callable[[], None] | None
@@ -640,7 +653,7 @@ class _EventDrain:
     def __init__(
         self,
         state: _DrainState,
-        scheduler: Any,
+        scheduler: DrainRearm,
         stop_checker: Callable[[], bool] | None,
         flush_pending: Callable[[], None] | None,
         on_started: Callable[[], None] | None = None,
@@ -782,12 +795,10 @@ class _EventDrain:
         self._generation += 1
         if _event_drain is self:
             _event_drain = None
-        closer = getattr(self._scheduler, "close", None)
-        if closer is not None:
-            try:
-                closer()
-            except Exception:
-                log.exception("drain re-arm close failed")
+        try:
+            self._scheduler.close()
+        except Exception:
+            log.exception("drain re-arm close failed")
         if self._held:
             self._held = False
             # Idle callbacks see a free pump, same as the blocking loop exiting
@@ -840,7 +851,7 @@ def run_stream_drain_loop(
     stop_checker: Callable[[], bool] | None = None,
     flush_pending: Callable[[], None] | None = None,
     *,
-    rearm: Any = None,
+    rearm: DrainRearm | None = None,
     on_drain_started: Callable[[], None] | None = None,
 ) -> None:
     """
@@ -917,12 +928,10 @@ def run_stream_drain_loop(
         # XCallback waits on cyclic GC. arm() has not run, so there is no
         # idle thread. A start() that returns already closed from _finish;
         # do not close again.
-        closer = getattr(scheduler, "close", None)
-        if closer is not None:
-            try:
-                closer()
-            except Exception:
-                log.exception("drain re-arm close failed")
+        try:
+            scheduler.close()
+        except Exception:
+            log.exception("drain re-arm close failed")
         if isinstance(exc, NestedDrainOwnerError):
             _notify_drain_failure(on_error, outcome, exc, "Nested stream drain rejected", level=logging.WARNING)
         else:
