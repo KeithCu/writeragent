@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 from plugin.contrib.calc_formula_parser import FunctionNode, OperandNode, OperatorNode, RangeNode, parse_formula
 from plugin.calc.spreadsheet_import.models import TranslationResult
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
-from plugin.calc.address_utils import canonical, parse_address, parse_range_string, split_sheet_prefix
+from plugin.calc.address_utils import canonical, canonical_key, parse_address, parse_range_string, split_sheet_prefix
 
 
 class TranslationError(ValueError):
@@ -32,13 +32,25 @@ class TranslationError(ValueError):
 class _CodegenState:
     def __init__(self, cell_addr: str | None = None) -> None:
         self.cell_addr: str | None = cell_addr
+        # Map canonical_key -> index in data array.
+        # Bugfix: in PR #3064 canonical() stopped uppercasing sheet names, so
+        # add_range() created duplicate entries for Sheet2.A1 vs SHEET2.A1.
+        # LibreOffice sheet names are case-insensitive. We dedupe using
+        # canonical_key() (casefolded sheet name) while preserving the first-seen
+        # canonical() address in _range_names for emitted formula data_ranges.
         self._ranges: dict[str, int] = {}
+        self._range_names: list[str] = []
 
     def add_range(self, addr: str) -> int:
-        key = canonical(addr)
+        key = canonical_key(addr)
         if key not in self._ranges:
             self._ranges[key] = len(self._ranges)
+            self._range_names.append(canonical(addr))
         return self._ranges[key]
+
+    @property
+    def data_ranges(self) -> list[str]:
+        return list(self._range_names)
 
     def ref_expr(self, addr: str) -> str:
         idx = self.add_range(addr)
@@ -639,4 +651,4 @@ def translate_formula(formula: str, cell_addr: str | None = None) -> Translation
     except (ValueError, TypeError):
         return TranslationResult(ok=False, reason="PARSE_ERROR")
 
-    return TranslationResult(ok=True, code=body, data_ranges=list(state._ranges))
+    return TranslationResult(ok=True, code=body, data_ranges=state.data_ranges)

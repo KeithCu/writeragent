@@ -242,6 +242,28 @@ def test_canonical():
     assert canonical("") == ""
 
 
+def test_canonical_key():
+    from plugin.calc.address_utils import canonical_key
+
+    assert canonical_key("a1") == "A1"
+    assert canonical_key("$A$1") == "A1"
+    assert canonical_key("$h$4") == "H4"
+    assert canonical_key("$a$1:$b$2") == "A1:B2"
+    assert canonical_key("Sheet1.$a$1") == "sheet1.A1"
+    assert canonical_key("sheet1.a1") == "sheet1.A1"
+    assert canonical_key("SHEET1.A1") == "sheet1.A1"
+    assert canonical_key("'My Sheet'!$A$1") == "'my sheet'!A1"
+    assert canonical_key("'MY SHEET'!A1") == "'my sheet'!A1"
+    assert canonical_key("'My Sheet'.A1") == "'my sheet'.A1"
+    assert canonical_key("'MY SHEET'.A1") == "'my sheet'.A1"
+    assert canonical_key("'O''Brien'.a1") == "'o''brien'.A1"
+    assert canonical_key("'O''BRIEN'.A1") == "'o''brien'.A1"
+    assert canonical_key("$'My Sheet'.$A$1") == "'my sheet'.A1"
+    assert canonical_key("$Sheet1.$A$1") == "sheet1.A1"
+    assert canonical_key("Sheet1!$a$1") == "sheet1!A1"
+    assert canonical_key("") == ""
+
+
 def test_is_cell_token():
     from plugin.calc.address_utils import is_cell_token
 
