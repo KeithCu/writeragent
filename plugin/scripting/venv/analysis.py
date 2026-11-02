@@ -10,6 +10,7 @@ from collections.abc import Iterable
 import json
 import logging
 import math
+import os
 from typing import Any, cast
 
 from plugin.scripting.venv.coerce import (
@@ -263,6 +264,10 @@ def describe_data(
     cols = list(df.columns)[:max_cols_val]
     limited = df[cols].copy()
 
+    # ProfileReport() phones home (requests.get to packages.ydata.ai, no
+    # timeout) unless this is set. A stalled connection blocked the call
+    # until pytest-timeout killed the xdist worker (GHA 41390860441).
+    os.environ["YDATA_PROFILING_NO_ANALYTICS"] = "1"
     try:
         from data_profiling import ProfileReport  # type: ignore[import-not-found, ty:unresolved-import]  # pyright: ignore[reportMissingImports]
     except ImportError:

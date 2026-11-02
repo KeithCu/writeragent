@@ -215,6 +215,15 @@ def test_describe_data_pins_profile_pool_size():
     assert seen["kwargs"]["pool_size"] == 1
 
 
+def test_describe_data_does_not_phone_home():
+    if not _has_working_data_profiling():
+        pytest.skip("fg-data-profiling not usable on this platform")
+    with patch("requests.get") as mock_get:
+        result = analysis.describe_data(SALES_GRID)
+    assert result["status"] == "ok"
+    mock_get.assert_not_called()
+
+
 def test_kpi_summary():
     result = analysis.kpi_summary(SALES_GRID, ["Sales", "Units"])
     assert result["status"] == "ok"

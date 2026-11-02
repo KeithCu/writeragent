@@ -1609,7 +1609,8 @@ class TestStopPreservesAudioWavPath:
         listener.disposing()
 
         assert listener.audio_wav_path is None
-        mock_remove.assert_called_once_with("/tmp/fake.wav")
+        # Another test's TTS thread may unlink its own temp while os.remove is patched.
+        mock_remove.assert_any_call("/tmp/fake.wav")
 
     @patch("os.remove")
     def test_error_occurred_clears_audio_wav_path(self, mock_remove) -> None:
@@ -1624,7 +1625,8 @@ class TestStopPreservesAudioWavPath:
             listener._run_send_drain()
 
         assert listener.audio_wav_path is None
-        mock_remove.assert_called_once_with("/tmp/fake.wav")
+        # Another test's TTS thread may unlink its own temp while os.remove is patched.
+        mock_remove.assert_any_call("/tmp/fake.wav")
 
     @pytest.mark.skipif(
         is_release_build() or not module_source_contains(panel_voice_module, "clear_pending_audio_wav: failed to remove"),
