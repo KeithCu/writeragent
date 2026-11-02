@@ -743,13 +743,10 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
-    fake_worker = MagicMock()
     session_mock = MagicMock()
 
-    def fake_execute_edit(_ctx, session_sink=None, **kwargs):
-        if session_sink is not None:
-            session_sink.append(session_mock)
-        return {"status": "ok", "message": "Inserted content at end."}, None
+    def fake_execute_edit(_ctx, **kwargs):
+        return {"status": "ok", "message": "Inserted content at end."}, session_mock
 
     call_count = [0]
 
@@ -759,7 +756,7 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
             return fn()
         raise TimeoutError("cleanup timed out")
 
-    with patch("plugin.writer.apply_document_content.threading.current_thread", return_value=fake_worker), \
+    with patch("plugin.writer.apply_document_content.on_main_thread", return_value=False), \
          patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
          patch.object(ApplyDocumentContent, "_execute_edit", side_effect=fake_execute_edit), \
          patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_execute_on_main):
@@ -767,6 +764,37 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
 
     assert res["status"] == "ok"
     assert res["message"].startswith("Inserted content at end.")
+
+
+def test_apply_document_content_main_thread_uses_on_main_thread():
+    from plugin.writer.apply_document_content import ApplyDocumentContent, _run_on_main_thread
+
+    tool = ApplyDocumentContent()
+    # When on_main_thread returns True, is_async returns False (when wait mode is disabled globally)
+    with patch("plugin.writer.apply_document_content.on_main_thread", return_value=True), \
+         patch.object(tool, "_wait_enabled_globally", return_value=False):
+        assert tool.is_async() is False
+
+    # When on_main_thread returns False, is_async returns True
+    with patch("plugin.writer.apply_document_content.on_main_thread", return_value=False), \
+         patch.object(tool, "_wait_enabled_globally", return_value=False):
+        assert tool.is_async() is True
+
+    # _run_on_main_thread calls fn directly when on_main_thread() is True
+    called = []
+    with patch("plugin.writer.apply_document_content.on_main_thread", return_value=True), \
+         patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_exec:
+        result = _run_on_main_thread(lambda: called.append(True) or 42)
+        assert result == 42
+        assert called == [True]
+        mock_exec.assert_not_called()
+
+    # When on_main_thread() is False, _run_on_main_thread marshals to execute_on_main_thread
+    with patch("plugin.writer.apply_document_content.on_main_thread", return_value=False), \
+         patch("plugin.framework.queue_executor.execute_on_main_thread", return_value=99) as mock_exec:
+        result = _run_on_main_thread(lambda: 100)
+        assert result == 99
+        mock_exec.assert_called_once()
 
 
 def test_outline_undo_says_when_rollback_fails():

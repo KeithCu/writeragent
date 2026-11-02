@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.writer.record_changes import is_recording_changes
 from plugin.framework.errors import is_disposed_exception, make_tool_error, uno_probe
 
 from ..range_copy import _writer_cell_position  # LibrePy-shipped; do not invert
@@ -256,7 +257,7 @@ def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: 
     before the tracked path runs. A second review wrapper here would nest
     sessions and tag the redlines twice.
     """
-    if uno_probe(lambda: bool(doc.getPropertyValue("RecordChanges")), False):
+    if uno_probe(lambda: is_recording_changes(doc), False):
         _delete_writer_table_tracked(doc, uno_ctx, table, name)
         return True
     _remove_writer_table(doc, table, name, nesting)
@@ -780,19 +781,17 @@ class TableDelete(ToolWriterTableBase):
                 return _raise_draw_result(result, "Delete failed")
             table = _require_table(ctx.doc, name)
             nesting = _nesting_for(ctx.doc, table, name)
-            tracked: list[bool] = []
             uno_ctx = resolve_uno_context(ctx)
 
-            def _apply() -> None:
+            def _apply() -> bool:
                 # In review mode the wrapper below has just turned change tracking on; a user
                 # who tracks changes by hand has it on already. Either way the deletion must
                 # be recorded, not silently applied.
-                if delete_writer_table(ctx.doc, uno_ctx, table, name, nesting):
-                    tracked.append(True)
+                return bool(delete_writer_table(ctx.doc, uno_ctx, table, name, nesting))
 
             from plugin.writer.format import run_writer_mutation_with_optional_review
 
-            run_writer_mutation_with_optional_review(ctx.doc, uno_ctx, _apply)
+            tracked = bool(run_writer_mutation_with_optional_review(ctx.doc, uno_ctx, _apply))
             if tracked:
                 return {
                     "status": "ok",

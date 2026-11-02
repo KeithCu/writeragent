@@ -276,8 +276,8 @@ def _create_import_para_style(doc: Any, para_styles: Any, style_name: str, *, pa
             log.debug("notebook import parent %r for %r failed", resolved_parent, style_name, exc_info=True)
         _set_prop_map(new_style, property_updates, "notebook import could not set %s on %r", style_name)
         para_styles.insertByName(style_name, new_style)
-        from plugin.writer.styles import _CREATED_STYLE_KEEPALIVE
-        _CREATED_STYLE_KEEPALIVE.append(new_style)
+        from plugin.writer.styles import keep_style_alive
+        keep_style_alive(new_style)
         return True
     except Exception:
         log.debug("notebook import failed to create style %r", style_name, exc_info=True)

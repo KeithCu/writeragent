@@ -62,18 +62,19 @@ log = logging.getLogger("writeragent.writer")
 
 # What was wrong: StyleCreate / paragraph and character StyleClone drop the
 # createInstance proxy when the function returns. insertByName adopts that
-# SwXStyle as the sheet listener FindStyle returns.
-# How it happened: the last Python ref sends a oneway URP release. The
-# destructor blocks on the SolarMutex at refcount 0. The next getByName
-# already holds the mutex, queryInterfaces that dying listener, and soffice
-# aborts (Signal 6). Seen at test_styles_uno.py test_para_back_color_hex_uno
-# line 207, after StyleCreate had returned ok. Same race as
-# _PAGE_STYLE_KEEPALIVE in page.py (SwXPageStyle). The property written
-# beforehand (ParaBackColor or FillStyle) is not the abort.
-# Why this: keeping one proxy alive holds the refcount above 0, so that
-# release never overlaps FindStyle. maxlen only bounds memory. An evicted
-# entry is many creates old, and its destructor no longer races this lookup.
-_CREATED_STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
+_STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
+
+
+def keep_style_alive(style: Any) -> None:
+    """Hold a reference to *style* so SwXStyle destructor does not race SwXStyleFamily FindStyle.
+
+    The last Python ref sends a oneway URP release. The destructor blocks on
+    the SolarMutex at refcount 0. A concurrent or subsequent getByName that
+    holds the mutex queryInterfaces that dying listener, and soffice aborts.
+    Keeping proxies alive in a bounded deque ensures destruction never overlaps lookup.
+    """
+    if style is not None:
+        _STYLE_KEEPALIVE.append(style)
 
 _CLONE_TEXT_SERVICES = {
     "ParagraphStyles": "com.sun.star.style.ParagraphStyle",
@@ -597,7 +598,7 @@ def _clone_text_style(
             clone.setPropertyValue("FollowStyle", follow)
     copied, skipped = _copy_direct_style_properties(source, clone)
     style_family.insertByName(new_name, clone)
-    _CREATED_STYLE_KEEPALIVE.append(clone)
+    keep_style_alive(clone)
     return {
         "properties_copied": len(copied),
         "skipped_properties": skipped,
@@ -700,13 +701,6 @@ def _style_family(tool: Any, doc: Any, family: str) -> Any:
         missing_msg="Document does not support style families.",
         not_found_msg="Unknown style family: %s" % family,
     )
-
-
-def _get_style_family(tool: Any, doc: Any, family: str) -> Any:
-    style_families = doc.getStyleFamilies()
-    if not style_families.hasByName(family):
-        return tool._tool_error("Document does not support style family: %s" % family)
-    return style_families.getByName(family)
 
 
 class StyleList(ToolWriterStyleBase):
@@ -1279,7 +1273,7 @@ class StyleCreate(ToolWriterStyleBase):
         conditional_rules = kwargs.get("conditional_rules")
 
         doc = ctx.doc
-        style_family = _get_style_family(self, doc, family)
+        style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):
             return style_family
         if style_family.hasByName(style_name):
@@ -1348,7 +1342,7 @@ class StyleCreate(ToolWriterStyleBase):
                     log.warning("Failed to rollback created style '%s' after condition failure: %s", style_name, rb_err)
                 return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}")
 
-        _CREATED_STYLE_KEEPALIVE.append(new_style)
+        keep_style_alive(new_style)
 
         result = {"status": "ok", "style_name": style_name, "family": family, "service": service}
         if "CharFontName" in applied:
@@ -1403,7 +1397,7 @@ class StyleClone(ToolWriterStyleBase):
         doc = ctx.doc
         # getStyleFamilies does not fail on a live document. execute_safe
         # reports a closed document.
-        style_family = _get_style_family(self, doc, family)
+        style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):
             return style_family
         if not style_family.hasByName(style_name):

@@ -22,9 +22,9 @@ import functools
 import html as html_mod
 import logging
 import re
-import threading
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework.thread_guard import on_main_thread
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -348,7 +348,7 @@ def _note_read_only_attrs(result: Any, content: Any) -> dict[str, Any]:
 
 
 def _run_on_main_thread(fn: Any) -> Any:
-    if threading.current_thread() is threading.main_thread():
+    if on_main_thread():
         return fn()
     from plugin.framework.queue_executor import execute_on_main_thread
     return execute_on_main_thread(fn, timeout=60.0)
@@ -752,7 +752,7 @@ class ApplyDocumentContent(ToolBase):
         # worker thread with the live flag False -- returning True keeps execute_safe's
         # main-thread guard from rejecting us; execute() then runs the (now wait-free) edit on
         # the main thread via marshalling, so the toggle is handled safely instead of erroring.
-        return threading.current_thread() is not threading.main_thread()
+        return not on_main_thread()
 
     @staticmethod
     def _effective_target(target: Any, old_content: Any) -> Any:
@@ -798,7 +798,7 @@ class ApplyDocumentContent(ToolBase):
         except Exception as e:
             log.exception("apply_document_content dry_run search failed")
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
-        label_cache: dict[int, str] = {}
+        labeler = search_mod.LocationLabeler(ctx.doc)
         matches = []
 
         @functools.cache
@@ -807,7 +807,7 @@ class ApplyDocumentContent(ToolBase):
 
         def _match_snippet(found: Any) -> tuple[str, str]:
             try:
-                loc = search_mod.describe_match_location(found, ctx.doc, label_cache=label_cache)
+                loc = labeler.describe(found)
             except Exception:
                 loc = "body"
             try:
@@ -881,35 +881,32 @@ class ApplyDocumentContent(ToolBase):
         return _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        on_main = threading.current_thread() is threading.main_thread()
+        on_main = on_main_thread()
 
         if kwargs.get("dry_run"):
             # The preview reads ranges and text through UNO, so a worker-thread call
             # (tool-sync-apply_document_content) marshals it like the edit path does.
             return _run_on_main_thread(lambda: self._dry_run_preview(ctx, **kwargs))
         wait_seconds = self._review_wait_seconds()
-        session_box: list[Any] = []
 
         def _do_edit() -> tuple[dict[str, Any], Any]:
-            return self._execute_edit(ctx, session_sink=session_box, **kwargs)
+            return self._execute_edit(ctx, **kwargs)
 
+        session: Any = None
         if get_agent_edit_review_mode() != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
             # to a worker thread, or we ARE the main thread (where blocking would freeze the UI
             # and the user could never click accept/reject). Edit once, don't wait -- but UNO is
             # not thread-safe, so when we're on a worker thread (the toggled-off case) the edit
             # and its cleanup run on the main thread via marshalling rather than here.
-            # The session is registered in session_box the instant _execute_edit creates it (via
-            # session_sink), so its anchor bookmarks are released in `finally` even if the edit
-            # raises mid-way (e.g. the 2nd of 3 replace-all matches fails after the 1st).
             try:
-                result = _run_on_main_thread(_do_edit)[0]
+                result, session = _run_on_main_thread(_do_edit)
                 return annotate_review_status(result)
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             finally:
-                if session_box:
-                    self._release_review_session(session_box[0])
+                if session is not None:
+                    self._release_review_session(session)
 
         # Review-wait path, on a background (MCP HTTP / chat worker) thread: run the edit
         # on the main thread, then block HERE until the user reviews the tracked changes.
@@ -921,8 +918,8 @@ class ApplyDocumentContent(ToolBase):
             # are fine without review mode.
             result, session = _run_on_main_thread(_do_edit)
         except Exception as e:
-            if session_box:
-                self._release_review_session(session_box[0])
+            if session is not None:
+                self._release_review_session(session)
             if isinstance(e, ToolExecutionError):
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             raise
@@ -966,7 +963,7 @@ class ApplyDocumentContent(ToolBase):
             )
         return result
 
-    def _execute_edit(self, ctx: ToolContext, session_sink: Any = None, **kwargs: Any) -> tuple[dict[str, Any], Any]:
+    def _execute_edit(self, ctx: ToolContext, **kwargs: Any) -> tuple[dict[str, Any], Any]:
         """Apply the edit and return ``(result_dict, session_or_None)``.
 
         Runs on the MAIN thread always (directly on the sync path; marshalled via
@@ -1042,11 +1039,12 @@ class ApplyDocumentContent(ToolBase):
         # get_config_bool_safe tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled()
 
-        # Invariant: the session registers with session_sink only after param checks pass.
+        session: EditReviewSession | None = None
+
         def _open_session() -> EditReviewSession:
+            nonlocal session
             s = EditReviewSession(ctx.doc, ctx.ctx, enabled=track_reviewable)
-            if session_sink is not None:
-                session_sink.append(s)
+            session = s
             return s
 
         plain = ""

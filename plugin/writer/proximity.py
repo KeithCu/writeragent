@@ -26,7 +26,7 @@ import bisect
 import logging
 from typing import Any
 
-from plugin.doc.paragraph_search import confirm_paragraph_index, paragraph_entries
+from plugin.doc.paragraph_search import paragraph_entries
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import uno_same
@@ -278,8 +278,7 @@ class ProximityService(ServiceBase):
             except Exception as exc:
                 reraise_if_disposed(exc)
                 return None
-            raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-            pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+            pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
             if pi is not None and start_idx <= pi <= end_idx:
                 return pi
             return None

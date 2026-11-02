@@ -27,7 +27,6 @@ from typing import Any, NamedTuple, cast
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.doc.paragraph_search import confirm_paragraph_index
 from plugin.doc.text_helpers import (
     build_heading_tree,
     find_heading_by_chapter_number,
@@ -328,16 +327,18 @@ class TreeService(ServiceBase):
             raise not_placed_err from exc
         if anchor is None:
             raise not_placed_err
-        para_idx, para_ranges, text_obj = self._paragraph_at_anchor(doc, anchor)
-        placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+        placed, para_ranges, _ = self._paragraph_at_anchor(doc, anchor)
         if placed is None:
-            if (
-                accept_name is not None
-                and isinstance(para_idx, int)
-                and 0 <= para_idx < len(para_ranges)
-                and getattr(para_ranges[para_idx], "getName", lambda: None)() == accept_name
-            ):
-                return para_idx
+            if accept_name is not None:
+                # If unplaced in paragraphs, check if it maps to the accepted table
+                from plugin.doc.paragraph_search import find_paragraph_for_range
+                raw_idx = find_paragraph_for_range(anchor, para_ranges)
+                if (
+                    isinstance(raw_idx, int)
+                    and 0 <= raw_idx < len(para_ranges)
+                    and getattr(para_ranges[raw_idx], "getName", lambda: None)() == accept_name
+                ):
+                    return raw_idx
             raise not_placed_err
         return placed
 
@@ -449,12 +450,11 @@ class TreeService(ServiceBase):
         bm = bookmarks.getByName(bookmark_name)
         # Paragraph index for a bookmark that still has a name.
         #
-        # find_paragraph_for_range returns None when the anchor cannot be
+        # paragraph_index_for_anchor returns None when the anchor cannot be
         # placed. A stale _mcp_ mark after save/reopen or bookmark_cleanup
         # still has a name, so it must not resolve to a paragraph.
-        # confirm_paragraph_index keeps 0 only when the anchor start
-        # is inside that paragraph. Anything else is an error, not a
-        # location.
+        # Index 0 is kept only when the anchor start is inside that paragraph.
+        # Anything else is an error, not a location.
         para_idx = self._confirm_anchor_placement(
             doc,
             bm,

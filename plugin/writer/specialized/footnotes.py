@@ -23,6 +23,7 @@ from plugin.writer.specialized_base import (
     index_error,
 )
 from plugin.framework.errors import ToolExecutionError, uno_read
+from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.search import find_occurrence_range, parse_non_negative_int
 
 
@@ -230,7 +231,7 @@ class FootnotesDelete(ToolWriterFootnoteBase):
         if after < before:
             return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
         # With change tracking on, anchor clearing records a tracked deletion instead of removing the note immediately.
-        if uno_read(lambda: bool(ctx.doc.getPropertyValue("RecordChanges")), False):
+        if uno_read(lambda: is_recording_changes(ctx.doc), False):
             return {
                 "status": "ok",
                 "tracked": True,

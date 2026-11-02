@@ -223,6 +223,28 @@ def test_math_export_batch_converts_repeated_formula_once() -> None:
     assert fake_doc.storeToURL.call_count == 1
 
 
+def test_math_export_batch_failure_does_not_open_second_doc() -> None:
+    from unittest.mock import MagicMock
+    from plugin.writer.math import math_mml_export as exp
+
+    fake_doc = MagicMock()
+    fake_doc.storeToURL.side_effect = RuntimeError("store failed")
+    fake_desktop = MagicMock()
+    fake_desktop.loadComponentFromURL.return_value = fake_doc
+
+    with patch.object(exp, "get_desktop", return_value=fake_desktop), patch.object(
+        exp, "path_to_file_url", side_effect=lambda path: path
+    ):
+        batch = exp._MathExportBatch(object())
+        res = batch.convert_starmath_to_latex("x")
+        batch.close()
+
+    assert not res.ok
+    assert "store failed" in (res.error_message or "")
+    # Exactly one hidden document was opened for the batch, none on failure
+    assert fake_desktop.loadComponentFromURL.call_count == 1
+
+
 def test_substitute_math_failure_is_not_tex() -> None:
     from plugin.writer.math.math_mml_export import substitute_math_placeholders
 

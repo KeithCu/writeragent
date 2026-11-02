@@ -804,11 +804,10 @@ def test_read_annotation_unconfirmed_zero_omits_paragraph_index():
         "DateTimeValue": SimpleNamespace(Year=2026, Month=1, Day=2, Hours=3, Minutes=4),
     }.get(p, "")
     doc_svc = MagicMock()
-    doc_svc.find_paragraph_for_range.return_value = 0
+    doc_svc.find_paragraph_for_range.return_value = None
 
     with patch("plugin.writer.search.describe_match_location", return_value="body"), \
-         patch("plugin.framework.uno_context.uno_same", return_value=True), \
-         patch("plugin.doc.paragraph_search.confirm_paragraph_index", return_value=None):
+         patch("plugin.framework.uno_context.uno_same", return_value=True):
         entry = _read_annotation(field, [], text_obj, doc_svc)
 
     assert "paragraph_index" not in entry

@@ -24,22 +24,9 @@ import uuid
 from typing import Any, Generator, NamedTuple
 
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
+from .record_changes import is_recording_changes
 
 log = logging.getLogger("writeragent.writer")
-
-
-def _is_recording_changes(model: Any) -> bool:
-    """True if *model* is currently recording Track Changes (redlines).
-
-    Agent edits made while recording must land as a clean tracked Delete + Insert so the
-    user can accept (-> new text) or reject (-> old text) each one. The format-preserving
-    replace paths (the char-by-char diff in ``replace_preserving_format`` and the
-    paragraph-style restore below) corrupt that into a per-character mess or a FORMAT
-    redline that keeps the old text on Accept -- so those steps are skipped while recording.
-    """
-    # RecordChanges does not fail on a live document. Returning False hid a
-    # closed document and took the review-off path.
-    return bool(model.getPropertyValue("RecordChanges"))
 
 
 # --- images that come back without their data ------------------------------------------------
@@ -143,7 +130,7 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
     except Exception as exc:
         reraise_if_disposed(exc)
         return True
-    if not _is_recording_changes(model):
+    if not is_recording_changes(model):
         return False
     point = anchor
     if getattr(original.getPropertyValue("AnchorType"), "value", "") == "AT_PARAGRAPH":

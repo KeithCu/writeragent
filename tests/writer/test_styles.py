@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
 from plugin.writer.styles import (
     StyleList, StyleGetInfo, ApplyStyle, StyleCreate, StyleClone, StyleImport, StyleUpdate,
-    _close_style_names, _CREATED_STYLE_KEEPALIVE,
+    _close_style_names, _STYLE_KEEPALIVE, keep_style_alive,
 )
 from plugin.tests.testing_utils import TestingFactory, WriterDocStub
 
@@ -505,7 +505,7 @@ def test_create_style_standard():
     new_style.setParentStyle.assert_called_once_with("Standard")
     new_style.setPropertyValue.assert_any_call("CharColor", 0xFF0000)
     family.insertByName.assert_called_once_with("NewStyle", new_style)
-    assert _CREATED_STYLE_KEEPALIVE[-1] is new_style
+    assert _STYLE_KEEPALIVE[-1] is new_style
 
 
 def test_create_style_parent_not_found_suggests():
@@ -699,7 +699,7 @@ def test_clone_paragraph_style_copies_parent_follow_and_direct():
     assert "CharDiffHeight" not in set_names
     assert "CharDiffHeight" not in res["skipped_properties"]
     family.insertByName.assert_called_once_with("Dst", new_style)
-    assert _CREATED_STYLE_KEEPALIVE[-1] is new_style
+    assert _STYLE_KEEPALIVE[-1] is new_style
 
 
 def test_apply_style_uno_skips_windows_leftover_origin_canary() -> None:
@@ -1080,7 +1080,17 @@ def test_create_style_does_not_insert_when_a_property_fails():
     assert res["status"] == "error"
     assert "CharWeight" in res.get("failed_properties", {})
     fam.insertByName.assert_not_called()
-    assert style_instance not in _CREATED_STYLE_KEEPALIVE
+    assert style_instance not in _STYLE_KEEPALIVE
+
+
+def test_keep_style_alive_records_proxies():
+    mock_style = MagicMock()
+    keep_style_alive(mock_style)
+    assert _STYLE_KEEPALIVE[-1] is mock_style
+    # None is ignored
+    before_len = len(_STYLE_KEEPALIVE)
+    keep_style_alive(None)
+    assert len(_STYLE_KEEPALIVE) == before_len
 
 
 def test_create_style_bad_conditional_rule_inserts_nothing():

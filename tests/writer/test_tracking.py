@@ -149,7 +149,7 @@ def test_track_changes_list():
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
     ctx.doc.getRedlines.return_value.getCount.return_value = 1
 
-    with patch("plugin.writer.tracking.describe_match_location", return_value="body"):
+    with patch("plugin.writer.search.describe_match_location", return_value="body"):
         res = tool.execute(ctx)
     assert res["status"] == "ok"
     assert res["count"] == 1
@@ -936,7 +936,7 @@ def test_track_changes_list_caps_at_100_and_reports_more():
 
     items = [_fake_redline("user %d" % i, text_mock=text_mock) for i in range(101)]
     _install_redlines(ctx, items)
-    with patch("plugin.writer.tracking.describe_match_location", return_value="body"):
+    with patch("plugin.writer.search.describe_match_location", return_value="body"):
         res = tool.execute(ctx)
     assert res["status"] == "ok"
     assert res["count"] == 100
@@ -946,7 +946,7 @@ def test_track_changes_list_caps_at_100_and_reports_more():
 
     items_one = [_fake_redline("user 0", text_mock=text_mock)]
     _install_redlines(ctx, items_one)
-    with patch("plugin.writer.tracking.describe_match_location", return_value="body"):
+    with patch("plugin.writer.search.describe_match_location", return_value="body"):
         res_one = tool.execute(ctx)
     assert res_one["status"] == "ok"
     assert res_one["count"] == 1
@@ -964,7 +964,7 @@ def test_track_changes_list_start_index_keeps_global_indexes():
 
     items = [_fake_redline("user %d" % i, text_mock=text_mock) for i in range(3)]
     _install_redlines(ctx, items)
-    with patch("plugin.writer.tracking.describe_match_location", return_value="body"):
+    with patch("plugin.writer.search.describe_match_location", return_value="body"):
         res = tool.execute(ctx, start_index=2)
     assert res["status"] == "ok"
     assert res["count"] == 1
@@ -981,7 +981,7 @@ def test_track_changes_list_shares_location_label_cache():
 
     items = [_fake_redline("user 0", text_mock=text_mock), _fake_redline("user 1", text_mock=text_mock)]
     _install_redlines(ctx, items)
-    with patch("plugin.writer.tracking.describe_match_location", return_value="body") as mock_loc:
+    with patch("plugin.writer.search.describe_match_location", return_value="body") as mock_loc:
         res = tool.execute(ctx)
     assert res["status"] == "ok"
     assert mock_loc.call_count == 2

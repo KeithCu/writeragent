@@ -519,15 +519,19 @@ class _MathExportBatch:
         return cached
 
     def _convert_uncached(self, starmath: str) -> MathExportResult:
+        if not starmath or not starmath.strip():
+            return MathExportResult(False, None, None, "empty_starmath")
         doc = self._ensure_doc()
-        res = None
-        if self._temp_path:
-            try:
-                mml = _export_doc_to_mathml(doc, starmath, self._temp_path)
-                res = convert_mathml_to_latex(mml) if mml else None
-            except Exception:
-                res = None
-        return res if res and res.ok else convert_starmath_to_latex(self.ctx, starmath)
+        if doc is None or not self._temp_path:
+            return MathExportResult(False, None, None, "smath_factory_returned_none")
+        try:
+            mml = _export_doc_to_mathml(doc, starmath, self._temp_path)
+            if not mml:
+                return MathExportResult(False, None, None, "empty_mathml_export")
+            return convert_mathml_to_latex(mml)
+        except Exception as exc:
+            log.debug("math batch convert failed: %s", exc)
+            return MathExportResult(False, None, None, _exception_message(exc))
 
     def close(self) -> None:
         if self._doc is not None:
