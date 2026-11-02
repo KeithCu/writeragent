@@ -35,7 +35,7 @@ _ROUTINE_LIBREHARPER_STATUS_RESULTS = frozenset({
 })
 _ISSUE_COUNT_RESULT = re.compile(r"^\d+ issues?$", re.IGNORECASE)
 _DONE_PHASES = ("done", "complete")
-_TERMINAL_STATUS_PHASES = ("done", "complete", "failed")
+_TERMINAL_STATUS_PHASES = _DONE_PHASES + ("failed",)
 
 
 def is_routine_libreharper_status(phase: str, result: str) -> bool:
@@ -54,9 +54,10 @@ def is_routine_libreharper_status(phase: str, result: str) -> bool:
 
 
 def _frame_from_controller(obj: Any) -> Any | None:
+    if obj is None:
+        return None
     try:
-        getter = getattr(obj, "getCurrentController", None)
-        controller = getter() if callable(getter) else None
+        controller = obj.getCurrentController()
         if controller is None:
             return None
         return cast("Any", controller).getFrame()
@@ -71,10 +72,7 @@ def _frame_from_bound_grammar_docs() -> Any | None:
     with grammar_registry.lock:
         persistences = list(grammar_registry.doc_persistence_instances.values())
     for persistence in persistences:
-        model = getattr(persistence, "_model", None)
-        if model is None:
-            continue
-        frame = _frame_from_controller(model)
+        frame = _frame_from_controller(persistence._model)
         if frame is not None:
             return frame
     return None
