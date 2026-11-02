@@ -25,7 +25,7 @@ def test_close_hook_prevents_double_release():
         mock_release.assert_not_called()
 
 def test_aborted_turn_prevents_reply_save():
-    from plugin.chatbot.tool_loop_actions import TurnController
+    from plugin.chatbot.tool_loop_actions import TurnController, persist_assistant_on_turn
     class FakeHost:
         def __init__(self):
             self._turn = None
@@ -40,17 +40,17 @@ def test_aborted_turn_prevents_reply_save():
     host = FakeHost()
     host._turn = turn
 
-    turn.persist_assistant(host, content="alive reply")
+    persist_assistant_on_turn(host, content="alive reply")
     assert len(session.messages) == 1
 
     # Aborting without closed_by_document still saves (e.g. Stop partial)
     turn.abort()
-    turn.persist_assistant(host, content="stopped partial")
+    persist_assistant_on_turn(host, content="stopped partial")
     assert len(session.messages) == 2
 
     # Closed by document prevents saving
     turn.closed_by_document = True
-    turn.persist_assistant(host, content="aborted reply")
+    persist_assistant_on_turn(host, content="aborted reply")
     assert len(session.messages) == 2
 
 def test_release_live_sidebar_called_twice_is_noop():
