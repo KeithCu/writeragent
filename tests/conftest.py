@@ -567,7 +567,7 @@ def _setup_grammar_persistence_test_env():
                     h.close()
                 except Exception:
                     pass
-        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_slot()["handler"] = None
 
         # Clean up
         grammar_persistence.grammar_registry.doc_persistence_instances.clear()
