@@ -2508,12 +2508,12 @@ def test_flatten_config_json_rejects_api_key() -> None:
 
 
 def test_admission_permits_leave_two_listeners() -> None:
-    from compute_service.server import admission_permits, service_listener_threads
+    from compute_service.server import admission_permits, listener_thread_count
 
-    assert service_listener_threads(ComputeSettings(workers=2, ocr_workers=0)) == 8
+    assert listener_thread_count(ComputeSettings(workers=2, ocr_workers=0).threads) == 8
     assert admission_permits(ComputeSettings(workers=2, ocr_workers=0)) == 6
     wide = ComputeSettings(workers=6, ocr_workers=2)
-    assert service_listener_threads(wide) == 12
+    assert listener_thread_count(wide.threads) == 12
     assert admission_permits(wide) == 10
 
 
@@ -3670,7 +3670,7 @@ def test_isolated_mode_with_session_id_rejected() -> None:
 
 def test_slow_body_drip_is_408() -> None:
     """One socket timeout per large read used to let a drip outlive the body deadline."""
-    from compute_service.wsgi_server import _REQUEST_READ_TIMEOUT_SEC
+    from compute_service.wsgi_server import REQUEST_READ_TIMEOUT_SEC
     from compute_service.server import _read_request_body
 
     class _Drip:
@@ -3690,7 +3690,7 @@ def test_slow_body_drip_is_408() -> None:
     environ = {
         "CONTENT_LENGTH": "100000",
         "wsgi.input": _Drip(),
-        "compute.accept_time": time.monotonic() - _REQUEST_READ_TIMEOUT_SEC + 0.15,
+        "compute.accept_time": time.monotonic() - REQUEST_READ_TIMEOUT_SEC + 0.15,
         "compute.connection": None,
     }
     started = time.monotonic()
@@ -3946,10 +3946,10 @@ def test_vision_image_bytes_not_parsed_as_json() -> None:
 def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
     """SIGTERM during a slow cell closes the listener, logs the drain warning, and exits 0.
 
-    The production drain is 30s (compute_service/wsgi_server.py _HTTP_DRAIN_SEC).
-    This test assigns compute_service.server._HTTP_DRAIN_SEC = 1.0 inside a
+    The production drain is 30s (compute_service/wsgi_server.py HTTP_DRAIN_SEC).
+    This test assigns compute_service.server.HTTP_DRAIN_SEC = 1.0 inside a
     tmp_path wrapper before main(). server.py binds that name with
-    ``from compute_service.wsgi_server import _HTTP_DRAIN_SEC``, so patching
+    ``from compute_service.wsgi_server import HTTP_DRAIN_SEC``, so patching
     the wsgi_server module attribute does not affect run_server. 1.0 formats
     as ``1s`` via ``%.0f``. The cell sleeps 8s, which is longer than the 6s
     exit bound, so a shutdown that waits for the cell fails.
@@ -3967,7 +3967,7 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
     refused_bound_sec = 2.0
 
     wrapper = tmp_path / "boot_short_drain.py"
-    wrapper.write_text(f"import sys\nsys.path.insert(0, {str(repo)!r})\nimport compute_service.server as server\nserver._HTTP_DRAIN_SEC = {drain_sec!r}\nraise SystemExit(server.main())\n", encoding="utf-8")
+    wrapper.write_text(f"import sys\nsys.path.insert(0, {str(repo)!r})\nimport compute_service.server as server\nserver.HTTP_DRAIN_SEC = {drain_sec!r}\nraise SystemExit(server.main())\n", encoding="utf-8")
 
     def _child_env() -> dict[str, str]:
         env = {key: value for key, value in os.environ.items() if not key.startswith("PYTHON_COMPUTE_")}

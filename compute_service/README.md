@@ -244,7 +244,7 @@ Each error `code` and its status live in [`error_codes.py`](error_codes.py); `te
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer {secret}` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`403 Forbidden`** | Cross-origin request or non-loopback Host header in keyless mode (`CROSS_ORIGIN_REFUSED`) | `{"status": "error", "code": "CROSS_ORIGIN_REFUSED", "error": "..."}` |
 | **`404 Not Found`** | Unknown path | Plaintext `Not Found` |
-| **`405 Method Not Allowed`** | Known path with wrong HTTP verb | Plaintext `Method Not Allowed` + `Allow` header |
+| **`405 Method Not Allowed`** | Known path with wrong HTTP verb; `HEAD` on any path gets a bodiless 405 with `Allow: GET, POST` and `Connection: close` | Plaintext `Method Not Allowed` + `Allow` header |
 | **`408 Request Timeout`** | Body read timeout (JSON body) | `{"status": "error", "error": "Request read timeout"}` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes`, the execute frame exceeds the IPC limit (`PAYLOAD_TOO_LARGE`), the result frame does (`RESULT_TOO_LARGE`), or a vision image is larger than 32 MiB (`FILE_TOO_LARGE`) | `{"status": "error", "code"?: "RESULT_TOO_LARGE", "error": "..."}` |
 | **`414 URI Too Long`** | Request line exceeds 65536 bytes | Stdlib HTML error page (not JSON) |
