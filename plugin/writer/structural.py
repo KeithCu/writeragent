@@ -335,34 +335,6 @@ def _resolve_para_index(ctx: ToolContext, kwargs: dict[str, Any]) -> int | None:
     return para_index
 
 
-def _ensure_writer_tree(ctx: ToolContext) -> Any:
-    """Return ``writer_tree``, attaching it to this context when it was never loaded.
-
-    Looking up only ``ctx.services.get("writer_tree")`` misses on
-    native tool contexts from ``TestingFactory.create_context``.
-    Those register document and events and nothing else, so the tool
-    returns "writer_nav module not loaded" even though those two
-    services are enough to construct the writer tree. TreeService
-    reads ``writer_bookmarks`` in ``__init__``, so that service has
-    to land first. An already-registered tree is left alone
-    (bootstrap path).
-    """
-    services = ctx.services
-    existing = services.get("writer_tree")
-    if existing is not None:
-        return existing
-    if services.get("document") is None or services.get("events") is None:
-        return None
-    if services.get("writer_bookmarks") is None:
-        from plugin.writer.specialized.bookmarks import BookmarkService
-
-        services.register("writer_bookmarks", BookmarkService(services))
-    from plugin.writer.tree import TreeService
-
-    services.register("writer_tree", TreeService(services))
-    return services.get("writer_tree")
-
-
 class CloneHeadingBlock(ToolBaseDummy):
     """Clone an entire heading block (heading + all sub-headings + body)."""
 
@@ -387,10 +359,7 @@ class CloneHeadingBlock(ToolBaseDummy):
         from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
         # Use writer_tree service to find the heading node and block size.
-        # Load it onto this context when the caller did not bootstrap the writer module.
-        tree_svc = _ensure_writer_tree(ctx)
-        if tree_svc is None:
-            return self._tool_error("writer_nav module not loaded; cannot resolve heading block.")
+        tree_svc = ctx.services.writer_tree
 
         tree = tree_svc.build_heading_tree(ctx.doc)
         node = tree_svc.find_heading_by_para_index(tree, para_index)
@@ -460,14 +429,8 @@ class CloneHeadingBlock(ToolBaseDummy):
             cursor.setPropertyValue("ParaStyleName", sty)
             cursor.gotoEndOfParagraph(False)
 
-        if skipped_tables:
-            msg = "Cloned heading block '%s' (%d paragraphs, %d tables skipped)." % (
-                node.get("text", ""),
-                total,
-                skipped_tables,
-            )
-        else:
-            msg = "Cloned heading block '%s' (%d paragraphs)." % (node.get("text", ""), total)
+        suffix = (", %d tables skipped" % skipped_tables) if skipped_tables else ""
+        msg = "Cloned heading block '%s' (%d paragraphs%s)." % (node.get("text", ""), total, suffix)
 
         return {"status": "ok", "message": msg, "heading_text": node.get("text", ""), "block_size": total}
 

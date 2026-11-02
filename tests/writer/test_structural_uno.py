@@ -144,6 +144,11 @@ def test_clone_heading_block_without_tracked_deletions_uno(ctx, doc):
 
     # Build tree service so we can clone it
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    from plugin.writer.specialized.bookmarks import BookmarkService
+    from plugin.writer.tree import TreeService
+
+    tool_ctx.services.register("writer_bookmarks", BookmarkService(tool_ctx.services))
+    tool_ctx.services.register("writer_tree", TreeService(tool_ctx.services))
 
     clone_res = CloneHeadingBlock().execute(tool_ctx, paragraph_index=0)
     assert clone_res.get("status") == "ok", clone_res
@@ -205,6 +210,11 @@ def test_clone_heading_block_inserts_before_next_heading_uno(ctx, doc):
     doc.RecordChanges = False
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    from plugin.writer.specialized.bookmarks import BookmarkService
+    from plugin.writer.tree import TreeService
+
+    tool_ctx.services.register("writer_bookmarks", BookmarkService(tool_ctx.services))
+    tool_ctx.services.register("writer_tree", TreeService(tool_ctx.services))
     clone_res = CloneHeadingBlock().execute(tool_ctx, paragraph_index=0)
     assert clone_res.get("status") == "ok", clone_res
 

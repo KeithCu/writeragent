@@ -103,7 +103,6 @@ def heading_ref(
 class _TreeContext(NamedTuple):
     para_ranges: list[Any]
     tree: dict[str, Any]
-    heading_indices: list[int]
     next_heading_map: dict[int, int]
     bookmark_map: dict[int, str]
 
@@ -263,7 +262,7 @@ class TreeService(ServiceBase):
         bookmark_map = self._bm_svc.ensure_heading_bookmarks(
             doc, heading_para_indices=heading_indices, para_ranges=para_ranges
         )
-        return _TreeContext(para_ranges, tree, heading_indices, next_heading_map, bookmark_map)
+        return _TreeContext(para_ranges, tree, next_heading_map, bookmark_map)
 
     def get_document_tree(self, doc: Any, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
         """Get serialized document tree with content strategies."""
@@ -469,23 +468,18 @@ class TreeService(ServiceBase):
                     hint += " Existing bookmarks: " + ", ".join(existing[:10])
             raise ToolExecutionError(hint)
         bm = bookmarks.getByName(bookmark_name)
-        para_idx = self._paragraph_for_bookmark(doc, bookmark_name, bm)
-        return {"para_index": para_idx}
-
-    def _paragraph_for_bookmark(self, doc: Any, bookmark_name: str, bookmark: Any) -> int:
-        """Paragraph index for a bookmark that still has a name.
-
-        ``find_paragraph_for_range`` returns None when the anchor cannot be
-        placed. A stale ``_mcp_`` mark after save/reopen or
-        ``bookmark_cleanup`` still has a name, so it must not resolve
-        to a paragraph.
-        ``confirm_paragraph_index`` keeps 0 only when the anchor start
-        is inside that paragraph. Anything else is an error, not a
-        location.
-        """
-        return self._confirm_anchor_placement(
-            doc, bookmark, _bookmark_anchor_not_placed(bookmark_name)
+        # Paragraph index for a bookmark that still has a name.
+        #
+        # find_paragraph_for_range returns None when the anchor cannot be
+        # placed. A stale _mcp_ mark after save/reopen or bookmark_cleanup
+        # still has a name, so it must not resolve to a paragraph.
+        # confirm_paragraph_index keeps 0 only when the anchor start
+        # is inside that paragraph. Anything else is an error, not a
+        # location.
+        para_idx = self._confirm_anchor_placement(
+            doc, bm, _bookmark_anchor_not_placed(bookmark_name)
         )
+        return {"para_index": para_idx}
 
     def _find_heading_by_text(self, doc: Any, search_text: str) -> int | None:
         """Find heading by text (case-insensitive, fuzzy)."""

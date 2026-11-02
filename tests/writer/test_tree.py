@@ -4,9 +4,7 @@ import pytest
 
 from plugin.doc.document_helpers import UNKNOWN_DOC_KEY
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.service import ServiceRegistry
 from plugin.tests.testing_utils import ElementStub, WriterDocStub
-from plugin.writer.structural import _ensure_writer_tree
 from plugin.writer.tree import TreeService
 
 class TestTreeServiceSearch:
@@ -253,30 +251,6 @@ class TestTreeServiceSearch:
         assert h1_node["text"] == "Heading 1"
         assert h1_node["children_count"] == 1
         assert h1_node["body_paragraphs"] == 2
-
-
-def test_ensure_writer_tree_loads_onto_bare_native_context():
-    """Clone heading's context often has only document + events.
-
-    That used to return "writer_nav module not loaded" instead of attaching
-    writer_bookmarks and writer_tree, which TreeService's constructor needs.
-    """
-    services = ServiceRegistry()
-    services.register("document", MagicMock())
-    services.register("events", MagicMock())
-    ctx = MagicMock()
-    ctx.services = services
-
-    tree = _ensure_writer_tree(ctx)
-    assert tree is services.get("writer_tree")
-    assert services.get("writer_bookmarks") is not None
-    assert _ensure_writer_tree(ctx) is tree
-
-    missing_events = ServiceRegistry()
-    missing_events.register("document", MagicMock())
-    ctx_missing = MagicMock()
-    ctx_missing.services = missing_events
-    assert _ensure_writer_tree(ctx_missing) is None
 
 
 def test_heading_tree_fingerprint():
