@@ -284,6 +284,16 @@ def test_writer_streamed_rewrite_session_whitespace_chunk_is_kept():
     assert doc.getPropertyValue("RecordChanges") is True
 
 
+def test_writer_streamed_append_session_empty_finish_closes_undo_context():
+    doc = _MockDoc(recording=True)
+    text_range = _MutableTextRange()
+    session = WriterStreamedAppendSession(doc, text_range, "Original")
+    assert doc.undo.entered is True
+    assert session.finish() is None
+    assert doc.undo.left is True
+    assert doc.getPropertyValue("RecordChanges") is True
+
+
 def test_set_document_property_updates_existing_without_readding(monkeypatch):
     """Regression: ``UserDefinedProperties`` exposes existence via ``getPropertySetInfo``,
     not ``hasByName``. The old check fell through to ``addProperty`` even when the

@@ -1357,21 +1357,24 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
 
     def finish(self) -> str | None:
         """Finalize the rewrite. Returns a warning message on degraded success."""
-        if not self.generated_text:
-            self.abort_and_restore()
-            return _stream_write_warning(self.last_write_error)
+        try:
+            if not self.generated_text:
+                self.abort_and_restore()
+                return _stream_write_warning(self.last_write_error)
 
-        return self._finish_collapse(
-            label="streamed rewrite",
-            collapse_fn=lambda: self.text_range.setString(self.generated_text),
-            fallback_text=self.generated_text,
-            fallback_desc="restore generated text failed",
-            fallback_err_msg=_("Failed to finalize the tracked edit and preserve the generated text: {0}"),
-            success_msg=_(
-                "Failed to collapse the streamed edit into a single tracked change. "
-                "The generated text was kept, but it may still appear as multiple tracked changes."
-            ),
-        )
+            return self._finish_collapse(
+                label="streamed rewrite",
+                collapse_fn=lambda: self.text_range.setString(self.generated_text),
+                fallback_text=self.generated_text,
+                fallback_desc="restore generated text failed",
+                fallback_err_msg=_("Failed to finalize the tracked edit and preserve the generated text: {0}"),
+                success_msg=_(
+                    "Failed to collapse the streamed edit into a single tracked change. "
+                    "The generated text was kept, but it may still appear as multiple tracked changes."
+                ),
+            )
+        finally:
+            self._compound_undo.close()
 
     def abort_and_restore(self) -> None:
         """Restore the original text and recording state after an error."""
@@ -1436,26 +1439,29 @@ class WriterStreamedAppendSession(_WriterStreamedSessionBase):
 
     def finish(self) -> str | None:
         """Collapse the appended continuation into one tracked insertion. Returns a warning on degraded success."""
-        if not self.appended_text:
-            self._restore_recording()
-            return _stream_write_warning(self.last_write_error)
+        try:
+            if not self.appended_text:
+                self._restore_recording()
+                return _stream_write_warning(self.last_write_error)
 
-        def _collapse() -> None:
-            text = self.text_range.getText()
-            end_cursor = text.createTextCursorByRange(self.text_range.getEnd())
-            text.insertString(end_cursor, self.appended_text, False)
+            def _collapse() -> None:
+                text = self.text_range.getText()
+                end_cursor = text.createTextCursorByRange(self.text_range.getEnd())
+                text.insertString(end_cursor, self.appended_text, False)
 
-        return self._finish_collapse(
-            label="streamed append",
-            collapse_fn=_collapse,
-            fallback_text=self.original_text + self.appended_text,
-            fallback_desc="restore continuation failed",
-            fallback_err_msg=_("Failed to collapse the streamed continuation into a single tracked change: {0}"),
-            success_msg=_(
-                "Failed to collapse the streamed continuation into a single tracked change. "
-                "The text was kept, but may not be reviewable."
-            ),
-        )
+            return self._finish_collapse(
+                label="streamed append",
+                collapse_fn=_collapse,
+                fallback_text=self.original_text + self.appended_text,
+                fallback_desc="restore continuation failed",
+                fallback_err_msg=_("Failed to collapse the streamed continuation into a single tracked change: {0}"),
+                success_msg=_(
+                    "Failed to collapse the streamed continuation into a single tracked change. "
+                    "The text was kept, but may not be reviewable."
+                ),
+            )
+        finally:
+            self._compound_undo.close()
 
     def abort_and_restore(self) -> None:
         """After a streaming error, restore the recording state and close the undo group.

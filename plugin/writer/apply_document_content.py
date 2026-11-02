@@ -888,25 +888,28 @@ class ApplyDocumentContent(ToolBase):
             # (tool-sync-apply_document_content) marshals it like the edit path does.
             return _run_on_main_thread(lambda: self._dry_run_preview(ctx, **kwargs))
         wait_seconds = self._review_wait_seconds()
+        session_box: list[Any] = []
 
         def _do_edit() -> tuple[dict[str, Any], Any]:
-            return self._execute_edit(ctx, **kwargs)
+            return self._execute_edit(ctx, session_sink=session_box, **kwargs)
 
-        session: Any = None
         if get_agent_edit_review_mode() != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
             # to a worker thread, or we ARE the main thread (where blocking would freeze the UI
             # and the user could never click accept/reject). Edit once, don't wait -- but UNO is
             # not thread-safe, so when we're on a worker thread (the toggled-off case) the edit
             # and its cleanup run on the main thread via marshalling rather than here.
+            # The session is registered in session_box the instant _execute_edit creates it (via
+            # session_sink), so its anchor bookmarks are released in `finally` even if the edit
+            # raises mid-way (e.g. the 2nd of 3 replace-all matches fails after the 1st).
             try:
-                result, session = _run_on_main_thread(_do_edit)
+                result = _run_on_main_thread(_do_edit)[0]
                 return annotate_review_status(result)
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             finally:
-                if session is not None:
-                    self._release_review_session(session)
+                if session_box:
+                    self._release_review_session(session_box[0])
 
         # Review-wait path, on a background (MCP HTTP / chat worker) thread: run the edit
         # on the main thread, then block HERE until the user reviews the tracked changes.
@@ -918,8 +921,8 @@ class ApplyDocumentContent(ToolBase):
             # are fine without review mode.
             result, session = _run_on_main_thread(_do_edit)
         except Exception as e:
-            if session is not None:
-                self._release_review_session(session)
+            if session_box:
+                self._release_review_session(session_box[0])
             if isinstance(e, ToolExecutionError):
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             raise
@@ -963,7 +966,7 @@ class ApplyDocumentContent(ToolBase):
             )
         return result
 
-    def _execute_edit(self, ctx: ToolContext, **kwargs: Any) -> tuple[dict[str, Any], Any]:
+    def _execute_edit(self, ctx: ToolContext, session_sink: Any = None, **kwargs: Any) -> tuple[dict[str, Any], Any]:
         """Apply the edit and return ``(result_dict, session_or_None)``.
 
         Runs on the MAIN thread always (directly on the sync path; marshalled via
@@ -1039,12 +1042,11 @@ class ApplyDocumentContent(ToolBase):
         # get_config_bool_safe tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled()
 
-        session: EditReviewSession | None = None
-
+        # Invariant: the session registers with session_sink only after param checks pass.
         def _open_session() -> EditReviewSession:
-            nonlocal session
             s = EditReviewSession(ctx.doc, ctx.ctx, enabled=track_reviewable)
-            session = s
+            if session_sink is not None:
+                session_sink.append(s)
             return s
 
         plain = ""

@@ -745,8 +745,10 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
     ctx = _edit_ctx()
     session_mock = MagicMock()
 
-    def fake_execute_edit(_ctx, **kwargs):
-        return {"status": "ok", "message": "Inserted content at end."}, session_mock
+    def fake_execute_edit(_ctx, session_sink=None, **kwargs):
+        if session_sink is not None:
+            session_sink.append(session_mock)
+        return {"status": "ok", "message": "Inserted content at end."}, None
 
     call_count = [0]
 
