@@ -138,11 +138,11 @@ def _resolve_form_page_and_control(
 def _coerce_items(raw: Any) -> list[str] | None:
     if isinstance(raw, (list, tuple)):
         items = [str(x) for x in raw if str(x).strip()]
-        return items if items else None
-    if isinstance(raw, str):
+    elif isinstance(raw, str):
         items = [part.strip() for part in raw.split(",") if part.strip()]
-        return items if items else None
-    return None
+    else:
+        return None
+    return items if items else None
 
 
 def _parse_date_default_value(raw: str) -> tuple[int, int, int] | None:
@@ -897,7 +897,7 @@ class FormEditControl(ToolWriterFormBase):
 
         snap = control_snapshot(model)
         values: dict[str, Any] = {k: snap[k] for k in ("text", "state", "selected") if k in snap}
-        ctrl_name = getattr(shape, "Name", "") or getattr(model, "Name", "")
+        ctrl_name = _preferred_control_name(shape)
         out: dict[str, Any] = {
             "status": "ok",
             "message": f"Updated form control at index {idx}",
