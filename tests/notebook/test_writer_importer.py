@@ -10,13 +10,21 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.notebook.cell_registry import (
-    NotebookDocState,
-    _MAX_IMPORT_TEXT_CHARS,
-    _TRUNCATION_SUFFIX,
-    _coerce_notebook_text,
-    _format_in_prompt,
-    _prepare_display_text,
+from plugin.notebook.layout import (
+    PARAGRAPH_BREAK,
+    STYLE_MD_H1,
+    STYLE_MD_H2,
+    STYLE_NOTEBOOK_IN,
+    STYLE_NOTEBOOK_OUT,
+    cap_from_style,
+    coerce_notebook_text,
+    format_in_prompt,
+    height_for_text,
+    insert_code_input_in_flow,
+    page_style,
+    prepare_display_text,
+    text_area_width_units,
+    text_width_from_style,
 )
 from plugin.notebook.notebook_controls import (
     _DEFAULT_WIDTH,
@@ -24,24 +32,12 @@ from plugin.notebook.notebook_controls import (
     _LINE_HEIGHT,
     _MAX_FIELD_HEIGHT,
     _MIN_FIELD_HEIGHT,
-    _cap_from_style,
-    _height_for_text,
-    _insert_code_input_in_flow,
-    _page_style,
-    _text_area_width_units,
-    _text_width_from_style,
 )
 from plugin.notebook.writer_importer import (
-    _PARAGRAPH_BREAK,
-    _STYLE_MD_H1,
-    _STYLE_MD_H2,
-    _STYLE_NOTEBOOK_IN,
-    _STYLE_NOTEBOOK_OUT,
     _append_body_paragraph,
     _append_paragraph_break_at_end,
     _apply_no_spellcheck_for_import,
     _create_import_para_style,
-    _resolve_para_style,
     _decode_notebook_image,
     _ensure_notebook_import_styles,
     output_para_style,
@@ -53,12 +49,33 @@ from plugin.notebook.writer_importer import (
     _notebook_image_payload,
     _gif_pixel_size,
     _png_pixel_size,
+    resolve_para_style,
     _webp_pixel_size,
     _trim_trailing_empty_paragraph,
     _unglue_last_paragraph,
     format_output_text,
     import_ipynb_to_writer,
 )
+
+
+from plugin.notebook.cell_registry import NotebookDocState, _MAX_IMPORT_TEXT_CHARS, _TRUNCATION_SUFFIX
+
+# Tests still refer to legacy private names for layout helpers re-exported publicly.
+_coerce_notebook_text = coerce_notebook_text
+_format_in_prompt = format_in_prompt
+_prepare_display_text = prepare_display_text
+_resolve_para_style = resolve_para_style
+_insert_code_input_in_flow = insert_code_input_in_flow
+_page_style = page_style
+_text_area_width_units = text_area_width_units
+_text_width_from_style = text_width_from_style
+_cap_from_style = cap_from_style
+_height_for_text = height_for_text
+_PARAGRAPH_BREAK = PARAGRAPH_BREAK
+_STYLE_MD_H1 = STYLE_MD_H1
+_STYLE_MD_H2 = STYLE_MD_H2
+_STYLE_NOTEBOOK_IN = STYLE_NOTEBOOK_IN
+_STYLE_NOTEBOOK_OUT = STYLE_NOTEBOOK_OUT
 
 
 def _writer_importer_import_logging_present() -> bool:
@@ -624,7 +641,7 @@ def test_import_resolves_page_style_once(tmp_path, monkeypatch):
         page_style_calls.append(1)
         return real_page_style(d)
 
-    monkeypatch.setattr("plugin.notebook.writer_importer._page_style", counting_page_style)
+    monkeypatch.setattr("plugin.notebook.writer_importer.page_style", counting_page_style)
     monkeypatch.setattr("plugin.notebook.writer_importer._embed_markdown_image", lambda *_a, **_k: True)
     monkeypatch.setattr("plugin.notebook.notebook_controls.Size", lambda w, h: None)
     monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
@@ -1939,7 +1956,7 @@ def test_import_cells_keeps_later_cell_when_one_cell_fails(tmp_path, monkeypatch
         raise RuntimeError("field failed")
 
     monkeypatch.setattr(
-        "plugin.notebook.writer_importer._insert_code_input_in_flow", fail_field)
+        "plugin.notebook.writer_importer.insert_code_input_in_flow", fail_field)
     monkeypatch.setattr(
         "plugin.notebook.cell_registry.save_registry", lambda *_a, **_k: None)
     monkeypatch.setattr(

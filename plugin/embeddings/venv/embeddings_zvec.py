@@ -350,7 +350,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     indexed = 0
     upserted_total = 0
 
-    _hb.force({"phase": "start", "mode": mode, "listing_root": root, "files": total})
+    _hb.emit({"phase": "start", "mode": mode, "listing_root": root, "files": total}, immediate=True)
 
     # Probe dim once by embedding a tiny text (or first real body).
     dim = 0
@@ -381,9 +381,14 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     # Purge deleted files
     current_urls = {entry.url for entry in files}
     db_path = str(Path(root) / "writeragent_embeddings" / "corpus.db")
-    from plugin.embeddings.venv.embeddings_sqlite import get_all_indexed_urls, remove_file_from_index
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, get_all_indexed_urls_in_db, remove_file_from_index_in_db
 
-    indexed_urls = get_all_indexed_urls(Path(db_path))
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn, with_fts=False, with_vec=False)
+        indexed_urls = get_all_indexed_urls_in_db(conn)
+    finally:
+        conn.close()
 
     coll = None
     if coll_path in _COLL_CACHE or Path(coll_path).exists():
@@ -401,10 +406,14 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
             except Exception as e:
                 log.warning("zvec delete failed for stale %s: %s", url, e)
                 continue
-        remove_file_from_index(Path(db_path), url)
+        conn_purge = connect_corpus_db(db_path)
+        try:
+            remove_file_from_index_in_db(conn_purge, url)
+        finally:
+            conn_purge.close()
 
     for idx, entry in enumerate(files):
-        _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode})
+        _hb.emit({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode}, immediate=True)
 
         try:
             coll = _open_for_search(coll_path)
@@ -432,7 +441,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
 
         rows = [{"doc_url": c.doc_url, "para_index": c.para_index, "char_start": c.char_start, "char_end": c.char_end, "content_hash": c.content_hash, "text": c.text, "file_mtime": c.file_mtime} for c in chunks]
 
-        _hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "zvec"})
+        _hb.emit({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "zvec"}, immediate=True)
 
         # For clean per-file refresh, remove any previous docs for this doc_url.
         if coll_path in _COLL_CACHE or Path(coll_path).exists():
@@ -454,7 +463,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
         upserted_total += up
         indexed += len(rows)
 
-        _hb.force({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": "zvec"})
+        _hb.emit({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": "zvec"}, immediate=True)
 
     # Final meta + flush
     try:
@@ -476,7 +485,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
         updated_at=str(time.time()),
     ).save(meta_path)
 
-    _hb.force({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total})
+    _hb.emit({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total}, immediate=True)
 
     return {"mode": "zvec", "indexed_paragraphs": indexed, "files": total, "upserted": upserted_total, "row_count": final_count, "storage_backend": "zvec"}
 
