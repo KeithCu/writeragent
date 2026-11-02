@@ -53,7 +53,6 @@ log = logging.getLogger("writeragent.smol_agent")
 _spec_log = logging.getLogger("writeragent.specialized")
 
 SmolInputsStyle = Literal["librarian", "specialized"]
-_SMOL_WIRE_KEYS = frozenset({"messages", "tools", "response_format"})
 
 
 def to_smol_inputs(parameters: dict[str, Any] | None, *, style: SmolInputsStyle = "librarian") -> dict[str, dict[str, Any]]:
@@ -210,10 +209,6 @@ class WriterAgentSmolModel(Model):
             **kwargs,
         )
 
-        dropped = set(completion_kwargs.keys()) - _SMOL_WIRE_KEYS
-        if dropped:
-            log.debug("Smol completion kwargs dropped: %s", dropped)
-
         msg_dicts = completion_kwargs.get("messages", [])
         tools = completion_kwargs.get("tools", None)
         fmt = completion_kwargs.get("response_format", response_format)
@@ -332,7 +327,7 @@ class SmolAgentExecutor:
                 except Exception as err:
                     log.debug("Error closing agent run generator: %s", err)
 
-    def execute_safe(self, agent: Any, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None, stop_message: str = "Stopped by user.", error_prefix: str = "Task failed") -> Any:
+    def execute_safe(self, agent: Any, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None, *, stop_message: str, error_prefix: str) -> Any:
         """Execute the agent safely, catching errors and formatting them for the UI.
 
         Args:
