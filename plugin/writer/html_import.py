@@ -185,6 +185,11 @@ def _insert_starwriter_html_at_cursor(model: Any, cursor: Any, prepared_html: st
 
 
 
+def _expand_escapes(text: str) -> str:
+    return text.replace("\\n", "\n").replace("\\t", "\t")
+
+
+
 def _insert_mixed_html_and_math_at_cursor(
     model: Any, ctx: Any, cursor: Any, unescaped: str
 ) -> None:
@@ -210,7 +215,7 @@ def _insert_mixed_html_and_math_at_cursor(
                 continue
 
             # Expand literal \n and \t for plain HTML without math
-            chunk = chunk.replace("\\n", "\n").replace("\\t", "\t")
+            chunk = _expand_escapes(chunk)
             chunk, seg_ruby = html_ruby.extract_and_strip_ruby(chunk)
 
             sub = _ensure_html_linebreaks(chunk)
@@ -271,6 +276,14 @@ def _paragraph_after(text_obj: Any, before_para: Any) -> Any:
     return cur
 
 
+def _apply_ruby_and_restore_fields(
+    model: Any, text_obj: Any, spans: list[Any], nonce: str, skip_chars: int = 0
+) -> None:
+    html_ruby._apply_ruby_spans(text_obj, spans, skip_chars=skip_chars)
+    if model is not None:
+        field_restore._restore_field_placeholders(model, text_obj, nonce=nonce)
+
+
 def _insert_mixed_or_plain_html(
     model: Any,
     ctx: Any,
@@ -293,7 +306,7 @@ def _insert_mixed_or_plain_html(
     # anyway); we re-apply the named styles via UNO afterwards only when apply_styles is True.
     clean, block_styles = html_import_styles._extract_block_lo_styles(unescaped_content)
     # Expand literal \n and \t before measuring ruby offsets and StarWriter import
-    clean = clean.replace("\\n", "\n").replace("\\t", "\t")
+    clean = _expand_escapes(clean)
     has_math = html_fragment_contains_mixed_math(clean)
     if not has_math:
         # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
@@ -315,11 +328,7 @@ def _insert_mixed_or_plain_html(
         _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, clean)
     else:
         single = _ensure_html_linebreaks(clean)
-        if not styled:
-            _insert_starwriter_html_at_cursor(model, cursor, single)
-        else:
-            # model=None: keep the cursor at the end of the inserted content.
-            insert_html_fragment_at_cursor(cursor, single, wrap=False, model=None)
+        _insert_starwriter_html_at_cursor(None if styled else model, cursor, single)
 
     if styled:
         # Per-paragraph failures are already logged inside _apply_block_lo_styles.
@@ -333,10 +342,7 @@ def _insert_mixed_or_plain_html(
         end_c = model.getText().createTextCursor()
         end_c.gotoEnd(False)
         cursor.gotoRange(end_c.getStart(), False)
-    if not has_math:
-        html_ruby._apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
-    if model is not None:
-        field_restore._restore_field_placeholders(model, text_obj, nonce=nonce)
+    _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
 
 
 
@@ -450,17 +456,9 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
 def _prep_field_ruby(html: str) -> tuple[str, list[Any], str]:
     nonce = uuid.uuid4().hex[:8]
     inline_html = field_restore.rewrite_exported_field_spans(html, nonce=nonce)
-    inline_html = inline_html.replace("\\n", "\n").replace("\\t", "\t")
+    inline_html = _expand_escapes(inline_html)
     inline_html, ruby_spans = html_ruby.extract_and_strip_ruby(inline_html)
     return inline_html, ruby_spans, nonce
-
-
-def _apply_ruby_and_restore_fields(
-    model: Any, text_obj: Any, spans: list[Any], nonce: str, skip_chars: int = 0
-) -> None:
-    html_ruby._apply_ruby_spans(text_obj, spans, skip_chars=skip_chars)
-    if model is not None:
-        field_restore._restore_field_placeholders(model, text_obj, nonce=nonce)
 
 
 def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> None:
@@ -741,7 +739,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
         raise ToolExecutionError("No text object to import into.")
     nonce = uuid.uuid4().hex[:8]
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
-    expanded = expanded.replace("\\n", "\n").replace("\\t", "\t")
+    expanded = _expand_escapes(expanded)
     expanded, ruby_spans = html_ruby.extract_and_strip_ruby(expanded)
     rewritten = field_restore.rewrite_exported_field_spans(expanded, nonce=nonce)
     prepared = _ensure_html_linebreaks(rewritten)
@@ -777,33 +775,35 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
         # If there is more than one paragraph and the last one is entirely empty, remove it.
         try:
             enum = text_obj.createEnumeration()
-            paras = []
+            prev: Any = None
+            last: Any = None
+            count = 0
+            sentinel: Any = object()
             while enum.hasMoreElements() is True:
-                try:
-                    paras.append(enum.nextElement())
-                except Exception as e:
-                    reraise_if_disposed(e)
-                    log.debug("Failed to enumerate paragraph: %s", e)
+                elem = uno_read(enum.nextElement, sentinel)
+                if elem is sentinel:
                     break
-            if len(paras) > 1:
-                last_para = paras[-1]
-                if not last_para.getString():
+                prev = last
+                last = elem
+                count += 1
+            if count > 1 and last is not None:
+                if not last.getString():
                     # Check for fields/portions before deleting
-                    has_content = _paragraph_has_non_text_portion(last_para)
+                    has_content = _paragraph_has_non_text_portion(last)
                     if not has_content:
                         try:
                             # To actually remove the trailing break, select from the end of the previous paragraph
                             # to the end of the document, and set String to empty.
-                            cursor = text_obj.createTextCursorByRange(paras[-2])
+                            cursor = text_obj.createTextCursorByRange(prev)
                             cursor.gotoEndOfParagraph(False)
-                            cursor.gotoRange(last_para.getEnd(), True)
+                            cursor.gotoRange(last.getEnd(), True)
                             cursor.setString("")
                         except Exception as e:
                             reraise_if_disposed(e)
                             log.debug("Failed to remove trailing paragraph break via cursor: %s", e)
                             try:
-                                if hasattr(last_para, "dispose"):
-                                    last_para.dispose()
+                                if hasattr(last, "dispose"):
+                                    last.dispose()
                             except Exception as e2:
                                 reraise_if_disposed(e2)
                                 log.debug("Failed to dispose trailing paragraph: %s", e2)
