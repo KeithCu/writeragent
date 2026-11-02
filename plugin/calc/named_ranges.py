@@ -37,7 +37,7 @@ from com.sun.star.lang import IllegalArgumentException
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 # NamedRangeFlag bitmask mappings (com.sun.star.sheet.NamedRangeFlag)
 _FLAG_NAME_TO_BIT: dict[str, int] = {"filter_criteria": 1, "print_area": 2, "column_header": 4, "row_header": 8}

@@ -44,7 +44,7 @@ from plugin.calc.bridge import (
     used_range_address,
 )
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 _MAX_CONTEXT_HEADERS = 100
 

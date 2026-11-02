@@ -37,7 +37,7 @@ from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_visible_sheet
 from plugin.calc.analyzer import SheetAnalyzer
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 _INVALID_SHEET_CHARS = set("[]*?:/\\")
 

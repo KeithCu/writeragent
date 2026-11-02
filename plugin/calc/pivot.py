@@ -68,7 +68,7 @@ from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
 from plugin.framework.errors import ToolExecutionError, is_disposed_exception
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext

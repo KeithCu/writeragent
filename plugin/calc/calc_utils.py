@@ -24,7 +24,7 @@ import uno
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
-from plugin.framework.errors import uno_read
+from plugin.framework.errors import UnoObjectError, uno_read
 
 # What was wrong: CellContentType was imported from com.sun.star.table, which is not an attribute
 # in live PyUNO (enum types are packages/modules in LibreOffice's python bridge). The resulting
@@ -41,6 +41,19 @@ except (ImportError, AttributeError):
     VALUE = cast("Any", 1)
     TEXT = cast("Any", 2)
     FORMULA = cast("Any", 3)
+
+
+def range_args(raw: Any, *, exactly_one: bool = False) -> list[Any]:
+    """Normalize tool ``range`` kwargs to a list of range strings."""
+    if exactly_one:
+        if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], str) or not raw[0].strip():
+            raise UnoObjectError("Pass exactly one range.")
+        return [raw[0].strip()]
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    return list(raw)
 
 
 def resolve_sheet(doc: Any, sheet_name: str | None = None) -> Any:
@@ -112,48 +125,29 @@ def _runtime_formula_result_value() -> int:
         return 1
 
 
-def _formula_result_is_value(kind: Any) -> bool:
-    if kind is None:
-        return False
-    try:
-        val = int(kind)
-        runtime_val = _runtime_formula_result_value()
-        # On all LibreOffice builds, FormulaResult.VALUE is 0 or 1.
-        # If the runtime constant is 0 or 1, match that. If uno returned
-        # an invalid code (e.g. from an untyped mock), fall back to 0 or 1.
-        if runtime_val in (0, 1):
-            return val == runtime_val
-        return val in (0, 1)
-    except (TypeError, ValueError):
-        return False
-
-
 def formula_cell_result(cell: Any) -> Any:
     """Return a formula cell's result, keeping numbers as floats.
 
-    Any non-zero ``getValue()`` is a number, and numeric zero is
-    ``FormulaResult.VALUE`` from this runtime. Text stays ``getString()``.
-    Comparing ``FormulaResultType`` to a hardcoded ``1`` fails where
-    ``VALUE`` is ``0``, and ``getValue() != 0`` is false for zero, so
-    ``=2+3`` came back as the text ``"5"`` and ``=1-1`` as ``"0"``. The
-    contract for a numeric formula is ``getValue()``, a float.
+    Non-zero ``getValue()`` is always numeric. Zero uses ``FormulaResult.VALUE``
+    on this runtime (0 or 1 depending on build); text formulas keep ``getString()``.
     """
     numeric = cell.getValue()
-    # Booleans are not numbers here (bool is a subclass of int).
     if isinstance(numeric, bool) or not isinstance(numeric, (int, float)):
         as_float = None
     else:
         as_float = float(numeric)
-    # Non-zero does not need the enum. A mismatched VALUE code must not
-    # replace the float with the display string.
     if as_float is not None and as_float != 0.0:
         return as_float
-    # FormulaResultType2 holds FormulaResult (VALUE=1). FormulaResultType does not
-    # identify a numeric zero on real LibreOffice (=1-1 came back as "0").
     kind = getattr(cell, "FormulaResultType2", None)
     if not isinstance(kind, int):
         kind = getattr(cell, "FormulaResultType", None)
-    if _formula_result_is_value(kind) and as_float is not None:
+    runtime_val = _runtime_formula_result_value()
+    try:
+        kind_int = int(kind) if kind is not None else None
+    except (TypeError, ValueError):
+        kind_int = None
+    value_codes = {runtime_val} if runtime_val in (0, 1) else {0, 1}
+    if as_float is not None and kind_int in value_codes:
         return as_float
     return cell.getString()
 

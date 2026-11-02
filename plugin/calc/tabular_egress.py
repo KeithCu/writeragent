@@ -21,15 +21,15 @@ def pad_grid(grid: list[list[Any]]) -> list[list[Any]]:
     return [list(row) + [""] * (width - len(row)) for row in grid]
 
 
-def _append_blank(rows: list[list[Any]]) -> None:
+def append_blank(rows: list[list[Any]]) -> None:
     if rows and rows[-1]:
         rows.append([])
 
 
-def _append_key_value_block(rows: list[list[Any]], title: str, mapping: dict[str, Any]) -> None:
+def append_key_value_block(rows: list[list[Any]], title: str, mapping: dict[str, Any]) -> None:
     if not mapping:
         return
-    _append_blank(rows)
+    append_blank(rows)
     rows.append([title])
     rows.append(["Key", "Value"])
     for key, val in mapping.items():
@@ -39,7 +39,7 @@ def _append_key_value_block(rows: list[list[Any]], title: str, mapping: dict[str
             rows.append([str(key), to_calc_compatible(val)])
 
 
-def _append_table_rows(
+def append_table_rows(
     rows: list[list[Any]],
     columns: Any,
     table_rows: Any,
@@ -56,26 +56,26 @@ def _append_table_rows(
                 rows.append([cell(row)])
 
 
-def _append_truncation_note(rows: list[list[Any]], table: dict[str, Any]) -> None:
+def append_truncation_note(rows: list[list[Any]], table: dict[str, Any]) -> None:
     if table.get("truncated"):
         total = table.get("total_rows")
         rows.append([f"(showing first rows; {total} total)" if total is not None else "(truncated)"])
 
 
-def _error_grid(result: dict[str, Any], domain_label: str, failed_message: str) -> list[list[Any]]:
+def error_grid(result: dict[str, Any], domain_label: str, failed_message: str) -> list[list[Any]]:
     code = str(result.get("code") or "ERROR")
     message = str(result.get("message") or failed_message)
     return [[f"{domain_label} error ({code})"], [message]]
 
 
-def _append_flag_lines(rows: list[list[Any]], lines: list[str]) -> None:
-    _append_blank(rows)
+def append_flag_lines(rows: list[list[Any]], lines: list[str]) -> None:
+    append_blank(rows)
     rows.append(["Flags"])
     for line in lines:
         rows.append([line])
 
 
-def _append_no_tabular_output(rows: list[list[Any]]) -> None:
+def append_no_tabular_output(rows: list[list[Any]]) -> None:
     if len(rows) == 1:
         rows.append(["(no tabular output)"])
 
@@ -85,7 +85,7 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
     rows: list[list[Any]] = []
 
     if result.get("status") == "error":
-        return _error_grid(result, domain_label, failed_message)
+        return error_grid(result, domain_label, failed_message)
 
     helper = str(result.get("helper") or default_helper)
     raw_ctx = result.get("context")
@@ -96,29 +96,29 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
 
     metrics = result.get("metrics")
     if isinstance(metrics, dict):
-        _append_key_value_block(rows, "Metrics", metrics)
+        append_key_value_block(rows, "Metrics", metrics)
 
     flags = result.get("flags")
     if isinstance(flags, list) and flags:
-        _append_flag_lines(rows, [str(item) for item in flags])
+        append_flag_lines(rows, [str(item) for item in flags])
 
     tables = result.get("tables")
     if isinstance(tables, list):
         for table in tables:
             if not isinstance(table, dict):
                 continue
-            _append_blank(rows)
+            append_blank(rows)
             rows.append([str(table.get("name") or "table")])
-            _append_table_rows(rows, table.get("columns"), table.get("rows"), to_calc_compatible)
-            _append_truncation_note(rows, table)
+            append_table_rows(rows, table.get("columns"), table.get("rows"), to_calc_compatible)
+            append_truncation_note(rows, table)
 
     metadata = result.get("metadata")
     if isinstance(metadata, dict):
         subset = {k: metadata[k] for k in metadata_keys if k in metadata}
         if subset:
-            _append_key_value_block(rows, "Metadata", subset)
+            append_key_value_block(rows, "Metadata", subset)
 
-    _append_no_tabular_output(rows)
+    append_no_tabular_output(rows)
     return rows
 
 
