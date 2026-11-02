@@ -400,7 +400,7 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
     """Save As ODS to *dest* (atomic replace via a ``.partial`` sibling)."""
     import uno
 
-    from plugin.writer.format import create_property_value
+    from plugin.framework.uno_context import create_property_value
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Unique per writer: a fixed ".partial" name let two cache writes unlink

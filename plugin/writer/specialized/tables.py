@@ -12,13 +12,13 @@ from typing import Any
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.writer.record_changes import is_recording_changes
+from plugin.doc.text_helpers import FAILED
 from plugin.framework.errors import is_disposed_exception, make_tool_error, uno_probe
 
 from ..range_copy import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
 from ..table_helpers import _check_grid, edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
-    _FAILED,
     _cell_hosted_table_names,
     cell_plain_siblings,
     set_host_paragraphs,
@@ -139,14 +139,14 @@ def _writer_nesting(
     cell_counts: dict[str, int] = {}
 
     for parent_name in names:
-        parent = uno_probe(lambda: tables.getByName(parent_name), _FAILED)
-        cell_names = _FAILED if parent is _FAILED else uno_probe(lambda: parent.getCellNames(), _FAILED)
-        if cell_names is _FAILED:
+        parent = uno_probe(lambda: tables.getByName(parent_name), FAILED)
+        cell_names = FAILED if parent is FAILED else uno_probe(lambda: parent.getCellNames(), FAILED)
+        if cell_names is FAILED:
             continue
         cell_counts[parent_name] = len(cell_names)
         for cell_name in cell_names:
-            cell = uno_probe(lambda: parent.getCellByName(cell_name), _FAILED)
-            if cell is _FAILED:
+            cell = uno_probe(lambda: parent.getCellByName(cell_name), FAILED)
+            if cell is FAILED:
                 continue
             children = _cell_hosted_table_names(cell)
             if not children:
@@ -324,8 +324,8 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
         col_idx, row_idx = pos
         if (row_idx if axis_arg == "row" else col_idx) != idx:
             continue
-        cell = uno_probe(lambda: table.getCellByName(cell_name), _FAILED)
-        if cell is not _FAILED:
+        cell = uno_probe(lambda: table.getCellByName(cell_name), FAILED)
+        if cell is not FAILED:
             hosted.extend(_cell_hosted_table_names(cell))
     return list(dict.fromkeys(hosted))
 

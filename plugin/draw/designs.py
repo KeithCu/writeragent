@@ -339,8 +339,7 @@ def _load_design_model(
     hidden: bool,
     as_template: bool,
 ) -> Any:
-    from plugin.framework.uno_context import get_desktop
-    from plugin.writer.format import create_property_value
+    from plugin.framework.uno_context import create_property_value, get_desktop
 
     desktop = get_desktop(uno_ctx)
     if desktop is None:

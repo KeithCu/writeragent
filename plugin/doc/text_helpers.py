@@ -23,7 +23,7 @@ import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Generator, Iterator, Mapping
 
 import uno
 
@@ -44,7 +44,20 @@ log = logging.getLogger(__name__)
 
 _PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
 # uno_read default where None is a real UNO result.
-_FAILED: Any = object()
+FAILED: Any = object()
+
+
+def iter_elements(enum: Any) -> Generator[Any, None, None]:
+    """Safely iterate a UNO XEnumeration.
+
+    Applies the ``hasMoreElements() is True`` invariant (stops on MagicMock where
+    the unconfigured return is a truthy mock).
+    """
+    if enum is None:
+        return
+    while enum.hasMoreElements() is True:
+        yield enum.nextElement()
+
 
 
 def normalize_linebreaks(text: str | None) -> str:
@@ -204,7 +217,7 @@ def selected_text_range(controller: Any) -> Any:
         if rng is None:
             continue
         if hasattr(rng, "supportsService"):
-            svc_val = uno_read(lambda: rng.supportsService("com.sun.star.drawing.Shape"), _FAILED)
+            svc_val = uno_read(lambda: rng.supportsService("com.sun.star.drawing.Shape"), FAILED)
             if svc_val is True or (type(svc_val) is int and svc_val == 1):
                 continue
 
@@ -370,7 +383,9 @@ def _range_is_paragraph(text_range: Any) -> bool:
 
     def first_is_portion() -> bool:
         enum = text_range.createEnumeration()
-        return enum.hasMoreElements() is True and _portion_type(enum.nextElement()) is not None
+        for elem in iter_elements(enum):
+            return _portion_type(elem) is not None
+        return False
 
     return uno_read(first_is_portion, False, object_type="TextRange")
 
@@ -489,8 +504,7 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
     parts: list[str] = []
     try:
         first_para = True
-        while para_enum.hasMoreElements() is True:
-            para = para_enum.nextElement()
+        for para in iter_elements(para_enum):
             if not first_para:
                 parts.append("\n")
             first_para = False
@@ -502,11 +516,7 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
             # _visible_portions (same as UNO per-paragraph redline markers).
             parts.append(_paragraph_visible_text(para))
     except Exception as exc:
-        # What was wrong: a mid-walk enumeration error discarded portions already
-        # collected and returned getString(), which puts pending deletions back
-        # and shifts offsets.
-        # How: the except replaced `parts` with the unfiltered range string.
-        # Why: return the deletion-free prefix. Do not call getString() here.
+        # Return deletion-free prefix on mid-walk error; do not fall back to getString().
         reraise_if_disposed(exc, object_type="TextRange")
         log.debug(
             "get_string_without_tracked_deletions: portion walk stopped early", exc_info=True)

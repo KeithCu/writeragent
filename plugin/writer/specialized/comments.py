@@ -23,6 +23,7 @@ from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
 from plugin.framework.errors import reraise_if_disposed, uno_read
 import uno
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
 from ..specialized_base import ToolWriterCommentBase, enum_param
@@ -33,8 +34,7 @@ log = logging.getLogger("writeragent.writer.comments")
 def _iter_annotations(doc: Any) -> Any:
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
-    while enum.hasMoreElements() is True:
-        field = enum.nextElement()
+    for field in iter_elements(enum):
         try:
             if field.supportsService("com.sun.star.text.textfield.Annotation"):
                 yield field

@@ -269,7 +269,7 @@ def test_empty_xhtml_export_of_a_document_with_text_falls_back():
 
     with patch.object(html_export, "_export_xhtml", return_value=""), \
          patch.object(html_export, "_autostyle_maps", return_value=({}, {}, None)), \
-         patch("plugin.writer.format._with_temp_buffer") as buf, \
+         patch("plugin.doc.temp_files.with_temp_buffer") as buf, \
          patch("builtins.open") as opener:
         buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
@@ -283,7 +283,7 @@ def test_full_export_fallback_reports_missing_style_tokens():
     warnings: list[str] = []
     with (
         patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")),
-        patch("plugin.writer.format._with_temp_buffer") as buf,
+        patch("plugin.doc.temp_files.with_temp_buffer") as buf,
         patch("builtins.open") as opener,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
         patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),

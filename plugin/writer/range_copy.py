@@ -12,6 +12,7 @@ from typing import Any, Iterator
 
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.uno_context import uno_same
+from plugin.doc.text_helpers import FAILED, iter_elements
 from plugin.writer.math.math_mml_export import (
     _OBJECT_REPLACEMENT,
     portion_math_embed,
@@ -19,8 +20,6 @@ from plugin.writer.math.math_mml_export import (
 )
 
 log = logging.getLogger("writeragent.writer")
-# uno_read default where None is a real UNO result.
-_FAILED: Any = object()
 
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
@@ -41,9 +40,8 @@ def _fallback_insert_para_text(dest_text: Any, cursor: Any, el: Any) -> None:
 
 
 def _iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
-    while portions.hasMoreElements() is True:
+    for portion in iter_elements(portions):
         try:
-            portion = portions.nextElement()
             kind = portion.getPropertyValue("TextPortionType")
         except Exception:
             break
@@ -252,14 +250,10 @@ def _supports_service(obj: Any, name: str) -> bool:
 
 def _iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
     """Yield paragraphs under *text_obj*, descending into table cells."""
-    enum = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
-    if enum is _FAILED:
+    enum = uno_read(lambda: text_obj.createEnumeration(), FAILED)
+    if enum is FAILED:
         return
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
+    for el in iter_elements(enum):
         if _supports_service(el, "com.sun.star.text.TextTable"):
             try:
                 names = el.getCellNames() or ()
@@ -284,12 +278,12 @@ def _goto_doc_end(doc: Any) -> None:
 
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:
     """Recreate *src_field* in *dest_doc* (used for table-cell fields)."""
-    services = uno_read(lambda: [s for s in src_field.getSupportedServiceNames() if str(s).startswith("com.sun.star.text.textfield.")], _FAILED)
-    if services is _FAILED or not services:
+    services = uno_read(lambda: [s for s in src_field.getSupportedServiceNames() if str(s).startswith("com.sun.star.text.textfield.")], FAILED)
+    if services is FAILED or not services:
         return False
     svc = sorted(services, key=len)[-1]
-    new_field = uno_read(lambda: dest_doc.createInstance(svc), _FAILED)
-    if new_field is _FAILED:
+    new_field = uno_read(lambda: dest_doc.createInstance(svc), FAILED)
+    if new_field is FAILED:
         return False
     # Page-style clone copies header/footer fields through this helper
     # (test_copy_page_style_clones_next_page_number_and_roman). The old XHTML
@@ -348,11 +342,7 @@ def _copy_cell_xtext(
         dest_cell.setString(src_cell.getString())
         return
     first_para = True
-    while para_enum.hasMoreElements() is True:
-        try:
-            para = para_enum.nextElement()
-        except Exception:
-            break
+    for para in iter_elements(para_enum):
         if _supports_service(para, "com.sun.star.text.TextTable"):
             # Recreate the nested table inside dest_cell (same walk as body _copy_table).
             _copy_table(para, dest_doc, dest_cell, math_records=math_records)
@@ -514,11 +504,7 @@ def _copy_xtext_by_portions(
         dest_text.setString(src_text.getString())
         return
     first_para = True
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
+    for el in iter_elements(enum):
         if _supports_service(el, "com.sun.star.text.TextTable"):
             _copy_table(el, dest_doc, math_records=math_records)
             _goto_doc_end(dest_doc)
@@ -579,11 +565,7 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
         return 0
 
     first_para = True
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
+    for el in iter_elements(enum):
         if _supports_service(el, "com.sun.star.text.TextTable"):
             _copy_table(el, doc, dest_text)
             cursor = dest_text.createTextCursor()

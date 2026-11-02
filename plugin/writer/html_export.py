@@ -26,6 +26,7 @@ from typing import Any, Iterator
 from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
+    iter_elements,
     _visible_portions as _shared_visible_portions,
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
@@ -102,9 +103,11 @@ def _truncate_html(content: str, max_chars: int) -> str:
 
 
 def _read_filter_text(doc: Any, filter_name: str, ext: str = ".html") -> str:
-    from . import format as format_mod
-    with format_mod._with_temp_buffer(ext=ext) as (path, file_url):
-        props = (format_mod.create_property_value("FilterName", filter_name),)
+    from plugin.doc.temp_files import with_temp_buffer
+    from plugin.framework.uno_context import create_property_value
+
+    with with_temp_buffer(ext=ext) as (path, file_url):
+        props = (create_property_value("FilterName", filter_name),)
         doc.storeToURL(file_url, props)
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
@@ -338,8 +341,7 @@ def _range_to_content_via_temp_doc(
         running = 0
 
         math_records: list[tuple[str, str, bool]] = []
-        while enum.hasMoreElements() is True:
-            el = enum.nextElement()
+        for el in iter_elements(enum):
             if not hasattr(el, "getString"):
                 continue
             if source_range is not None and _starts_at_or_after(text, el.getStart(), source_range.getEnd()):

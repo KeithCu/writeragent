@@ -563,8 +563,7 @@ def test_block_styles_stop_at_the_end_of_the_import():
     end = 2  # the parked cursor sits where paragraph 2 starts
     text.compareRegionStarts.side_effect = lambda a, b: 1 if a < b else (0 if a == b else -1)
     start_cursor = MagicMock()
-    from plugin.writer import format as format_mod
-    with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
         html_import_styles._apply_block_lo_styles(
             MagicMock(), text, start_cursor, ["Heading1", "Standard", "Standard", "Heading2"], end=end,
         )
@@ -586,8 +585,7 @@ def test_apply_block_lo_styles_token_cache_reads_element_names_once():
     walk_cur.gotoNextParagraph.side_effect = [True, False]
     text.createTextCursorByRange.return_value = walk_cur
 
-    from plugin.writer import format as format_mod
-    with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
         html_import_styles._apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1", "Heading1"],
         )
@@ -613,8 +611,7 @@ def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
     walk_cur.gotoNextParagraph.return_value = False
     text.createTextCursorByRange.return_value = walk_cur
 
-    from plugin.writer import format as format_mod
-    with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
         html_import_styles._apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1"],
         )
@@ -637,8 +634,7 @@ def test_apply_block_lo_styles_skips_when_style_already_matches():
     walk_cur.gotoNextParagraph.return_value = False
     text.createTextCursorByRange.return_value = walk_cur
 
-    from plugin.writer import format as format_mod
-    with patch.object(format_mod, "apply_paragraph_style_preserving_direct_char") as apply:
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
         html_import_styles._apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1"],
         )

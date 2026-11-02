@@ -171,7 +171,10 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
     Forward cursor walk from the insertion point avoids scanning the whole document.
     Compact tokens (``Heading1``) are resolved to UNO names; unknown styles fall back to
     'Standard' (per the style-model plan)."""
-    from . import format as format_mod
+    try:
+        from .styles import apply_paragraph_style_preserving_direct_char
+    except ImportError:
+        return
 
     fam = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles"), None)
     element_names: list[str] = uno_read(lambda: list(fam.getElementNames()), []) if fam is not None else []
@@ -202,7 +205,7 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
                 try:
                     cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     cur.gotoEndOfParagraph(True)
-                    format_mod.apply_paragraph_style_preserving_direct_char(
+                    apply_paragraph_style_preserving_direct_char(
                         model, cur, resolved, style_cache=style_cache,
                     )
                 except Exception as exc:

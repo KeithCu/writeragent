@@ -25,7 +25,7 @@ from typing import Any
 
 
 from plugin.framework.errors import best_effort
-from plugin.doc.text_helpers import go_right, normalize_linebreaks as _normalize
+from plugin.doc.text_helpers import go_right, iter_elements, normalize_linebreaks as _normalize
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from . import field_restore, html_import_styles, html_ruby, image_placeholders, record_changes
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
@@ -154,10 +154,12 @@ def insert_html_fragment_at_cursor(
     html_fragment = escape_prose_angle_brackets(html_fragment)
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
     tail = _parked_cursor(cursor) if model is not None else None
+    from plugin.doc.temp_files import with_temp_buffer
+    from plugin.framework.uno_context import create_property_value
     from . import format as format_mod
-    with format_mod._with_temp_buffer(prepared) as (_path, file_url):
+    with with_temp_buffer(prepared) as (_path, file_url):
         filter_name = format_mod.HTML_FILTER
-        filter_props = (format_mod.create_property_value("FilterName", filter_name),)
+        filter_props = (create_property_value("FilterName", filter_name),)
         try:
             cursor.insertDocumentFromURL(file_url, filter_props)
         except Exception as e:
@@ -389,8 +391,7 @@ def _paragraph_has_non_text_portion(para: Any) -> bool:
     """
     try:
         portions = para.createEnumeration()
-        while portions.hasMoreElements() is True:
-            portion = portions.nextElement()
+        for portion in iter_elements(portions):
             if portion.getPropertyValue("TextPortionType") != "Text":
                 return True
     except Exception as exc:
@@ -650,7 +651,7 @@ def replace_single_range_with_content(
 
         # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
         raise_if_range_hosts_nested_table(text_range)
-        from . import format as format_mod
+        from .styles import apply_paragraph_style_preserving_direct_char
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
 
@@ -674,7 +675,7 @@ def replace_single_range_with_content(
                 def restore_style() -> None:
                     restore = text_obj.createTextCursorByRange(anchor.getStart())
                     restore.gotoRange(cursor.getEnd(), True)
-                    format_mod.apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
+                    apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
 
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
         else:
@@ -743,11 +744,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
             prev: Any = None
             last: Any = None
             count = 0
-            sentinel: Any = object()
-            while enum.hasMoreElements() is True:
-                elem = uno_read(enum.nextElement, sentinel)
-                if elem is sentinel:
-                    break
+            for elem in iter_elements(enum):
                 prev = last
                 last = elem
                 count += 1
@@ -832,12 +829,11 @@ def _collect_range_portions(target_range: Any) -> tuple[bool, list[tuple[str, in
         if enum is None:
             return False, None
         portions: list[tuple[str, int]] = []
-        while enum.hasMoreElements() is True:
-            elem = enum.nextElement()
+        for elem in iter_elements(enum):
             if hasattr(elem, "createEnumeration"):
                 penum = elem.createEnumeration()
-                while penum.hasMoreElements() is True:
-                    p = _portion_kind_len(penum.nextElement())
+                for p_elem in iter_elements(penum):
+                    p = _portion_kind_len(p_elem)
                     if p is None:
                         return True, None
                     portions.append(p)

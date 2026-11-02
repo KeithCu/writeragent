@@ -10,138 +10,36 @@ main thread).
 
 from __future__ import annotations
 
+# pyright: reportUnusedFunction=false
+
 import logging
-import threading
 from typing import Any
 
 import uno
 from plugin.framework.uno_context import get_runtime_uid
-from plugin.framework.uno_listeners import BaseModifyListener
+from plugin.writer import review_view_attachment as rva
 
 log = logging.getLogger("writeragent.review_toolbar")
 
-# LO derives this from the OfficeToolBar node oor:name="org.extension.writeragent.toolbar".
 TOOLBAR_RESOURCE_URL = "private:resource/toolbar/addon_org.extension.writeragent.toolbar"
 
-_doc_listener = None
-_modify_listeners: dict[str, Any] = {}  # RuntimeUID -> _ReviewModifyListener (removed on close)
-_docked_uids: set[str] = set()    # RuntimeUIDs whose toolbar has already been docked once (don't re-dock)
-
-# Deferred toolbar recount (see _ReviewModifyListener.modified): documents with a recount
-# already queued. A burst of keystrokes collapses into the one queued run.
-_pending_refresh: set[str] = set()
-_pending_lock = threading.Lock()
+_ReviewModifyListener = rva.ReviewModifyListener
+_pending_lock = rva._pending_lock
+_pending_refresh = rva._pending_refresh
+_run_deferred_refresh = rva._run_deferred_refresh
 
 
-class _ReviewModifyListener(BaseModifyListener):
-    """Hides the toolbar after changes are resolved through LibreOffice's NATIVE UI (Edit ->
-    Track Changes -> Accept All, the native context-menu Accept, etc.) -- paths that bypass the
-    WriterAgent handlers. Cheap: while the toolbar is hidden (normal typing) it does nothing; it
-    only recounts when the toolbar is actually showing (i.e. during a review)."""
-
-    _uid: str | None
-
-    def __init__(self, uid: str | None) -> None:
-        super().__init__()
-        self._uid = uid  # so disposing() can drop the registry entry without re-reading the model
-
-    def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        # Never recount inside modified(): it can fire from inside the comment
-        # editor's EditEngine::InsertText (AutoCorrect, macOS dead keys), and a
-        # synchronous repaint from reading change text re-entered the half-updated
-        # comment box and crashed ImpEditEngine::CreateLines. Only schedule here.
-        # The visibility check stays synchronous (frame query, not a document read)
-        # so normal typing with no review open queues nothing.
-        try:
-            model = aEvent.Source
-            lm = _layout_manager(model)
-            if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):
-                _schedule_refresh(model, self._uid)
-        except Exception:
-            log.debug("review_toolbar: modify handler failed", exc_info=True)
-
-    def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        # The document we're attached to is being disposed. Drop our registry entry HERE too -- not
-        # only via the OnUnload doc event -- so a crash / force-close, or a failed event-listener
-        # install, can't leak the entry and block a later document that reuses this RuntimeUID.
-        # Only evict if the entry is still OURS: if the RuntimeUID was already recycled for a newer
-        # document, a late disposing() must not evict that newer listener.
-        if self._uid is not None and _modify_listeners.get(self._uid) is self:
-            del _modify_listeners[self._uid]
-            _clear_uid_state(self._uid)
-
-
-def _clear_uid_state(uid: str) -> None:
-    _docked_uids.discard(uid)
-    with _pending_lock:
-        _pending_refresh.discard(uid)
-
-
-def _run_deferred_refresh(model: Any, key: str) -> None:
-    """Main thread, a later turn. No-op if the document closed meanwhile (key cancelled)."""
-    with _pending_lock:
-        if key not in _pending_refresh:
-            return
-        _pending_refresh.discard(key)
-    try:
-        lm = _layout_manager(model)
-        if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):
-            refresh_review_toolbar(model)
-    except Exception:
-        log.debug("review_toolbar: deferred refresh failed (document closed?)", exc_info=True)
-
-
-def _schedule_refresh(model: Any, uid: str | None) -> None:
-    """Queue one recount on the main thread, OUTSIDE the current notification.
-
-    post_to_main_thread enqueues through AsyncCallback, so even when called from the main thread
-    the recount runs on a later main-loop turn, after the edit that fired modified() is complete.
-    No timer: the queue already gives the deferral, and coalescing keystrokes needs only a flag.
-    """
-    key = uid if uid else "id:%d" % id(model)
-    with _pending_lock:
-        if key in _pending_refresh:
-            return  # a recount is already queued; it will see this keystroke's result too
-        _pending_refresh.add(key)
-    from plugin.framework.queue_executor import post_to_main_thread
-
-    try:
-        post_to_main_thread(_run_deferred_refresh, model, key)
-    except Exception:
-        # Un-mark on failure, or this document would never queue a recount again.
-        with _pending_lock:
-            _pending_refresh.discard(key)
-        log.debug("review_toolbar: could not queue the recount", exc_info=True)
+def _schedule_refresh(model: Any, key: str | None) -> None:
+    refresh_key = key if key else rva.attachment_key(model)
+    rva.schedule_toolbar_refresh(model, refresh_key)
 
 
 def _register_modify_listener(model: Any) -> None:
-    uid = get_runtime_uid(model) or None
-    if uid is not None and uid in _modify_listeners:
-        return
-    listener = _ReviewModifyListener(uid)
-    try:
-        model.addModifyListener(listener)
-        if uid is not None:
-            _modify_listeners[uid] = listener
-    except Exception:
-        log.debug("review_toolbar: modify listener registration failed", exc_info=True)
+    rva.ensure_modify_listener(model)
 
 
 def _unregister_modify_listener(model: Any) -> None:
-    """Remove the per-document modify listener when the document closes (OnUnload). Without this
-    the listener and its _modify_listeners entry leak; worse, if LibreOffice recycles the
-    RuntimeUID for a later document, _register_modify_listener would skip it and that document
-    would never auto-hide the toolbar. Mirrors the OnUnload teardown in grammar_persistence.py."""
-    uid = get_runtime_uid(model) or None
-    if uid is None:
-        return
-    _clear_uid_state(uid)
-    listener = _modify_listeners.pop(uid, None)
-    if listener is not None:
-        try:
-            model.removeModifyListener(listener)
-        except Exception:
-            log.debug("review_toolbar: modify listener removal failed", exc_info=True)
+    rva.release_document(model)
 
 
 def _layout_manager(model: Any) -> Any | None:
@@ -152,7 +50,6 @@ def _layout_manager(model: Any) -> Any | None:
         frame = controller.getFrame()
         if frame is None:
             return None
-        # XFrame exposes LayoutManager as a property.
         lm = getattr(frame, "LayoutManager", None)
         return lm
     except Exception:
@@ -160,18 +57,10 @@ def _layout_manager(model: Any) -> Any | None:
         return None
 
 
-# A docking Y past the existing toolbar rows makes LibreOffice open a NEW full-width row at the
-# bottom of the top docking area, instead of squeezing the toolbar into row 0 (which lands it in the
-# top-right corner). Any value beyond the real rows works; this is comfortably past them.
 _DOCK_NEW_ROW_Y = 30000
 
 
 def _dock_top(lm: Any) -> bool:
-    """Dock the toolbar as its OWN full-width row at the top (the look you get by dragging it to
-    the top edge), NOT squeezed into the existing toolbar row. The trick: dock at x=0 with a large
-    y so LibreOffice opens a NEW row at the bottom of the top docking area instead of appending to
-    row 0 (which pushed it to the top-right corner). Returns True when docked; the caller records
-    the document only on success, so a transient failure is retried on the next show."""
     try:
         from com.sun.star.awt import Point
 
@@ -187,14 +76,6 @@ def _dock_top(lm: Any) -> bool:
 
 
 def refresh_review_toolbar(model: Any) -> None:
-    """Show the toolbar iff the document has >=1 pending agent change, else hide it.
-    Best-effort and silent: a Writer without the toolbar, or a non-Writer doc, is a no-op.
-
-    Visibility is per FRAME (each document's own LayoutManager), and every refresh path targets the
-    right document's frame, so multiple open documents each track their own toolbar without a
-    frame-activation listener. Known minor limitation: a SECOND window of the SAME document
-    (Window > New Window) shares one modify listener that only refreshes the active view, so the
-    other view's toolbar can be momentarily stale -- rare; not worth enumerating all frames."""
     if model is None:
         return
     try:
@@ -208,99 +89,18 @@ def refresh_review_toolbar(model: Any) -> None:
             return
         if count > 0:
             lm.showElement(TOOLBAR_RESOURCE_URL)
-            # Extension toolbars default to FLOATING; dock to the top the FIRST time THIS document's
-            # toolbar appears, so it lands with the other toolbars. Only once per document: if the
-            # pending count later cycles 0 -> N -> 0 -> N, we must NOT re-dock and override a user who
-            # has since floated/moved it. If the uid can't be read, fall back to docking on show.
-            # If docking failed (e.g. LayoutManager not ready yet), do not record the uid
-            # so the next show can retry rather than leaving the toolbar permanently floating.
             uid = get_runtime_uid(model) or None
-            if uid is None or uid not in _docked_uids:
-                if _dock_top(lm) and uid is not None:
-                    _docked_uids.add(uid)
+            key = rva.attachment_key(model)
+            attachment = rva._attachments.get(key)
+            docked = attachment.toolbar_docked if attachment is not None else False
+            if uid is None or not docked:
+                if _dock_top(lm):
+                    rva.mark_toolbar_docked(model)
         else:
             lm.hideElement(TOOLBAR_RESOURCE_URL)
     except Exception:
         log.debug("review_toolbar: refresh failed", exc_info=True)
 
 
-def _is_writer(model: Any) -> bool:
-    try:
-        return bool(model) and model.supportsService("com.sun.star.text.TextDocument")
-    except Exception:
-        return False
-
-
 def install_review_toolbar(ctx: Any) -> None:
-    """Set initial toolbar visibility on every open Writer view and on views opened later.
-    Reopening a document that still has pending agent redlines re-shows the toolbar; a clean
-    document keeps it hidden."""
-    global _doc_listener
-    try:
-        from plugin.framework.uno_context import get_desktop
-
-        desktop = get_desktop(ctx)
-        if desktop is not None:
-            frames = desktop.getFrames()
-            if frames is not None:
-                for i in range(frames.getCount()):
-                    try:
-                        frame = frames.getByIndex(i)
-                        controller = frame.getController() if frame is not None else None
-                        model = controller.getModel() if controller is not None else None
-                        if _is_writer(model):
-                            _register_modify_listener(model)
-                            refresh_review_toolbar(model)
-                    except Exception:
-                        log.debug("review_toolbar: frame %s skipped", i, exc_info=True)
-    except Exception:
-        # Install failures are one-time events that would otherwise leave the review
-        # toolbar broken with no visible diagnostic trace at default log level.
-        log.warning("review_toolbar: initial sweep failed", exc_info=True)
-
-    if _doc_listener is not None:
-        return
-    try:
-        from plugin.framework.uno_listeners import BaseDocumentEventListener
-
-        class _ToolbarVisibilityListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
-            def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
-                name = getattr(Event, "EventName", "") or ""
-                if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew", "OnUnload"):
-                    return
-                # Resolve the document model. For OnUnload the ViewController is usually gone and
-                # Event.Source IS the model; for load events it's the view's model.
-                controller = getattr(Event, "ViewController", None)
-                model = None
-                if controller is not None:
-                    try:
-                        model = controller.getModel()
-                    except Exception:
-                        model = None
-                if model is None:
-                    # DocumentEvent.Source is the document model. A non-Writer
-                    # model's own controller only leads back to that model, and on
-                    # an Impress close getCurrentController() raises "DrawController
-                    # object has already been disposed" (logged as ERROR). So
-                    # ignore non-Writer sources instead of asking their controller.
-                    source = getattr(Event, "Source", None)
-                    if _is_writer(source):
-                        model = source
-                if not _is_writer(model):
-                    return
-                if name == "OnUnload":
-                    _unregister_modify_listener(model)
-                else:
-                    _register_modify_listener(model)
-                    refresh_review_toolbar(model)
-
-        smgr = ctx.getServiceManager()
-        broadcaster = smgr.createInstanceWithContext("com.sun.star.frame.GlobalEventBroadcaster", ctx)
-        listener = _ToolbarVisibilityListener()
-        broadcaster.addDocumentEventListener(listener)
-        _doc_listener = listener
-        log.debug("review_toolbar: visibility listener attached")
-    except Exception:
-        # Install failures are one-time events that would otherwise leave the review
-        # toolbar broken with no visible diagnostic trace at default log level.
-        log.warning("review_toolbar: listener install failed", exc_info=True)
+    rva.install(ctx)

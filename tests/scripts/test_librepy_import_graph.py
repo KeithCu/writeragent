@@ -307,6 +307,7 @@ def test_librepy_writer_all_plugin_imports_resolve_to_shipped_files():
         "plugin.writer.page",
         "plugin.writer.review_authors",
         "plugin.writer.search",
+        "plugin.writer.styles",
     }
     missing: list[str] = []
     for rel in writer_shipped:
