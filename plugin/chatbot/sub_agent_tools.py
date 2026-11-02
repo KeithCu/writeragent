@@ -154,7 +154,7 @@ class SubAgentSessionToolBase(ToolBase):
             # This except is the boundary for subagent runners. log.exception
             # records the traceback; the payload keeps the exception text only.
             log.exception("%s execution failed", self.agent_label)
-            doc = getattr(ctx, "doc", None)
+            doc = ctx.doc
             if is_real_disposal(e) or (doc is not None and is_tool_document_disposed(e, doc)):
                 raise
 

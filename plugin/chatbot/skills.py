@@ -118,13 +118,11 @@ class SkillStore:
 
         return HUMANIZER_GUIDANCE
 
-    def write_humanizer_guidance(self, content: str) -> bool:
+    def write_humanizer_guidance(self, content: str) -> None:
         """Persist a user-edited version of the humanizer rules."""
         try:
             path = self.get_humanizer_skill_path()
             os.makedirs(os.path.dirname(path), exist_ok=True)
             atomic_write_text(path, content.strip() + "\n", prefix=".skill-", fsync=False)
-            return True
         except OSError as e:
             log.exception("Failed to write humanizer skill: %s", e)
-            return False
