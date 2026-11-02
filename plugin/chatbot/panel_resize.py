@@ -8,16 +8,6 @@ from plugin.framework.uno_listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
 
-# Chat sidebar resize/layout tracing is very noisy. Set True to log these steps
-# to the debug log even when log_level is DEBUG.
-PANEL_RESIZE_VERBOSE_DEBUG = False
-
-
-def _resize_debug(msg: str, *args: object) -> None:
-    if PANEL_RESIZE_VERBOSE_DEBUG:
-        log.debug(msg % args if args else msg)
-
-
 _STRETCH_CONTROLS = frozenset({
     "response",
     "query",
@@ -77,9 +67,8 @@ class ControlRect:
 def _cluster_metrics(snapshot: dict[str, tuple[int, int, int, int]]) -> tuple[int, int]:
     """Return (bottom_top_y, cluster_height) from the XDL snapshot."""
     bottoms = [snapshot[n] for n in _BOTTOM_CLUSTER if n in snapshot]
-    if not bottoms or "response" not in snapshot:
-        response_y = snapshot.get("response", (0, 16, 0, 0))[1]
-        return response_y + 112, 0
+    if not bottoms:
+        return snapshot["response"][1] + 112, 0
     bottom_top = min(rect[1] for rect in bottoms)
     bottom_bottom = max(rect[1] + rect[3] for rect in bottoms)
     return bottom_top, bottom_bottom - bottom_top
@@ -94,7 +83,7 @@ def column_right_margin(snapshot: dict[str, tuple[int, int, int, int]]) -> int:
     makes the panel wider than the deck (the window asks for the children's
     extent plus the left inset) and the deck shows a horizontal scrollbar.
     """
-    left = snapshot.get("response", (_RIGHT_MARGIN, 0, 0, 0))[0]
+    left = snapshot["response"][0]
     return max(_RIGHT_MARGIN, left + max(1, left // 4))
 
 
@@ -155,12 +144,9 @@ def compute_chat_panel_layout(
     _fit_base_size_row(layouts, snapshot, width, right_margin, (preferred or {}).get("base_size_input"))
     _fit_model_selector_row(layouts, snapshot, width, right_margin)
     label_pref = (preferred or {}).get("query_label")
-    if label_pref and label_pref[0] > 0:
-        _place_voice_checkbox_after_label(layouts, snapshot, width, right_margin, label_pref[0])
-    else:
-        # No measured label width: the Ask label stays at its XDL X and the TTS
-        # checkbox is centered.
-        _center_voice_checkbox(layouts, snapshot, width, right_margin)
+    _place_voice_checkbox_after_label(
+        layouts, snapshot, width, right_margin, label_pref[0] if label_pref else 0
+    )
     return layouts
 
 
@@ -274,7 +260,7 @@ def _place_voice_checkbox_after_label(
     """
     voice = layouts.get("chk_voice")
     label = layouts.get("query_label")
-    if voice is None or label is None or "chk_voice" not in snapshot:
+    if voice is None or label is None or "chk_voice" not in snapshot or label_text_w <= 0:
         _center_voice_checkbox(layouts, snapshot, width, right_margin)
         return
     max_right = width - right_margin
@@ -452,9 +438,8 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         # Do not wait for deck negotiation. Keith create-time: root=320 with
         # max_child_right=1087 seeded the H-bar until the first widen.
         if viewport_w > 0:
-            self._viewport_w = int(viewport_w)
+            self._viewport_w = viewport_w
         if self._in_relayout:
-            _resize_debug("relayout_now: pending extra pass (in_relayout)")
             self._pending_win = win
             return
         try:
@@ -469,8 +454,6 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             self._pending_win = None
 
     def on_window_resized(self, rEvent: Any) -> None:
-        r = rEvent.Source.getPosSize()
-        _resize_debug("[LAYOUT] source=windowResized root=%dx%d", r.Width, r.Height)
         # Do not setPosSize the dialog here. windowResized can beat
         # getHeightForWidth on a widen drag (1x: 465 then hfw 465); snapping
         # back to last deck_hint would fight the splitter.
@@ -480,14 +463,13 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         r = win.getPosSize()
         if r.Width <= 0 or r.Height <= 0:
             return
-        _resize_debug("_capture_snapshot: win W=%d H=%d" % (r.Width, r.Height))
 
         snapshot: dict[str, tuple[int, int, int, int]] = {}
         for name, ctrl in self._c.items():
             if not ctrl:
                 continue
             cr = ctrl.getPosSize()
-            snapshot[name] = (int(cr.X), int(cr.Y), int(cr.Width), int(cr.Height))
+            snapshot[name] = (cr.X, cr.Y, cr.Width, cr.Height)
 
         if "response" not in snapshot:
             return
@@ -501,17 +483,10 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             if size is not None:
                 self._preferred[name] = size
         self._snapshot = fit_snapshot_min_heights(snapshot, min_heights)
-        bottom_top, cluster_h = _cluster_metrics(snapshot)
-        _resize_debug(
-            "_capture_snapshot: bottom_top=%d cluster_h=%d controls=%d",
-            bottom_top,
-            cluster_h,
-            len(snapshot),
-        )
 
     def _relayout(self, win: Any) -> None:
         r = win.getPosSize()
-        w, h = int(r.Width), int(r.Height)
+        w, h = r.Width, r.Height
         if w <= 0 or h <= 0:
             return
         if (w, h) != self._last_logged_size:
@@ -534,7 +509,6 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         if self._viewport_w <= 0:
             self._viewport_w = w
         elif w > self._viewport_w:
-            _resize_debug("[LAYOUT] cap_width window=%s viewport=%s", w, self._viewport_w)
             w = self._viewport_w
 
         if self._snapshot is None:
@@ -553,20 +527,6 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
 
         response = layouts["response"]
         self.last_response_rect = (response.x, response.y, response.width, response.height)
-        max_right = 0
-        for rect in layouts.values():
-            max_right = max(max_right, rect.x + rect.width)
-        _resize_debug(
-            "[LAYOUT] response_rect x=%d y=%d w=%d h=%d root=%dx%d max_child_right=%d overflow=%s",
-            response.x,
-            response.y,
-            response.width,
-            response.height,
-            w,
-            h,
-            max_right,
-            "YES" if max_right > w - 2 else "no",
-        )
         rich = self._c.get("response_rich")
         if rich is not None:
             def _sync_rich() -> None:

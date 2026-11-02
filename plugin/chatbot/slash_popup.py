@@ -43,7 +43,7 @@ log = logging.getLogger("writeragent.slash_popup")
 
 # Slash-overlay tracing is very noisy. Set True to log these steps to the
 # debug log even when log_level is DEBUG. Stays False in tree (same pattern
-# as PANEL_RESIZE_VERBOSE_DEBUG / RICH_SCROLL_VERBOSE_DEBUG).
+# as RICH_SCROLL_VERBOSE_DEBUG).
 SLASH_OV_VERBOSE_DEBUG = False
 
 
