@@ -129,25 +129,6 @@ def _get_or_create_thread_llm_client(api_cfg: dict[str, Any], ctx: Any) -> Any:
     return new_client
 
 
-def emit_done_status(
-    ec: Any,
-    text: str,
-    *,
-    result: str = "",
-    elapsed_ms: int | None = None,
-    preview_source: str | None = None,
-    length_hint: int | None = None,
-) -> None:
-    """Sidebar done: deferred while parallel drain batches run."""
-    ec.gq.record_done_status(
-        text,
-        result=result,
-        elapsed_ms=elapsed_ms,
-        preview_source=preview_source,
-        length_hint=length_hint,
-    )
-
-
 @dataclass
 class _BatchResultSummary:
     """Accumulator for batch proofreading results and status reporting."""
@@ -206,12 +187,11 @@ def process_grammar_results(
 ) -> None:
     """Normalize errors, write sentence cache, emit done status."""
     from .grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
-    from .grammar_proofread_cache import ignored_rules_snapshot
 
     summary = _BatchResultSummary()
     doc_id = chunk[0][0].doc_id if chunk else ""
     ignored = doc_ignored_rules(ec.ctx, doc_id) if doc_id else set()
-    global_ignored = ignored_rules_snapshot()
+    global_ignored = grammar_proofread_cache.ignored_rules_snapshot()
     for idx, (item, text) in enumerate(chunk):
         if ec.gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
             continue
@@ -240,8 +220,7 @@ def process_grammar_results(
         preview_src = summary.preview_source()
         iw = "issue" if summary.total_issues == 1 else "issues"
         sw = "sentence" if summary.n_written == 1 else "sentences"
-        emit_done_status(
-            ec,
+        ec.gq.record_done_status(
             preview_src,
             result=f"{summary.total_issues} {iw}, {summary.n_written} {sw}",
             elapsed_ms=elapsed_ms,
@@ -249,7 +228,7 @@ def process_grammar_results(
             length_hint=summary.chars_checked,
         )
     else:
-        emit_done_status(ec, "batch", result="skipped (superseded)", elapsed_ms=elapsed_ms)
+        ec.gq.record_done_status("batch", result="skipped (superseded)", elapsed_ms=elapsed_ms)
 
 
 def run_single_sentence_provider(
@@ -328,7 +307,6 @@ def _get_paragraph_text_for_range(model: Any, rng: Any) -> str | None:
 
 
 def apply_language_change(
-    ctx: Any,
     doc_id: str,
     sentence_text: str,
     detected_bcp47: str,
@@ -349,6 +327,9 @@ def apply_language_change(
 
         new_locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language=lang, Country=country)
 
+        def _paragraph_ok(rng: Any) -> bool:
+            return not paragraph_text or _get_paragraph_text_for_range(model, rng) == paragraph_text
+
         ctrl = getattr(model, "getCurrentController", lambda: None)()
         view_cursor = getattr(ctrl, "getViewCursor", lambda: None)() if ctrl else None
 
@@ -362,7 +343,7 @@ def apply_language_change(
         # offset". Offset 0 still selects from the start of that
         # paragraph. start_pos > 0 still moves, then expands, on the same
         # cursor.
-        if view_cursor is not None and start_pos >= 0:
+        if view_cursor is not None:
             # Document-wide search from the start — view-cursor-relative findNext can miss
             # the sentence Writer just proofread when the caret is elsewhere.
             text_obj = model.getText()
@@ -372,13 +353,8 @@ def apply_language_change(
                 if start_pos > 0:
                     doc_cursor.goRight(start_pos, False)
                 doc_cursor.goRight(len(sentence_text), True)
-                if doc_cursor.getString() == sentence_text:
-                    if not paragraph_text:
-                        found_range = doc_cursor
-                    else:
-                        para_str = _get_paragraph_text_for_range(model, doc_cursor)
-                        if para_str == paragraph_text:
-                            found_range = doc_cursor
+                if doc_cursor.getString() == sentence_text and _paragraph_ok(doc_cursor):
+                    found_range = doc_cursor
 
         if found_range:
             found_range.setPropertyValue("CharLocale", new_locale)
@@ -397,11 +373,7 @@ def apply_language_change(
             count = getattr(matches, "getCount", lambda: 0)()
             for i in range(count):
                 rng = matches.getByIndex(i)
-                if paragraph_text:
-                    para_str = _get_paragraph_text_for_range(model, rng)
-                    if para_str == paragraph_text:
-                        matched_ranges.append(rng)
-                else:
+                if _paragraph_ok(rng):
                     matched_ranges.append(rng)
 
         if len(matched_ranges) == 1:
@@ -425,12 +397,10 @@ def apply_language_change(
 
 
 def _apply_language_retag(
-    ctx: Any,
     item: GrammarWorkItem,
     target_bcp47: str,
 ) -> None:
     applied = apply_language_change(
-        ctx,
         item.doc_id,
         item.text,
         target_bcp47,
@@ -498,7 +468,7 @@ def run_grammar_check(
         grammar_obs("worker_grammar_done", chunk_len=len(chunk), results_len=len(results), elapsed_ms=elapsed_ms, bcp47=bcp47)
         if original_bcp47 and not grammar_bcp47_tags_match(original_bcp47, bcp47):
             for item, _text in chunk:
-                _apply_language_retag(ec.ctx, item, bcp47)
+                _apply_language_retag(item, bcp47)
 
 
     except Exception as e:
@@ -525,13 +495,6 @@ def persisted_grammar_skip_lang_detect(
     # Do not adopt a v2/v3 row here. That probe would retag an unknown
     # locale as this chunk's CharLocale before proofreading reads it.
     return p is not None and p.get(fp, locale, adopt_legacy=False) is not None
-
-
-def get_active_ignored_reasons(ctx: Any, doc_id: str) -> set[str]:
-    """Document + global ignored grammar rules, normalized for prompt filtering."""
-    from .grammar_ignore_rules import collect_ignored_reasons
-
-    return collect_ignored_reasons(ctx, doc_id)
 
 
 def build_grammar_system_prompt(
@@ -585,33 +548,17 @@ def language_detect_llm_sync(ec: Any, messages: list[dict[str, str]], max_tokens
     return content or ""
 
 
-def grammar_llm_sync(ec: Any, messages: list[dict[str, str]], max_tokens: int) -> str:
-    """Sync grammar LLM call with minimal reasoning effort (no retry on empty content)."""
-    model = ec.model or None
-    content = ec.client.chat_completion_sync(
-        messages,
-        max_tokens=max_tokens,
-        model=model,
-        response_format={"type": "json_object"},
-        prepend_dev_build_system_prefix=False,
-        chat_extra=_GRAMMAR_CHAT_EXTRA,
-    )
-    if not (content or "").strip():
-        # Some reasoning models (e.g. Inception Mercury) return content: null with stop — treated as clean in call_grammar_llm.
-        grammar_obs("grammar_llm_empty_response", model=model or "", max_tokens=max_tokens)
-        log.debug("[grammar] grammar LLM returned empty content (max_tokens=%s model=%s)", max_tokens, model)
-    return content or ""
-
-
 def call_grammar_llm(
     chunk: list[tuple[Any, str]],
     bcp47: str,
     ec: Any,
 ) -> tuple[list[Any], int]:
     """Run grammar LLM for one sentence or a batch; return parsed results and elapsed ms."""
+    from .grammar_ignore_rules import collect_ignored_reasons
+
     batch = len(chunk) > 1
     doc_id = chunk[0][0].doc_id
-    ignored_reasons = get_active_ignored_reasons(ec.ctx, doc_id)
+    ignored_reasons = collect_ignored_reasons(ec.ctx, doc_id)
     any_partial = any(not _item_is_complete(item, text) for item, text in chunk)
     sys_prompt = build_grammar_system_prompt(bcp47, ignored_reasons, batch=batch, any_partial=any_partial)
     max_tokens = ec.max_tok
@@ -629,7 +576,20 @@ def call_grammar_llm(
 
     request_start = time.monotonic()
     with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight()):
-        content = grammar_llm_sync(ec, messages, max_tokens)
+        model = ec.model or None
+        content = ec.client.chat_completion_sync(
+            messages,
+            max_tokens=max_tokens,
+            model=model,
+            response_format={"type": "json_object"},
+            prepend_dev_build_system_prefix=False,
+            chat_extra=_GRAMMAR_CHAT_EXTRA,
+        )
+        if not (content or "").strip():
+            # Some reasoning models (e.g. Inception Mercury) return content: null with stop — treated as clean in call_grammar_llm.
+            grammar_obs("grammar_llm_empty_response", model=model or "", max_tokens=max_tokens)
+            log.debug("[grammar] grammar LLM returned empty content (max_tokens=%s model=%s)", max_tokens, model)
+        content = content or ""
     elapsed_ms = int((time.monotonic() - request_start) * 1000)
 
     if batch:
@@ -816,7 +776,6 @@ class GrammarWorkerContext:
     client: Any
     gq: GrammarWorkQueue
     model: str
-    original_bcp47: str
     grammar_bcp47: str
     max_tok: int
     detect_lang_mode: str = "off"
@@ -880,7 +839,7 @@ def _worker_ready_items(
         else:
             orig_bcp47 = item.original_bcp47 or item.grammar_bcp47
             if orig_bcp47 and not grammar_bcp47_tags_match(orig_bcp47, grammar_bcp47):
-                _apply_language_retag(ctx, item, grammar_bcp47)
+                _apply_language_retag(item, grammar_bcp47)
     return ready
 
 
@@ -902,7 +861,7 @@ def _retarget_item_locale(
         item.doc_id, target_bcp47, text, _item_is_complete(item, text)
     )
     new_seq = next_enqueue_seq()
-    if ec.gq is not None and ec.gq.note_inflight_generation(new_key, new_seq) is True:
+    if ec.gq.note_inflight_generation(new_key, new_seq) is True:
         grammar_obs(
             "worker_skip",
             reason="superseded_before_process",
@@ -924,14 +883,14 @@ def _worker_process_chunk(
     ec: GrammarWorkerContext,
     grammar_bcp47: str,
     *,
-    original_bcp47: str = "",
+    original_bcp47: str,
 ) -> None:
     """Run the grammar LLM for one chunk of ready items."""
     current_chunk = _worker_ready_items(chunk, ec.gq, grammar_bcp47, ec.ctx)
     if not current_chunk:
         grammar_obs("worker_chunk_skip", reason="empty_result_chunk", chunk_len=len(chunk))
         return
-    orig_bcp = original_bcp47 or current_chunk[0][0].original_bcp47 or ec.original_bcp47 or grammar_bcp47
+    orig_bcp = original_bcp47
     run_grammar_check(current_chunk, grammar_bcp47, orig_bcp, ec)
 
 
@@ -994,7 +953,6 @@ def run_llm_and_cache_batch(
             client=client,
             gq=grammar_queue_instance,
             model=model,
-            original_bcp47=original_bcp47,
             grammar_bcp47=grammar_bcp47,
             max_tok=max_tok,
             detect_lang_mode=detect_lang_mode,

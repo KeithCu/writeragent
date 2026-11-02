@@ -141,15 +141,6 @@ def inflight_superseded(latest_seq: Mapping[str, int], inflight_key: str, enqueu
     return latest is not None and enqueue_seq < latest
 
 
-def should_replace_for_key(existing: GrammarWorkItem | None, incoming: GrammarWorkItem) -> bool:
-    """True if ``incoming`` should replace ``existing`` in a per-key accumulator.
-
-    Used by the ``_drain_loop`` dict accumulator (unit tests / any external caller).
-    A missing ``existing`` always returns True.
-    """
-    return existing is None or incoming.enqueue_seq > existing.enqueue_seq
-
-
 def filter_stale_and_group(
     items: list[GrammarWorkItem],
     is_stale_fn: Any,
@@ -252,8 +243,8 @@ class GrammarWorkQueue:
     TD4 note: an ``InflightTracker`` wrapper around ``_lock`` + ``_latest_seq``
     was evaluated and rejected — the tracker would absorb 2 fields and 3 thin methods
     but ``GrammarWorkQueue`` is already small enough that an extra indirection adds more
-    cognitive load than it removes.  The pure functions (``should_replace_for_key``,
-    ``filter_stale_and_group``, ``inflight_superseded``)
+    cognitive load than it removes.  The pure functions (``filter_stale_and_group``,
+    ``inflight_superseded``)
     keep the logic testable without wrapping the state.
     """
 
@@ -379,10 +370,9 @@ class GrammarWorkQueue:
 
             grammar_registry.record_enqueued_locale(item.doc_id, item.grammar_bcp47)
         self._q.put(item)
-        self._ensure_workers(item.ctx)
+        self._ensure_workers()
 
-    def _ensure_workers(self, ctx: Any) -> None:
-        del ctx
+    def _ensure_workers(self) -> None:
         desired = grammar_proofread_locale.grammar_max_in_flight()
         while True:
             with self._lock:
@@ -406,7 +396,7 @@ class GrammarWorkQueue:
         def _absorb(item: GrammarWorkItem) -> None:
             target = partials if item.partial_sentence else completes
             prev = target.get(item.inflight_key)
-            if should_replace_for_key(prev, item):
+            if prev is None or item.enqueue_seq > prev.enqueue_seq:
                 target[item.inflight_key] = item
                 if item.partial_sentence:
                     partial_deadlines[item.inflight_key] = (
