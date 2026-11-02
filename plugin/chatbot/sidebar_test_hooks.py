@@ -423,6 +423,7 @@ def _fake_child_python() -> str:
 def _fresh_or_update_fake_state(
     state: dict[str, Any], mode: str, saved: dict[str, Any] | None, **extra: Any
 ) -> dict[str, Any]:
+    saved_copy = dict(saved) if saved is not None else None
     if not state or state.get("mode") != mode:
         new_state: dict[str, Any] = {
             "mode": mode,
@@ -435,11 +436,11 @@ def _fresh_or_update_fake_state(
             "max_alive": 0,
             "argv0s": [],
             "requested_basenames": [],
-            "saved": dict(saved) if saved is not None else None,
+            "saved": saved_copy,
         }
         new_state.update(extra)
         return new_state
-    state["saved"] = dict(saved) if saved is not None else None
+    state["saved"] = saved_copy
     return state
 
 
@@ -1382,18 +1383,21 @@ def execute_debug_sidebar_op(op: str, *, ctx: Any = None, doc: Any = None) -> di
     from plugin.framework.uno_context import get_runtime_uid
 
     uid = get_runtime_uid(doc) or ""
-    url = "%s:%s?%s" % (EXTENSION_ID_WRITERAGENT, _DEBUG_SIDEBAR_PREFIX, _debug_sidebar_query(op, uid))
     smgr = uno_ctx.getServiceManager()
     helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
-    helper.executeDispatch(frame, url, "", 0, ())
-    if op.upper() != "SNAPSHOT":
-        time.sleep(0.25)
-        snap_url = "%s:%s?%s" % (
+
+    def _dispatch(token: str) -> None:
+        url = "%s:%s?%s" % (
             EXTENSION_ID_WRITERAGENT,
             _DEBUG_SIDEBAR_PREFIX,
-            _debug_sidebar_query("SNAPSHOT", uid),
+            _debug_sidebar_query(token, uid),
         )
-        helper.executeDispatch(frame, snap_url, "", 0, ())
+        helper.executeDispatch(frame, url, "", 0, ())
+
+    _dispatch(op)
+    if op.upper() != "SNAPSHOT":
+        time.sleep(0.25)
+        _dispatch("SNAPSHOT")
     return _read_debug_snapshot()
 
 
@@ -2142,25 +2146,18 @@ def iter_send_listeners() -> list[Any]:
     _require_debug()
     adopt_runtime_send_listeners()
     _prune_teardown_listeners()
+    candidates = [_panel_send_listener(p) for p in iter_live_chat_panels()] + [
+        sl for sl in list(_LIVE_SEND_LISTENERS) if not _listener_torn_down(sl)
+    ]
     out: list[Any] = []
     seen: set[int] = set()
-    for panel in iter_live_chat_panels():
-        sl = _panel_send_listener(panel)
+    for sl in candidates:
         if sl is None:
             continue
         ident = id(sl)
-        if ident in seen:
-            continue
-        seen.add(ident)
-        out.append(sl)
-    for sl in list(_LIVE_SEND_LISTENERS):
-        if _listener_torn_down(sl):
-            continue
-        ident = id(sl)
-        if ident in seen:
-            continue
-        seen.add(ident)
-        out.append(sl)
+        if ident not in seen:
+            seen.add(ident)
+            out.append(sl)
     return out
 
 
