@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import functools
 import html as html_mod
 import logging
 import re
@@ -243,9 +244,7 @@ def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tu
         table, name = _table_and_name(found)
         if not name:
             continue
-        if name not in grouped:
-            grouped[name] = (table, [])
-        grouped[name][1].append(found)
+        grouped.setdefault(name, (table, []))[1].append(found)
     emptied: list[tuple[Any, str]] = []
     for name, (table, matches) in grouped.items():
         if _empty_replacement_clears_table(table, matches):
@@ -319,11 +318,11 @@ def build_search_replace_response(
 
 
 def _find_ranges(
-    doc: Any, pattern: str, regex: bool, cs: bool, use_opts: bool, normalized: str, *, all_matches: bool
+    doc: Any, pattern: str, regex: bool, cs: bool, use_opts: bool, *, all_matches: bool
 ) -> Any:
     if use_opts:
         return search_mod.find_ranges_regex_case(doc, pattern, regex, cs, all_matches=all_matches)
-    return (search_mod.find_all_ranges if all_matches else search_mod.find_first_range)(doc, normalized)
+    return (search_mod.find_all_ranges if all_matches else search_mod.find_first_range)(doc, pattern)
 
 
 # ------------------------------------------------------------------
@@ -375,14 +374,6 @@ def _search_options(
     cs = bool(case) if case is not None else False
     rex_err = search_mod.validate_regex_pattern(old_stripped) if regex else None
     return regex, use_opts, cs, pattern, rex_err
-
-
-def _link_report_fields(report: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "hyperlink_url": report["hyperlink_url"],
-        "hyperlink_url_after": report["hyperlink_url_after"],
-        "hyperlink_updated": report["hyperlink_updated"],
-    }
 
 
 class ApplyDocumentContent(ToolBase):
@@ -522,18 +513,6 @@ class ApplyDocumentContent(ToolBase):
             "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
             code="INVALID_PARAM")
 
-    @staticmethod
-    def _override_span_rejected(fields: Any) -> bool:
-        """True when an override is not aimed at exactly one outline link.
-
-        Zero links omit hyperlink_url. Two links also set hyperlinks, and previewing
-        the first of them would look like the override applies to that one alone.
-        """
-        many = fields.get("hyperlinks")
-        if many:
-            return len(many) != 1
-        return not fields.get("hyperlink_url")
-
     def _read_outline_snapshot(self, found: Any, log_message: str) -> tuple[OutlineSnapshot | None, dict[str, Any] | None]:
         try:
             return capture_outline_hyperlinks(found), None
@@ -563,13 +542,19 @@ class ApplyDocumentContent(ToolBase):
             return {}, err
         assert snapshot is not None
         if not snapshot.links:
+            if override:
+                return {}, self._outline_override_error()
             return {}, None
         plain = plain_fn()
         plans = plan_outline_updates(snapshot.links, snapshot.matched, plain, override)
         reports = public_hyperlink_reports(plans)
         if not reports:
+            if override:
+                return {}, self._outline_override_error()
             return {}, None
-        fields = _link_report_fields(reports[0])
+        if override and len(reports) != 1:
+            return {}, self._outline_override_error()
+        fields = dict(reports[0])
         if len(reports) > 1:
             fields["hyperlinks"] = reports
         return fields, None
@@ -579,7 +564,7 @@ class ApplyDocumentContent(ToolBase):
             return resp
         resp["hyperlinks"] = reports
         if len(reports) == 1:
-            resp.update(_link_report_fields(reports[0]))
+            resp.update(reports[0])
         return resp
 
     def _outline_undo(self, doc: Any, session: EditReviewSession, run: Any) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
@@ -631,7 +616,7 @@ class ApplyDocumentContent(ToolBase):
         all_matches: bool,
     ) -> dict[str, Any]:
         shape = search_mod.drawing_shape_object_containing(
-            doc, opts_pattern if regex_opt else search_string,
+            doc, opts_pattern,
             use_regex=regex_opt, case_sensitive=opts_cs)
         if shape is not None:
             shape_name = search_mod._shape_display_name(shape)
@@ -674,8 +659,8 @@ class ApplyDocumentContent(ToolBase):
     def _replace_found(self, session: EditReviewSession, doc: Any, found: Any, *,
                        use_preserve: bool, content: Any,
                        ctx: ToolContext, track_reviewable: bool,
-                       override: str | None, batch: bool, plain_preview: str,
-                       replacement_plain: str | None = None) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+                       override: str | None, batch: bool,
+                       plain: str) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
@@ -703,7 +688,7 @@ class ApplyDocumentContent(ToolBase):
         # replace can clear it on the new characters; put that target back unchanged.
         needs_fix = bool(snapshot.links) or bool(snapshot.preserve_url)
 
-        def mutate() -> None:
+        def run() -> list[dict[str, Any]]:
             original = found.getString()
             if use_preserve:
                 record_preserve_replace(session, doc, found, content, ctx.ctx, track_reviewable)
@@ -716,23 +701,16 @@ class ApplyDocumentContent(ToolBase):
 
                 session.record_mutation(
                     replace_one,
-                    original_preview=original, proposed_preview=plain_preview)
+                    original_preview=original, proposed_preview=plain)
             else:
                 record_html_atomically(
                     session, doc,
                     lambda: format_support.replace_single_range_with_content(
                         doc, found, content, ctx.ctx),
-                    original_preview=original, proposed_preview=plain_preview)
-
-        def run() -> list[dict[str, Any]]:
-            mutate()
+                    original_preview=original, proposed_preview=plain)
             if not needs_fix:
                 return []
-            # What was wrong: fallback conversion ran _replacement_plain per match in all_matches.
-            # How it happened: run() called _replacement_plain inside each match.
-            # Why this change fixes it: use hoisted replacement_plain when passed; lazy fallback for single match.
-            fallback = replacement_plain if replacement_plain is not None else self._replacement_plain(content)
-            return restore_outline_hyperlinks(anchor, snapshot, fallback, override)
+            return restore_outline_hyperlinks(anchor, snapshot, plain, override)
 
         if batch:
             return run(), None
@@ -741,8 +719,7 @@ class ApplyDocumentContent(ToolBase):
         # only track replaces that happen to sit in an outline URL.
         if not needs_fix:
             with session:
-                mutate()
-            return [], None
+                return run(), None
 
         def once() -> list[dict[str, Any]]:
             with session:
@@ -771,10 +748,7 @@ class ApplyDocumentContent(ToolBase):
     def _wait_enabled_globally(self) -> bool:
         """Config read without a tool context, for long_running/is_async (called by the
         MCP/chat shells before execute)."""
-        try:
-            return self._review_wait_seconds() > 0
-        except Exception:
-            return False
+        return self._review_wait_seconds() > 0
 
     @property
     def long_running(self) -> bool:  # type: ignore[override]  # ty: ignore[invalid-property-type-override]  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -797,13 +771,15 @@ class ApplyDocumentContent(ToolBase):
         # the main thread via marshalling, so the toggle is handled safely instead of erroring.
         return threading.current_thread() is not threading.main_thread()
 
+    @staticmethod
+    def _effective_target(target: Any, old_content: Any) -> Any:
+        return "search" if not target and old_content is not None else target
+
     def _dry_run_preview(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         """Resolve old_content matches WITHOUT editing, for target='search'. Reports the count and
         each match's location + a short snippet, so the model can check before committing."""
-        target = kwargs.get("target")
         old_content = kwargs.get("old_content")
-        if not target and old_content is not None:
-            target = "search"
+        target = self._effective_target(kwargs.get("target"), old_content)
         if target != "search" or old_content is None:
             return self._tool_error("dry_run only applies to target='search' with old_content.")
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
@@ -833,7 +809,7 @@ class ApplyDocumentContent(ToolBase):
         if rex_err:
             return self._invalid_regex(rex_err)
         try:
-            ranges = _find_ranges(ctx.doc, pattern, regex, cs, use_opts, s, all_matches=True)
+            ranges = _find_ranges(ctx.doc, pattern, regex, cs, use_opts, all_matches=True)
         except ValueError as e:
             return self._tool_error(str(e), code="INVALID_REGEX")
         except Exception as e:
@@ -841,12 +817,10 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
         label_cache: dict[int, str] = {}
         matches = []
-        plain_box: dict[str, str] = {}
 
+        @functools.cache
         def _plain() -> str:
-            if "value" not in plain_box:
-                plain_box["value"] = self._replacement_plain(kwargs.get("content"))
-            return plain_box["value"]
+            return self._replacement_plain(kwargs.get("content"))
 
         def _match_snippet(found: Any) -> tuple[str, str]:
             try:
@@ -871,8 +845,6 @@ class ApplyDocumentContent(ToolBase):
                 fields, outline_err = self._outline_match_fields(found, _plain, row_override)
                 if outline_err:
                     return outline_err
-                if row_override and self._override_span_rejected(fields):
-                    return self._outline_override_error()
                 row.update(fields)
             matches.append(row)
         shape_hits = search_mod.sweep_draw_shape_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
@@ -887,15 +859,6 @@ class ApplyDocumentContent(ToolBase):
                 replaceable_count=len(ranges),
                 matches=matches,
             )
-        # The preview loop only walks the first 20 matches. A later occurrence is
-        # still the one execute would edit, so the override has to be checked there too.
-        if (rewrites_outline and override and ranges and edit_idx < len(ranges)
-                and edit_idx >= search_mod.DEFAULT_SEARCH_RESULTS):
-            later, outline_err = self._outline_match_fields(ranges[edit_idx], _plain, override)
-            if outline_err:
-                return outline_err
-            if self._override_span_rejected(later):
-                return self._outline_override_error()
         result: dict[str, object] = {
             "status": "ok",
             "dry_run": True,
@@ -924,8 +887,6 @@ class ApplyDocumentContent(ToolBase):
         return result
 
     def _release_review_session(self, session: Any) -> None:
-        if session is None:
-            return
         try:
             _run_on_main_thread(session.cleanup)
         except Exception:
@@ -976,13 +937,11 @@ class ApplyDocumentContent(ToolBase):
             # default 30s marshalling timeout would reject large full-document replaces that
             # are fine without review mode.
             result, session = _run_on_main_thread(_do_edit)
-        except ToolExecutionError as e:
+        except Exception as e:
             if session_box:
                 self._release_review_session(session_box[0])
-            return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
-        except Exception:
-            if session_box:
-                self._release_review_session(session_box[0])
+            if isinstance(e, ToolExecutionError):
+                return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
             raise
         if session is None or not session.changes or result.get("status") != "ok":
             if session is not None:
@@ -1033,10 +992,7 @@ class ApplyDocumentContent(ToolBase):
         from . import format as format_support
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
-        target = kwargs.get("target")
-
-        if not target and old_content is not None:
-            target = "search"
+        target = self._effective_target(kwargs.get("target"), old_content)
         if not target:
             return self._tool_error("Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') or old_content for find-and-replace."), None
 
@@ -1112,14 +1068,9 @@ class ApplyDocumentContent(ToolBase):
                 session_sink.append(s)
             return s
 
-        def _plain_preview(value: Any) -> str:
-            s = str(value)
-            if use_preserve:
-                return s
-            try:
-                return format_support.plain_text_if_markup(s)
-            except Exception:
-                return s
+        plain = ""
+        if target != "search":
+            plain = content if use_preserve else self._replacement_plain(content)
 
         has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
         if target == "full_document":
@@ -1129,7 +1080,7 @@ class ApplyDocumentContent(ToolBase):
                 record_html_atomically(
                     session, ctx.doc,
                     lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
-                    proposed_preview=_plain_preview(content))
+                    proposed_preview=plain)
             err = self._table_insert_error(ctx.doc, has_table, None)
             if err:
                 return err, session
@@ -1140,18 +1091,18 @@ class ApplyDocumentContent(ToolBase):
             with session:
                 session.record_mutation(
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
-                    proposed_preview=_plain_preview(content))
+                    proposed_preview=plain)
             err = self._table_insert_error(ctx.doc, has_table, tables_before)
             if err:
                 return err, session
-            endpoints = {
-                "end": ("Inserted content at end.", ctx.doc.getText().getEnd),
-                "beginning": ("Inserted content at beginning.", ctx.doc.getText().getStart),
-            }
-            msg, get_anchor = endpoints[target]
+            if target == "end":
+                msg = "Inserted content at end."
+                anchor = collapsed_anchor(ctx.doc.getText().getEnd())
+            else:
+                msg = "Inserted content at beginning."
+                anchor = collapsed_anchor(ctx.doc.getText().getStart())
             return attach_edited_context(
-                {"status": "ok", "message": msg},
-                collapsed_anchor(get_anchor())), session
+                {"status": "ok", "message": msg}, anchor), session
         if target == "selection":
             # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
             # collapsed position (not the selection range itself) survives the replace.
@@ -1163,7 +1114,7 @@ class ApplyDocumentContent(ToolBase):
                 record_html_atomically(
                     session, ctx.doc,
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
-                    proposed_preview=_plain_preview(content))
+                    proposed_preview=plain)
             err = self._table_insert_error(ctx.doc, has_table, tables_before)
             if err:
                 return err, session
@@ -1181,6 +1132,7 @@ class ApplyDocumentContent(ToolBase):
             # Parameter error (like old_content=None), not a search no-op: the search never ran,
             # so there's no replaced_count to report — use the standard tool error shape.
             return self._tool_error("old_content is empty after normalization."), None
+        plain = content if use_preserve else self._replacement_plain(content)
         # The search drops the spaces at old_content's edges. The replacement
         # must drop the same edges, or old_content=" paragrafo" with content=""
         # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
@@ -1194,6 +1146,7 @@ class ApplyDocumentContent(ToolBase):
                 and use_preserve
                 and not format_support.content_has_markup(str(old_content))):
             content, separator = _match_stripped_edges(str(old_content), content)
+            plain = content
         override, override_error = self._parse_hyperlink_url(kwargs)
         if override_error:
             return self._tool_error(override_error, code="INVALID_PARAM"), None
@@ -1216,16 +1169,16 @@ class ApplyDocumentContent(ToolBase):
 
         all_matches = kwargs.get("all_matches", False)
         if all_matches:
-            ranges = _find_ranges(doc, pattern, regex, cs, use_opts, search_string, all_matches=True)
+            ranges = _find_ranges(doc, pattern, regex, cs, use_opts, all_matches=True)
             if not ranges:
                 return self._finish_search_miss(
                     doc, search_string, pattern, regex, cs,
-                    track_reviewable, _plain_preview(content), all_matches=True), session
+                    track_reviewable, plain, all_matches=True), session
             max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
             # Decide before any replace. An empty replacement that is the last text
             # in a table deletes the table instead of leaving an empty shell; those
             # matches are not also cleared as text (that would add a second redline).
-            doomed = writer_tables_emptied_by_matches(list(ranges), content)
+            doomed = writer_tables_emptied_by_matches(ranges, content)
             doomed_names = {name for _table, name in doomed}
             if doomed_names:
                 anchor_range = next((item for item in ranges if _table_and_name(item)[1] not in doomed_names), None)
@@ -1240,20 +1193,10 @@ class ApplyDocumentContent(ToolBase):
                     code="UNDO_UNAVAILABLE"), session
             mgr, undo_title = entered
             changes_before = len(session.changes)
-            applied_ok = False
             count = 0
             link_failure: dict[str, Any] | None = None
             link_reports: list[dict[str, Any]] = []
             tracked_delete = False
-            # What was wrong: _plain_preview and _replacement_plain called per match in all_matches loop.
-            # How it happened: both functions were called inside each loop iteration for unchanging content.
-            # Why this change fixes it: hoist plain_preview and replacement_plain computation outside the loop.
-            if use_preserve:
-                replacement_plain = content
-                plain_preview = content
-            else:
-                replacement_plain = self._replacement_plain(content)
-                plain_preview = replacement_plain
             try:
                 with session:
                     for found in reversed(ranges):
@@ -1266,8 +1209,7 @@ class ApplyDocumentContent(ToolBase):
                             session, doc, found, use_preserve=use_preserve,
                             content=content, ctx=ctx,
                             track_reviewable=track_reviewable, override=override, batch=True,
-                            plain_preview=plain_preview,
-                            replacement_plain=replacement_plain)
+                            plain=plain)
                         if link_err:
                             link_failure = link_err
                             raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
@@ -1276,7 +1218,6 @@ class ApplyDocumentContent(ToolBase):
                         count += 1
                     if doomed:
                         tracked_delete = record_table_deletions(session, doc, ctx, doomed)
-                applied_ok = True
             except Exception as e:
                 log.exception("apply_document_content all_matches failed mid-batch")
                 rolled_back = close_surgical_context(mgr, session, changes_before, False, undo_title)
@@ -1301,9 +1242,8 @@ class ApplyDocumentContent(ToolBase):
                 payload["partial_failure"] = True
                 payload["attempted"] = count
                 return payload, session
-            finally:
-                if applied_ok:
-                    close_surgical_context(mgr, session, changes_before, True, undo_title)
+            else:
+                close_surgical_context(mgr, session, changes_before, True, undo_title)
             if doomed and count == 0:
                 resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
             else:
@@ -1323,16 +1263,16 @@ class ApplyDocumentContent(ToolBase):
         if occurrence is not None:
             # Index the same replaceable list the edit path uses. Empty ranges fall
             # through to the existing miss / drawing-shape path (models often send 0).
-            ranges = _find_ranges(doc, pattern, regex, cs, use_opts, search_string, all_matches=True)
+            ranges = _find_ranges(doc, pattern, regex, cs, use_opts, all_matches=True)
             if ranges and occurrence >= len(ranges):
                 return self._occurrence_oor(occurrence, len(ranges)), session
             found = ranges[occurrence] if ranges else None
         else:
-            found = _find_ranges(doc, pattern, regex, cs, use_opts, search_string, all_matches=False)
+            found = _find_ranges(doc, pattern, regex, cs, use_opts, all_matches=False)
         if found is None:
             return self._finish_search_miss(
                 doc, search_string, pattern, regex, cs,
-                track_reviewable, _plain_preview(content), all_matches=False), session
+                track_reviewable, plain, all_matches=False), session
         if position in ("before", "after"):
             # INSERT next to the match instead of replacing it: the single most common petition
             # edit ("add a paragraph after clause X") previously forced resending the clause
@@ -1419,7 +1359,7 @@ class ApplyDocumentContent(ToolBase):
             with session:
                 record_html_atomically(
                     session, doc, _insert_next_to_match,
-                    proposed_preview=_plain_preview(content))
+                    proposed_preview=plain)
             where = ("%s the paragraph that contains the match (block content cannot go mid-paragraph "
                      "without splitting it)" % position) if snapped else "%s the old_content match" % position
             insert_resp: dict[str, object] = {
@@ -1462,8 +1402,7 @@ class ApplyDocumentContent(ToolBase):
             session, doc, found, use_preserve=use_preserve,
             content=content, ctx=ctx,
             track_reviewable=track_reviewable, override=override, batch=False,
-            plain_preview=_plain_preview(content),
-            replacement_plain=content if use_preserve else None)
+            plain=plain)
         if link_err:
             return link_err, session
         resp = build_search_replace_response(1, use_preserve=use_preserve)

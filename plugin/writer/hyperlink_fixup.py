@@ -139,25 +139,11 @@ def substitute_if_present(value: str, matched: str, new_plain: str) -> str | Non
     """
     if not matched or matched not in value:
         return None
-    suffix_at = len(value) - len(_OUTLINE_SUFFIX) if value.endswith(_OUTLINE_SUFFIX) else None
-    suffix_end = None if suffix_at is None else suffix_at + len(_OUTLINE_SUFFIX)
-    hits: list[int] = []
-    start = 0
-    while True:
-        found = value.find(matched, start)
-        if found < 0:
-            break
-        end = found + len(matched)
-        overlaps_suffix = (
-            suffix_at is not None and suffix_end is not None
-            and found < suffix_end and end > suffix_at)
-        if not overlaps_suffix:
-            hits.append(found)
-        start = found + 1
-    if len(hits) != 1:
+    body = value[:-len(_OUTLINE_SUFFIX)] if value.endswith(_OUTLINE_SUFFIX) else value
+    i = body.find(matched)
+    if i < 0 or body.find(matched, i + 1) >= 0:
         return None
-    at = hits[0]
-    return value[:at] + new_plain + value[at + len(matched):]
+    return value[:i] + new_plain + value[i + len(matched):]
 
 
 def plan_outline_updates(links: list[OutlineLink], matched: str, new_plain: str,
@@ -208,12 +194,8 @@ def public_hyperlink_reports(plans: list[dict[str, Any]]) -> list[dict[str, Any]
     ]
 
 
-def _cursor_at(text: Any, pos: Any) -> Any:
-    return text.createTextCursorByRange(pos)
-
-
 def _paragraph_cursor(text: Any, pos: Any) -> Any:
-    cursor = _cursor_at(text, pos)
+    cursor = text.createTextCursorByRange(pos)
     cursor.gotoStartOfParagraph(False)
     cursor.gotoEndOfParagraph(True)
     return cursor
@@ -229,18 +211,18 @@ def _paragraph_edges(text: Any, text_range: Any) -> tuple[Any, Any, bool]:
     ``single`` is False when the match ends in a different paragraph — prefix/suffix
     measurement would then pair text from two paragraphs.
     """
-    start_cur = _cursor_at(text, text_range.getStart())
+    start_cur = text.createTextCursorByRange(text_range.getStart())
     start_cur.gotoStartOfParagraph(False)
-    end_probe = _cursor_at(text, text_range.getEnd())
+    end_probe = text.createTextCursorByRange(text_range.getEnd())
     end_probe.gotoStartOfParagraph(False)
     single = _same_point(text, start_cur.getStart(), end_probe.getStart())
-    end_cur = _cursor_at(text, text_range.getEnd() if single else text_range.getStart())
+    end_cur = text.createTextCursorByRange(text_range.getEnd() if single else text_range.getStart())
     end_cur.gotoEndOfParagraph(False)
     return start_cur, end_cur, single
 
 
 def _between(text: Any, start_pos: Any, end_pos: Any) -> str:
-    cursor = _cursor_at(text, start_pos)
+    cursor = text.createTextCursorByRange(start_pos)
     cursor.gotoRange(end_pos, True)
     return str(cursor.getString() or "")
 
@@ -310,7 +292,7 @@ def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
             continue
         seen.add(url)
         links.append(OutlineLink(url, _prop(portion, _NAME), _prop(portion, _TARGET)))
-    return OutlineSnapshot(links, prefix, suffix, matched, single, preserve_url, dict(look))
+    return OutlineSnapshot(links, prefix, suffix, matched, single, preserve_url, look)
 
 
 def _paragraph_text(text: Any, anchor: Any) -> str:
@@ -363,7 +345,7 @@ def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_p
     if not snapshot.single_paragraph:
         return None
     try:
-        cursor = _cursor_at(text, anchor.getStart())
+        cursor = text.createTextCursorByRange(anchor.getStart())
         cursor.gotoStartOfParagraph(False)
         if snapshot.prefix and not go_right(cursor, _utf16_len(snapshot.prefix), False):
             return None
@@ -573,7 +555,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
                 "Could not locate an outline hyperlink run to update: %s" % exc
             ) from exc
     for start, end, plan, portion_look in pending:
-        cursor = _cursor_at(text, start)
+        cursor = text.createTextCursorByRange(start)
         cursor.gotoRange(end, True)
         _write_plan_on_cursor(cursor, plan, portion_look)
 
