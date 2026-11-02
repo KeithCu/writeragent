@@ -78,7 +78,7 @@ def _build(ctx, *, shown=True):
 @native_test
 def test_stt_enable_does_not_paint_audio_model_on_general(ctx):
     """First Settings paint is General. Audio Model must not become visible there."""
-    from plugin.chatbot.dialog_views import SttSettingsListener, _apply_stt_model_visibility
+    from plugin.chatbot.dialog_views import sync_stt_ui, _apply_stt_model_visibility
 
     dlg, model = _build(ctx)
     try:
@@ -99,9 +99,8 @@ def test_stt_enable_does_not_paint_audio_model_on_general(ctx):
         assert local.isEnabled() is False
         assert audio.isEnabled() is True
 
-        listener = SttSettingsListener(dlg)
         dlg.getControl("audio__stt_provider").setText("Local Whisper (faster-whisper)")
-        listener.sync_ui()
+        sync_stt_ui(dlg)
         assert audio.isVisible() is True
         assert audio.isEnabled() is False
         assert local.isEnabled() is True
