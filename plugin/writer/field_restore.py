@@ -81,9 +81,6 @@ _FIELD_FLAG_PROPERTIES: dict[str, tuple[str, bool]] = {
 }
 
 _PAGE_NUMBER_SUBTYPE_VALS: dict[str, str] = {
-    "PREV": "PREV",
-    "CURRENT": "CURRENT",
-    "NEXT": "NEXT",
     "0": "PREV",
     "1": "CURRENT",
     "2": "NEXT",
@@ -117,8 +114,8 @@ def _field_token(field_nonce: str, title: str, attrs: dict[str, str]) -> str:
         st_raw = attrs.get("data-subtype")
         if st_raw is not None:
             st_raw_upper = st_raw.strip().upper()
-            st_name = _PAGE_NUMBER_SUBTYPE_VALS.get(st_raw_upper)
-            if st_name is None:
+            st_name = _PAGE_NUMBER_SUBTYPE_VALS.get(st_raw_upper, st_raw_upper)
+            if st_name not in ("PREV", "CURRENT", "NEXT"):
                 log.warning("Unknown PageNumber SubType attribute %r, defaulting to CURRENT", st_raw)
                 st_name = "CURRENT"
             if st_name != "CURRENT":
@@ -382,14 +379,6 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
     return len(hits)
 
 
-def _raise_if_token_remains(text_obj: Any, nonce: str) -> None:
-    tok = _first_remaining_field_token(text_obj, nonce)
-    if isinstance(tok, str):
-        raise ToolExecutionError(
-            f"The header/footer region was imported, but field placeholder {tok} remains visible in the document."
-        )
-
-
 def _restore_field_placeholders(model: Any, text_obj: Any, nonce: str) -> int:
     """Turn ``[[WA-FIELD:…]]`` tokens back into UNO fields.
 
@@ -403,41 +392,43 @@ def _restore_field_placeholders(model: Any, text_obj: Any, nonce: str) -> int:
     if remaining is None:
         return walked
 
-    if model is None or not hasattr(model, "createSearchDescriptor"):
-        _raise_if_token_remains(text_obj, nonce)
-        return walked
-
     restored = walked
 
-    sd = model.createSearchDescriptor()
-    sd.SearchRegularExpression = True
+    if model is not None and hasattr(model, "createSearchDescriptor"):
+        sd = model.createSearchDescriptor()
+        sd.SearchRegularExpression = True
 
-    nonce_pat = re.escape(nonce)
-    titles_pat = "|".join(_FIELD_TITLE_TO_SERVICE)
-    sd.SearchString = r"\[\[WA-FIELD:" + nonce_pat + r":(?:(?:" + titles_pat + r"))(?:\|[^\]]+)?\]\]"
-    found = model.findFirst(sd)
+        nonce_pat = re.escape(nonce)
+        titles_pat = "|".join(_FIELD_TITLE_TO_SERVICE)
+        sd.SearchString = r"\[\[WA-FIELD:" + nonce_pat + r":(?:(?:" + titles_pat + r"))(?:\|[^\]]+)?\]\]"
+        found = model.findFirst(sd)
 
-    while found is not None:
-        in_region = True
-        if not uno_same(text_obj, uno_read(lambda: model.getText(), None)):
-            in_region = uno_same(found.getText(), text_obj)
+        while found is not None:
+            in_region = True
+            if not uno_same(text_obj, uno_read(lambda: model.getText(), None)):
+                in_region = uno_same(found.getText(), text_obj)
 
-        props: dict[str, str] = {}
-        field_title = ""
-        token = found.getString()
-        if isinstance(token, str):
-            match = _FIELD_TOKEN_RE.match(token)
-            if match and match.group(1) == nonce:
-                field_title = match.group(2).lower()
-                props = _parse_field_token_props(match.group(3))
+            props: dict[str, str] = {}
+            field_title = ""
+            token = found.getString()
+            if isinstance(token, str):
+                match = _FIELD_TOKEN_RE.match(token)
+                if match and match.group(1) == nonce:
+                    field_title = match.group(2).lower()
+                    props = _parse_field_token_props(match.group(3))
 
-        nxt = model.findNext(found.getEnd(), sd)
+            nxt = model.findNext(found.getEnd(), sd)
 
-        if in_region and field_title:
-            _insert_restored_field(model, found, field_title, props)
-            restored += 1
+            if in_region and field_title:
+                _insert_restored_field(model, found, field_title, props)
+                restored += 1
 
-        found = nxt
+            found = nxt
 
-    _raise_if_token_remains(text_obj, nonce)
+        remaining = _first_remaining_field_token(text_obj, nonce)
+
+    if isinstance(remaining, str):
+        raise ToolExecutionError(
+            f"The header/footer region was imported, but field placeholder {remaining} remains visible in the document."
+        )
     return restored
