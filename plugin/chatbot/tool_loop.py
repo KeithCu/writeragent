@@ -202,10 +202,8 @@ def _compact_bound_session(
         turn._last_compact_reason = result.reason
         turn._last_compact_tokens_before = result.tokens_before
         turn._last_compact_tokens_after = result.tokens_after
-    if result.reason == "aborted":
-        # The caller emits STOPPED through turn.put, which flushes.
-        return False
-    return True
+    # The caller emits STOPPED through turn.put, which flushes.
+    return result.reason != "aborted"
 
 
 def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
@@ -630,12 +628,12 @@ class ToolCallingMixin:
         batched: BatchingStreamQueue,
         client: LlmClient,
         max_tokens: int,
-        tools: list[dict[str, Any]] | None,
-        force: bool,
+        tools: list[dict[str, Any]] | None = None,
+        force: bool = False,
         resume_status: str,
         stream_call: Callable[[Any, Callable[[str], None], Callable[[str], None], Callable[[str], None], Callable[[], bool]], Any],
         done_kind: StreamQueueKind,
-        on_success: Callable[[], None] | None,
+        on_success: Callable[[], None] | None = None,
         error_log_msg: str,
         strip_round_0_image: bool = False,
     ) -> None:
@@ -765,14 +763,10 @@ class ToolCallingMixin:
                 batched=batched,
                 client=client,
                 max_tokens=max_tokens,
-                tools=None,
-                force=False,
                 resume_status="Finishing...",
                 stream_call=stream_call,
                 done_kind=StreamQueueKind.FINAL_DONE,
-                on_success=None,
                 error_log_msg="Final stream failed",
-                strip_round_0_image=False,
             )
 
         run_in_background(run_final, name="llm-worker-final", dedicated=True)
@@ -780,8 +774,6 @@ class ToolCallingMixin:
     def _create_event_from_stream_item(self, item: Any) -> ToolLoopEvent | None:
         """Factory method to convert a raw stream item tuple into a ToolLoopEvent."""
         raw_kind = item[0]
-        if not isinstance(raw_kind, StreamQueueKind):
-            return None
         data = item[1] if len(item) > 1 else None
 
         if raw_kind == StreamQueueKind.STREAM_DONE:
