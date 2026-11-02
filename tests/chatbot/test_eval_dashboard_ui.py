@@ -132,7 +132,9 @@ def test_run_suite_imports_eval_runner_at_runtime(monkeypatch: pytest.MonkeyPatc
     sys.modules["tests.eval_runner"] = fake_mod
 
     dialog, _controls = _dialog()
-    listener = EvalRunListener(MagicMock(), dialog, EvalDashboard(MagicMock()))
+    dash = EvalDashboard(MagicMock())
+    dash._dlg = dialog
+    listener = EvalRunListener(dash)
     with patch("plugin.framework.uno_context.process_events_to_idle"), patch(
         "plugin.chatbot.eval_dashboard_ui.get_active_document", return_value=MagicMock()
     ):
@@ -167,7 +169,9 @@ def test_run_suite_reports_when_eval_runner_is_missing() -> None:
         return _Ctrl()
 
     dialog.getControl.side_effect = _control
-    listener = EvalRunListener(MagicMock(), dialog, EvalDashboard(MagicMock()))
+    dash = EvalDashboard(MagicMock())
+    dash._dlg = dialog
+    listener = EvalRunListener(dash)
     try:
         listener.run_suite()
     finally:
@@ -195,7 +199,9 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
     fake_mod.run_benchmark_suite.side_effect = _block
     sys.modules["tests.eval_runner"] = fake_mod
     dialog, controls = _dialog()
-    listener = EvalRunListener(MagicMock(), dialog, EvalDashboard(MagicMock()))
+    dash = EvalDashboard(MagicMock())
+    dash._dlg = dialog
+    listener = EvalRunListener(dash)
     # What was wrong: joining the suite worker was enough to see "Finished".
     # post() no longer runs inline on a tagged background task, so the worker
     # only queues _show_summary. The line stays "Running..." until this thread
@@ -238,7 +244,9 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
     fake_mod.run_benchmark_suite.side_effect = _boom
     sys.modules["tests.eval_runner"] = fake_mod
     dialog, controls = _dialog()
-    listener = EvalRunListener(MagicMock(), dialog, EvalDashboard(MagicMock()))
+    dash = EvalDashboard(MagicMock())
+    dash._dlg = dialog
+    listener = EvalRunListener(dash)
     from plugin.framework import queue_executor as qe
 
     qe.set_force_marshal_mode(True)
@@ -322,7 +330,8 @@ def test_closed_dialog_skips_late_paint_and_clears_running(monkeypatch: pytest.M
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     dialog, controls = _dialog()
     dash = EvalDashboard(MagicMock())
-    listener = EvalRunListener(MagicMock(), dialog, dash)
+    dash._dlg = dialog
+    listener = EvalRunListener(dash)
     summary = {
         "passed": 1,
         "failed": 0,
@@ -357,7 +366,9 @@ def test_disposed_dialog_summary_and_failure_clear_running() -> None:
 
     dialog = MagicMock()
     dialog.getControl.side_effect = DisposedException("disposed")
-    listener = EvalRunListener(MagicMock(), dialog, EvalDashboard(MagicMock()))
+    dash = EvalDashboard(MagicMock())
+    dash._dlg = dialog
+    listener = EvalRunListener(dash)
     listener.is_running = True
     listener._show_summary(
         "model",
