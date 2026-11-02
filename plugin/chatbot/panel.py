@@ -134,7 +134,7 @@ class QueryTextListener(BaseTextListener):
         popup = getattr(self.send_listener, "slash_popup", None)
         if popup is not None:
             try:
-                if popup.on_query_text(raw):
+                if popup.on_query_text(raw) is True:
                     return
             except Exception:
                 log.exception("[SLASH-OV] query_text on_query_text raised")
