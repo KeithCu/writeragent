@@ -40,7 +40,8 @@ from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.errors import DocumentDisposedError, is_disposal
-from plugin.framework.tool import _document_is_disposed, is_tool_document_disposed
+from plugin.framework.errors import document_is_disposed
+from plugin.framework.tool import is_tool_document_disposed
 from plugin.framework.uno_context import get_ctx, get_desktop, process_events_to_idle, uno_same
 import uno
 
@@ -791,7 +792,7 @@ def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> It
     try:
         count = container.getCount()
     except Exception as exc:
-        if is_disposal(exc) and not (doc is not None and _document_is_disposed(doc)):
+        if is_disposal(exc) and not (doc is not None and document_is_disposed(doc)):
             return
         raise
 
@@ -801,7 +802,7 @@ def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> It
         try:
             shape = container.getByIndex(i)
         except Exception as exc:
-            if is_disposal(exc) and not (doc is not None and _document_is_disposed(doc)):
+            if is_disposal(exc) and not (doc is not None and document_is_disposed(doc)):
                 continue
             raise
 
@@ -809,7 +810,7 @@ def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> It
             shape_type = shape.getShapeType()
         except Exception as exc:
             if is_disposal(exc):
-                if doc is not None and _document_is_disposed(doc):
+                if doc is not None and document_is_disposed(doc):
                     raise
                 continue
             shape_type = exc
@@ -934,7 +935,7 @@ class ListCharts(ToolBaseDummy):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         # supportsService raises only on disposal; probe so a closed document is not an empty success.
-        if _document_is_disposed(doc):
+        if document_is_disposed(doc):
             raise DocumentDisposedError("Document was closed or disposed by LibreOffice", object_type="document")
         result = []
         errors: list[dict[str, Any]] = []

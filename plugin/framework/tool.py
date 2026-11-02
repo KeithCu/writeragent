@@ -43,6 +43,7 @@ from typing import Any, Callable, ClassVar, NamedTuple, cast
 from plugin.framework.errors import (
     WriterAgentException,
     format_error_payload,
+    document_is_disposed,
     is_disposal,
     make_tool_error,
     resolve_exception_message,
@@ -258,19 +259,6 @@ def is_tool_document_disposed(exc: BaseException) -> bool:
     return is_disposal(exc)
 
 
-def _document_is_disposed(doc: Any) -> bool:
-    """Safely check if a UNO document or component is disposed or invalid."""
-    if doc is None:
-        return True
-    try:
-        impl_fn = getattr(doc, "getImplementationName", None)
-        if callable(impl_fn):
-            impl_fn()
-        return False
-    except Exception as exc:
-        return is_disposal(exc)
-
-
 class ToolBase(_ToolErrorMixin, ABC):
     """Abstract base for every tool exposed to LLM agents and MCP clients.
 
@@ -397,7 +385,7 @@ class ToolBase(_ToolErrorMixin, ABC):
             if not self.is_async():
                 assert_main_thread(self.name or "synchronous tool")
                 if self.requires_document and ctx is not None and getattr(ctx, "doc", None) is not None:
-                    if _document_is_disposed(ctx.doc):
+                    if document_is_disposed(ctx.doc):
                         return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED")
             # Async / review-wait tools skip this probe so wait can run off the main thread.
             # EditReviewSession.wait_for_review must detect dispose itself. Do not "fix" by

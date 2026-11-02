@@ -558,7 +558,7 @@ class TestSuppressDisposed:
             is_disposal,
         )
         from plugin.framework.tool import (
-            _document_is_disposed,
+            document_is_disposed,
             is_tool_document_disposed,
         )
 
@@ -591,9 +591,9 @@ class TestSuppressDisposed:
             ("runtime_probe", RuntimeProbeDoc(), False),
         ]
 
-        # Verify _document_is_disposed directly on each document
+        # Verify document_is_disposed directly on each document
         for _doc_name, doc_obj, expected_doc_disposed in docs:
-            assert _document_is_disposed(doc_obj) is expected_doc_disposed
+            assert document_is_disposed(doc_obj) is expected_doc_disposed
 
         # Exception kinds: (exc, expected_disposal)
         exceptions: list[tuple[str, BaseException, bool]] = [
@@ -926,7 +926,7 @@ def test_make_tool_error_accepts_non_str_and_non_ascii_code():
 
 def test_is_document_disposed_handles_exploding_attributes():
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.framework.tool import _document_is_disposed
+    from plugin.framework.errors import document_is_disposed
 
     class Dead(Exception):
         pass
@@ -952,11 +952,11 @@ def test_is_document_disposed_handles_exploding_attributes():
         def __getattribute__(self, name: str) -> Any:
             raise DocumentDisposedError("doc disposed")
 
-    assert _document_is_disposed(None) is True
-    assert _document_is_disposed(DeadProxy()) is False
-    assert _document_is_disposed(ExplodingProxy()) is False
-    assert _document_is_disposed(DisposedProxy()) is True
-    assert _document_is_disposed(DocumentDisposedProxy()) is True
+    assert document_is_disposed(None) is True
+    assert document_is_disposed(DeadProxy()) is False
+    assert document_is_disposed(ExplodingProxy()) is False
+    assert document_is_disposed(DisposedProxy()) is True
+    assert document_is_disposed(DocumentDisposedProxy()) is True
 
 
 def test_writer_agent_exception_unified_message():

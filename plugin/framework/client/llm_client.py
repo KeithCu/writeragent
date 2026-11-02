@@ -42,6 +42,7 @@ from __future__ import annotations
 import collections
 import json
 import logging
+import re
 import urllib.parse
 from typing import TYPE_CHECKING, Any, cast
 
@@ -70,7 +71,6 @@ from .errors import (
     _log_http_500_request_diag,
     _parse_provider_envelope,
     _path_without_query,
-    adjust_image_body_for_rejection,
     append_zai_unknown_model_hint,
     stream_error_is_overload,
     stream_error_message,
@@ -118,7 +118,90 @@ def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
 
 
 from .openai_shim import get_provider_shim_class
-from .base_provider_shim import accepted_effort_body, remember_accepted_effort
+from .base_provider_shim import accepted_effort_body, closest_named_aspect, remember_accepted_effort
+
+
+def _accepted_value_lists(param: str, error_text: str) -> list[list[str]] | None:
+    """Accepted-value lists for one rejected param, or None when the error does not name it.
+
+    A line with no ``Accepted:`` list is an empty list. Trailing JSON punctuation
+    is excluded so ``Accepted: 1:1"}`` does not become part of the token.
+    """
+    pattern = rf"\b{param}\b: not supported\.(?: Accepted: ([^|}}\n\"]+))?"
+    matches = list(re.finditer(pattern, error_text))
+    if not matches:
+        return None
+    lists: list[list[str]] = []
+    for match in matches:
+        accepted_str = match.group(1)
+        if accepted_str:
+            lists.append([item.strip() for item in accepted_str.split(",") if item.strip()])
+        else:
+            lists.append([])
+    return lists
+
+
+def _common_accepted(lists: list[list[str]]) -> list[str]:
+    """Values every non-empty Accepted list shares, in the first list's order.
+
+    A line that names no values is ignored when another line does, so one
+    provider omitting the list does not erase the other's hint. An empty
+    result means the lists disagree or nobody named a value.
+    """
+    named = [items for items in lists if items]
+    if not named:
+        return []
+    common = set(named[0])
+    for items in named[1:]:
+        common.intersection_update(items)
+    return [item for item in named[0] if item in common]
+
+
+def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | None:
+    """Adjust an image request after ``param: not supported``.
+
+    ``resolution``, ``size``, and ``output_format`` are dropped. Remapping
+    ``512`` to the first ``Accepted:`` token could pick ``4K`` or ``webp``
+    (Flux Klein rejects webp). The provider default is the value that works
+    (``1K`` for gemini-3.1-flash-lite-image).
+
+    ``aspect_ratio`` is remapped to the closest accepted ratio. Dropping it
+    turns a 16:9 request into a square. Unknown tokens and disagreeing lists
+    delete the field instead.
+
+    Returns the new body bytes, or None if nothing changed.
+    """
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    changed = False
+    # Example: "resolution: not supported. Accepted: 1K | Google AI Studio: resolution: not supported. Accepted: 1K"
+    for param in ("resolution", "aspect_ratio", "size", "output_format"):
+        if param not in data:
+            continue
+        accepted_lists = _accepted_value_lists(param, error_text)
+        if accepted_lists is None:
+            continue
+        if param != "aspect_ratio":
+            del data[param]
+            changed = True
+            continue
+        # Keep list order so an equal distance uses the earlier accepted token.
+        new_val = closest_named_aspect(str(data.get(param) or ""), _common_accepted(accepted_lists))
+        if new_val and new_val != data.get(param):
+            data[param] = new_val
+        else:
+            # Same value, or no known ratio: a retry of the rejected body would 400 again.
+            del data[param]
+        changed = True
+
+    if changed:
+        return json.dumps(data).encode("utf-8")
+    return None
 
 
 class LlmClient:

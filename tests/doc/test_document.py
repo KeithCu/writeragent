@@ -26,9 +26,9 @@ def test_inject_markers_into_excerpt():
         assert out == "PRE0123456789SUF"
 
 def test_is_document_disposed():
-    from plugin.framework.tool import _document_is_disposed
+    from plugin.framework.errors import document_is_disposed
 
-    assert _document_is_disposed(None) is True
+    assert document_is_disposed(None) is True
 
     class DisposedExceptionMock(Exception):
         pass
@@ -46,7 +46,7 @@ def test_is_document_disposed():
         def getImplementationName(self):
             return "SwXTextDocument"
 
-    assert _document_is_disposed(MockDisposedDoc()) is True
-    assert _document_is_disposed(MockValidDoc()) is False
+    assert document_is_disposed(MockDisposedDoc()) is True
+    assert document_is_disposed(MockValidDoc()) is False
 
 

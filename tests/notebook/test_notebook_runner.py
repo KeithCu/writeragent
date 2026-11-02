@@ -1730,7 +1730,7 @@ def test_run_cells_between_cell_pump_disposal_stops_execution():
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
         patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
-        patch("plugin.notebook.notebook_runner._document_is_disposed", side_effect=[False, True]),
+        patch("plugin.notebook.notebook_runner.document_is_disposed", side_effect=[False, True]),
     ):
         result = run_cells(ctx, doc, start_index=0)
 

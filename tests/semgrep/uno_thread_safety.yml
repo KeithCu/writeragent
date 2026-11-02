@@ -234,12 +234,12 @@ rules:
     languages: [python]
     severity: WARNING
     message: >-
-      UNO document model access should check disposal status via UnoObjectError or _document_is_disposed.
+      UNO document model access should check disposal status via UnoObjectError or document_is_disposed.
       See docs/framework/uno-thread-safety.md.
     patterns:
       - pattern: $DOC.getImplementationName()
       - pattern-not-inside: |
-          def _document_is_disposed(...):
+          def document_is_disposed(...):
             ...
     paths:
       exclude:

@@ -429,6 +429,19 @@ class AgentParsingError(WriterAgentException):
     code: str = "PARSE_ERROR"
 
 
+def document_is_disposed(doc: Any) -> bool:
+    """Safely check if a UNO document or component is disposed or invalid."""
+    if doc is None:
+        return True
+    try:
+        impl_fn = getattr(doc, "getImplementationName", None)
+        if callable(impl_fn):
+            impl_fn()
+        return False
+    except Exception as exc:
+        return is_disposal(exc)
+
+
 def _uno_disposal_message(exc: BaseException) -> str:  # pyright: ignore[reportUnusedFunction]  # imported by uno_context.py and scratch_writer.py
     """Resolve exception text, falling back to standard UNO disposal sentence."""
     msg = resolve_exception_message(exc)
