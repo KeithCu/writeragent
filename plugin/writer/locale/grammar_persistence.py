@@ -294,18 +294,15 @@ class DocumentPersistence:
         else:
             log.debug("[grammar] DocumentPersistence: no model for doc_id=%s (in-memory only until resolved)", doc_id[:32] if doc_id else "")
 
-    def mark_accessed(self, fp: str, locale: str | None = None) -> None:
+    def mark_accessed(self, fp: str, locale: str) -> None:
         """Record that this fingerprint was used this session (udprop save filter).
 
         ``locale`` selects the L2 bucket. A legacy v2/v3 row is adopted to that
         locale so a one-language document still round-trips on save.
         """
         with self._lock:
-            if locale:
-                self._adopt_legacy_locked(fp, locale)
-                self._session_accessed.add((locale, fp))
-                return
-            self._session_accessed.add((_LEGACY_LOCALE, fp))
+            self._adopt_legacy_locked(fp, locale)
+            self._session_accessed.add((locale, fp))
 
     def _bind_model(self, model: Any) -> None:
         """Attach the Writer model after init when ``get_persistence(..., model=...)`` runs."""
@@ -419,15 +416,10 @@ class DocumentPersistence:
             current = grammar_checker_identity()
             load_entries = False
             blob_identity: str | None = None
-            locale_aware = False
 
-            if version == 4:
-                locale_aware = True
+            if version in (3, 4):
                 blob_identity = _blob_model_id(data)
-                load_entries = blob_identity is not None and blob_identity == current
-            elif version == 3:
-                blob_identity = _blob_model_id(data)
-                load_entries = blob_identity is not None and blob_identity == current
+                load_entries = blob_identity == current
             elif version == 2:
                 sniffed = sniff_v2_cache_identity(data)
                 if sniffed == _V2_LLM_PENDING:
@@ -482,7 +474,7 @@ class DocumentPersistence:
                         if isinstance(r, str):
                             decoded_ignored.add(r)
 
-                if locale_aware:
+                if version == 4:
                     locales = data.get("locales")
                     if isinstance(locales, dict):
                         for loc, bucket in locales.items():
@@ -496,12 +488,11 @@ class DocumentPersistence:
             with self._lock:
                 adopt = self._session_identity is None or self._session_identity == blob_identity
                 if adopt:
+                    self._blob_identity = blob_identity
                     if not load_entries:
                         self._entries.clear()
                         self._ignored_rules.clear()
-                        self._blob_identity = blob_identity
                     else:
-                        self._blob_identity = blob_identity
                         if not self._ignored_rules:
                             self._ignored_rules = decoded_ignored
                         for fp, by_loc in decoded_entries.items():
@@ -657,7 +648,7 @@ class DocumentPersistence:
     def get(
         self,
         fp: str,
-        locale: str | None = None,
+        locale: str,
         *,
         adopt_legacy: bool = True,
     ) -> list[dict[str, Any]] | None:
@@ -669,8 +660,7 @@ class DocumentPersistence:
 
         A single legacy v2/v3 bucket is adopted to ``locale`` when
         ``adopt_legacy`` is true (proofreading). Probes pass false so a
-        language-detect check cannot retag that row. Without ``locale``,
-        return a row only when exactly one bucket exists.
+        language-detect check cannot retag that row.
         """
         if self._teardown_done:
             return None
@@ -683,21 +673,12 @@ class DocumentPersistence:
                 and self._session_identity != self._blob_identity
             ):
                 return None
-            by_locale = self._entries.get(fp)
-            if not by_locale:
+            if adopt_legacy:
+                self._adopt_legacy_locked(fp, locale)
+            errs = (self._entries.get(fp) or {}).get(locale)
+            if errs is None:
                 return None
-            if locale:
-                if adopt_legacy:
-                    self._adopt_legacy_locked(fp, locale)
-                errs = (self._entries.get(fp) or {}).get(locale)
-                if errs is None:
-                    return None
-                self._session_accessed.add((locale, fp))
-                return [dict(e) for e in errs]
-            if len(by_locale) != 1:
-                return None
-            only_locale, errs = next(iter(by_locale.items()))
-            self._session_accessed.add((only_locale, fp))
+            self._session_accessed.add((locale, fp))
             return [dict(e) for e in errs]
 
     def put(self, fp: str, locale: str, errors: list[dict[str, Any]]) -> None:

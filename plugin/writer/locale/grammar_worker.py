@@ -478,7 +478,7 @@ def persisted_grammar_skip_lang_detect(
     ctx: Any,
     doc_id: str,
     text: str,
-    locale: str | None = None,
+    locale: str = "",
 ) -> bool:
     """True if persistence already stores grammar for this sentence in ``locale``.
 
