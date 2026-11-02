@@ -662,7 +662,7 @@ class TestManageChartsSpecializedTier:
         assert "manage_charts" not in tool_names
 
     def test_skinny_chart_tools_not_discovered(self):
-        """list/info/upsert/delete are ToolBaseDummy-only; only manage_charts registers."""
+        """list/info/upsert/delete are functions; only manage_charts registers."""
         import plugin.calc.charts as calc_charts
         import plugin.draw.charts as draw_charts
         import plugin.writer.specialized.charts as writer_charts
@@ -816,13 +816,12 @@ class TestManageChartsSpecializedTier:
 
         ctx = TestingFactory.create_context(doc_type="calc")
         tool = ManageCharts()
-        with patch("plugin.calc.charts.ListCharts") as list_cls:
-            list_cls.return_value.execute.return_value = {"status": "ok", "charts": [], "count": 0}
+        with patch("plugin.calc.charts.list_charts") as mock_list:
+            mock_list.return_value = {"status": "ok", "charts": [], "count": 0}
             res = tool.execute(ctx, action="list")
         assert res["status"] == "ok"
         assert res["count"] == 0
-        list_cls.assert_called_once_with()
-        list_cls.return_value.execute.assert_called_once()
+        mock_list.assert_called_once_with(tool, ctx, action="list")
 
 
 class TestLibrarianToolVisibility:

@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Draw charting tools leveraging shared chart implementation.
 
-Only ``ManageCharts`` is registered; skinny backends live in ``plugin.calc.charts``.
+Only ``ManageCharts`` is registered; chart actions and host adapters live in ``plugin.calc.charts``.
 """
 
 from typing import ClassVar
