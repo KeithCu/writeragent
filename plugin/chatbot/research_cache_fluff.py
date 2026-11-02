@@ -4,10 +4,6 @@
 #
 # Web-research cache fluff: _('…') literals for gettext (make extract-strings / auto-translate).
 
-from plugin.framework.deal_shim import deal
-
-
-@deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
 def translated_research_cache_fluff() -> tuple[str, ...]:
     """Instruction fluff for the active LO UI locale (standard gettext _() calls)."""
     from plugin.framework.i18n import _

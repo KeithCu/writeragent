@@ -124,7 +124,6 @@ COVER_ALL_SCHEDULE_ORDER: tuple[str, ...] = (
     "plugin/scripting/import_policy.py",  # 17.2s
     "plugin/calc/excel_py_convert/resolve_refs.py",  # 13.8s
     "plugin/scripting/excel_xl.py",  # 8.2s
-    "plugin/chatbot/research_cache_fluff.py",  # 0.5s
 )
 _COVER_ALL_SCHEDULE_RANK: dict[str, int] = {rel: i for i, rel in enumerate(COVER_ALL_SCHEDULE_ORDER)}
 
