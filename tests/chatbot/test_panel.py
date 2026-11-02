@@ -1461,7 +1461,7 @@ class TestHandsFreeRecord:
             patch("plugin.chatbot.tool_loop_actions.drop_turn"),
             patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         ):
-            listener._finish_send_drain_ui()
+            listener._close_turn_ui(speak=True)
         assert "on_complete" in captured
         # User barges in with Record before playback reports done.
         with patch("plugin.audio.tts_service.stop_speech"):
@@ -1501,7 +1501,7 @@ class TestHandsFreeRecord:
             patch("plugin.chatbot.tool_loop_actions.drop_turn"),
             patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         ):
-            listener._finish_send_drain_ui()
+            listener._close_turn_ui(speak=True)
         assert "on_complete" in captured
         # Armed sticky take is recording, then user clicks Stop to step down out of hands-free.
         listener._record_gesture = RecordGesture(sticky=True)
