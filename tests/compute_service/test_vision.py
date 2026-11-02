@@ -19,6 +19,7 @@ import pytest
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
+from compute_service.worker_base import Deadline
 from compute_service.vision import VisionProcessPool, _handle_request, get_vision_pool, shutdown_vision_pool
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
 from tests.compute_service.multipart_encode import encode_multipart_vision
@@ -634,7 +635,7 @@ def test_vision_expired_deadline_does_not_execute() -> None:
         mock_worker.execute.return_value = {"status": "ok"}
         with pool._cond:
             pool._idle = OrderedDict([(mock_worker, time.monotonic())])
-        res = pool.execute(helper="test", image=base64.b64decode(_TINY_PNG_B64), deadline=time.monotonic() - 1)
+        res = pool.execute(helper="test", image=base64.b64decode(_TINY_PNG_B64), deadline=Deadline.from_absolute(30.0, time.monotonic() - 1))
         assert res.get("code") == "VISION_POOL_BUSY"
         mock_worker.execute.assert_not_called()
     finally:
@@ -644,7 +645,7 @@ def test_vision_expired_deadline_does_not_execute() -> None:
 def test_one_second_budget_with_time_left_still_runs() -> None:
     """A 1s request with 0.4s left still runs. That is not VISION_POOL_BUSY.
 
-    usable() stays set for a one-second budget. The pool lifts that
+    usable() stays set for a one-second budget. run_for() lifts that
     remainder to 1s so execute is not given a sub-second clock.
     """
     from unittest.mock import MagicMock
@@ -658,12 +659,10 @@ def test_one_second_budget_with_time_left_still_runs() -> None:
     try:
         with pool._cond:
             pool._idle[mock_worker] = time.monotonic()
-        end = time.monotonic() + 0.4
         res = pool.execute(
             helper="extract_text",
             image=b"\x89PNG",
-            timeout_sec=1,
-            deadline=end,
+            deadline=Deadline.from_absolute(1.0, time.monotonic() + 0.4),
             req_id="slip",
         )
         assert res.get("code") != "VISION_POOL_BUSY"

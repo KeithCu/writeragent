@@ -3373,6 +3373,7 @@ def test_wsgi_app_uses_the_current_formula_pool() -> None:
 def test_run_with_logging_deadline_errors_before_headers() -> None:
     """A raise before headers sends one JSON 500 and releases the permit."""
     from compute_service.server import _Admission, _gated
+    from compute_service.worker_base import Deadline
 
     calls: list[str] = []
 
@@ -3392,7 +3393,7 @@ def test_run_with_logging_deadline_errors_before_headers() -> None:
         busy_code="WORKER_POOL_BUSY",
         busy_message="busy",
         route_fn=route_fn,
-        prepare=lambda _s: (_Admission(timeout_sec=5.0, parsed={"id": "early"}, req_id="early"), None),
+        prepare=lambda _s: (_Admission(deadline=Deadline(5.0), parsed={"id": "early"}, req_id="early"), None),
     )
     assert calls == ["500 Internal Server Error"]
     assert b"INTERNAL_ERROR" in b"".join(body)
@@ -4369,6 +4370,7 @@ def test_wsgi_chunked_401_closes_connection() -> None:
 
 def test_reset_queue_timeout_closes_connection() -> None:
     from compute_service.server import _Admission, _gated
+    from compute_service.worker_base import Deadline
 
     # Gated route timing out before execution.
     stream = io.BytesIO(b"smuggled GET /health")
@@ -4395,7 +4397,7 @@ def test_reset_queue_timeout_closes_connection() -> None:
         busy_code="WORKER_POOL_BUSY",
         busy_message="busy",
         route_fn=lambda s, a: [],
-        prepare=lambda _s: (_Admission(timeout_sec=1.0, parsed={}), None),
+        prepare=lambda _s: (_Admission(deadline=Deadline.from_absolute(1.0, 1.0), parsed={}), None),
     )
     payload = json.loads(b"".join(res).decode("utf-8"))
     assert statuses[0].startswith("503")
@@ -4505,3 +4507,23 @@ def test_reset_body_read_before_sticky_permit(monkeypatch: pytest.MonkeyPatch) -
 
 
 
+
+
+def test_execute_receives_the_admission_deadline() -> None:
+    """The handler builds one Deadline at admission and the pool receives that object, not a timeout to restart."""
+    from compute_service.worker_base import Deadline
+
+    seen: dict[str, Any] = {}
+
+    def execute_fn(**kwargs: Any) -> dict[str, Any]:
+        seen.update(kwargs)
+        return {"status": "ok", "result_json": b"{\"status\":\"ok\",\"result\":1}"}
+
+    app = create_wsgi_app(ComputeSettings(workers=1), execute_fn=execute_fn)
+    status, _headers, _parsed = _wsgi_post(app, json.dumps({"code": "result = 1", "timeout_ms": 7000}).encode("utf-8"), path="/v1/execute")
+    assert status.startswith("200")
+    clock = seen["deadline"]
+    assert isinstance(clock, Deadline)
+    assert clock.budget_sec == 7.0
+    assert 6.0 < clock.left() <= 7.0
+    assert "timeout_sec" not in seen

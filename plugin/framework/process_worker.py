@@ -34,7 +34,8 @@ The drain is started by ``ManagedSubprocess.start``.
 crash, or a spawn failure does not. A ready handshake resets the count.
 
 ``Deadline.left`` is the true remainder and may be negative. ``usable``
-is the gate before a write, and before a pool lifts a short remainder.
+is the gate before a lease or a write. ``run_for`` is the one place a
+pool lifts a short remainder to ``MIN_REQUEST_SEC``.
 A dead slot also refuses to spawn once less than
 ``_MIN_SPAWN_REMAINING_SEC`` is left. The 0.01s floor that keeps
 ``select`` off zero lives in ``plugin.scripting.ipc``.
@@ -123,8 +124,8 @@ class Deadline:
     end the HTTP handler already chose. Formula and vision use that one.
 
     ``left()`` is the true remainder and may be negative. ``usable()``
-    is the gate before a write, and before a pool lifts a short remainder:
-    None when that work must not start, otherwise ``left()``. A one-second
+    is the gate before a lease or a write: None when that work must not
+    start, otherwise ``left()``. ``run_for()`` is what a pool hands the child. A one-second
     request still passes after the clock has moved. A longer request with
     under one second left does not. Spawning a dead slot is tighter: see
     ``_spawn_budget``. The 0.01s floor that keeps ``select`` off zero
@@ -182,17 +183,24 @@ class Deadline:
             return None
         return remaining
 
+    def run_for(self) -> float:
+        """Seconds a pool gives the child after ``usable()`` passed: ``left()``, at least ``MIN_REQUEST_SEC``.
+
+        The only lift. A one-second request may reach the child with under a
+        second left, and the child's whole-second alarm must still be one second.
+        """
+        return max(self.left(), MIN_REQUEST_SEC)
+
 
 def _spawn_budget(deadline: Deadline) -> float | None:
     """Seconds for a new handshake, or None when a child must not start.
 
     ``usable()`` still returns a short remainder for a one-second budget
-    so formula and vision can lift it to ``MIN_REQUEST_SEC``. Starting a
-    process on that remainder does not.
+    so ``run_for()`` can lift it. Starting a process on that remainder does not.
 
     What was wrong: a one-second clock with about 20ms left passed
     ``usable()``, ``Popen`` ran, and the ready read was given those 20ms.
-    The child was then killed. The lift belongs in the pool, before
+    The child was then killed. The lift is ``run_for()``, before
     ``execute`` builds a fresh clock. This floor is only the spawn.
     """
     remaining = deadline.usable()

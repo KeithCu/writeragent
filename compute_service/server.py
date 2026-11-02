@@ -27,7 +27,8 @@ if _PROJECT_ROOT not in sys.path:
 from compute_service import __version__
 from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
 # Internal server clocks and timeouts shared with the route module; not public wsgi_server exports.
-from compute_service.wsgi_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, _accept_clock, _request_deadline, WSGIDualStackServer, service_listener_threads, sticky_listener_slots  # pyright: ignore[reportPrivateUsage]
+from compute_service.wsgi_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, _accept_clock, WSGIDualStackServer, service_listener_threads, sticky_listener_slots  # pyright: ignore[reportPrivateUsage]
+from compute_service.worker_base import Deadline
 from compute_service.json_forward import (
     ExecuteRequestError,
     ExecuteRequestParts,
@@ -652,11 +653,21 @@ def _parse_session_id(environ: dict[str, Any]) -> str | None:
 
 @dataclass
 class _Admission:
-    """Request admission envelope containing timeout and parsed body."""
+    """Admitted request: its one deadline and the parsed body.
 
-    timeout_sec: float
+    ``deadline`` starts at the accept stamp (kept-alive resubmits are
+    re-stamped; without one, now). The semaphore wait, the pool lease, and
+    the child all spend this one clock.
+    """
+
+    deadline: Deadline
     parsed: Any = None
     req_id: Any = None
+
+
+def _admission(environ: dict[str, Any], timeout_sec: float, parsed: Any, req_id: Any) -> _Admission:
+    end = _accept_clock(environ.get("compute.accept_time")) + timeout_sec
+    return _Admission(deadline=Deadline.from_absolute(timeout_sec, end), parsed=parsed, req_id=req_id)
 
 
 def _admit_body(
@@ -680,7 +691,7 @@ def _admit_body(
             max_timeout_sec=settings.max_timeout_sec,
         )
     )
-    return _Admission(timeout_sec=timeout_sec, parsed=parts, req_id=parts.req_id), None
+    return _admission(environ, timeout_sec, parts, parts.req_id), None
 
 
 def _admit_reset(
@@ -693,7 +704,7 @@ def _admit_reset(
     if err is not None:
         return None, err
     assert data is not None
-    return _Admission(timeout_sec=float(settings.default_timeout_sec), parsed=data, req_id=data.get("id")), None
+    return _admission(environ, float(settings.default_timeout_sec), data, data.get("id")), None
 
 
 def _admit_vision(
@@ -774,8 +785,7 @@ def _gated(
 
         req_id = admission.req_id
 
-        deadline = _request_deadline(environ.get("compute.accept_time"), admission.timeout_sec)
-        remaining = deadline - time.monotonic()
+        remaining = admission.deadline.left()
         if remaining <= 0:
             return _error(_start, "503 Service Unavailable", "Request deadline expired before execution.", code="QUEUE_TIMEOUT", req_id=req_id, extra_headers=[("Retry-After", "1")])
 
@@ -855,11 +865,9 @@ def _handle_execute(environ: dict[str, Any], start_response: Any, settings: Comp
     except ExecuteRequestError as exc:
         return _error(start_response, "400 Bad Request", str(exc), code=exc.code, req_id=req_id)
 
-    timeout_sec = int(admission.timeout_sec)
-    deadline = _request_deadline(environ.get("compute.accept_time"), float(timeout_sec))
     sid = session_id if mode == "shared" else None
 
-    result_payload = run_execute(code=code, data_json=parts.data_json, session_id=sid, timeout_sec=timeout_sec, mode=mode, init_script=init_script, req_id=req_id, decode_result=False, deadline=deadline)
+    result_payload = run_execute(code=code, data_json=parts.data_json, session_id=sid, mode=mode, init_script=init_script, req_id=req_id, decode_result=False, deadline=admission.deadline)
     return _send_execution_result(start_response, result_payload, req_id)
 
 
@@ -879,15 +887,11 @@ def _handle_session_reset(environ: dict[str, Any], start_response: Any, settings
     if not session_id:
         return _error(start_response, "400 Bad Request", "Missing 'session_id' URL query parameter (?session_id=...).", req_id=req_id)
 
-    deadline = _request_deadline(environ.get("compute.accept_time"), settings.default_timeout_sec)
-
     from compute_service.formula_pool import SESSION_RESET_TIMEOUT_SEC
 
-    # Cap reset at SESSION_RESET_TIMEOUT_SEC, but honor the accept-time deadline so a request
-    # that already waited does not get a fresh budget. Floor so a
-    # just-expired clock still returns.
-    remaining = deadline - time.monotonic()
-    timeout_sec = min(SESSION_RESET_TIMEOUT_SEC, max(0.01, remaining))
+    # Reset leases within the admission deadline, capped at SESSION_RESET_TIMEOUT_SEC.
+    # The floor lets a just-expired clock still return.
+    timeout_sec = min(SESSION_RESET_TIMEOUT_SEC, max(0.01, admission.deadline.left()))
     result_payload = run_reset(session_id, timeout_sec=timeout_sec)
 
     if isinstance(result_payload, dict) and result_payload.get("status") == "error":
@@ -933,8 +937,6 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
         params = raw_params
     else:
         return _error(start_response, "400 Bad Request", "params must be an object.", code="INVALID_REQUEST", req_id=req_id)
-    vision_budget = admission.timeout_sec
-    vision_deadline = _request_deadline(environ.get("compute.accept_time"), vision_budget)
 
     from compute_service.vision import get_vision_pool
 
@@ -944,10 +946,9 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
         image=image_bytes,
         file_path=path_str,
         params=params,
-        timeout_sec=int(vision_budget),
         req_id=req_id,
         allow_paths=settings.ocr_allow_paths,
-        deadline=vision_deadline,
+        deadline=admission.deadline,
     )
     return _send_execution_result(start_response, result_payload, req_id)
 

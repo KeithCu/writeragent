@@ -98,17 +98,6 @@ def _accept_clock(accept_time: Any) -> float:
     return time.monotonic()
 
 
-def _request_deadline(accept_time: Any, timeout_sec: float) -> float:  # pyright: ignore[reportUnusedFunction]
-    """One clock from request start through the worker lease and the child.
-
-    Stamping occurs on the accept thread when a connection becomes readable,
-    including the first byte of a new connection and kept-alive resubmits.
-    Without an accept timestamp (direct WSGI tests) the clock starts now.
-    Queue wait is subtracted from *timeout_sec*; it is not a second 30s timer.
-    """
-    return _accept_clock(accept_time) + float(timeout_sec)
-
-
 # =============================================================================
 # HTTP Server Plumbing
 # =============================================================================
