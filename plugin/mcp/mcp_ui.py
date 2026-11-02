@@ -192,10 +192,11 @@ def sync_mcp_config_snippet(dlg: Any) -> None:
     with _active_settings_dialog_lock:
         active_url = _tested_provider_tunnel_urls.get(selected_provider)
     if not active_url:
-        from plugin.mcp import _shared_tunnel
+        from plugin.mcp import current_tunnel
 
-        if _shared_tunnel and _shared_tunnel.is_running and getattr(_shared_tunnel, "provider", None) == selected_provider:
-            active_url = _shared_tunnel.mcp_public_url()
+        tunnel = current_tunnel()
+        if tunnel and tunnel.is_running and getattr(tunnel, "provider", None) == selected_provider:
+            active_url = tunnel.mcp_public_url()
             # No URL yet: write the template now; notify_tunnel_url_acquired refreshes it later.
             if active_url:
                 remember_tested_tunnel_url(selected_provider, active_url)

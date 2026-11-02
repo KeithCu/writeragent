@@ -321,11 +321,10 @@ def reject_forbidden_origin(handler: Any) -> bool:
 
 def get_configured_tunnel_host() -> str | None:
     """Hostname of the running MCP tunnel's public URL, if any."""
-    # _shared_tunnel is a module global. public_url is a plain attribute.
-    # A failed lookup must not look like "no tunnel".
-    from plugin.mcp import _shared_tunnel
+    from plugin.mcp import current_tunnel
 
-    pub_url = _shared_tunnel.public_url if _shared_tunnel is not None else None
+    tunnel = current_tunnel()
+    pub_url = tunnel.public_url if tunnel is not None else None
     if not pub_url:
         return None
     return urlparse(pub_url if "://" in pub_url else f"https://{pub_url}").hostname

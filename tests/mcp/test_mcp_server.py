@@ -678,7 +678,7 @@ def test_handle_mcp_tools_call_is_async_routing():
     mcp_protocol.tool_registry = MagicMock()
     mcp_protocol.tool_registry.get.return_value = tool_mock
 
-    with patch.object(mcp_protocol, "_execute_long_running") as mock_execute_lr:
+    with patch.object(mcp_protocol, "_run_tool") as mock_execute_lr:
         params = {
             "name": "dummy_async_tool",
             "arguments": {"arg": "val"}
@@ -702,7 +702,7 @@ def test_handle_mcp_tools_call_parameter():
     mcp_protocol.tool_registry.get.return_value = tool_mock
 
     # Patch execution to see what document_url it receives
-    with patch.object(mcp_protocol, "_execute_with_backpressure") as mock_execute:
+    with patch.object(mcp_protocol, "_run_tool") as mock_execute:
         params = {
             "name": "dummy_tool",
             "arguments": {
@@ -724,24 +724,20 @@ def test_handle_mcp_tools_call_parameter():
 
 
 def test_try_reserve_sse_capped_at_eight():
-    from types import SimpleNamespace
+    from plugin.mcp.server import SSE_MAX_STREAMS, SseRegistry
 
-    from plugin.mcp.server import SSE_MAX_STREAMS, try_reserve_sse
-
-    server = SimpleNamespace()
+    reg = SseRegistry()
     for _ in range(SSE_MAX_STREAMS):
-        assert try_reserve_sse(server) is not None
-    assert try_reserve_sse(server) is None
+        assert reg.reserve() is not None
+    assert reg.reserve() is None
 
 
 def test_try_reserve_sse_after_stop_returns_none():
-    from types import SimpleNamespace
+    from plugin.mcp.server import SseRegistry
 
-    from plugin.mcp.server import stop_sse_keepalives, try_reserve_sse
-
-    server = SimpleNamespace()
-    stop_sse_keepalives(server)
-    assert try_reserve_sse(server) is None
+    reg = SseRegistry()
+    reg.stop_all()
+    assert reg.reserve() is None
 
 
 def test_http_server_stop_joins_threads_within_deadline():
@@ -749,11 +745,11 @@ def test_http_server_stop_joins_threads_within_deadline():
     import time
     from types import SimpleNamespace
 
-    from plugin.mcp.server import HttpServer, _sse_state
+    from plugin.mcp.server import HttpServer, SseRegistry
 
     srv = HttpServer(MagicMock(), port=0, host="127.0.0.1", use_ssl=False)
     srv._running = True
-    server_ns = SimpleNamespace(shutdown=MagicMock(), server_close=MagicMock())
+    server_ns = SimpleNamespace(shutdown=MagicMock(), server_close=MagicMock(), sse_registry=SseRegistry())
     srv._server = server_ns
 
     blocker = threading.Event()
@@ -762,10 +758,9 @@ def test_http_server_stop_joins_threads_within_deadline():
     t1.start()
     t2.start()
 
-    _, _, threads, lock = _sse_state(server_ns)
-    with lock:
-        threads.add(t1)
-        threads.add(t2)
+    with server_ns.sse_registry.lock:
+        server_ns.sse_registry.threads.add(t1)
+        server_ns.sse_registry.threads.add(t2)
 
     start = time.monotonic()
     try:

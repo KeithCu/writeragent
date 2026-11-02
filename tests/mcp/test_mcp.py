@@ -216,9 +216,10 @@ def test_mcp_action_server_status_dialog_controls():
 
     mock_dlg.getControl.side_effect = lambda name: mock_controls.get(name)
 
+    mod.server = mock_server
+    mod.tunnel = mock_tunnel
+
     with (
-        patch("plugin.mcp._shared_http_server", mock_server),
-        patch("plugin.mcp._shared_tunnel", mock_tunnel),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=mock_dlg),
     ):

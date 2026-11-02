@@ -1058,13 +1058,14 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
 
     local_running = _health_probe_ok(f"http://localhost:{port}/health", 1.5)
 
-    from plugin.mcp import _shared_tunnel
+    from plugin.mcp import current_tunnel
 
-    if _shared_tunnel and _shared_tunnel.is_running:
-        active_p = getattr(_shared_tunnel, "provider", None) or DEFAULT_PROVIDER
-        active_url = _shared_tunnel.mcp_public_url()
+    tunnel = current_tunnel()
+    if tunnel and tunnel.is_running:
+        active_p = getattr(tunnel, "provider", None) or DEFAULT_PROVIDER
+        active_url = tunnel.mcp_public_url()
         if active_url:
-            base_url = normalize_public_base(_shared_tunnel.public_url or "")
+            base_url = normalize_public_base(tunnel.public_url or "")
             probe_ok = _health_probe_ok(f"{base_url}/health", 2.0)
 
             if active_p == provider:

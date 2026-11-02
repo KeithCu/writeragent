@@ -1371,7 +1371,7 @@ def test_test_tunnel_connectivity_live_probe_success():
         patch.dict("os.environ", {}, clear=True),
         patch("subprocess.run", return_value=mock_res),
         patch("urllib.request.urlopen", return_value=mock_probe),
-        patch("plugin.mcp._shared_tunnel", mock_tunnel),
+        patch("plugin.mcp.current_tunnel", return_value=mock_tunnel),
     ):
         ok, msg, pub_url = test_tunnel_connectivity("cloudflare", port=18765)
         assert ok is True
@@ -1564,8 +1564,6 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     from plugin.mcp.tunnel_state import TunnelStatus
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    monkeypatch.setattr(mcp_mod, "_shared_tunnel", None)
-    monkeypatch.setattr(mcp_mod, "_shared_http_server", None)
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
     mod.name = "mcp"
     services = MagicMock()
@@ -1580,9 +1578,10 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     bound = MagicMock()
     bound.is_running.return_value = True
     bound.port = 18765
-    monkeypatch.setattr(mcp_mod, "_shared_http_server", bound)
+    mod.server = bound
     tunnel = TunnelManager()
-    monkeypatch.setattr(mcp_mod, "_shared_tunnel", tunnel)
+    mod.tunnel = tunnel
+    monkeypatch.setattr(mcp_mod, "_current_module", mod)
 
     caller = threading.current_thread()
     probed = threading.Event()
@@ -1816,10 +1815,11 @@ def _sync_tunnel_module(monkeypatch, port, bound_port=18765):
     bound = MagicMock()
     bound.is_running.return_value = True
     bound.port = bound_port
-    monkeypatch.setattr(mcp_mod, "_shared_http_server", bound)
+    mod.server = bound
     tunnel = MagicMock()
     tunnel.last_error = None
-    monkeypatch.setattr(mcp_mod, "_shared_tunnel", tunnel)
+    mod.tunnel = tunnel
+    monkeypatch.setattr(mcp_mod, "_current_module", mod)
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
     return mod, tunnel
 
