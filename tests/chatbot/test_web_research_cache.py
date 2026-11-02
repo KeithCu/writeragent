@@ -174,11 +174,11 @@ def test_deep_and_shallow_cache_keys_do_not_cross_match(tmp_path):
     _web_cache_set(db_file, "research", deep, "DEEP", 50 * 1024 * 1024)
 
     # Shallow exact order stays bare, then language-prefixed. Deep is not in that list.
-    bare_hit = lookup_research_cache(db_file, words, "english", 30, 40, 1)
+    bare_hit = lookup_research_cache(db_file, words, "english", 30, 40, 1, embedding_percent=40)
     assert bare_hit is not None
     assert bare_hit[3] == "BARE"
 
-    deep_hit = lookup_research_cache(db_file, words, "english", 30, 40, 1, mode="deep")
+    deep_hit = lookup_research_cache(db_file, words, "english", 30, 40, 1, embedding_percent=40, mode="deep")
     assert deep_hit is not None
     assert deep_hit[3] == "DEEP"
     assert deep_hit[1] == deep
@@ -186,11 +186,11 @@ def test_deep_and_shallow_cache_keys_do_not_cross_match(tmp_path):
     shallow_only = str(tmp_path / "shallow.db")
     _web_cache_set(shallow_only, "research", shallow, "PREFIXED", 50 * 1024 * 1024)
     _web_cache_set(shallow_only, "research", words, "BARE", 50 * 1024 * 1024)
-    assert lookup_research_cache(shallow_only, words, "english", 30, 40, 1, mode="deep") is None
+    assert lookup_research_cache(shallow_only, words, "english", 30, 40, 1, embedding_percent=40, mode="deep") is None
 
     deep_only = str(tmp_path / "deep.db")
     _web_cache_set(deep_only, "research", deep, "DEEP", 50 * 1024 * 1024)
-    assert lookup_research_cache(deep_only, words, "english", 30, 40, 1) is None
+    assert lookup_research_cache(deep_only, words, "english", 30, 40, 1, embedding_percent=40) is None
 
 
 def test_deep_and_shallow_fuzzy_and_embedding_stay_in_mode(tmp_path):
@@ -201,20 +201,20 @@ def test_deep_and_shallow_fuzzy_and_embedding_stay_in_mode(tmp_path):
 
     shallow_db = str(tmp_path / "fuzzy_shallow.db")
     _web_cache_set(shallow_db, "research", shallow_key, "shallow elevator", 50 * 1024 * 1024)
-    shallow_hit = lookup_research_cache(shallow_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8)
+    shallow_hit = lookup_research_cache(shallow_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8, embedding_percent=40)
     assert shallow_hit is not None
     assert shallow_hit[0] == "hit_fuzzy"
     assert shallow_hit[3] == "shallow elevator"
-    assert lookup_research_cache(shallow_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8, mode="deep") is None
+    assert lookup_research_cache(shallow_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8, embedding_percent=40, mode="deep") is None
 
     deep_db = str(tmp_path / "fuzzy_deep.db")
     _web_cache_set(deep_db, "research", deep_key, "deep elevator", 50 * 1024 * 1024)
-    deep_hit = lookup_research_cache(deep_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8, mode="deep")
+    deep_hit = lookup_research_cache(deep_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8, embedding_percent=40, mode="deep")
     assert deep_hit is not None
     assert deep_hit[0] == "hit_fuzzy"
     assert deep_hit[1] == deep_key
     assert deep_hit[3] == "deep elevator"
-    assert lookup_research_cache(deep_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8) is None
+    assert lookup_research_cache(deep_db, SPACE_ELEVATOR_KEY_2, "english", 30, 40, 8, embedding_percent=40) is None
 
     embed_db = str(tmp_path / "embed.db")
     pizza_shallow = "english|best nearby pizza"
@@ -237,10 +237,10 @@ def test_deep_and_shallow_fuzzy_and_embedding_stay_in_mode(tmp_path):
              return_value=EmbeddingBatch(model="test-model", dim=2, vectors=[[1.0, 0.0]], indices=[0]),
          ):
         shallow_embed = lookup_research_cache(
-            embed_db, "good pizza around", "english", 30, 90, 8, ctx=object(), embedding_text="pizza around good",
+            embed_db, "good pizza around", "english", 30, 90, 8, embedding_percent=90, ctx=object(), embedding_text="pizza around good",
         )
         deep_embed = lookup_research_cache(
-            embed_db, "good pizza around", "english", 30, 90, 8, ctx=object(), embedding_text="pizza around good", mode="deep",
+            embed_db, "good pizza around", "english", 30, 90, 8, embedding_percent=90, ctx=object(), embedding_text="pizza around good", mode="deep",
         )
     assert shallow_embed is not None
     assert shallow_embed[0] == "hit_embedding"
@@ -314,10 +314,10 @@ def test_lookup_bare_key_is_english_only(tmp_path):
     _web_cache_set(db_file, "research", "french|paris restaurants", "french row", 50 * 1024 * 1024)
 
     french = lookup_research_cache(
-        db_file, "paris restaurants", "french", max_age_days=30, jaccard_percent=100, min_overlap=99,
+        db_file, "paris restaurants", "french", max_age_days=30, jaccard_percent=100, min_overlap=99, embedding_percent=100,
     )
     english = lookup_research_cache(
-        db_file, "paris restaurants", "english", max_age_days=30, jaccard_percent=100, min_overlap=99,
+        db_file, "paris restaurants", "english", max_age_days=30, jaccard_percent=100, min_overlap=99, embedding_percent=100,
     )
     assert french is not None and french[3] == "french row"
     assert english is not None and english[3] == "english legacy"
@@ -382,6 +382,7 @@ def test_lookup_research_cache_fuzzy_hit(tmp_path):
         max_age_days=30,
         jaccard_percent=40,
         min_overlap=8,
+        embedding_percent=40,
     )
     assert hit is not None
     event, matched_raw_key, score, cached = hit
@@ -449,6 +450,7 @@ def test_lookup_research_cache_embedding_hit(tmp_path):
             max_age_days=30,
             jaccard_percent=60,
             min_overlap=8,
+            embedding_percent=60,
             ctx=object(),
             embedding_text="pizza around good",
         )
@@ -486,6 +488,7 @@ def test_lookup_research_cache_embedding_model_mismatch_falls_back_to_jaccard(tm
             max_age_days=30,
             jaccard_percent=40,
             min_overlap=8,
+            embedding_percent=40,
             ctx=object(),
         )
 
@@ -524,6 +527,7 @@ def test_research_cache_embedding_backfill_worker_stores_missing_vectors(tmp_pat
             max_age_days=30,
             jaccard_percent=60,
             min_overlap=8,
+            embedding_percent=60,
             ctx=object(),
         )
 
