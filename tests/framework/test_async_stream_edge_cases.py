@@ -10,7 +10,7 @@ import queue
 import pytest
 
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from tests.framework.stream_test_helpers import DummyToolkit
 
 
@@ -25,7 +25,7 @@ class TestRunAsyncWorkerOnStoppedFallback:
         q = queue.Queue()
         q.put((StreamQueueKind.STOPPED, None))
 
-        job_done = [False]
+        outcome = DrainOutcome()
         errors = []
         done_calls = []
 
@@ -35,14 +35,14 @@ class TestRunAsyncWorkerOnStoppedFallback:
         run_stream_drain_loop(
             q,
             DummyToolkit(),
-            job_done,
+            outcome,
             apply_chunk_fn=lambda _t, _th: None,
             on_stream_done=lambda _item: True,
             on_stopped=lambda: on_done(None),  # explicit stopped handler is fine
             on_error=lambda e: errors.append(e),
         )
 
-        assert job_done[0] is True
+        assert outcome.done is True
         assert errors == [], f"Unexpected errors on Stop path: {errors}"
 
     def test_stop_fallback_no_on_stopped_fn_one_arg_done_fn(self):
@@ -94,7 +94,7 @@ def test_run_stream_drain_loop_error_clears_defer_next_tool_exit():
     q.put((StreamQueueKind.STATUS, "boom"))
 
     toolkit = DummyToolkit()
-    job_done = [False]
+    outcome = DrainOutcome()
     applied = []
 
     batch_counter = [0]
@@ -126,7 +126,7 @@ def test_run_stream_drain_loop_error_clears_defer_next_tool_exit():
     run_stream_drain_loop(
         q,
         toolkit,
-        job_done,
+        outcome,
         apply_chunk_fn=lambda t, i: None,
         on_stream_done=on_stream_done,
         on_stopped=lambda: None,
@@ -150,7 +150,7 @@ def test_recovered_error_item_after_next_tool_keeps_drain_alive():
     q.put((StreamQueueKind.CHUNK, "dropped-tail"))
     applied: list[tuple[str, bool]] = []
     errors: list[object] = []
-    job_done = [False]
+    outcome = DrainOutcome()
 
     def on_error(payload: object) -> bool:
         errors.append(payload)
@@ -161,13 +161,13 @@ def test_recovered_error_item_after_next_tool_keeps_drain_alive():
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda text, is_thinking: applied.append((text, is_thinking)),
         on_stream_done=lambda _item: True,
         on_stopped=lambda: None,
         on_error=on_error,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert ("replacement", False) in applied
     assert ("dropped-tail", False) not in applied
     assert errors == ["tool failed"]
@@ -181,18 +181,18 @@ def test_empty_queue_item_is_invalid_tag_not_index_error(empty: tuple | list) ->
     q.put((StreamQueueKind.STREAM_DONE, "later"))
     errors: list[object] = []
     done: list[object] = []
-    job_done = [False]
+    outcome = DrainOutcome()
 
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda _text, _is_thinking: None,
         on_stream_done=lambda item: done.append(item) or True,
         on_stopped=lambda: None,
         on_error=lambda payload: errors.append(payload),
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert done == []
     assert len(errors) == 1
     assert "NoneType" in str(errors[0])
@@ -205,7 +205,7 @@ def test_stop_tail_empty_item_does_not_call_on_error():
     calls = [0]
     stopped: list[bool] = []
     errors: list[object] = []
-    job_done = [False]
+    outcome = DrainOutcome()
 
     def stop_checker() -> bool:
         # The blocking loop checks once before the batch, then again per item.
@@ -215,14 +215,14 @@ def test_stop_tail_empty_item_does_not_call_on_error():
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda _text, _is_thinking: None,
         on_stream_done=lambda _item: True,
         on_stopped=lambda: stopped.append(True),
         on_error=lambda payload: errors.append(payload),
         stop_checker=stop_checker,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert stopped == [True]
     assert errors == []
 
@@ -240,7 +240,7 @@ def test_none_display_payloads_flush_as_strings():
     run_stream_drain_loop(
         q,
         None,
-        [False],
+        DrainOutcome(),
         lambda text, is_thinking: applied.append((text, is_thinking)),
         on_stream_done=lambda _item: True,
         on_stopped=lambda: None,

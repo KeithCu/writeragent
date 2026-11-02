@@ -87,7 +87,7 @@ def _drive_direct_image_send(host, doc, execute_return):
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
 
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     # The stub must start the worker because, since #1446, spawn happens only from on_drain_started.
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
@@ -102,7 +102,7 @@ def _drive_direct_image_send(host, doc, execute_return):
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
 
                 mock_run_stream.side_effect = fake_drain_loop
                 host._do_send_direct_image("make it look like a wizard", doc)

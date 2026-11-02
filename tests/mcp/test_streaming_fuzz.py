@@ -164,7 +164,7 @@ class TestStreamingFuzz:
     @patch("plugin.framework.client.llm_client.init_logging")
     def test_ui_thread_graceful_recovery(self, mock_init_logging):
         """Simulate an error in the worker thread to ensure run_stream_drain_loop correctly drains it without breaking processEventsToIdle() loop."""
-        from plugin.framework.async_stream import run_stream_drain_loop
+        from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
         import queue
 
         class DummyToolkit:
@@ -173,7 +173,7 @@ class TestStreamingFuzz:
 
         q = queue.Queue()
         toolkit = DummyToolkit()
-        job_done = [False]
+        outcome = DrainOutcome()
         errors = []
 
         def apply_chunk(t, is_thinking):
@@ -195,11 +195,11 @@ class TestStreamingFuzz:
 
         # Test loop recovers
         run_stream_drain_loop(
-            q, toolkit, job_done, apply_chunk,
+            q, toolkit, outcome, apply_chunk,
             on_stream_done=on_stream_done, on_stopped=noop, on_error=on_error
         )
 
-        assert (job_done[0])
+        assert (outcome.done)
         assert (len(errors)) == (1)
         assert (isinstance(errors[0], ValueError))
 

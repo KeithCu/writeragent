@@ -154,7 +154,7 @@ def test_run_web_research_stores_raw_answer_and_rerenders():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -168,7 +168,7 @@ def test_run_web_research_stores_raw_answer_and_rerenders():
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
                 mock_run_stream.side_effect = fake_drain_loop
 
                 getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
@@ -237,7 +237,7 @@ def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -251,7 +251,7 @@ def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
 
                 mock_run_stream.side_effect = fake_drain_loop
 
@@ -319,7 +319,7 @@ def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -333,7 +333,7 @@ def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
 
                 mock_run_stream.side_effect = fake_drain_loop
 
@@ -388,7 +388,7 @@ def test_do_send_direct_image():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -402,7 +402,7 @@ def test_do_send_direct_image():
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
                 mock_run_stream.side_effect = fake_drain_loop
 
                 # Ensure get_toolkit works
@@ -471,7 +471,7 @@ def _run_direct_image_send(panel, model, execute_return, selected_graphic=None):
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -485,7 +485,7 @@ def _run_direct_image_send(panel, model, execute_return, selected_graphic=None):
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
 
                 mock_run_stream.side_effect = fake_drain_loop
 
@@ -633,7 +633,7 @@ def test_do_send_direct_image_error():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -645,7 +645,7 @@ def test_do_send_direct_image_error():
                             on_stream_done(item)
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
                 mock_run_stream.side_effect = fake_drain_loop
 
                 smgr = getattr(panel.ctx, "getServiceManager")()
@@ -675,7 +675,7 @@ def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
     def fake_run_bg(func, **kwargs):
         func()
 
-    def fake_drain_loop(drain_q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+    def fake_drain_loop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
         if kwargs.get("on_drain_started"):
             kwargs["on_drain_started"]()
         while not drain_q.empty():
@@ -687,17 +687,17 @@ def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
                 apply_chunk(item[1], True)
             elif kind == StreamQueueKind.STREAM_DONE:
                 on_stream_done(item)
-                job_done[0] = True
+                outcome.done = True
                 return
             elif kind == StreamQueueKind.STOPPED:
                 on_stopped()
-                job_done[0] = True
+                outcome.done = True
                 return
             elif kind == StreamQueueKind.ERROR:
                 on_error(item[1])
-                job_done[0] = True
+                outcome.done = True
                 return
-        job_done[0] = True
+        outcome.done = True
 
     with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
         with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=fake_drain_loop):
@@ -1111,7 +1111,7 @@ def test_run_web_research_invalid_json():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -1125,7 +1125,7 @@ def test_run_web_research_invalid_json():
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
                 mock_run_stream.side_effect = fake_drain_loop
 
                 getattr(panel.ctx, "getServiceManager")().createInstanceWithContext.return_value = MagicMock()
@@ -1203,7 +1203,7 @@ def test_run_web_research_uses_session_history_not_response_control():
 
                 with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
 
-                    def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                    def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                         if kwargs.get("on_drain_started"):
                             kwargs["on_drain_started"]()
                         while not q.empty():
@@ -1217,7 +1217,7 @@ def test_run_web_research_uses_session_history_not_response_control():
                                 on_status_fn(item[1])
                             elif k == StreamQueueKind.ERROR:
                                 on_error(item[1])
-                        job_done[0] = True
+                        outcome.done = True
 
                     mock_run_stream.side_effect = fake_drain_loop
 
@@ -1280,7 +1280,7 @@ def test_run_librarian_keeps_panel_flag_until_switch():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -1294,7 +1294,7 @@ def test_run_librarian_keeps_panel_flag_until_switch():
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
 
                 mock_run_stream.side_effect = fake_drain_loop
 
@@ -1357,7 +1357,7 @@ def test_run_librarian_clears_panel_flag_on_switch_mode():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -1371,7 +1371,7 @@ def test_run_librarian_clears_panel_flag_on_switch_mode():
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
 
                 mock_run_stream.side_effect = fake_drain_loop
 
@@ -1430,7 +1430,7 @@ def test_run_librarian_switch_mode_calls_finished_callback():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -1444,7 +1444,7 @@ def test_run_librarian_switch_mode_calls_finished_callback():
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
 
                 mock_run_stream.side_effect = fake_drain_loop
 
@@ -1610,9 +1610,9 @@ def test_on_error_after_stopped_or_done_writes_no_history_row():
         begin_send_turn(panel)
         q = StreamQueue()
 
-        def fake_drain_loop(drain_q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+        def fake_drain_loop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
             on_error(RuntimeError("late error"))
-            job_done[0] = True
+            outcome.done = True
 
         with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
             with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=fake_drain_loop):
@@ -1635,7 +1635,7 @@ def test_thinking_chunk_reaches_append_as_thinking():
 
 
 def _collecting_drain(kinds):
-    def _drain(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+    def _drain(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
         if kwargs.get("on_drain_started"):
             kwargs["on_drain_started"]()
         while not q.empty():
@@ -1654,7 +1654,7 @@ def _collecting_drain(kinds):
                 on_error(item[1])
             elif kind == StreamQueueKind.STOPPED:
                 on_stopped()
-        job_done[0] = True
+        outcome.done = True
 
     return _drain
 

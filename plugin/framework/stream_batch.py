@@ -75,52 +75,47 @@ def wait_for_timer_deadline(cv: threading.Condition, target: Any) -> float | Non
     return target._deadline
 
 
-class _ReusableBurstTimer:
-    """One daemon thread for a batcher. ``arm`` sets the deadline; it does not start a new thread.
+class DeadlineThread:
+    """One dedicated thread that waits for a deadline, fires once, and waits again.
 
-    This thread waits until the deadline, fires once, then waits
-    again. ``cancel`` clears the deadline without leaving the thread.
+    ``arm(delay)`` sets or moves the deadline. ``cancel()`` drops the deadline
+    without stopping the thread. ``stop()`` wakes the thread so it exits.
     """
 
-    def __init__(self, owner: "BatchingStreamQueue", interval: float) -> None:
-        self._interval: float = interval
-        # Weak so a finished send can drop the batcher. The thread would
-        # otherwise keep it alive through the flush callback.
-        self._owner: weakref.ReferenceType[BatchingStreamQueue] = weakref.ref(owner)
+    def __init__(self, fire: Callable[[], None], name: str = "deadline-timer") -> None:
+        self._fire: Callable[[], None] = fire
+        self._name: str = name
         self._cv: threading.Condition = threading.Condition()
         self._deadline: float | None = None
         self._started: bool = False
         self._stopped: bool = False
 
-    def arm(self) -> None:
-        """Start the interval if idle. A live deadline is left alone."""
+    def arm(self, delay: float) -> None:
+        """Start the interval or move the deadline to now + delay."""
         with self._cv:
-            if self._stopped or self._deadline is not None:
+            if self._stopped:
                 return
             if not self._started:
-                # Infinite wait: dedicated, not a pool slot. Start before the
-                # deadline is visible so a failed start can be retried.
-                run_in_background(self._run, name="batch-stream-timer", dedicated=True)
+                run_in_background(self._run, name=self._name, dedicated=True)
                 self._started = True
-            self._deadline = time.monotonic() + self._interval
+            self._deadline = time.monotonic() + delay
             self._cv.notify()
 
     def cancel(self) -> None:
-        """Drop the deadline. The thread stays for the next burst."""
+        """Drop the deadline without leaving the thread."""
         with self._cv:
             self._deadline = None
             self._cv.notify()
 
     def stop(self) -> None:
-        """Wake the thread so it exits. Used when the batcher is released."""
+        """Wake the thread so it exits."""
         with self._cv:
             self._stopped = True
             self._deadline = None
+            self._fire = lambda: None
             self._cv.notify()
 
     def _run(self) -> None:
-        # Catch here: run_in_background ends the thread on Exception, and a
-        # later burst would then have no timer.
         while True:
             with self._cv:
                 deadline = wait_for_timer_deadline(self._cv, self)
@@ -131,18 +126,10 @@ class _ReusableBurstTimer:
                     self._cv.wait(timeout=remaining)
                     continue
                 self._deadline = None
-            owner = self._owner()
-            if owner is None:
-                return
             try:
-                owner.flush()
+                self._fire()
             except Exception:
-                log.exception("BatchingStreamQueue timer flush failed")
-            finally:
-                # Drop the strong ref before waiting again. Holding it across
-                # the wait would keep the batcher (and this thread) alive
-                # after the send released it.
-                del owner
+                log.exception("DeadlineThread fire failed")
 
 
 class BatchingStreamQueue:
@@ -176,12 +163,20 @@ class BatchingStreamQueue:
 
     def __init__(self, raw_q: queue.Queue[Any], batch_interval: float) -> None:
         self._raw: queue.Queue[Any] = raw_q
+        self._batch_interval: float = batch_interval
         # Contiguous runs in arrival order. Emitting every CHUNK buffer before
         # every THINKING buffer showed the reply before [Thinking].
         self._runs: list[tuple[StreamQueueKind, list[str]]] = []
         self._lock: threading.Lock = threading.Lock()
         self._dropped: bool = False
-        self._timer: _ReusableBurstTimer = _ReusableBurstTimer(self, batch_interval)
+        owner_ref = weakref.ref(self)
+
+        def _fire() -> None:
+            owner = owner_ref()
+            if owner is not None:
+                owner.flush()
+
+        self._timer: DeadlineThread = DeadlineThread(_fire, name="batch-stream-timer")
 
     def __del__(self) -> None:
         # The timer thread holds only a weakref, and only while flushing.
@@ -199,9 +194,7 @@ class BatchingStreamQueue:
             return
         self._runs.append((kind, [data]))
         if len(self._runs) == 1:
-            # Caller holds _lock. arm() leaves a live deadline alone, so a
-            # later THINKING does not move this burst's deadline.
-            self._timer.arm()
+            self._timer.arm(self._batch_interval)
 
     def _emit_pending_locked(self) -> None:
         """Emit each contiguous display run, in arrival order. Caller holds lock."""

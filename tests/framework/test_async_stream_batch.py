@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
-from plugin.framework.async_stream import StreamQueue, run_stream_drain_loop
+from plugin.framework.stream_batch import BatchingStreamQueue, DeadlineThread, StreamQueueKind
+from plugin.framework.async_stream import DrainOutcome, StreamQueue, run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
 from tests.framework.stream_test_helpers import DummyToolkit
 
@@ -22,7 +22,7 @@ class TestAsyncStreamErrorHandling:
     def test_stream_drain_loop_success(self):
         q = queue.Queue()
         toolkit = MagicMock()
-        job_done = [False]
+        outcome = DrainOutcome()
         on_chunk = MagicMock()
         on_error = MagicMock()
         on_stream_done = MagicMock()
@@ -30,8 +30,8 @@ class TestAsyncStreamErrorHandling:
         q.put((StreamQueueKind.CHUNK, 'hello '))
         q.put((StreamQueueKind.THINKING, 'thinking...'))
         q.put((StreamQueueKind.STREAM_DONE, 'final'))
-        run_stream_drain_loop(q, toolkit, job_done, on_chunk, on_stream_done, on_stopped, on_error)
-        assert (job_done[0] is True)
+        run_stream_drain_loop(q, toolkit, outcome, on_chunk, on_stream_done, on_stopped, on_error)
+        assert (outcome.done is True)
         on_chunk.assert_any_call('hello ', False)
         on_chunk.assert_any_call('thinking...', True)
         on_stream_done.assert_called_once_with((StreamQueueKind.STREAM_DONE, 'final'))
@@ -40,14 +40,14 @@ class TestAsyncStreamErrorHandling:
     def test_stream_drain_loop_processing_error(self):
         q = queue.Queue()
         toolkit = MagicMock()
-        job_done = [False]
+        outcome = DrainOutcome()
         on_error = MagicMock()
 
         def faulty_on_chunk(data, is_thinking):
             raise ValueError('Processing failed')
         q.put((StreamQueueKind.CHUNK, 'bad data'))
-        run_stream_drain_loop(q, toolkit, job_done, faulty_on_chunk, MagicMock(), MagicMock(), on_error)
-        assert (job_done[0] is True)
+        run_stream_drain_loop(q, toolkit, outcome, faulty_on_chunk, MagicMock(), MagicMock(), on_error)
+        assert (outcome.done is True)
         assert (on_error.call_count == 1)
         error_payload = on_error.call_args[0][0]
         assert (error_payload['status'] == 'error')
@@ -96,13 +96,13 @@ def test_process_batch_handler_raises_on_second_chunk_ends_batch(monkeypatch):
         done_calls.append(item)
         return True
 
-    job_done = [False]
+    outcome = DrainOutcome()
     async_stream.run_stream_drain_loop(
-        q, None, job_done, apply_chunk,
+        q, None, outcome, apply_chunk,
         on_stream_done=on_stream_done, on_stopped=lambda: None, on_error=on_error,
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert calls[0] == 2
     assert len(errors) == 1
     assert errors[0]["status"] == "error"
@@ -147,13 +147,13 @@ def test_process_batch_handler_raises_on_second_thinking_ends_batch(monkeypatch)
         done_calls.append(item)
         return True
 
-    job_done = [False]
+    outcome = DrainOutcome()
     async_stream.run_stream_drain_loop(
-        q, None, job_done, apply_chunk,
+        q, None, outcome, apply_chunk,
         on_stream_done=on_stream_done, on_stopped=lambda: None, on_error=on_error,
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert calls[0] == 2
     assert len(errors) == 1
     assert "second thinking" in errors[0]["message"]
@@ -199,13 +199,13 @@ def test_process_batch_handler_error_on_error_true_drops_batch_tail(monkeypatch)
         done_calls.append(item)
         return True
 
-    job_done = [False]
+    outcome = DrainOutcome()
     async_stream.run_stream_drain_loop(
-        q, None, job_done, apply_chunk,
+        q, None, outcome, apply_chunk,
         on_stream_done=on_stream_done, on_stopped=lambda: None, on_error=on_error,
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert len(errors) == 1
     assert len(done_calls) == 1
     assert done_calls[0][1] == "replacement"
@@ -239,13 +239,13 @@ def test_process_batch_handler_error_on_error_raises_still_sets_job_done(monkeyp
         errors.append(e)
         raise RuntimeError("on_error error")
 
-    job_done = [False]
+    outcome = DrainOutcome()
     async_stream.run_stream_drain_loop(
-        q, None, job_done, lambda _t, _th: None,
+        q, None, outcome, lambda _t, _th: None,
         on_stream_done=lambda _i: True, on_stopped=lambda: None, on_error=on_error,
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert len(errors) == 1
 
 
@@ -263,16 +263,16 @@ def test_idle_stop_closes_open_thinking():
         checks[0] += 1
         return checks[0] > 2
 
-    job_done = [False]
+    outcome = DrainOutcome()
     run_stream_drain_loop(
-        q, None, job_done, lambda text, _is_thinking: applied.append(text),
+        q, None, outcome, lambda text, _is_thinking: applied.append(text),
         on_stream_done=lambda _i: True,
         on_stopped=lambda: stopped.append(True),
         on_error=lambda _e: None,
         stop_checker=stop_checker,
     )
     assert stopped == [True]
-    assert job_done[0] is True
+    assert outcome.done is True
     joined = "".join(applied)
     assert "hmm" in joined
     assert " /thinking\n" in joined
@@ -395,7 +395,7 @@ def test_batcher_flush_error_still_emits_error_and_unpatches():
     thread.join(1)
     assert errors
     assert any("worker boom" in str(err) for err in errors)
-    assert raw._terminal_flags == []
+    assert raw._terminal_events == []
     assert raw.put.__name__ == "put"
 
 
@@ -422,16 +422,16 @@ def test_stop_on_first_batch_item_applies_pulled_display_text():
         done.append(item)
         return True
 
-    job_done = [False]
+    outcome = DrainOutcome()
     run_stream_drain_loop(
-        q, None, job_done, lambda text, is_thinking: applied.append((text, is_thinking)),
+        q, None, outcome, lambda text, is_thinking: applied.append((text, is_thinking)),
         on_stream_done=on_stream_done,
         on_stopped=lambda: stopped.append(True),
         on_error=lambda _e: None,
         on_status_fn=statuses.append,
         stop_checker=stop_checker,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert stopped == [True]
     assert statuses == []
     assert done == []
@@ -456,18 +456,18 @@ def test_stop_tail_drops_string_kind():
         checks[0] += 1
         return checks[0] > 1
 
-    job_done = [False]
+    outcome = DrainOutcome()
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda text, _is_thinking: applied.append(text),
         on_stream_done=lambda _item: True,
         on_stopped=lambda: stopped.append(True),
         on_error=errors.append,
         stop_checker=stop_checker,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert stopped == [True]
     assert errors == []
     assert "hello" in applied
@@ -481,16 +481,16 @@ def test_stop_applies_flushed_batcher_text():
     def flush_pending():
         q.put((StreamQueueKind.CHUNK, "kept"))
 
-    job_done = [False]
+    outcome = DrainOutcome()
     run_stream_drain_loop(
-        q, None, job_done, lambda text, _is_thinking: applied.append(text),
+        q, None, outcome, lambda text, _is_thinking: applied.append(text),
         on_stream_done=lambda _i: True,
         on_stopped=lambda: None,
         on_error=lambda _e: None,
         stop_checker=lambda: True,
         flush_pending=flush_pending,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert applied == ["kept"]
 
 
@@ -578,21 +578,21 @@ def test_nested_stream_drain_rejected():
     from plugin.framework.async_drain_guard import drain_owner_scope
 
     errors: list = []
-    job_done = [False]
+    outcome = DrainOutcome()
     q: queue.Queue = queue.Queue()
 
     with drain_owner_scope("outer"):
         run_stream_drain_loop(
             q,
             DummyToolkit(),
-            job_done,
+            outcome,
             lambda _t, _th: None,
             on_stream_done=lambda _i: True,
             on_stopped=lambda: None,
             on_error=errors.append,
         )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert errors
 
 
@@ -619,7 +619,7 @@ def test_approval_handler_failure_ends_drain_and_sets_event():
     event = threading.Event()
     q: queue.Queue = queue.Queue()
     q.put((StreamQueueKind.APPROVAL_REQUIRED, "allow?", "read_file", event))
-    job_done = [False]
+    outcome = DrainOutcome()
     errors: list[object] = []
 
     def boom(_item: object) -> None:
@@ -628,14 +628,14 @@ def test_approval_handler_failure_ends_drain_and_sets_event():
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda _t, _th: None,
         on_stream_done=lambda _i: True,
         on_stopped=lambda: None,
         on_error=errors.append,
         on_approval_required=boom,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert event.is_set()
     assert errors
 
@@ -647,7 +647,7 @@ def test_approval_without_handler_sets_event_and_keeps_draining():
     q.put((StreamQueueKind.APPROVAL_REQUIRED, "allow?", "read_file", event))
     q.put((StreamQueueKind.STREAM_DONE, "after"))
     done = []
-    job_done = [False]
+    outcome = DrainOutcome()
 
     def on_stream_done(item):
         done.append(item)
@@ -656,7 +656,7 @@ def test_approval_without_handler_sets_event_and_keeps_draining():
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda _t, _th: None,
         on_stream_done=on_stream_done,
         on_stopped=lambda: None,
@@ -664,7 +664,7 @@ def test_approval_without_handler_sets_event_and_keeps_draining():
         on_approval_required=None,
     )
     assert event.is_set()
-    assert job_done[0] is True
+    assert outcome.done is True
     assert done and done[0][1] == "after"
 
 
@@ -683,11 +683,11 @@ def test_stop_sets_approval_event_without_dialog():
         checks[0] += 1
         return checks[0] > 1
 
-    job_done = [False]
+    outcome = DrainOutcome()
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda _text, _th: None,
         on_stream_done=lambda _item: True,
         on_stopped=lambda: stopped.append(True),
@@ -695,7 +695,7 @@ def test_stop_sets_approval_event_without_dialog():
         on_approval_required=dialogs.append,
         stop_checker=stop_checker,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert stopped == [True]
     assert event.is_set()
     assert dialogs == []
@@ -713,28 +713,21 @@ def test_error_item_on_error_raise_is_not_called_twice():
         errors.append(payload)
         raise RuntimeError("on_error error")
 
-    job_done = [False]
+    outcome = DrainOutcome()
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda text, _th: applied.append(text),
         on_stream_done=lambda _item: True,
         on_stopped=lambda: None,
         on_error=on_error,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert errors == [{"message": "boom"}]
     assert applied == []
 
 
-def test_idle_rearm_cancel_resets_failures():
-    from plugin.framework.async_stream import _IdleRearmThread
-
-    timer = _IdleRearmThread()
-    timer._failures = 4
-    timer.cancel()
-    assert timer._failures == 0
 
 
 def test_run_stream_drain_loop_idle_unblocks_marshaled_worker():
@@ -753,24 +746,98 @@ def test_run_stream_drain_loop_idle_unblocks_marshaled_worker():
             qe.set_force_marshal_mode(True)
             try:
                 run_in_background(worker, name="tool-async-marshal", daemon=False)
-                job_done = [False]
+                outcome = DrainOutcome()
 
                 def stream_done(_item):
-                    job_done[0] = True
+                    outcome.done = True
                     return True
 
                 run_stream_drain_loop(
                     stream_q,
                     DummyToolkit(),
-                    job_done,
+                    outcome,
                     lambda _t, _th: None,
                     on_stream_done=stream_done,
                     on_stopped=lambda: None,
                     on_error=lambda _e: None,
                 )
                 assert marshal_done.is_set()
-                assert job_done[0]
+                assert outcome.done
             finally:
                 qe.set_force_marshal_mode(False)
                 while not qe.default_executor._work_queue.empty():
                     qe.default_executor.process_queue()
+
+
+def test_deadline_thread_arm_fires_after_delay() -> None:
+    fired = threading.Event()
+    timer = DeadlineThread(fired.set, name="test-timer-arm")
+    try:
+        timer.arm(0.02)
+        assert fired.wait(timeout=1.0)
+    finally:
+        timer.stop()
+
+
+def test_deadline_thread_cancel_aborts_fire() -> None:
+    fired = threading.Event()
+    timer = DeadlineThread(fired.set, name="test-timer-cancel")
+    try:
+        timer.arm(0.05)
+        timer.cancel()
+        time.sleep(0.08)
+        assert not fired.is_set()
+    finally:
+        timer.stop()
+
+
+def test_deadline_thread_rearm_moves_deadline() -> None:
+    t0 = time.monotonic()
+    fired_at: list[float] = []
+    done = threading.Event()
+
+    def on_fire() -> None:
+        fired_at.append(time.monotonic())
+        done.set()
+
+    timer = DeadlineThread(on_fire, name="test-timer-rearm")
+    try:
+        timer.arm(0.04)
+        time.sleep(0.02)
+        timer.arm(0.06)
+        assert done.wait(timeout=1.0)
+        assert fired_at[0] - t0 >= 0.07
+    finally:
+        timer.stop()
+
+
+def test_deadline_thread_stop_prevents_fire() -> None:
+    fired = threading.Event()
+    timer = DeadlineThread(fired.set, name="test-timer-stop")
+    timer.arm(0.05)
+    timer.stop()
+    time.sleep(0.08)
+    assert not fired.is_set()
+
+
+def test_deadline_thread_survives_callback_exception() -> None:
+    calls = 0
+    second_fired = threading.Event()
+
+    def faulty_fire() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("first fire failed")
+        second_fired.set()
+
+    timer = DeadlineThread(faulty_fire, name="test-timer-faulty")
+    try:
+        timer.arm(0.02)
+        time.sleep(0.05)
+        assert calls == 1
+        timer.arm(0.02)
+        assert second_fired.wait(timeout=1.0)
+        assert calls == 2
+    finally:
+        timer.stop()
