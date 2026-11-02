@@ -83,6 +83,12 @@ log = logging.getLogger(__name__)
 # com.sun.star.awt.ImagePosition.LeftCenter
 _IMAGE_POSITION_LEFT_CENTER = 1
 
+_MODEL_LRU_KEYS: dict[str, str] = {
+    "text_model": "model_lru",
+    "audio__stt_model": "audio_model_lru",
+    "audio__tts_model": "tts_model_lru",
+}
+
 
 # Compact starter buttons: 16 on 1×; HiDPI keeps 48 (UnoControlButton does not
 # scale ImageURL). Mid scales use 32. Do not use dialog getPosSize — AppFont
@@ -335,27 +341,17 @@ class SettingsDialog:
             name = field["name"]
             val = field["value"]
 
-            if name == "text_model":
+            if name in _MODEL_LRU_KEYS:
                 # LRU plus defaults only. This fill runs before execute();
                 # a catalog fetch here freezes LibreOffice for the timeout.
                 # _schedule_initial_models_fetch loads it on the debounced worker.
                 populate_combobox_with_lru(
-                    ctrl, val, "model_lru", current_endpoint,
+                    ctrl, val, _MODEL_LRU_KEYS[name], current_endpoint,
                     api_key_override=api_key_val, skip_remote_fetch=True,
                 )
             elif name == "image_model":
                 populate_image_model_selector(
                     ctrl, override_endpoint=current_endpoint,
-                    api_key_override=api_key_val, skip_remote_fetch=True,
-                )
-            elif name == "audio__stt_model":
-                populate_combobox_with_lru(
-                    ctrl, val, "audio_model_lru", current_endpoint,
-                    api_key_override=api_key_val, skip_remote_fetch=True,
-                )
-            elif name == "audio__tts_model":
-                populate_combobox_with_lru(
-                    ctrl, val, "tts_model_lru", current_endpoint,
                     api_key_override=api_key_val, skip_remote_fetch=True,
                 )
             elif name == "additional_instructions":
@@ -370,38 +366,23 @@ class SettingsDialog:
 
         # Populate non-persisted client config snippet
         sync_mcp_config_snippet(self._dlg)
-        self._setup_tts_listeners()
-        self._setup_stt_listeners()
+        self._setup_audio_listeners()
 
-    def _setup_tts_listeners(self) -> None:
+    def _setup_audio_listeners(self) -> None:
         test_btn = get_optional(self._dlg, "audio__test_voice")
         if test_btn:
             self._attach(test_btn, "Action", TtsTestVoiceListener(self._ctx, self._dlg))
 
-        prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
-        voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
-        model_ctrl = get_optional(self._dlg, "audio__tts_model")
-
-        if not (prov_ctrl or voice_ctrl or model_ctrl):
-            return
-
-        tts_listener = _SyncComboListener(self._dlg, sync_tts_ui)
-
-        if prov_ctrl:
-            self._attach_combo(prov_ctrl, tts_listener)
-
-        if model_ctrl:
-            self._attach_combo(model_ctrl, tts_listener)
-
-        sync_tts_ui(self._dlg)
-
-    def _setup_stt_listeners(self) -> None:
-        prov_ctrl = get_optional(self._dlg, "audio__stt_provider")
-        if prov_ctrl is None:
-            return
-        stt_listener = _SyncComboListener(self._dlg, sync_stt_ui)
-        self._attach_combo(prov_ctrl, stt_listener)
-        sync_stt_ui(self._dlg)
+        for names, sync_fn in (
+            (("audio__tts_provider", "audio__tts_model"), sync_tts_ui),
+            (("audio__stt_provider",), sync_stt_ui),
+        ):
+            ctrls = [c for name in names if (c := get_optional(self._dlg, name))]
+            if ctrls:
+                listener = _SyncComboListener(self._dlg, sync_fn)
+                for ctrl in ctrls:
+                    self._attach_combo(ctrl, listener)
+                sync_fn(self._dlg)
 
     def _schedule_initial_models_fetch(self, endpoint: str) -> None:
         """Every provider: combos are already LRU. Fetch the catalog off the UI thread.
@@ -425,8 +406,7 @@ class SettingsDialog:
 
     def _setup_endpoint_listener(self, ctrl: Any) -> None:
         self._endpoint_listener = EndpointCombinedListener(self._dlg, self._ctx, ctrl)
-        ctrl.addItemListener(self._endpoint_listener)
-        ctrl.addTextListener(self._endpoint_listener)
+        self._attach_combo(ctrl, self._endpoint_listener)
 
         ak_ctrl = get_optional(self._dlg, "api_key")
         if ak_ctrl:
@@ -546,8 +526,7 @@ class ProviderStarterListener(BaseActionListener):
             if ak_ctrl:
                 set_control_text(ak_ctrl, get_api_key_for_endpoint(self._endpoint_url))
                 ak_ctrl.setFocus()
-        if self._signup_url:
-            open_system_url(self._ctx, self._signup_url)
+        open_system_url(self._ctx, self._signup_url)
 
 
 class TestConnectionListener(BaseActionListener):
@@ -571,19 +550,16 @@ class TestConnectionListener(BaseActionListener):
             set_control_text(lbl_status, _("Testing connection..."))
         # UI thread: reads the endpoint controls, then the catalog GET runs
         # on the settings worker. Do not wait for the connection probe.
-        if self._endpoint_listener is not None:
-            self._endpoint_listener.force_catalog_refresh()
-            override = self._endpoint_listener._api_key_override()
+        listener = self._endpoint_listener
+        if listener is not None:
+            listener.force_catalog_refresh()
+            api_key = listener._api_key_override() or ""
         else:
-            override = None
+            api_key = ""
 
         endpoint_ctrl = get_optional(self._dlg, "endpoint")
         endpoint_text = str(get_control_text(endpoint_ctrl)) if endpoint_ctrl else ""
         endpoint = endpoint_from_selector_text(endpoint_text)
-
-        # Same key decision as the model fetch (effective_api_key via the
-        # endpoint listener), so Test Connection never sends a stale key.
-        api_key = "" if override is None else override
 
         def _worker() -> None:
             msg = check_endpoint_connection(endpoint, api_key)[1]
@@ -688,7 +664,6 @@ def sync_tts_ui(dlg: Any) -> None:
             resolve_voice_context,
             voice_choice_to_id,
         )
-        from plugin.framework import config
 
         prov_ctrl = get_optional(dlg, "audio__tts_provider")
         model_ctrl = get_optional(dlg, "audio__tts_model")
@@ -725,7 +700,7 @@ def sync_tts_ui(dlg: Any) -> None:
             current_text = str(voice_ctrl.getText() or "")
             # Display text is the parenthetical, not the id. Match this list.
             current_id = voice_choice_to_id(current_text, catalog)
-            stored = clean_voice_name(str(config.get_config(f"audio.tts_voice_{context.family}") or ""))
+            stored = clean_voice_name(str(get_config(f"audio.tts_voice_{context.family}") or ""))
             chosen = pick_voice_id(
                 family=context.family,
                 model=raw_model,
@@ -734,8 +709,7 @@ def sync_tts_ui(dlg: Any) -> None:
                 stored_id=stored,
             )
 
-            by_value = {opt["value"]: opt["label"] for opt in catalog}
-            target_label = by_value.get(chosen, "")
+            target_label = next((opt["label"] for opt in catalog if opt["value"] == chosen), "")
             # Promote a raw voice id (or a previous family's label) to the catalog label.
             if target_label and current_text != target_label:
                 voice_ctrl.setText(target_label)
@@ -981,6 +955,14 @@ class ApiKeyTextListener(BaseListener, XTextListener):
         self._el._schedule_debounced_models_fetch()
 
 
+def _provider_for_catalog(resolved: str) -> str | None:
+    return (
+        get_provider_from_endpoint(resolved)
+        if resolved and endpoint_url_suitable_for_v1_models_fetch(resolved)
+        else None
+    )
+
+
 class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     _dlg: Any
     _ctx: Any
@@ -1015,6 +997,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         # Set while _sync_api_key writes the field, so that write is not an edit.
         self._syncing_api_key: bool = False
 
+        self._clear_test_status()
+
+    def _clear_test_status(self) -> None:
         # The Get API Key link is gone. A new endpoint still leaves the last
         # connection-test line on screen, so clear that label here.
         lbl_status = get_optional(self._dlg, "lbl_test_status")
@@ -1057,28 +1042,18 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._applied_catalog = self._catalog_identity(resolved)
         self._apply_dropdowns(resolved, models=models, skip_fetch=skip_fetch)
 
-    def _combo_current_for_provider(self, ctrl: Any, *, same_provider: bool, fallback: str = "") -> str:
-        """Return combobox current only when the saved provider still matches.
-
-        After a provider switch the field still holds the previous provider's
-        model id (e.g. OpenRouter ``inception/mercury-2.5`` on Together). That
-        slug is often missing from ``DEFAULT_MODELS``, so
-        ``_is_incompatible_model_for_provider`` will not drop it — discard
-        leftover text and let populate use this provider's LRU/defaults.
-        """
-        if not same_provider:
-            return ""
-        current = _sanitize_model_combobox_value(str(ctrl.getText() or ""))
-        return current or fallback
+    def _apply_warm_catalog(self, resolved: str, key: str | None) -> None:
+        self._applied_catalog = (resolved, "" if key is None else key)
+        self._apply_dropdowns(
+            resolved,
+            models=cached_text_models(resolved, api_key_override=key),
+            skip_fetch=True,
+        )
 
     def _apply_dropdowns(self, resolved: str, models: Any = None, skip_fetch: bool = False) -> None:
         ak_ctrl = get_optional(self._dlg, "api_key")
         api_key_ov = str(get_control_text(ak_ctrl)) if ak_ctrl else ""
-        resolved_provider = (
-            get_provider_from_endpoint(resolved)
-            if resolved and endpoint_url_suitable_for_v1_models_fetch(resolved)
-            else None
-        )
+        resolved_provider = _provider_for_catalog(resolved)
         baseline_provider = self._painted_provider
         same_provider = bool(resolved_provider and resolved_provider == baseline_provider)
         self._painted_provider = resolved_provider
@@ -1089,18 +1064,23 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             else None
         )
         rows = (
-            (get_optional(self._dlg, "text_model"), str(get_text_model() or ""), "model_lru", models),
-            (get_optional(self._dlg, "audio__stt_model"), str(get_stt_model() or ""), "audio_model_lru", self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "stt")),
-            (get_optional(self._dlg, "audio__tts_model"), str(get_config("audio.tts_model") or get_tts_model() or ""), "tts_model_lru", self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "tts")),
+            (get_optional(self._dlg, "text_model"), str(get_text_model() or ""), _MODEL_LRU_KEYS["text_model"], models),
+            (get_optional(self._dlg, "audio__stt_model"), str(get_stt_model() or ""), _MODEL_LRU_KEYS["audio__stt_model"], self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "stt")),
+            (get_optional(self._dlg, "audio__tts_model"), str(get_config("audio.tts_model") or get_tts_model() or ""), _MODEL_LRU_KEYS["audio__tts_model"], self._speech_remote_models(resolved, resolved_provider, models, api_key_ov, "tts")),
             (get_optional(self._dlg, "image_model"), str(get_image_model() or ""), "image_model_lru", image_models),
         )
         for ctrl, fallback, lru_key, remote in rows:
             if ctrl:
-                current = self._combo_current_for_provider(
-                    ctrl,
-                    same_provider=same_provider,
-                    fallback=fallback,
-                )
+                # Return combobox current only when the saved provider still matches.
+                # After a provider switch the field still holds the previous provider's
+                # model id (e.g. OpenRouter ``inception/mercury-2.5`` on Together). That
+                # slug is often missing from ``DEFAULT_MODELS``, so
+                # ``_is_incompatible_model_for_provider`` will not drop it — discard
+                # leftover text and let populate use this provider's LRU/defaults.
+                if not same_provider:
+                    current = ""
+                else:
+                    current = _sanitize_model_combobox_value(str(ctrl.getText() or "")) or fallback
                 populate_combobox_with_lru(
                     ctrl,
                     current,
@@ -1110,7 +1090,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                     api_key_override=api_key_ov,
                     skip_remote_fetch=skip_fetch,
                 )
-                if lru_key == "tts_model_lru":
+                if lru_key == _MODEL_LRU_KEYS["audio__tts_model"]:
                     sync_tts_ui(self._dlg)
 
     def _speech_remote_models(
@@ -1186,11 +1166,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         saved key.
         """
         resolved = endpoint_from_selector_text(self._ctrl.getText())
-        # The Get API Key link is gone. A new endpoint still leaves the last
-        # connection-test line on screen, so clear that label here.
-        lbl_status = get_optional(self._dlg, "lbl_test_status")
-        if lbl_status:
-            set_control_text(lbl_status, "")
+        self._clear_test_status()
         if not resolved:
             return
         previous = self._synced_endpoint
@@ -1209,12 +1185,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     def _bg_fetch(self, gen: int, resolved: str, tts_model_id: str = "", key_ov: str | None = None) -> None:
         if self._closed or gen != self._debounce_gen: return
 
-        models = None
-        if resolved and endpoint_url_suitable_for_v1_models_fetch(resolved):
-            models = fetch_available_models(resolved, api_key_override=key_ov)
-            provider = get_provider_from_endpoint(resolved)
-        else:
-            provider = None
+        models = (
+            fetch_available_models(resolved, api_key_override=key_ov)
+            if resolved and endpoint_url_suitable_for_v1_models_fetch(resolved)
+            else None
+        )
+        provider = _provider_for_catalog(resolved)
         # These GETs used to run in _apply_dropdowns on the UI thread after the
         # text list returned. OpenRouter image is GET /v1/images/models; speech
         # and transcription are separate modality queries; Together voices are
@@ -1252,15 +1228,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         # and must not start a timer or a worker. The same pair already painted
         # is not painted again: typing must not rewrite fields. Test Connection
         # is the recheck.
-        if resolved and settings_catalog_is_warm(resolved, api_key_override=self._api_key_override()):
+        key = self._api_key_override()
+        if resolved and settings_catalog_is_warm(resolved, api_key_override=key):
             self._cancel_pending()
-            if self._catalog_identity(resolved) == self._applied_catalog:
+            if (resolved, "" if key is None else key) == self._applied_catalog:
                 return
-            self._apply_catalog(
-                resolved,
-                models=cached_text_models(resolved, api_key_override=self._api_key_override()),
-                skip_fetch=True,
-            )
+            self._apply_warm_catalog(resolved, key)
             return
         gen = self._cancel_pending()
 
@@ -1310,12 +1283,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         resolved = endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             self._sync_api_key(force=True)
-            if settings_catalog_is_warm(resolved, api_key_override=self._api_key_override()):
-                self._apply_catalog(
-                    resolved,
-                    models=cached_text_models(resolved, api_key_override=self._api_key_override()),
-                    skip_fetch=True,
-                )
+            key = self._api_key_override()
+            if settings_catalog_is_warm(resolved, api_key_override=key):
+                self._apply_warm_catalog(resolved, key)
                 return
             # LRU plus defaults now. The catalog GET is the worker below.
             # Non-OpenRouter providers used to fetch inside _apply_dropdowns

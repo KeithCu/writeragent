@@ -1506,7 +1506,7 @@ def test_tts_settings_listener_sync():
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_enabled") as mock_set_enabled, \
-         patch("plugin.framework.config.get_config", side_effect=_cfg):
+         patch("plugin.chatbot.dialog_views.get_config", side_effect=_cfg):
         sync_tts_ui(dlg)
 
         # Model combobox is disabled for non-endpoint
@@ -1546,7 +1546,7 @@ def test_tts_settings_listener_promotes_raw_voice_id_to_catalog_label():
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
          patch("plugin.chatbot.dialog_views.set_control_enabled"), \
-         patch("plugin.framework.config.get_config", side_effect=_cfg):
+         patch("plugin.chatbot.dialog_views.get_config", side_effect=_cfg):
         sync_tts_ui(dlg)
 
     voice_ctrl.setText.assert_called_once()
@@ -1584,7 +1584,7 @@ def test_tts_settings_listener_uses_cached_openrouter_voices():
     try:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
-             patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
+             patch("plugin.chatbot.dialog_views.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
              patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
             sync_tts_ui(dlg)
         assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
@@ -1630,7 +1630,7 @@ def test_tts_settings_listener_prefers_aoede_for_gemini():
         stored: dict = {"audio.tts_voice_openrouter": stored_voice}
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
-             patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
+             patch("plugin.chatbot.dialog_views.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
              patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
             sync_tts_ui(dlg)
         if voice_ctrl.setText.called:
@@ -1710,7 +1710,7 @@ def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
     try:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
-             patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
+             patch("plugin.chatbot.dialog_views.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
              patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
             sync_tts_ui(dlg)
         assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
@@ -2146,7 +2146,7 @@ def test_settings_cleanup_detaches_each_listener_and_disposes():
     dialog._attached = []
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda _d, name: legacy_model_ctrl if name == "audio__tts_model" else None), \
          patch("plugin.chatbot.dialog_views._SyncComboListener"):
-        dialog._setup_tts_listeners()
+        dialog._setup_audio_listeners()
     assert any(c is legacy_model_ctrl for c, _m, _l in dialog._attached)
 
 
