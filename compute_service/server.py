@@ -28,7 +28,7 @@ from compute_service import __version__
 from compute_service import error_codes as ec
 from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
 # Internal server clocks and timeouts shared with the route module; not public wsgi_server exports.
-from compute_service.wsgi_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, _accept_clock, WSGIDualStackServer, service_listener_threads, sticky_listener_slots  # pyright: ignore[reportPrivateUsage]
+from compute_service.wsgi_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, service_listener_threads, sticky_listener_slots  # pyright: ignore[reportPrivateUsage]
 from compute_service.worker_base import Deadline
 from compute_service.json_forward import (
     ExecuteRequestError,
@@ -44,6 +44,17 @@ from compute_service.json_forward import (
 from plugin.vision.vision_common import IMPLEMENTED_HELPERS
 
 log = logging.getLogger("compute_service")
+
+
+def _accept_clock(accept_time: Any) -> float:
+    """Numeric accept timestamp, or now when the value is missing or not a number.
+
+    Bool is an int subclass and is not a clock. A non-numeric value must
+    not raise, or the request becomes HTTP 500.
+    """
+    if isinstance(accept_time, (int, float)) and not isinstance(accept_time, bool):
+        return float(accept_time)
+    return time.monotonic()
 
 
 def setup_logging(level_name: str = "INFO") -> None:

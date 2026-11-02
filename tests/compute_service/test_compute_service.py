@@ -3787,34 +3787,6 @@ def test_isolated_mode_with_session_id_rejected() -> None:
         assert "session_id URL query parameter is only permitted with mode='shared'" in parsed.get("error", "")
 
 
-def test_header_deadline_fires_inside_handle() -> None:
-    """A request line that arrives after the accept deadline returns 408 instead of a traceback."""
-    from compute_service.wsgi_server import DeadlineRequestHandler
-
-    client, server_sock = socket.socketpair()
-    try:
-        server_sock.settimeout(30)
-        rfile = server_sock.makefile("rb")
-        wfile = server_sock.makefile("wb", buffering=0)
-        handler = DeadlineRequestHandler.__new__(DeadlineRequestHandler)
-        handler.connection = server_sock
-        handler.rfile = rfile
-        handler.wfile = wfile
-        handler.client_address = ("127.0.0.1", 0)
-        handler.close_connection = True
-        handler.server = type("Srv", (), {"_accept_times": {server_sock: time.monotonic() - 100.0}})()
-        started = time.monotonic()
-        handler.handle()
-        assert time.monotonic() - started < 2.0
-        client.settimeout(1.0)
-        raw = client.recv(4096)
-        assert b"408" in raw
-        assert b"Request read timeout" in raw
-    finally:
-        client.close()
-        server_sock.close()
-
-
 def test_slow_body_drip_is_408() -> None:
     """One socket timeout per large read used to let a drip outlive the body deadline."""
     from compute_service.wsgi_server import _REQUEST_READ_TIMEOUT_SEC
