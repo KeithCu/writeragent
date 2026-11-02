@@ -108,21 +108,15 @@ class _DocIndex:
         return found
 
     def query_and(self, stems: list[str]) -> set[int]:
-        if not stems:
-            return set()
         sets: list[set[int]] = []
         for stem in stems:
-            s = self.terms.get(stem)
-            if not s:
+            found = self.terms.get(stem)
+            if not found:
                 return set()
-            sets.append(s)
-        sets.sort(key=len)
-        result = sets[0].copy()
-        for s in sets[1:]:
-            result &= s
-            if not result:
-                return result
-        return result
+            sets.append(found)
+        if not sets:
+            return set()
+        return set.intersection(*sorted(sets, key=len))
 
     def query_near(self, stems_a: list[str], stems_b: list[str], distance: int) -> set[int]:
         set_a = self._paragraphs_for(stems_a)
@@ -234,7 +228,8 @@ class IndexService(ServiceBase):
         # tree.build_heading_tree: no count -> listener-only.
         count = getattr(doc, "CharacterCount", None)
         fingerprint = int(count) if count is not None else None
-        if is_cacheable_doc_key(key):
+        cacheable = is_cacheable_doc_key(key)
+        if cacheable:
             cached = self._cache.get(key)
             if cached is not None and (fingerprint is None or fingerprint == cached[0]):
                 self._cache.move_to_end(key)
@@ -271,7 +266,7 @@ class IndexService(ServiceBase):
                 idx.para_texts.append("[Table]")
 
         idx.build_ms = round((time.perf_counter() - t0) * 1000, 1)
-        if is_cacheable_doc_key(key):
+        if cacheable:
             self._cache[key] = (fingerprint, idx)
             while len(self._cache) > _MAX_CACHED_DOCS:
                 self._cache.popitem(last=False)
