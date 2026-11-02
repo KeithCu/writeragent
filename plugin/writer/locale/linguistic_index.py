@@ -150,12 +150,14 @@ def _index_counts(idx: _DocIndex, cached: bool) -> dict[str, Any]:
     }
 
 
-def _stem_query_tokens(text: str, stemmer: Any, stop_words: frozenset[str], out_stems: list[str], dropped_stops: list[str]) -> None:
+def _stem_query_tokens(text: str, stemmer: Any, stop_words: frozenset[str], dropped_stops: list[str]) -> list[str]:
+    stems: list[str] = []
     for t in _raw_tokens(text):
         if t in stop_words:
             dropped_stops.append(t)
         else:
-            out_stems.append(stemmer.stemWord(t))
+            stems.append(stemmer.stemWord(t))
+    return stems
 
 
 # ── Service ───────────────────────────────────────────────────────────
@@ -257,8 +259,7 @@ class IndexService(ServiceBase):
             if el.supportsService("com.sun.star.text.Paragraph"):
                 text = get_string_without_tracked_deletions(el)
                 idx.para_texts.append(text)
-                raw = _raw_tokens(text)
-                for t in raw:
+                for t in _raw_tokens(text):
                     if t not in stop_words:
                         stem = stemmer.stemWord(t)
                         s = idx.terms.get(stem)
@@ -292,18 +293,16 @@ class IndexService(ServiceBase):
         not_split = _NOT_RE.split(query)
         main_part = not_split[0].strip()
         for part in not_split[1:]:
-            _stem_query_tokens(part, stemmer, stop_words, not_stems, dropped_stops)
+            not_stems.extend(_stem_query_tokens(part, stemmer, stop_words, dropped_stops))
 
         if len(_NEAR_COUNT_RE.findall(main_part)) > 1:
             fail("Only one NEAR/N is supported per query.")
 
         near_match = _NEAR_RE.search(main_part)
         if near_match:
-            left: list[str] = []
-            _stem_query_tokens(near_match.group(1), stemmer, stop_words, left, dropped_stops)
+            left = _stem_query_tokens(near_match.group(1), stemmer, stop_words, dropped_stops)
             dist = int(near_match.group(2))
-            right: list[str] = []
-            _stem_query_tokens(near_match.group(3), stemmer, stop_words, right, dropped_stops)
+            right = _stem_query_tokens(near_match.group(3), stemmer, stop_words, dropped_stops)
             if left and right:
                 return ("near", left + right, not_stems, (left, right, dist), dropped_stops)
             if not left and not right:
@@ -318,7 +317,7 @@ class IndexService(ServiceBase):
         chunks = _OR_RE.split(main_part) if has_or else _AND_RE.split(main_part)
         target_stems: list[str] = []
         for chunk in chunks:
-            _stem_query_tokens(chunk, stemmer, stop_words, target_stems, dropped_stops)
+            target_stems.extend(_stem_query_tokens(chunk, stemmer, stop_words, dropped_stops))
 
         if not target_stems:
             fail("No search terms after stop-word filtering")
@@ -363,8 +362,7 @@ class IndexService(ServiceBase):
         stop_words = _normalized_stop_words(idx.language)
         mode, positive, not_stems, near, dropped = self._parse_query(query, stemmer, stop_words)
 
-        if mode == "near":
-            assert near is not None
+        if near:
             hits = idx.query_near(near[0], near[1], near[2])
         elif mode == "or":
             hits = idx._paragraphs_for(positive)
