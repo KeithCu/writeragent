@@ -69,8 +69,9 @@ A middle that is still over the cap reports the upper-bound fraction (changed mi
 divided by total affix and middle words) and is always mode="block".
 """
 
+from dataclasses import dataclass
 import difflib
-from typing import Any, ClassVar
+from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, str_bounded, deal
 
@@ -86,6 +87,7 @@ __all__ = [
 ]
 
 
+@dataclass
 class Token:
     """A single token from :func:`tokenize`.
 
@@ -100,30 +102,9 @@ class Token:
     start: int
     end: int
     is_word: bool
-    __slots__: ClassVar[tuple[str, ...]] = ("text", "start", "end", "is_word")
-
-    def __init__(self, text: str, start: int, end: int, is_word: bool) -> None:
-        self.text = text
-        self.start = start
-        self.end = end
-        self.is_word = is_word
-
-    def __repr__(self) -> str:
-        # crosshair: off
-        kind = "W" if self.is_word else "S"
-        return "Token(%s %r @%d:%d)" % (kind, self.text, self.start, self.end)
-
-    def __eq__(self, other: Any) -> bool:
-        # crosshair: off
-        return (
-            isinstance(other, Token)
-            and self.text == other.text
-            and self.start == other.start
-            and self.end == other.end
-            and self.is_word == other.is_word
-        )
 
 
+@dataclass
 class SubEdit:
     """One surgical edit: replace ``old[old_start:old_end]`` with ``new_text``.
 
@@ -143,31 +124,9 @@ class SubEdit:
     old_end: int
     old_text: str
     new_text: str
-    __slots__: ClassVar[tuple[str, ...]] = ("old_start", "old_end", "old_text", "new_text")
-
-    def __init__(self, old_start: int, old_end: int, old_text: str, new_text: str) -> None:
-        self.old_start = old_start
-        self.old_end = old_end
-        self.old_text = old_text
-        self.new_text = new_text
-
-    def __repr__(self) -> str:
-        # crosshair: off
-        return "SubEdit(old[%d:%d]=%r -> %r)" % (
-            self.old_start, self.old_end, self.old_text, self.new_text,
-        )
-
-    def __eq__(self, other: Any) -> bool:
-        # crosshair: off
-        return (
-            isinstance(other, SubEdit)
-            and self.old_start == other.old_start
-            and self.old_end == other.old_end
-            and self.old_text == other.old_text
-            and self.new_text == other.new_text
-        )
 
 
+@dataclass(eq=False)
 class SplitResult:
     """Outcome of :func:`split_change`.
 
@@ -182,23 +141,11 @@ class SplitResult:
     mode: str
     fraction_changed: float
     sub_edits: list[SubEdit]
-    __slots__: ClassVar[tuple[str, ...]] = ("mode", "fraction_changed", "sub_edits")
-
-    def __init__(self, mode: str, fraction_changed: float, sub_edits: list[SubEdit]) -> None:
-        self.mode = mode
-        self.fraction_changed = fraction_changed
-        self.sub_edits = sub_edits
 
     @property
     def is_surgical(self) -> bool:
         # crosshair: off
         return self.mode == "surgical"
-
-    def __repr__(self) -> str:
-        # crosshair: off
-        return "SplitResult(mode=%s frac=%.4f, %d sub-edit(s))" % (
-            self.mode, self.fraction_changed, len(self.sub_edits),
-        )
 
 
 
@@ -261,23 +208,6 @@ def _opcodes_with_affix(
     return opcodes
 
 
-def _deal_split_change_ok_pytest(old: object, new: object, threshold: object = _DEFAULT_THRESHOLD) -> bool:
-    # Selection text is longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before the diff ran. The body accepts any text.
-    # CrossHair keeps the short strings. Arguments are unused.
-    return True
-
-
-def _deal_split_change_ok_crosshair(old: object, new: object, threshold: object = _DEFAULT_THRESHOLD) -> bool:
-    return (not isinstance(old, str) or str_bounded(old, DEAL_MAX_SOURCE)) and (
-        not isinstance(new, str) or str_bounded(new, DEAL_MAX_SOURCE)
-    )
-
-
-_deal_split_change_ok = _deal_split_change_ok_crosshair if UNDER_CROSSHAIR else _deal_split_change_ok_pytest
-
-
-@deal.pre(lambda old, new, threshold=_DEFAULT_THRESHOLD: _deal_split_change_ok(old, new, threshold))
 @deal.post(lambda result: isinstance(result, SplitResult) and 0.0 <= result.fraction_changed <= 1.0)
 def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> SplitResult:
     """Decide block-vs-surgical and compute the edits to turn *old* into *new*.
@@ -345,6 +275,17 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
     # --- surgical path ---------------------------------------------------------
     sub_edits = _build_surgical_edits(old, new, old_words, new_words, opcodes)
     return SplitResult("surgical", fraction, sub_edits)
+
+
+# Selection text in pytest and production is longer than DEAL_MAX_SOURCE,
+# and that profile must not raise PreContractError. CrossHair bounds inputs.
+if UNDER_CROSSHAIR:
+    split_change = deal.pre(
+        lambda old, new, threshold=_DEFAULT_THRESHOLD: (
+            not isinstance(old, str) or str_bounded(old, DEAL_MAX_SOURCE)
+        )
+        and (not isinstance(new, str) or str_bounded(new, DEAL_MAX_SOURCE))
+    )(split_change)
 
 
 def _build_surgical_edits(old: str, new: str, old_words: list[Token], new_words: list[Token], opcodes: list[Any]) -> list[SubEdit]:

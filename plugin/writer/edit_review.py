@@ -805,13 +805,9 @@ _SURGICAL_UNDO_TITLE = "WriterAgent surgical edit"
 _surgical_batch_counter = itertools.count(1)
 
 
-def _next_undo_title(base: str) -> str:
-    return "%s#%d" % (base, next(_surgical_batch_counter))
-
-
 def next_surgical_undo_title() -> str:
     """A process-unique grouped-undo title for one surgical batch (base + a monotonic counter)."""
-    return _next_undo_title(_SURGICAL_UNDO_TITLE)
+    return "%s#%d" % (_SURGICAL_UNDO_TITLE, next(_surgical_batch_counter))
 
 
 _AGENT_EDIT_UNDO_TITLE = "WriterAgent edit"
@@ -819,7 +815,7 @@ _AGENT_EDIT_UNDO_TITLE = "WriterAgent edit"
 
 def next_agent_edit_undo_title() -> str:
     """A process-unique grouped-undo title for one HTML/import edit (shares the monotonic counter)."""
-    return _next_undo_title(_AGENT_EDIT_UNDO_TITLE)
+    return "%s#%d" % (_AGENT_EDIT_UNDO_TITLE, next(_surgical_batch_counter))
 
 
 def _try_enter_undo_context(doc: Any, title: str) -> Any | None:
@@ -990,19 +986,20 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                     in_undo_context=(mgr is not None), split_author=split_author),
                 original_preview=_preview(original), proposed_preview=_preview(new_text))
 
-    if not split:
-        _whole()
-        return
+    result = None
+    if split:
+        from plugin.writer.word_diff_split import split_change
 
-    from plugin.writer.word_diff_split import split_change
+        result = split_change(found.getString(), new_text, _WORD_DIFF_THRESHOLD)
+        if result.is_surgical and not result.sub_edits:
+            return
 
-    result = split_change(found.getString(), new_text, _WORD_DIFF_THRESHOLD)
-    if not result.is_surgical:
-        _whole()
-        return
-    if not result.sub_edits:
-        return
-    if len(result.sub_edits) > _MAX_SURGICAL_RUNS or not _block_safe_for_surgical(found):
+    if (
+        result is None
+        or not result.is_surgical
+        or len(result.sub_edits) > _MAX_SURGICAL_RUNS
+        or not _block_safe_for_surgical(found)
+    ):
         _whole()
         return
 
