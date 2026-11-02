@@ -177,7 +177,7 @@ class GetDocumentContent(ToolBase):
         # and scope='range' offsets are plain-text chars — use those for follow-up range reads.)
         if max_chars and isinstance(content, str) and content.endswith("[... truncated ...]"):
             result["truncated"] = True
-        if scope == "range" and range_start is not None and range_end is not None:
+        if scope == "range":
             result["start"] = range_start
             result["end"] = range_end
 
@@ -185,9 +185,7 @@ class GetDocumentContent(ToolBase):
         # When the document has tracked changes, surface them explicitly (insertion vs deletion, with
         # text) and say they await the user's review — so the model treats them as pending, not errors,
         # and never resolves them itself.
-        n_tracked = 0
         try:
-            t_tracked = time.perf_counter()
             # The old body walk could not see a header/footer change and reported "could not list"
             # for a format-only redline; getRedlines() sees the whole document and costs only the
             # change count. A non-int count is the unit-test mock.
@@ -195,7 +193,6 @@ class GetDocumentContent(ToolBase):
             count = redlines.getCount() if redlines is not None else 0
             if isinstance(count, int) and not isinstance(count, bool) and count > 0:
                 changes, found, total, reliable, truncated = _summarize_redlines(ctx.doc)
-                n_tracked = len(changes)
                 if total:
                     result["tracked_changes_total"] = total
                 if changes:
@@ -214,22 +211,16 @@ class GetDocumentContent(ToolBase):
                         note += " Only %d of %d insertion/deletion change(s) are listed." % (
                             len(changes), found)
                     result["tracked_changes_note"] = note
-            log.debug(
-                "get_document_content: phase=tracked_changes elapsed_ms=%.1f n_tracked=%d",
-                (time.perf_counter() - t_tracked) * 1000.0,
-                n_tracked,
-            )
         except Exception as exc:
             # A closed document is not an ok read with the changes omitted.
             reraise_if_disposed(exc, object_type="Document")
             log.exception("get_document_content: could not collect tracked changes")
             _append_warning(result, _UNLISTED_NOTE)
         log.debug(
-            "get_document_content: done scope=%r content_len=%d document_length=%d n_tracked=%d total_ms=%.1f",
+            "get_document_content: done scope=%r content_len=%d document_length=%d total_ms=%.1f",
             scope,
             len(content) if isinstance(content, str) else -1,
             doc_len,
-            n_tracked,
             (time.perf_counter() - t0) * 1000.0,
         )
         return result

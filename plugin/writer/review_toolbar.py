@@ -71,15 +71,10 @@ class _ReviewModifyListener(BaseModifyListener):
             _clear_uid_state(self._uid)
 
 
-def _cancel_refresh(uid: str) -> None:
-    """Drop a queued recount; the queued run then sees it was cancelled and does nothing."""
-    with _pending_lock:
-        _pending_refresh.discard(uid)
-
-
 def _clear_uid_state(uid: str) -> None:
     _docked_uids.discard(uid)
-    _cancel_refresh(uid)
+    with _pending_lock:
+        _pending_refresh.discard(uid)
 
 
 def _run_deferred_refresh(model: Any, key: str) -> None:

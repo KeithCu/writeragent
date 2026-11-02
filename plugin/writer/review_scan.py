@@ -172,11 +172,13 @@ def redline_date_key(dt: Any) -> tuple[Any, ...] | None:
     )
 
 
-def redline_identity_key(rl: Any) -> tuple[Any, ...]:
+def redline_identity_key(rl: Any, *, strict_date: bool = False) -> tuple[Any, ...]:
     """``(RedlineIdentifier, type, author, date, comment)`` of one redline.
 
     Only the identifier must be readable (a failure raises, so the caller marks the scan
     unreliable); the other fields read as None when they fail.
+    When strict_date is True, an unreadable RedlineDateTime raises so callers can fail the scan
+    (no split-piece check without it).
     manage_tracked_changes uses this whole key, not ``RedlineIdentifier`` alone, because a
     stacked Delete reuses the identifier.
     """
@@ -186,16 +188,11 @@ def redline_identity_key(rl: Any) -> tuple[Any, ...]:
         try:
             return rl.getPropertyValue(name)
         except Exception:
+            if strict_date and name == "RedlineDateTime":
+                raise
             return None
 
     return (rid, prop("RedlineType"), prop("RedlineAuthor"), redline_date_key(prop("RedlineDateTime")), prop("RedlineComment"))
-
-
-def _redline_key_with_date(rl: Any) -> tuple[Any, ...]:
-    # Tip: an unreadable RedlineDateTime must fail the scan (no split-piece check without it).
-    key = redline_identity_key(rl)
-    rl.getPropertyValue("RedlineDateTime")
-    return key
 
 
 def _stacked_on_someone_else(rl: Any) -> bool:
@@ -227,7 +224,7 @@ def snapshot_redline_ids(doc: Any) -> tuple[set[Any], bool]:
 
     def on_item(rl: Any) -> bool:
         try:
-            keys.add(_redline_key_with_date(rl))
+            keys.add(redline_identity_key(rl, strict_date=True))
         except Exception:
             return False
         return True
@@ -260,7 +257,7 @@ def new_redlines_since(doc: Any, before: set[Any]) -> tuple[list[Any], bool]:
 
     def on_item(rl: Any) -> bool:
         try:
-            key = _redline_key_with_date(rl)
+            key = redline_identity_key(rl, strict_date=True)
         except Exception:
             return False
         # Without a date the split-piece test cannot tell a piece from a new redline.
