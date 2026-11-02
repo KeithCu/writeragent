@@ -3621,7 +3621,8 @@ def _r_pump_undo(ctx, frame) -> None:
 def test_r1_adjacent_agent_edits(ctx):
     """Accepting one of two adjacent agent edits leaves the other pending and intact (#1666)."""
     from plugin.chatbot.sidebar_test_hooks import current_component
-    from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
+    from plugin.writer.inline_review import ResolveStatus, resolve_agent_change
+    from tests.testing_utils import agent_changes
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3645,7 +3646,8 @@ def test_r1_adjacent_agent_edits(ctx):
 def test_r2_user_redline_overlap(ctx):
     """An agent change overlapped by the user's own redline is refused; both stay put."""
     from plugin.chatbot.sidebar_test_hooks import current_component, insert_user_redline, list_redlines
-    from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
+    from plugin.writer.inline_review import ResolveStatus, resolve_agent_change
+    from tests.testing_utils import agent_changes
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3709,7 +3711,7 @@ def test_r3_undo_track_changes(ctx):
 def test_r4_stop_mid_stream(ctx):
     """Stop mid-edit: the body is all-or-nothing and no orphan review entry is left."""
     from plugin.chatbot.sidebar_test_hooks import current_component
-    from plugin.writer.inline_review import agent_changes
+    from tests.testing_utils import agent_changes
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3785,7 +3787,8 @@ def test_r5_close_doc_pending_tool(ctx):
 def test_r6_undo_then_accept(ctx):
     """Accepting a change whose edit was undone fails cleanly and changes nothing."""
     from plugin.chatbot.sidebar_test_hooks import current_component
-    from plugin.writer.inline_review import ResolveStatus, agent_changes, resolve_agent_change
+    from plugin.writer.inline_review import ResolveStatus, resolve_agent_change
+    from tests.testing_utils import agent_changes
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -3867,7 +3870,8 @@ def test_r8_accept_and_stop(ctx):
 def test_r9_three_edits_user_middle(ctx):
     """Resolve-all with a user redline beside the middle agent edit resolves the other two only."""
     from plugin.chatbot.sidebar_test_hooks import current_component, insert_user_redline, list_redlines
-    from plugin.writer.inline_review import agent_changes, resolve_all_with_feedback
+    from plugin.writer.inline_review import resolve_all_with_feedback
+    from tests.testing_utils import agent_changes
 
     _reset_mock_runtime()
     _set_writer_paragraphs(ctx, R9_PARAGRAPHS)

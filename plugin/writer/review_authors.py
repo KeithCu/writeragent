@@ -56,11 +56,15 @@ def _commit_author(access: Any, given: str, sn: str) -> None:
     access.commitChanges()
 
 
+def _stamp_author(access: Any, given: str) -> None:
+    _commit_author(access, given, "")
+    _state.last = given
+
+
 def _set_office_author(ctx: Any, given: str) -> bool:
     try:
         access = _author_access(ctx)
-        _commit_author(access, given, "")
-        _state.last = given
+        _stamp_author(access, given)
         return True
     except Exception:
         log.debug("review_authors: could not set office author", exc_info=True)
@@ -80,9 +84,8 @@ def begin(ctx: Any) -> tuple[str, str] | None:
         access = _author_access(ctx)
         prior = (str(access.getPropertyValue("givenname")), str(access.getPropertyValue("sn")))
         # We commit the author swap to the profile, not hold it uncommitted, because LibreOffice stamps redlines with the committed UserProfile name; begin/end bracket one synchronous main-thread edit, so we do not add startup recovery.
-        _commit_author(access, INSERT_AUTHOR, "")
+        _stamp_author(access, INSERT_AUTHOR)
         _state.ctx = ctx
-        _state.last = INSERT_AUTHOR
         return prior
     except Exception:
         log.debug("review_authors.begin failed", exc_info=True)
