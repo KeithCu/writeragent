@@ -35,6 +35,7 @@ from plugin.framework.errors import (
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
 from .format import PAGE_NUMBER_NUMBERING_TYPE_NAMES, record_walk_cap
+from .range_copy import _ANCHORED_GRAPHIC_PROPS
 from .search import parse_non_negative_int
 from .specialized_base import ToolWriterPageBase, enum_param
 
@@ -149,15 +150,6 @@ _REGION_PROPS = {
     "header_left": ("HeaderIsOn", "HeaderTextLeft"),
     "footer_left": ("FooterIsOn", "FooterTextLeft"),
 }
-
-# In-flow header/footer HTML does not carry draw-page shapes. Probe C4: a new
-# TextGraphicObject with these props keeps a floating hyperlink in the clone.
-_PAGE_GRAPHIC_PROPS = (
-    "AnchorType", "Graphic", "Width", "Height",
-    "HoriOrient", "HoriOrientPosition", "HoriOrientRelation",
-    "VertOrient", "VertOrientPosition", "VertOrientRelation",
-    "HyperLinkURL", "HyperLinkTarget", "Title", "Description",
-)
 
 # Walk caps for _scan_region_content. A header/footer is small; these only bound a runaway.
 _SCAN_PARA_LIMIT = 5000
@@ -464,7 +456,7 @@ def _copy_region_graphics(doc: Any, src_text: Any, dest_text: Any) -> tuple[int,
             if not clone:
                 skipped.append(label)
                 continue
-            for prop in _PAGE_GRAPHIC_PROPS:
+            for prop in _ANCHORED_GRAPHIC_PROPS:
                 try:
                     clone.setPropertyValue(prop, shape.getPropertyValue(prop))
                 except Exception:

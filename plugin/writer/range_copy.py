@@ -511,7 +511,7 @@ def _copy_xtext_by_portions(
     try:
         enum = src_text.createEnumeration()
     except Exception:
-        dest_text.setString(src_text.getString() if src_text else "")
+        dest_text.setString(src_text.getString())
         return
     first_para = True
     while enum.hasMoreElements() is True:
@@ -573,7 +573,7 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
         enum = src_text.createEnumeration()
     except Exception:
         try:
-            dest_text.insertString(cursor, src_text.getString() if src_text else "", False)
+            dest_text.insertString(cursor, src_text.getString(), False)
         except Exception as exc:
             log.debug("_copy_flow_into_xtext: plain-text fallback failed: %s", exc)
         return 0
@@ -626,8 +626,9 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
     return fields_copied
 
 
-# Same list as page._PAGE_GRAPHIC_PROPS. The temp Writer does not offer every
-# orient property; the per-property except is that miss, not a missing Graphic.
+# TextGraphicObject property list (shared with page._copy_region_graphics).
+# The temp Writer does not offer every orient property; the per-property except
+# is that miss, not a missing Graphic.
 _ANCHORED_GRAPHIC_PROPS = (
     "AnchorType", "Graphic", "Width", "Height",
     "HoriOrient", "HoriOrientPosition", "HoriOrientRelation",

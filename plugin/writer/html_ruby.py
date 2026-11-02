@@ -175,12 +175,7 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
     base_parts: list[str] = []
     base_start = 0
     offset = 0
-    while portion_enum.hasMoreElements() is True:
-        try:
-            portion = portion_enum.nextElement()
-            kind = portion.getPropertyValue("TextPortionType")
-        except Exception:
-            break
+    for portion, kind in range_copy._iter_portions(portion_enum):
         if kind == "Redline":
             try:
                 if str(portion.getPropertyValue("RedlineType")) == "Delete":

@@ -521,33 +521,28 @@ def document_to_content(
             content = _truncate_html(content, max_chars)
         return content
 
-    if scope == "selection":
-        # Copy the selection's own paragraphs. Character offsets from
-        # get_selection_range and this walk disagree across an index section,
-        # and measuring each paragraph from the document start hung on a long file.
-        source = _selection_cursor(model)
-        if source is None:
-            return _done("", "selection")
-        return _done(
-            _range_to_content_via_temp_doc(
-                model, ctx, 0, 0, max_chars,
-                include_images=include_images, walk_warnings=walk_warnings,
-                source_range=source),
-            "selection",
-        )
-
-    if scope == "range":
-        start = int(range_start) if range_start is not None else 0
-        end = int(range_end) if range_end is not None else 0
-        # No clamp to the document length: the walk below skips paragraphs past the end on its
-        # own. Clamping to CharacterCount cut a read at the end short ("o dan"), and measuring
-        # the real length here would walk the whole body a second time per range read.
-        start = max(0, start)
+    if scope in ("selection", "range"):
+        if scope == "selection":
+            # Copy the selection's own paragraphs. Character offsets from
+            # get_selection_range and this walk disagree across an index section,
+            # and measuring each paragraph from the document start hung on a long file.
+            source = _selection_cursor(model)
+            if source is None:
+                return _done("", "selection")
+            start, end = 0, 0
+        else:
+            source = None
+            start = max(0, int(range_start) if range_start is not None else 0)
+            end = int(range_end) if range_end is not None else 0
+            # No clamp to the document length: the walk below skips paragraphs past the end on its
+            # own. Clamping to CharacterCount cut a read at the end short ("o dan"), and measuring
+            # the real length here would walk the whole body a second time per range read.
         return _done(
             _range_to_content_via_temp_doc(
                 model, ctx, start, end, max_chars,
-                include_images=include_images, walk_warnings=walk_warnings),
-            "range",
+                include_images=include_images, walk_warnings=walk_warnings,
+                source_range=source),
+            scope,
         )
 
     # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
@@ -672,20 +667,13 @@ def _page_number_numbering_type_to_name(num_type: Any) -> str:
 def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
     """Walk *text_obj* in document order and collect PageNumber field properties."""
     fields: list[dict[str, Any]] = []
-
-    def _walk_para(para: Any):
+    for para in range_copy._iter_xtext_paragraphs(text_obj):
         try:
             portions = para.createEnumeration()
         except Exception as e:
             log.debug("extract_page_number_fields createEnumeration failed: %s", e)
-            return
-        while portions.hasMoreElements() is True:
-            try:
-                portion = portions.nextElement()
-                kind = portion.getPropertyValue("TextPortionType")
-            except Exception as e:
-                log.debug("extract_page_number_fields portion failed: %s", e)
-                break
+            continue
+        for portion, kind in range_copy._iter_portions(portions):
             if kind == "TextField":
                 try:
                     field = portion.getPropertyValue("TextField")
@@ -702,10 +690,6 @@ def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
                         })
                 except Exception as e:
                     log.debug("extract_page_number_fields TextField processing failed: %s", e)
-                    continue
-
-    for para in range_copy._iter_xtext_paragraphs(text_obj):
-        _walk_para(para)
     return fields
 
 
