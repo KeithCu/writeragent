@@ -336,19 +336,10 @@ def plan_session_id(
     # old id so the new file shares the old chat. A UUID from the
     # first save of an untitled document is not a url-hash and must
     # keep its history.
-    if stored_url_str:
-        if stored_url_str != url:
-            if url_id != stored_id_str:
-                return SessionIdPlan(session_id=url_id, fork_from=stored_id_str, stamp_url=True)
-            return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=True)
-        return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=False)
-
-    if _is_sha256_hex(stored_id_str):
-        if stored_id_str != url_id:
-            return SessionIdPlan(session_id=url_id, fork_from=stored_id_str, stamp_url=True)
-        return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=True)
-
-    return SessionIdPlan(session_id=stored_id_str, fork_from=None, stamp_url=True)
+    if stored_url_str == url:
+        return SessionIdPlan(stored_id_str, None, False)
+    fork = (url_id != stored_id_str) if stored_url_str else (_is_sha256_hex(stored_id_str) and stored_id_str != url_id)
+    return SessionIdPlan(url_id, stored_id_str, True) if fork else SessionIdPlan(stored_id_str, None, True)
 
 
 def header_third_button_kind(model: Any) -> str:
@@ -658,11 +649,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if not root or not hasattr(root, "getControl"):
                 return
 
-            def get_optional(name: str) -> Any:
-                return get_optional_control(root, name)
-
-            model_selector = get_optional("model_selector")
-            image_model_selector = get_optional("image_model_selector")
+            model_selector = get_optional_control(root, "model_selector")
+            image_model_selector = get_optional_control(root, "image_model_selector")
 
             # Bugfix: Reading text and image models, and populating those
             # comboboxes, had no except handler. An exception here skipped
@@ -673,7 +661,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             except Exception:
                 log.exception("_refresh_controls_from_config model/prompt refresh failed")
 
-            effort_selector = get_optional("reasoning_effort_selector")
+            effort_selector = get_optional_control(root, "reasoning_effort_selector")
             if effort_selector:
                 try:
                     from plugin.chatbot.config_ui_helpers import populate_reasoning_effort_selector
@@ -681,7 +669,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 except Exception:
                     log.exception("_refresh_controls_from_config reasoning effort refresh failed")
 
-            chat_mode_selector = get_optional("chat_mode_selector")
+            chat_mode_selector = get_optional_control(root, "chat_mode_selector")
             if chat_mode_selector:
                 with suppress_disposed("refresh chat_mode_selector from config", logger=log):
                     from plugin.chatbot.chat_sidebar_mode import (
@@ -705,7 +693,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         self._last_mode_labels = labels
             # Keep sidebar Voice checkbox in sync with Settings → Speech (audio.tts_enabled).
             # Settings apply emits config:changed; without this, chk_voice stays at wire-time state.
-            chk_voice = get_optional("chk_voice")
+            chk_voice = get_optional_control(root, "chk_voice")
             if chk_voice is not None and hasattr(chk_voice, "setState"):
                 with suppress_disposed("refresh chk_voice from audio.tts_enabled", logger=log):
                     from plugin.framework.config import get_config_bool_safe
@@ -991,10 +979,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         panel = self
 
         class ChatModeListener(BaseItemListener):
-            _in_revert: bool
-
-            def __init__(self, panel: Any, selector: Any, flags: Any) -> None:
-                self._in_revert = False
+            _in_revert: bool = False
 
             def on_item_state_changed(self, rEvent: Any) -> None:
                 if self._in_revert:
@@ -1026,7 +1011,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 mode = mode_from_selector_with_flags(chat_mode_selector, mode_flags)
                 apply_mode(mode)
 
-        chat_mode_selector.addItemListener(ChatModeListener(self, chat_mode_selector, mode_flags))
+        chat_mode_selector.addItemListener(ChatModeListener())
 
     def _setup_sessions(self, model: Any, extra_instructions: Any) -> None:
         """Creates the document and web research chat sessions."""
@@ -1286,13 +1271,11 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
 
     # Called externally by LibreOffice UNO framework; do not remove.
     def createUIElement(self, ResourceURL: str, Args: Any) -> XUIElement:
-        resource_url = ResourceURL
-        args = Args
-        log.debug("createUIElement: %s" % resource_url)
-        if "ChatPanel" not in resource_url:
-            raise NoSuchElementException("Unknown resource: " + resource_url)
-        frame = property_arg(args, "Frame")
-        parent_window = property_arg(args, "ParentWindow")
+        log.debug("createUIElement: %s" % ResourceURL)
+        if "ChatPanel" not in ResourceURL:
+            raise NoSuchElementException("Unknown resource: " + ResourceURL)
+        frame = property_arg(Args, "Frame")
+        parent_window = property_arg(Args, "ParentWindow")
         log.debug("ParentWindow: %s" % (parent_window is not None))
         if not parent_window:
             raise IllegalArgumentException("ParentWindow is required")
@@ -1302,7 +1285,7 @@ class ChatPanelFactory(unohelper.Base, XUIElementFactory):
 
         # One session per frame, opened with the document id of that frame.
         session = open_frame_session(frame, document_id_for_frame(frame))
-        return ChatPanelElement(self.ctx, frame, parent_window, resource_url, session)
+        return ChatPanelElement(self.ctx, frame, parent_window, ResourceURL, session)
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
