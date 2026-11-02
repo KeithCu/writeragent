@@ -200,7 +200,7 @@ flowchart LR
 ### Pipeline (default `hybrid` backend)
 
 1. **Encode query** — `SentenceTransformer` in the embeddings venv ([`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py)).
-2. **FTS leg** — BM25 + optional `NEAR` on FTS5 `passages` ([`folder_fts.py`](../plugin/embeddings/venv/folder_fts.py)).
+2. **FTS leg** — BM25 + optional `NEAR` on FTS5 `passages` ([`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py)).
 3. **Vector leg** — sqlite-vec `MATCH` on `vec_chunks_<model_slug>` ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)).
 4. **RRF fusion** — vendored reciprocal rank fusion ([`hybrid_rrf.py`](../plugin/embeddings/venv/hybrid_rrf.py), from [liamca/sqlite-hybrid-search](https://github.com/liamca/sqlite-hybrid-search)).
 5. **Parent merge** — widen snippets to full paragraph ([`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)).
@@ -316,7 +316,6 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | Venv RPC facades |
 | [`embeddings_service.py`](../plugin/embeddings/embeddings_service.py) | Host index/search/stats RPC |
 | [`embedding_client.py`](../plugin/embeddings/embedding_client.py) | Host `embed_texts()` RPC (provider call used by the index service) |
-| [`folder_fts_service.py`](../plugin/embeddings/folder_fts_service.py) | Host folder FTS maintain/search RPC |
 
 ---
 
@@ -331,7 +330,7 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | **`corpus.db`** | `chunks`, FTS5 `passages`, `vec_chunks_<model_slug>`, `indexed_files`, `indexed_paragraphs`, `model_metadata` |
 | **`corpus_meta.json`** | `schema_version`, `embedding_model`, `dim`, `chunk_count`, `storage_backend`, `updated_at` |
 
-`write_corpus_meta` merges fields and publishes them with `tempfile.mkstemp` in the same `writeragent_embeddings/` directory plus `os.replace`. There is no cross-process lock; overlapping merges can still drop fields. For sqlite, an omitted `db_path` (including `fts_index_is_empty`'s default) uses the `corpus.db` next to the meta file before checking emptiness. A missing `corpus_meta.json` beside a live `corpus.db` is an empty index (cold rebuild may delete that db). Corrupt or non-object JSON beside that db is not empty and must not be wiped. For zvec and lancedb, a populated collection with missing or corrupt meta stays not empty. `resolve_index_context` returns `corpus.db` and `corpus_meta.json` paths and does not create `writeragent_embeddings/` (probes call it on every status refresh and research search; `write_corpus_meta` and `connect_corpus_db` create the directory on write). `clear_folder_cache` deletes `corpus.db-wal` and `corpus.db-shm` with `corpus.db`.
+`write_corpus_meta` merges fields and publishes them with `tempfile.mkstemp` in the same `writeragent_embeddings/` directory plus `os.replace`. There is no cross-process lock; overlapping merges can still drop fields. For sqlite, an omitted `db_path` (including `index_is_empty`'s default) uses the `corpus.db` next to the meta file before checking emptiness. A missing `corpus_meta.json` beside a live `corpus.db` is an empty index (cold rebuild may delete that db). Corrupt or non-object JSON beside that db is not empty and must not be wiped. For zvec and lancedb, a populated collection with missing or corrupt meta stays not empty. `resolve_index_context` returns `corpus.db` and `corpus_meta.json` paths and does not create `writeragent_embeddings/` (probes call it on every status refresh and research search; `write_corpus_meta` and `connect_corpus_db` create the directory on write). `clear_folder_cache` deletes `corpus.db-wal` and `corpus.db-shm` with `corpus.db`.
 
 Experimental backends use side-by-side stores: `writeragent_embeddings/zvec/` or `lancedb/` — `corpus.db` remains untouched when flipping modes.
 

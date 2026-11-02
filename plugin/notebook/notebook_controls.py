@@ -406,9 +406,6 @@ def _doc_key(doc: Any) -> str:
     uid = _read_runtime_uid(doc)
     if uid:
         return f"uid:{uid}"
-    url = uno_probe(lambda: doc.getURL(), "")
-    if isinstance(url, str) and url:
-        return f"url:{url}"
     return f"id:{id(doc)}"
 
 
@@ -477,67 +474,25 @@ class NotebookFormRunListener(BaseActionListener):
 
     _ctx: Any
     _doc_key_val: str
-    _doc_url: str
     _runtime_uid: str
-    _doc_weak: Any | None
     _attached_names: set[str]
 
     def __init__(self, ctx: Any, doc: Any) -> None:
         self._ctx = ctx
         self._doc_key_val = _doc_key(doc)
-        self._doc_url = str(uno_probe(lambda: doc.getURL(), "") or "")
-        # _doc_key already stored RuntimeUID in the uid: prefix. Untitled docs
-        # have an empty URL. Hidden native tests (and a notebook that is not
-        # Desktop.getCurrentComponent) then failed get_active_document; PyUNO
-        # wrappers usually cannot be weakref'd, so ▶ looked wired but
-        # actionPerformed returned "document gone".
         self._runtime_uid = self._doc_key_val[4:] if self._doc_key_val.startswith("uid:") else ""
-        import weakref
-
-        self._doc_weak = uno_probe(lambda: weakref.ref(doc), None)
         self._attached_names = set()
 
     def _resolve_doc(self) -> Any | None:
-        from plugin.framework.uno_context import get_active_document, resolve_document_by_url
+        from plugin.framework.uno_context import resolve_document_by_url
 
-        weak = self._doc_weak
-        if callable(weak):
-            ref_doc: Any = weak()
-            if ref_doc is not None:
-                for meth in ("getRuntimeUID", "getURL"):
-                    fn = getattr(ref_doc, meth, None)
-                    if not callable(fn):
-                        continue
-                    try:
-                        fn()
-                        return ref_doc
-                    except Exception:
-                        log.debug(
-                            "notebook controls: %s liveness probe failed",
-                            meth,
-                            exc_info=True,
-                        )
-            self._doc_weak = None
-
-        active = best_effort(
-            lambda: get_active_document(self._ctx),
-            "notebook controls: active document resolution failed",
+        if not self._runtime_uid:
+            return None
+        resolved = best_effort(
+            functools.partial(resolve_document_by_url, self._ctx, self._runtime_uid),
+            "notebook controls: runtime uid resolution failed",
         )
-        if active is not None and _doc_key(active) == self._doc_key_val:
-            return active
-
-        for token, what in (
-            (self._doc_url, "notebook controls: doc resolution failed"),
-            (self._runtime_uid, "notebook controls: runtime uid resolution failed"),
-        ):
-            if not token:
-                continue
-            resolved = best_effort(
-                functools.partial(resolve_document_by_url, self._ctx, token),
-                what,
-            )
-            if resolved is None:
-                continue
+        if resolved is not None:
             doc, _doc_type = resolved
             if doc is not None:
                 return doc

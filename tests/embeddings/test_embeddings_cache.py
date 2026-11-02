@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 from plugin.embeddings import embeddings_cache
 from plugin.embeddings.embeddings_fs import ParagraphChunk, content_hash
-from plugin.embeddings.folder_fts_cache import fts_index_is_empty
 
 
 def test_folder_corpus_key_stable_and_normalized():
@@ -200,11 +199,9 @@ def test_index_is_empty_omitted_db_path_uses_sibling_corpus(tmp_path):
     meta_path.write_text("{ corrupt", encoding="utf-8")
 
     assert embeddings_cache.index_is_empty(meta_path) is False
-    assert fts_index_is_empty(meta_path) is False
 
     meta_path.write_text("[]", encoding="utf-8")
     assert embeddings_cache.index_is_empty(meta_path) is False
-    assert fts_index_is_empty(meta_path) is False
 
 
 def test_index_is_empty_omitted_db_path_without_sibling_db_is_empty(tmp_path):
@@ -415,4 +412,52 @@ def test_dim_from_meta_path_ignores_non_dict(tmp_path):
     assert embeddings_cache.dim_from_meta_path(str(meta)) is None
     meta.write_text('{"dim": "384"}', encoding="utf-8")
     assert embeddings_cache.dim_from_meta_path(str(meta)) == 384
+
+
+def test_corpus_meta_load_update_save_and_predicates(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    meta = embeddings_cache.CorpusMeta.load(meta_path)
+    assert not meta.is_valid
+    assert meta.chunk_count == 0
+
+    meta.update(
+        schema_version="6",
+        embedding_model="model-x",
+        dim=256,
+        chunk_count=10,
+        storage_backend="sqlite_vec",
+        host_flag="yes",
+    ).save(meta_path)
+
+    loaded = embeddings_cache.CorpusMeta.load(meta_path)
+    assert loaded.is_valid
+    assert loaded.schema_version == "6"
+    assert loaded.embedding_model == "model-x"
+    assert loaded.dim == 256
+    assert loaded.chunk_count == 10
+    assert loaded.storage_backend == "sqlite_vec"
+    assert loaded.extra.get("host_flag") == "yes"
+
+    assert loaded.schema_matches()
+    assert loaded.model_matches_index("model-x")
+    assert not loaded.model_matches_index("other-model")
+    assert not loaded.needs_cold_rebuild("model-x")
+    assert loaded.needs_cold_rebuild("other-model")
+
+    # Second update preserves host_flag
+    loaded.update(chunk_count=20).save()
+    reloaded = embeddings_cache.CorpusMeta.load(meta_path)
+    assert reloaded.chunk_count == 20
+    assert reloaded.extra.get("host_flag") == "yes"
+    assert reloaded.embedding_model == "model-x"
+
+
+def test_corpus_meta_corrupt_file_handling(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+    meta = embeddings_cache.CorpusMeta.load(meta_path)
+    assert not meta.is_valid
+    assert not meta.schema_matches()
+    # Corrupt meta should not trigger cold rebuild (which would wipe live DB)
+    assert not meta.needs_cold_rebuild("any-model")
 

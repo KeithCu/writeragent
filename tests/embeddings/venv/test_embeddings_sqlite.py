@@ -13,6 +13,34 @@ sqlite_vec = pytest.importorskip("sqlite_vec")
 from plugin.embeddings.venv import embeddings_sqlite  # noqa: E402
 
 
+def test_build_match_query_single_word():
+    assert embeddings_sqlite.build_match_query("numpy") == '"numpy"'
+
+
+def test_build_match_query_multi_word_near():
+    q = embeddings_sqlite.build_match_query("web search", near_slop=10)
+    assert q.startswith("NEAR(")
+    assert '"web"' in q
+    assert '"search"' in q
+    assert ", 10)" in q
+
+
+def test_build_match_query_near_slash_syntax():
+    q = embeddings_sqlite.build_match_query("ocean NEAR/3 warming", near_slop=10)
+    assert "NEAR(" in q
+    assert ", 3)" in q
+
+
+def test_build_match_query_empty_raises():
+    with pytest.raises(ValueError, match="query"):
+        embeddings_sqlite.build_match_query("   ")
+
+
+def test_strip_fts_snippet_markers():
+    assert embeddings_sqlite.strip_fts_snippet_markers("[web] [search] tool-call") == "web search tool-call"
+    assert embeddings_sqlite.strip_fts_snippet_markers("…[WEB]_[SEARCH]…") == "…WEB_SEARCH…"
+
+
 def test_corpus_schema_fts_and_vec_round_trip(tmp_path):
     db_path = tmp_path / "corpus.db"
     conn = embeddings_sqlite.connect_corpus_db(db_path)
