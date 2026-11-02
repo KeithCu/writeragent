@@ -47,6 +47,7 @@ from .image_utils import (
     IMAGE_CONTENT_TYPE_DENYLIST,
     IMAGE_DOWNLOAD_MAX_BYTES,
     ImageService,
+    _unlink_temp_paths,
     validated_image_suffix,
 )
 from . import image_mark, image_tools
@@ -81,6 +82,10 @@ def _orient_number(raw: Any) -> int | None:
     return int(raw)
 
 
+def _is_writer_doc(doc_type: str) -> bool:
+    return doc_type in ("writer", "web")
+
+
 def _fill_missing_dimension(
     width: Any,
     height: Any,
@@ -105,6 +110,16 @@ def _fill_missing_dimension(
     return base_width, base_height
 
 
+def _explicit_generation_size(
+    width: int | None,
+    height: int | None,
+    base_w: int,
+    base_h: int,
+) -> tuple[int, int, str | None]:
+    final_w, final_h = _fill_missing_dimension(width, height, base_w, base_h)
+    return final_w, final_h, canonical_aspect_ratio(final_w, final_h)
+
+
 def resolve_generation_size(
     base_size: int,
     aspect: str | None,
@@ -117,30 +132,23 @@ def resolve_generation_size(
     num, den = map(int, normalized.split(":"))
 
     if width is not None or height is not None:
-        final_w, final_h = _fill_missing_dimension(width, height, num, den)
-    else:
-        if num > den:
-            calc_w = int(base_size * num / den)
-            calc_h = base_size
-        elif num < den:
-            calc_w = base_size
-            calc_h = int(base_size * den / num)
-        else:
-            calc_w = base_size
-            calc_h = base_size
+        return _explicit_generation_size(width, height, num, den)
 
-        calc_w = (calc_w // 64) * 64 or 64
-        calc_h = (calc_h // 64) * 64 or 64
-        final_w = calc_w
-        final_h = calc_h
+    if num > den:
+        final_w = int(base_size * num / den)
+        final_h = base_size
+    elif num < den:
+        final_w = base_size
+        final_h = int(base_size * den / num)
+    else:
+        final_w = base_size
+        final_h = base_size
+
+    final_w = (final_w // 64) * 64 or 64
+    final_h = (final_h // 64) * 64 or 64
 
     wire_ratio = canonical_aspect_ratio(final_w, final_h)
     return final_w, final_h, wire_ratio
-
-
-def _nearest_multiple_of_64(value: float) -> int:
-    snapped = int(round(value / 64.0)) * 64
-    return max(64, snapped)
 
 
 def _short_edge_for_ratio(long_edge: int, ideal_short: float, expected: float, *, width_is_long: bool) -> int:
@@ -150,18 +158,16 @@ def _short_edge_for_ratio(long_edge: int, ideal_short: float, expected: float, *
     window, and OpenRouter then sends a raw ``size`` instead of ``aspect_ratio``.
     """
     center = max(1, int(round(ideal_short / 64.0)))
-    cands: list[tuple[float, int]] = []
-    for step in range(0, 6):
-        offsets = (0,) if step == 0 else (step, -step)
-        for offset in offsets:
-            multiple = center + offset
-            if multiple < 1:
-                continue
-            short = multiple * 64
-            width, height = (long_edge, short) if width_is_long else (short, long_edge)
-            gap = abs((width / height) / expected - 1)
-            cands.append((gap, short))
-    return min(cands, key=lambda c: (c[0] > 0.07, c[0]))[1]
+    cands: list[tuple[float, int, int]] = []
+    for offset in range(-5, 6):
+        multiple = center + offset
+        if multiple < 1:
+            continue
+        short = multiple * 64
+        width, height = (long_edge, short) if width_is_long else (short, long_edge)
+        gap = abs((width / height) / expected - 1)
+        cands.append((gap, offset, short))
+    return min(cands, key=lambda c: (c[0] > 0.07, c[0], abs(c[1]), c[1] < 0))[2]
 
 
 def resolve_edit_generation_size(base_size: int, src_width: int, src_height: int) -> tuple[int, int, str | None]:
@@ -181,7 +187,7 @@ def resolve_edit_generation_size(base_size: int, src_width: int, src_height: int
         src_width, src_height = 1, 1
     label = closest_aspect_label(src_width, src_height) or "1:1"
     num, den = (int(part) for part in label.split(":"))
-    long_edge = _nearest_multiple_of_64(base_size if base_size > 0 else 64)
+    long_edge = max(64, int(round((base_size if base_size > 0 else 64) / 64.0)) * 64)
     expected = num / den
     width_is_long = num >= den
     ideal_short = long_edge * den / num if width_is_long else long_edge * num / den
@@ -328,17 +334,16 @@ class ImageGenerate(ToolWriterImageBase):
             target_obj, source_b64, edit_width, edit_height = (picked[0], str(picked[1]), int(picked[2]), int(picked[3]))
             display_width, display_height = int(picked[4]), int(picked[5])
             gen_kwargs["source_image"] = source_b64
-            arg_w = args.get("width")
-            arg_h = args.get("height")
             # Omitted size is the Settings base-size grid. The file's pixels
             # and the on-page frame only supply the aspect. An explicit side
             # still scales from the selection, and the retry drops a tier the
             # model rejects.
-            if arg_w is None and arg_h is None:
+            if args.get("width") is None and args.get("height") is None:
                 width, height, wire_ratio = resolve_edit_generation_size(base_size, edit_width, edit_height)
             else:
-                width, height = _fill_missing_dimension(arg_w, arg_h, edit_width, edit_height)
-                wire_ratio = canonical_aspect_ratio(width, height)
+                width, height, wire_ratio = _explicit_generation_size(
+                    args.get("width"), args.get("height"), edit_width, edit_height
+                )
         else:
             aspect = args.get("aspect_ratio") or get_config_str("image_default_aspect")
             width, height, wire_ratio = resolve_generation_size(
@@ -415,8 +420,6 @@ class ImageGenerate(ToolWriterImageBase):
         try:
             msg = run_on_main(_insert_or_replace, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
         finally:
-            from plugin.writer.images.image_utils import _unlink_temp_paths
-
             _unlink_temp_paths(paths)
 
         image_model_used = str(args.get("image_model") or get_image_model() or "").strip()
@@ -547,7 +550,7 @@ class ImageList(ToolWriterImageBase):
         doc_type = visual_helpers.get_visual_doc_type(doc)
         is_calc = doc_type == "calc"
         is_draw = doc_type in ("draw", "impress")
-        is_writer = not is_calc and not is_draw
+        is_writer = _is_writer_doc(doc_type)
         if is_writer and not hasattr(doc, "getGraphicObjects"):
             return self._tool_error("Document does not support graphic objects.")
         graphics_names = visual_helpers.list_graphic_objects(doc, doc_type=doc_type)
@@ -755,7 +758,7 @@ class ImageGetInfo(ToolWriterImageBase):
 
         # Paragraph index via anchor
         paragraph_index = -1
-        is_writer = visual_helpers.get_visual_doc_type(ctx.doc) in ("writer", "web")
+        is_writer = _is_writer_doc(visual_helpers.get_visual_doc_type(ctx.doc))
         if is_writer:
             try:
                 anchor = graphic.getAnchor()
@@ -1324,7 +1327,7 @@ class ImageInsert(ToolWriterImageBase):
                     width_mm = height_mm = side
 
             if target in ("header", "footer", "header_first", "footer_first"):
-                if doc_type not in ("writer", "web"):
+                if not _is_writer_doc(doc_type):
                     return self._tool_error(
                         "target='%s' is only supported for Writer documents." % target,
                         code="UNSUPPORTED_DOC_TYPE",
@@ -1356,7 +1359,7 @@ class ImageInsert(ToolWriterImageBase):
                     "auto_height": placed["auto_height"],
                 }
 
-            if (locator is not None or paragraph_index is not None) and doc_type not in ("writer", "web"):
+            if (locator is not None or paragraph_index is not None) and not _is_writer_doc(doc_type):
                 return self._tool_error(
                     "locator and paragraph parameters are only supported for Writer documents.",
                     code="UNSUPPORTED_DOC_TYPE",
@@ -1430,7 +1433,7 @@ class ImageDelete(ToolWriterImageBase):
             return err
 
         doc_type = visual_helpers.get_visual_doc_type(ctx.doc)
-        if doc_type in ("calc", "draw", "impress"):
+        if not _is_writer_doc(doc_type):
             try:
                 if not visual_helpers.remove_graphic_from_draw_pages(ctx.doc, graphic):
                     return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
@@ -1545,6 +1548,7 @@ def _prune_image_cache(cache_dir: str, keep_path: str) -> None:
     now = time.time()
     keep_real = os.path.realpath(keep_path)
     entries: list[tuple[float, int, str]] = []
+    total_size = 0
     try:
         for entry in os.scandir(cache_dir):
             if not entry.is_file() or entry.name.endswith(".partial"):
@@ -1564,24 +1568,23 @@ def _prune_image_cache(cache_dir: str, keep_path: str) -> None:
                     os.unlink(entry.path)
                 else:
                     entries.append((st.st_mtime, st.st_size, entry.path))
+                    total_size += st.st_size
             except OSError:
                 pass
     except OSError:
         return
 
-    total_size = 0
     try:
         total_size += os.path.getsize(keep_path)
     except OSError:
         pass
-    for _, size, _ in entries:
-        total_size += size
 
     if total_size > IMAGE_CACHE_MAX_BYTES:
         entries.sort(key=lambda x: x[0])
-        for _, size, path in entries:
+        for item in entries:
             if total_size <= IMAGE_CACHE_MAX_BYTES:
                 break
+            size, path = item[1], item[2]
             try:
                 os.unlink(path)
                 total_size -= size
@@ -1668,29 +1671,18 @@ def _download_image_to_cache(
 
                 # Socket timeout is ~1s for responsive Stop during read chunks.
                 # Connect/DNS and silent stall before the first byte can take full request_timeout.
-                sock = getattr(response, "sock", None)
-                if sock is None:
-                    fp = getattr(response, "fp", None)
-                    if fp is not None:
-                        raw_io = getattr(fp, "raw", None)
-                        sock = getattr(raw_io, "_sock", None) if raw_io is not None else getattr(fp, "_sock", None)
-                if sock is not None and hasattr(sock, "settimeout"):
-                    best_effort(lambda: sock.settimeout(1.0), "image download: could not set socket timeout")
+                best_effort(lambda: response.fp.raw._sock.settimeout(1.0), "image download: could not set socket timeout")
 
                 total = 0
                 initial_bytes = b""
                 deadline = time.monotonic() + timeout
                 while True:
                     if stop_checker is not None and stop_checker():
-                        response.close()
                         raise _DownloadStopped()
                     try:
                         chunk = response.read(_IMAGE_DOWNLOAD_CHUNK)
                     except (TimeoutError, socket.timeout):
-                        if stop_checker is not None and stop_checker():
-                            response.close()
-                            raise _DownloadStopped()
-                        if time.monotonic() > deadline:
+                        if time.monotonic() > deadline and not (stop_checker is not None and stop_checker()):
                             raise TimeoutError("image download timed out")
                         continue
 
