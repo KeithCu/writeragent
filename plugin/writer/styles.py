@@ -262,10 +262,10 @@ def _schema_prop_value(prop_name: str, raw: Any) -> Any:
         return _para_adjust_from_uno(raw)
     if prop_name == "CharPosture":
         return _font_slant_to_int(raw)
+    if prop_name == "ParaTabStops" and isinstance(raw, (list, tuple)):
+        return [_struct_to_json(_STRUCT_PROPERTIES[prop_name], item) for item in raw]
     if prop_name in _STRUCT_PROPERTIES:
         return _struct_to_json(_STRUCT_PROPERTIES[prop_name], raw)
-    if prop_name in _STRUCT_SEQUENCE_PROPERTIES and isinstance(raw, (list, tuple)):
-        return [_struct_to_json(_STRUCT_SEQUENCE_PROPERTIES[prop_name], item) for item in raw]
     return _uno_scalar_to_json(raw)
 
 
@@ -278,10 +278,6 @@ _STRUCT_PROPERTIES = {
     "ParaLineSpacing": "com.sun.star.style.LineSpacing",
     "DropCapFormat": "com.sun.star.style.DropCapFormat",
     **{b: "com.sun.star.table.BorderLine2" for b in _BORDER_PROPERTIES},
-}
-
-# Sequence-of-struct properties: the value is a list of dicts.
-_STRUCT_SEQUENCE_PROPERTIES = {
     "ParaTabStops": "com.sun.star.style.TabStop",
 }
 
@@ -292,7 +288,6 @@ _FAMILY_PROPS = {
         + list(_KNOWN_PARAGRAPH_PROPERTIES.keys())
         + list(_KNOWN_CHARACTER_PROPERTIES.keys())
         + list(_STRUCT_PROPERTIES.keys())
-        + list(_STRUCT_SEQUENCE_PROPERTIES.keys())
     ),
     "CharacterStyles": (
         list(_KNOWN_CHARACTER_PROPERTIES.keys())
@@ -431,13 +426,12 @@ def _set_style_property(style: Any, prop_name: str, value: Any) -> None:
     typed sequence ``[]com.sun.star.style.TabStop``, which only uno.invoke with a
     uno.Any can express (a plain uno.Any argument is rejected outside uno.invoke).
     """
-    struct_name = _STRUCT_SEQUENCE_PROPERTIES.get(prop_name)
-    if struct_name and isinstance(value, tuple):
+    if prop_name == "ParaTabStops" and isinstance(value, tuple):
         import uno  # local: see _coerce_uno_field (tests swap sys.modules["uno"])
 
         # uno.Any / uno.invoke are runtime PyUNO helpers the type stubs do not declare.
         uno_rt = cast("Any", uno)
-        uno_rt.invoke(style, "setPropertyValue", (prop_name, uno_rt.Any("[]" + struct_name, value)))
+        uno_rt.invoke(style, "setPropertyValue", (prop_name, uno_rt.Any("[]com.sun.star.style.TabStop", value)))
         return
     style.setPropertyValue(prop_name, value)
 
@@ -525,8 +519,6 @@ _CLONE_SKIP_PROPS = frozenset({
     "HeaderText", "HeaderTextLeft", "HeaderTextRight", "HeaderTextFirst",
     "FooterText", "FooterTextLeft", "FooterTextRight", "FooterTextFirst",
 })
-
-_CLONE_FAMILIES = ("ParagraphStyles", "PageStyles", "CharacterStyles")
 
 _CLONE_TEXT_SERVICES = {
     "ParagraphStyles": "com.sun.star.style.ParagraphStyle",
@@ -621,14 +613,13 @@ def _normalize_property_updates(property_updates: Any) -> dict[str, Any]:
     if "ParaAdjust" in updates:
         updates["ParaAdjust"] = _para_adjust_to_uno(updates["ParaAdjust"])
     for name, struct_name in _STRUCT_PROPERTIES.items():
-        if name in updates and isinstance(updates[name], dict):
-            updates[name] = _dict_to_uno_struct(name, struct_name, updates[name])
-    for name, struct_name in _STRUCT_SEQUENCE_PROPERTIES.items():
-        if name in updates and isinstance(updates[name], list):
-            built = []
-            for item in updates[name]:
-                built.append(_dict_to_uno_struct(name, struct_name, item))
-            updates[name] = tuple(built)
+        if name in updates:
+            val = updates[name]
+            if name == "ParaTabStops":
+                if isinstance(val, list):
+                    updates[name] = tuple(_dict_to_uno_struct(name, struct_name, item) for item in val)
+            elif isinstance(val, dict):
+                updates[name] = _dict_to_uno_struct(name, struct_name, val)
     return updates
 
 
@@ -1022,10 +1013,9 @@ class ApplyStyle(FrameworkToolBase):
                 return {"status": "error", "message": "old_content not found in document.", "target": "search", "applied": False, "matched": False}
             if occ_raw is not None:
                 # Schema type integer (bool fails). validate has no min/max.
-                occ = occ_raw
-                if occ < 0 or occ >= len(ranges):
+                if occ_raw < 0 or occ_raw >= len(ranges):
                     return self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
-                ranges = [ranges[occ]]
+                ranges = [ranges[occ_raw]]
             reports = []
 
             mgr = None
@@ -1040,7 +1030,6 @@ class ApplyStyle(FrameworkToolBase):
                 except Exception as e:
                     if is_disposed_exception(e):
                         raise
-                    mgr = None
                 if mgr is None:
                     return self._tool_error("Cannot apply the style to every match in one undo step. Nothing was changed.")
 
@@ -1066,7 +1055,6 @@ class ApplyStyle(FrameworkToolBase):
                 except Exception as leave_exc:
                     log.exception("apply_style: leaveUndoContext failed")
                     reraise_if_disposed(leave_exc)
-                    undone = False
                     leave_error = leave_exc
                 else:
                     if error is not None:
@@ -1389,7 +1377,7 @@ class StyleClone(ToolWriterStyleBase):
         "properties": {
             "style": {"type": "string", "description": "Name of the style to copy."},
             "new_style": {"type": "string", "description": "Name of the new style. Must not already exist."},
-            "family": enum_param(list(_CLONE_FAMILIES), "Style family. Default: ParagraphStyles."),
+            "family": enum_param(["ParagraphStyles", "PageStyles", "CharacterStyles"], "Style family. Default: ParagraphStyles."),
         },
         "required": ["style", "new_style"],
     }
@@ -1442,10 +1430,7 @@ class StyleClone(ToolWriterStyleBase):
             "family": family,
             "source_style": style_name,
             "new_style": new_name,
-            "properties_copied": stats["properties_copied"],
-            "skipped_properties": stats["skipped_properties"],
-            "shapes_copied": stats["shapes_copied"],
-            "skipped_shapes": stats["skipped_shapes"],
+            **stats,
         }
         flag_style_unreviewed(result)
         return result
