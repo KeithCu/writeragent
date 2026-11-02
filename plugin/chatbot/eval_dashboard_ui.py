@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from plugin.framework.config import get_config_str
 from plugin.framework.client.model_fetcher import get_text_model
@@ -75,10 +75,11 @@ class EvalDashboard:
         ctrl = best_effort(lambda: self._dlg.getControl("models"), "Eval dashboard model combo unavailable")
         if ctrl is None:
             return
+        remote = models if isinstance(models, list) else None
         populate_combobox_with_lru(
             ctrl, current_model, "model_lru", endpoint,
-            remote_models=models if isinstance(models, list) else None,
-            skip_remote_fetch=not isinstance(models, list),
+            remote_models=remote,
+            skip_remote_fetch=remote is None,
         )
 
     def _schedule_models_fetch(self, endpoint: str, current_model: str) -> None:
@@ -213,12 +214,16 @@ class EvalRunListener(BaseActionListener):
 
         post_to_main_thread(_paint)
 
-    def _show_summary(self, model_name: str, summary: dict[str, Any]) -> None:
+    def _terminal_paint(self, paint_fn: Callable[[], None]) -> None:
         try:
-            # Same close race as _after_test. is_running still clears so a
-            # later Run is not stuck after the dialog is already gone.
             if self._owner._closed:
                 return
+            paint_fn()
+        finally:
+            self.is_running = False
+
+    def _show_summary(self, model_name: str, summary: dict[str, Any]) -> None:
+        def _paint() -> None:
             with suppress_disposed("eval summary", logger=log, suppress_all=False):
                 log_text = f"Benchmarks Complete for {model_name}!\n"
                 log_text += f"Passed: {summary['passed']}, Failed: {summary['failed']}\n"
@@ -227,26 +232,25 @@ class EvalRunListener(BaseActionListener):
                     log_text += f"[{res['status']}] {res['name']} ({res.get('latency', 0):.1f}s)\n"
                 self.dialog.getControl("log_area").setText(log_text)
                 self.dialog.getControl("status").setText("Finished")
-        finally:
-            self.is_running = False
+
+        self._terminal_paint(_paint)
 
     def _show_failure(self, exc: BaseException) -> None:
         # A failure before the summary dict still sets the status line.
         # The action listener only clears is_running, so skipping this leaves
         # the dialog on "Running...". A close during the suite disposes the
         # dialog before this post runs: skip the paint, still clear is_running.
-        try:
-            if self._owner._closed:
-                return
-            self.dialog.getControl("log_area").setText(f"Benchmark failed:\n{exc}\n")
-            self.dialog.getControl("status").setText("Finished")
-        except Exception as paint_exc:
-            if is_disposed_exception(paint_exc):
-                log.debug("eval failure skipped; dialog disposed", exc_info=True)
-            else:
-                log.debug("eval failure status failed", exc_info=True)
-        finally:
-            self.is_running = False
+        def _paint() -> None:
+            try:
+                self.dialog.getControl("log_area").setText(f"Benchmark failed:\n{exc}\n")
+                self.dialog.getControl("status").setText("Finished")
+            except Exception as paint_exc:
+                if is_disposed_exception(paint_exc):
+                    log.debug("eval failure skipped; dialog disposed", exc_info=True)
+                else:
+                    log.debug("eval failure status failed", exc_info=True)
+
+        self._terminal_paint(_paint)
 
 
 class SimpleCloseListener(BaseActionListener):

@@ -41,7 +41,7 @@ def _build_calc_edit_prompt(original: str, instructions: str) -> str:
     )
 
 
-def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) -> None:
+def do_calc_extend_edit(ctx: Any, model: Any, is_edit: bool) -> None:
     sheet = model.CurrentController.ActiveSheet
     selection = model.CurrentController.Selection
 
@@ -49,7 +49,7 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
     extra_instructions = ""
     title = _("WriterAgent: Edit Selection (Calc)") if is_edit else _("WriterAgent: Extend Selection (Calc)")
     if is_edit:
-        edit_request = prompt_for_edit_instructions(ctx, input_box_fn, title)
+        edit_request = prompt_for_edit_instructions(ctx, title)
         if edit_request is None:
             return
         user_input, extra_instructions = edit_request

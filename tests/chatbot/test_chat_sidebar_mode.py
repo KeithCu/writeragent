@@ -209,7 +209,9 @@ def test_clear_librarian_session_resets_flag_only():
 
 
 def test_librarian_default_mode_first_then_chat():
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=False), patch(
+        "plugin.chatbot.memory.user_profile_exists", return_value=False
+    ):
         assert librarian_default_mode() == CHAT_MODE_LIBRARIAN
     with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
         assert librarian_default_mode() == CHAT_MODE_CHAT
@@ -222,7 +224,7 @@ def test_librarian_default_mode_existing_profile_skips_and_sets_flag():
     with patch("plugin.framework.config.get_config_bool_safe", return_value=False), patch(
         "plugin.chatbot.memory.user_profile_exists", return_value=True
     ), patch("plugin.chatbot.chat_sidebar_mode.mark_librarian_invoked") as mock_mark:
-        assert librarian_default_mode(ctx=object()) == CHAT_MODE_CHAT
+        assert librarian_default_mode() == CHAT_MODE_CHAT
         mock_mark.assert_called_once()
 
 

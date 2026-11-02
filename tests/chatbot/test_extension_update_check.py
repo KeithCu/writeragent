@@ -77,7 +77,7 @@ def test_version_tuple_invalid():
 
 def test_parse_update_xml_sample():
     ident, ver = parse_update_xml(SAMPLE_XML)
-    assert ident == _WRITERAGENT_PROFILE.extension_id
+    assert ident == EXTENSION_ID_WRITERAGENT
     assert ver == "0.7.1"
 
 
@@ -102,7 +102,7 @@ def test_parse_update_xml_wrong_identifier_still_parses():
 def test_identifier_mismatch_means_ignore_for_update_signal():
     """Caller must reject when ident != expected profile extension id."""
     ident, ver = parse_update_xml(WRONG_ID_XML)
-    assert ident != _WRITERAGENT_PROFILE.extension_id
+    assert ident != EXTENSION_ID_WRITERAGENT
     # would not treat as update even though remote > local
     assert version_tuple(ver or "") > version_tuple("0.0.1")
 

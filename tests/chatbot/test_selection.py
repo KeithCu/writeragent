@@ -240,12 +240,10 @@ def test_prompt_for_edit_instructions_long_error_does_not_raise_contract_error()
 
     long_err = ValueError("x" * (DEAL_MAX_MSGID + 50))
 
-    def input_box_fail(*args, **kwargs):
-        raise long_err
-
     ctx = MagicMock()
-    with patch("plugin.chatbot.selection.msgbox") as mock_msgbox:
-        result = prompt_for_edit_instructions(ctx, input_box_fail, "Title")
+    with patch("plugin.chatbot.selection.input_box", side_effect=long_err), \
+         patch("plugin.chatbot.selection.msgbox") as mock_msgbox:
+        result = prompt_for_edit_instructions(ctx, "Title")
         assert result is None
         mock_msgbox.assert_called_once_with(ctx, "Title", format_error_message(long_err))
 

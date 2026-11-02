@@ -903,7 +903,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 aspect_ratio_selector.addItemListener(AspectListener())
 
         mode_flags = self._sidebar_mode_flags()
-        initial_mode = librarian_default_mode(self.ctx)
+        initial_mode = librarian_default_mode()
 
         if chat_mode_selector:
             with suppress_disposed("chat_mode_selector wire", logger=log, exc_info=True):

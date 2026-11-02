@@ -43,7 +43,6 @@ _schedule_lock = threading.Lock()
 
 @dataclass(frozen=True)
 class UpdateCheckProfile:
-    extension_id: str
     display_name: str
     update_xml_url: str
     config_key_epoch: str
@@ -51,19 +50,16 @@ class UpdateCheckProfile:
 
 UPDATE_CHECK_PROFILES: dict[str, UpdateCheckProfile] = {
     EXTENSION_ID_WRITERAGENT: UpdateCheckProfile(
-        extension_id=EXTENSION_ID_WRITERAGENT,
         display_name="WriterAgent",
         update_xml_url=f"{_GITHUB_RAW}/update.xml",
         config_key_epoch="extension_update_check_epoch",
     ),
     EXTENSION_ID_LIBREPY: UpdateCheckProfile(
-        extension_id=EXTENSION_ID_LIBREPY,
         display_name="LibrePy",
         update_xml_url=f"{_GITHUB_RAW}/update-librepy.xml",
         config_key_epoch="librepy_update_check_epoch",
     ),
     EXTENSION_ID_LIBREHARPER: UpdateCheckProfile(
-        extension_id=EXTENSION_ID_LIBREHARPER,
         display_name="LibreHarper",
         update_xml_url=f"{_GITHUB_RAW}/update-libreharper.xml",
         config_key_epoch="libreharper_update_check_epoch",
@@ -170,11 +166,11 @@ def run_extension_update_check(ctx: Any, extension_id: str) -> None:
         log.debug("extension update check: received %s bytes", len(raw))
         ident, remote_ver = parse_update_xml(raw)
         log.debug("extension update check: parsed identifier=%r remote_version=%r", ident, remote_ver)
-        if ident != profile.extension_id:
+        if ident != extension_id:
             log.info(
                 "extension update check: identifier mismatch (got %r, expected %r), not notifying",
                 ident,
-                profile.extension_id,
+                extension_id,
             )
             return
         if not remote_ver:
