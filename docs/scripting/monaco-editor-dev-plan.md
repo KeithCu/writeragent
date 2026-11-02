@@ -714,7 +714,7 @@ Feasibility analysis for replacing Monaco/pywebview with an embedded Writer docu
 
 | Task | Notes |
 |------|-------|
-| Hidden Writer doc for formatted paste | Hidden-doc + copy pattern in `rich_text_control.py` / `append_rich_text` in `rich_text.py` |
+| Hidden Writer doc for formatted paste | Hidden-doc + copy pattern in `rich_text_control.py` / `_append_rich_text_with_span` in `rich_text.py` |
 | Loading code into it | `text.setString(code)` |
 | Extracting code from it | `text.getString()` |
 | Monospace font | Set `CharFontName = "Liberation Mono"` on the Standard paragraph style |

@@ -147,11 +147,11 @@ class TestPastePortionColor:
              patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
-            ok, reason = _copy_formatted_from_hidden_doc_to_control(
+            reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
 
-        assert ok is True, reason
+        assert reason is None
         writes_dict = {txt: color for txt, color in written}
         assert writes_dict.get("You: ") == user_color
         assert writes_dict.get("hello") == user_color
@@ -198,10 +198,10 @@ class TestPastePortionColor:
                  patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
                  patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
                  patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
-                ok, reason = _copy_formatted_from_hidden_doc_to_control(
+                reason = _copy_formatted_from_hidden_doc_to_control(
                     src_doc, control, MagicMock(), role=start_role,
                 )
-            assert ok is True, reason
+            assert reason is None
             return written
 
         user_color = 0x2A6099
@@ -318,7 +318,7 @@ class TestAppendRichTextViaClipboard:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc) as mock_create, \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
              patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: Hi")) as mock_append, \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)) as mock_copy:
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None) as mock_copy:
             append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant", style_window=style_window)
 
         mock_create.assert_called_once_with(ctx)
@@ -369,7 +369,7 @@ class TestAppendRichTextViaClipboard:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=MagicMock()), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "You: hello")), \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)), \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=1), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste.focus_preserved", _recording_focus), \
@@ -540,7 +540,7 @@ class TestHistoryMessageBatching:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc) as mock_create, \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc") as mock_render, \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)) as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None) as mock_copy, \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail") as mock_scroll:
             append_formatted_rows(ctx, control, items)
@@ -571,7 +571,7 @@ class TestHistoryMessageBatching:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(False, "failed")), \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value="failed"), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=5), \
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture), \
@@ -651,7 +651,7 @@ class TestHistoryMessageBatching:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: hello")), \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(False, "failed")), \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value="failed"), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=10), \
              patch("plugin.chatbot.rich_text_paste.rollback_rich_insert") as mock_rollback, \
              patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain:
@@ -722,7 +722,7 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "You: hello")), \
              patch(
                  "plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control",
-                 return_value=(True, None),
+                 return_value=None,
              ), \
              patch("plugin.chatbot.rich_text_paste._ensure_trailing_line_break") as mock_trailing, \
              patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
@@ -850,7 +850,7 @@ class TestRichInsertFallbackLogging:
              patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: x")), \
              patch(
                  "plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control",
-                 return_value=(False, "no_content_inserted"),
+                 return_value="no_content_inserted",
              ), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=10):
             append_formatted_row(ctx, control, "<p>x</p>", role="assistant")
@@ -880,7 +880,7 @@ class TestRichInsertFallbackLogging:
              patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: x")), \
              patch(
                  "plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control",
-                 return_value=(False, "no_content_inserted"),
+                 return_value="no_content_inserted",
              ), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_grow):
             ok = append_formatted_row(ctx, control, "<p>x</p>", role="assistant")
@@ -928,7 +928,7 @@ class TestPaintMessageItems:
 
         def _copy(*_args, **_kwargs):
             model.Text = "PARTIAL_NOT_IN_MESSAGES"
-            return False, None
+            return "failed"
 
         def _capture(_model, _cursor, text, **_kwargs):
             written.append(text)
@@ -992,7 +992,7 @@ class TestPaintMessageItems:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)) as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None) as mock_copy, \
              patch("plugin.chatbot.rich_text_paste._plain_append_messages") as mock_plain, \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
             paint_message_items(ctx, control, [("assistant", "<p>List<String> <user@example.com></p>")])
@@ -1011,7 +1011,7 @@ class TestPaintMessageItems:
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc) as mock_create, \
              patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"), \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)), \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None), \
              patch("plugin.chatbot.rich_text_paste.force_rich_full_reformat"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
             items = [("user", "hello"), ("assistant", "<p><b>bold</b></p>")]
@@ -1053,9 +1053,8 @@ class TestPaintMessageItems:
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve"), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0):
-            ok, reason = _copy_formatted_from_hidden_doc_to_control(src_doc, control, MagicMock(), role="user")
+            reason = _copy_formatted_from_hidden_doc_to_control(src_doc, control, MagicMock(), role="user")
 
-        assert ok is False
         assert reason == "no_content_inserted"
         assert not any("_copy_formatted_from_hidden_doc_to_control: failed reason=" in r.message for r in caplog.records)
 
@@ -1161,11 +1160,10 @@ class TestFlattenTextTableCopy:
              patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
-            ok, reason = _copy_formatted_from_hidden_doc_to_control(
+            reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
 
-        assert ok is True
         assert reason is None
         assert "before" in inserted
         assert "Col A\tCol B" in inserted
@@ -1203,11 +1201,11 @@ class TestFlattenTextTableCopy:
                  side_effect=lambda para, _counters: "1. " if para is item else "",
              ), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
-            ok, reason = _copy_formatted_from_hidden_doc_to_control(
+            reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
 
-        assert ok is True, reason
+        assert reason is None
         assert ("1. ", False, False) in calls
 
     def test_copy_applies_tab_stops_from_max_width(self):
@@ -1238,11 +1236,11 @@ class TestFlattenTextTableCopy:
                  "plugin.chatbot.rich_text_paste._apply_table_tab_stops",
                  side_effect=lambda _cursor, positions: applied.append(tuple(positions)),
              ):
-            ok, reason = _copy_formatted_from_hidden_doc_to_control(
+            reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
 
-        assert ok is True, reason
+        assert reason is None
         expected = _tab_stop_positions_twips(cells)
         assert applied == [expected, expected]
 
@@ -1279,11 +1277,11 @@ class TestFlattenTextTableCopy:
                  "plugin.chatbot.rich_text_paste._apply_table_row_vpad",
                  side_effect=_capture_vpad,
              ):
-            ok, reason = _copy_formatted_from_hidden_doc_to_control(
+            reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
 
-        assert ok is True, reason
+        assert reason is None
         pad = _TABLE_V_PAD_MM100
         assert pads == [(pad, 0), (0, 0), (0, pad)]
 
@@ -1305,11 +1303,10 @@ class TestFlattenTextTableCopy:
              patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
-            ok, reason = _copy_formatted_from_hidden_doc_to_control(
+            reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
 
-        assert ok is True
         assert reason is None
 
     def test_copy_formatted_portion_font_and_link_optimization(self):
@@ -1367,7 +1364,7 @@ class TestFlattenTextTableCopy:
                  patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
                  patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
                  patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
-                ok, reason = _copy_formatted_from_hidden_doc_to_control(
+                reason = _copy_formatted_from_hidden_doc_to_control(
                     src_doc,
                     control,
                     MagicMock(),
@@ -1375,7 +1372,7 @@ class TestFlattenTextTableCopy:
                     cell_link_targets=[("Sheet1.A1", "Sheet1.A1")],
                 )
 
-            assert ok is True, reason
+            assert reason is None
             from plugin.chatbot.rich_text import CHAT_FONT_NAME
             assert font_sets == [CHAT_FONT_NAME, "Liberation Sans"]
             assert mock_len.call_count == 1
@@ -1439,14 +1436,14 @@ class TestFlattenTextTableCopy:
                  patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
                  patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
                  patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
-                ok, reason = _copy_formatted_from_hidden_doc_to_control(
+                reason = _copy_formatted_from_hidden_doc_to_control(
                     src_doc,
                     control,
                     MagicMock(),
                     role="assistant",
                     cell_link_targets=list(queue),
                 )
-            assert ok is True, reason
+            assert reason is None
             assert mock_len.call_count == 1
             registered = [addr for _s, _e, addr in cell_link_registry._spans.get(id(control), [])]
             assert registered == expected_spans
@@ -1497,11 +1494,10 @@ class TestFlattenTextTableCopy:
              patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
              patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture):
-            ok, reason = _copy_formatted_from_hidden_doc_to_control(
+            reason = _copy_formatted_from_hidden_doc_to_control(
                 src_doc, control, MagicMock(), role="assistant",
             )
 
-        assert ok is False
         assert reason == "element_skipped"
         assert "portion1" in inserted_strings
         assert "p2_text" not in inserted_strings
@@ -1571,10 +1567,9 @@ class TestFlattenTextTableCopy:
                  patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
                  patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
                  patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_mock_insert):
-                ok, reason = _copy_formatted_from_hidden_doc_to_control(
+                reason = _copy_formatted_from_hidden_doc_to_control(
                     src_doc, control, MagicMock(), role="assistant",
                 )
-            assert ok is True
             assert reason is None
             full_text = "".join(landed_text)
             spans = cell_link_registry._spans.get(id(control), [])
@@ -1635,7 +1630,7 @@ def test_hidden_writer_close_failure_is_logged(caplog):
             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"),
             patch("plugin.chatbot.rich_text_paste.clear_control"),
-            patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)),
+            patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None),
             patch("plugin.chatbot.rich_text_paste.force_rich_full_reformat"),
             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"),
         ):
@@ -1647,7 +1642,7 @@ def test_hidden_writer_close_failure_is_logged(caplog):
             patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"),
-            patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)),
+            patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None),
             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"),
             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0),
         ):
@@ -1659,7 +1654,7 @@ def test_hidden_writer_close_failure_is_logged(caplog):
             patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
             patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: Hi")),
-            patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)),
+            patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None),
             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0),
             patch("plugin.chatbot.rich_text_paste._ensure_message_separator"),
         ):
