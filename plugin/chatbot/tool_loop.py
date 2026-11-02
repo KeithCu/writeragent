@@ -376,7 +376,6 @@ class ToolCallingMixin:
             # domain onto the session that replaced this one.
             if bound_turn is None or not bound_turn.can_write(self._panel):
                 return
-            assert bound_turn.session is not None
             session = bound_turn.session
             session.active_specialized_domain = domain
             session.python_tool_domain = python_tool_domain
@@ -440,7 +439,6 @@ class ToolCallingMixin:
             self._panel.client.config = api_config
             # New send: clear Stop latch from a prior turn (UI thread only).
             self._panel.client.clear_stop()
-        assert self._panel.client is not None
         client = self._panel.client
         # A duplicate hook does not stop again. clear_stop() just cleared the
         # latch, so a scope that is already cancelled must stop here.
@@ -808,21 +806,15 @@ class ToolCallingMixin:
                 tool = _get_tools_registry().get(item[2])
                 if tool and tool.detects_mutation():
                     mutates = True
-            call_id = item[1] if isinstance(item[1], str) and item[1].strip() else ""
-            func_name = item[2] if isinstance(item[2], str) and item[2].strip() else "unknown"
-            func_args_str = item[3] if isinstance(item[3], str) else "{}"
-            result = item[4] if isinstance(item[4], str) else ("" if item[4] is None else str(item[4]))
-            func_args = object_dict_or_empty(safe_json_loads(func_args_str) if func_args_str else {})
-            result_data = object_dict_or_empty(safe_json_loads(result) if result else {})
             return ToolLoopEvent(
                 kind=EventKind.TOOL_RESULT,
                 data={
-                    "call_id": call_id,
-                    "func_name": func_name,
-                    "func_args_str": func_args_str,
-                    "func_args": func_args,
-                    "result": result,
-                    "result_data": result_data,
+                    "call_id": item[1],
+                    "func_name": item[2],
+                    "func_args_str": item[3],
+                    "func_args": object_dict_or_empty(safe_json_loads(item[3])),
+                    "result": item[4],
+                    "result_data": object_dict_or_empty(safe_json_loads(item[4])),
                     "mutates_document": mutates,
                 },
             )
@@ -1040,12 +1032,8 @@ class ToolCallingMixin:
 
             self._refresh_active_tools_for_session()
 
-            def _flush_active_batcher() -> None:
-                # Stop used to clear this batcher in finally without a last
-                # flush, dropping up to one batch interval of text.
-                if turn.batcher is not None:
-                    turn.batcher.flush()
-
+            # Stop used to clear this batcher in finally without a last
+            # flush, dropping up to one batch interval of text.
             run_stream_drain_loop(
                 turn.queue,
                 toolkit,
@@ -1058,7 +1046,7 @@ class ToolCallingMixin:
                 stop_checker=self._panel.resolve_stop_checker(),
                 show_search_thinking=show_search_thinking,
                 on_approval_required=self._on_tool_loop_approval_required,
-                flush_pending=_flush_active_batcher,
+                flush_pending=turn.batcher.flush,
                 on_drain_started=lambda: self._spawn_llm_worker(
                     spawn_queue(turn),
                     client,
@@ -1069,13 +1057,10 @@ class ToolCallingMixin:
                 ),
             )
 
-            def _after_tool_drain() -> None:
-                # Blocking drain: this runs before we return. Event-driven
-                # drain: the function already returned to VCL; this runs on
-                # the terminal slice, still before abort_turn below.
-                finalize_sidebar_assistant_response(self._panel, allow_rerender=not self._panel.stop_requested)
-
-            defer_until_drain_done(_after_tool_drain)
+            # Blocking drain: this runs before we return. Event-driven
+            # drain: the function already returned to VCL; this runs on
+            # the terminal slice, still before abort_turn below.
+            defer_until_drain_done(lambda: finalize_sidebar_assistant_response(self._panel, allow_rerender=not self._panel.stop_requested))
         finally:
             def _end_tool_drain() -> None:
                 # The drain has finished. Abort so a timer or a late tool cannot
