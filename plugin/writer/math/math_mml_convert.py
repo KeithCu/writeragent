@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any
 
 from plugin.framework.uno_context import get_desktop
 
@@ -41,16 +41,8 @@ _MATH_ROOT_RE = re.compile(r"(?is)<math[\s>][\s\S]*?</math>")
 
 def math_root(fragment: str) -> str | None:
     """Extract a <math>...</math> root element from MathML markup."""
-    if not fragment:
-        return None
-    text = fragment.strip()
-    m = _MATH_ROOT_RE.search(text)
+    m = _MATH_ROOT_RE.search(fragment)
     return m.group(0) if m else None
-
-
-def iter_math_roots(html: str) -> Iterator[re.Match[str]]:
-    """Yield every <math>...</math> root element match from MathML markup."""
-    yield from _MATH_ROOT_RE.finditer(html)
 
 
 def _exception_message(exc: Exception) -> str:
@@ -132,7 +124,8 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
             try:
                 formula = doc.getPropertyValue("Formula")
                 assert isinstance(formula, str)
-                if not formula.strip():
+                formula = formula.strip()
+                if not formula:
                     return MathConversionResult(
                         False,
                         None,
@@ -140,7 +133,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
                     )
                 return MathConversionResult(
                     True,
-                    collapse_starmath_newline_tokens_for_writer_embed(formula.strip()),
+                    collapse_starmath_newline_tokens_for_writer_embed(formula),
                     None,
                 )
             finally:
