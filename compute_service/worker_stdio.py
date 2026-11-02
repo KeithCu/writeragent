@@ -99,18 +99,7 @@ def configure_compute_worker_env() -> None:
 
 
 def run_compute_worker(handler: Callable[[dict[str, Any]], dict[str, Any]]) -> int:
-    """Stdio loop for a formula or vision child.
-
-    Before the loop. writeragent_api treats a missing ``WRITERAGENT_IS_WORKER``
-    as the LibreOffice host and calls ``execute_tool`` → ``get_ctx()``. This
-    process has no office and no tool-call pipe. ``WRITERAGENT_COMPUTE_WORKER``
-    makes that call fail before either path.
-
-    The parent pool reads and writes ``COMPUTE_MAX_PAYLOAD_BYTES`` (33 MiB).
-    The stdio default is 16 MiB, so a request the parent had accepted failed
-    in the child, and a result over 16 MiB broke this loop (host saw
-    ``EMPTY_RESPONSE``).
-    """
+    """Stdio loop for a formula or vision child: marked as a compute worker (no office, no tool pipe), framed at the pool's payload cap."""
     os.environ["WRITERAGENT_IS_WORKER"] = "1"
     os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
     configure_compute_worker_env()
@@ -172,10 +161,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
                 break
             res = {"id": req.get("id"), "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": f"Unhandled error: {exc}"}
 
-        # Bugfix: when abandoned_timeout was set, the frame used to be a normal
-        # error dict, _finish_release saw is_alive(), and the next lease got
-        # WORKER_PIPE_BROKEN or WORKER_CRASHED. The "exiting" key tells the host
-        # to recycle the slot; os._exit(1) runs only after the frame is written.
+        # After an abandoned timeout the frame carries "exiting" and os._exit(1) follows the write.
         should_exit = _lpe is not None and getattr(_lpe, "abandoned_timeout", False)
         if should_exit:
             assert _lpe is not None

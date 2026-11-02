@@ -321,11 +321,7 @@ def _scan_multipart_parts(body: bytes, boundary: bytes, allowed: frozenset[str])
         nxt_at, nxt_kind = nxt
         payload_end = _payload_end_before_delimiter(body, nxt_at)
         if payload_end < header_end:
-            # RFC 2046 attaches the CRLF before --boundary to the delimiter.
-            # An empty part is headers\r\n\r\n--boundary: that CRLF is also
-            # the blank line that ended the headers, so dropping it landed
-            # before the body and the part was rejected as malformed.
-            # The body is empty. A longer gap is still a broken framing.
+            # An empty part shares its header-ending CRLF with the delimiter (RFC 2046); anything else is broken framing.
             if nxt_at == header_end and body[payload_end:header_end] in (b"\r\n", b"\n"):
                 payload_end = header_end
             else:

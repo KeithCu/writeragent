@@ -43,18 +43,7 @@ from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES
 
 
 def install_image_pkgs(project_root: str) -> None:
-    """Add the image wheel directory when it exists.
-
-    What was wrong: the runner image installs numpy and the rest into
-    ``/app/pkgs`` and publishes that directory with ``PYTHONPATH``. Formula
-    workers call ``scrub_subprocess_env``, which drops ``PYTHONPATH`` so a
-    LibreOffice interpreter cannot leak its own stdlib into the child. The
-    container variable never arrived, ``check_dependencies`` reported numpy
-    and sympy missing, and the server exited immediately after the ready
-    handshake. Re-add the known image directory by path. Do not copy
-    ``PYTHONPATH`` through: that is the variable the scrub exists to remove.
-    Desktop runs have no ``pkgs`` directory, so this is a no-op there.
-    """
+    """Put the runner image's ``<root>/pkgs`` on sys.path by path; the scrubbed child env never carries ``PYTHONPATH``."""
     pkgs = os.path.join(project_root, "pkgs")
     if os.path.isdir(pkgs) and pkgs not in sys.path:
         sys.path.insert(0, pkgs)
@@ -165,9 +154,7 @@ class BaseProcessPool:
         self.script_path = script_path
         self.num_workers = max(0, num_workers)
         self.default_timeout_sec = default_timeout_sec
-        # 0 used to recycle on the first release: tasks_executed >= 0 is
-        # always true. Config already rejects < 1. A direct caller gets
-        # the same floor.
+        # At least one task per child, as config enforces.
         self.max_tasks = max(1, max_tasks)
         self.worker_name = worker_name
         self.idle_worker_ttl_sec = idle_worker_ttl_sec
@@ -197,9 +184,7 @@ class BaseProcessPool:
                     # Idle only after the ready handshake. A failed spawn stays
                     # out of the idle set; the next lease respawns that slot.
                     if w.is_alive():
-                        # Stamp after spawn. A timestamp taken before this loop made a
-                        # slow handshake look already idle, so a short idle TTL killed
-                        # the child as soon as the reaper ran.
+                        # Idle time starts after the handshake.
                         self._idle[w] = time.monotonic()
 
             # 0 and None mean this pool does not evict for idle time. A subclass
@@ -217,11 +202,7 @@ class BaseProcessPool:
 
     def _start_reaper(self, name: str, interval: float, fn: Callable[[], None]) -> None:
         def _loop() -> None:
-            # Wait on the stop event so pool shutdown returns immediately.
-            # One failed tick must not kill this daemon, or idle workers and
-            # shared sessions are never evicted again. The handler stays
-            # inside the loop: run_in_background would otherwise log the
-            # exception and end the thread.
+            # Stops on the shutdown event; a failed tick is logged and the loop continues.
             while not self._reaper_stop_event.wait(interval):
                 if self._is_shutdown:
                     continue
@@ -261,8 +242,7 @@ class BaseProcessPool:
             self._prune_dead_idle_unlocked()
             for w in list(self._idle):
                 last_active = self._idle.get(w, now)
-                # 0 and None do not expire. A zero TTL used to compare as
-                # already elapsed and kill every idle child on the first tick.
+                # 0 and None never expire.
                 if idle_ttl is not None and idle_ttl > 0 and now - last_active >= idle_ttl:
                     idle_hits.append(w)
             for w in idle_hits:
@@ -388,14 +368,7 @@ class BaseProcessPool:
             return False
 
     def release_worker(self, worker: BaseProcessWorker) -> None:
-        """Return a live worker to idle. Kill a slot that has reached max_tasks.
-
-        A timeout already killed the child, so this release finds it dead
-        and does not re-idle it. max_tasks does the same kill and leaves the
-        slot dead. The next lease cold-claims it and execute respawns.
-        """
-        # An "exiting" frame means the child os._exit()s next. Never idle it,
-        # even when it holds sessions.
+        """Return a live worker to idle; reap one that is exiting or due to recycle (the next lease respawns it)."""
         exiting = worker.pending_exit
         recycle = exiting or self.should_recycle_worker(worker)
         kill_for_shutdown = False
@@ -409,11 +382,8 @@ class BaseProcessPool:
                     recycle = self.should_recycle_worker(worker)
                 if not recycle:
                     self._leased.discard(worker)
-                    # A child kill() could not reap is no longer alive: the slot
-                    # dropped it. Idling a dead slot would hand out a process
-                    # execute has to respawn anyway.
+                    # Only a live child goes idle.
                     if worker.is_alive():
-                        # The response frame was consumed and worker is alive: return to idle.
                         self._idle[worker] = time.monotonic()
                         self._idle.move_to_end(worker)
                     self._cond.notify_all()
@@ -428,12 +398,7 @@ class BaseProcessPool:
                 log.info("Retiring %s #%d after abandoned timeout", self.worker_name, worker.worker_id)
             else:
                 log.info("Retiring %s #%d after %d tasks", self.worker_name, worker.worker_id, worker.tasks_executed)
-            # What was wrong: kill() sat before _drop_lease with no handler.
-            # How: an exception from kill() skipped _drop_lease, so the slot
-            # stayed in _leased and no later lease could claim it.
-            # Why: the same try/except as init abort logs the reap failure,
-            # then _drop_lease still runs. The lease stays held across kill()
-            # so lease_any cannot cold-claim the process being retired.
+            # The lease is held across the reap and always dropped after it.
             if self._reap(worker, "recycle"):
                 worker.pending_exit = False
                 self._clear_recycling_mark(worker)
@@ -489,9 +454,6 @@ class BaseProcessPool:
         # Reaping worker processes can take seconds (kill + wait).
         # Perform outside the pool lock so waiting threads or release callbacks
         # do not block on child process termination.
-        # What was wrong: one kill() exception aborted the rest of the loop.
-        # How: unlike init abort, shutdown called kill() with no handler.
-        # Why: each reap is logged and the loop continues, so one child
-        # cannot leave the others running.
+        # _reap logs a failure and never raises, so every child is reaped.
         for w in workers_to_kill:
             self._reap(w, "shutdown")

@@ -110,14 +110,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             else:
                 init_sid = f"isolated:{init_hash}:init"
 
-        # What was wrong: Large arrays / grids were packed into binary float64 split_grid
-        # envelopes by default, which cast ints to float64 and turned ints > 2^53 into text,
-        # only for json_egress to immediately decode them back into lists.
-        # How it happened: run_sandboxed_code defaulted to force="auto", packing grids
-        # >= BINARY_MIN_CELLS into split_grid buffers.
-        # Why this change: The compute service output is JSON and never needed the binary
-        # buffer across a process boundary; force="never" keeps results as native lists
-        # so integers stay exact.
+        # Output is JSON: force="never" keeps grids as native lists so large ints stay exact.
         raw = run_sandboxed_code(
             code=code,
             data=data,
