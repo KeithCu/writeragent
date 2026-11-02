@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, ClassVar
 
 from plugin.chatbot.sticky_reply import WRITING_PLAN_REPLY_SPEC
@@ -18,8 +19,8 @@ from plugin.chatbot.sub_agent_tools import (
     SUB_AGENT_DOC_CORE_TOOLS,
     SubAgentResearchWebBase,
     SubAgentSessionToolBase,
-    _domain_sub_agent_runner,
     _session_tool_parameters,
+    run_domain_sub_agent,
 )
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
@@ -74,12 +75,13 @@ class WritingPlanSessionTool(SubAgentSessionToolBase):
     description: str = "Writing Plan document-generation sub-agent."
     agent_label: str = "Writing plan"
     runner: Any = staticmethod(
-        _domain_sub_agent_runner(
-            "Writing",
-            "writing_plan",
-            WRITING_SUB_AGENT_INSTRUCTIONS,
-            WRITING_PLAN_REPLY_SPEC,
-            "WRITING TASK / CONTEXT",
+        partial(
+            run_domain_sub_agent,
+            activity_label="Writing",
+            domain="writing_plan",
+            base_instructions=WRITING_SUB_AGENT_INSTRUCTIONS,
+            reply_spec=WRITING_PLAN_REPLY_SPEC,
+            topic_header="WRITING TASK / CONTEXT",
         )
     )
     doc_types: list[str] | None = ["writer"]

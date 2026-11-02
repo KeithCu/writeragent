@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, ClassVar
 
 from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
@@ -18,8 +19,8 @@ from plugin.chatbot.sub_agent_tools import (
     SUB_AGENT_DOC_CORE_TOOLS,
     SubAgentResearchWebBase,
     SubAgentSessionToolBase,
-    _domain_sub_agent_runner,
     _session_tool_parameters,
+    run_domain_sub_agent,
 )
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
@@ -100,12 +101,13 @@ class BrainstormingSessionTool(SubAgentSessionToolBase):
     description: str = "Brainstorming design exploration sub-agent."
     agent_label: str = "Brainstorming"
     runner: Any = staticmethod(
-        _domain_sub_agent_runner(
-            "Brainstorming",
-            "brainstorming",
-            BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
-            BRAINSTORMING_REPLY_SPEC,
-            "BRAINSTORMING TOPIC",
+        partial(
+            run_domain_sub_agent,
+            activity_label="Brainstorming",
+            domain="brainstorming",
+            base_instructions=BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
+            reply_spec=BRAINSTORMING_REPLY_SPEC,
+            topic_header="BRAINSTORMING TOPIC",
         )
     )
     doc_types: list[str] | None = ["writer"]

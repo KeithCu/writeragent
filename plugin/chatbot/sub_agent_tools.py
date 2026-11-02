@@ -169,42 +169,17 @@ class SubAgentSessionToolBase(ToolBase):
             return format_error_payload(err)
 
 
-def _domain_sub_agent_runner(  # pyright: ignore[reportUnusedFunction]
-    activity_label: str,
-    domain: str,
-    base_instructions: str,
-    reply_spec: Any,
-    topic_header: str,
-) -> Callable[..., dict[str, Any]]:
-    def _runner(
-        ctx: ToolContext,
-        *,
-        query: str = "",
-        history_text: str | None = None,
-        topic: str | None = None,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        return run_domain_sub_agent(
-            ctx,
-            activity_label=activity_label,
-            domain=domain,
-            base_instructions=base_instructions,
-            reply_spec=reply_spec,
-            topic_header=topic_header,
-            query=query,
-            history_text=history_text,
-            topic=topic,
-        )
-
-    return _runner
-
-
-def _session_tool_parameters(topic_description: str) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+def _session_tool_parameters(  # pyright: ignore[reportUnusedFunction]
+    topic_description: str,
+    *,
+    query_description: str = "User message or initial task.",
+    history_description: str = "Previous conversation text.",
+) -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "User message or initial task."},
-            "history_text": {"type": "string", "description": "Previous conversation text."},
+            "query": {"type": "string", "description": query_description},
+            "history_text": {"type": "string", "description": history_description},
             "topic": {"type": "string", "description": topic_description},
         },
         "required": ["query"],

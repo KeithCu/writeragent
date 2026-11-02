@@ -157,9 +157,7 @@ class StickyReplyToUserTool(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         del ctx
         answer = kwargs.get("answer")
-        if answer is None:
-            answer = kwargs.get("message") or ""
-        answer_text = str(answer)
+        answer_text = "" if answer is None else str(answer)
         if as_bool(kwargs.get(self.spec.leave_flag, False)):
             payload: dict[str, Any] = {
                 "status": self.spec.leave_status,

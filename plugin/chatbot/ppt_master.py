@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, TYPE_CHECKING
 
-from plugin.chatbot.sub_agent_tools import SubAgentSessionToolBase
+from plugin.chatbot.sub_agent_tools import SubAgentSessionToolBase, _session_tool_parameters
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -20,7 +20,6 @@ def _run_ppt_master_venv_agent(
     query: str = "",
     history_text: str | None = None,
     topic: str | None = None,
-    **kwargs: Any,
 ) -> dict[str, Any]:
     from plugin.framework.errors import ToolExecutionError, format_error_payload
     from plugin.ppt_master.venv.host import run_ppt_master_venv_turn
@@ -79,12 +78,8 @@ class PptMasterSessionTool(SubAgentSessionToolBase):
     description: str = "PPT-Master presentation workflow sub-agent (venv worker + host UNO export)."
     agent_label: str = "PPT-Master"
     runner: Callable[..., dict[str, Any]] | None = staticmethod(_run_ppt_master_venv_agent)
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "User message."},
-            "history_text": {"type": "string", "description": "Prior conversation."},
-            "topic": {"type": "string", "description": "Original deck topic."},
-        },
-        "required": ["query"],
-    }
+    parameters: dict[str, Any] | None = _session_tool_parameters(
+        "Original deck topic.",
+        query_description="User message.",
+        history_description="Prior conversation.",
+    )
