@@ -353,7 +353,7 @@ Draw/Impress: extend `supports_vision_manual` with `is_draw`; minimal `TextShape
 | [`plugin/vision/vision_egress.py`](../../plugin/vision/vision_egress.py) | `insert_vision_result`, `vision_html_from_result` |
 | [`plugin/vision/venv/vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) | Shared HTML prep for LO import; Docling export in [`vision_docling.py`](../../plugin/vision/venv/vision_docling.py), Paddle HTML builders in [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py) |
 | [`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py) | `insert_vision_html_into_calc` (rich HTML in cell below anchor) |
-| [`plugin/writer/images/image_tools.py`](../../plugin/writer/images/image_tools.py) | `export_graphic_to_bytes`, `export_graphic_object_to_bytes` |
+| [`plugin/writer/images/image_tools.py`](../../plugin/writer/images/image_tools.py) | `export_graphic_object_to_bytes` |
 
 **Image resolution:** `params.image_name` empty → selected graphic; non-empty → [`get_graphic_object_by_name`](../../plugin/doc/visual_helpers.py) by name (`IMAGE_NOT_FOUND` on miss).
 

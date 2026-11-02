@@ -140,10 +140,11 @@ class TestGuardUnoBoundaries:
                 "plugin.writer.images.image_tools.uno.getComponentContext",
                 side_effect=AssertionError("uno.getComponentContext must not be used; call get_ctx()"),
             ),
+            patch("plugin.writer.images.image_tools.visual_helpers.graphic_from_object", return_value=MagicMock()),
         ):
-            from plugin.writer.images.image_tools import export_graphic_to_bytes
+            from plugin.writer.images.image_tools import export_graphic_object_to_bytes
 
-            data = export_graphic_to_bytes(None, MagicMock())
+            data = export_graphic_object_to_bytes(None, MagicMock())
         mock_get_ctx.assert_called_once()
         gp.storeGraphic.assert_called_once()
         assert isinstance(data, bytes)
