@@ -19,7 +19,7 @@
 These operate on the active Writer context but use the same UNO paths as Calc chart
 tools (embedded chart / sheet-style APIs), not a dedicated chart2 Writer-only module.
 
-Only ``ManageCharts`` is registered; skinny backends live in ``plugin.calc.charts``.
+Only ``ManageCharts`` is registered; chart actions and host adapters live in ``plugin.calc.charts``.
 """
 
 from typing import ClassVar
