@@ -5,10 +5,6 @@
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
-
-Uncaught coercion errors are the worker's: ``ValueError`` and ``TypeError``
-become ``#VALUE!``, and ``OverflowError`` (including ``inf``) becomes ``#NUM!``.
-Catch only when this function must return ``NaN`` or an error token instead.
 """
 
 from __future__ import annotations

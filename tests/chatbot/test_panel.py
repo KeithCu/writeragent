@@ -181,34 +181,34 @@ class TestSidebarModeFinishApplies:
         return listener
 
     def test_saved_spec_keeps_topic_and_applies_writing_plan(self) -> None:
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WRITING_PLAN
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_WRITING_PLAN
 
         listener = self._listener()
         with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
-            SendButtonListener.on_brainstorming_session_finished(listener, spec_saved=True)
+            listener._sidebar_mode.on_mode_finished(CHAT_MODE_BRAINSTORMING, {"spec_saved": True})
         assert listener._mode_topic == "Implement the saved spec: Kitchen remodel"
         assert listener._active_mode == CHAT_MODE_WRITING_PLAN
         assert mock_set.call_args[0][1] == CHAT_MODE_WRITING_PLAN
         listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_WRITING_PLAN)
 
     def test_brainstorm_without_spec_applies_chat(self) -> None:
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, CHAT_MODE_CHAT
 
         listener = self._listener()
         with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
-            SendButtonListener.on_brainstorming_session_finished(listener, spec_saved=False)
+            listener._sidebar_mode.on_mode_finished(CHAT_MODE_BRAINSTORMING, {"spec_saved": False})
         listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
 
     def test_writing_plan_and_ppt_finish_apply_chat(self) -> None:
-        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, CHAT_MODE_PPT_MASTER, CHAT_MODE_WRITING_PLAN
 
-        for method in (
-            SendButtonListener.on_writing_plan_session_finished,
-            SendButtonListener.on_ppt_master_session_finished,
+        for mode_key in (
+            CHAT_MODE_WRITING_PLAN,
+            CHAT_MODE_PPT_MASTER,
         ):
             listener = self._listener()
             with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
-                method(listener)
+                listener._sidebar_mode.on_mode_finished(mode_key, {})
             listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
 
 
@@ -938,10 +938,11 @@ class TestSlashOverlayParked:
 
     def test_text_change_skips_overlay_and_still_dispatches(self, caplog) -> None:
         send_listener = MagicMock()
+        send_listener.slash_popup.on_query_text.return_value = False
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), caplog.at_level(logging.DEBUG):
             listener.on_text_changed(_query_text_event("/he"))
-        send_listener.slash_popup.on_query_text.assert_not_called()
+        send_listener.slash_popup.on_query_text.assert_called_once_with("/he")
         send_listener.dispatch.assert_called_once()
         event = send_listener.dispatch.call_args[0][0]
         assert event.kind == SendEventKind.TEXT_UPDATED
@@ -951,6 +952,7 @@ class TestSlashOverlayParked:
 
     def test_enabled_slash_prefix_calls_overlay_and_skips_dispatch(self, caplog) -> None:
         send_listener = MagicMock()
+        send_listener.slash_popup.on_query_text.return_value = True
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True), \
              patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False), \
@@ -962,6 +964,7 @@ class TestSlashOverlayParked:
 
     def test_enabled_plain_text_dispatches(self) -> None:
         send_listener = MagicMock()
+        send_listener.slash_popup.on_query_text.return_value = False
         listener = QueryTextListener(send_listener)
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True):
             listener.on_text_changed(_query_text_event("hello"))
@@ -981,7 +984,7 @@ class TestSlashOverlayParked:
     def test_disabled_enter_skips_handle_key_and_still_sends(self, caplog) -> None:
         send_listener = MagicMock()
         send_listener._button_action = ButtonAction.SEND
-        send_listener.slash_popup.handle_key.return_value = True
+        send_listener.slash_popup.handle_key.return_value = False
         send_model = MagicMock()
         send_model.Enabled = True
         send_model.Label = "Send"
@@ -992,7 +995,7 @@ class TestSlashOverlayParked:
              patch("plugin.framework.config.get_config_bool", return_value=True), \
              caplog.at_level(logging.DEBUG):
             listener.on_key_pressed(event)
-        send_listener.slash_popup.handle_key.assert_not_called()
+        send_listener.slash_popup.handle_key.assert_called_once_with(1280, 0)
         send_listener.on_action_performed.assert_called_once_with(event)
         assert not any("[SLASH-OV]" in r.message for r in caplog.records)
 

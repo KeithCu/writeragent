@@ -13,10 +13,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
+from plugin.chatbot.dialogs import set_prop
 from plugin.chatbot.rich_text_control import (
     _apply_rich_control_geometry,
     _is_automatic_char_color,
-    _set_model_property,
     append_text_chunk,
     clear_control,
     reveal_rich_control_caret,
@@ -138,22 +138,20 @@ class TestRichControlHelpers:
         assert "TextColor" not in model.props
 
     def test_set_model_property_swallows_unknown(self):
-        from plugin.chatbot.rich_text_control import _set_model_property
-
         class _Model:
             __slots__ = ()
 
             def setPropertyValue(self, name, value):
                 raise RuntimeError("UnknownPropertyException")
 
-        assert _set_model_property(_Model(), "BackgroundColor", 0xFFFFFF) is False
+        assert set_prop(_Model(), "BackgroundColor", 0xFFFFFF) is False
 
     def test_set_model_property_on_plain_object(self):
         class _Model:
             pass
 
         model = _Model()
-        _set_model_property(model, "PositionX", 42)
+        set_prop(model, "PositionX", 42)
         assert getattr(model, "PositionX") == 42
 
     def test_set_model_property_falls_back_to_setPropertyValue(self):
@@ -167,7 +165,7 @@ class TestRichControlHelpers:
                 object.__setattr__(self, name, value)
 
         model = _Model()
-        _set_model_property(model, "PositionX", 42)
+        set_prop(model, "PositionX", 42)
         assert model.last == ("PositionX", 42)
 
 
@@ -245,7 +243,7 @@ class TestAppendTextChunk:
 
         with patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor") as mock_insert, \
              patch("plugin.chatbot.rich_text_control.process_events_to_idle") as mock_idle, \
-             patch("plugin.chatbot.rich_text_control._set_model_property") as mock_prop, \
+             patch("plugin.chatbot.rich_text_control.set_prop") as mock_prop, \
              patch("plugin.chatbot.rich_text_control.focus_preserved", _immediate_focus):
             reveal_rich_control_caret(control, ctx=MagicMock(), reason="unit")
 

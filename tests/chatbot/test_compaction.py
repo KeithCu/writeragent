@@ -1178,7 +1178,7 @@ def test_flatten_content_and_tool_name_fallbacks():
         {"type": "text", "text": "world"},
     ]
     text, n_img, n_aud = C.flatten_content(mixed_content)
-    assert text == "hello world"
+    assert text == "hello\nstray_string\nworld"
     assert n_img == 0
     assert n_aud == 0
 

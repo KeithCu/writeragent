@@ -912,17 +912,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _apply_sidebar_mode(self, mode: str, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any) -> None:
         from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_BRAINSTORMING,
             CHAT_MODE_CHAT,
             CHAT_MODE_DEEP_RESEARCH,
             CHAT_MODE_LIBRARIAN,
-            CHAT_MODE_PPT_MASTER,
             CHAT_MODE_WEB_RESEARCH,
-            clear_brainstorming_session,
-            clear_librarian_session,
-            clear_ppt_master_session,
-            is_image_mode,
             greeting_for_sidebar_mode,
+            is_image_mode,
+            release_sticky_session,
         )
 
         from plugin.chatbot.tool_loop_actions import abort_turn
@@ -930,13 +926,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         # The in-flight turn keeps the session it started with. Later
         # chunks must not paint onto the transcript this switch shows.
         abort_turn(send_listener)
-        if mode != CHAT_MODE_BRAINSTORMING:
-            clear_brainstorming_session(send_listener)
-        if mode != CHAT_MODE_PPT_MASTER:
-            clear_ppt_master_session(send_listener)
-        if mode != CHAT_MODE_LIBRARIAN:
-            # Flag only — librarian ChatSession history is global and must survive mode switches.
-            clear_librarian_session(send_listener)
+        release_sticky_session(send_listener, mode)
         self._current_mode = mode
         if mode == CHAT_MODE_LIBRARIAN:
             self.session = self.librarian_session

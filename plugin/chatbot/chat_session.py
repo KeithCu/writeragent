@@ -144,3 +144,34 @@ class ChatSession:
         self.active_specialized_domain = None
         self.python_tool_domain = None
         self._seed_system_message()
+
+
+def message_text(content: Any, *, strip_html: bool = False) -> str:
+    """Normalize user/assistant message content (string or multimodal parts list) to plain text."""
+    if not isinstance(content, (str, list)):
+        return ""
+    if isinstance(content, str):
+        if strip_html:
+            from plugin.framework.html_stripper import strip_html_tags
+
+            return strip_html_tags(content)
+        return content
+    parts: list[str] = []
+    for part in content:
+        if isinstance(part, str):
+            if part:
+                parts.append(part)
+        elif isinstance(part, dict):
+            if part.get("type") in ("text", None):
+                txt = part.get("text")
+                if txt is not None:
+                    s = str(txt)
+                    if s:
+                        parts.append(s)
+    text = "\n".join(parts)
+    if strip_html:
+        from plugin.framework.html_stripper import strip_html_tags
+
+        return strip_html_tags(text)
+    return text
+

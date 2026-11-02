@@ -2,7 +2,15 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Internal shared utilities for calc_functions formula emulation."""
+"""Internal shared utilities for calc_functions formula emulation.
+
+Formula error contract:
+Parameter coercion errors (ValueError, TypeError) propagate to the worker as #VALUE!,
+ZeroDivisionError as #DIV/0!, and unhandled OverflowError as #NUM!. Domain failures
+return float("nan") or raise CalcError(CalcError.NUM). The @calc_function decorator
+preserves the legacy NaN collapse for helpers that require it, while catching CalcError
+to emit either NaN (#NUM!) or error token strings (#VALUE!, #DIV/0!, #N/A).
+"""
 # pyright: reportUnusedFunction=false
 
 from __future__ import annotations
@@ -40,13 +48,30 @@ _WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
 }
 
 
-# Whole-body handlers that return NaN for these three errors only.
-# Do not add ZeroDivisionError or re.error: xirr, xnpv, and textsplit catch more.
-def _nan_on_error(fn: Any) -> Any:
+class CalcError(Exception):
+    """Sheet error raised inside a helper. Not framework.errors.CalcError."""
+
+    VALUE: str = "#VALUE!"
+    NUM: str = "#NUM!"
+    DIV0: str = "#DIV/0!"
+    NA: str = "#N/A"
+
+    token: str
+
+    def __init__(self, token: str) -> None:
+        if token not in (self.VALUE, self.NUM, self.DIV0, self.NA):
+            raise ValueError(token)
+        super().__init__(token)
+        self.token = token
+
+
+def calc_function(fn: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return fn(*args, **kwargs)
+        except CalcError as exc:
+            return float("nan") if exc.token == CalcError.NUM else exc.token
         except (ValueError, TypeError, OverflowError):
             return float("nan")
 

@@ -43,7 +43,7 @@ def get_config_int(key: str) -> int:
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from plugin.chatbot.sticky_reply import StickyReplySpec
+    from plugin.chatbot.chat_sidebar_mode import SidebarMode
     from plugin.framework.tool import ToolBase
     from plugin.framework.tool import ToolContext
 
@@ -456,7 +456,7 @@ def run_smol_side_turn(
     collector: Callable[[ToolContext], Sequence[ToolBase]],
     instructions: str,
     examples_key: str,
-    reply_spec: StickyReplySpec | None = None,
+    mode: SidebarMode | None = None,
     status_message: str,
     stop_message: str,
     error_prefix: str,
@@ -478,10 +478,10 @@ def run_smol_side_turn(
         status_callback(status_message)
 
     reply_tool: Any | None = None
-    if reply_spec is not None:
+    if mode is not None:
         from plugin.chatbot.sticky_reply import StickyReplyToUserTool
 
-        reply_tool = StickyReplyToUserTool(reply_spec)
+        reply_tool = StickyReplyToUserTool(mode)
 
     collector_tools = collector(ctx)
     on_result = reply_tool.record_tool_result if reply_tool is not None else None
@@ -507,8 +507,8 @@ def run_smol_side_turn(
     )
     if isinstance(res, dict) and res.get("status") == "error":
         return res
-    if reply_spec is not None:
+    if mode is not None and mode.leave_status is not None:
         from plugin.chatbot.sticky_reply import interpret_sticky_final_answer
 
-        return interpret_sticky_final_answer(res, leave_status=reply_spec.leave_status)
+        return interpret_sticky_final_answer(res, leave_status=mode.leave_status)
     return {"status": "ok", "result": str(res)}

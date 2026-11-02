@@ -13,7 +13,7 @@ from __future__ import annotations
 from functools import partial
 from typing import Any, ClassVar
 
-from plugin.chatbot.sticky_reply import WRITING_PLAN_REPLY_SPEC
+from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WRITING_PLAN, require_sidebar_mode
 from plugin.chatbot.sub_agent_tools import (
     HtmlContentToolBase,
     SUB_AGENT_DOC_CORE_TOOLS,
@@ -80,7 +80,7 @@ class WritingPlanSessionTool(SubAgentSessionToolBase):
             activity_label="Writing",
             domain="writing_plan",
             base_instructions=WRITING_SUB_AGENT_INSTRUCTIONS,
-            reply_spec=WRITING_PLAN_REPLY_SPEC,
+            mode=require_sidebar_mode(CHAT_MODE_WRITING_PLAN),
             topic_header="WRITING TASK / CONTEXT",
         )
     )

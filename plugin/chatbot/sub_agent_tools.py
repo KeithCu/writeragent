@@ -25,6 +25,7 @@ from plugin.framework.tool import ToolBase, is_tool_document_disposed
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
 if TYPE_CHECKING:
+    from plugin.chatbot.chat_sidebar_mode import SidebarMode
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.sub_agent_tools")
@@ -241,7 +242,7 @@ def run_domain_sub_agent(
     activity_label: str,
     domain: str,
     base_instructions: str,
-    reply_spec: Any,
+    mode: SidebarMode | None = None,
     topic_header: str,
     query: str = "",
     history_text: str | None = None,
@@ -261,7 +262,7 @@ def run_domain_sub_agent(
         collector=lambda c: tools,
         instructions=instructions,
         examples_key=domain,
-        reply_spec=reply_spec,
+        mode=mode,
         tool_call_handler=_document_open_tool_handler(ctx),
         status_message=f"{activity_label}...",
         stop_message=f"{activity_label} stopped by user.",
