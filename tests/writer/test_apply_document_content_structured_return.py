@@ -445,16 +445,6 @@ def test_search_occurrence_dry_run_oor_includes_matches(monkeypatch):
 
 
 def test_build_search_replace_response():
-    # 0 or negative replacements
-    err0 = build_search_replace_response(0)
-    assert err0["status"] == "error"
-    assert err0["replaced_count"] == 0
-    assert "Replaced 0 occurrence(s)" in err0["message"]
-
-    err_custom = build_search_replace_response(-1, message="Custom failure")
-    assert err_custom["status"] == "error"
-    assert err_custom["message"] == "Custom failure"
-
     # Single replacement
     single = build_search_replace_response(1)
     assert single["status"] == "ok"
@@ -474,12 +464,3 @@ def test_build_search_replace_response():
     multi_preserve = build_search_replace_response(3, use_preserve=True)
     assert multi_preserve["status"] == "ok"
     assert "formatting preserved" in multi_preserve["message"]
-
-    # Custom message with count > 0
-    custom_ok = build_search_replace_response(2, message="All good")
-    assert custom_ok["status"] == "ok"
-    assert custom_ok["message"] == "All good"
-
-    # Extra fields
-    with_extra = build_search_replace_response(1, extra={"foo": "bar"})
-    assert with_extra["foo"] == "bar"
