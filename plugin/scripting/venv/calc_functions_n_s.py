@@ -27,11 +27,11 @@ from .calc_functions_util import (
     _criteria_numbers,
     _extract_numeric_array,
     _is_calc_error,
-    _nan_on_error,
     _npf_result,
     _parse_weekend,
     _scipy_stats,
     _serial_to_date,
+    calc_function,
     is_number,
     yearfrac,
 )
@@ -109,7 +109,6 @@ def n(val: Any) -> float:
     return 0.0
 
 
-@_nan_on_error
 def negbinomdist(x: Any, r: Any, p: Any) -> float:
     st = _scipy_stats()
     if st is None:
@@ -164,7 +163,6 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
     return float(sign * max(0, days))
 
 
-@_nan_on_error
 def nominal(effect_rate: Any, npery: Any) -> float:
     er = float(effect_rate)
     # int(float(+inf)) and float() of an oversized period count raise
@@ -183,7 +181,6 @@ def nominal(effect_rate: Any, npery: Any) -> float:
     return _finite_or_nan(res)
 
 
-@_nan_on_error
 def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     x_val = float(x)
     m = float(mean)
@@ -201,7 +198,6 @@ def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     return _finite_or_nan(res)
 
 
-@_nan_on_error
 def norminv(prob: Any, mean: Any, stdev: Any) -> float:
     p = float(prob)
     m = float(mean)
@@ -221,7 +217,6 @@ def normsinv(prob: Any) -> float:
     return norminv(prob, 0, 1)
 
 
-@_nan_on_error
 def _npf_call(kind: str, a: Any, b: Any, c: Any, d: Any, type_val: Any) -> float:
     # Only type 1 is beginning-of-period, same rule as PMT/FV/PV.
     # The old closed form plugged any integer into (1+rate*type).
@@ -243,10 +238,7 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
 
 def npv(rate: Any, *args: Any) -> float:
     # Empty and non-numeric cells are skipped. Treating them as 0 consumes a discount period.
-    try:
-        r = float(rate)
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    r = float(rate)
     if r == -1.0:
         return float("nan")
     vals = []
@@ -287,7 +279,7 @@ def npv(rate: Any, *args: Any) -> float:
 _NUMBER_TEXT = re.compile(r"^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$")
 
 
-@_nan_on_error
+@calc_function
 def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     # When the group separator equals the decimal separator, do not strip it.
     # numbervalue("1,5", ",") is 1.5, not 15.
@@ -325,12 +317,12 @@ def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     return _finite_or_nan(value)
 
 
-@_nan_on_error
 def odd(n: Any) -> float:
     # ScOdd (interpr2.cxx) ceils away from zero, then steps off an even
     # integer. int(trunc(1.5)) is already odd, so odd(1.5) used to return 1.
     v = float(n)
-    # ceil() raises on non-finite input; the handler returns NaN.
+    if not math.isfinite(v):
+        return float("nan")
     # -0.0 == 0. copysign(1, -0.0) is -1, and ScOdd takes the >= 0 branch.
     if v == 0.0:
         return 1.0
@@ -531,7 +523,6 @@ def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
         return float("nan")
 
 
-@_nan_on_error
 def permut(n: Any, k: Any) -> float:
     n_val = int(float(n))
     k_val = int(float(k))
@@ -564,7 +555,6 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
     return _npf_call("pmt", rate, nper, pv, fv_val, type_val)
 
 
-@_nan_on_error
 def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
     # int(float(+inf)) raises OverflowError. The old except missed it,
     # so POISSON(+inf) crashed. Excel is #NUM!.
@@ -588,7 +578,7 @@ def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
     return float(st.poisson.pmf(k, m))
 
 
-@_nan_on_error
+@calc_function
 def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float:
     d = np.asarray(data, dtype=float).ravel()
     p = np.asarray(probs, dtype=float).ravel()
@@ -638,7 +628,7 @@ def quartile(r: Any, q: Any) -> float | str:
 
 def rank(val: Any, r: Any, order: int | float = 0) -> float | str:
     # Numbers only. Text, bools, and NaN are ignored; one text cell must not abort the call.
-    # Narrow try on purpose: a blanket @_nan_on_error would also turn late errors from the
+    # Narrow try on purpose: a blanket error decorator would also turn late errors from the
     # array/compare work below into NaN instead of letting them surface.
     try:
         target = float(val)
@@ -648,7 +638,7 @@ def rank(val: Any, r: Any, order: int | float = 0) -> float | str:
         if math.isnan(target):
             return float("nan")
         descending = int(float(order)) == 0
-    except (ValueError, TypeError, OverflowError):
+    except OverflowError:
         return float("nan")
     arr = _extract_numeric_array(r, propagate_nan=False)
     if arr.size == 0:
@@ -733,7 +723,6 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
         return float("nan")
 
 
-@_nan_on_error
 def rept(text: Any, n: Any) -> str | float:
     # A text count used to return "". GetStringPositionArgument does not.
     count = int(float(n))
@@ -758,20 +747,21 @@ def rsq(data_y: Any, data_x: Any) -> float:
 
 
 def sec(x: Any) -> float:
-    try:
-        return float(1.0 / math.cos(float(x)))
-    except (ValueError, TypeError, ZeroDivisionError):
+    xv = float(x)
+    if not math.isfinite(xv):
         return float("nan")
+    return float(1.0 / math.cos(xv))
 
 
 def sech(x: Any) -> float:
     # 1/cosh(x) goes to 0 as |x| grows. OverflowError is that limit, not an error.
+    xv = float(x)
+    if not math.isfinite(xv):
+        return float("nan")
     try:
-        return float(1.0 / math.cosh(float(x)))
+        return float(1.0 / math.cosh(xv))
     except OverflowError:
         return 0.0
-    except (ValueError, TypeError, ZeroDivisionError):
-        return float("nan")
 
 
 def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
@@ -825,11 +815,7 @@ def slope(data_y: Any, data_x: Any) -> float:
 
 def small(r: Any, k: Any) -> float:
     # Numbers only. Text, bools, and NaN are not part of the ranking.
-    # Only the k conversion is guarded; see rank() for why not a blanket decorator.
-    try:
-        ki = int(float(k))
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    ki = int(float(k))
     arr = _extract_numeric_array(r, propagate_nan=False)
     if ki <= 0 or ki > len(arr):
         return float("nan")
@@ -988,7 +974,6 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
         return float("nan")
 
 
-@_nan_on_error
 def sqrtpi(number: Any) -> float:
     n = float(number)
     if n < 0:
@@ -1002,7 +987,6 @@ def sqrtpi(number: Any) -> float:
     return _finite_or_nan(res)
 
 
-@_nan_on_error
 def standardize(x: Any, mean: Any, stdev: Any) -> float:
     val = float(x)
     m = float(mean)
@@ -1067,7 +1051,6 @@ def _cell_number(val: Any) -> float | None:
         return None
 
 
-@_nan_on_error
 def subtotal(fn_num: Any, r: Any) -> float:
     # int(float(fn_num)) raises on text. Match small() / steyx and return NaN.
     fn = int(float(fn_num))
@@ -1084,7 +1067,10 @@ def subtotal(fn_num: Any, r: Any) -> float:
         return float("nan")
     nums: list[float] = []
     for x in flat:
-        v = _cell_number(x)
+        try:
+            v = _cell_number(x)
+        except OverflowError:
+            return float("nan")
         if v is None:
             continue
         # What was wrong: SUBTOTAL skipped a numeric NaN, so SUM of an
@@ -1164,7 +1150,7 @@ def sumifs(sr: Any, *args: Any) -> float:
     return float(sum(vals))
 
 
-@_nan_on_error
+@calc_function
 def sumproduct(*args: Any) -> float:
     if not args:
         return 0.0
@@ -1196,7 +1182,7 @@ def sumproduct(*args: Any) -> float:
     return _finite_or_nan(float(total))
 
 
-@_nan_on_error
+@calc_function
 def sumsq(*args: Any) -> float:
     total = 0.0
     for arg in args:
