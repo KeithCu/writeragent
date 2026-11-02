@@ -29,8 +29,8 @@ recursion limit (~1000) so a cycle raises ``ValueError`` here instead of
 ``find_image_payloads`` and ``strip_image_payloads`` stop at
 ``_MAX_IMAGE_DEPTH`` (12) because image trees are shallow (past that find
 returns ``[]`` and strip returns the subtree unchanged). The venv
-``_CUSTOM_SERIALIZE_MAX_DEPTH`` (8)
-bounds custom-type walks and then treats the value as a plain container.
+``to_wire`` depth cap (64)
+bounds recursion before the LibreOffice pickle/JSON boundary.
 """
 from __future__ import annotations
 
@@ -2198,8 +2198,7 @@ def child_pack_result(
     Top-level NumPy scalars become builtin int/float/bool. An ndarray becomes a
     list or a split_grid envelope. Inside a small list, cells are copied
     unchanged, and ``None`` stays ``None``; ``np.int64``, ``Decimal``, and
-    ``Fraction`` pass through. ``serialize_result`` must run
-    ``_coerce_host_pickle_tree`` on those
+    ``Fraction`` pass through. ``to_wire`` (depth 64) must coerce those
     containers, on object-ndarray ``tolist()`` output, and on
     datetime64/timedelta64 arrays first. ``float('nan')`` stays NaN.
     """
