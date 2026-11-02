@@ -12,7 +12,15 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from .base_provider_shim import BaseProviderShim, _dict_parts, coerce_raw_b64, effort_payload, inline_image_mime
+from .base_provider_shim import (
+    BaseProviderShim,
+    _dict_parts,
+    _normalize_usage,
+    _system_text,
+    coerce_raw_b64,
+    effort_payload,
+    inline_image_mime,
+)
 
 log = logging.getLogger(__name__)
 
@@ -118,13 +126,6 @@ def _convert_tool_call(tc: dict[str, Any]) -> dict[str, Any] | None:
     if args_obj is None:
         return None
     return {"type": "tool_use", "id": tc_id, "name": name, "input": args_obj}
-
-
-def _system_text(content: Any) -> str:
-    """Text of one system or developer message. List parts keep their order."""
-    if isinstance(content, list):
-        return "\n\n".join(p.get("text", "") for p in _dict_parts(content) if p.get("type") == "text")
-    return str(content or "")
 
 
 def _convert_parts(content: Any, *, allow_images: bool) -> list[dict[str, Any]]:
@@ -238,22 +239,6 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
             converted.append({"role": role, "content": normalized})
 
     return "\n\n".join(system_parts), converted
-
-
-def _normalize_usage(raw: Any) -> dict[str, Any]:
-    """Copy Anthropic usage and add the OpenAI token names callers already read.
-
-    Librarian and PPT host use ``prompt_tokens`` / ``completion_tokens``.
-    Anthropic sends ``input_tokens`` / ``output_tokens``. Cache fields stay.
-    """
-    if not isinstance(raw, dict) or not raw:
-        return {}
-    usage = dict(raw)
-    if "prompt_tokens" not in usage and "input_tokens" in usage:
-        usage["prompt_tokens"] = usage["input_tokens"]
-    if "completion_tokens" not in usage and "output_tokens" in usage:
-        usage["completion_tokens"] = usage["output_tokens"]
-    return usage
 
 
 # OpenAI-style finish_reason values the tool loop already understands.

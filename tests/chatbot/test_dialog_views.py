@@ -1201,11 +1201,7 @@ def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:
         ]
     }
 
-    for key in list(cfg._model_fetch_tts_cache):
-        if "openrouter.ai" in key:
-            cfg._model_fetch_tts_cache.pop(key, None)
-    cfg._tts_supported_voices.pop("hexgrad/kokoro-82m", None)
-    cfg._tts_response_format.pop("hexgrad/kokoro-82m", None)
+    cfg._catalog_memos.clear()
 
     def get_optional_side_effect(d, name):
         if name in ("audio__tts_model", "tts_model"):
@@ -1239,19 +1235,16 @@ def test_apply_dropdowns_openrouter_tts_lists_speech_models() -> None:
                 skip_fetch=False,
             )
             mock_sync.assert_not_called()
+        items = list(tts_ctrl.addItems.call_args[0][0])
+        assert "hexgrad/kokoro-82m" in items
+        assert "x-ai/grok-voice-tts-1.0" in items
+        assert "microsoft/mai-voice-2" in items
+        assert "hexgrad/Kokoro-82M" not in items
+        assert "google/lyria-3-pro-preview" not in items
+        assert tts_ctrl.setText.call_args[0][0] == "hexgrad/kokoro-82m"
+        assert cfg.cached_tts_supported_voices("hexgrad/Kokoro-82M") == ["af_bella", "af_heart"]
     finally:
-        for key in list(cfg._model_fetch_tts_cache):
-            if "openrouter.ai" in key:
-                cfg._model_fetch_tts_cache.pop(key, None)
-
-    items = list(tts_ctrl.addItems.call_args[0][0])
-    assert "hexgrad/kokoro-82m" in items
-    assert "x-ai/grok-voice-tts-1.0" in items
-    assert "microsoft/mai-voice-2" in items
-    assert "hexgrad/Kokoro-82M" not in items
-    assert "google/lyria-3-pro-preview" not in items
-    assert tts_ctrl.setText.call_args[0][0] == "hexgrad/kokoro-82m"
-    assert cfg.cached_tts_supported_voices("hexgrad/Kokoro-82M") == ["af_bella", "af_heart"]
+        cfg._catalog_memos.clear()
 
 
 def test_bg_fetch_together_warms_voices() -> None:
@@ -1350,7 +1343,7 @@ def test_warm_openrouter_catalog_does_not_http_until_test_connection() -> None:
             assert any("output_modalities=transcription" in url for url in urls)
     finally:
         cfg.clear_settings_catalog_cache(endpoint, api_key_override=key)
-        cfg._tts_supported_voices.pop("hexgrad/kokoro-82m", None)
+        cfg._catalog_memos.clear()
 
 
 def test_close_cancels_catalog_fetch_that_has_not_started() -> None:
@@ -1404,8 +1397,7 @@ def test_tts_settings_listener_together_cache_miss_does_not_http() -> None:
             return endpoint_ctrl
         return None
 
-    cfg._tts_supported_voices.clear()
-    cfg._together_voices_fetch_cache.clear()
+    cfg._catalog_memos.clear()
     try:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
@@ -1415,8 +1407,7 @@ def test_tts_settings_listener_together_cache_miss_does_not_http() -> None:
             mock_sync.assert_not_called()
         voice_ctrl.setText.assert_not_called()
     finally:
-        cfg._tts_supported_voices.clear()
-        cfg._together_voices_fetch_cache.clear()
+        cfg._catalog_memos.clear()
 
 
 def test_tts_settings_listener_together_voices_replace_alloy() -> None:
@@ -1450,8 +1441,7 @@ def test_tts_settings_listener_together_voices_replace_alloy() -> None:
         return None
 
     stored: dict[str, str] = {}
-    cfg._tts_supported_voices.clear()
-    cfg._together_voices_fetch_cache.clear()
+    cfg._catalog_memos.clear()
     cfg.remember_tts_supported_voices("cartesia/sonic-2", ["voice-uuid-2", "voice-uuid-1"])
     try:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
@@ -1468,8 +1458,7 @@ def test_tts_settings_listener_together_voices_replace_alloy() -> None:
         assert "audio.tts_voice_together" not in stored
         assert cfg.cached_tts_supported_voices("cartesia/sonic-2") == ["voice-uuid-2", "voice-uuid-1"]
     finally:
-        cfg._tts_supported_voices.clear()
-        cfg._together_voices_fetch_cache.clear()
+        cfg._catalog_memos.clear()
 
 
 def test_tts_settings_listener_sync():
@@ -1558,7 +1547,7 @@ def test_tts_settings_listener_uses_cached_openrouter_voices():
     from plugin.framework.client import model_fetcher as cfg
 
     model_id = "google/gemini-2.5-flash-preview-tts"
-    cfg._tts_supported_voices[model_id] = ["Zephyr", "Puck", "Kore"]
+    cfg.remember_tts_supported_voices(model_id, ["Zephyr", "Puck", "Kore"])
     dlg = MagicMock()
     prov_ctrl = MagicMock()
     prov_ctrl.getText.return_value = "LLM Endpoint"
@@ -1592,7 +1581,7 @@ def test_tts_settings_listener_uses_cached_openrouter_voices():
         assert "audio.tts_voice_openrouter" not in stored
         assert "audio.tts_voice" not in stored
     finally:
-        cfg._tts_supported_voices.pop(model_id, None)
+        cfg._catalog_memos.clear()
 
 
 def test_tts_settings_listener_prefers_aoede_for_gemini():
@@ -1602,8 +1591,8 @@ def test_tts_settings_listener_prefers_aoede_for_gemini():
 
     gemini = "google/gemini-2.5-flash-preview-tts"
     grok = "x-ai/grok-voice-tts-1.0"
-    cfg._tts_supported_voices[gemini] = ["Zephyr", "Achernar", "Aoede"]
-    cfg._tts_supported_voices[grok] = ["Zephyr", "Achernar", "Aoede"]
+    cfg.remember_tts_supported_voices(gemini, ["Zephyr", "Achernar", "Aoede"])
+    cfg.remember_tts_supported_voices(grok, ["Zephyr", "Achernar", "Aoede"])
 
     def sync(model_id: str, visible: str, stored_voice: str) -> tuple[str, dict[str, str], tuple[str, ...]]:
         dlg = MagicMock()
@@ -1664,18 +1653,17 @@ def test_tts_settings_listener_prefers_aoede_for_gemini():
         assert shown == "Zephyr"
         assert stored.get("audio.tts_voice_openrouter") == "Zephyr"
 
-        cfg._tts_supported_voices[gemini] = ["Zephyr", "Puck", "Kore"]
+        cfg.remember_tts_supported_voices(gemini, ["Zephyr", "Puck", "Kore"])
         shown, stored, labels = sync(gemini, "alloy", "")
         assert shown == "Kore"
         assert stored.get("audio.tts_voice_openrouter", "") == ""
 
-        cfg._tts_supported_voices[gemini] = ["Puck", "aoede"]
+        cfg.remember_tts_supported_voices(gemini, ["Puck", "aoede"])
         shown, stored, labels = sync("google/Gemini-2.5-flash-preview-tts", "alloy", "alloy")
         assert shown == "aoede"
         assert stored.get("audio.tts_voice_openrouter") == "alloy"
     finally:
-        cfg._tts_supported_voices.pop(gemini, None)
-        cfg._tts_supported_voices.pop(grok, None)
+        cfg._catalog_memos.clear()
 
 
 def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
@@ -1684,7 +1672,7 @@ def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
     from plugin.framework.client import model_fetcher as cfg
 
     model_id = "google/gemini-2.5-flash-preview-tts"
-    cfg._tts_supported_voices[model_id] = ["Zephyr", "Puck", "Kore"]
+    cfg.remember_tts_supported_voices(model_id, ["Zephyr", "Puck", "Kore"])
     dlg = MagicMock()
     prov_ctrl = MagicMock()
     prov_ctrl.getText.return_value = "LLM Endpoint"
@@ -1717,7 +1705,7 @@ def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
         voice_ctrl.setText.assert_not_called()
         assert stored.get("audio.tts_voice_openrouter") == "Puck"
     finally:
-        cfg._tts_supported_voices.pop(model_id, None)
+        cfg._catalog_memos.clear()
 
 def test_tts_test_voice_progress_uses_modeless_box_not_msgbox():
     from plugin.chatbot.dialog_views import TtsTestVoiceListener, _TtsTestStatusSink

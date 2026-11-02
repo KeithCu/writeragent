@@ -1015,11 +1015,9 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
 
     endpoint = "https://openrouter.ai/api"
     model_id = "vendor/cold-vision-model"
-    mf._model_fetch_vision_cache.clear()
-    for cache in (mf._model_fetch_cache, mf._model_fetch_image_cache, mf._model_context_cache):
-        for key in list(cache):
-            if "openrouter.ai" in key:
-                cache.pop(key, None)
+    for key in list(mf._catalog_memos):
+        if "openrouter.ai" in key:
+            mf._catalog_memos.pop(key, None)
     test_instance._get_document_model = MagicMock()
     mock_get_tools.get_schemas.return_value = []
     test_instance._start_tool_calling_async = MagicMock()
