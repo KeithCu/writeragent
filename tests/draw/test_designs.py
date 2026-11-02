@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import struct
-from typing import Any
 import zipfile
 import zlib
 from unittest.mock import MagicMock, patch
@@ -17,14 +16,23 @@ from plugin.draw.designs import (
     ClonedMaster,
     ListDesigns,
     _blank_master_signal,
-    _clone_one_shape,
     _split_pathsettings_value,
     apply_design_to_current_doc,
     enumerate_impress_designs,
     resolve_design,
 )
 from plugin.draw.pages import AddSlide, inherit_master_from_neighbor
+from plugin.draw.shape_clone import ClonedShape
 from plugin.framework.url_utils import path_to_file_url
+
+_STUB_CLONED_SHAPE = ClonedShape(
+    shape=MagicMock(),
+    shape_type="rect",
+    reimported=None,
+    graphic_shapes=0,
+    graphic_reimports=0,
+    empty_group_message=None,
+)
 
 
 def test_split_pathsettings_space_separated_file_urls():
@@ -205,26 +213,6 @@ def test_apply_design_to_current_doc_uses_clone_not_clipboard():
     closer.assert_called_once_with(src)
 
 
-def test_clone_one_shape_sets_geometry_after_add():
-    calls: list[str] = []
-    dest_doc = MagicMock()
-    clone = MagicMock()
-    dest_doc.createInstance.return_value = clone
-    dest_master = MagicMock()
-    dest_master.add.side_effect = lambda _unused: calls.append("add")
-    src = MagicMock()
-    src.ShapeType = "com.sun.star.drawing.GraphicObjectShape"
-    with patch(
-        "plugin.draw.designs._copy_uno_prop",
-        side_effect=lambda _dest, _src, name: calls.append(name) or True,
-    ):
-        out = _clone_one_shape(dest_doc, dest_master, src)
-    assert out[0] == "com.sun.star.drawing.GraphicObjectShape"
-    assert calls[0] == "add"
-    assert calls[-2:] == ["Position", "Size"]
-    dest_doc.createInstance.assert_called_once_with("com.sun.star.drawing.GraphicObjectShape")
-
-
 def test_apply_design_draw_not_impress():
     ctx = MagicMock()
     ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.drawing.DrawingDocument"
@@ -361,17 +349,6 @@ def test_apply_design_partial_assign_is_error():
     assert out["rolled_back"] is True
 
 
-def test_clone_one_shape_rejects_non_uno_type():
-    src = MagicMock()
-    src.ShapeType = "NotAShape"
-    try:
-        _clone_one_shape(MagicMock(), MagicMock(), src)
-    except RuntimeError as exc:
-        assert "Unsupported" in str(exc)
-    else:
-        raise AssertionError("expected RuntimeError")
-
-
 def test_designs_module_has_no_hardcoded_install_prefix():
     import inspect
 
@@ -496,46 +473,6 @@ def test_inherit_master_from_neighbor_reraises_disposed():
         inherit_master_from_neighbor(pages, MagicMock(), 1)
 
 
-def test_copy_uno_prop_falls_back_to_attribute_access():
-    from plugin.draw.designs import _copy_uno_prop
-
-    class ShapeStub:
-        def __init__(self, pos=None):
-            self.Position = pos
-
-        def getPropertyValue(self, name):
-            raise RuntimeError("UnknownPropertyException")
-
-        def setPropertyValue(self, name, val):
-            raise RuntimeError("UnknownPropertyException")
-
-    src = ShapeStub((100, 200))
-    dest = ShapeStub((0, 0))
-    assert _copy_uno_prop(dest, src, "Position") == "copied"
-    assert dest.Position == (100, 200)
-
-    # Missing attribute returns "missing"
-    assert _copy_uno_prop(dest, src, "NoSuchProp") == "missing"
-
-    # Destination rejecting a property returns "rejected"
-    class RejectDest:
-        def getPropertyValue(self, name):
-            raise RuntimeError("UnknownPropertyException")
-
-        def setPropertyValue(self, name, val):
-            raise RuntimeError("CannotSet")
-
-        def __setattr__(self, name, val):
-            if name == "ZOrder":
-                raise RuntimeError("CannotSetAttr")
-            super().__setattr__(name, val)
-
-    reject_dest = RejectDest()
-    src_prop = MagicMock()
-    src_prop.getPropertyValue.return_value = 5
-    assert _copy_uno_prop(reject_dest, src_prop, "ZOrder") == "rejected"
-
-
 def test_decode_odf_name():
     from plugin.draw.designs import _decode_odf_name
 
@@ -596,82 +533,12 @@ def test_synthetic_zip_master_image_extracts_named_href(tmp_path):
             return True
         return False
 
-    with patch("plugin.draw.designs._reimport_graphic", side_effect=fake_reimport):
+    with patch("plugin.draw.shape_clone.reimport_graphic", side_effect=fake_reimport):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "multi", "name": "Multi Master", "path": str(otp)})
 
     assert extracted_data == [b"data_c"]
     assert cloned.graphic_shapes == 1
     assert cloned.graphic_reimports == 1
-
-
-def test_copy_uno_prop_disposal_propagates():
-    from plugin.draw.designs import _copy_uno_prop
-
-    class DisposedException(Exception):
-        pass
-
-    src = MagicMock()
-    src.getPropertyValue.side_effect = DisposedException("disposed")
-    dest = MagicMock()
-
-    with pytest.raises(DisposedException):
-        _copy_uno_prop(dest, src, "Position")
-
-    src_missing = MagicMock(spec=["getPropertyValue"])
-    src_missing.getPropertyValue.side_effect = AttributeError("missing")
-    assert _copy_uno_prop(dest, src_missing, "NoSuchProp") == "missing"
-
-
-def test_copy_uno_prop_geometry_failure_raises():
-    from plugin.draw.designs import _copy_uno_prop
-
-    class BrokenDest:
-        def setPropertyValue(self, name, val):
-            raise RuntimeError("cannot set property")
-
-        def __setattr__(self, name, val):
-            if name in ("Position", "Size"):
-                raise RuntimeError("cannot set attr")
-            super().__setattr__(name, val)
-
-    src = MagicMock()
-    src.getPropertyValue.return_value = (10, 20)
-    dest = BrokenDest()
-
-    with pytest.raises(RuntimeError, match="Failed to set Position"):
-        _copy_uno_prop(dest, src, "Position")
-
-
-def test_clone_one_shape_rejected_prop_records_warning():
-    dest_doc = MagicMock()
-
-    class RejectingShape:
-        def getPropertyValue(self, name):
-            raise RuntimeError("UnknownPropertyException")
-
-        def setPropertyValue(self, name, val):
-            if name in ("ZOrder", "Position", "Size"):
-                raise RuntimeError("CannotSet")
-
-        def __setattr__(self, name, val):
-            if name in ("ZOrder", "Position", "Size"):
-                raise RuntimeError("CannotSetAttr")
-            super().__setattr__(name, val)
-
-    clone = RejectingShape()
-    dest_doc.createInstance.return_value = clone
-    dest_master = MagicMock()
-
-    src_shape = MagicMock()
-    src_shape.ShapeType = "com.sun.star.drawing.RectangleShape"
-    src_shape.getPropertyValue.side_effect = lambda n: 1 if n == "ZOrder" else (0, 0)
-
-    warnings: list[str] = []
-    # Position / Size still raise
-    with pytest.raises(RuntimeError, match="Failed to set Position"):
-        _clone_one_shape(dest_doc, dest_master, src_shape, shape_index=2, warnings=warnings)
-    # ZOrder was attempted before Position / Size and recorded its warning
-    assert "rejected ZOrder on shape 2" in warnings
 
 
 def test_clone_fill_gradient_produces_warning_token_and_status_ok(tmp_path):
@@ -815,7 +682,7 @@ def test_apply_design_chrome_missing_when_zero_reimports(tmp_path):
     with (
         patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
         patch("plugin.draw.designs._close_hidden_doc"),
-        patch("plugin.draw.designs._reimport_graphic", return_value=False),
+        patch("plugin.draw.shape_clone.reimport_graphic", return_value=False),
         patch("plugin.draw.designs.assign_master_to_all_slides") as mock_assign,
     ):
         out = apply_design_to_current_doc(
@@ -1167,7 +1034,7 @@ def test_master_image_href_count_mismatch_and_multi_image(tmp_path):
         reimport_calls.append(image_path)
         return True
 
-    with patch("plugin.draw.designs._reimport_graphic", side_effect=record_reimport):
+    with patch("plugin.draw.shape_clone.reimport_graphic", side_effect=record_reimport):
         clone_master_into_doc(dest_doc, src_doc, {"id": "single", "name": "Single Master", "path": str(single_otp)})
     assert reimport_calls == [None, None]
 
@@ -1181,7 +1048,7 @@ def test_master_image_href_count_mismatch_and_multi_image(tmp_path):
             return True
         return False
 
-    with patch("plugin.draw.designs._reimport_graphic", side_effect=record_files):
+    with patch("plugin.draw.shape_clone.reimport_graphic", side_effect=record_files):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "multi", "name": "Multi Master", "path": str(otp)})
     assert reimport_files == [b"pic1_data", b"pic2_data"]
     assert cloned.graphic_shapes == 2
@@ -1255,7 +1122,7 @@ def test_grouped_images_extract_in_document_order(tmp_path):
             return True
         return False
 
-    with patch("plugin.draw.designs._reimport_graphic", side_effect=record_files):
+    with patch("plugin.draw.shape_clone.reimport_graphic", side_effect=record_files):
         cloned = clone_master_into_doc(
             dest_doc, src_doc, {"id": "grouped", "name": "Grouped Master", "path": str(otp)}
         )
@@ -1276,7 +1143,7 @@ def test_grouped_images_extract_in_document_order(tmp_path):
         reimport_calls.append(image_path)
         return True
 
-    with patch("plugin.draw.designs._reimport_graphic", side_effect=record_calls):
+    with patch("plugin.draw.shape_clone.reimport_graphic", side_effect=record_calls):
         cloned2 = clone_master_into_doc(
             dest_doc, src_doc, {"id": "grouped", "name": "Grouped Master", "path": str(otp)}
         )
@@ -1302,52 +1169,6 @@ def test_apply_design_partial_chrome_message():
         out = apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
     assert out["status"] == "ok"
     assert "1 of 2 chrome shapes imported" in out["message"]
-
-
-def test_reimport_graphic_disposed_propagates():
-    from plugin.draw.designs import _reimport_graphic
-
-    class DisposedException(Exception):
-        pass
-
-    src_shape = MagicMock()
-    type(src_shape).Graphic = property(lambda self: (_ for _ in ()).throw(DisposedException("disposed")))
-    dest_shape = MagicMock()
-    ctx = MagicMock()
-
-    with pytest.raises(DisposedException):
-        _reimport_graphic(ctx, src_shape, dest_shape)
-
-
-def test_reimport_graphic_rejected_file_url_fallback(tmp_path):
-    from plugin.draw.designs import _reimport_graphic
-
-    pic = tmp_path / "img.png"
-    pic.write_bytes(b"\x89PNG\r\n\x1a\n")
-
-    ctx = MagicMock()
-    src_shape = MagicMock()
-    src_shape.Graphic = MagicMock()
-    dest_shape = MagicMock()
-
-    first = True
-
-    def assign_graphic(self, val):
-        nonlocal first
-        if first:
-            first = False
-            raise RuntimeError("cannot set Graphic from file")
-        dest_shape._g = val
-
-    type(dest_shape).Graphic = property(lambda self: getattr(self, "_g", None), assign_graphic)
-
-    provider = MagicMock()
-    provider.queryGraphic.return_value = MagicMock()
-    ctx.ServiceManager.createInstanceWithContext.return_value = provider
-
-    ok = _reimport_graphic(ctx, src_shape, dest_shape, image_path=str(pic))
-    assert ok is True
-    provider.storeGraphic.assert_called_once()
 
 
 def test_apply_design_runtime_exception_vs_disposed():
@@ -1395,81 +1216,6 @@ def test_apply_design_readonly_returns_error_and_does_not_open_template():
     dest.isReadonly.side_effect = DisposedException("closed")
     with pytest.raises(DisposedException):
         apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
-
-
-def test_clone_group_shape_with_children():
-    from plugin.draw.designs import _clone_one_shape
-
-    dest_doc = MagicMock()
-    group_clone = MagicMock()
-    group_children: list[Any] = []
-    group_clone.add.side_effect = group_children.append
-    group_clone.getCount.side_effect = lambda: len(group_children)
-
-    child1_clone = MagicMock()
-    child2_clone = MagicMock()
-    created_shapes = [group_clone, child1_clone, child2_clone]
-    dest_doc.createInstance.side_effect = lambda t: created_shapes.pop(0)
-
-    dest_master = MagicMock()
-
-    src_child1 = MagicMock()
-    src_child1.ShapeType = "com.sun.star.drawing.CustomShape"
-    src_child1.CustomShapeGeometry = {"geom": 1}
-    src_child1.PolyPolygon = ((0, 0), (1, 1))
-    src_child1.RotateAngle = 4500
-    src_child1.getPropertyValue.side_effect = lambda n: getattr(src_child1, n, None)
-
-    src_child2 = MagicMock()
-    src_child2.ShapeType = "com.sun.star.drawing.RectangleShape"
-    src_child2.getPropertyValue.side_effect = lambda n: getattr(src_child2, n, None)
-
-    src_group = MagicMock()
-    src_group.ShapeType = "com.sun.star.drawing.GroupShape"
-    src_group.getCount.return_value = 2
-    src_group.getByIndex.side_effect = lambda i: src_child1 if i == 0 else src_child2
-
-    warnings: list[str] = []
-    _clone_one_shape(dest_doc, dest_master, src_group, shape_index=0, warnings=warnings)
-
-    dest_master.add.assert_called_once_with(group_clone)
-    assert group_children == [child1_clone, child2_clone]
-
-    props_set = [call.args[0] for call in child1_clone.setPropertyValue.call_args_list]
-    assert "CustomShapeGeometry" in props_set
-    assert "PolyPolygon" in props_set
-    assert "RotateAngle" in props_set
-    assert "FillBitmap" not in props_set
-
-
-def test_clone_fill_gradient_success_copies_gradient_no_warning():
-    from plugin.draw.designs import _clone_one_shape
-
-    dest_doc = MagicMock()
-    clone = MagicMock()
-    dest_doc.createInstance.return_value = clone
-    dest_master = MagicMock()
-
-    src_shape = MagicMock()
-    src_shape.ShapeType = "com.sun.star.drawing.CustomShape"
-    grad_enum = MagicMock()
-    grad_enum.value = "GRADIENT"
-    gradient_struct = MagicMock()
-
-    def get_prop(n):
-        if n == "FillStyle":
-            return grad_enum
-        if n == "FillGradient":
-            return gradient_struct
-        return None
-
-    src_shape.getPropertyValue.side_effect = get_prop
-
-    warnings: list[str] = []
-    _clone_one_shape(dest_doc, dest_master, src_shape, shape_index=0, warnings=warnings)
-
-    clone.setPropertyValue.assert_any_call("FillGradient", gradient_struct)
-    assert not any("fill gradient not copied" in w for w in warnings)
 
 
 def test_clone_master_solid_background():
@@ -1585,7 +1331,8 @@ def test_clone_master_bitmap_background_warns_and_no_fill_bitmap():
 
 
 def test_clone_group_shape_zero_children_raises():
-    from plugin.draw.designs import DesignChromeMissingError, _clone_one_shape
+    from plugin.draw.designs import DesignChromeMissingError, clone_master_into_doc
+    from plugin.draw.shape_clone import clone_shape
 
     dest_doc = MagicMock()
     group_clone = MagicMock()
@@ -1599,8 +1346,26 @@ def test_clone_group_shape_zero_children_raises():
     src_group.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
 
     warnings: list[str] = []
+    res = clone_shape(dest_doc, dest_master, src_group, shape_index=1, warnings=warnings)
+    assert res.empty_group_message is not None
+    assert "has no children" in res.empty_group_message
+
+    src_doc = MagicMock()
+    src_master = MagicMock()
+    src_master.Name = "TestMaster"
+    src_master.getCount.return_value = 1
+    src_master.getByIndex.return_value = src_group
+    src_masters = MagicMock()
+    src_masters.getCount.return_value = 1
+    src_masters.getByIndex.return_value = src_master
+    src_doc.getMasterPages.return_value = src_masters
+
+    dest_masters = MagicMock()
+    dest_masters.insertNewByIndex.return_value = dest_master
+    dest_doc.getMasterPages.return_value = dest_masters
+
     with pytest.raises(DesignChromeMissingError, match="has no children"):
-        _clone_one_shape(dest_doc, dest_master, src_group, shape_index=1, warnings=warnings)
+        clone_master_into_doc(dest_doc, src_doc, {"id": "test", "name": "TestMaster"})
 
 
 def test_clone_master_aspect_ratio_selection():
@@ -1645,7 +1410,7 @@ def test_clone_master_aspect_ratio_selection():
     src_doc.getMasterPages().getCount.side_effect = lambda: len(src_masters)
     src_doc.getMasterPages().getByIndex.side_effect = lambda i: src_masters[i]
 
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
     assert "aspect mismatch" not in cloned.warnings
     assert cloned.master == dest_master
@@ -1658,7 +1423,7 @@ def test_clone_master_aspect_ratio_selection():
     p0_no_dims = MagicMock(spec=["MasterPage"])
     p0_no_dims.MasterPage = MagicMock(Width=28000, Height=21000)
     dest_doc.getDrawPages().getByIndex.return_value = p0_no_dims
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned_mp = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
     assert "aspect mismatch" not in cloned_mp.warnings
 
@@ -1676,7 +1441,7 @@ def test_clone_master_aspect_ratio_selection():
     src_no_geom.getMasterPages().getCount.return_value = 2
     src_no_geom.getMasterPages().getByIndex.side_effect = lambda i: [m16_no_geom, m4_no_geom][i]
 
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned_inferred = clone_master_into_doc(dest_doc, src_no_geom, {"id": "beehive", "name": "Beehive"})
     assert "aspect mismatch" not in cloned_inferred.warnings
 
@@ -1693,7 +1458,7 @@ def test_clone_master_aspect_ratio_selection():
 
     dest_doc.getDrawPages().getByIndex.return_value = p0
     p0.Height = 21000
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned_plain = clone_master_into_doc(dest_doc, src_plain, {"id": "plaindesign", "name": "PlainDesign"})
     assert "aspect mismatch" not in cloned_plain.warnings
     assert m_plain4.getByIndex.called
@@ -1703,7 +1468,7 @@ def test_clone_master_aspect_ratio_selection():
     p0.Height = 15750
     m16_9.getByIndex.reset_mock()
     m4_3.getByIndex.reset_mock()
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned16 = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
     assert "aspect mismatch" not in cloned16.warnings
     assert m16_9.getByIndex.called
@@ -1730,7 +1495,7 @@ def test_clone_master_name_normalization_matches():
     src_doc.getMasterPages().getCount.side_effect = lambda: len(src_masters)
     src_doc.getMasterPages().getByIndex.side_effect = lambda i: src_masters[i]
 
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned_grey = clone_master_into_doc(dest_doc, src_doc, {"id": "grey_elegant", "name": "Grey Elegant"})
     assert cloned_grey.name == "Grey Elegant"
 
@@ -1745,7 +1510,7 @@ def test_clone_master_name_normalization_matches():
     src_gl.getMasterPages().getCount.side_effect = lambda: len(gl_masters)
     src_gl.getMasterPages().getByIndex.side_effect = lambda i: gl_masters[i]
 
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned_gl = clone_master_into_doc(dest_doc, src_gl, {"id": "growing_liberty", "name": "Growing Liberty"})
     assert cloned_gl.name == "Growing Liberty"
     assert cloned_gl.source_master == "Title Slide"
@@ -1773,7 +1538,7 @@ def test_clone_master_aspect_mismatch_warning():
     src_doc.getMasterPages().getCount.return_value = 1
     src_doc.getMasterPages().getByIndex.return_value = m_metro
 
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "metropolis", "name": "Metropolis"})
 
     assert "aspect mismatch" in cloned.warnings
@@ -1814,7 +1579,7 @@ def test_clone_master_single_master_name_match_equal_ratio():
     src_doc.getMasterPages().getCount.return_value = 1
     src_doc.getMasterPages().getByIndex.return_value = m_solo
 
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "solodesign", "name": "SoloDesign"})
     assert cloned.selection == "name"
     assert cloned.source_master == "SoloDesign"
@@ -1846,7 +1611,7 @@ def test_clone_master_no_name_match_distinct_ratios_selects_ratio():
     src_doc.getMasterPages().getCount.side_effect = lambda: len(masters)
     src_doc.getMasterPages().getByIndex.side_effect = lambda i: masters[i]
 
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "gamma", "name": "Gamma"})
     assert cloned.selection == "ratio"
     assert cloned.source_master == "Alpha 16:9"
@@ -1889,7 +1654,7 @@ def test_clone_group_with_child_graphic_failure_and_success():
     src_doc.getMasterPages.return_value = src_masters
 
     # 1. Failure twin: reimport returns False -> DesignChromeMissingError with counts 1/0
-    with patch("plugin.draw.designs._reimport_graphic", return_value=False):
+    with patch("plugin.draw.shape_clone.reimport_graphic", return_value=False):
         with pytest.raises(DesignChromeMissingError) as exc_info:
             clone_master_into_doc(dest_doc, src_doc, {"id": "group_graphic", "name": "GroupGraphicMaster"})
         assert exc_info.value.graphic_shapes == 1
@@ -1897,7 +1662,7 @@ def test_clone_group_with_child_graphic_failure_and_success():
 
     # 2. Success twin: reimport returns True -> ClonedMaster with counts 1/1
     dest_doc.createInstance.side_effect = lambda t: group_clone if "GroupShape" in t else child_clone
-    with patch("plugin.draw.designs._reimport_graphic", return_value=True):
+    with patch("plugin.draw.shape_clone.reimport_graphic", return_value=True):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "group_graphic", "name": "GroupGraphicMaster"})
         assert cloned.graphic_shapes == 1
         assert cloned.graphic_reimports == 1
@@ -1924,7 +1689,7 @@ def test_clone_master_runtime_exception_on_rename_succeeds():
     src_doc.getMasterPages().getCount.return_value = 1
     src_doc.getMasterPages().getByIndex.return_value = src_master
 
-    with patch("plugin.draw.designs._clone_one_shape", return_value=("rect", None)):
+    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "src", "name": "SourceMaster"})
     assert cloned.name == "Original" or cloned.name == "SourceMaster"
 
