@@ -64,16 +64,35 @@ def _collect_anchored(
 
 
 def _flatten_tree(root: dict[str, Any]) -> list[Any]:
-    def _flatten_recurse(children: list[Any], parent_entry: dict[str, Any] | None, flat: list[Any]) -> None:
+    flat: list[Any] = []
+
+    def _flatten_recurse(children: list[Any], parent_entry: dict[str, Any] | None) -> None:
         for child in children:
             entry = {"node": child, "parent": parent_entry}
             flat.append(entry)
             if child.get("children"):
-                _flatten_recurse(child["children"], entry, flat)
+                _flatten_recurse(child["children"], entry)
 
-    flat: list[Any] = []
-    _flatten_recurse(root["children"], None, flat)
+    _flatten_recurse(root["children"], None)
     return flat
+
+
+def _find_heading_context(flat: list[Any], para_index: int) -> tuple[int | None, bool]:
+    para_indexes = [e["node"]["para_index"] for e in flat]
+    pos = bisect.bisect_right(para_indexes, para_index) - 1
+    if pos < 0:
+        return None, False
+    return pos, flat[pos]["node"]["para_index"] == para_index
+
+
+def _find_sibling(flat: list[Any], ctx_idx: int, offset: int) -> Any | None:
+    entry = flat[ctx_idx]
+    sibs = [e for e in flat if e["parent"] is entry["parent"]]
+    i = next(i for i, e in enumerate(sibs) if e is entry)
+    sib_idx = i + offset
+    if 0 <= sib_idx < len(sibs):
+        return sibs[sib_idx]
+    return None
 
 
 class ProximityService(ServiceBase):
@@ -89,26 +108,6 @@ class ProximityService(ServiceBase):
         self._doc_svc = services.document
         self._tree_svc = services.writer_tree
         self._bm_svc = services.writer_bookmarks
-
-    # ==================================================================
-    # Heading context (binary search)
-    # ==================================================================
-
-    def _find_heading_context(self, flat: list[Any], para_index: int) -> tuple[int | None, bool]:
-        if not flat:
-            return None, False
-
-        para_indexes = [e["node"]["para_index"] for e in flat]
-        pos = bisect.bisect_right(para_indexes, para_index) - 1
-
-        if pos < 0:
-            return None, False
-
-        entry = flat[pos]
-        node = entry["node"]
-        was_heading = node["para_index"] == para_index
-
-        return pos, was_heading
 
     def _heading_flat_and_bookmarks(self, doc: Any, para_ranges: Any) -> tuple[list[Any], dict[Any, Any]]:
         tree = self._tree_svc.build_heading_tree(doc, elements=para_ranges)
@@ -139,7 +138,7 @@ class ProximityService(ServiceBase):
         if not flat:
             return {"error": "Document has no headings"}
 
-        ctx_idx, was_heading = self._find_heading_context(flat, para_index)
+        ctx_idx, was_heading = _find_heading_context(flat, para_index)
 
         from_info = {"para_index": para_index, "was_heading": was_heading}
         if ctx_idx is not None:
@@ -147,6 +146,9 @@ class ProximityService(ServiceBase):
             from_info["context_heading"] = ctx_node["text"]
             from_info["context_level"] = ctx_node["level"]
             from_info["context_bookmark"] = bookmark_map.get(ctx_node["para_index"])
+
+        def fail(msg: str) -> dict[str, Any]:
+            return {"error": msg, "from": from_info}
 
         if ctx_idx is None:
             if direction != "next":
@@ -157,12 +159,12 @@ class ProximityService(ServiceBase):
                     "next_sibling": "No sibling headings — position is before any heading",
                     "previous_sibling": "No sibling headings — position is before any heading",
                 }
-                return {"error": _before_any_errors[direction], "from": from_info}
+                return fail(_before_any_errors[direction])
             target_entry = flat[0]
 
         elif direction == "next":
             if ctx_idx + 1 >= len(flat):
-                return {"error": "No next heading — already at last heading", "from": from_info}
+                return fail("No next heading — already at last heading")
             target_entry = flat[ctx_idx + 1]
 
         elif direction == "previous":
@@ -171,27 +173,27 @@ class ProximityService(ServiceBase):
             elif ctx_idx > 0:
                 target_entry = flat[ctx_idx - 1]
             else:
-                return {"error": "No previous heading — already at first heading", "from": from_info}
+                return fail("No previous heading — already at first heading")
 
         elif direction == "parent":
             target_entry = flat[ctx_idx]["parent"]
             if target_entry is None:
-                return {"error": "No parent heading — already at top level", "from": from_info}
+                return fail("No parent heading — already at top level")
 
         elif direction == "first_child":
             if not flat[ctx_idx]["node"].get("children"):
-                return {"error": "No child headings under this heading", "from": from_info}
+                return fail("No child headings under this heading")
             target_entry = flat[ctx_idx + 1]
 
         elif direction == "next_sibling":
-            target_entry = self._find_sibling(flat, ctx_idx, offset=1)
+            target_entry = _find_sibling(flat, ctx_idx, offset=1)
             if target_entry is None:
-                return {"error": "No next sibling heading", "from": from_info}
+                return fail("No next sibling heading")
 
         else:  # direction == "previous_sibling"
-            target_entry = self._find_sibling(flat, ctx_idx, offset=-1)
+            target_entry = _find_sibling(flat, ctx_idx, offset=-1)
             if target_entry is None:
-                return {"error": "No previous sibling heading", "from": from_info}
+                return fail("No previous sibling heading")
 
         # heading_ref already defaults missing body_paragraphs to 0 (was body_default=True).
         return {
@@ -204,17 +206,6 @@ class ProximityService(ServiceBase):
             "from": from_info,
             "direction": direction,
         }
-
-    def _find_sibling(self, flat: list[Any], ctx_idx: int, offset: int) -> Any | None:
-        entry = flat[ctx_idx]
-        sibs = [e for e in flat if e["parent"] is entry["parent"]]
-        for i, e in enumerate(sibs):
-            if e is entry:
-                sib_idx = i + offset
-                if 0 <= sib_idx < len(sibs):
-                    return sibs[sib_idx]
-                return None
-        return None
 
     # ==================================================================
     # get_surroundings
@@ -249,7 +240,7 @@ class ProximityService(ServiceBase):
         bookmark_map: dict[Any, Any] = {}
         if "headings" in include:
             flat, bookmark_map = self._heading_flat_and_bookmarks(doc, para_ranges)
-            ctx_idx, _unused = self._find_heading_context(flat, center_idx)
+            ctx_idx, _unused = _find_heading_context(flat, center_idx)
             chain = []
             entry = flat[ctx_idx] if ctx_idx is not None else None
             while entry is not None:
@@ -293,12 +284,19 @@ class ProximityService(ServiceBase):
                 return pi
             return None
 
-        if "images" in include:
-            def _image_entry(g: Any, name: str, pi: int) -> dict[str, Any]:
-                size = g.getPropertyValue("Size")
-                return {"name": name, "paragraph_index": pi, "title": g.getPropertyValue("Title"), "width_mm": size.Width // 100, "height_mm": size.Height // 100}
+        def _sized_entry(obj: Any, name: str, pi: int, *, title: bool = False) -> dict[str, Any]:
+            size = obj.getPropertyValue("Size")
+            res = {"name": name, "paragraph_index": pi}
+            if title:
+                res["title"] = obj.getPropertyValue("Title")
+            res["width_mm"] = size.Width // 100
+            res["height_mm"] = size.Height // 100
+            return res
 
-            result["images"] = _collect_anchored(doc.getGraphicObjects(), anchored, _image_entry)
+        if "images" in include:
+            result["images"] = _collect_anchored(
+                doc.getGraphicObjects(), anchored, lambda g, name, pi: _sized_entry(g, name, pi, title=True)
+            )
 
         if "tables" in include:
             result["tables"] = _collect_anchored(
@@ -308,11 +306,7 @@ class ProximityService(ServiceBase):
             )
 
         if "frames" in include:
-            def _frame_entry(fr: Any, name: str, pi: int) -> dict[str, Any]:
-                size = fr.getPropertyValue("Size")
-                return {"name": name, "paragraph_index": pi, "width_mm": size.Width // 100, "height_mm": size.Height // 100}
-
-            result["frames"] = _collect_anchored(doc.getTextFrames(), anchored, _frame_entry)
+            result["frames"] = _collect_anchored(doc.getTextFrames(), anchored, _sized_entry)
 
         if "comments" in include:
             comments = []

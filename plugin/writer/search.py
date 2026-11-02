@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import re as re_mod
-from typing import TYPE_CHECKING, Any, Iterator, Literal, overload
+from typing import TYPE_CHECKING, Any, Iterator
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks, with_view_cursor_left_body_locked
 from plugin.framework.errors import reraise_if_disposed, uno_read
@@ -193,10 +193,7 @@ def find_text_ranges(
     if limit is not None:
         if type(limit) is not int or limit <= 0:
             return []
-    sd = model.createSearchDescriptor()
-    sd.SearchString = search
-    sd.SearchRegularExpression = False
-    sd.SearchCaseSensitive = case_sensitive
+    sd = _search_descriptor(model, search, False, case_sensitive)
 
     text = model.getText()
     cursor = text.createTextCursor()
@@ -205,29 +202,23 @@ def find_text_ranges(
     matches = []
     found = model.findNext(cursor, sd)
     while found:
-        if body_only:
-            # uno_same never raises. Swallowing getText dropped the hit and,
-            # with the outer handler, made a failed search look like zero hits.
-            if not uno_same(found.getText(), model.getText()):
-                found = model.findNext(found.getEnd(), sd)
-                continue
-
-        measure = found.getText().createTextCursor()
-        measure.gotoStart(False)
-        measure.gotoRange(found.getStart(), True)
-        m_start = len(measure.getString())
-        matched_text = found.getString()
-        m_end = m_start + len(matched_text)
-        matches.append({"start": m_start, "end": m_end, "text": matched_text})
-        if limit is not None and len(matches) >= limit:
-            break
+        if not body_only or uno_same(found.getText(), model.getText()):
+            measure = found.getText().createTextCursor()
+            measure.gotoStart(False)
+            measure.gotoRange(found.getStart(), True)
+            m_start = len(measure.getString())
+            matched_text = found.getString()
+            m_end = m_start + len(matched_text)
+            matches.append({"start": m_start, "end": m_end, "text": matched_text})
+            if limit is not None and len(matches) >= limit:
+                break
         found = model.findNext(found.getEnd(), sd)
     return matches
 
 
 def _search_try_strings(search_string: str) -> Iterator[str]:
     """Literal search string, then newline-collapsed variant (HTML wrap artifact)."""
-    s = search_string or ""
+    s = search_string
     collapsed = re_mod.sub(r" +", " ", s.replace("\n", " ")).strip()
     for candidate in (s, collapsed):
         if candidate:
@@ -236,7 +227,7 @@ def _search_try_strings(search_string: str) -> Iterator[str]:
 
 def escape_for_lo_regex(s: str) -> str:
     """Escape regular expression characters and match any horizontal space sequence."""
-    s = (s or "").translate(SPACE_NORMALIZE_MAP)
+    s = s.translate(SPACE_NORMALIZE_MAP)
     escaped = re_mod.sub(r'([\\^$.|?*+()\[\]{}])', r'\\\1', s)
     return re_mod.sub(r' +', lambda m: HORIZONTAL_SPACE_CLASS + '+', escaped)
 
@@ -267,11 +258,13 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     return actual_norm == expected_norm, None
 
 
-def _collect_capped(doc: Any, sd: Any) -> list[Any]:
+def _collect_capped(doc: Any, sd: Any, limit: int = MAX_SEARCH_REPLACEMENTS) -> list[Any]:
     out: list[Any] = []
     found = doc.findFirst(sd)
-    while found is not None and len(out) < MAX_SEARCH_REPLACEMENTS:
+    while found is not None:
         out.append(found)
+        if len(out) >= limit:
+            break
         found = find_next_after_match(doc, found, sd)
     return out
 
@@ -293,21 +286,13 @@ def find_lo_regex_ranges(
 ) -> Any:
     """LO regex findFirst/findNext for one candidate string."""
     sd = _lo_regex_descriptor(doc, candidate)
-
-    if not all_matches:
-        for case_sens in _DEFAULT_CASE_SENSITIVE_ORDER:
-            sd.SearchCaseSensitive = case_sens
-            found = doc.findFirst(sd)
-            if found is not None:
-                return found
-        return None
-
+    limit = MAX_SEARCH_REPLACEMENTS if all_matches else 1
     for case_sens in _DEFAULT_CASE_SENSITIVE_ORDER:
         sd.SearchCaseSensitive = case_sens
-        ranges = _collect_capped(doc, sd)
+        ranges = _collect_capped(doc, sd, limit)
         if ranges:
-            return ranges
-    return []
+            return ranges if all_matches else ranges[0]
+    return [] if all_matches else None
 
 
 def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | None:
@@ -333,17 +318,19 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | Non
     first_start_cursor = None
     last_end_cursor = None
 
+    def _offset_cursor(base: Any, off: int | None) -> Any:
+        c = text.createTextCursorByRange(base)
+        if off:
+            c.goRight(off, False)
+        return c
+
     anchor_start_cursor = text.createTextCursorByRange(found)
     anchor_start_cursor.gotoStartOfParagraph(False)
 
     if is_anchor_first:
-        first_start_cursor = text.createTextCursorByRange(anchor_start_cursor)
-        if anchor_offset_len:
-            first_start_cursor.goRight(anchor_offset_len, False)
+        first_start_cursor = _offset_cursor(anchor_start_cursor, anchor_offset_len)
     if is_anchor_last:
-        last_end_cursor = text.createTextCursorByRange(anchor_start_cursor)
-        if anchor_offset_len:
-            last_end_cursor.goRight(anchor_offset_len, False)
+        last_end_cursor = _offset_cursor(anchor_start_cursor, anchor_offset_len)
 
     forward_cursor = text.createTextCursorByRange(found)
     forward_cursor.gotoRange(found.getEnd(), False)
@@ -361,9 +348,7 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | Non
         if not ok:
             return None
         if is_last:
-            last_end_cursor = text.createTextCursorByRange(forward_cursor)
-            if offset_len:
-                last_end_cursor.goRight(offset_len, False)
+            last_end_cursor = _offset_cursor(forward_cursor, offset_len)
 
     backward_cursor = text.createTextCursorByRange(found)
     backward_cursor.gotoRange(found.getStart(), False)
@@ -381,9 +366,7 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | Non
         if not ok:
             return None
         if is_first:
-            first_start_cursor = text.createTextCursorByRange(backward_cursor)
-            if offset_len:
-                first_start_cursor.goRight(offset_len, False)
+            first_start_cursor = _offset_cursor(backward_cursor, offset_len)
 
     start_range = first_start_cursor.getStart() if first_start_cursor else found.getStart()
     # Use getEnd(): last_end_cursor is collapsed (goRight with expand=False), so
@@ -597,7 +580,7 @@ def _find_page_style_label(doc: Any, text_obj: Any) -> str | None:
     return None
 
 
-def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, str] | None = None) -> str | None:
+def _header_footer_label(text_obj: Any, doc: Any, label_cache: dict[int, str] | None = None) -> str | None:
     """ImplementationName == "SwXHeadFootText" is the discriminator because header/footer text
     is its own XText and there is no header/footer service to query. Body, cells, and frames use
     other implementation names.
@@ -608,9 +591,7 @@ def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, 
         key = id(text_obj)
         if key in label_cache:
             return label_cache[key]
-    result = None
-    if doc is not None:
-        result = _find_page_style_label(doc, text_obj)
+    result = _find_page_style_label(doc, text_obj)
     if result is None:
         result = "header or footer"
     if label_cache is not None:
@@ -624,7 +605,7 @@ def _text_and_cursor(found: Any) -> tuple[Any, Any]:
     return text, text.createTextCursorByRange(found.getStart())
 
 
-def describe_match_location(found: Any, doc: Any = None, label_cache: dict[int, str] | None = None) -> str:
+def describe_match_location(found: Any, doc: Any, label_cache: dict[int, str] | None = None) -> str:
     got = uno_read(lambda: _text_and_cursor(found), None)
     if got is None:
         return "body"
@@ -829,14 +810,6 @@ def _search_descriptor(doc: Any, pattern: str, use_regex: bool, case_sensitive: 
     return sd
 
 
-@overload
-def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: Literal[False]) -> Any: ...
-
-
-@overload
-def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: Literal[True]) -> list[Any]: ...
-
-
 def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool) -> Any:
     if use_regex:
         err = validate_regex_pattern(pattern)
@@ -959,6 +932,10 @@ class SearchInDocument(ToolBase):
             return self._tool_error("search failed: %s" % exc, code="SEARCH_FAILED")
 
         matches: list[dict[str, str]] = []
+
+        def add(text: str, location: str, context: str) -> None:
+            matches.append({"text": text, "location": location, "context": context})
+
         total_count = 0
         warning = None
         while found is not None and total_count < MAX_SEARCH_HITS:
@@ -977,11 +954,11 @@ class SearchInDocument(ToolBase):
                 break
             total_count += 1
             if len(matches) < max_results:
-                matches.append({
-                    "text": hit_text,
-                    "location": describe_match_location(found, doc, label_cache=label_cache),
-                    "context": enclosing_paragraph_text(found),
-                })
+                add(
+                    hit_text,
+                    describe_match_location(found, doc, label_cache=label_cache),
+                    enclosing_paragraph_text(found),
+                )
             try:
                 # hit_text is non-empty here, so skip find_next_after_match's second getString.
                 found = doc.findNext(found.getEnd(), sd)
@@ -1000,7 +977,7 @@ class SearchInDocument(ToolBase):
                     break
                 total_count += 1
                 if len(matches) < max_results:
-                    matches.append({"text": hit, "location": location, "context": context})
+                    add(hit, location, context)
             if total_count >= MAX_SEARCH_HITS:
                 break
 

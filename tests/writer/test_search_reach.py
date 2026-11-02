@@ -185,7 +185,6 @@ def test_header_label_when_style_text_is_a_distinct_wrapper():
 
 def test_style_walk_failure_still_labels_generically():
     hf = FakeHeadFootText()
-    assert _header_footer_label(hf, doc=None) == "header or footer"
     assert _header_footer_label(hf, FakeDoc(styles=[])) == "header or footer"
 
 
@@ -202,7 +201,7 @@ def test_location_reports_header_not_body():
 
 
 def test_location_body_unchanged_without_doc():
-    assert describe_match_location(FakeRange(FakeBodyText())) == "body"
+    assert describe_match_location(FakeRange(FakeBodyText()), FakeDoc()) == "body"
 
 
 def test_location_reports_table_cell():
@@ -227,7 +226,7 @@ def test_location_reports_table_cell():
     found = MagicMock()
     found.getText.return_value = text
     found.getText.return_value.createTextCursorByRange.return_value = cur
-    assert describe_match_location(found) == "table 'Table1' cell B2"
+    assert describe_match_location(found, FakeDoc()) == "table 'Table1' cell B2"
 
 
 def test_cell_name_ignores_non_string():
@@ -249,7 +248,7 @@ def test_cell_name_ignores_non_string():
     found = MagicMock()
     found.getText.return_value = text
     found.getText.return_value.createTextCursorByRange.return_value = cur
-    assert describe_match_location(found) == "table 'Table1'"
+    assert describe_match_location(found, FakeDoc()) == "table 'Table1'"
 
 
 # ---- iter_comment_hits ------------------------------------------------------

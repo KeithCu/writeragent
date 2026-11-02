@@ -495,12 +495,12 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     closed = MagicMock()
     closed.getText.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
-        describe_match_location(closed)
+        describe_match_location(closed, MagicMock())
 
     odd = MagicMock()
     odd.getText.side_effect = RuntimeException("uno")
     odd.getString.return_value = "raw"
-    assert describe_match_location(odd) == "body"
+    assert describe_match_location(odd, MagicMock()) == "body"
     assert enclosing_paragraph_text(odd) == "raw"
 
     # getName/getPropertyValue failures still fall back to the attribute.

@@ -322,7 +322,7 @@ def _find_ranges(
     doc: Any, pattern: str, regex: bool, cs: bool, use_opts: bool, normalized: str, *, all_matches: bool
 ) -> Any:
     if use_opts:
-        return search_mod.find_ranges_regex_case(doc, pattern, regex, cs, all_matches=all_matches)  # type: ignore[call-overload]
+        return search_mod.find_ranges_regex_case(doc, pattern, regex, cs, all_matches=all_matches)
     return (search_mod.find_all_ranges if all_matches else search_mod.find_first_range)(doc, normalized)
 
 
