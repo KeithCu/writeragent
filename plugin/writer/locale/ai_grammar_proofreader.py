@@ -40,6 +40,8 @@ import unohelper
 from com.sun.star.lang import XServiceDisplayName, XServiceInfo, XServiceName
 from com.sun.star.linguistic2 import XProofreader, XSupportedLocales, XLinguServiceEventBroadcaster
 
+from plugin.writer.locale import grammar_settings
+
 log = logging.getLogger("writeragent.grammar")
 
 IMPLEMENTATION_NAME = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
@@ -291,7 +293,6 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     """
     from plugin.framework.logging import init_logging
     from plugin.framework.config import init_config, user_config_dir
-    from plugin.writer.locale.grammar_worker import is_grammar_enabled
 
     init_logging(ctx)
     log.debug("[grammar] ensure_proofreader_selection: entry")
@@ -299,7 +300,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
         init_config(ctx)
     except Exception as e:
         log.debug("[grammar] ensure_proofreader_selection: init_config: %s", e)
-    enabled = is_grammar_enabled()
+    enabled = grammar_settings.is_grammar_enabled()
     if not enabled:
         log.info("[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
         return
@@ -460,11 +461,13 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     _implementation_name: str = IMPLEMENTATION_NAME
     _supported_service_names: tuple[str, ...] = (SERVICE_NAME,)
     _locales: tuple[Any, ...]
-    _provider: str = ""
-    _checker_identity: str = ""
-    # LibreHarper must not consult is_grammar_enabled() (package id is reset in tests and is not Harper's switch)
-    # and must not clear WriterAgent's one-time disabled notice.
-    _always_enabled: bool = False
+    _profile: grammar_settings.GrammarProfile | None = None
+
+    def _resolved_profile(self) -> grammar_settings.GrammarProfile:
+        if self._profile is not None:
+            return self._profile
+        name = grammar_settings.provider()
+        return grammar_settings.GrammarProfile(name, grammar_settings.checker_identity(name), False)
 
     def __init__(self, ctx: Any, *args: Any) -> None:
         # LibreOffice's Linguistic manager instantiates proofreaders with
@@ -563,15 +566,23 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def getLocales(self) -> tuple[Any, ...]:
         return self._locales
 
-    def _check_enabled_and_locale(self, a_doc_id: str, a_text: str, a_locale: Any, n_start: int, n_suggested_end: int) -> str | None:
+    def _check_enabled_and_locale(
+        self,
+        a_doc_id: str,
+        a_text: str,
+        a_locale: Any,
+        n_start: int,
+        n_suggested_end: int,
+        profile: grammar_settings.GrammarProfile | None = None,
+    ) -> str | None:
         """Return BCP47 locale if grammar checking is enabled and locale is supported, else None."""
-        if self._always_enabled:
+        prof = profile if profile is not None else self._resolved_profile()
+        if prof.always_enabled:
             loc_raw = getattr(a_locale, "Language", "") or ""
         else:
             loc_raw = f"{a_locale.Language}_{a_locale.Country}_{a_locale.Variant}"
-            from plugin.writer.locale.grammar_worker import is_grammar_enabled
 
-            if not is_grammar_enabled():
+            if not grammar_settings.is_grammar_enabled():
                 if _mark_grammar_disabled_notice():
                     log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
                 # do_proofreading_skip for grammar_disabled omitted to avoid log noise
@@ -611,12 +622,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 continue
             _append_shifted_errors(cached, sent_start, combined_errors)
         return combined_errors, uncached_spans
-
-    def _active_grammar_provider(self) -> str:
-        """Pinned instance provider (LibreHarper) or current config (WriterAgent)."""
-        from plugin.writer.locale.grammar_worker import get_grammar_provider
-
-        return self._provider or get_grammar_provider()
 
     def _try_harper_fast_path(
         self,
@@ -685,19 +690,15 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             try:
                 self._ensure_document_bound(aDocumentIdentifier)
 
-                loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, py_start, py_suggested_end)
+                profile = self._resolved_profile()
+                loc_key = self._check_enabled_and_locale(
+                    aDocumentIdentifier, aText, aLocale, py_start, py_suggested_end, profile
+                )
                 if not loc_key:
                     return a_res
 
-                provider = self._active_grammar_provider()
-                if self._checker_identity:
-                    checker_identity = self._checker_identity
-                elif provider in ("harper", "languagetool", "vale"):
-                    checker_identity = provider
-                else:
-                    from plugin.writer.locale.grammar_persistence import grammar_checker_identity
-
-                    checker_identity = grammar_checker_identity()
+                provider = profile.provider
+                checker_identity = profile.identity
 
                 # 1. One BreakIterator + dialogue-merge pass for the whole paragraph (memoized per paragraph+locale).
                 split_key = (loc_key, aText)
@@ -894,7 +895,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             try:
                 from plugin.writer.locale.harper import harper_runtime_is_ready
 
-                ready = self._active_grammar_provider() == "harper" and harper_runtime_is_ready()
+                ready = self._resolved_profile().provider == "harper" and harper_runtime_is_ready()
             except Exception:
                 ready = False
         if not pending and not ready:

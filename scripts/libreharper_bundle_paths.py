@@ -114,6 +114,7 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/writer/locale/grammar_persistence.py",
     "plugin/writer/locale/grammar_ignore_rules.py",
     "plugin/writer/locale/grammar_obs.py",
+    "plugin/writer/locale/grammar_settings.py",
     "plugin/writer/locale/grammar_worker.py",
     "plugin/contrib/__init__.py",
     "plugin/contrib/lsp/__init__.py",

@@ -29,6 +29,7 @@ from typing import Any, NamedTuple
 
 log = logging.getLogger("writeragent.grammar")
 
+from plugin.writer.locale import grammar_settings
 from .grammar_proofread_locale import (
     GRAMMAR_CACHE_MAX_CHARS,
     GRAMMAR_CACHE_VERSION,
@@ -42,27 +43,6 @@ _V2_LLM_PENDING = "llm"
 # v2/v3 rows have no CharLocale. Empty cannot collide with a BCP-47 tag.
 # The first locale-specific read adopts the row; other locales miss.
 _LEGACY_LOCALE = ""
-
-
-def grammar_checker_identity() -> str:
-    """Stable cache/file identity for the active grammar checker.
-
-    Local engines use a sentinel (``harper`` / ``languagetool`` / ``vale``).
-    LLM uses ``llm:`` plus the resolved model from ``get_grammar_model()``.
-    """
-    from plugin.writer.locale.grammar_worker import get_grammar_provider
-
-    provider = get_grammar_provider()
-    if provider in ("harper", "languagetool", "vale"):
-        return provider
-    if provider == "off":
-        return "off"
-    try:
-        from plugin.framework.client.model_fetcher import get_grammar_model
-
-        return f"llm:{get_grammar_model() or ''}"
-    except (ImportError, ModuleNotFoundError):
-        return "llm:unknown"
 
 
 # Storage key mapping for error objects to reduce JSON footprint.
@@ -406,7 +386,7 @@ class DocumentPersistence:
             if type(version) is not int:
                 self._reject_unknown_cache(version)
                 return
-            current = grammar_checker_identity()
+            current = grammar_settings.checker_identity()
             load_entries = False
             blob_identity: str | None = None
 
@@ -545,7 +525,7 @@ class DocumentPersistence:
         try:
             # Resolve the checker identity before taking _lock: it imports
             # model_fetcher and reads config.
-            current = grammar_checker_identity()
+            current = grammar_settings.checker_identity()
             with self._lock:
                 # Capture the model once; _teardown can clear it mid-save and
                 # set_document_property(None, ...) would raise.

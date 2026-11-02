@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
 from plugin.writer.locale import grammar_proofread_cache as gc
+from plugin.writer.locale import grammar_settings
 from plugin.writer.locale.grammar_proofread_cache import _normalize_for_sentence_cache
 
 @pytest.fixture(autouse=True)
@@ -211,7 +212,7 @@ def test_sentence_cache_locale_isolation() -> None:
     assert gc.cache_get_sentence("fr-FR", "Bonjour") is not None
 
 def test_sentence_cache_key_prefix_and_identity_fp() -> None:
-    ident = gc.resolve_checker_identity().replace("|", "/")
+    ident = grammar_settings.checker_identity().replace("|", "/")
     assert gc.sentence_cache_key_prefix("en-US") == f"sent|en-US|{ident}|"
     fp = gc.sentence_identity_fp("Hello.")
     assert gc._sentence_l1_key("en-US", None, fp) == f"{gc.sentence_cache_key_prefix('en-US')}{fp}"

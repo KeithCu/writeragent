@@ -13,6 +13,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from plugin.writer.locale.grammar_settings import GrammarProfile
 
 # --- UNO Mocks for non-native tests ---
 
@@ -610,8 +611,7 @@ class TestTypingIntegration:
         already returned sentence 1 on the call Writer made for sentence 1.
         """
         pr = _make_proofreader()
-        pr._provider = "harper"
-        pr._checker_identity = "harper"
+        pr._profile = GrammarProfile("harper", "harper", False)
         s1, s2 = "First sentence.", "Second sentence."
         paragraph = f"{s1} {s2}"
         off2 = len(s1) + 1
@@ -658,8 +658,7 @@ class TestTypingIntegration:
     ) -> None:
         """``n_start == 0`` is a paragraph pass: Harper still returns every sentence."""
         pr = _make_proofreader()
-        pr._provider = "harper"
-        pr._checker_identity = "harper"
+        pr._profile = GrammarProfile("harper", "harper", False)
         s1, s2 = "First sentence.", "Second sentence."
         paragraph = f"{s1} {s2}"
         off2 = len(s1) + 1
@@ -740,8 +739,7 @@ class TestTypingIntegration:
     ) -> None:
         """Cache miss + Harper lint: result_window n_errors is post-path, not pre-path 0."""
         pr = _make_proofreader()
-        pr._provider = "harper"
-        pr._checker_identity = "harper"
+        pr._profile = GrammarProfile("harper", "harper", False)
         sentence = "This are an test."
         payload = {
             "wrong": "are",
@@ -792,8 +790,7 @@ class TestTypingIntegration:
     ) -> None:
         """True empty Harper lint still reports final n_errors=0 (not a paint drop)."""
         pr = _make_proofreader()
-        pr._provider = "harper"
-        pr._checker_identity = "harper"
+        pr._profile = GrammarProfile("harper", "harper", False)
         sentence = "This is fine."
 
         with (
@@ -1080,7 +1077,7 @@ def test_broadcast_proofread_again_without_listeners_recovers_on_first_attach(
         patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)),
         patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=True),
     ):
-        pr._provider = "harper"
+        pr._profile = GrammarProfile("harper", "harper", False)
         assert pr.addLinguServiceEventListener(extra) is True
     listener.processLinguServiceEvent.assert_called_once()
     extra.processLinguServiceEvent.assert_not_called()
@@ -1091,7 +1088,7 @@ def test_first_listener_while_harper_ready_triggers_one_rewalk(
 ) -> None:
     del mock_locale_fixture
     pr = _make_proofreader()
-    pr._provider = "harper"
+    pr._profile = GrammarProfile("harper", "harper", False)
     first = MagicMock()
     second = MagicMock()
     with (
@@ -1111,7 +1108,7 @@ def test_first_listener_while_harper_idle_does_not_rewalk(
 ) -> None:
     del mock_locale_fixture
     pr = _make_proofreader()
-    pr._provider = "harper"
+    pr._profile = GrammarProfile("harper", "harper", False)
     listener = MagicMock()
     with (
         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
@@ -1144,7 +1141,7 @@ def test_ensure_writeragent_proofreader_configured_triggers_harper_warmup() -> N
     ctx = MagicMock()
     with (
         patch("plugin.framework.config.init_config"),
-        patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True),
+        patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True),
         patch("plugin.framework.config.user_config_dir", return_value="/tmp/lo-user"),
         patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_warmup,
     ):
@@ -1158,7 +1155,7 @@ def test_ensure_writeragent_proofreader_configured_skips_warmup_without_config_d
     ctx = MagicMock()
     with (
         patch("plugin.framework.config.init_config"),
-        patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True),
+        patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True),
         patch("plugin.framework.config.user_config_dir", return_value=""),
         patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_warmup,
     ):
@@ -1187,7 +1184,7 @@ def test_try_harper_fast_path_emits_status_when_ready() -> None:
         patch("plugin.writer.locale.grammar_persistence.grammar_registry.register_live_proofreader"),
     ):
         pr = WriterAgentAiGrammarProofreader(ctx)
-    pr._provider = "harper"
+    pr._profile = GrammarProfile("harper", "harper", False)
     combined: list = []
     with (
         patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
@@ -1216,7 +1213,7 @@ def test_try_harper_fast_path_emits_starting_when_ensure(
         patch("plugin.writer.locale.grammar_persistence.grammar_registry.register_live_proofreader"),
     ):
         pr = WriterAgentAiGrammarProofreader(ctx)
-    pr._provider = "harper"
+    pr._profile = GrammarProfile("harper", "harper", False)
     with (
         patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
         patch("plugin.writer.locale.harper.harper_try_lint", return_value=None),
@@ -1296,7 +1293,7 @@ def test_reset_ignore_rules_fails_loudly_when_doc_id_unresolved(mock_config_fixt
 def test_enqueue_misses_persists_identity_from_active_provider(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
     pr = _make_proofreader()
 
-    with patch.object(pr, "_active_grammar_provider", return_value="languagetool"):
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value="languagetool"):
         pr.doProofreading("test-doc", "Some text.", mock_locale_fixture, 0, 10, ())
 
     mock_queue_fixture.enqueue.assert_called_once()
@@ -1317,8 +1314,8 @@ def test_llm_checker_identity_cache_roundtrip_preserves_rows_and_ignores(
     s2 = "They is wrong."
 
     with (
-        patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="llm:gpt-test"),
-        patch.object(pr, "_active_grammar_provider", return_value="llm"),
+        patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="llm:gpt-test"),
+        patch("plugin.writer.locale.grammar_settings.provider", return_value="llm"),
     ):
         pr.doProofreading("test-doc", s1, mock_locale_fixture, 0, len(s1), ())
         assert mock_queue_fixture.enqueue.call_count == 1
@@ -1394,7 +1391,7 @@ def test_local_provider_checker_identity_and_persistence(
     s1 = "This are wrong."
     s2 = "They is wrong."
 
-    with patch.object(pr, "_active_grammar_provider", return_value="languagetool"):
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value="languagetool"):
         pr.doProofreading("test-doc", s1, mock_locale_fixture, 0, len(s1), ())
         assert mock_queue_fixture.enqueue.call_count == 1
         item1 = mock_queue_fixture.enqueue.call_args[0][0]
@@ -1446,8 +1443,7 @@ def test_harper_partial_hit_converts_uno_tuple_once(
 ) -> None:
     """Partial hit (one cached, one Harper fast path) converts UNO errors exactly once."""
     pr = _make_proofreader()
-    pr._provider = "harper"
-    pr._checker_identity = "harper"
+    pr._profile = GrammarProfile("harper", "harper", False)
 
     s1 = "This are wrong."
     s2 = "They is wrong."
@@ -1510,8 +1506,7 @@ def test_doc_ignored_rules_runs_once_for_multi_sentence_harper(
 ) -> None:
     """doc_ignored_rules is snapshotted once per batch in Harper fast path, not per sentence."""
     pr = _make_proofreader()
-    pr._provider = "harper"
-    pr._checker_identity = "harper"
+    pr._profile = GrammarProfile("harper", "harper", False)
     work_spans = [
         (0, 10, "Sentence 1."),
         (11, 10, "Sentence 2."),
@@ -1604,8 +1599,7 @@ def test_nonzero_start_after_emoji_selects_sentence(mock_config_fixture, mock_lo
 
 def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_config_fixture) -> None:
     pr = _make_proofreader()
-    pr._provider = "harper"
-    pr._checker_identity = "harper"
+    pr._profile = GrammarProfile("harper", "harper", False)
     work_spans = [(0, 15, "They is fine.")]
     combined: list[Any] = []
     norm_err = NormalizedProofError(

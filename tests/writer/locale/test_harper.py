@@ -1278,9 +1278,7 @@ def test_maybe_start_harper_async_libreharper_submits_job(mock_bg: MagicMock) ->
 
 @patch("plugin.framework.worker_pool.run_in_background")
 def test_maybe_start_harper_async_writeragent_harper_submits_job(mock_bg: MagicMock) -> None:
-    with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
-         patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True), \
-         patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="harper"):
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value="harper"):
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
         assert submitted is True
         assert mock_bg.call_count == 1
@@ -1288,17 +1286,15 @@ def test_maybe_start_harper_async_writeragent_harper_submits_job(mock_bg: MagicM
 
 
 @pytest.mark.parametrize(
-    "return_value, return_value_2",
+    "provider",
     [
-        pytest.param(False, "off", id="test_maybe_start_harper_async_writeragent_off_skips"),
-        pytest.param(True, "llm", id="test_maybe_start_harper_async_writeragent_llm_skips"),
+        pytest.param("off", id="test_maybe_start_harper_async_writeragent_off_skips"),
+        pytest.param("llm", id="test_maybe_start_harper_async_writeragent_llm_skips"),
     ],
 )
 @patch("plugin.framework.worker_pool.run_in_background")
-def test_maybe_start_harper_async_writeragent_off_skips(mock_bg: MagicMock, return_value, return_value_2) -> None:
-    with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
-         patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=return_value), \
-         patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value=return_value_2):
+def test_maybe_start_harper_async_writeragent_off_skips(mock_bg: MagicMock, provider: str) -> None:
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value=provider):
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
         assert submitted is False
         mock_bg.assert_not_called()
@@ -1396,7 +1392,9 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
         patch("plugin.writer.locale.grammar_persistence.grammar_registry.register_live_proofreader"),
     ):
         pr = WriterAgentAiGrammarProofreader(ctx)
-    pr._provider = "harper"
+    from plugin.writer.locale.grammar_settings import GrammarProfile
+
+    pr._profile = GrammarProfile("harper", "harper", False)
     from plugin.writer.locale.grammar_persistence import grammar_registry
 
     grammar_registry.register_live_proofreader(pr)
