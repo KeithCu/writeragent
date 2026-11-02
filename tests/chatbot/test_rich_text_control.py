@@ -189,7 +189,7 @@ class TestAppendTextChunk:
              patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor") as mock_insert, \
              patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret"), \
              patch("plugin.chatbot.rich_text_control.focus_preserved", _immediate_focus):
-            append_text_chunk(control, " tail", auto_scroll=False, style_window=style_window)
+            append_text_chunk(control, " tail", style_window=style_window)
 
         cursor.gotoEnd.assert_called_once()
         mock_insert.assert_called_once_with(model, cursor, " tail", 0x1E293B)
@@ -269,7 +269,7 @@ class TestAppendTextChunk:
              patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll, \
              patch("plugin.chatbot.rich_text_control.process_events_to_idle") as mock_idle:
             append_text_chunk(
-                control, " tail", auto_scroll=True, style_window=MagicMock(), ctx=MagicMock(), restore_focus=restore,
+                control, " tail", style_window=MagicMock(), ctx=MagicMock(), restore_focus=restore,
             )
 
         mock_idle.assert_called()
@@ -461,11 +461,10 @@ class TestLogRichScroll:
         import plugin.chatbot.rich_text_control as rtc
         from plugin.chatbot.rich_text_control import log_rich_scroll
 
-        control = MagicMock()
         with patch("plugin.chatbot.rich_text_control.RICH_SCROLL_VERBOSE_DEBUG", True), \
              caplog.at_level(logging.DEBUG, logger="plugin.chatbot.rich_text_control"):
-            log_rich_scroll("test_phase", control=control, reason="unit")
-            log_rich_scroll("test_phase2", control=control)
+            log_rich_scroll("test_phase", reason="unit")
+            log_rich_scroll("test_phase2")
 
         from tests.harness.strip_bundle import module_source_contains
 
@@ -548,9 +547,9 @@ class TestRichTextChatWidget:
             mock_reveal.assert_called_once_with(control, ctx=ctx, reason="widget", restore=None)
 
         with patch("plugin.chatbot.rich_text_control.append_text_chunk") as mock_chunk:
-            widget.append_chunk("hello", auto_scroll=True)
+            widget.append_chunk("hello")
             mock_chunk.assert_called_once_with(
-                control, "hello", auto_scroll=True, style_window=None, ctx=ctx, restore_focus=None,
+                control, "hello", style_window=None, ctx=ctx, restore_focus=None,
             )
 
     def test_rerender_paints_the_message_list(self):
@@ -799,8 +798,8 @@ class TestLogRichControlContext:
         import plugin.chatbot.rich_text_control as rtc
 
         with patch.object(rtc.log, "info") as mock_info:
-            rtc.log_rich_control_context(MagicMock(), "window_shown", peer=0)
-            rtc.log_rich_control_context(MagicMock(), "eager_init", peer=1)
+            rtc.log_rich_control_context("window_shown", peer=0)
+            rtc.log_rich_control_context("eager_init", peer=1)
         from tests.harness.strip_bundle import module_source_contains
 
         if not module_source_contains(rtc, "log.info"):

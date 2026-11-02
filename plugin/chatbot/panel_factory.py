@@ -282,10 +282,9 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
             with suppress_disposed("getHeightForWidth relayout_now", logger=log):
                 from plugin.chatbot.rich_text_control import log_rich_scroll
 
-                rich = rl.get_control("response_rich")
-                log_rich_scroll("getHeightForWidth_before", control=rich, eff_w=eff_w)
+                log_rich_scroll("getHeightForWidth_before", eff_w=eff_w)
                 rl.relayout_now(self.PanelWindow, viewport_w=eff_w)
-                log_rich_scroll("getHeightForWidth_after", control=rich, eff_w=eff_w)
+                log_rich_scroll("getHeightForWidth_after", eff_w=eff_w)
 
         return layout
 

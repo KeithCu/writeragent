@@ -532,7 +532,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             def _sync_rich() -> None:
                 from plugin.chatbot.rich_text_control import log_rich_scroll, sync_rich_control_bounds
 
-                log_rich_scroll("relayout", control=rich, root_w=w, root_h=h)
+                log_rich_scroll("relayout", root_w=w, root_h=h)
                 new_rich = sync_rich_control_bounds(
                     rich,
                     win,

@@ -861,7 +861,7 @@ def _copy_formatted_from_hidden_doc_to_control(
 
             if not inserted:
                 return "no_content_inserted"
-            log_rich_scroll("copy_done", control=control, role=role)
+            log_rich_scroll("copy_done", role=role)
             log.info(
                 "_copy_formatted_from_hidden_doc_to_control: ok role=%s",
                 role,
@@ -1062,7 +1062,7 @@ def _append_row_separator(
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         _insert_string_at_rich_cursor(model, cursor, suffix)
-        log_rich_scroll(phase, control=control, suffix_len=len(suffix))
+        log_rich_scroll(phase, suffix_len=len(suffix))
 
     best_effort(_do_append, caller_name)
 
@@ -1110,7 +1110,7 @@ def append_formatted_row(
                 _ensure_trailing_line_break(control)
             if auto_scroll:
                 _scroll_rich_to_tail(control, restore_focus=restore_focus)
-            log_rich_scroll("user_append_done", control=control, role=role)
+            log_rich_scroll("user_append_done", role=role)
         elif auto_scroll:
             _scroll_rich_to_tail(control, restore_focus=restore_focus)
 
