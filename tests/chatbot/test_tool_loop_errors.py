@@ -48,7 +48,19 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self._get_document_model = MagicMock(return_value=None)
         self.responses = []
         self.statuses = []
-        self._terminal_status = None
+        self._orphan_send_outcome = None
+
+    @property
+    def _terminal_status(self) -> str:
+        from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
+
+        return send_outcome_terminal_display(self)
+
+    @_terminal_status.setter
+    def _terminal_status(self, value: str) -> None:
+        from plugin.chatbot.tool_loop_actions import assign_send_outcome
+
+        assign_send_outcome(self, "" if value is None else value)
 
     def resolve_stop_checker(self):
         return lambda: self.stop_requested
@@ -443,7 +455,7 @@ def test_overflow_respawns_worker_with_force_compact(test_instance):
     assert current_turn(test_instance)._overflow_compact_attempts == 1
     assert "Compacting conversation..." in test_instance.statuses
     assert not any(str(s).startswith("Thinking") for s in test_instance.statuses)
-    assert test_instance._terminal_status is None
+    assert test_instance._terminal_status == ""
     joined = "".join(test_instance.responses)
     assert "[API error:" not in joined
     from plugin.framework.client.errors import local_model_overflow_message
@@ -1225,24 +1237,26 @@ def test_native_audio_stt_fallback_replaces_db_row():
 def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
     """Stop during fallback STT ends the drain without a no-speech banner."""
     from plugin.chatbot.tool_loop import try_native_audio_stt_fallback
+    from plugin.chatbot.tool_loop_actions import TurnController, assign_send_outcome
 
     host = MagicMock()
     host.audio_wav_path = "/fake/a.wav"
-    host._terminal_status = "Ready"
-    host._turn.alive = True
-    host._turn.session = host.session
-    host._turn.same_messages.return_value = True
-    host._turn.batcher = None
-    host._turn.queue = MagicMock()
-    host._turn.text_model = "chat-model"
-    host._turn.endpoint = "https://example"
-    host._turn.active_query_text = "hello"
-    host._turn.active_client = MagicMock()
-    host._turn.active_max_tokens = 100
-    host._turn.active_tools = []
+    turn = TurnController(host.session)
+    turn.alive = True
+    turn.session = host.session
+    turn.same_messages = MagicMock(return_value=True)
+    turn.batcher = None
+    turn.queue = MagicMock()
+    turn.text_model = "chat-model"
+    turn.endpoint = "https://example"
+    turn.active_query_text = "hello"
+    turn.active_client = MagicMock()
+    turn.active_max_tokens = 100
+    turn.active_tools = []
+    host._turn = turn
 
     def _stopped(_path, _model):
-        host._terminal_status = "Stopped"
+        assign_send_outcome(host, "Stopped")
         return ""
 
     host._voice._transcribe_audio.side_effect = _stopped

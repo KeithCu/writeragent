@@ -254,7 +254,7 @@ class SendButtonListener(BaseActionListener):
     cached_doc_type: str | None
     cached_uno_services: frozenset[str] | None
     _stop_requested_fallback: bool
-    _terminal_status: str
+    _orphan_send_outcome: Any
     _stt_inflight: bool
     _stt_kill: Any
     _active_mode: str
@@ -330,8 +330,8 @@ class SendButtonListener(BaseActionListener):
         self.cached_doc_type = None
         self.cached_uno_services = None
         self._stop_requested_fallback = False
+        self._orphan_send_outcome = None
         self._send_cancellation: Any = None
-        self._terminal_status = "Ready"
         self._stt_inflight = False
         self._stt_kill = None
         self._active_mode = ""
@@ -448,6 +448,18 @@ class SendButtonListener(BaseActionListener):
         if scope is not None and scope.is_cancelled():
             return True
         return self._stop_requested_fallback
+
+    @property
+    def _terminal_status(self) -> str:
+        from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
+
+        return send_outcome_terminal_display(self)
+
+    @_terminal_status.setter
+    def _terminal_status(self, value: str) -> None:
+        from plugin.chatbot.tool_loop_actions import assign_send_outcome
+
+        assign_send_outcome(self, "" if value is None else value)
 
     def resolve_stop_checker(self) -> Callable[[], bool]:
         """Stop predicate bound to the scope on this panel right now.
@@ -619,7 +631,9 @@ class SendButtonListener(BaseActionListener):
             return
         begin_send_turn(self)
         self._append_response(text)
-        self._terminal_status = "Error"
+        from plugin.chatbot.tool_loop_actions import assign_send_outcome
+
+        assign_send_outcome(self, "Error")
         drop_turn(self)
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None:
@@ -1056,6 +1070,9 @@ class SendButtonListener(BaseActionListener):
     def _close_turn_ui(self, *, speak: bool) -> None:
         """SEND_COMPLETED or ERROR_OCCURRED, optional TTS, and drop_turn after stream drain."""
         from plugin.framework.i18n import _
+        from plugin.chatbot.tool_loop_actions import drop_turn, send_outcome_terminal_display
+        from plugin.chatbot.panel_voice import strip_audio_from_last_user_message
+        from plugin.doc.peer_message import kick_pending_peer_starts
 
         update_activity_state("")
         try:
@@ -1063,7 +1080,8 @@ class SendButtonListener(BaseActionListener):
             # completion dispatch writes the status line, and the rest starts
             # TTS or arms the mic on a dead panel.
             if not self._panel_teardown:
-                if self._terminal_status == "Error":
+                terminal = send_outcome_terminal_display(self)
+                if terminal == "Error":
                     if speak:
                         clear_pending_audio_wav(self)
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
@@ -1071,112 +1089,16 @@ class SendButtonListener(BaseActionListener):
                     self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
                     self._sync_has_text_from_query()
                     if speak:
-                        if self._terminal_status:
-                            self._set_status(_(self._terminal_status))
-                        try:
-                            from plugin.framework.config import get_config_bool_safe
-                            # Speak from session_for_turn(self) (valid until
-                            # drop_turn) when TTS is enabled and terminal status
-                            # is not Stopped. An alive-turn check fails here: the
-                            # tool-loop finally already ran abort_turn(self).
-                            if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
-                                from plugin.chatbot.tool_loop_actions import (
-                                    current_turn,
-                                    session_for_turn,
-                                )
-
-                                spoken = session_for_turn(self)
-                                turn = current_turn(self)
-                                if (
-                                    turn is not None
-                                    and spoken is turn.session
-                                    and spoken is not None
-                                    and spoken.messages
-                                ):
-                                    start_count = turn.send_start_msg_count
-                                    last_msg = spoken.messages[-1]
-                                    # Speak only when an assistant message
-                                    # exists and this send appended a new message.
-                                    # A whitespace-only query or a cancelled send
-                                    # otherwise replays the previous turn: the
-                                    # session's last message is still that reply.
-                                    has_new_assistant_msg = (
-                                        last_msg.get("role") == "assistant"
-                                        and bool(last_msg.get("content"))
-                                        and len(spoken.messages) > start_count
-                                    )
-                                    if has_new_assistant_msg:
-                                        from plugin.chatbot.tool_loop_actions import _STOP_LINE
-                                        content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
-                                        if content_to_speak.strip():
-                                            from plugin.audio.tts_service import speak_text_async, is_speaking
-
-                                            # Restore the send-complete status after download/fallback lines.
-                                            prior_status = self._terminal_status or "Ready"
-
-                                            def _disable_stop() -> None:
-                                                if not self._send_busy:
-                                                    # A take may still be recording (sticky restart or a manual take).
-                                                    # Ready would hide that status or "Hands-free off", so only restore it after.
-                                                    if self.sidebar_state.send.is_recording:
-                                                        if self._record_gesture.sticky:
-                                                            self._set_status(hands_free_status_text())
-                                                    else:
-                                                        _set_control_enabled(self.stop_control, False, "disable stop after speech")
-                                                        self._set_status(_(prior_status))
-
-                                            def _on_tts_status(message: str) -> None:
-                                                # Speech runs on a worker; the status control is a UNO widget.
-                                                try:
-                                                    self.queue_executor.post(self._set_status, message)
-                                                except Exception:
-                                                    log.debug("TTS status post failed", exc_info=True)
-
-                                            speak_text_async(
-                                                content_to_speak,
-                                                on_complete=lambda: self.queue_executor.post(_disable_stop),
-                                                on_status=_on_tts_status,
-                                                # Sentence breaks use BreakIterator on this UI
-                                                # thread. The audio worker only receives the list.
-                                                ctx=self.ctx,
-                                            )
-                                            if is_speaking():
-                                                _set_control_enabled(self.stop_control, True, "enable stop for speech")
-                        except Exception as e:
-                            log.debug("TTS playback trigger: %s", e)
-                    else:
-                        self._set_status(_(self._terminal_status))
+                        self._voice.speak_reply(speak=True)
+                    elif terminal:
+                        self._set_status(_(terminal))
                     self._voice._flush_sticky_restart()
         finally:
             # drop_turn and kick_pending_peer_starts run under finally.
             # An early return when content_to_speak is empty (or a TTS
             # exception) skips them and leaks the turn, including Stop
             # with TTS enabled.
-            from plugin.chatbot.tool_loop_actions import drop_turn
-            from plugin.doc.peer_message import kick_pending_peer_starts
-
-            if speak:
-                from plugin.chatbot.tool_loop_actions import session_for_turn
-
-                # This runs once per turn, from the deferred drain-done close
-                # (_close_send_drain), on success, Stop and error alike. A slice
-                # returning mid-stream does not reach here, so the audio the model
-                # is still answering is not stripped early.
-                sess = session_for_turn(self) or self.session
-                if sess and getattr(sess, "messages", None):
-                    # Ensure in-memory audio is not resent on the next turn.
-                    # Iterate backwards to find the last user message.
-                    for msg in reversed(sess.messages):
-                        if msg.get("role") == "user":
-                            content = msg.get("content")
-                            if isinstance(content, list) and any(c.get("type") == "input_audio" for c in content):
-                                kept_parts = [c for c in content if c.get("type") != "input_audio"]
-                                if kept_parts:
-                                    msg["content"] = kept_parts
-                                else:
-                                    msg["content"] = _("[Voice message]")
-                            break
-
+            strip_audio_from_last_user_message(self, speak=speak)
             # Spoken text was copied above. Later callbacks must not find this turn.
             drop_turn(self)
             kick_pending_peer_starts()
