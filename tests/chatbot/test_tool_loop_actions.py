@@ -66,7 +66,8 @@ class FakeHost:
         self.document = Mock()
         from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-        turn = begin_send_turn(self, model=Mock(name="doc"))
+        turn = begin_send_turn(self)
+        turn.model = Mock(name="doc")
         turn.queue = queue.Queue()
         turn.active_client = Mock()
         turn.active_max_tokens = 100
@@ -1812,7 +1813,9 @@ def _run_get_image(captured_turn, vision):
 def test_execute_fn_keeps_mcp_image_for_vision_model():
     from plugin.chatbot.tool_loop_actions import TurnController
 
-    turn = TurnController(None, text_model="qwen3.8:27b-q4_K_M", endpoint="http://localhost:11434")
+    turn = TurnController(None)
+    turn.text_model = "qwen3.8:27b-q4_K_M"
+    turn.endpoint = "http://localhost:11434"
     res, mock_vision = _run_get_image(turn, vision=True)
     assert res["_mcp_image"]["data"] == _IMAGE_B64
     assert mock_vision.call_args.args == ("qwen3.8:27b-q4_K_M", "http://localhost:11434")
@@ -1821,7 +1824,9 @@ def test_execute_fn_keeps_mcp_image_for_vision_model():
 def test_execute_fn_drops_mcp_image_without_vision():
     from plugin.chatbot.tool_loop_actions import TurnController
 
-    turn = TurnController(None, text_model="text-only", endpoint="http://localhost:11434")
+    turn = TurnController(None)
+    turn.text_model = "text-only"
+    turn.endpoint = "http://localhost:11434"
     res, mock_vision = _run_get_image(turn, vision=False)
     assert mock_vision.called
     assert "_mcp_image" not in res

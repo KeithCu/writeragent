@@ -103,10 +103,7 @@ def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any
     ]
     usage = response.get("usage")
     if isinstance(usage, dict) and usage:
-        try:
-            parts.append(f"usage={json.dumps(usage, separators=(',', ':'))}")
-        except Exception:
-            parts.append(f"usage={len(usage)} entries")
+        parts.append(f"usage={json.dumps(usage, separators=(',', ':'), default=str)}")
     images = response.get("images")
     if isinstance(images, list) and images:
         parts.append(f"images={len(images)}")
@@ -158,10 +155,10 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
     # crosshair: off
     """Completion line for delegate gateway tools (domain shown; success is short)."""
     domain = domain_from_delegate_args(func_args)
-    if result_data.get("status") == "error":
-        return f"[delegate ({domain}) failed: {_result_note(result_data)}]\n"
-    if result_data.get("status") == "incomplete":
-        return f"[delegate ({domain}) incomplete: {_result_note(result_data)}]\n"
+    status = result_data.get("status")
+    verb = "failed" if status == "error" else "incomplete" if status == "incomplete" else None
+    if verb:
+        return f"[delegate ({domain}) {verb}: {_result_note(result_data)}]\n"
     cache_block = web_research_cache_chat_text(result_data) if domain == "web_research" else ""
     return cache_block + f"[delegate ({domain}): done]\n"
 
@@ -179,12 +176,18 @@ def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tupl
 def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
     """Chat append body for a tool result (error or success); does not mutate *result_data*."""
     # crosshair: off
+    status = result_data.get("status")
     note = _result_note(result_data)
-    if result_data.get("status") == "error":
-        if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
-            detailed_text = format_delegate_result_chat_line(func_args, result_data)
-        else:
-            detailed_text = f"[{func_name} failed: {note}]\n"
+    if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
+        detailed_text = format_delegate_result_chat_line(func_args, result_data)
+    elif status == "error":
+        detailed_text = f"[{func_name} failed: {note}]\n"
+    elif func_name == "web_research":
+        detailed_text = web_research_cache_chat_text(result_data) + f"[{func_name}: {note}]\n"
+    else:
+        detailed_text = f"[{func_name}: {note}]\n"
+
+    if status == "error":
         raw_details = result_data.get("details", {})
         # Copy before popping traceback so callers' result_data is not mutated.
         details = dict(raw_details) if isinstance(raw_details, dict) else {}
@@ -194,14 +197,7 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
                 detailed_text += f"Details: {json.dumps(details, indent=2)}\n"
             if isinstance(tb, str) and tb.strip() and tb.strip() != "NoneType: None":
                 detailed_text += f"Traceback:\n{tb}\n"
-        return detailed_text
-
-    if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
-        return format_delegate_result_chat_line(func_args, result_data)
-    if func_name == "web_research":
-        cache_block = web_research_cache_chat_text(result_data)
-        return cache_block + f"[{func_name}: {note}]\n"
-    return f"[{func_name}: {note}]\n"
+    return detailed_text
 
 
 def format_replaced_zero_debug_line(func_args_str: str) -> str:
@@ -271,8 +267,6 @@ class TurnController:
         self,
         session: Any,
         model: Any = None,
-        text_model: str | None = None,
-        endpoint: str | None = None,
     ) -> None:
         self.session = session
         self.messages = getattr(session, "messages", None) if session is not None else None
@@ -280,8 +274,8 @@ class TurnController:
         self.queue = None
         self.batcher = None
         self.model = model
-        self.text_model = text_model
-        self.endpoint = endpoint
+        self.text_model = None
+        self.endpoint = None
         self.stripper = StreamingHTMLStripper()
         self.alive = True
         self._stop_banner_appended = False
@@ -424,7 +418,7 @@ class TurnController:
         self._stop_committed = True
         tail = self.take_stripper_tail()
         if tail:
-            self.fold_chunk(host, tail, "assistant")
+            self.fold_chunk(host, tail)
         emitted = self.open_text()
         fallback = partial.strip() if isinstance(partial, str) else ""
         chosen = emitted or (fallback if fallback != "No response." else "")
@@ -557,7 +551,7 @@ def drop_turn(host: Any) -> None:
     host._turn = None
 
 
-def begin_send_turn(host: Any, model: Any = None) -> TurnController:
+def begin_send_turn(host: Any) -> TurnController:
     """Start a send. The previous turn, if any, is aborted and replaced.
 
     Called before any worker spawns. There is no later rebind: Clear and a
@@ -567,7 +561,7 @@ def begin_send_turn(host: Any, model: Any = None) -> TurnController:
     if previous is not None:
         previous.abort()
     session = getattr(host, "session", None)
-    turn = TurnController(session, model)
+    turn = TurnController(session)
     host._turn = turn
     return turn
 
@@ -828,9 +822,6 @@ def build_tool_execute_fn(
         if prompt_for_web:
 
             def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
-                if not isinstance(captured_turn, TurnController) or captured_turn.queue is None:
-                    log.warning("tool_loop: web_research approval skipped (queue missing)")
-                    return (False, None)
                 event = threading.Event()
                 from plugin.framework.send_cancellation import wait_for_approval
 
@@ -929,8 +920,7 @@ class ToolLoopEffectInterpreter:
             turn, q = target
             host._tool_calling._spawn_final_stream(q, turn.active_client, turn.active_max_tokens)
         elif isinstance(effect, UpdateDocumentContextEffect):
-            if self._refresh_document_context():
-                return True
+            return self._refresh_document_context()
         elif isinstance(effect, ToolLoopUIEffect):
             self._execute_ui_effect(effect)
         elif isinstance(effect, LogAgentEffect):
@@ -949,8 +939,7 @@ class ToolLoopEffectInterpreter:
         elif isinstance(effect, CleanupAudioEffect):
             self._cleanup_audio()
         elif isinstance(effect, SpawnToolWorkerEffect):
-            if self._spawn_tool_worker(effect):
-                return True
+            return self._spawn_tool_worker(effect)
         return False
 
     def _refresh_document_context(self) -> bool:

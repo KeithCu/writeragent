@@ -87,7 +87,8 @@ def test_instance():
 
         from plugin.chatbot.tool_loop_actions import begin_send_turn
 
-        begin_send_turn(instance, model=MagicMock())
+        turn = begin_send_turn(instance)
+        turn.model = MagicMock()
         yield instance
 
 def test_tool_execution_error_handling(test_instance, mock_get_tools):
