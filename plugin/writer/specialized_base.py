@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any, ClassVar, Type
 
 from plugin.framework.tool import ToolBase
@@ -30,8 +29,6 @@ from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawTableB
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.doc.specialized_base import DelegateToSpecializedBase
-
-log = logging.getLogger("writeragent.writer")
 
 INSERT_TARGETS: list[str] = ["beginning", "end", "selection", "full_document", "search"]
 

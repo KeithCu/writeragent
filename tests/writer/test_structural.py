@@ -165,7 +165,7 @@ def test_clone_heading_block_with_table():
     services.writer_bookmarks = bm_svc
     services.events = events
     tree_svc = TreeService(services)
-    services.get.side_effect = lambda name: tree_svc if name == "writer_tree" else None
+    services.writer_tree = tree_svc
     ctx.services = services
 
     import sys
