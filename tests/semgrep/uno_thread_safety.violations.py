@@ -53,3 +53,18 @@ def execute_python_addin(ctx, code):
     get_desktop()
 
 
+
+def broad_except_swallows(doc):
+    # ruleid: broad-except-swallows-disposal
+    try:
+        doc.getText()
+    except Exception:
+        return None
+
+
+def bare_except_swallows(doc):
+    # ruleid: broad-except-swallows-disposal
+    try:
+        doc.getText()
+    except:  # noqa: E722
+        pass

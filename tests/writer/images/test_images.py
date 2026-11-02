@@ -584,6 +584,71 @@ def test_download_image_to_cache_does_not_disable_tls(tmp_path, monkeypatch):
         assert fh.read() == b"\x89PNG"
 
 
+def test_set_read_timeout_finds_socket_on_every_response_shape(caplog):
+    from types import SimpleNamespace
+
+    from plugin.writer.images.images import _set_read_timeout
+
+    class _Sock:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        def settimeout(self, value: float) -> None:
+            self.timeouts.append(value)
+
+    shapes = [
+        lambda s: SimpleNamespace(sock=s),
+        lambda s: SimpleNamespace(fp=SimpleNamespace(raw=SimpleNamespace(_sock=s))),
+        lambda s: SimpleNamespace(fp=SimpleNamespace(_sock=s)),
+    ]
+    for build in shapes:
+        sock = _Sock()
+        assert _set_read_timeout(build(sock), 1.0) is True
+        assert sock.timeouts == [1.0]
+
+    class _BadSock:
+        def settimeout(self, _value: float) -> None:
+            raise OSError("closed")
+
+    with caplog.at_level("WARNING", logger="writeragent.writer"):
+        assert _set_read_timeout(SimpleNamespace(fp=None), 1.0) is False
+        assert _set_read_timeout(SimpleNamespace(sock=_BadSock()), 1.0) is False
+    assert sum("Stop may wait" in r.getMessage() for r in caplog.records) == 2
+
+
+def test_download_image_to_cache_sets_short_read_timeout(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from plugin.writer.images import images as images_mod
+
+    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    timeouts: list[float] = []
+    sock = SimpleNamespace(settimeout=timeouts.append)
+
+    class _Resp:
+        def __init__(self) -> None:
+            self._chunks = [b"\x89PNG"]
+            self.headers = {}
+            self.fp = SimpleNamespace(raw=SimpleNamespace(_sock=sock))
+
+        def read(self, _size: int = -1) -> bytes:
+            return self._chunks.pop(0) if self._chunks else b""
+
+        def __enter__(self) -> "_Resp":
+            return self
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda request, context=None, timeout=None: _Resp())
+    monkeypatch.setattr(
+        "plugin.writer.images.images.get_config_int",
+        lambda key, default=0: 15 if key == "request_timeout" else 1024,
+    )
+    _download_image_to_cache("https://example.com/timeout.png")
+    assert timeouts == [1.0]
+
+
 def test_download_image_to_cache_unlinks_stale_partials(tmp_path, monkeypatch):
     import time
     from plugin.writer.images import images as images_mod

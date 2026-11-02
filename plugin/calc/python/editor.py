@@ -268,7 +268,9 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | 
     from plugin.doc.compound_undo import WriterCompoundUndo
 
     with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
-        if code_cell is not None and code_ref:
+        # A self-ref (=PY(A1) in A1) is not a follow: writing it as one would
+        # overwrite the cell's own formula with the code text.
+        if code_cell is not None and code_ref and not _same_calc_cell(code_cell, cell):
             result = _apply_followed_ref_save(cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
         elif save_as_plain:
             cell.setString(new_code)
@@ -287,7 +289,7 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | 
 
 
 def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str, parsed_parts: PythonFormulaParts | None, exe: str, code_cell: Any | None = None, code_ref: str | None = None) -> None:
-    follow = bool(code_ref and code_cell is not None)
+    follow = bool(code_ref and code_cell is not None and not _same_calc_cell(code_cell, cell))
     data_binding = _data_binding_display(parsed_parts)
     display_cell = code_cell if follow else cell
 
@@ -299,8 +301,8 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
             new_code=code,
             save_as_plain=save_as_plain,
             data_binding_text=data_binding,
-            code_cell=code_cell,
-            code_ref=code_ref,
+            code_cell=code_cell if follow else None,
+            code_ref=code_ref if follow else None,
         )
 
     label = format_cell_a1(display_cell)

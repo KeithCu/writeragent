@@ -29,7 +29,7 @@ from com.sun.star.beans import PropertyValue
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_FRAME
 from plugin.doc import visual_helpers
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import best_effort, reraise_if_disposed
 
 # WriterCompoundUndo is intentionally imported function-locally in _dispatch_insert_image,
 # insert_image_into_header_footer, and replace_graphic_source so importing image_tools
@@ -342,10 +342,21 @@ def insert_image_into_header_footer(
         )
         return {
             "graphic": graphic,
-            "style_name": style_name,
+            "style_name": _page_style_name(style, style_name),
             "region": region,
             "auto_height": bool(auto_height),
         }
+
+
+def _page_style_name(style: Any, requested: str) -> str:
+    """Programmatic name of the resolved page style (a display name like
+    "Default Page Style" resolves to "Standard"); *requested* if unreadable."""
+    try:
+        name = style.getName()
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return requested
+    return name if isinstance(name, str) and name else requested
 
 
 def _cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:

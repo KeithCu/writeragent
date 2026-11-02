@@ -115,12 +115,28 @@ def test_blank_bank_value_is_not_resolved(tmp_path: Path) -> None:
 
 
 def test_resolve_code_bank_ref_uppercases_a1_lookup(tmp_path: Path) -> None:
-    host_ws = _ws('<row r="1"><c r="A1"><f>PY(py_code_Data.A1)</f></c></row>')
+    # Lower-case ref in the formula; the bank cell is keyed by its upper-case r="A1".
+    host_ws = _ws('<row r="1"><c r="A1"><f>PY(py_code_Data.a1)</f></c></row>')
     bank_ws = _ws('<row r="1"><c r="A1" t="inlineStr"><is><t>print(1)</t></is></c></row>')
     path = _write_xlsx(tmp_path, {"Data": host_ws, "py_code_Data": bank_ws})
     items = iter_dag_py_formulas_xlsx(path)
     assert len(items) == 1
     assert "print(1)" in items[0][2]
+
+
+def test_resolve_bank_cell_reference_uppercases_a1_lookup() -> None:
+    from plugin.calc.excel_py_convert.script_bank import resolve_bank_cell_reference
+
+    seen: list[tuple[str, str]] = []
+
+    def lookup(sheet: str, a1: str) -> str | None:
+        seen.append((sheet, a1))
+        return {"A1": "print(1)"}.get(a1)
+
+    assert resolve_bank_cell_reference("py_code_Data.$a$1", lookup) == "print(1)"
+    assert resolve_bank_cell_reference("py_code_Data!b12", lookup) is None
+    assert seen == [("py_code_Data", "A1"), ("py_code_Data", "B12")]
+    assert resolve_bank_cell_reference("print(1)", lookup) is None
 
 
 def test_empty_sheet_returns_no_py_formulas(tmp_path: Path) -> None:

@@ -1063,7 +1063,8 @@ def _build_page_map(doc: Any) -> dict[int, int]:
     try:
         controller = doc.getCurrentController()
         vc = controller.getViewCursor()
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         log.exception("advanced_search: could not read the view cursor")
         return {}
 
@@ -1078,10 +1079,12 @@ def _build_page_map(doc: Any) -> dict[int, int]:
                 try:
                     vc.gotoRange(para.getStart(), False)
                     page_map[idx] = vc.getPage()
-                except Exception:
+                except Exception as exc:
+                    reraise_if_disposed(exc)
                     log.debug("advanced_search: page lookup failed for paragraph %s", idx, exc_info=True)
                 idx += 1
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             log.exception("advanced_search: page map walk failed")
         return page_map
 

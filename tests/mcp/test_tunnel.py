@@ -1804,3 +1804,40 @@ def test_post_stop_start_failure_decrements_under_lock(monkeypatch):
         assert counting.acquires > before
     assert mgr._tailscale_resets_in_flight == 0
 
+
+def _sync_tunnel_module(monkeypatch, port, bound_port=18765):
+    import plugin.mcp as mcp_mod
+
+    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
+    mod.name = "mcp"
+    services = MagicMock()
+    services.config.proxy_for.return_value = {"mcp_enabled": True, "tunnel_enabled": True, "mcp_port": port, "tunnel_provider": "cloudflare", "tunnel_provider_token": ""}
+    mod._services = services
+    bound = MagicMock()
+    bound.is_running.return_value = True
+    bound.port = bound_port
+    monkeypatch.setattr(mcp_mod, "_shared_http_server", bound)
+    tunnel = MagicMock()
+    tunnel.last_error = None
+    monkeypatch.setattr(mcp_mod, "_shared_tunnel", tunnel)
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    return mod, tunnel
+
+
+def test_sync_tunnel_unusable_port_does_not_start(monkeypatch):
+    mod, tunnel = _sync_tunnel_module(monkeypatch, port="not-a-port", bound_port=None)
+    mod._sync_tunnel()
+    tunnel.note_pending_start.assert_not_called()
+    tunnel.start.assert_not_called()
+
+
+def test_sync_tunnel_missing_port_uses_bound_server_port(monkeypatch):
+    mod, tunnel = _sync_tunnel_module(monkeypatch, port=None, bound_port=18999)
+    mod._sync_tunnel()
+    assert tunnel.start.call_args.args[0] == 18999
+
+
+def test_sync_tunnel_string_port_is_coerced_to_int(monkeypatch):
+    mod, tunnel = _sync_tunnel_module(monkeypatch, port="18765")
+    mod._sync_tunnel()
+    assert tunnel.start.call_args.args[0] == 18765

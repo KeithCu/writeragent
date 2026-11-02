@@ -146,6 +146,8 @@ def plan_target(c1: int, r1: int, c2: int, r2: int, rows: int, cols: int) -> tup
     notes: list[str] = []
     if explicit:
         height, width = r2 - r1 + 1, c2 - c1 + 1
+        if height * width > MAX_ARRAY_CELLS:
+            raise CalcError(f"The target range is {height} x {width} cells, over the {MAX_ARRAY_CELLS}-cell limit.")
         if rows > height or cols > width:
             notes.append(f"The result is {rows} x {cols} but the range is {height} x {width}: the rest is cut (result_does_not_fit).")
         elif rows < height or cols < width:

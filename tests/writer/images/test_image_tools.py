@@ -1038,3 +1038,19 @@ class TestAddImageToGallery:
         theme.update.assert_called_once()
 
 
+def test_insert_image_into_header_footer_reports_resolved_style_name():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.images import image_tools
+
+    style = MagicMock()
+    style.getName.return_value = "Standard"
+    region_text = MagicMock()
+    style.getPropertyValue.side_effect = lambda name: {"HeaderIsOn": True, "HeaderText": region_text}.get(name, MagicMock())
+    with (
+        patch("plugin.writer.page.resolve_page_style", return_value=style),
+        patch("plugin.writer.page.set_header_footer_auto_height"),
+        patch.object(image_tools, "_insert_embedded_at_writer_cursor", return_value=MagicMock()),
+    ):
+        result = image_tools.insert_image_into_header_footer(MagicMock(), "/tmp/logo.png", "header", style_name="Default Page Style")
+    assert result["style_name"] == "Standard"

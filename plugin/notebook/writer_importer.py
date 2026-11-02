@@ -1240,7 +1240,8 @@ def _insert_image_in_flow(
         _set_prop_map(graphic, {"TextWrap": 0, "SurroundContour": False}, "notebook image wrap property %s not applied")
         _log_shape_add(step="image", text_chars=len(raw), shape_h=h_units, shapes_before=images_before, create_ms=_mono_ms(t0), add_ms=_mono_ms(t_add))
         return True
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         log.exception("Failed to insert notebook image in document flow")
         _log_shape_add(step="image", shapes_before=images_before, create_ms=_mono_ms(t0), add_ms=0, ok=False)
         return False

@@ -223,6 +223,34 @@ def test_follow_code_ref_save_writes_a1_keeps_formula_ref():
     assert doc.calculate_all_count == 1
 
 
+def test_self_ref_code_cell_does_not_take_follow_save_path():
+    """=PY($A$1) in A1: the native editor defaults code_cell to the cell itself.
+
+    Following it would setString() the code over the cell's own formula.
+    """
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByIndex(0)
+    cell = sheet.getCellByPosition(0, 0)
+    cell.setFormula("=PY($A$1)")
+    parts = parse_python_formula(cell.getFormula())
+    assert parts is not None
+
+    for code_cell in (cell, sheet.getCellByPosition(0, 0)):
+        result = _apply_cell_save(
+            doc,
+            cell,
+            parsed_parts=parts,
+            new_code="result = 5",
+            save_as_plain=False,
+            data_binding_text="",
+            code_cell=code_cell,
+            code_ref=parts.code,
+        )
+        assert "Saved code in" not in result.get("status_ok_text", "")
+        assert cell.getFormula().startswith("=PY(")
+        assert cell.getString() != "result = 5"
+
+
 def test_follow_plain_flag_still_sends_data_text():
     doc = CalcDocStub()
     sheet = doc.getSheets().getByIndex(0)
