@@ -6,15 +6,13 @@ import os
 import sys
 import time
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from plugin.chatbot.web_research import (
-    _apply_web_search_query_override,
     _norm_research_query,
-    _web_search_query_from_arguments,
     WebResearchToolCallingAgent,
 )
+from plugin.contrib.smolagents.memory import ToolCall
 from plugin.chatbot.web_research_chat import (
     web_research_cache_chat_text,
     web_search_engine_step_chat_text,
@@ -415,23 +413,58 @@ def test_web_research_cache_chat_text_fuzzy_hit(value, value_2, value_3, value_4
 
 
 def test_web_search_query_from_dict():
-    assert _web_search_query_from_arguments({"query": "hello"}) == "hello"
-    assert _web_search_query_from_arguments({}) == ""
+    captured: list[str] = []
+    step = ToolCall(name="web_search", arguments={"query": "hello"}, id="t1")
+    _run_web_search_tool_call_handler(
+        step=step,
+        approval_callback=lambda q, tool, args: (captured.append(q), (True, None))[1],
+    )
+    assert captured == ["hello"]
+
+    captured.clear()
+    step_empty = ToolCall(name="web_search", arguments={}, id="t1")
+    _run_web_search_tool_call_handler(
+        step=step_empty,
+        approval_callback=lambda q, tool, args: (captured.append(q), (True, None))[1],
+    )
+    assert captured == [""]
 
 
 def test_web_search_query_from_json_string():
-    assert _web_search_query_from_arguments('{"query": "from json"}') == "from json"
+    captured: list[str] = []
+    step = ToolCall(name="web_search", arguments='{"query": "from json"}', id="t1")
+    _run_web_search_tool_call_handler(
+        step=step,
+        approval_callback=lambda q, tool, args: (captured.append(q), (True, None))[1],
+    )
+    assert captured == ["from json"]
 
 
 def test_web_search_query_from_invalid_string():
-    assert _web_search_query_from_arguments("not json") == ""
-    assert _web_search_query_from_arguments(None) == ""
+    captured: list[str] = []
+    step = ToolCall(name="web_search", arguments="not json", id="t1")
+    _run_web_search_tool_call_handler(
+        step=step,
+        approval_callback=lambda q, tool, args: (captured.append(q), (True, None))[1],
+    )
+    assert captured == [""]
+
+    captured.clear()
+    step_none = ToolCall(name="web_search", arguments=None, id="t1")
+    _run_web_search_tool_call_handler(
+        step=step_none,
+        approval_callback=lambda q, tool, args: (captured.append(q), (True, None))[1],
+    )
+    assert captured == [""]
 
 
 def test_apply_override_dict_mutable():
     original = {"query": "old", "x": 1}
-    step = SimpleNamespace(arguments=original)
-    _apply_web_search_query_override(step, "new")
+    step = ToolCall(name="web_search", arguments=original, id="t1")
+    _run_web_search_tool_call_handler(
+        step=step,
+        approval_callback=lambda q, tool, args: (True, "new"),
+    )
     assert step.arguments is original
     assert step.arguments == {"query": "new", "x": 1}
 
@@ -444,19 +477,29 @@ def test_apply_override_dict_mutable():
     ],
 )
 def test_apply_override_json_string(arguments, value, value_2):
-    step = SimpleNamespace(arguments=arguments)
-    _apply_web_search_query_override(step, value)
+    step = ToolCall(name="web_search", arguments=arguments, id="t1")
+    _run_web_search_tool_call_handler(
+        step=step,
+        approval_callback=lambda q, tool, args: (True, value),
+    )
     assert step.arguments == {"query": value_2}
 
 
 def test_apply_override_json_string_keeps_recency():
-    step = SimpleNamespace(arguments='{"query": "old", "recency": "week"}')
-    _apply_web_search_query_override(step, "edited")
+    step = ToolCall(name="web_search", arguments='{"query": "old", "recency": "week"}', id="t1")
+    _run_web_search_tool_call_handler(
+        step=step,
+        approval_callback=lambda q, tool, args: (True, "edited"),
+    )
     assert step.arguments == {"query": "edited", "recency": "week"}
 
+
 def test_apply_override_non_dict_non_string():
-    step = SimpleNamespace(arguments=["list"])
-    _apply_web_search_query_override(step, "fallback")
+    step = ToolCall(name="web_search", arguments=["list"], id="t1")
+    _run_web_search_tool_call_handler(
+        step=step,
+        approval_callback=lambda q, tool, args: (True, "fallback"),
+    )
     assert step.arguments == {"query": "fallback"}
 
 
@@ -469,13 +512,12 @@ def _run_web_search_tool_call_handler(
     *,
     outer_query: str = "user query",
     search_query: str = "engine query",
-    prompt_for_web_research: bool = False,
     approval_callback=None,
     chat_lines: list[str] | None = None,
+    step: Any = None,
 ):
     """Invoke only the web_search branch of _run_web_agent's tool_call_handler."""
     from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
-    from plugin.contrib.smolagents.memory import ToolCall
 
     captured_chat = chat_lines if chat_lines is not None else []
     handler_results: list[Any] = []
@@ -495,14 +537,13 @@ def _run_web_search_tool_call_handler(
         append_thinking_callback=None,
         approval_callback=approval_callback,
         chat_append_callback=_chat_append,
-        prompt_for_web_research=prompt_for_web_research,
         outer_query=outer_query,
     )
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
         if tool_call_handler:
-            step = ToolCall(name="web_search", arguments={"query": search_query}, id="t1")
-            handler_results.append(tool_call_handler(step))
+            call_step = step if step is not None else ToolCall(name="web_search", arguments={"query": search_query}, id="t1")
+            handler_results.append(tool_call_handler(call_step))
         return "done"
 
     with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls, \
@@ -528,7 +569,6 @@ def test_web_search_preview_shown_before_approval_returns():
     chat_lines, _ = _run_web_search_tool_call_handler(
         outer_query="What is Python?",
         search_query="latest Python release",
-        prompt_for_web_research=True,
         approval_callback=approval_cb,
         chat_lines=chat_lines,
     )
@@ -546,7 +586,6 @@ def test_web_search_reject_keeps_preview_in_chat():
 
     chat_lines, results = _run_web_search_tool_call_handler(
         search_query="blocked query",
-        prompt_for_web_research=True,
         approval_callback=approval_cb,
         chat_lines=chat_lines,
     )
@@ -563,7 +602,6 @@ def test_web_search_change_appends_second_preview():
 
     chat_lines, _ = _run_web_search_tool_call_handler(
         search_query="original query",
-        prompt_for_web_research=True,
         approval_callback=approval_cb,
         chat_lines=chat_lines,
     )
@@ -576,7 +614,6 @@ def test_web_search_no_prompt_dedup_when_matches_outer_query():
     chat_lines, _ = _run_web_search_tool_call_handler(
         outer_query="best pizza madison",
         search_query="best pizza madison",
-        prompt_for_web_research=False,
         chat_lines=[],
     )
     assert chat_lines == []
@@ -599,7 +636,6 @@ def test_visit_handler_does_not_preclaim_the_url():
         append_thinking_callback=None,
         approval_callback=None,
         chat_append_callback=None,
-        prompt_for_web_research=False,
         outer_query="topic",
         visited_urls=visited,
     )
@@ -854,7 +890,6 @@ def test_web_search_prompt_shows_preview_even_when_matches_outer_query():
     chat_lines, _ = _run_web_search_tool_call_handler(
         outer_query="best pizza madison",
         search_query="best pizza madison",
-        prompt_for_web_research=True,
         approval_callback=lambda q, tool, args: (True, None),
         chat_lines=[],
     )
