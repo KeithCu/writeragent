@@ -420,30 +420,25 @@ def _fake_child_python() -> str:
     return resolve_libreoffice_python() or sys.executable
 
 
-def _fresh_fake_state(mode: str, saved: dict[str, Any] | None, **extra: Any) -> dict[str, Any]:
-    state: dict[str, Any] = {
-        "mode": mode,
-        "interpreter": _fake_child_python(),
-        "spawn_count": 0,
-        "pids": [],
-        "alive": [],
-        "returncodes": {},
-        "overlap_spawns": 0,
-        "max_alive": 0,
-        "argv0s": [],
-        "requested_basenames": [],
-        "saved": dict(saved) if saved is not None else None,
-    }
-    state.update(extra)
-    return state
-
-
 def _fresh_or_update_fake_state(
     state: dict[str, Any], mode: str, saved: dict[str, Any] | None, **extra: Any
 ) -> dict[str, Any]:
     if not state or state.get("mode") != mode:
-        return _fresh_fake_state(mode, saved, **extra)
-    state["mode"] = mode
+        new_state: dict[str, Any] = {
+            "mode": mode,
+            "interpreter": _fake_child_python(),
+            "spawn_count": 0,
+            "pids": [],
+            "alive": [],
+            "returncodes": {},
+            "overlap_spawns": 0,
+            "max_alive": 0,
+            "argv0s": [],
+            "requested_basenames": [],
+            "saved": dict(saved) if saved is not None else None,
+        }
+        new_state.update(extra)
+        return new_state
     state["saved"] = dict(saved) if saved is not None else None
     return state
 
@@ -748,13 +743,22 @@ def _clear_fake_out_of_process(op: str, read_state: Callable[[], dict[str, Any]]
         _remove_quiet(path)
 
 
-def clear_fake_stt() -> None:
-    _require_debug()
+def _clear_fake(
+    op: str,
+    apply: Callable[[str], None],
+    read_state: Callable[[], dict[str, Any]],
+    path: str,
+) -> None:
     sl = send_listener()
     if sl is None:
-        _clear_fake_out_of_process("FAKE_STT_OFF", read_fake_stt_state, _tmp_state_path(_FAKE_STT_NAME))
+        _clear_fake_out_of_process(op, read_state, path)
     else:
-        _apply_fake_stt("off")
+        apply("off")
+
+
+def clear_fake_stt() -> None:
+    _require_debug()
+    _clear_fake("FAKE_STT_OFF", _apply_fake_stt, read_fake_stt_state, _tmp_state_path(_FAKE_STT_NAME))
 
 
 def fake_tts_state_path() -> str:
@@ -1033,11 +1037,7 @@ def install_fake_tts(mode: str) -> None:
 
 def clear_fake_tts() -> None:
     _require_debug()
-    sl = send_listener()
-    if sl is None:
-        _clear_fake_out_of_process("FAKE_TTS_OFF", read_fake_tts_state, fake_tts_state_path())
-    else:
-        _apply_fake_tts("off")
+    _clear_fake("FAKE_TTS_OFF", _apply_fake_tts, read_fake_tts_state, fake_tts_state_path())
 
 
 def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
@@ -1110,6 +1110,11 @@ _SAVED_REQUEST_TIMEOUT: Any = None
 _VENV_WORKER_KILLS = 0
 
 
+def _warn_missing_listener(op: str) -> None:
+    log.warning("debug_sidebar %s: no SendButtonListener", op)
+    _write_debug_snapshot(None)
+
+
 def handle_debug_sidebar_command(command: str) -> None:
     """Run inside soffice (protocol handler). Packet G URP FSM ops + OPEN_CALC.
 
@@ -1139,8 +1144,7 @@ def handle_debug_sidebar_command(command: str) -> None:
     # Packet K: mutate ChatSession in soffice (URP cannot touch .messages).
     if op == "INFLATE_HISTORY":
         if sl is None:
-            log.warning("debug_sidebar %s: no SendButtonListener", op)
-            _write_debug_snapshot(None)
+            _warn_missing_listener(op)
             return
         _inflate_session_history(getattr(sl, "session", None))
         ms = getattr(sl, "model_selector", None)
@@ -1228,21 +1232,23 @@ def handle_debug_sidebar_command(command: str) -> None:
             break
         _write_debug_snapshot(sl)
         return
-    if op in ("FAKE_TTS_HOLD", "FAKE_TTS_CRASH", "FAKE_TTS_MISSING", "FAKE_TTS_OFF"):
-        mode = op.removeprefix("FAKE_TTS_").lower()
-        _apply_fake_tts(mode)
-        _write_debug_snapshot(sl)
-        return
-    if op in ("FAKE_STT_HOLD", "FAKE_STT_CRASH", "FAKE_STT_MISSING", "FAKE_STT_SILENCE", "FAKE_STT_NOISY", "FAKE_STT_OFF"):
-        mode = op.removeprefix("FAKE_STT_").lower()
-        _apply_fake_stt(mode)
-        _write_debug_snapshot(sl)
-        return
     if op.startswith("FAKE_STT_DELAY_"):
         global _FAKE_STT_DELAY
         _FAKE_STT_DELAY = float(op.removeprefix("FAKE_STT_DELAY_"))
         _write_debug_snapshot(sl)
         return
+    if op.startswith("FAKE_TTS_"):
+        mode = op.removeprefix("FAKE_TTS_").lower()
+        if mode in ("hold", "crash", "missing", "off"):
+            _apply_fake_tts(mode)
+            _write_debug_snapshot(sl)
+            return
+    if op.startswith("FAKE_STT_"):
+        mode = op.removeprefix("FAKE_STT_").lower()
+        if mode in ("hold", "crash", "missing", "silence", "noisy", "off"):
+            _apply_fake_stt(mode)
+            _write_debug_snapshot(sl)
+            return
     # Packet E24: SIGKILL the live venv worker the way an OOM kill or crash would.
     # Only the child dies; the host side has to notice on its own.
     if op == "KILL_VENV_WORKER":
@@ -1277,8 +1283,7 @@ def handle_debug_sidebar_command(command: str) -> None:
 
         enable_mock_slash_commands()  # harness-only [mock] rows
         if sl is None:
-            log.warning("debug_sidebar %s: no SendButtonListener", op)
-            _write_debug_snapshot(None)
+            _warn_missing_listener(op)
             return
         if op == "SLASH_REFRESH":
             _slash_refresh_in_soffice(sl)
@@ -1289,19 +1294,12 @@ def handle_debug_sidebar_command(command: str) -> None:
         _write_debug_snapshot(sl)
         return
     if sl is None:
-        log.warning("debug_sidebar %s: no SendButtonListener", op)
-        _write_debug_snapshot(None)
+        _warn_missing_listener(op)
         return
 
     def _apply() -> None:
-        if op == "RECORD_CLICKED":
-            sl.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
-        elif op == "STOP_REC_CLICKED":
-            sl.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
-        elif op == "SEND_CLICKED":
-            sl.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
-        elif op == "STOP_CLICKED":
-            sl.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        if op in ("RECORD_CLICKED", "STOP_REC_CLICKED", "SEND_CLICKED", "STOP_CLICKED"):
+            sl.dispatch(SendEvent(SendEventKind[op]))
         elif op == "STOP_ACTION":
             # The Stop button's own ActionEvent path. During a take it steps
             # the take down (cancel a one-shot take) instead of STOP_CLICKED,
@@ -2282,33 +2280,31 @@ def _control_label(control: Any) -> str:
     return best_effort(lambda: str(getattr(control.getModel(), "Label", "") or ""), "control label read failed", default="") or ""
 
 
+def _on_query_text(popup: Any, text: str) -> bool:
+    on_text = getattr(popup, "on_query_text", None) if popup is not None else None
+    if callable(on_text):
+        on_text(text or "")
+        return True
+    return False
+
+
 def set_query_text(text: str, *, listener: Any = None) -> None:
     """Set the query box and dispatch ``TEXT_UPDATED`` (same as ``QueryTextListener``)."""
     _require_debug()
     sl = _sl(listener)
     if sl is not None:
-        from plugin.chatbot.dialogs import set_control_text
-
         query = getattr(sl, "query_control", None)
-        set_control_text(query, text)
-        stripped = (text or "").strip()
-        sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(stripped)))
-        popup = getattr(sl, "slash_popup", None)
-        on_text = getattr(popup, "on_query_text", None) if popup is not None else None
-        if callable(on_text):
-            on_text(text or "")
+        set_query_text_via_controls({"query": query}, text, listener=sl)
+        _on_query_text(getattr(sl, "slash_popup", None), text)
         return
     ctx = _HOOK_CTX
     if ctx is not None:
         controls = _urp_target_controls()
         set_query_text_via_controls(controls, text)
         # QueryTextListener may not fire over URP setText; refresh inside soffice.
-        popup = ensure_slash_popup()
-        on_text = getattr(popup, "on_query_text", None) if popup is not None else None
-        if callable(on_text):
-            on_text(text or "")
-        elif (text or "").lstrip().startswith("/") or not (text or "").strip():
-            execute_debug_sidebar_op("SLASH_REFRESH")
+        if not _on_query_text(ensure_slash_popup(), text):
+            if (text or "").lstrip().startswith("/") or not (text or "").strip():
+                execute_debug_sidebar_op("SLASH_REFRESH")
 
 
 def query_text(*, listener: Any = None) -> str:
