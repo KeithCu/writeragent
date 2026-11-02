@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from plugin.framework.uno_listeners import BaseActionListener
 
 if TYPE_CHECKING:
@@ -67,8 +67,6 @@ def _execute_message_box(
     buttons: int,
     title: str,
     message: str,
-    *,
-    swallow_dispose: bool,
 ) -> int:
     smgr = ctx.getServiceManager()
     toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
@@ -76,10 +74,7 @@ def _execute_message_box(
     try:
         return box.execute()
     finally:
-        if swallow_dispose:
-            best_effort(box.dispose, "show_approval_dialog dispose failed")
-        else:
-            box.dispose()
+        best_effort(box.dispose, "show_approval_dialog dispose failed")
 
 
 def msgbox(
@@ -116,7 +111,7 @@ def msgbox(
                 return
             window = frame.getContainerWindow()
         log.debug("msgbox execute start title=%s", title)
-        _execute_message_box(ctx, window, box_type, 1, _(title), str(message), swallow_dispose=False)
+        _execute_message_box(ctx, window, box_type, 1, _(title), str(message))
         from plugin.framework.uno_context import process_events_to_idle
 
         process_events_to_idle(ctx)
@@ -153,7 +148,7 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
         # 4 = QUERYBOX, 3 = BUTTONS_YES_NO. Result 2 = Yes (Approve), 3 = No (Reject), 1 = OK
         # msgbox() disposes in a finally. This box used to return after execute()
         # and leak the toolkit window. A dispose failure must not flip Yes/No.
-        result = _execute_message_box(ctx, window, 4, 3, title, message, swallow_dispose=True)
+        result = _execute_message_box(ctx, window, 4, 3, title, message)
         return result in (1, 2)
     except Exception:
         log.exception("Approval dialog failed")
@@ -204,11 +199,7 @@ def _run_text_dialog(
                 _outcome = (m.Text or "").strip() if m and hasattr(m, "Text") else ""
                 dlg.endDialog(1)
 
-        class _CancelListener(BaseActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                dlg.endDialog(0)
-
-        run_dialog_with_listeners(dlg, _OkListener(), _CancelListener())
+        run_dialog_with_listeners(dlg, _OkListener(), _DismissDialogListener(dlg, 0))
         return _outcome
     except Exception:
         log.exception("%s failed", log_label)
@@ -325,22 +316,24 @@ class CopyListener(BaseActionListener):
 
 
 class _DismissDialogListener(BaseActionListener):
-    """Dismiss a dialog with status code 1."""
+    """Dismiss a dialog with a status code."""
 
     _dlg: Any
+    _status: int
 
-    def __init__(self, dialog: Any) -> None:
+    def __init__(self, dialog: Any, status: int = 1) -> None:
         super().__init__()
         self._dlg = dialog
+        self._status = status
 
     def actionPerformed(self, rEvent: ActionEvent) -> None:
-        self._dlg.endDialog(1)
+        self._dlg.endDialog(self._status)
 
 
-def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool = False, report_title: str = "", report_extra: str = "", box_type: int = 3) -> None:
+def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool = False, report_title: str = "", report_extra: str = "") -> None:
     """Show a message box; when ``reportable``, offer Copy URL and Report bug buttons."""
     if not reportable:
-        msgbox(ctx, title, message, box_type=box_type)
+        msgbox(ctx, title, message, box_type=3)
         return
     if not ctx:
         log.info("MSGBOX_REPORT (no ctx) - %s: %s", title, message)
@@ -350,7 +343,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
 
         dlg = load_writeragent_dialog("ErrorReportDialog", ctx)
         if dlg is None:
-            msgbox(ctx, title, message, box_type=box_type)
+            msgbox(ctx, title, message, box_type=3)
             return
 
         issue_title = (report_title or title or "").strip()
@@ -395,7 +388,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
         dlg.dispose()
     except Exception:
         log.exception("Report dialog error")
-        msgbox(ctx, title, message, box_type=box_type)
+        msgbox(ctx, title, message, box_type=3)
 
 
 # ── XDL dialog loading ──────────────────────────────────────────────
@@ -639,21 +632,17 @@ def load_writeragent_dialog_detail(dialog_name: str, ctx: Any | None = None) -> 
     if ctx is None:
         ctx = get_ctx()
     assert ctx is not None
-    ctx_any = cast("Any", ctx)
-    if hasattr(ctx_any, "getServiceManager"):
-        smgr = ctx_any.getServiceManager()
-    else:
-        smgr = getattr(ctx_any, "ServiceManager", None)
+    smgr = ctx.getServiceManager()
     assert smgr is not None
 
     base = get_extension_url(ctx)
     url = base + "/Dialogs/" + dialog_name + ".xdl"
-    dlg, provider_failure = _create_xdl_dialog(smgr, ctx_any, url)
+    dlg, provider_failure = _create_xdl_dialog(smgr, ctx, url)
     if dlg:
         translate_dialog(dlg)
         return dlg, None
 
-    diagnostics = _collect_xdl_load_diagnostics(ctx_any, url, dialog_name)
+    diagnostics = _collect_xdl_load_diagnostics(ctx, url, dialog_name)
     combined = f"{diagnostics}\n\n--- DialogProvider ---\n{provider_failure}"
     return None, combined
 

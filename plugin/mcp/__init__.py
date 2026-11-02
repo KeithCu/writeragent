@@ -224,7 +224,7 @@ class McpModule(ModuleBase):
         detail = self._formatted_start_failure()
         body = detail or _("Check writeragent_debug.log in your LibreOffice user config folder")
         message = _("MCP server failed to start") + "\n" + body
-        msgbox_with_report(ctx, "WriterAgent", message, box_type=3, reportable=self._start_failure_reportable(), report_title="MCP server failed to start", report_extra=detail)
+        msgbox_with_report(ctx, "WriterAgent", message, reportable=self._start_failure_reportable(), report_title="MCP server failed to start", report_extra=detail)
 
     def _start_server(self, services: Any) -> bool:
         if os.environ.get("WRITERAGENT_TESTING"):

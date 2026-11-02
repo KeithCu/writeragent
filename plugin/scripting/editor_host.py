@@ -1264,7 +1264,7 @@ def launch_monaco_editor(
     title = product_display_name(ctx)
 
     def _launch_fail(msg_text: str, report_title: str) -> bool:
-        msgbox_with_report(ctx, title, msg_text, box_type=3, reportable=True, report_title=report_title, report_extra=msg_text)
+        msgbox_with_report(ctx, title, msg_text, reportable=True, report_title=report_title, report_extra=msg_text)
         return False
 
     _PERSISTENT_EDITOR.ctx = ctx

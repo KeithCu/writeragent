@@ -219,7 +219,7 @@ def _notify_thread_violation(msg: str) -> None:
             from plugin.framework.i18n import _
 
             # nosemgrep: uno-off-main-thread
-            msgbox_with_report(get_ctx(), _("UNO Thread Violation"), full_msg, box_type=3, reportable=True, report_title="UNO thread violation", report_extra=full_msg)
+            msgbox_with_report(get_ctx(), _("UNO Thread Violation"), full_msg, reportable=True, report_title="UNO thread violation", report_extra=full_msg)
         except Exception:
             log.exception("Failed to show thread violation message box")
         finally:

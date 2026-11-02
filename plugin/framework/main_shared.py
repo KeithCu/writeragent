@@ -291,7 +291,6 @@ def _show_error_report(ctx: Any, detail: str, report_title: str, exc: BaseExcept
             ctx or get_ctx(),
             _("Error"),
             detail,
-            box_type=3,
             reportable=True,
             report_title=report_title,
             report_extra=str(exc),
