@@ -256,17 +256,15 @@ def _cached_errors_to_uno_tuple(
     doc_id: str,
     u16_map: Utf16OffsetMap,
 ) -> tuple[Any, ...]:
-    from plugin.writer.locale.grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
-    from plugin.writer.locale.grammar_proofread_cache import ignored_rules_snapshot
+    from plugin.writer.locale.grammar_ignore_rules import IgnoreSet
 
-    doc_ignored = doc_ignored_rules(ctx, doc_id)
-    global_ignored = ignored_rules_snapshot()
+    ignore_set = IgnoreSet.for_document(ctx, doc_id)
     markup_type = _proofreading_markup_type()
 
     out: list[Any] = []
     for d in cached:
         rule_ident = str(d.get("rule_identifier", ""))
-        if is_rule_ignored(rule_ident, doc_ignored, global_ignored):
+        if not ignore_set.allows(rule_ident):
             continue
 
         u16_start, u16_len = u16_map.utf16_span(int(d["n_error_start"]), int(d["n_error_length"]))
@@ -635,19 +633,16 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         if not uncached_spans:
             return
         from plugin.framework.config import user_config_dir
-        from dataclasses import asdict
 
-        from plugin.writer.locale.grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
-        from plugin.writer.locale.grammar_proofread_cache import cache_put_sentence, ignored_rules_snapshot
-        from plugin.writer.locale.grammar_proofread_text import normalize_errors_for_text
+        from plugin.writer.locale.grammar_ignore_rules import IgnoreSet
+        from plugin.writer.locale.grammar_proofread_cache import store_sentence_result
         from plugin.writer.locale.harper import harper_try_lint
 
         cfg_dir = user_config_dir() or ""
         if uncached_spans[0][2]:
             emit_grammar_status("start", uncached_spans[0][2], result="Harper")
         issue_count = 0
-        ignored = doc_ignored_rules(self.ctx, a_doc_id)
-        global_ignored = ignored_rules_snapshot()
+        ignore_set = IgnoreSet.for_document(self.ctx, a_doc_id)
         for sent_start, _sent_end, sent_text in uncached_spans:
             # Pass ctx so READY lint can PE2I; missing ctx blocks typing.
             res = harper_try_lint(sent_text, cfg_dir, bcp47=loc_key, ctx=self.ctx)
@@ -657,12 +652,17 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 return
             emit_grammar_status("request", sent_text, result="Harper check")
             errors = res.get("errors", [])
-            norm_errors = normalize_errors_for_text(sent_text, errors, self.ctx, loc_key)
-            active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
-            payload = [asdict(e) for e in norm_errors]
+            active_errors = store_sentence_result(
+                self.ctx,
+                a_doc_id,
+                loc_key,
+                sent_text,
+                errors,
+                checker_identity,
+                ignore_set=ignore_set,
+            )
             issue_count += len(active_errors)
-            cache_put_sentence(loc_key, sent_text, payload, ctx=self.ctx, doc_id=a_doc_id, checker_identity=checker_identity)
-            _append_shifted_errors(payload, sent_start, combined_errors)
+            _append_shifted_errors(active_errors, sent_start, combined_errors)
         if uncached_spans[-1][2]:
             iw = "issue" if issue_count == 1 else "issues"
             emit_grammar_status("done", uncached_spans[-1][2], result=f"{issue_count} {iw}")

@@ -10,6 +10,7 @@ import inspect
 from pathlib import Path
 
 
+from plugin.writer.locale.grammar_obs import GrammarStatus
 from plugin.writer.locale.grammar_work_queue import (
     GrammarWorkItem,
     GrammarWorkQueue,
@@ -190,10 +191,8 @@ def test_enqueue_updates_latest_seq_and_handles_out_of_order(caplog) -> None:
             assert "out-of-order seq detected" not in caplog.text
 
 
-# NOTE (historical): test_tail_enqueue_operation and the entire Layer 1
-# "tail-replace under Queue mutex" mechanism were removed in the TD4
-# simplification pass. The drain-loop dict accumulator (this test) plus
-# _latest_seq guards are now the complete story.
+# The drain-loop dict accumulator (this test) plus _latest_seq guards
+# collapse same-key items and supersede older generations.
 
 
 def test_drain_loop_collapses_same_key_items_during_burst() -> None:
@@ -393,22 +392,21 @@ def test_note_inflight_generation_publishes_key_and_keeps_newer() -> None:
 
 
 def test_done_status_deferred_until_last_parallel_batch() -> None:
-    q = GrammarWorkQueue()
+    status = GrammarStatus()
     emitted: list[str] = []
 
-    def capture_done(phase: str, text: str, **kwargs: object) -> None:
-        if phase == "done":
-            emitted.append(str(kwargs.get("result") or text))
+    def capture_done(text: str, **kwargs: object) -> None:
+        emitted.append(str(kwargs.get("result") or text))
 
-    with patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status", side_effect=capture_done):
-        q.begin_status_cycle()
-        q.begin_status_cycle()
-        q.record_done_status("a", result="first")
-        q.end_status_cycle()
-        assert emitted == []
-        q.record_done_status("b", result="second")
-        q.end_status_cycle()
-        assert emitted == ["second"]
+    status.done = capture_done  # type: ignore[method-assign]
+    status.begin_status_cycle()
+    status.begin_status_cycle()
+    status.record_done_status("a", result="first")
+    status.end_status_cycle()
+    assert emitted == []
+    status.record_done_status("b", result="second")
+    status.end_status_cycle()
+    assert emitted == ["second"]
 
 
 def test_ensure_workers_spawns_up_to_config() -> None:
@@ -440,7 +438,7 @@ def test_ensure_workers_spawns_up_to_config() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests for filter_stale_and_group (TD4 extraction)
+# Tests for filter_stale_and_group
 # ---------------------------------------------------------------------------
 
 def test_filter_stale_and_group_skips_stale() -> None:
@@ -511,14 +509,15 @@ def test_enqueue_misses() -> None:
 
 
 def test_end_status_cycle_without_done_emits_one_skipped_terminal() -> None:
-    q = GrammarWorkQueue()
-    with patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status") as mock_status:
-        q.begin_status_cycle()
-        q.end_status_cycle()
-        q.end_status_cycle()
-    assert mock_status.call_count == 1
-    assert mock_status.call_args[0] == ("done", "batch")
-    assert mock_status.call_args[1].get("result") == "skipped"
+    status = GrammarStatus()
+    mock_done = MagicMock()
+    status.done = mock_done  # type: ignore[method-assign]
+    status.begin_status_cycle()
+    status.end_status_cycle()
+    status.end_status_cycle()
+    assert mock_done.call_count == 1
+    assert mock_done.call_args[0] == ("batch",)
+    assert mock_done.call_args[1].get("result") == "skipped"
 
 
 def test_forget_document_prunes_only_that_document() -> None:

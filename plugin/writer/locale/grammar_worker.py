@@ -20,12 +20,12 @@ import logging
 import threading
 import time
 from collections import defaultdict
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from plugin.writer.locale import grammar_settings
-from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence, grammar_proofread_text
-from .grammar_obs import emit_grammar_status, grammar_obs
+from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence
+from .grammar_obs import emit_grammar_status, get_grammar_status, grammar_obs
 from plugin.framework.grammar_rule_ids import (
     bcp47_to_uno_lang_country,
     grammar_bcp47_tags_match,
@@ -146,37 +146,32 @@ def process_grammar_results(
     ec: Any,
 ) -> None:
     """Normalize errors, write sentence cache, emit done status."""
-    from .grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
+    from .grammar_ignore_rules import IgnoreSet
 
     summary = _BatchResultSummary()
     doc_id = chunk[0][0].doc_id
-    ignored = doc_ignored_rules(ec.ctx, doc_id) if doc_id else set()
-    global_ignored = grammar_proofread_cache.ignored_rules_snapshot()
+    ignore_set = IgnoreSet.for_document(ec.ctx, doc_id) if doc_id else None
     for (item, text), errors in zip(chunk, results):
         if ec.gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
             continue
-        norm_errors = grammar_proofread_text.normalize_errors_for_text(text, errors, ec.ctx, bcp47)
-
-        active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
-        payload = [asdict(e) for e in norm_errors]
-
         checker_ident = _item_cache_identity(item)
-        grammar_proofread_cache.cache_put_sentence(
-            bcp47, text, payload, ctx=ec.ctx, doc_id=item.doc_id, checker_identity=checker_ident
+        active_errors = grammar_proofread_cache.store_sentence_result(
+            ec.ctx,
+            item.doc_id,
+            bcp47,
+            text,
+            errors,
+            checker_ident,
+            alt_locale=original_bcp47,
+            ignore_set=ignore_set,
         )
-        if original_bcp47 and not grammar_bcp47_tags_match(original_bcp47, bcp47):
-            log.debug("[grammar] Double caching for %s (detected %s)", original_bcp47, bcp47)
-            grammar_proofread_cache.cache_put_sentence(
-                original_bcp47, text, payload, ctx=ec.ctx, doc_id=item.doc_id, checker_identity=checker_ident
-            )
-
         summary.record(text, len(active_errors))
 
     if summary.n_written:
         preview_src = summary.preview_source()
         iw = "issue" if summary.total_issues == 1 else "issues"
         sw = "sentence" if summary.n_written == 1 else "sentences"
-        ec.gq.record_done_status(
+        get_grammar_status().record_done_status(
             preview_src,
             result=f"{summary.total_issues} {iw}, {summary.n_written} {sw}",
             elapsed_ms=elapsed_ms,
@@ -184,7 +179,7 @@ def process_grammar_results(
             length_hint=summary.chars_checked,
         )
     else:
-        ec.gq.record_done_status("batch", result="skipped (superseded)", elapsed_ms=elapsed_ms)
+        get_grammar_status().record_done_status("batch", result="skipped (superseded)", elapsed_ms=elapsed_ms)
 
 
 def run_single_sentence_provider(
@@ -872,7 +867,7 @@ def run_llm_and_cache_batch(
             grammar_obs("worker_batch_skip", reason="all_cached_or_superseded", item_count=len(items))
             return
 
-        grammar_queue_instance.begin_status_cycle()
+        get_grammar_status().begin_status_cycle()
         status_cycle_started = True
 
         provider = item0.provider or grammar_settings.provider()
@@ -954,6 +949,6 @@ def run_llm_and_cache_batch(
         emit_grammar_status("failed", "Batch processing", result=type(e).__name__)
     finally:
         if status_cycle_started:
-            grammar_queue_instance.end_status_cycle()
+            get_grammar_status().end_status_cycle()
 
 

@@ -431,3 +431,23 @@ def test_cache_get_sentence_hashes_once() -> None:
     assert fp_mock.call_count == 1
 
 
+def test_store_sentence_result_normalizes_caches_and_filters() -> None:
+    ctx = MagicMock()
+    raw = [
+        {"wrong": "is", "correct": "are", "n_error_start": 5, "n_error_length": 2, "rule_identifier": "harper||Grammar", "suggestions": ["are"]},
+        {"wrong": "they", "correct": "They", "n_error_start": 0, "n_error_length": 4, "rule_identifier": "harper||Ignored", "suggestions": ["They"]},
+    ]
+    with (
+        patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"Ignored"}),
+        patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()),
+    ):
+        active = gc.store_sentence_result(ctx, "d1", "en-US", "they is here.", raw, "harper")
+    assert len(active) == 1
+    assert active[0]["rule_identifier"] == "harper||Grammar"
+    # Cached payload contains all normalized errors
+    cached = gc.cache_get_sentence("en-US", "they is here.", ctx=ctx, doc_id="d1", checker_identity="harper")
+    assert cached is not None
+    assert len(cached) == 2
+
+
+

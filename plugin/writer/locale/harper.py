@@ -513,12 +513,12 @@ def _schedule_proofread_again() -> None:
 
 def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
     try:
-        from plugin.writer.locale.grammar_obs import emit_harper_worker_status
+        from plugin.writer.locale.grammar_obs import get_grammar_status
 
         def _on_progress(payload: dict[str, str]) -> None:
             message = str(payload.get("message") or "").strip()
             if message:
-                emit_harper_worker_status("Harper", message)
+                get_grammar_status().request("Harper", result=message)
 
         harper_bin = _get_harper_binary(user_config_dir, heartbeat_fn=_on_progress)
         with _HARPER_LOCK:
@@ -536,7 +536,7 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
             if not client.is_alive():
                 raise RuntimeError("harper-ls process not running after start")
             _set_state(HarperRuntimeState.READY)
-        emit_harper_worker_status("Harper", "Harper ready")
+        get_grammar_status().request("Harper", result="Harper ready")
         _schedule_proofread_again()
     except Exception:
         log.exception("[harper] Background ensure failed")
@@ -962,15 +962,15 @@ def _pump_grammar_status_ui(ctx: Any) -> None:
 
 def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
     """Grammar-queue entry: status UI + in-process harper-ls lint (no venv worker)."""
-    from plugin.writer.locale.grammar_obs import emit_harper_worker_status
+    from plugin.writer.locale.grammar_obs import get_grammar_status
 
-    emit_harper_worker_status(text, "Starting Harper…")
+    get_grammar_status().request(text, result="Starting Harper…")
     _pump_grammar_status_ui(ctx)
 
     def _on_progress(payload: dict[str, Any]) -> None:
         message = str(payload.get("message") or "").strip()
         if message:
-            emit_harper_worker_status(text, message)
+            get_grammar_status().request(text, result=message)
             _pump_grammar_status_ui(ctx)
 
     return run_harper_lint(text, config_dir, bcp47=bcp47, heartbeat_fn=_on_progress)
