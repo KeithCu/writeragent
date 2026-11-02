@@ -145,9 +145,9 @@ class TestBatchingStreamQueueTimerRace:
 
         original_arm = batcher._timer.arm
 
-        def counting_arm():
+        def counting_arm(delay):
             timer_calls.append(1)
-            original_arm()
+            original_arm(delay)
 
         batcher._timer.arm = counting_arm
 
@@ -179,9 +179,9 @@ class TestBatchingStreamQueueTimerRace:
         barrier = threading.Barrier(2)
         original_arm = batcher._timer.arm
 
-        def counting_arm():
+        def counting_arm(delay):
             timer_calls.append(1)
-            original_arm()
+            original_arm(delay)
 
         batcher._timer.arm = counting_arm
 
