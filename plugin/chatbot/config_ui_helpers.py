@@ -139,8 +139,6 @@ def _resolve_display_model_for_combobox(
                 case_same = mid.casefold() == preferred.casefold()
                 if openrouter_model_ids_equivalent(mid, preferred) or case_same:
                     # Speech-list spelling wins when the catalog id is not listed.
-                    if case_same and preferred not in to_show:
-                        return mid
                     return preferred if preferred in to_show else mid
             elif mid == preferred:
                 return mid
@@ -219,8 +217,10 @@ def populate_combobox_with_lru(
     to_show: list[str] = []
     # get_config LRU values are JSON-shaped; normalize to str ids for the filter.
     lru_clean = [str(m) for m in lru if not _is_model_combobox_placeholder(str(m))]
+    lru_head = ""
     if not auth_blocked:
         to_show = _filter_models_for_provider(lru_clean, provider)
+        lru_head = to_show[0] if to_show else ""
 
         # We do NOT inline-fetch for known massive providers (openrouter, together).
         massive_providers = {"openrouter", "together"}
@@ -236,9 +236,7 @@ def populate_combobox_with_lru(
                 fetched_models = together_speech_ids(kind, remote_models)
             else:
                 fetched_models = remote_models
-        elif skip_remote_fetch:
-            fetched_models = None
-        elif endpoint and (not provider or provider not in massive_providers):
+        elif endpoint and not skip_remote_fetch and (not provider or provider not in massive_providers):
             fetched_models = fetch_available_models(endpoint, api_key_override=api_key_override)
             fetch_succeeded = fetched_models is not None
 
@@ -273,9 +271,8 @@ def populate_combobox_with_lru(
         if req_cap == "text":
             # After an endpoint switch, use this endpoint's last-used model (the
             # LRU is scoped per endpoint, newest first) before the provider default.
-            lru_for_provider = _filter_models_for_provider(lru_clean, provider)
-            if lru_for_provider:
-                curr_val_str = lru_for_provider[0]
+            if lru_head:
+                curr_val_str = lru_head
 
         cfg_key, fetcher = _REQ_CAP_DEFAULTS[req_cap]
         if not curr_val_str and provider:
