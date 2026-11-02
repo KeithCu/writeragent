@@ -54,7 +54,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generator
 if TYPE_CHECKING:
     from plugin.doc.compound_undo import WriterCompoundUndo
 
-from plugin.doc.text_helpers import go_right
+from plugin.doc.text_helpers import get_string_without_tracked_deletions, go_right
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
 from plugin.framework.i18n import N_, _
 from plugin.writer import review_authors
@@ -936,7 +936,9 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
         end.gotoEndOfParagraph(False)
         span = text.createTextCursorByRange(start.getStart())
         span.gotoRange(end.getEnd(), True)
-        return span.getString()
+        # Without the text a tracked change deleted: in review mode the replaced text is still
+        # in the document, and getString() echoed it next to its replacement.
+        return get_string_without_tracked_deletions(span)
 
     s = uno_read(window, None)
     if not s or not s.strip():

@@ -213,7 +213,8 @@ def find_text_ranges(
             measure = found.getText().createTextCursor()
             measure.gotoStart(False)
             measure.gotoRange(found.getStart(), True)
-            m_start = len(measure.getString())
+            # Visible offsets, the ones get_document_content scope=range takes.
+            m_start = len(get_string_without_tracked_deletions(measure))
             matched_text = found.getString()
             m_end = m_start + len(matched_text)
             matches.append({"start": m_start, "end": m_end, "text": matched_text})

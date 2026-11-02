@@ -235,7 +235,9 @@ def test_find_text_ranges_limit_zero_and_bad_types_return_empty():
     model.createSearchDescriptor.assert_called_once()
 
 
-def test_find_text_ranges_body_only_skips_other_xtext():
+# Offsets are measured on the visible text; these fakes have no tracked deletions.
+@patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=lambda r: r.getString())
+def test_find_text_ranges_body_only_skips_other_xtext(_visible):
     from plugin.writer.search import find_text_ranges
 
     class BodyTextObj:
