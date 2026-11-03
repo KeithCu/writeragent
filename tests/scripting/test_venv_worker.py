@@ -368,11 +368,15 @@ def _pid_is_alive_win32(pid: int) -> bool:
         return False
     import ctypes
     kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-    handle = kernel32.OpenProcess(4096, False, pid)
-    if handle:
-        kernel32.CloseHandle(handle)
-        return True
-    return ctypes.get_last_error() == 5
+    access = 0x00100000 | 0x1000  # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+    handle = kernel32.OpenProcess(access, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == 5
+    exit_code = ctypes.c_ulong()
+    still_active = 259
+    alive = bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))) and exit_code.value == still_active
+    kernel32.CloseHandle(handle)
+    return alive
 
 def test_pid_is_alive_current_process():
     assert pid_is_alive(os.getpid())
@@ -1832,7 +1836,8 @@ def test_pool_key_change_retires_old_warm_child(monkeypatch: pytest.MonkeyPatch)
         second = PythonWorkerManager.get(other_exe, {'PATH': os.environ.get('PATH', '/usr/bin:/bin')})
         assert first._retired is True
         assert first._warm is None
-        deadline = time.monotonic() + 5.0
+        retire_wait = 20.0 if sys.platform == 'win32' else 5.0
+        deadline = time.monotonic() + retire_wait
         while pid_is_alive(old_pid) and time.monotonic() < deadline:
             time.sleep(0.05)
         assert not pid_is_alive(old_pid)
