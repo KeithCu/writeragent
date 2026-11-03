@@ -603,46 +603,6 @@ def dispatch_command(command: str) -> None:
     log.warning("No handler or module found for command: %s", command)
 
 
-# Hardcoded fallback for static Addons.xcu items so they get translated
-# without needing dynamic state in their respective modules.
-# Translate at lookup because the locale is not ready at import.
-_STATIC_MENU_TITLES: dict[str, str] = {
-    "chatbot.extend_selection": "Extend Selection",
-    "chatbot.edit_selection": "Edit Selection",
-    "main.settings": "Settings",
-    "main.report_bug": "Report bug...",
-    "mcp.toggle_server": "Toggle MCP Server",
-    "mcp.server_status": "MCP Server Status",
-    # addStatusListener pushes get_menu_text() via FeatureStateEvent.
-    # Returning None leaves the en-US Addons.xcu string (Vision OCR was
-    # absent from this map). A raw English literal overwrites the catalog
-    # ("Debug"). Use the same literal map as the other WriterAgent
-    # menu titles so the JA msgstrs apply.
-    "vision.open_settings": "Vision OCR Settings...",
-    "main.NoOp": "Debug",
-    "main.RunFormatTests": "Run format tests",
-    "main.RunCalcTests": "Run calc tests",
-    "main.RunCalcIntegrationTests": "Run Calc API integration tests",
-    "main.RunDrawTests": "Run draw tests",
-    "main.EvaluationDashboard": "Evaluation Dashboard",
-    "scripting.run_python_dialog": "Run Python Script...",
-    "scripting.edit_python_cell": "Edit Python in Cell...",
-    "scripting.reset_python_session": "Reset Python Session",
-    "notebook.run_all": "Run All",
-    "notebook.run_from_here": "Run From Here",
-    "notebook.stop": "Stop",
-    "writer.insert_latex_dialog": "Insert LaTeX Math...",
-    # None would leave the en-US toolbar title; map these so translations apply
-    "writer.review_prev": "◀ Prev",
-    "writer.review_next": "Next ▶",
-    "writer.review_accept_all": "Accept all",
-    "writer.review_reject_all": "Reject all",
-    "embeddings.search_dialog": "Search Nearby Files...",
-    "textanalytics.open_dialog": "Text Analytics...",
-    "calc.convert_spreadsheet_to_python": "Convert Sheet to Python...",
-}
-
-
 def get_menu_text(command: str) -> str | None:
     """Get dynamic menu text for a command, or None for default."""
     bootstrap()
@@ -654,7 +614,18 @@ def get_menu_text(command: str) -> str | None:
 
     text = mod.get_menu_text(action) if mod is not None else None
     if text is None:
-        text = _STATIC_MENU_TITLES.get(command)
+        from plugin._manifest import MENU_TITLES, MODULES
+
+        if "." in command:
+            mod_name, action_name = command.split(".", 1)
+            for m in MODULES:
+                if isinstance(m, dict) and m.get("name") == mod_name:
+                    action_titles = m.get("action_titles")
+                    if isinstance(action_titles, dict):
+                        text = action_titles.get(action_name)
+                    break
+        if text is None:
+            text = MENU_TITLES.get(command)
     if text is not None:
         return _(text)
     return None

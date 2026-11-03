@@ -1,0 +1,11 @@
+name: notebook
+requires: []
+settings_tab: false
+
+actions:
+  run_all:
+    title: "Run All"
+  run_from_here:
+    title: "Run From Here"
+  stop:
+    title: "Stop"

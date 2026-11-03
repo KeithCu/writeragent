@@ -3,6 +3,17 @@ title: Core services (config, events, logging)
 provides_services: [document, config, events]
 requires: []
 
+menu_titles:
+  main.settings: "Settings"
+  main.report_bug: "Report bug..."
+  main.NoOp: "Debug"
+  main.RunFormatTests: "Run format tests"
+  main.RunCalcTests: "Run calc tests"
+  main.RunCalcIntegrationTests: "Run Calc API integration tests"
+  main.RunDrawTests: "Run draw tests"
+  main.EvaluationDashboard: "Evaluation Dashboard"
+  textanalytics.open_dialog: "Text Analytics..."
+
 config:
   log_level:
     type: string

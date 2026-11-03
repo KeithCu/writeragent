@@ -1,6 +1,10 @@
 name: embeddings
 title: Vector Search
 requires: [config]
+
+actions:
+  search_dialog:
+    title: "Search Nearby Files..."
 config:
   folder_search_mode:
     type: string

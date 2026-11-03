@@ -338,8 +338,14 @@ def test_mcp_status_failure_still_builds_and_executes_hamburger():
 def test_static_menu_titles_match_hamburger_and_addons_xcu():
     import xml.etree.ElementTree as ET
     from pathlib import Path
-    from plugin.main import _STATIC_MENU_TITLES
+    from plugin._manifest import MENU_TITLES, MODULES
     from plugin.librepy.sidebar_menus import _librepy_hamburger_specs
+
+    manifest_titles: dict[str, str] = dict(MENU_TITLES)
+    for mod in MODULES:
+        mod_name = mod.get("name", "")
+        for act, title in mod.get("action_titles", {}).items():
+            manifest_titles[f"{mod_name}.{act}"] = title
 
     root_dir = Path(__file__).resolve().parents[2]
     addons_path = root_dir / "extension" / "Addons.xcu"
@@ -393,12 +399,12 @@ def test_static_menu_titles_match_hamburger_and_addons_xcu():
     }
 
     for action, msgid in hamburger_static_items.items():
-        assert msgid == _STATIC_MENU_TITLES[action]
+        assert msgid == manifest_titles[action]
         if action not in ("notebook.run_all", "notebook.run_from_here", "notebook.stop"):
             assert msgid == addons_titles[action]
 
     for label, action, _icon, _when in _librepy_hamburger_specs():
-        assert label == _STATIC_MENU_TITLES[action]
+        assert label == manifest_titles[action]
         if action not in ("notebook.run_all", "notebook.run_from_here", "notebook.stop"):
             assert label == addons_titles[action]
 
