@@ -108,7 +108,7 @@ def clear_scope_downloads(cancel: SendCancellation) -> None:
     _failed_model_downloads.pop(cancel, None)
 
 
-def _notify_tts_status(
+def notify_tts_status(
     text: str,
     on_status: Callable[[str], None] | None,
     *,
@@ -349,7 +349,7 @@ def _download_to_inner(
                         if expected_len and expected_len > 0 and (now - last_progress >= 0.25):
                             percent = int(downloaded * 100 / expected_len)
                             if not (cancel is not None and cancel.is_cancelled()):
-                                _notify_tts_status(
+                                notify_tts_status(
                                     _("Downloading… {0}%").format(percent),
                                     on_status,
                                     progress=True,
@@ -415,7 +415,7 @@ def _download_to_inner(
     return DownloadOutcome.FAILED
 
 
-def _resolve_kokoro_model_files(  # pyright: ignore[reportUnusedFunction]
+def resolve_kokoro_model_files(
     on_status: Callable[[str], None] | None = None,
     cancel: SendCancellation | None = None,
 ) -> tuple[str, str]:
@@ -453,11 +453,11 @@ def _resolve_kokoro_model_files(  # pyright: ignore[reportUnusedFunction]
     target_dest = voices_s if needs_voices else model_s
     if needed_disk > 1 and not _check_disk_space(target_dest, needed_disk):
         remember_download_failed(cancel, "kokoro")
-        _notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
+        notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
         _clear_tts_status(on_status)
         return model_s, voices_s
 
-    _notify_tts_status(_("Downloading Kokoro voice model…"), on_status, progress=True)
+    notify_tts_status(_("Downloading Kokoro voice model…"), on_status, progress=True)
     failed = False
 
     if needs_voices:
@@ -498,7 +498,7 @@ def _resolve_kokoro_model_files(  # pyright: ignore[reportUnusedFunction]
 
     if failed:
         remember_download_failed(cancel, "kokoro")
-        _notify_tts_status(_("Couldn't download Kokoro; using OS speech"), on_status, progress=True)
+        notify_tts_status(_("Couldn't download Kokoro; using OS speech"), on_status, progress=True)
         _clear_tts_status(on_status)
     else:
         _clear_tts_status(on_status)
@@ -580,7 +580,7 @@ def _download_piper_pair(
     return DownloadOutcome.OK
 
 
-def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
+def resolve_piper_model_file(
     voice: str,
     on_status: Callable[[str], None] | None = None,
     cancel: SendCancellation | None = None,
@@ -616,11 +616,11 @@ def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
     if clean_v in PIPER_VOICE_MODELS and not is_download_failed(cancel, clean_v):
         if not _check_disk_space(voice_s, PIPER_ONNX_MIN_BYTES + PIPER_JSON_MIN_BYTES):
             remember_download_failed(cancel, clean_v)
-            _notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
+            notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
             _clear_tts_status(on_status)
             return None
 
-        _notify_tts_status(_("Downloading Piper voice {0}…").format(short), on_status, progress=True)
+        notify_tts_status(_("Downloading Piper voice {0}…").format(short), on_status, progress=True)
         log.info("Downloading Piper voice model '%s' to %s...", clean_v, voice_s)
         outcome = _download_piper_pair(clean_v, voice_s, json_s, cancel=cancel, on_status=on_status)
         if outcome is DownloadOutcome.OK:
@@ -647,7 +647,7 @@ def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
 
     if lessac_ready:
         if download_failed and other_voice:
-            _notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status, progress=True)
+            notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status, progress=True)
             _clear_tts_status(on_status)
         return default_voice_s
 
@@ -656,16 +656,16 @@ def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
             return None
         if not _check_disk_space(default_voice_s, PIPER_ONNX_MIN_BYTES + PIPER_JSON_MIN_BYTES):
             remember_download_failed(cancel, PIPER_FALLBACK_VOICE)
-            _notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
+            notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
             _clear_tts_status(on_status)
             return None
 
         if download_failed and other_voice:
-            _notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status, progress=True)
+            notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status, progress=True)
             _clear_tts_status(on_status)
         else:
             fallback_short = voice_short_name(PIPER_FALLBACK_VOICE)
-            _notify_tts_status(_("Downloading Piper voice {0}…").format(fallback_short), on_status, progress=True)
+            notify_tts_status(_("Downloading Piper voice {0}…").format(fallback_short), on_status, progress=True)
         log.info("Downloading Piper default voice model to %s...", default_voice_s)
         outcome_fallback = _download_piper_pair(PIPER_FALLBACK_VOICE, default_voice_s, default_json_s, cancel=cancel, on_status=on_status)
         if outcome_fallback is DownloadOutcome.OK:
@@ -679,6 +679,6 @@ def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
         log.warning("Could not auto-download Piper default voice model")
 
     failed_name = short if download_failed else voice_short_name(PIPER_FALLBACK_VOICE)
-    _notify_tts_status(_("Couldn't download {0}; using OS speech").format(failed_name), on_status, progress=True)
+    notify_tts_status(_("Couldn't download {0}; using OS speech").format(failed_name), on_status, progress=True)
     _clear_tts_status(on_status)
     return None

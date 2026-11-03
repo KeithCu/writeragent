@@ -33,13 +33,13 @@ from plugin.audio.kokoro_pool import (
     get_kokoro_pool,
     resolve_kokoro_python,
 )
-from plugin.audio.tts_endpoint import _download_endpoint_speech
+from plugin.audio.tts_endpoint import download_endpoint_speech
 from plugin.audio.tts_models import (
     _clear_tts_status,
-    _notify_tts_status,
-    _resolve_kokoro_model_files,
-    _resolve_piper_model_file,
     clear_scope_downloads,
+    notify_tts_status,
+    resolve_kokoro_model_files,
+    resolve_piper_model_file,
 )
 from plugin.audio.tts_voices import (
     clean_provider_name,
@@ -729,9 +729,9 @@ def _notify_kokoro_g2p_fallback(
     if g2p == "misaki":
         return
     if G2P_FAILED_MARK in warning:
-        _notify_tts_status(_("Kokoro used English phonemes for non-English voice"), on_status)
+        notify_tts_status(_("Kokoro used English phonemes for non-English voice"), on_status)
     elif _cached_misaki_ready(cancel, lang) is False:
-        _notify_tts_status(_("Misaki not found; Kokoro used English phonemes"), on_status)
+        notify_tts_status(_("Misaki not found; Kokoro used English phonemes"), on_status)
 
 
 def _remember_misaki_ready(cancel: SendCancellation, lang: str, ready: bool) -> None:
@@ -787,7 +787,7 @@ def _prepare_kokoro_misaki(
     ready = ensure_kokoro_misaki(
         py_exe,
         lang,
-        on_status=lambda message: _notify_tts_status(message, on_status, progress=True),
+        on_status=lambda message: notify_tts_status(message, on_status, progress=True),
         cancel=cancel,
         run_cmd=_run_misaki_cmd,
     )
@@ -1023,7 +1023,7 @@ def _kokoro_audio_file(
     # and lets sentence mode / caller fall back to OS speech.
     if not py_exe:
         return None
-    model_path, voices_path = _resolve_kokoro_model_files(
+    model_path, voices_path = resolve_kokoro_model_files(
         on_status=on_status,
         cancel=cancel,
     )
@@ -1064,7 +1064,7 @@ def _piper_audio_file(
     py_exe = resolve_kokoro_python()
     if not py_exe:
         return None
-    model_file = _resolve_piper_model_file(
+    model_file = resolve_piper_model_file(
         voice,
         on_status=on_status,
         cancel=cancel,
@@ -1283,7 +1283,7 @@ def _speak_endpoint(
 
     if len(chunks) == 1:
         chunk = chunks[0]
-        clip = _download_endpoint_speech(
+        clip = download_endpoint_speech(
             chunk,
             endpoint_url,
             api_key,
@@ -1300,7 +1300,7 @@ def _speak_endpoint(
             tmp_path = _new_speech_temp(clip.suffix, cancel)
             if tmp_path is None:
                 if not cancel.is_cancelled():
-                    _notify_tts_status(_("Could not save speech audio."), on_status)
+                    notify_tts_status(_("Could not save speech audio."), on_status)
             else:
                 try:
                     with open(tmp_path, "wb") as f_out:
@@ -1309,7 +1309,7 @@ def _speak_endpoint(
                 except OSError:
                     log.exception("Could not write TTS audio to %s", tmp_path)
                     if not cancel.is_cancelled():
-                        _notify_tts_status(_("Could not save speech audio."), on_status)
+                        notify_tts_status(_("Could not save speech audio."), on_status)
                 finally:
                     _release_temp(tmp_path)
         if cancel.is_cancelled():
@@ -1325,7 +1325,7 @@ def _speak_endpoint(
             for index, chunk in enumerate(chunks):
                 if cancel.is_cancelled():
                     return
-                clip = _download_endpoint_speech(
+                clip = download_endpoint_speech(
                     chunk,
                     endpoint_url,
                     api_key,
@@ -1339,7 +1339,7 @@ def _speak_endpoint(
                     return
                 def _bail_remaining(index: int, *, notify: bool = False) -> None:
                     if notify and not cancel.is_cancelled():
-                        _notify_tts_status(_("Could not save speech audio."), on_status)
+                        notify_tts_status(_("Could not save speech audio."), on_status)
                     remaining = chunks[index:]
                     if not cancel.is_cancelled():
                         ready.put(

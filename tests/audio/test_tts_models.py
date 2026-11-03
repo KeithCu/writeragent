@@ -23,13 +23,13 @@ from plugin.audio.tts_models import (
     _download_piper_pair,
     _download_to,
     _failed_model_downloads,
-    _notify_tts_status,
-    _resolve_kokoro_model_files,
-    _resolve_piper_model_file,
     clear_scope_downloads,
     DownloadOutcome,
     is_download_failed,
+    notify_tts_status,
     remember_download_failed,
+    resolve_kokoro_model_files,
+    resolve_piper_model_file,
 )
 from plugin.framework.send_cancellation import SendCancellation
 
@@ -338,14 +338,14 @@ def test_notify_tts_status_progress_prefers_progress_method():
             calls.append("clear")
 
     sink = Sink()
-    _notify_tts_status("Downloading…", sink, progress=True)
+    notify_tts_status("Downloading…", sink, progress=True)
     assert calls == ["progress:Downloading…"]
 
-    _notify_tts_status("Speech request failed.", sink)
+    notify_tts_status("Speech request failed.", sink)
     assert calls == ["progress:Downloading…", "call:Speech request failed."]
 
     plain_calls: list[str] = []
-    _notify_tts_status("Downloading…", plain_calls.append, progress=True)
+    notify_tts_status("Downloading…", plain_calls.append, progress=True)
     assert plain_calls == ["Downloading…"]
 
     _clear_tts_status(plain_calls.append)
@@ -360,7 +360,7 @@ def test_resolve_piper_model_file_ondemand_download(tmp_path, monkeypatch):
     monkeypatch.setattr("plugin.audio.tts_models.PIPER_JSON_MIN_BYTES", 1)
     cache_dir = _piper_cache(tmp_path, monkeypatch)
     with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: io.BytesIO(b"fake-piper-model-bytes")):
-        resolved = _resolve_piper_model_file("de_DE-thorsten-medium")
+        resolved = resolve_piper_model_file("de_DE-thorsten-medium")
         assert resolved == str(cache_dir / "de_DE-thorsten-medium.onnx")
         assert os.path.exists(resolved)
         assert os.path.exists(str(cache_dir / "de_DE-thorsten-medium.onnx.json"))
@@ -372,7 +372,7 @@ def test_resolve_piper_model_file_reports_download_status(tmp_path, monkeypatch)
     messages: list[str] = []
     cache_dir = _piper_cache(tmp_path, monkeypatch)
     with patch("urllib.request.urlopen", side_effect=lambda req, timeout=None: io.BytesIO(b"fake-piper-model-bytes")):
-        resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
+        resolved = resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
 
     assert resolved == str(cache_dir / "de_DE-thorsten-medium.onnx")
     assert os.path.exists(resolved)
@@ -389,7 +389,7 @@ def test_resolve_piper_model_file_reports_lessac_fallback(tmp_path, monkeypatch)
     (cache_dir / "en_US-lessac-medium.onnx.json").write_bytes(b"{}")
 
     with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
-        resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
+        resolved = resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
 
     assert resolved == str(cache_dir / "en_US-lessac-medium.onnx")
     assert messages == [
@@ -404,7 +404,7 @@ def test_resolve_piper_model_file_reports_os_speech_fallback_and_returns_none(tm
     _piper_cache(tmp_path, monkeypatch)
 
     with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
-        resolved = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
+        resolved = resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append)
 
     assert resolved is None
     assert messages[0] == "Downloading Piper voice Thorsten…"
@@ -421,7 +421,7 @@ def test_corrupt_download_does_not_leave_broken_file(tmp_path, monkeypatch):
     with patch("os.makedirs"), \
          patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}), \
          patch("urllib.request.urlopen", side_effect=mock_urlopen_fail):
-        model_path, voices_path = _resolve_kokoro_model_files(on_status=lambda x: None)
+        model_path, voices_path = resolve_kokoro_model_files(on_status=lambda x: None)
 
     assert not os.path.exists(model_path)
     assert not os.path.exists(voices_path)
@@ -435,7 +435,7 @@ def test_resolve_kokoro_model_files_reports_download_failure(tmp_path, monkeypat
     with patch("os.makedirs"), \
          patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}), \
          patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
-        model_path, voices_path = _resolve_kokoro_model_files(on_status=messages.append)
+        model_path, voices_path = resolve_kokoro_model_files(on_status=messages.append)
 
     assert model_path.endswith("kokoro-v1.0.onnx")
     assert voices_path.endswith("voices-v1.0.bin")
@@ -458,7 +458,7 @@ def test_resolve_kokoro_model_files_downloads_multilingual_release(tmp_path, mon
 
     with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
          patch("plugin.audio.tts_models._download_to", side_effect=_fake_download_to):
-        model_path, voices_path = _resolve_kokoro_model_files()
+        model_path, voices_path = resolve_kokoro_model_files()
 
     urls = [url for url, _dest in downloaded]
     assert urls == [
@@ -489,7 +489,7 @@ def test_resolve_kokoro_model_files_supersedes_english_only_cache(tmp_path, monk
 
     with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
          patch("plugin.audio.tts_models._download_to", side_effect=_fake_download_to):
-        model_path, voices_path = _resolve_kokoro_model_files()
+        model_path, voices_path = resolve_kokoro_model_files()
 
     assert model_path == str(cache_dir / "kokoro-v1.0.onnx")
     assert voices_path == str(cache_dir / "voices-v1.0.bin")
@@ -513,7 +513,7 @@ def test_resolve_kokoro_model_files_reuses_v1_cache(tmp_path, monkeypatch):
 
     with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
          patch("plugin.audio.tts_models._download_to") as download_mock:
-        model_path, voices_path = _resolve_kokoro_model_files()
+        model_path, voices_path = resolve_kokoro_model_files()
 
     download_mock.assert_not_called()
     assert model_path == str(cache_dir / "kokoro-v1.0.onnx")
@@ -530,7 +530,7 @@ def test_resolve_kokoro_model_files_honors_env_overrides(tmp_path):
         "os.environ",
         {"KOKORO_MODEL_PATH": str(model), "KOKORO_VOICES_PATH": str(voices)},
     ), patch("plugin.audio.tts_models._download_to") as download_mock:
-        model_path, voices_path = _resolve_kokoro_model_files()
+        model_path, voices_path = resolve_kokoro_model_files()
 
     download_mock.assert_not_called()
     assert model_path == str(model)
@@ -548,7 +548,7 @@ def test_resolve_kokoro_model_files_reuses_pipecat_without_download(tmp_path, mo
 
     with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
          patch("plugin.audio.tts_models._download_to") as download_mock:
-        model_path, voices_path = _resolve_kokoro_model_files()
+        model_path, voices_path = resolve_kokoro_model_files()
 
     download_mock.assert_not_called()
     assert model_path == str(pipecat / "kokoro-v1.0.onnx")
@@ -573,7 +573,7 @@ def test_resolve_kokoro_model_files_downloads_missing_sibling_beside_probe_hit(t
 
     with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
          patch("plugin.audio.tts_models._download_to", side_effect=_fake_download_to):
-        model_path, voices_path = _resolve_kokoro_model_files()
+        model_path, voices_path = resolve_kokoro_model_files()
 
     assert model_path == str(pipecat / "kokoro-v1.0.onnx")
     assert voices_path == str(pipecat / "voices-v1.0.bin")
@@ -591,7 +591,7 @@ def test_resolve_piper_model_file_reuses_pipecat_without_download(tmp_path, monk
     (voice_dir / "de_DE-thorsten-medium.onnx.json").write_bytes(b"{}")
 
     with patch("urllib.request.urlopen") as urlopen:
-        resolved = _resolve_piper_model_file("de_DE-thorsten-medium")
+        resolved = resolve_piper_model_file("de_DE-thorsten-medium")
 
     urlopen.assert_not_called()
     assert resolved == str(onnx)
@@ -634,7 +634,7 @@ def test_resolve_kokoro_model_files_cancelled_during_voices(tmp_path, monkeypatc
     cancel = SendCancellation()
 
     with patch("plugin.audio.tts_models._download_to", return_value=DownloadOutcome.CANCELLED):
-        _resolve_kokoro_model_files(on_status=messages.append, cancel=cancel)
+        resolve_kokoro_model_files(on_status=messages.append, cancel=cancel)
 
     assert not is_download_failed(cancel, "kokoro")
     assert not any("using OS speech" in m for m in messages)
@@ -648,7 +648,7 @@ def test_resolve_kokoro_model_files_cancelled_during_model(tmp_path, monkeypatch
     cancel = SendCancellation()
 
     with patch("plugin.audio.tts_models._download_to", return_value=DownloadOutcome.CANCELLED):
-        _resolve_kokoro_model_files(on_status=messages.append, cancel=cancel)
+        resolve_kokoro_model_files(on_status=messages.append, cancel=cancel)
 
     assert not is_download_failed(cancel, "kokoro")
     assert not any("using OS speech" in m for m in messages)
@@ -660,7 +660,7 @@ def test_resolve_piper_model_file_cancelled_during_download(tmp_path, monkeypatc
     cancel = SendCancellation()
 
     with patch("plugin.audio.tts_models._download_to", return_value=DownloadOutcome.CANCELLED):
-        res = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, cancel=cancel)
+        res = resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, cancel=cancel)
 
     assert res is None
     assert not is_download_failed(cancel, "de_DE-thorsten-medium")
@@ -674,7 +674,7 @@ def test_resolve_piper_model_file_cancelled_before_download(tmp_path, monkeypatc
     cancel = SendCancellation()
     cancel.cancel()
 
-    res = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, cancel=cancel)
+    res = resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, cancel=cancel)
     assert res is None
     assert not any("Downloading Piper" in m for m in messages)
     assert not is_download_failed(cancel, "de_DE-thorsten-medium")
@@ -766,7 +766,7 @@ def test_zero_byte_canonical_kokoro_triggers_download(tmp_path, monkeypatch):
 
     with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}, clear=False), \
          patch("plugin.audio.tts_models._download_to", side_effect=fake_download):
-        _resolve_kokoro_model_files()
+        resolve_kokoro_model_files()
 
     assert download_called
 
@@ -780,7 +780,7 @@ def test_kokoro_env_override_1_byte_returned_as_is(tmp_path, monkeypatch):
 
     with patch.dict("os.environ", {"KOKORO_MODEL_PATH": str(custom_model), "KOKORO_VOICES_PATH": ""}, clear=False), \
          patch("urllib.request.urlopen") as mock_url:
-        m_path, v_path = _resolve_kokoro_model_files()
+        m_path, v_path = resolve_kokoro_model_files()
 
     mock_url.assert_not_called()
     assert m_path == str(custom_model)
@@ -887,7 +887,7 @@ def test_disk_space_below_floor_emits_status_and_remembers_failure(tmp_path, mon
     try:
         with patch("shutil.disk_usage", return_value=mock_usage), \
              patch("urllib.request.urlopen") as mock_url:
-            _resolve_kokoro_model_files(on_status=messages.append, cancel=scope)
+            resolve_kokoro_model_files(on_status=messages.append, cancel=scope)
 
         mock_url.assert_not_called()
         assert is_download_failed(scope, "kokoro")
