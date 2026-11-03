@@ -1159,65 +1159,20 @@ def refuse_tracked_insert_or_delete(text_range: Any) -> None:
         raise TrackedChangesInSelection()
 
 
-@contextlib.contextmanager
-def _collapse_review_context(doc: Any, track_reviewable: bool, was_recording: bool, label: str) -> Generator[None, None, None]:
-    before_ids = None
-    before_ids_ok = False
-    prior_author = None
-    get_ctx: Any = None
-    if track_reviewable:
-        try:
-            from plugin.framework.uno_context import get_ctx
-            from plugin.writer.review_scan import snapshot_redline_ids
-
-            before_ids, before_ids_ok = snapshot_redline_ids(doc)
-            prior_author = review_authors.begin(get_ctx())
-            # Make the markup visible so a reviewable change isn't left invisible
-            # when the user has Track Changes display off (matches
-            # EditReviewSession.__enter__). Review mode only -- never when the user
-            # merely has their own Track Changes on (we respect their view setting).
-            _force_show_changes(doc, label)
-        except Exception:
-            log.debug("%s: review tagging setup failed", label, exc_info=True)
-    try:
-        yield
-    finally:
-        if prior_author is not None:
-            try:
-                review_authors.end(get_ctx(), prior_author)
-            except Exception:
-                log.warning("%s: author restore failed", label, exc_info=True)
-        # Restore the user's prior recording state. If they had Track Changes
-        # OFF and we only turned it ON to capture this edit as one reviewable
-        # redline (track_reviewable flag), turn it back OFF so their later
-        # manual typing is not tracked. Existing redlines persist regardless.
-        if not was_recording:
-            try:
-                doc.setPropertyValue("RecordChanges", False)
-            except Exception as exc:
-                reraise_if_disposed(exc)
-        # Tag the collapsed redline(s) with a session token so the inline review UI
-        # (click popup / context menu) treats this streamed edit as an agent change.
-        if before_ids is not None:
-            try:
-                tag_agent_redlines(doc, before_ids, before_reliable=before_ids_ok)
-            except Exception:
-                log.debug("%s: redline tagging failed", label, exc_info=True)
-
-
 def _stream_write_warning(exc: Exception | None) -> str | None:
     if exc is None:
         return None
     return _("Failed to write streamed text to the document: {0}").format(exc)
 
 
-def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterCompoundUndo, bool]:
+def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterCompoundUndo, bool, Any]:
     refuse_tracked_insert_or_delete(text_range)
     from plugin.doc.compound_undo import WriterCompoundUndo
 
     compound_undo = WriterCompoundUndo(doc, title)
-    was_recording = is_recording_changes(doc)
-    return compound_undo, was_recording
+    record_cm = record_changes(doc, False)
+    was_recording = record_cm.__enter__()
+    return compound_undo, was_recording, record_cm
 
 
 def _write_stream_chunk(session: Any, text: str, label: str) -> None:
@@ -1244,6 +1199,7 @@ class _WriterStreamedSessionBase:
     was_recording: bool
     last_write_error: Exception | None
     _compound_undo: WriterCompoundUndo
+    _record_cm: Any
 
     def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False) -> None:
         self.doc = doc
@@ -1251,15 +1207,14 @@ class _WriterStreamedSessionBase:
         self.original_text = original_text
         self.track_reviewable = track_reviewable
         self.last_write_error = None
-        self._compound_undo, self.was_recording = _begin_streamed_edit(doc, text_range, self._UNDO_CONTEXT_TITLE)
+        self._compound_undo, self.was_recording, self._record_cm = _begin_streamed_edit(doc, text_range, self._UNDO_CONTEXT_TITLE)
 
-    def _restore_recording(self) -> None:
-        """Restore the document's original recording state."""
-        try:
-            self.doc.setPropertyValue("RecordChanges", bool(self.was_recording))
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.warning("streamed edit: could not restore RecordChanges=%s", self.was_recording, exc_info=True)
+    def _exit_stream_recording(self) -> None:
+        """Exit the stream's record_changes(False) context, restoring prior recording state."""
+        if self._record_cm is not None:
+            cm = self._record_cm
+            self._record_cm = None
+            cm.__exit__(None, None, None)
 
     def _finish_collapse(
         self,
@@ -1273,13 +1228,34 @@ class _WriterStreamedSessionBase:
         """Finalize the streamed edit, collapsing it into a single tracked change."""
         try:
             if not (self.was_recording or self.track_reviewable):
+                self._exit_stream_recording()
                 return _stream_write_warning(self.last_write_error)
 
             try:
-                with _collapse_review_context(self.doc, self.track_reviewable, self.was_recording, label):
-                    self.text_range.setString(self.original_text)
-                    self.doc.setPropertyValue("RecordChanges", True)
-                    collapse_fn()
+                before_ids = None
+                before_ids_ok = False
+                if self.track_reviewable:
+                    try:
+                        from plugin.writer.review_scan import snapshot_redline_ids
+                        before_ids, before_ids_ok = snapshot_redline_ids(self.doc)
+                    except Exception:
+                        log.debug("%s: review tagging setup failed", label, exc_info=True)
+
+                self.text_range.setString(self.original_text)
+
+                if self.track_reviewable:
+                    from plugin.framework.uno_context import get_ctx
+                    with EditReviewSession(self.doc, get_ctx(), enabled=True):
+                        collapse_fn()
+                else:
+                    with record_changes(self.doc, True):
+                        collapse_fn()
+
+                if before_ids is not None:
+                    try:
+                        tag_agent_redlines(self.doc, before_ids, before_reliable=before_ids_ok)
+                    except Exception:
+                        log.debug("%s: redline tagging failed", label, exc_info=True)
                 return None
             except Exception as exc:
                 # A closed document is not "the text was kept".
@@ -1288,26 +1264,17 @@ class _WriterStreamedSessionBase:
 
                 fallback_errors: list[str] = []
                 try:
-                    self.doc.setPropertyValue("RecordChanges", False)
-                except Exception as e:
-                    reraise_if_disposed(e)
-                    fallback_errors.append(f"disable tracking failed: {e}")
-                try:
                     self.text_range.setString(fallback_text)
                 except Exception as e:
                     reraise_if_disposed(e)
                     log.warning("%s: fallback setString failed", label, exc_info=True)
                     fallback_errors.append(f"{fallback_desc}: {e}")
-                try:
-                    self.doc.setPropertyValue("RecordChanges", self.was_recording)
-                except Exception as e:
-                    reraise_if_disposed(e)
-                    fallback_errors.append(f"restore recording state failed: {e}")
 
                 if fallback_errors:
                     return fallback_err_msg.format("; ".join(fallback_errors))
                 return success_msg
         finally:
+            self._exit_stream_recording()
             self._compound_undo.close()
 
 
@@ -1333,12 +1300,9 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
 
         log.info("WriterStreamedRewriteSession: was_recording=%s, compound_undo open=%s", self.was_recording, self._compound_undo._open)
         try:
-            if self.was_recording:
-                self.doc.setPropertyValue("RecordChanges", False)
             self.text_range.setString("")
         except Exception:
-            if self.was_recording:
-                self.doc.setPropertyValue("RecordChanges", True)
+            self._exit_stream_recording()
             self._compound_undo.close()
             raise
 
@@ -1384,7 +1348,7 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
                 except Exception:
                     log.exception("streamed rewrite: fallback setString(original_text) failed")
         finally:
-            self._restore_recording()
+            self._exit_stream_recording()
 
 
 class WriterStreamedAppendSession(_WriterStreamedSessionBase):
@@ -1411,8 +1375,6 @@ class WriterStreamedAppendSession(_WriterStreamedSessionBase):
     def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False) -> None:
         super().__init__(doc, text_range, original_text, track_reviewable=track_reviewable)
         self.appended_text = ""
-        if self.was_recording:
-            self.doc.setPropertyValue("RecordChanges", False)
 
     def append_chunk(self, chunk: str) -> None:
         """Append streamed text after the original (tracking off; one redline created at finish)."""
@@ -1425,7 +1387,7 @@ class WriterStreamedAppendSession(_WriterStreamedSessionBase):
         """Collapse the appended continuation into one tracked insertion. Returns a warning on degraded success."""
         try:
             if not self.appended_text:
-                self._restore_recording()
+                self._exit_stream_recording()
                 return _stream_write_warning(self.last_write_error)
 
             def _collapse() -> None:
@@ -1452,7 +1414,7 @@ class WriterStreamedAppendSession(_WriterStreamedSessionBase):
 
         The partial continuation is left in place, matching the prior extend-selection behavior."""
         try:
-            self._restore_recording()
+            self._exit_stream_recording()
         finally:
             self._compound_undo.close()
 
