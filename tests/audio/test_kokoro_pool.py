@@ -17,6 +17,7 @@ from typing import Any, cast
 import pytest
 
 from plugin.audio.kokoro_pool import KokoroProcessPool
+from plugin.framework.send_cancellation import SendCancellation
 
 
 def _fake_worker_script(directory) -> str:
@@ -83,7 +84,7 @@ def test_pool_cancel_inflight_kills_child_and_next_job_respawns(tmp_path):
             time.sleep(0.02)
         assert pool._worker is not None and pool._worker.is_alive()
         time.sleep(0.15)
-        pool.cancel_inflight()
+        pool._kill_inflight()
         thread.join(3)
         assert result.get("status") == "error"
         recovered = pool.execute({"text": "after", "out_path": str(tmp_path / "after.wav")})
@@ -120,7 +121,7 @@ def test_idle_reaper_leaves_a_warm_child_before_ttl():
         pool._evict_idle_worker()
         assert warm.kills == 0
         assert pool._worker is warm
-        pool._exec_token = object()
+        pool._job_live = True
         pool._last_active = 0.0
         pool._evict_idle_worker()
         assert warm.kills == 0
@@ -175,9 +176,10 @@ def test_pool_cancel_during_spawn_handshake_kills_child(tmp_path):
     script = _delayed_ready_script(tmp_path, flag)
     pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
     result: dict[str, object] = {}
+    cancel = SendCancellation()
 
     def _run() -> None:
-        result.update(pool.execute({"text": "Hi.", "out_path": str(tmp_path / "slow.wav")}))
+        result.update(pool.execute({"text": "Hi.", "out_path": str(tmp_path / "slow.wav")}, cancel=cancel))
 
     thread = threading.Thread(target=_run)
     thread.start()
@@ -194,7 +196,7 @@ def test_pool_cancel_during_spawn_handshake_kills_child(tmp_path):
             time.sleep(0.02)
         assert pid > 0
         t0 = time.monotonic()
-        pool.cancel_inflight()
+        cancel.cancel()
         thread.join(8)
         assert not thread.is_alive()
         assert time.monotonic() - t0 < 8
@@ -267,11 +269,10 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
     monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _Replacement)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     stuck = _Stuck()
-    token = object()
     pool._worker = cast("Any", stuck)
-    pool._exec_token = token
+    pool._job_live = True
     try:
-        pool.cancel_inflight(token)
+        pool._kill_inflight()
         assert pool._worker is None
         assert stuck.signals == 1
         deadline = time.monotonic() + 2.0
@@ -467,12 +468,11 @@ def test_cancel_inflight_returns_while_reap_blocks() -> None:
 
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     slow = _SlowKill()
-    token = object()
     pool._worker = cast("Any", slow)
-    pool._exec_token = token
+    pool._job_live = True
     try:
         t0 = time.monotonic()
-        pool.cancel_inflight(token)
+        pool._kill_inflight()
         elapsed = time.monotonic() - t0
         assert elapsed < 0.3
         assert pool._worker is None
@@ -481,22 +481,6 @@ def test_cancel_inflight_returns_while_reap_blocks() -> None:
         while time.monotonic() < deadline and slow.kills == 0:
             time.sleep(0.02)
         assert slow.kills == 1
-    finally:
-        pool.shutdown()
-
-
-def test_raising_cancel_check_releases_inflight(tmp_path) -> None:
-    pool = KokoroProcessPool(sys.executable, script_path=str(tmp_path / "missing.py"), idle_worker_ttl_sec=None)
-
-    def _boom() -> bool:
-        raise RuntimeError("boom")
-
-    try:
-        with pytest.raises(RuntimeError, match="boom"):
-            pool.execute({"text": "hi"}, cancel_check=_boom)
-        assert pool._exec_token is None
-        result = pool.execute({"text": "hi"})
-        assert result["code"] == "WORKER_SPAWN_FAILED"
     finally:
         pool.shutdown()
 
@@ -577,12 +561,14 @@ def test_cancel_check_true_keeps_warm_worker() -> None:
     stub = _Stub()
     pool._worker = cast("Any", stub)
     try:
-        res = pool.execute({"text": "hi"}, cancel_check=lambda: True)
+        cancel = SendCancellation()
+        cancel.cancel()
+        res = pool.execute({"text": "hi"}, cancel=cancel)
         assert res.get("code") == "WORKER_CANCELLED"
         assert stub.kills == 0
         assert stub.executes == 0
         assert pool._worker is stub
-        assert pool._exec_token is None
+        assert not pool._job_live
 
         res2 = pool.execute({"text": "next"})
         assert res2.get("status") == "ok"
@@ -602,7 +588,9 @@ def test_cancel_check_true_does_not_spawn(tmp_path) -> None:
     )
     try:
         assert pool._worker is None
-        res = pool.execute({"text": "hi"}, cancel_check=lambda: True)
+        cancel = SendCancellation()
+        cancel.cancel()
+        res = pool.execute({"text": "hi"}, cancel=cancel)
         assert res.get("code") == "WORKER_CANCELLED"
         assert pool._worker is None
     finally:

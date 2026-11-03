@@ -1323,7 +1323,7 @@ def test_kokoro_warm_passes_scaled_timeout() -> None:
     class MockPool:
         job_timeout_sec = 120.0
 
-        def execute(self, payload: dict[str, Any], timeout_sec: float | None = None, cancel_check=None):
+        def execute(self, payload: dict[str, Any], timeout_sec: float | None = None, cancel=None):
             calls.append({"payload": payload, "timeout_sec": timeout_sec})
             return {"status": "error", "code": "WORKER_CANCELLED"}
 
@@ -1503,29 +1503,24 @@ def test_notify_kokoro_g2p_fallback():
     assert "Misaki not found; Kokoro used English phonemes" in messages[0]
 
 
-def test_stop_speech_reads_cancel_token_under_speech_lock():
+def test_stop_speech_runs_scope_cancel_hook_under_speech_lock():
     import plugin.audio.tts_service as tts
 
-    old_token = "token_old"
-    new_token = "token_new"
-    cancelled_tokens: list[str] = []
+    hook_ran = []
+    lock_held = []
 
-    def fake_get_token():
-        acquired = tts._speech_lock.acquire(blocking=False)
-        if acquired:
-            tts._speech_lock.release()
-            return new_token
-        return old_token
-
-    def fake_cancel_token(token):
-        cancelled_tokens.append(token)
+    def hook():
+        hook_ran.append(True)
+        # Lock is held by stop_speech when invoking cancel on the scope;
+        # non-blocking acquire must fail.
+        lock_held.append(not tts._speech_lock.acquire(blocking=False))
 
     scope = tts._begin_utterance()
-    with patch("plugin.audio.tts_service.get_kokoro_inflight_token", side_effect=fake_get_token), \
-         patch("plugin.audio.tts_service.cancel_kokoro_inflight", side_effect=fake_cancel_token):
-        tts.stop_speech()
-        assert scope.is_cancelled()
-        assert cancelled_tokens == [old_token]
+    scope.register_on_cancel(hook)
+    tts.stop_speech()
+    assert scope.is_cancelled()
+    assert hook_ran == [True]
+    assert lock_held == [True]
 
 
 def test_stop_before_fetch_skips_playback_and_fallback():

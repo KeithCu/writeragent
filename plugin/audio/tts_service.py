@@ -28,8 +28,6 @@ from plugin.audio.kokoro_g2p import (
     kokoro_lang_uses_misaki,
 )
 from plugin.audio.kokoro_pool import (
-    cancel_kokoro_inflight,
-    get_kokoro_inflight_token,
     get_kokoro_pool,
     resolve_kokoro_python,
 )
@@ -288,7 +286,6 @@ def _cleanup_stopped(
     procs: list[subprocess.Popen[Any]],
     queue_ref: _ReadyQueue | None,
     temps: list[str],
-    cancel_token: object | None,
 ) -> None:
     """Non-blocking signal/kill on caller thread; process reaping, spd-say stop,
     and temporary file unlinking run on the dedicated tts-cleanup background thread."""
@@ -299,9 +296,6 @@ def _cleanup_stopped(
     stop_spd = any(_proc_running(proc) and _is_spd_say(proc) for proc in procs)
     for proc in procs:
         _signal_stop_proc(proc)
-
-    if cancel_token is not None:
-        best_effort(lambda: cancel_kokoro_inflight(cancel_token), "Kokoro cancel failed")
 
     def _bg_cleanup() -> None:
         for proc in procs:
@@ -332,7 +326,7 @@ def _cleanup_stopped(
 def _swap_scope_locked(
     new: SendCancellation | None,
     active: bool,
-) -> tuple[list[subprocess.Popen[Any]], _ReadyQueue | None, list[str], object | None]:
+) -> tuple[list[subprocess.Popen[Any]], _ReadyQueue | None, list[str]]:
     """Swap the active scope and drain per-utterance state under _speech_lock."""
     global _speech_active, _speech_cancel, _ready_queue
     if _speech_cancel is not None:
@@ -347,10 +341,7 @@ def _swap_scope_locked(
     temps = list(_tracked_temps)
     _tracked_temps.clear()
     _reply_misaki_ready.clear()
-    # The token is the job that was in flight during this Stop; reading it
-    # after the lock lets the next utterance publish a new token.
-    cancel_token = get_kokoro_inflight_token()
-    return procs, queue_ref, temps, cancel_token
+    return procs, queue_ref, temps
 
 
 def stop_speech() -> None:
@@ -360,18 +351,18 @@ def stop_speech() -> None:
     spd-say -S, and temp unlinking to a background worker.
     """
     with _speech_lock:
-        procs, queue_ref, temps, cancel_token = _swap_scope_locked(None, False)
+        procs, queue_ref, temps = _swap_scope_locked(None, False)
 
-    _cleanup_stopped(procs, queue_ref, temps, cancel_token)
+    _cleanup_stopped(procs, queue_ref, temps)
 
 
 def _begin_utterance() -> SendCancellation:
     """Create the scope, cancel the previous one, and publish the new one under a single lock hold."""
     scope = SendCancellation()
     with _speech_lock:
-        procs, queue_ref, temps, cancel_token = _swap_scope_locked(scope, True)
+        procs, queue_ref, temps = _swap_scope_locked(scope, True)
 
-    _cleanup_stopped(procs, queue_ref, temps, cancel_token)
+    _cleanup_stopped(procs, queue_ref, temps)
     return scope
 
 
@@ -928,7 +919,7 @@ def _kokoro_warm_to_file(
                 "out_path": tmp_wav,
             },
             timeout_sec=max(pool.job_timeout_sec, _synth_timeout(text, 60.0)),
-            cancel_check=cancel.is_cancelled,
+            cancel=cancel,
         )
     except Exception:
         # The pool returns error dicts for spawn and IPC failures. respawn()

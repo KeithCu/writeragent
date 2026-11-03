@@ -96,6 +96,11 @@ class SendCancellation:
             except Exception:
                 log.exception("SendCancellation: error in late cancel hook")
 
+    def unregister_on_cancel(self, hook: Callable[[], None]) -> None:
+        with self._lock:
+            if hook in self._hooks:
+                self._hooks.remove(hook)
+
     def cancel(self) -> None:
         # Set the flag under the lock so two callers cannot both run the hooks.
         with self._lock:
