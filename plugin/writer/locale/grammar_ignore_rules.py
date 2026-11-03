@@ -9,10 +9,10 @@ from __future__ import annotations
 import re
 from typing import Any, final
 
-from .grammar_proofread_cache import ignored_rules_snapshot
+from .grammar_persistence import grammar_registry
 
 # The venv LanguageTool checker imports this leaf, not this module, because
-# this module imports grammar_proofread_cache, which imports config.
+# this module imports grammar_persistence, which imports config.
 from plugin.framework.grammar_rule_ids import (
     STABLE_RULE_PREFIXES as _STABLE_RULE_PREFIXES,
     WA_G_RULE_PREFIX,
@@ -25,9 +25,27 @@ __all__ = [
     "canonical_rule_key",
     "collect_ignored_reasons",
     "doc_ignored_rules",
+    "ignore_rule_add",
+    "ignore_rules_clear",
+    "ignored_rules_snapshot",
     "is_rule_ignored",
     "normalize_reason",
 ]
+
+
+def ignore_rules_clear() -> None:
+    with grammar_registry.lock:
+        grammar_registry.ignored_rules.clear()
+
+
+def ignore_rule_add(rule_id: str) -> None:
+    with grammar_registry.lock:
+        grammar_registry.ignored_rules.add(str(rule_id))
+
+
+def ignored_rules_snapshot() -> set[str]:
+    with grammar_registry.lock:
+        return set(grammar_registry.ignored_rules)
 
 GRAMMAR_NORMALIZE_REASON_RE = re.compile(r"[^\w\s]")
 

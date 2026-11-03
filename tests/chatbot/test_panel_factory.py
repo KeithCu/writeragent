@@ -1420,11 +1420,11 @@ def test_debug_live_panels_registry_and_iter() -> None:
     register_debug_live_panel(obj)
     assert obj in _LIVE_CHAT_PANELS
 
-    with patch("plugin.chatbot.panel_factory._debug_env_active", return_value=False):
+    with patch("plugin.chatbot.panel_factory.debug_env_active", return_value=False):
         assert iter_debug_live_chat_panels() == []
         assert obj in _LIVE_CHAT_PANELS
 
-    with patch("plugin.chatbot.panel_factory._debug_env_active", return_value=True):
+    with patch("plugin.chatbot.panel_factory.debug_env_active", return_value=True):
         assert obj in iter_debug_live_chat_panels()
 
     unregister_debug_live_panel(obj)
@@ -1436,7 +1436,7 @@ def test_debug_live_panels_registry_and_iter() -> None:
     assert obj2 in _LIVE_CHAT_PANELS
     del obj2
     gc.collect()
-    with patch("plugin.chatbot.panel_factory._debug_env_active", return_value=True):
+    with patch("plugin.chatbot.panel_factory.debug_env_active", return_value=True):
         assert iter_debug_live_chat_panels() == []
 
 

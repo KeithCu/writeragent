@@ -407,14 +407,14 @@ def bootstrap(ctx: Any | None = None) -> None:
     global _services, _tools, _modules, _bootstrap_state, _bootstrap_error
 
     # Off-thread get_menu_text and _get_menu_icon depend on returning early
-    # when initialized, before the on_python_main_thread check raises BOOTSTRAP_OFF_THREAD.
+    # when initialized, before the MainThread.on_python_main_thread check raises BOOTSTRAP_OFF_THREAD.
     if _bootstrap_state is BootstrapState.INITIALIZED:
         return
 
-    from plugin.framework.thread_guard import on_python_main_thread
+    from plugin.framework.queue_executor import MainThread
 
     # A status-listener Dummy upcall is allowed to touch UNO, and it must not enter bootstrap.
-    if not on_python_main_thread():
+    if not MainThread.on_python_main_thread():
         from plugin.framework.errors import WriterAgentException
 
         raise WriterAgentException(

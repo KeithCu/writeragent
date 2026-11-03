@@ -8,7 +8,7 @@ from tests.draw.collabora_transform_fixtures import COLLABORA_FIVE_SLIDE_TRANSFO
 
 import unittest
 
-from plugin.testing_runner import native_test, show_window
+from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import with_native_doc
 
 
@@ -64,9 +64,9 @@ def test_transform_insert_second_slide(ctx, doc):
     assert pages.getCount() >= 2, "expected at least two slides after InsertMasterSlide"
 
 
-@unittest.skipIf(not show_window, "Collabora five slide documentation example has transient errors under narrow process layout limitations")
+@unittest.skipIf(not current_office().options.show_window, "Collabora five slide documentation example has transient errors under narrow process layout limitations")
 @native_test
-@with_native_doc("impress", hidden=not show_window)
+@with_native_doc("impress", hidden=not current_office().options.show_window)
 def test_collabora_five_slide_documentation_example(ctx, doc):
     """Full 5-slide deck from Collabora DocumentToolDescriptions.hpp (integration smoke)."""
     result = _exec_transform(doc, ctx, transform=COLLABORA_FIVE_SLIDE_TRANSFORM_JSON)

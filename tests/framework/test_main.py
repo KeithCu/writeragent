@@ -194,7 +194,7 @@ def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
 
 def test_bootstrap_start_background_failure_isolates_modules(monkeypatch):
     """When one module's start_background raises, later modules still start their background work."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_python_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.MainThread.on_python_main_thread", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
@@ -431,6 +431,19 @@ def test_report_action_failure_survives_dialog_exceptions(monkeypatch):
 
     # Must log both and not propagate
     report_action_failure("test.action", ValueError("original problem"))
+
+
+def test_report_action_failure_survives_unregistered_ui(monkeypatch, caplog):
+    """report_action_failure logs warning with detail and does not raise when action error UI is unregistered."""
+    import plugin.framework.main_shared as main_shared
+
+    monkeypatch.setattr(main_shared, "_action_error_ui", None)
+    with caplog.at_level(logging.WARNING):
+        report_action_failure("test.action", ValueError("original problem"))
+    assert any(
+        "action error UI is not registered" in record.message and "original problem" in record.message
+        for record in caplog.records
+    )
 
 
 # --- Bug 5 tests: DispatchHandler.dispatch catches dialog failures ---

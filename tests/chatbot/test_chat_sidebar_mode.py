@@ -147,15 +147,12 @@ def test_set_selector_mode_selects_by_index():
     ctrl.setText.assert_called_once_with(labels[2])
 
 
-def test_populate_mode_selector_sets_string_item_list_on_model():
+def test_populate_mode_selector_sets_items_on_control():
     ctrl = MagicMock()
-    model = MagicMock()
-    ctrl.getModel.return_value = model
     ctrl.getItemCount.return_value = 0
     flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
     populate_mode_selector_with_flags(ctrl, flags)
     labels = tuple(str(x) for x in get_mode_labels(flags))
-    assert model.StringItemList == labels
     ctrl.addItems.assert_called_once_with(labels, 0)
 
 

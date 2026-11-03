@@ -421,7 +421,7 @@ class TestSendDispose:
         fake_main._bootstrap_state = bootstrap_state
         with (
             patch.dict(sys.modules, {"plugin.main": fake_main}),
-            patch("plugin.framework.thread_guard.on_python_main_thread", return_value=py_main),
+            patch("plugin.framework.queue_executor.MainThread.on_python_main_thread", return_value=py_main),
         ):
             assert PanelEventsController._mcp_subscribe_must_defer() is expected
 

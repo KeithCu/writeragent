@@ -114,9 +114,7 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
         def __init__(self, registry):
             self.tools = registry
             self.document = _FakeDocSvc()
-
-        def get(self, key):
-            return _FakeMainThread() if key == "main_thread" else None
+            self.main_thread = _FakeMainThread()
 
     registry = _Registry()
     handler = MCPProtocolHandler(_FakeServices(registry))
@@ -180,9 +178,7 @@ class _Services:
         self.document = _DocSvc(doc)
         self.config = MagicMock()
         self.config.get.side_effect = lambda key, default=None: default
-
-    def get(self, key):
-        return _InlineMain() if key == "main_thread" else None
+        self.main_thread = _InlineMain()
 
 
 class _SyncProbe(ToolBase):
@@ -281,11 +277,7 @@ def test_tools_call_rejects_unadvertised_tiers():
                     return default
             self.config = FakeConfig()
             self.document = _DocSvc(_LiveDoc())
-
-        def get(self, key):
-            if key == "main_thread":
-                return _InlineMain()
-            return None
+            self.main_thread = _InlineMain()
 
     registry = ToolRegistry(FakeServices("delegate"))
     registry._tools["secret_tool"] = FakeTool()

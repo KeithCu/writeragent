@@ -296,28 +296,24 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
     try:
         ensure_schema(conn, with_fts=False, with_vec=False)
         indexed_urls = get_all_indexed_urls_in_db(conn)
+
+        tbl = None
+        try:
+            tbl = _open_for_search(coll_path)
+        except Exception:
+            pass
+
+        for url in indexed_urls:
+            if url in current_urls:
+                continue
+            if tbl is not None:
+                try:
+                    tbl.delete(f"doc_url = '{url}'")
+                except Exception:
+                    pass
+            remove_file_from_index_in_db(conn, url)
     finally:
         conn.close()
-
-    tbl = None
-    try:
-        tbl = _open_for_search(coll_path)
-    except Exception:
-        pass
-
-    for url in indexed_urls:
-        if url in current_urls:
-            continue
-        if tbl is not None:
-            try:
-                tbl.delete(f"doc_url = '{url}'")
-            except Exception:
-                pass
-        conn_purge = connect_corpus_db(db_path)
-        try:
-            remove_file_from_index_in_db(conn_purge, url)
-        finally:
-            conn_purge.close()
 
     for idx, entry in enumerate(files):
         _hb.emit({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode}, immediate=True)

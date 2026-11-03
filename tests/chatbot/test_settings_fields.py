@@ -294,17 +294,20 @@ def test_read_settings_control_uses_peer_when_setvalue_fails():
 
 
 def test_populate_settings_control_sets_string_item_list_and_numeric_value():
-    class _Model:
-        StringItemList = ()
-
     class _Ctrl:
         def __init__(self):
-            self.model = _Model()
+            self.items = []
             self.value = None
             self.text = None
 
-        def getModel(self):
-            return self.model
+        def getItemCount(self):
+            return len(self.items)
+
+        def removeItems(self, pos, count):
+            del self.items[pos : pos + count]
+
+        def addItems(self, items, pos):
+            self.items[pos:pos] = list(items)
 
         def setValue(self, value):
             self.value = value
@@ -322,7 +325,7 @@ def test_populate_settings_control_sets_string_item_list_and_numeric_value():
             "options": [{"value": "7", "label": "Seven"}],
         },
     )
-    assert ctrl.model.StringItemList == ("Seven",)
+    assert ctrl.items == ["Seven"]
     assert ctrl.value == 7.0
     assert ctrl.text is None
 

@@ -107,7 +107,7 @@ Layer A converts what would be a silent race condition or production freeze into
 ```python
 def assert_main_thread(what: str) -> None:
     """Raise (if guard on) or log warning+stack (if guard off) when off the main thread."""
-    if on_python_main_thread():
+    if main.is_current():
         return
     task = get_background_task_name() or threading.current_thread().name
     msg = "UNO thread violation: %r touched UNO from background task %r; marshal via main.call()." % (what, task)
@@ -120,8 +120,8 @@ def assert_main_thread(what: str) -> None:
 - One process-wide dialog: the popup is `main.post(..., bound_scope=None)` so Stop must not drop it. `WRITERAGENT_TESTING=1` still `log.error`s with `stack_info` and does not post. The flag clears only when the dialog callback finishes or the post itself fails. `set_background_task(None)` does not clear the flag.
 - **Dev Builds (`GUARD_ON=1`)**: Displays a deduplicated modal error box on the UI thread and raises `RuntimeError`.
 - **Dev Builds with Guard Disabled (`GUARD_ON=0`)**: Logs `log.warning(msg, stack_info=True)` so call sites are captured in logs without crashing user sessions.
-- **Production Release OXTs (`make release`)**: Code packaging via `scripts/strip_code.py` replaces `thread_guard.py` with a minimal zero-overhead stub (`GUARD_ON = False`, `assert_main_thread` no-op, proxy unwrapped), while keeping `sync_host_dispatch()` and `in_sync_host_dispatch()` active for deadlock prevention, and `on_python_main_thread()` checking `threading.current_thread() is threading.main_thread()` so secondary wait pumps off-main still marshal to the UI thread.
-- **Main Thread & Dummy Upcall Affinity**: In dev builds (`thread_guard.py`), untagged `_DummyThread` (LibreOffice C++ listener upcalls under SolarMutex) is allowed; a `set_background_task` tag or the designated-main hook excludes it. The release stub stays strict (`current is threading.main_thread()`). Proofreading and the Calc add-ins tag themselves via `background_if_dummy_thread` so dev matches that strict control flow.
+- **Production Release OXTs (`make release`)**: Code packaging via `scripts/strip_code.py` replaces `thread_guard.py` with a minimal zero-overhead stub (`GUARD_ON = False`, `assert_main_thread` no-op, proxy unwrapped), while keeping `sync_host_dispatch()` and `in_sync_host_dispatch()` active for deadlock prevention. The release stub does not define `on_python_main_thread`; both builds use `MainThread.on_python_main_thread()`, which follows `MainThread.designated` and otherwise `threading.main_thread()`. `UNTAGGED_DUMMY_IS_CURRENT` stays false in the stub, so a release dummy upcall is not current.
+- **Main Thread & Dummy Upcall Affinity**: In dev builds (`thread_guard.py`), untagged `_DummyThread` (LibreOffice C++ listener upcalls under SolarMutex) is allowed; a `set_background_task` tag or the designated-main hook excludes it. The release strict path is `MainThread.on_python_main_thread()` (designated, else Python main), plus `UNTAGGED_DUMMY_IS_CURRENT = False`. Proofreading and the Calc add-ins tag themselves via `background_if_dummy_thread` so dev matches that strict control flow.
 
 ### A2. Thread Tagging at Birth
 In `run_in_background`, a thread-local task name is stamped on the worker thread for the duration of the task. Pooled workers (`wa-bg-*`) clear the tag in a `finally` block so recycled threads do not carry stale task identifiers. The runtime error message explicitly names the culprit task (e.g. `"touched UNO from background task 'web-search-embeddings'"`).
@@ -165,7 +165,7 @@ Any worker thread that reaches a real UNO object without marshalling aborts the 
 ### B2. Pytest Thread-Affine Mocks & Synthetic Pump (`uno_thread_safety` Fixture)
 For fast CI tests where LibreOffice is not running:
 1. `make_thread_affine_mock(raw_mock)` wraps unit test mocks in a `ThreadAffineMock` that asserts access is only made from the designated main thread.
-2. `MainThread.install(Policy.test_marshal, designated=pump_thread, poke=poke_fn)` sets the process-wide policy to `Policy.test_marshal` and directs `on_python_main_thread()` / `main.is_current()` to follow a synthetic test pump thread.
+2. `MainThread.install(Policy.test_marshal, designated=pump_thread, poke=poke_fn)` sets the process-wide policy to `Policy.test_marshal` and directs `MainThread.on_python_main_thread()` / `main.is_current()` to follow a synthetic test pump thread.
 3. `Policy.test_marshal` disables the `Policy.test_inline` shortcut, forcing `main.call` to enqueue real `_WorkItem` objects and block until the `TestMainPump` thread drains the queue.
 4. If a worker touches a mock directly without `main.call()` or `main.run()`, the mock immediately raises `AssertionError`, turning concurrency bugs into deterministic red CI tests.
 

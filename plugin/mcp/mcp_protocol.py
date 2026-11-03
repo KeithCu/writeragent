@@ -338,7 +338,7 @@ class MCPProtocolHandler:
 
     def __init__(self, services: Any, debug_token: str | None = None) -> None:
         self.services = services
-        self.queue_executor = services.get("main_thread") or MainThread(ctx=services.get("uno") if services else None)
+        self.queue_executor = services.main_thread
         self.tool_registry = services.tools
         self.event_bus = getattr(services, "events", None)
         self._cancelled_requests: set[tuple[Any, str | int]] = set()
@@ -412,10 +412,10 @@ class MCPProtocolHandler:
             if "text/event-stream" not in accept:
                 self._send_json(handler, 406, {"error": "Not Acceptable: must Accept text/event-stream"})
                 return
-        tcp_server = getattr(handler, "server", None)
+        tcp_server = handler.server
         sock = getattr(handler, "connection", None)
-        sse: SseRegistry | None = getattr(tcp_server, "sse_registry", None)
-        stop_event = sse.reserve(sock) if sse is not None else None
+        sse: SseRegistry = tcp_server.sse_registry
+        stop_event = sse.reserve(sock)
         if stop_event is None:
             _send_405(handler, "POST, DELETE, OPTIONS")
             return
@@ -436,7 +436,7 @@ class MCPProtocolHandler:
             if disconnect_log:
                 log.info("[SSE] GET stream disconnected")
         finally:
-            if reserved and sse is not None:
+            if reserved:
                 sse.release(sock)
 
     def handle_mcp_sse(self, handler: Any) -> None:
@@ -474,9 +474,9 @@ class MCPProtocolHandler:
         (that wakes select).
         """
         sock = handler.connection
-        tcp_server = getattr(handler, "server", None)
-        sse: SseRegistry | None = getattr(tcp_server, "sse_registry", None)
-        if stop_event is None and sock is not None and sse is not None:
+        tcp_server = handler.server
+        sse: SseRegistry = tcp_server.sse_registry
+        if stop_event is None and sock is not None:
             stop_event = sse.reserve(sock)
         if stop_event is None or sock is None:
             log.info("[SSE] GET stream closed")
@@ -769,8 +769,6 @@ class MCPProtocolHandler:
 
         return {"tools": schemas}
 
-        return {"tools": schemas}
-
     def _mcp_resources_list(self, params: Any) -> Any:
         return {"resources": []}
 
@@ -904,9 +902,9 @@ class MCPProtocolHandler:
                 finally:
                     if cancel_key is not None:
                         with self._requests_lock:
-                            self._request_scopes.pop(cancel_key, None)
                             count = self._in_flight_requests.get(cancel_key, 0) - 1
                             if count <= 0:
+                                self._request_scopes.pop(cancel_key, None)
                                 self._in_flight_requests.pop(cancel_key, None)
                                 self._cancelled_requests.discard(cancel_key)
                             else:
