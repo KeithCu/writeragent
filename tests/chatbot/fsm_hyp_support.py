@@ -18,14 +18,6 @@ from plugin.chatbot.audio_recorder_state import (
     _VALID_AUDIO_STATUSES,
 )
 from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, SendMode
-from plugin.chatbot.state_machine import (
-    ErrorEvent,
-    SendHandlerState,
-    StartEvent,
-    StopRequestedEvent,
-    StreamChunkEvent,
-    StreamDoneEvent,
-)
 from plugin.chatbot.tool_loop_state import EventKind as ToolEventKind
 from plugin.chatbot.tool_loop_state import ToolLoopEvent, ToolLoopState
 from tests.harness.vhs_budget import vhs_extensive
@@ -34,14 +26,12 @@ _FSM_HYP_LIGHT = {
     "send": 80,
     "audio": 60,
     "tool_loop": 60,
-    "send_handler": 60,
     "sequences": 40,
 }
 _FSM_HYP_EXTENSIVE = {
     "send": 800,
     "audio": 600,
     "tool_loop": 600,
-    "send_handler": 600,
     "sequences": 400,
 }
 
@@ -173,27 +163,4 @@ def tool_loop_events(draw):
     return ToolLoopEvent(kind, {})
 
 
-@st.composite
-def send_handler_states(draw):
-    return SendHandlerState(
-        handler_type=draw(st.sampled_from(("agent", "image", "web"))),
-        status=draw(st.sampled_from(("ready", "starting", "running", "done", "stopped"))),
-    )
 
-
-@st.composite
-def send_handler_events(draw):
-    kind = draw(st.sampled_from(("stop", "chunk", "done", "start", "error")))
-    if kind == "stop":
-        return StopRequestedEvent()
-    if kind == "chunk":
-        return StreamChunkEvent(chunk_text=draw(st.sampled_from(("x", ""))), is_thinking=draw(st.booleans()))
-    if kind == "done":
-        return StreamDoneEvent()
-    if kind == "start":
-        return StartEvent(
-            query_text=draw(st.sampled_from(("hi", ""))),
-            model=None,
-            doc_type_str=draw(st.sampled_from(("writer", "calc", ""))),
-        )
-    return ErrorEvent(error=RuntimeError("boom"))

@@ -3,12 +3,14 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import plugin.contrib.cdp.browser_cdp_tool as browser_cdp_tool
 from plugin.contrib.cdp.browser_cdp_tool import (
     get_local_chrome_cdp_url,
     cleanup_local_chrome,
     tool_error,
     _WS_AVAILABLE,
 )
+from plugin.framework.managed_subprocess import _instances, shutdown_all
 from plugin.chatbot.web_research import VisitWebpageCdpTool
 
 
@@ -46,6 +48,7 @@ def test_chrome_process_spawning(mock_urlopen, mock_popen, mock_run):
     ]
 
     mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
     mock_popen.return_value = mock_proc
 
     mock_ctx = MagicMock()
@@ -57,9 +60,10 @@ def test_chrome_process_spawning(mock_urlopen, mock_popen, mock_run):
     assert "--remote-debugging-port=9222" in args
     assert "--no-first-run" in args
 
-    # Test cleanup terminates process
+    # Test cleanup uses the managed kill path (MagicMock is not a real Popen)
     cleanup_local_chrome()
-    mock_proc.terminate.assert_called_once()
+    mock_proc.kill.assert_called_once()
+    assert browser_cdp_tool._CHROME_BROWSER is None
 
 
 @patch("subprocess.run")
@@ -83,6 +87,7 @@ def test_firefox_process_spawning(mock_urlopen, mock_popen, mock_run):
     ]
 
     mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
     mock_popen.return_value = mock_proc
 
     mock_ctx = MagicMock()
@@ -95,9 +100,82 @@ def test_firefox_process_spawning(mock_urlopen, mock_popen, mock_run):
     assert "--profile" in args
     assert "--no-first-run" in args
 
-    # Test cleanup terminates process
+    # Test cleanup uses the managed kill path (MagicMock is not a real Popen)
     cleanup_local_chrome()
-    mock_proc.terminate.assert_called_once()
+    mock_proc.kill.assert_called_once()
+    assert browser_cdp_tool._CHROME_BROWSER is None
+
+
+@patch("subprocess.run")
+@patch("subprocess.Popen")
+@patch("urllib.request.urlopen")
+def test_cdp_browser_registered_and_shutdown_all_kills(
+    mock_urlopen, mock_popen, mock_run,
+):
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps([
+        {
+            "type": "page",
+            "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/test-id",
+        }
+    ]).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+    mock_urlopen.side_effect = [
+        Exception("Connection refused"),
+        mock_urlopen.return_value,
+    ]
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_popen.return_value = mock_proc
+
+    cleanup_local_chrome()
+    before = set(_instances)
+
+    get_local_chrome_cdp_url(MagicMock())
+
+    managed = browser_cdp_tool._CHROME_BROWSER
+    assert managed is not None
+    assert managed in _instances
+    assert len(_instances) == len(before) + 1
+
+    shutdown_all()
+    mock_proc.kill.assert_called()
+
+    cleanup_local_chrome()
+    assert browser_cdp_tool._CHROME_BROWSER is None
+    assert managed not in _instances
+
+
+@patch("subprocess.run")
+@patch("subprocess.Popen")
+@patch("urllib.request.urlopen")
+def test_cleanup_local_chrome_kills_registered_browser(
+    mock_urlopen, mock_popen, mock_run,
+):
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps([
+        {
+            "type": "page",
+            "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/test-id",
+        }
+    ]).encode("utf-8")
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+    mock_urlopen.side_effect = [
+        Exception("Connection refused"),
+        mock_urlopen.return_value,
+    ]
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_popen.return_value = mock_proc
+
+    cleanup_local_chrome()
+    get_local_chrome_cdp_url(MagicMock())
+
+    cleanup_local_chrome()
+    mock_proc.kill.assert_called_once()
+    assert browser_cdp_tool._CHROME_BROWSER is None
 
 
 @patch("plugin.contrib.cdp.browser_cdp_tool.browser_cdp")

@@ -25,10 +25,13 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
+import sys
 import time
 import subprocess
 import urllib.request
 import urllib.error
+
+from plugin.framework.managed_subprocess import ManagedSubprocess
 
 def tool_error(message: str, **kwargs: Any) -> str:
     payload = {"success": False, "error": message}
@@ -79,24 +82,27 @@ def _run_async(coro):
 # ---------------------------------------------------------------------------
 
 
-_CHROME_PROCESS = None
+_CHROME_BROWSER: ManagedSubprocess | None = None
+
 
 def cleanup_local_chrome() -> None:
-    global _CHROME_PROCESS
-    if _CHROME_PROCESS is not None:
-        logger.info("Terminating local Chrome process...")
-        try:
-            _CHROME_PROCESS.terminate()
-            _CHROME_PROCESS.wait(timeout=3.0)
-        except Exception:
-            try:
-                _CHROME_PROCESS.kill()
-            except Exception:
-                pass
-        _CHROME_PROCESS = None
+    """Kill the locally spawned CDP browser and drop it from quit-time registry."""
+    global _CHROME_BROWSER
+    managed = _CHROME_BROWSER
+    if managed is None:
+        return
+    _CHROME_BROWSER = None
+    logger.info("Terminating local Chrome process...")
+    try:
+        managed.kill_tree()
+        managed.abandon()
+    except Exception:
+        pass
+    managed.unregister()
+
 
 def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> str:
-    global _CHROME_PROCESS
+    global _CHROME_BROWSER
     # Try querying existing CDP connection first
     try:
         req = urllib.request.Request("http://127.0.0.1:9222/json")
@@ -203,7 +209,21 @@ def get_local_chrome_cdp_url(ctx: Any = None, browser_type: str = "chrome") -> s
         ]
         
     logger.info("Spawning local browser (%s): %s", browser_type, " ".join(cmd))
-    _CHROME_PROCESS = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Own session for tree kill at quit; no CREATE_NO_WINDOW so the browser stays visible on Windows.
+    popen_kw: dict[str, Any] = {}
+    if sys.platform != "win32":
+        popen_kw["start_new_session"] = True
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **popen_kw,
+    )
+    _CHROME_BROWSER = ManagedSubprocess.wrap_existing(
+        proc,
+        label="cdp-browser",
+        register=True,
+    )
     
     # Wait for browser to listen on port 9222
     deadline = time.time() + 6.0

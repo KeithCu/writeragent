@@ -20,6 +20,7 @@ from typing import Any, cast
 from plugin.contrib.ppt_master.upstream import collect_svg_files
 from plugin.embeddings.embeddings_soffice_convert import resolve_soffice_executable
 from plugin.framework.errors import best_effort
+from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp
 from plugin.ppt_master.paths import data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
@@ -291,7 +292,13 @@ def soffice_convert_to_pdf(soffice: str, source: Path, out_dir: Path, *, timeout
         str(source),
     ]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec, check=False)
+        proc = ManagedSubprocess.run_with_process_tree(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            check=False,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         log.warning("soffice pdf convert failed for %s: %s", source, exc)
         return None

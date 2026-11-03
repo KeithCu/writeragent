@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import sys
@@ -126,6 +127,7 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
     main.bootstrap(fake_ctx)
     assert called_reentrant is True
     assert main._bootstrap_state is BootstrapState.INITIALIZED
+    assert gc.isenabled(), "bootstrap tests must not leave gc_policy installed in pytest"
 
 
 def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):

@@ -13,20 +13,17 @@ import ast
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 SEND_HANDLER_AUDIT_PATHS = (
-    "plugin/chatbot/state_machine.py",
     "plugin/chatbot/send_handlers.py",
-    "tests/chatbot/test_state_machine.py",
 )
 
 UI_EFFECT_KIND_PATHS = (
     "plugin/chatbot/tool_loop_state.py",
-    "plugin/chatbot/state_machine.py",
 )
 
-# Expected set for ``UIEffectKind`` in plugin/chatbot/state_machine.py
+# Expected set for ``UIEffectKind`` in plugin/chatbot/tool_loop_state.py
 EXPECTED_UI_EFFECT_KINDS = frozenset({"append", "status", "debug", "info"})
 
 
