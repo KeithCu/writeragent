@@ -720,9 +720,9 @@ class MCPProtocolHandler:
 
     def _tool_exposure_mode(self) -> str:
         """Read mcp.tool_exposure_mode (delegate | direct_flat | direct_discovery)."""
-        # ConfigService.get already returns the caller default on ConfigError.
-        # The except turned any other failure into the delegate catalog.
-        return self.services.config.get("mcp.tool_exposure_mode", "delegate") or "delegate"
+        from plugin.framework.config import get_config
+
+        return get_config("mcp.tool_exposure_mode")
 
     def _resolve_target(self, document_url: str | None) -> tuple[Any, str | None]:
         doc_svc = self.services.document
@@ -1158,8 +1158,6 @@ class MCPProtocolHandler:
             registry = get_services()
             if registry is None:
                 return {"error": "Services not initialized"}
-            if registry.get("config") is None:
-                return {"error": "No config service"}
 
             ctx = uno_context.get_ctx()
             self.queue_executor.execute(settings_box, ctx, timeout=120.0)
@@ -1172,16 +1170,13 @@ class MCPProtocolHandler:
         return list(self.services._services.keys())
 
     def _debug_config(self, key: Any, value: Any) -> Any:
-        if not self.services:
-            return {"error": "No service registry"}
-        config_svc = self.services.config
-        if not config_svc:
-            return {"error": "No config service"}
+        from plugin.framework.config import get_config, get_config_dict, save
+
         if key is None:
-            return config_svc.get_dict()
+            return get_config_dict()
         if value == "__NOSET__":
-            return {key: config_svc.get(key)}
-        config_svc.set(key, value)
+            return {key: get_config(key)}
+        save({key: value})
         return {key: value, "persisted": True}
 
     # ── Helpers ───────────────────────────────────────────────────────

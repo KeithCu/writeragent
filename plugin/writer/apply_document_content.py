@@ -1014,7 +1014,7 @@ class ApplyDocumentContent(ToolBase):
         # the agent's edits as native tracked changes (redlines) the user can accept/reject --
         # tagging each logical change so its outcome can be reported -- and restores the prior
         # recording state. Default off -> the session is inert and behavior is unchanged.
-        # get_config_bool_safe tolerates the flag not being registered yet (returns False).
+        # review_recording_enabled tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled()
 
         # Invariant: the session registers with session_sink only after param checks pass.

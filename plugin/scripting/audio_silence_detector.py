@@ -80,12 +80,11 @@ def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
 
 def load_silence_detector_config() -> SilenceDetectorConfig:
     """Build detector settings from writeragent.json. 0 = manual Stop Rec only."""
-    from plugin.framework.config import get_config_dict
+    from plugin.framework.config import get_config
 
-    raw = get_config_dict()
     try:
-        stop_ms = max(0, int(raw.get("chatbot.audio_silence_stop_ms", DEFAULT_SILENCE_STOP_MS)))
-    except (TypeError, ValueError):
+        stop_ms = max(0, int(get_config("chatbot.audio_silence_stop_ms")))
+    except (TypeError, ValueError, Exception):
         stop_ms = DEFAULT_SILENCE_STOP_MS
     if stop_ms == 0:
         log.info("audio VAD: auto-stop disabled (silence_stop_ms=0)")

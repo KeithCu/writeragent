@@ -33,7 +33,7 @@ class EmbeddingBatch:
 
 def get_embedding_model() -> str:
     """Return configured local embedding model id (HuggingFace sentence-transformers name)."""
-    val = str(get_config("embedding_model") or "").strip()
+    val = str(get_config("embeddings.embedding_model") or "").strip()
     return val or DEFAULT_EMBEDDING_MODEL
 
 

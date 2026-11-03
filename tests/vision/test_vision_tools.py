@@ -124,12 +124,12 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
 
 
 @patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/venv/bin/python")
-@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config", return_value="/home/user/venv")
 def test_vision_venv_configured_true_when_python_resolves(_cfg, _exe):
     assert vision_venv_configured(MagicMock()) is True
 
 
-@patch("plugin.vision.vision_availability.get_config_str", return_value="")
+@patch("plugin.vision.vision_availability.get_config", return_value="")
 def test_vision_venv_configured_false_without_venv_path(_cfg):
     assert vision_venv_configured(MagicMock()) is False
 

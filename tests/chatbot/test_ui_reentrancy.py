@@ -112,12 +112,9 @@ def test_refresh_controls_does_not_recurse_when_combo_fires_listeners():
     bus = EventBus()
     set_config_keys: list[str] = []
 
-    def set_config(key, value):
-        set_config_keys.append(key)
-        bus.emit("config:changed", ctx=None)
-
-    def set_configs(values):
-        set_config_keys.extend(values)
+    def track_save(patch, event_key=None):
+        if isinstance(patch, dict):
+            set_config_keys.extend(patch)
         bus.emit("config:changed", ctx=None)
 
     refresh = _capped_refresh(panel)
@@ -136,8 +133,8 @@ def test_refresh_controls_does_not_recurse_when_combo_fires_listeners():
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=_ENDPOINT),
         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]),
-        patch("plugin.framework.config.set_config", side_effect=set_config),
-        patch("plugin.chatbot.config_ui_helpers.set_configs", side_effect=set_configs),
+        patch("plugin.framework.config.save", side_effect=track_save),
+        patch("plugin.chatbot.config_ui_helpers.save", side_effect=track_save),
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value=_MODEL),
         patch("plugin.framework.client.model_fetcher.set_text_model"),
     ):
@@ -168,20 +165,20 @@ def test_typed_image_model_is_saved_unless_refreshing():
         patch("plugin.chatbot.config_ui_helpers.get_image_model", return_value=""),
         patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=_ENDPOINT),
         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]),
-        patch("plugin.chatbot.config_ui_helpers.set_configs") as mock_set_configs,
+        patch("plugin.chatbot.config_ui_helpers.save") as mock_save,
     ):
         ChatPanelElement._wire_model_selectors(panel, {"image_model_selector": image})
         image.setText("vendor/typed-image")
-        assert mock_set_configs.call_count == 1
-        assert "image_model" in mock_set_configs.call_args[0][0]
-        assert mock_set_configs.call_args[0][0]["image_model"] == "vendor/typed-image"
+        assert mock_save.call_count == 1
+        assert "image_model" in mock_save.call_args[0][0]
+        assert mock_save.call_args[0][0]["image_model"] == "vendor/typed-image"
         # SincesetText simulates typing, update_lru is False, lru shouldn't be touched.
-        assert "image_model_lru" not in mock_set_configs.call_args[0][0]
+        assert "image_model_lru" not in mock_save.call_args[0][0]
 
-        mock_set_configs.reset_mock()
+        mock_save.reset_mock()
         panel._in_refresh_controls = True
         image.setText("vendor/during-refresh")
-        assert mock_set_configs.call_count == 0
+        assert mock_save.call_count == 0
 
 
 def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
@@ -224,19 +221,16 @@ def test_unguarded_listener_does_not_infinite_loop_because_event_bus_drops():
     """Without the panel flag, VCL-like setText still writes LRU; bus drop stops the hang.
 
     Proves the harness would keep calling refresh if both the flag and the bus
-    drop were missing; with the bus, refresh stays bounded and set_config runs.
+    drop were missing; with the bus, refresh stays bounded and save runs.
     """
     combo = FiringCombo()
     panel = _make_panel(combo)
     bus = EventBus()
     set_config_keys: list[str] = []
 
-    def set_config(key, value):
-        set_config_keys.append(key)
-        bus.emit("config:changed", ctx=None)
-
-    def set_configs(values):
-        set_config_keys.extend(values)
+    def track_save(patch, event_key=None):
+        if isinstance(patch, dict):
+            set_config_keys.extend(patch)
         bus.emit("config:changed", ctx=None)
 
     refresh = _capped_refresh(panel)
@@ -263,8 +257,8 @@ def test_unguarded_listener_does_not_infinite_loop_because_event_bus_drops():
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=_ENDPOINT),
         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]),
-        patch("plugin.framework.config.set_config", side_effect=set_config),
-        patch("plugin.chatbot.config_ui_helpers.set_configs", side_effect=set_configs),
+        patch("plugin.framework.config.save", side_effect=track_save),
+        patch("plugin.chatbot.config_ui_helpers.save", side_effect=track_save),
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value=_MODEL),
         patch("plugin.framework.client.model_fetcher.set_text_model"),
     ):

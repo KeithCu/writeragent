@@ -9,7 +9,7 @@
 import json
 import urllib.error
 import urllib.request
-from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -699,27 +699,19 @@ def test_drain_request_body_reads_up_to_content_length():
 
 
 def test_reload_cors_config_failure_propagates():
-    services = MagicMock()
-    services.config.proxy_for.side_effect = RuntimeError("config")
     set_allow_private_origins(True)
     set_extra_allowed_origins(["https://evil.example"])
-    with pytest.raises(RuntimeError, match="config"):
-        reload_cors_policy_from_config(services)
+    with patch("plugin.framework.config.get_config", side_effect=RuntimeError("config")):
+        with pytest.raises(RuntimeError, match="config"):
+            reload_cors_policy_from_config(None)
     assert get_allow_private_origins() is True
     assert "https://evil.example" in get_extra_allowed_origins()
 
 
 def test_reload_cors_missing_private_key_stays_on():
-    services = MagicMock()
-    proxy = MagicMock()
-
-    def _get(key, default=None):
-        return None
-
-    proxy.get.side_effect = _get
-    services.config.proxy_for.return_value = proxy
-    reload_cors_policy_from_config(services)
-    assert get_allow_private_origins() is True
+    with patch("plugin.framework.config.get_config", return_value=None):
+        reload_cors_policy_from_config(None)
+        assert get_allow_private_origins() is True
 
 
 def test_drain_request_body_swallows_valueerror_and_oserror():
@@ -798,13 +790,14 @@ def test_normalize_origins_list_bad_and_empty_inputs():
     ],
 )
 def test_reload_cors_bad_or_empty_origins_does_not_crash(bad_or_empty):
-    services = MagicMock()
-    proxy = MagicMock()
-    proxy.get.side_effect = lambda key, default=None: bad_or_empty if key == "cors_allowed_origins" else None
-    services.config.proxy_for.return_value = proxy
+    def fake_get(key):
+        if key == "mcp.cors_allowed_origins":
+            return bad_or_empty
+        return None
 
     # Bad or empty config values must not crash module reload or raise PreContractError.
-    reload_cors_policy_from_config(services)
+    with patch("plugin.framework.config.get_config", side_effect=fake_get):
+        reload_cors_policy_from_config(None)
     if bad_or_empty == ["https://valid.example.com", "", 42, "not a url"]:
         assert "https://valid.example.com" in get_extra_allowed_origins()
     else:

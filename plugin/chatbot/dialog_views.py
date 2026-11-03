@@ -34,10 +34,8 @@ from plugin.framework.i18n import N_, _
 from plugin.framework.config import (
     get_api_key_for_endpoint,
     get_config,
-    get_config_int,
-    get_config_str,
     get_current_endpoint,
-    set_configs,
+    save,
 )
 from plugin.framework.client.model_fetcher import (
     cached_image_models,
@@ -145,7 +143,7 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
             dlg.getModel().Title = title
 
         prompt_ctrl = dlg.getControl("prompt_selector")
-        current_prompt = get_config_str("additional_instructions")
+        current_prompt = get_config("additional_instructions")
         populate_combobox_with_lru(prompt_ctrl, current_prompt, "prompt_lru", "")
 
         model_selector = get_optional(dlg, "model_selector")
@@ -161,12 +159,12 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
             )
 
         token_controls = (
-            (get_optional(dlg, "extend_max_tokens"), "extend_selection_max_tokens"),
-            (get_optional(dlg, "edit_extra_tokens"), "edit_selection_max_new_tokens"),
+            (get_optional(dlg, "extend_max_tokens"), "chatbot.extend_selection_max_tokens"),
+            (get_optional(dlg, "edit_extra_tokens"), "chatbot.edit_selection_max_new_tokens"),
         )
         for ctrl, cfg_key in token_controls:
             if ctrl:
-                set_control_text(ctrl, str(get_config_int(cfg_key)))
+                set_control_text(ctrl, str(get_config(cfg_key)))
 
         dlg.getControl("edit").setFocus()
         dlg.getControl("edit").setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", 0, len(str(default))))
@@ -184,7 +182,7 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
                 if ctrl
             }
             if values:
-                set_configs(values)
+                save(values)
             return ret_text, ret_prompt
         # ESC/close: execute() returned false — skip dispose in finally (double dispose segfaults LO).
         need_dispose = False

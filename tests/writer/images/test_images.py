@@ -40,6 +40,26 @@ from plugin.writer.images.images import (
 from plugin.writer.specialized_base import SpecializedWorkflowFinished
 from tests.chatbot.test_tool_loop import DummyCalcSpecialTool
 
+def _image_tool_config_side_effect(int_value: int = 1024):
+    """Replicate separate typed-getter mocks (last nested patch won for get_config)."""
+    from plugin.framework import config_schema as _cs
+
+    def _get(key: str) -> Any:
+        schema = _cs.get_config_schema(key) or {}
+        typ = schema.get("type")
+        if typ == "boolean":
+            return False
+        if typ == "string":
+            return "square"
+        return int_value
+
+    return _get
+
+
+def _image_tool_config_all_false(_key: str) -> bool:
+    """Two nested get_config patches: inner False won for every key."""
+    return False
+
 
 def test_resolve_orient_named_positions():
     # Friendly names resolve to a (mocked) UNO constant, never an error.
@@ -152,9 +172,7 @@ def test_image_generate_forwards_stop_checker():
         patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image"),
-        patch("plugin.writer.images.images.get_config_int", return_value=1024),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
-        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(1024)),
         patch("plugin.writer.images.images.get_image_model", return_value=""),
     ):
         res = ImageGenerate().execute(ctx, prompt="a stop checked cat")
@@ -182,9 +200,7 @@ def test_image_generate_inserts_even_if_stopped_after_download():
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image") as mock_insert,
         patch("plugin.writer.images.images.replace_graphic_source"),
-        patch("plugin.writer.images.images.get_config_int", return_value=1024),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
-        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(1024)),
         patch("plugin.writer.images.images.get_image_model", return_value=""),
     ):
         res = ImageGenerate().execute(ctx, prompt="a cat")
@@ -207,9 +223,7 @@ def test_image_generate_stop_is_user_stopped():
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image") as mock_insert,
         patch("plugin.writer.images.images.replace_graphic_source") as mock_replace,
-        patch("plugin.writer.images.images.get_config_int", return_value=1024),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
-        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(1024)),
         patch("plugin.writer.images.images.get_image_model", return_value=""),
     ):
         res = ImageGenerate().execute(ctx, prompt="a cat")
@@ -251,9 +265,7 @@ def test_resolve_image_generate_is_edit_defaults_to_selection():
             patch("plugin.writer.images.images.ImageService", return_value=svc),
             patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
             patch("plugin.writer.images.images.insert_image") as insert,
-            patch("plugin.writer.images.images.get_config_int", return_value=512),
-            patch("plugin.writer.images.images.get_config_bool", return_value=False),
-            patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
             patch("plugin.writer.images.images.get_image_model", return_value=""),
         ):
             res = ImageGenerate().execute(ctx, prompt="a tabby cat", source_image=raw)
@@ -268,9 +280,7 @@ def test_resolve_image_generate_is_edit_defaults_to_selection():
             patch("plugin.writer.images.images.ImageService", return_value=svc),
             patch("plugin.writer.images.images.replace_graphic_source") as replace,
             patch("plugin.writer.images.images.insert_image") as insert,
-            patch("plugin.writer.images.images.get_config_int", return_value=512),
-            patch("plugin.writer.images.images.get_config_bool", return_value=False),
-            patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
             patch("plugin.writer.images.images.get_image_model", return_value=""),
         ):
             res = ImageGenerate().execute(ctx, prompt="a tabby cat", source_image=raw)
@@ -282,8 +292,7 @@ def test_resolve_image_generate_is_edit_defaults_to_selection():
     with (
         patch("plugin.writer.images.images.run_on_main", side_effect=_run),
         patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
-        patch("plugin.writer.images.images.get_config_int", return_value=512),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_all_false),
     ):
         res = ImageGenerate().execute(ctx, prompt="a tabby cat", source_image="SELECTION")
         assert res["status"] == "error"
@@ -313,9 +322,7 @@ def test_image_generate_omitted_source_edits_when_selected():
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
         patch("plugin.writer.images.images.insert_image") as insert,
-        patch("plugin.writer.images.images.get_config_int", return_value=512),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
-        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
         patch("plugin.writer.images.images.get_image_model", return_value=""),
     ):
         res = ImageGenerate().execute(ctx, prompt="make it look like a wizard")
@@ -363,8 +370,7 @@ def test_image_generate_omitted_source_edits_when_selected_fallback_to_display_s
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
         patch("plugin.writer.images.images.insert_image") as insert,
-        patch("plugin.writer.images.images.get_config_int", return_value=512),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
     ):
         res = ImageGenerate().execute(ctx, prompt="make it look like a wizard")
 
@@ -414,9 +420,7 @@ def test_image_generate_edit_scales_single_sided_dimension():
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
         patch("plugin.writer.images.images.insert_image"),
-        patch("plugin.writer.images.images.get_config_int", return_value=512),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
-        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
         patch("plugin.writer.images.images.get_image_model", return_value=""),
     ):
         res = ImageGenerate().execute(ctx, prompt="make it look like a wizard", width=512)
@@ -440,9 +444,7 @@ def test_image_generate_omitted_source_creates_when_no_selection():
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_graphic_source") as replace,
         patch("plugin.writer.images.images.insert_image") as insert,
-        patch("plugin.writer.images.images.get_config_int", return_value=512),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
-        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(512)),
         patch("plugin.writer.images.images.get_image_model", return_value=""),
     ):
         res = ImageGenerate().execute(ctx, prompt="a tabby cat")
@@ -572,8 +574,8 @@ def test_download_image_to_cache_does_not_disable_tls(tmp_path, monkeypatch):
 
     monkeypatch.setattr(images_mod.urllib.request, "urlopen", _open)
     monkeypatch.setattr(
-        "plugin.writer.images.images.get_config_int",
-        lambda key, default=0: 15 if key == "request_timeout" else 1024,
+        "plugin.writer.images.images.get_config",
+        lambda key: 15 if key == "request_timeout" else 1024,
     )
     path = _download_image_to_cache("https://example.com/logo.png")
     assert path.startswith(str(tmp_path))
@@ -642,8 +644,8 @@ def test_download_image_to_cache_sets_short_read_timeout(tmp_path, monkeypatch):
 
     monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda request, context=None, timeout=None: _Resp())
     monkeypatch.setattr(
-        "plugin.writer.images.images.get_config_int",
-        lambda key, default=0: 15 if key == "request_timeout" else 1024,
+        "plugin.writer.images.images.get_config",
+        lambda key: 15 if key == "request_timeout" else 1024,
     )
     _download_image_to_cache("https://example.com/timeout.png")
     assert timeouts == [1.0]
@@ -682,8 +684,8 @@ def test_download_image_to_cache_unlinks_stale_partials(tmp_path, monkeypatch):
 
     monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda *args, **kwargs: _Resp())
     monkeypatch.setattr(
-        "plugin.writer.images.images.get_config_int",
-        lambda key, default=0: 15 if key == "request_timeout" else 1024,
+        "plugin.writer.images.images.get_config",
+        lambda key: 15 if key == "request_timeout" else 1024,
     )
 
     path = _download_image_to_cache("https://example.com/logo.png")
@@ -732,9 +734,7 @@ def test_image_generate_marshals_insert_unscoped():
         patch("plugin.writer.images.images.visual_helpers.selected_graphic_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.insert_image"),
-        patch("plugin.writer.images.images.get_config_int", return_value=1024),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
-        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_side_effect(1024)),
         patch("plugin.writer.images.images.get_image_model", return_value=""),
     ):
         result = ImageGenerate().execute(ctx, prompt="a red circle")
@@ -2189,8 +2189,7 @@ def test_image_generate_preserves_large_frame_units_without_capping():
             patch("plugin.writer.images.images.ImageService", return_value=svc),
             patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
             patch("plugin.writer.images.images.insert_image") as insert,
-            patch("plugin.writer.images.images.get_config_int", return_value=512),
-            patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_all_false),
         ):
             res = ImageGenerate().execute(ctx, prompt="test")
         assert res["status"] == "ok"
@@ -2236,8 +2235,7 @@ def test_image_generate_replaces_original_target_even_if_selection_changed():
         patch("plugin.doc.visual_helpers.graphic_from_object", return_value=None),
         patch("plugin.writer.images.images.ImageService", return_value=svc),
         patch("plugin.writer.images.images.replace_graphic_source", return_value=True) as replace,
-        patch("plugin.writer.images.images.get_config_int", return_value=512),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config", side_effect=_image_tool_config_all_false),
     ):
         res = ImageGenerate().execute(ctx, prompt="wizard")
 

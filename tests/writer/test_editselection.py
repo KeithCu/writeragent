@@ -1,12 +1,12 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.writer.editselection import do_extend_selection, do_edit_selection
-from plugin.framework.config import set_configs
+from plugin.framework.config import save
 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_uses_non_empty_range(mock_create_client, mock_stream_completion):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
     ctx = MagicMock()
@@ -45,7 +45,7 @@ def test_extend_selection_uses_non_empty_range(mock_create_client, mock_stream_c
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_falls_back_to_index0_if_all_empty(mock_create_client, mock_stream_completion):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
     ctx = MagicMock()
@@ -80,7 +80,7 @@ def test_extend_selection_falls_back_to_index0_if_all_empty(mock_create_client, 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_client, mock_stream_completion):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     # Setup mocks
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
@@ -110,7 +110,7 @@ def test_extend_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_edit_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_client, mock_stream_completion):
-    set_configs({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     # Setup mocks
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
@@ -141,7 +141,7 @@ def test_edit_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_c
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_fails_closed_on_stop_checker_error(mock_create_client, mock_stream_completion):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
 
@@ -166,7 +166,7 @@ def test_extend_selection_fails_closed_on_stop_checker_error(mock_create_client,
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_fails_when_setString_fails(mock_create_client, mock_stream_completion, mock_msgbox):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
 
@@ -202,7 +202,7 @@ def test_extend_selection_on_error_long_error_does_not_raise_contract_error(mock
     from plugin.framework.deal_shim import DEAL_MAX_MSGID
     from plugin.framework.errors import format_error_message
 
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_create_client.return_value = MagicMock()
     ctx = MagicMock()
     model = MagicMock()
@@ -226,7 +226,7 @@ def test_edit_selection_on_error_long_error_does_not_raise_contract_error(mock_c
     from plugin.framework.deal_shim import DEAL_MAX_MSGID
     from plugin.framework.errors import format_error_message
 
-    set_configs({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_create_client.return_value = MagicMock()
     ctx = MagicMock()
     model = MagicMock()
@@ -342,7 +342,7 @@ def test_both_commands_write_model_lru_once(
 ):
     # Seed both token caps: LRU test exercises Extend then Edit, and without these
     # get_config_int raises once create_validated_client is mocked through.
-    set_configs(
+    save(
         {
             "extend_selection_max_tokens": 100,
             "edit_selection_max_new_tokens": 100,
@@ -375,7 +375,7 @@ def test_both_commands_write_model_lru_once(
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_uses_extend_system_prompt(mock_create_client, mock_stream):
-    set_configs({
+    save({
         "extend_selection_max_tokens": 100,
         "doc.agent_edit_review_mode": "none",
         "additional_instructions": "chat extra",
@@ -402,7 +402,7 @@ def test_extend_selection_uses_extend_system_prompt(mock_create_client, mock_str
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_edit_selection_uses_edit_system_prompt(mock_create_client, mock_stream):
-    set_configs({
+    save({
         "edit_selection_max_new_tokens": 100,
         "doc.agent_edit_review_mode": "none",
         "additional_instructions": "chat extra",
@@ -429,7 +429,7 @@ def test_edit_selection_uses_edit_system_prompt(mock_create_client, mock_stream)
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_edit_selection_dialog_extras_win_over_config(mock_create_client, mock_stream):
-    set_configs({
+    save({
         "edit_selection_max_new_tokens": 100,
         "doc.agent_edit_review_mode": "none",
         "additional_instructions": "chat extra",

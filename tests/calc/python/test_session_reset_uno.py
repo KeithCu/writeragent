@@ -28,12 +28,12 @@ def _assert_undefined_name_error(val: object) -> None:
 @with_native_doc("calc")
 def test_shared_kernel_reset_session_uno(ctx, doc):
     from plugin.calc.python.addin import PythonFunction
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
     import plugin.scripting.session_manager as sm
     from plugin.scripting.document_scripts import set_calc_init_script
 
     try:
-        set_config("scripting.python_session_mode", "shared")
+        save({"scripting.python_session_mode": "shared"})
 
         # 1. Standard add-in instantiation; the caller argument carries the document
         func_default = PythonFunction(ctx)
@@ -84,7 +84,7 @@ def test_shared_kernel_reset_session_uno(ctx, doc):
         res_init_default = func_default.py(doc, "result = double(5)")
         assert res_init_default == 10.0
     finally:
-        set_config("scripting.python_session_mode", "isolated")
+        save({"scripting.python_session_mode": "isolated"})
 
 
 @native_test
@@ -93,7 +93,7 @@ def test_shared_kernel_live_cells_reset_uno(ctx, doc):
 
 
     """Test live Calc cells using =PY() formula recalculation in shared mode and after reset."""
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
     import plugin.scripting.session_manager as sm
     from plugin.scripting.document_scripts import set_calc_init_script
     from plugin.calc.python.function import clear_python_addin_cache
@@ -106,7 +106,7 @@ def test_shared_kernel_live_cells_reset_uno(ctx, doc):
 
 
     try:
-        set_config("scripting.python_session_mode", "shared")
+        save({"scripting.python_session_mode": "shared"})
 
         # Record active Calc session id on the main thread for off-main formula lookups
         sid = sm.calc_workbook_base_session_id(doc)
@@ -145,4 +145,4 @@ def test_shared_kernel_live_cells_reset_uno(ctx, doc):
         assert res_d1 == 14.0
 
     finally:
-        set_config("scripting.python_session_mode", "isolated")
+        save({"scripting.python_session_mode": "isolated"})

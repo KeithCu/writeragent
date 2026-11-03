@@ -339,7 +339,7 @@ def test_web_research_approval_setup_failure_does_not_run_search():
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     registry, old_main = _install_fake_main_registry()
     try:
-        with patch("plugin.chatbot.tool_loop_actions.get_config_bool", side_effect=RuntimeError("config")):
+        with patch("plugin.chatbot.tool_loop_actions.get_config", side_effect=RuntimeError("config")):
             out = execute_fn("web_research", {"query": "paris"}, MagicMock(), MagicMock())
     finally:
         _restore_main(old_main)
@@ -353,7 +353,7 @@ def test_web_research_approval_missing_queue_does_not_run_search():
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     registry, old_main = _install_fake_main_registry()
     try:
-        with patch("plugin.chatbot.tool_loop_actions.get_config_bool", return_value=True):
+        with patch("plugin.chatbot.tool_loop_actions.get_config", return_value=True):
             execute_fn("web_research", {"query": "paris"}, MagicMock(), MagicMock())
             called_ctx = registry.execute.call_args[0][1]
             approval_result = called_ctx.approval_callback("query", "web_research", {})
@@ -1156,7 +1156,7 @@ def test_subagent_append_and_approval_use_the_captured_queue():
     try:
         with (
             patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)),
-            patch("plugin.chatbot.tool_loop_actions.get_config_bool", return_value=True),
+            patch("plugin.chatbot.tool_loop_actions.get_config", return_value=True),
             patch("plugin.framework.send_cancellation.wait_for_approval", side_effect=fake_wait),
         ):
             interpreter.execute(

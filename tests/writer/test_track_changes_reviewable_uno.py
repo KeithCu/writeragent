@@ -30,7 +30,7 @@ from plugin.writer.edit_review import (
 from plugin.writer.apply_document_content import ApplyDocumentContent
 import plugin.writer.edit_review as _content
 from plugin.writer.edit_review import EditReviewSession, get_agent_edit_review_mode
-from plugin.framework.config import set_config, get_config
+from plugin.framework.config import save, get_config
 import plugin.writer.format as fmt
 import plugin.writer.html_import as html_import
 from plugin.writer.edit_review import _string_skipping_redline
@@ -258,7 +258,7 @@ def test_split_authors_insert_vs_delete_uno(ctx, doc):
     by-author redline coloring shows new vs removed text in two distinct colors."""
     _reset(doc, ctx, "Old clause body here.")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "record")
+    save({_FLAG: "record"})
     try:
         res = ApplyDocumentContent().execute(
             _tool_ctx(doc, ctx), target="search", old_content="Old clause body here.", content=["New clause body here."])
@@ -267,7 +267,7 @@ def test_split_authors_insert_vs_delete_uno(ctx, doc):
         assert by_type.get("Insert") == "WriterAgent", "insertions authored WriterAgent: %r" % by_type
         assert by_type.get("Delete") == "WriterAgent (deletions)", "deletions authored distinctly: %r" % by_type
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
         _reject_all(doc, ctx)
 
 
@@ -280,7 +280,7 @@ def test_split_authors_whole_block_on_two_colors_uno(ctx, doc):
     _reset(doc, ctx, "Old clause body here.")
     prev = get_config(_FLAG)
     prev_split, prev_thresh = _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD
-    set_config(_FLAG, "record")
+    save({_FLAG: "record"})
     _content._SPLIT_AUTHOR_COLORS = True
     _content._WORD_DIFF_THRESHOLD = 0.0  # any change -> ONE whole block (not surgical)
     try:
@@ -295,7 +295,7 @@ def test_split_authors_whole_block_on_two_colors_uno(ctx, doc):
         assert _para_text(doc) == "New clause body here.", \
             "accept must reconstruct exactly the new text (whole-block atomicity), got %r" % _para_text(doc)
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
         _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD = prev_split, prev_thresh
         if len(doc.getRedlines()):
             _reject_all(doc, ctx)
@@ -309,7 +309,7 @@ def test_split_authors_whole_block_off_one_color_uno(ctx, doc):
     _reset(doc, ctx, "Old clause body here.")
     prev = get_config(_FLAG)
     prev_split, prev_thresh = _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD
-    set_config(_FLAG, "record")
+    save({_FLAG: "record"})
     _content._SPLIT_AUTHOR_COLORS = False
     _content._WORD_DIFF_THRESHOLD = 0.0  # force whole-block
     try:
@@ -322,7 +322,7 @@ def test_split_authors_whole_block_off_one_color_uno(ctx, doc):
         assert _para_text(doc) == "New clause body here.", \
             "accept must reconstruct exactly the new text, got %r" % _para_text(doc)
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
         _content._SPLIT_AUTHOR_COLORS, _content._WORD_DIFF_THRESHOLD = prev_split, prev_thresh
         if len(doc.getRedlines()):
             _reject_all(doc, ctx)
@@ -336,7 +336,7 @@ def test_html_import_failure_rolls_back_in_review_mode_uno(ctx, doc):
     document keeps its original text with no stranded tracked deletion, and no agent change lands."""
     _reset(doc, ctx, "Original body text to keep.")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "record")
+    save({_FLAG: "record"})
     real = html_import._insert_mixed_or_plain_html
 
     def _boom(*a, **k):
@@ -356,7 +356,7 @@ def test_html_import_failure_rolls_back_in_review_mode_uno(ctx, doc):
             "no tracked change may survive the rolled-back edit, got %r" % _redline_types(doc)
     finally:
         html_import._insert_mixed_or_plain_html = real
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
         if len(doc.getRedlines()):
             _reject_all(doc, ctx)
 
@@ -368,7 +368,7 @@ def test_split_authors_surgical_off_one_color_uno(ctx, doc):
     _reset(doc, ctx, "Old clause body here.")
     prev = get_config(_FLAG)
     prev_split = _content._SPLIT_AUTHOR_COLORS
-    set_config(_FLAG, "record")
+    save({_FLAG: "record"})
     _content._SPLIT_AUTHOR_COLORS = False  # default threshold -> small change takes the surgical path
     try:
         res = ApplyDocumentContent().execute(
@@ -379,7 +379,7 @@ def test_split_authors_surgical_off_one_color_uno(ctx, doc):
         _accept_all(doc, ctx)
         assert _para_text(doc) == "New clause body here.", "accept must yield the new text, got %r" % _para_text(doc)
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
         _content._SPLIT_AUTHOR_COLORS = prev_split
         if len(doc.getRedlines()):
             _reject_all(doc, ctx)
@@ -395,7 +395,7 @@ def test_apply_document_content_tool_tracks_when_config_on_uno(ctx, doc):
     primitive-level tests above do not.)"""
     _reset(doc, ctx, "Old tool body.")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "record")
+    save({_FLAG: "record"})
     try:
         assert get_agent_edit_review_mode() == "record", "mode should read record (test-infra sanity)"
         res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=["<p>Tool new body.</p>"])
@@ -405,7 +405,7 @@ def test_apply_document_content_tool_tracks_when_config_on_uno(ctx, doc):
         _reject_all(doc, ctx)
         assert "Old tool body." in _para_text(doc), "reject must restore the original, got %r" % _para_text(doc)
     finally:
-        set_config(_FLAG, prev)  # restore the dev's prior value, not a hardcoded False
+        save({_FLAG: prev})  # restore the dev's prior value, not a hardcoded False
 
 
 @native_test
@@ -414,7 +414,7 @@ def test_apply_document_content_tool_untracked_when_config_off_uno(ctx, doc):
     """Mode off (the default): the tool applies directly, no redline."""
     _reset(doc, ctx, "Old tool body.")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "off")
+    save({_FLAG: "off"})
     try:
         assert get_agent_edit_review_mode() == "off"
         res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="full_document", content=["<p>Tool new body.</p>"])
@@ -422,7 +422,7 @@ def test_apply_document_content_tool_untracked_when_config_off_uno(ctx, doc):
         assert _redline_types(doc) == [], "flag off must not create redlines"
         assert "Tool new body." in _para_text(doc)
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
 
 
 @native_test
@@ -433,7 +433,7 @@ def test_apply_document_content_tool_tags_changes_with_session_tokens_uno(ctx, d
     PER MATCH."""
     _reset(doc, ctx, "Tag alpha here. Tag alpha there.")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "record")
+    save({_FLAG: "record"})
     try:
         res = ApplyDocumentContent().execute(
             _tool_ctx(doc, ctx), target="search", old_content="Tag alpha", content=["Tag beta"], all_matches=True)
@@ -444,7 +444,7 @@ def test_apply_document_content_tool_tags_changes_with_session_tokens_uno(ctx, d
             "all redlines must carry session tokens, got %r" % comments
         assert len(set(comments)) == 2, "two matches -> two distinct per-change tokens, got %r" % comments
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
         _reject_all(doc, ctx)
 
 
@@ -457,14 +457,14 @@ def test_tool_never_blocks_on_main_thread_even_with_wait_flag_uno(ctx, doc):
     happens on a background MCP/chat thread."""
     _reset(doc, ctx, "Guard body text.")
     prev_mode = get_config(_FLAG)
-    set_config(_FLAG, "wait")
+    save({_FLAG: "wait"})
     try:
         res = ApplyDocumentContent().execute(_tool_ctx(doc, ctx), target="end", content=["<p>Guard addition.</p>"])
         assert res.get("status") == "ok", res
         assert "review" not in res, "main-thread call must not block-wait: %r" % res
         assert _redline_types(doc), "wait mode must imply recording (redlines expected)"
     finally:
-        set_config(_FLAG, prev_mode)
+        save({_FLAG: prev_mode})
         _reject_all(doc, ctx)
 
 
@@ -477,14 +477,14 @@ def test_apply_style_flags_unreviewed_when_review_on_uno(ctx, doc):
 
     _reset(doc, ctx, "Heading target text.")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "record")
+    save({_FLAG: "record"})
     try:
         res = ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", family="ParagraphStyles", target="full_document")
         assert res.get("status") == "ok", res
         assert res.get("style_unreviewed") is True, "style edit must flag unreviewed under review mode: %r" % res
         assert _redline_types(doc) == [], "a paragraph-style change creates no redline"
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
 
 
 @native_test
@@ -494,13 +494,13 @@ def test_apply_style_no_unreviewed_flag_when_review_off_uno(ctx, doc):
 
     _reset(doc, ctx, "Heading target text.")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "off")
+    save({_FLAG: "off"})
     try:
         res = ApplyStyle().execute(_tool_ctx(doc, ctx), style="Heading 2", family="ParagraphStyles", target="full_document")
         assert res.get("status") == "ok", res
         assert "style_unreviewed" not in res, "no unreviewed flag when review mode off: %r" % res
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
 
 
 # --- script/vision result insertions record through the session too ----------------------
@@ -594,7 +594,7 @@ def test_update_style_flags_unreviewed_when_review_on_uno(ctx, doc):
 
     _reset(doc, ctx, "Body text for style update.")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "record")
+    save({_FLAG: "record"})
     try:
         res = StyleUpdate().execute(
             _tool_ctx(doc, ctx), style="Standard", family="ParagraphStyles",
@@ -603,7 +603,7 @@ def test_update_style_flags_unreviewed_when_review_on_uno(ctx, doc):
         assert res.get("style_unreviewed") is True, "update_style must flag unreviewed under review mode: %r" % res
         assert _redline_types(doc) == [], "a style change creates no redline"
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
 
 
 @native_test
@@ -615,7 +615,7 @@ def test_is_async_true_on_background_thread_when_review_toggled_off_uno(ctx, doc
     import threading
 
     prev = get_config(_FLAG)
-    set_config(_FLAG, "off")
+    save({_FLAG: "off"})
     try:
         tool = ApplyDocumentContent()
         assert tool.is_async() is False, "main thread + review off -> synchronous (no spurious async)"
@@ -629,7 +629,7 @@ def test_is_async_true_on_background_thread_when_review_toggled_off_uno(ctx, doc
         t.join()
         assert seen.get("v") is True, "on a worker thread is_async must stay True so execute_safe won't reject"
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
 
 
 @native_test
@@ -643,7 +643,7 @@ def test_bookmarks_cleaned_when_edit_raises_midway_uno(ctx, doc):
 
     _reset(doc, ctx, "Anchor target paragraph.")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "record")
+    save({_FLAG: "record"})
 
     class _BoomTool(ApplyDocumentContent):
         def _execute_edit(self, tctx, session_sink=None, **kwargs):
@@ -665,7 +665,7 @@ def test_bookmarks_cleaned_when_edit_raises_midway_uno(ctx, doc):
         leaked = [n for n in doc.getBookmarks().getElementNames() if n.startswith("wa_review_")]
         assert leaked == [], "anchor bookmarks must be cleaned up on a mid-edit failure, leaked: %r" % leaked
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
         if len(doc.getRedlines()):
             _reject_all(doc, ctx)
 
@@ -704,8 +704,8 @@ def test_apply_document_content_wait_timeout_zero_returns_pending_uno(ctx, doc):
     _reset(doc, ctx, "Initial text.")
     prev_mode = get_config(_FLAG)
     prev_timeout = get_config("doc.edit_review_timeout")
-    set_config(_FLAG, "wait")
-    set_config("doc.edit_review_timeout", 0)
+    save({_FLAG: "wait"})
+    save({"doc.edit_review_timeout": 0})
 
     try:
         tool = ApplyDocumentContent()
@@ -728,8 +728,8 @@ def test_apply_document_content_wait_timeout_zero_returns_pending_uno(ctx, doc):
         assert len(changes) == 1, changes
         assert changes[0]["outcome"] == "pending", changes[0]["outcome"]
     finally:
-        set_config(_FLAG, prev_mode)
-        set_config("doc.edit_review_timeout", prev_timeout)
+        save({_FLAG: prev_mode})
+        save({"doc.edit_review_timeout": prev_timeout})
         _reject_all(doc, ctx)
 
 
@@ -823,7 +823,7 @@ def test_full_replace_multi_paragraph_review_mode_uno(ctx, doc):
     skip-Delete equals new body, skip-Insert equals old body."""
     _two_para_body(doc, ctx, "Alpha initiative", "project Beta")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "wait")
+    save({_FLAG: "wait"})
     try:
         tool_ctx = _tool_ctx(doc, ctx)
         tool = ApplyDocumentContent()
@@ -839,7 +839,7 @@ def test_full_replace_multi_paragraph_review_mode_uno(ctx, doc):
         assert accepted == "ALPHA INITIATIVE\nPROJECT BETA", "skip-Delete text must match new body: %r" % accepted
         assert rejected == "Alpha initiative\nproject Beta", "skip-Insert text must match old body: %r" % rejected
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
         if len(doc.getRedlines()):
             _accept_all(doc, ctx)
 
@@ -851,7 +851,7 @@ def test_reject_all_and_undo_recovers_edit_uno(ctx, doc):
     body equals original, redlines back as clean Delete+Insert, second undo removes edit."""
     _two_para_body(doc, ctx, "Alpha initiative", "project Beta")
     prev = get_config(_FLAG)
-    set_config(_FLAG, "wait")
+    save({_FLAG: "wait"})
     try:
         tool_ctx = _tool_ctx(doc, ctx)
         tool = ApplyDocumentContent()
@@ -877,7 +877,7 @@ def test_reject_all_and_undo_recovers_edit_uno(ctx, doc):
         assert len(doc.getRedlines()) == 0, "second undo must remove edit redlines"
         assert _string_skipping_redline(doc.getText(), "Insert") == "Alpha initiative\nproject Beta"
     finally:
-        set_config(_FLAG, prev)
+        save({_FLAG: prev})
         if len(doc.getRedlines()):
             _accept_all(doc, ctx)
 

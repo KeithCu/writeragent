@@ -20,7 +20,7 @@ from plugin.scripting.venv_worker import _resolve_worker_python
 
 def test_embeddings_pool_requires_configured_venv():
     with (
-        patch("plugin.scripting.venv_worker.get_config_str", return_value=""),
+        patch("plugin.scripting.venv_worker.get_config", return_value=""),
         patch("plugin.scripting.venv_worker.resolve_libreoffice_python") as mock_lo,
     ):
         exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
@@ -31,7 +31,7 @@ def test_embeddings_pool_requires_configured_venv():
 
 
 def test_embeddings_pool_invalid_venv_path():
-    with patch("plugin.scripting.venv_worker.get_config_str", return_value="/no/such/venv"):
+    with patch("plugin.scripting.venv_worker.get_config", return_value="/no/such/venv"):
         exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
     assert exe is None
     assert err is not None
@@ -45,7 +45,7 @@ def test_embeddings_pool_resolves_valid_venv(tmp_path):
     py = bindir / "python3"
     py.write_text("#!/bin/sh\necho ok\n")
     py.chmod(py.stat().st_mode | stat.S_IEXEC)
-    with patch("plugin.scripting.venv_worker.get_config_str", return_value=str(venv)):
+    with patch("plugin.scripting.venv_worker.get_config", return_value=str(venv)):
         exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
     assert err is None
     assert exe == str(py)
@@ -53,7 +53,7 @@ def test_embeddings_pool_resolves_valid_venv(tmp_path):
 
 def test_default_pool_falls_back_to_lo_python_when_venv_empty():
     with (
-        patch("plugin.scripting.venv_worker.get_config_str", return_value=""),
+        patch("plugin.scripting.venv_worker.get_config", return_value=""),
         patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable) as mock_lo,
     ):
         exe, err = _resolve_worker_python(pool=WORKER_POOL_DEFAULT)

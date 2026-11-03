@@ -83,9 +83,9 @@ def reset_geometric_runtime_for_tests() -> None:
 
 def geometric_flag_enabled() -> bool:
     """Settings flag. Default false; missing schema is off, not an exception."""
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    return get_config_bool_safe(CONFIG_KEY)
+    return bool(get_config(CONFIG_KEY))
 
 
 def geometric_workbook_key(doc: Any) -> str:

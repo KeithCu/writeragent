@@ -293,6 +293,7 @@ def test_tools_call_rejects_unadvertised_tiers():
 
     # 1. delegate mode: rejects 'specialized' and 'chat'
     handler_delegate = MCPProtocolHandler(FakeServices("delegate", tools=registry))
+    handler_delegate._tool_exposure_mode = lambda: "delegate"
     handler_delegate.tool_registry = registry
 
     res1 = handler_delegate._mcp_tools_call({"name": "secret_tool", "arguments": {}})
@@ -305,6 +306,7 @@ def test_tools_call_rejects_unadvertised_tiers():
 
     # 2. direct_flat mode: allows 'specialized', rejects 'chat'
     handler_flat = MCPProtocolHandler(FakeServices("direct_flat", tools=registry))
+    handler_flat._tool_exposure_mode = lambda: "direct_flat"
     handler_flat.tool_registry = registry
     handler_flat.event_bus = MagicMock()
 
@@ -1064,14 +1066,14 @@ def test_process_jsonrpc_echoes_detectable_id(message, expected):
 
 
 def test_tool_exposure_mode_config_error_propagates():
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
     from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
     services = MagicMock()
-    services.config.get.side_effect = RuntimeError("config")
     handler = MCPProtocolHandler(services)
-    with pytest.raises(RuntimeError, match="config"):
-        handler._tool_exposure_mode()
+    with patch("plugin.framework.config.get_config", side_effect=RuntimeError("config")):
+        with pytest.raises(RuntimeError, match="config"):
+            handler._tool_exposure_mode()
 
 
 def test_real_active_document_does_not_swallow_supports_service():

@@ -30,10 +30,10 @@ def test_prompt_addin_metadata(ctx):
 def test_python_addin_execution(ctx, doc):
     from plugin.calc.python.addin import PythonFunction
     from plugin.calc.python.function import clear_python_addin_cache
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
     import unittest.mock
 
-    set_config("scripting.python_session_mode", "isolated")
+    save({"scripting.python_session_mode": "isolated"})
 
     clear_python_addin_cache()
 

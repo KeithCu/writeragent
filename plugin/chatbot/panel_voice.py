@@ -535,13 +535,13 @@ class PanelVoiceController:
         if terminal:
             self._panel._set_status(_(terminal))
         try:
-            from plugin.framework.config import get_config_bool_safe
+            from plugin.framework.config import get_config
             from plugin.chatbot.tool_loop_actions import current_turn, session_for_turn
 
             # Speak from session_for_turn(self) (valid until drop_turn) when TTS is enabled and
             # terminal status is not Stopped. An alive-turn check fails here: the tool-loop finally
             # already ran abort_turn(self).
-            if get_config_bool_safe("audio.tts_enabled") and terminal != "Stopped":
+            if get_config("audio.tts_enabled") and terminal != "Stopped":
                 spoken = session_for_turn(self._panel)
                 turn = current_turn(self._panel)
                 if (

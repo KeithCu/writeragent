@@ -93,7 +93,7 @@ def test_instance():
          patch("plugin.chatbot.tool_loop.get_api_config") as mock_get_api_config, \
          patch("plugin.chatbot.tool_loop.validate_api_config") as mock_validate_api_config:
 
-        mock_get_config.side_effect = lambda key: "10" if "tokens" in key or "context" in key else "test"
+        mock_get_config.side_effect = lambda key: 10 if "tokens" in key or "context" in key else "test"
         mock_get_api_config.return_value = {"chat_max_tool_rounds": 1}
         mock_validate_api_config.return_value = (True, "")
 
@@ -333,7 +333,7 @@ def test_reused_llm_client_registers_on_current_send_scope(test_instance, mock_g
 
     with (
         patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
-        patch("plugin.chatbot.tool_loop.get_config_int", return_value=128),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=128),
         patch("plugin.chatbot.tool_loop.get_toolkit", return_value=None),
         patch("plugin.chatbot.tool_loop.LlmClient") as mock_llm_cls,
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
@@ -435,7 +435,7 @@ def _overflow_payload(message="prompt is too long"):
 
 
 def _handle_stream_error(instance, payload, compaction_enabled=True):
-    with patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=compaction_enabled):
+    with patch("plugin.chatbot.tool_loop.get_config", return_value=compaction_enabled):
         return instance._handle_stream_error(payload)
 
 
@@ -603,7 +603,7 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane", side_effect=_Lane),
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=True),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=True),
         patch("plugin.chatbot.tool_loop.compact_session", side_effect=fake_compact) as mock_compact,
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
         patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
@@ -644,7 +644,7 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=True),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=True),
         patch(
             "plugin.chatbot.tool_loop.compact_session",
             return_value=CompactResult(False, "aborted", 10, 10),
@@ -678,7 +678,7 @@ def test_llm_worker_skips_compact_when_flag_false(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
         patch("plugin.chatbot.tool_loop.compact_session") as mock_compact,
         patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
@@ -705,7 +705,7 @@ def test_final_stream_compacts_then_sends_view(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=True),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=True),
         patch(
             "plugin.chatbot.tool_loop.compact_session",
             return_value=CompactResult(False, "below_threshold", 4, 4),
@@ -753,7 +753,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
         patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
@@ -795,7 +795,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
         patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
@@ -824,7 +824,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
         patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         test_instance._spawn_final_stream(b3, client, 256)
@@ -845,8 +845,10 @@ def test_start_tool_calling_resets_overflow_attempts(test_instance):
         return "{}"
 
     with (
-        patch("plugin.chatbot.tool_loop.get_config_int", return_value=8),
-        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
+        patch(
+            "plugin.chatbot.tool_loop.get_config",
+            side_effect=lambda key: False if key == "chat_compaction_enabled" else 8,
+        ),
         patch("plugin.chatbot.tool_loop.get_toolkit", return_value=MagicMock()),
         patch("plugin.chatbot.tool_loop.run_stream_drain_loop"),
         patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response"),

@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.scripting.sandbox import resolve_venv_python
 
 log = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ def build_project_pptx(ctx: Any, project_path: Path, data_root: Path) -> tuple[P
     del ctx  # reserved for future venv worker IPC
     project_path = Path(project_path).expanduser().resolve()
     data_root = Path(data_root).expanduser().resolve()
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     python_exe = resolve_venv_python(venv_dir) if venv_dir else None
     if not python_exe:
         return None, "PPTX missing; configure Python venv (Settings → Python) to build from SVG."

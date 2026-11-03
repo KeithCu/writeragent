@@ -183,15 +183,13 @@ def is_extra_allowed_origin(origin: str) -> bool:
     return normalized is not None and normalized in _extra_allowed_origins
 
 
-def reload_cors_policy_from_config(services: Any) -> None:
+def reload_cors_policy_from_config(services: Any = None) -> None:
     """Refresh CORS caches from mcp config (explicit list + private-origin JSON setting)."""
     # crosshair: off
-    # ConfigService.get returns the caller default on ConfigError. A raise
-    # here is a broken config service. The old except cleared the explicit
-    # origin list and forced allow-private off, so the bug never surfaced.
-    cfg = services.config.proxy_for("mcp")
-    raw = cfg.get("cors_allowed_origins")
-    allow_private = cfg.get("cors_allow_private_origins")
+    from plugin.framework.config import get_config
+
+    raw = get_config("mcp.cors_allowed_origins")
+    allow_private = get_config("mcp.cors_allow_private_origins")
     origins = normalize_origins_list(raw)
     set_extra_allowed_origins(origins)
     set_allow_private_origins(allow_private if allow_private is not None else True)

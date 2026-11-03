@@ -124,7 +124,7 @@ def reset_extension_update_check_schedule_for_tests() -> None:
 @background
 def run_extension_update_check(ctx: Any, extension_id: str) -> None:
     """Background worker: fetch update.xml, compare versions, optionally notify. Call after init_logging."""
-    from plugin.framework.config import set_config
+    from plugin.framework.config import get_config, save
     from plugin.chatbot.dialogs import msgbox
     from plugin.framework.client.requests import sync_request
     from plugin.version import EXTENSION_VERSION
@@ -143,9 +143,8 @@ def run_extension_update_check(ctx: Any, extension_id: str) -> None:
             profile.update_xml_url,
         )
         now = time.time()
-        from plugin.framework.config import get_config_float
 
-        last_ts = get_config_float(profile.config_key_epoch)
+        last_ts = float(get_config(profile.config_key_epoch) or 0.0)
         age = now - last_ts
         if age < _WEEK_SECONDS:
             log.info(
@@ -216,7 +215,7 @@ def run_extension_update_check(ctx: Any, extension_id: str) -> None:
     finally:
         if retry_delay is not None:
             try:
-                set_config(profile.config_key_epoch, time.time() - _WEEK_SECONDS + retry_delay)
+                save({profile.config_key_epoch: time.time() - _WEEK_SECONDS + retry_delay})
                 log.debug("extension update check: recorded %s in config (next check in %.1f h)", profile.config_key_epoch, retry_delay / 3600.0)
             except Exception as e:
                 log.warning("extension update check: failed to record %s in config: %s", profile.config_key_epoch, e)

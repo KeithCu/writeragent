@@ -6,14 +6,23 @@ from plugin.framework.event_bus import get_event_bus
 from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_LABELS, get_settings_field_specs
 
 
+def _image_tab_get_config(key: str):
+    if key == "image_default_aspect":
+        return "Square"
+    if key == "image_base_size":
+        return 512
+    if key == "temperature":
+        return 0.7
+    if key in ("image_auto_gallery", "image_insert_frame"):
+        return True
+    return ""
+
+
 def test_image_default_aspect_has_sidebar_matching_options():
     """Settings Image tab must list the same five aspect labels as the sidebar."""
     with (
         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api/v1"),
-        patch("plugin.chatbot.settings_dialog.get_config_str", return_value="Square"),
-        patch("plugin.chatbot.settings_dialog.get_config_int", return_value=512),
-        patch("plugin.chatbot.settings_dialog.get_config_float", return_value=0.7),
-        patch("plugin.chatbot.settings_dialog.get_config_bool", return_value=True),
+        patch("plugin.chatbot.settings_dialog.get_config", side_effect=_image_tab_get_config),
         patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value="m"),
         patch("plugin.chatbot.settings_dialog.get_image_model", return_value="img"),
@@ -63,27 +72,24 @@ def test_image_aspect_display_is_translated_value_stays_english():
     with (
         patch("plugin.chatbot.settings_dialog._", side_effect=fake_gettext),
         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api/v1"),
-        patch("plugin.chatbot.settings_dialog.get_config_str", return_value="Square"),
-        patch("plugin.chatbot.settings_dialog.get_config_int", return_value=512),
-        patch("plugin.chatbot.settings_dialog.get_config_float", return_value=0.7),
-        patch("plugin.chatbot.settings_dialog.get_config_bool", return_value=True),
+        patch("plugin.chatbot.settings_dialog.get_config", side_effect=_image_tab_get_config),
         patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value="m"),
         patch("plugin.chatbot.settings_dialog.get_image_model", return_value="img"),
         patch("plugin.chatbot.settings_dialog._get_module_field_specs", return_value=[]),
-        patch("plugin.chatbot.settings_dialog.set_configs") as set_configs,
+        patch("plugin.chatbot.settings_dialog.save") as save,
     ):
         specs = get_settings_field_specs(MagicMock())
         aspect = next(s for s in specs if s["name"] == "image_default_aspect")
         assert aspect["value"] == "正方形"
         assert aspect["options"][0] == {"label": "正方形", "value": "Square"}
         apply_settings_result(MagicMock(), {"image_default_aspect": "横長"})
-        set_configs.assert_called_once()
-        saved = set_configs.call_args.args[0]
+        save.assert_called_once()
+        saved = save.call_args.args[0]
         assert saved["image_default_aspect"] == "Landscape (16:9)"
-        set_configs.reset_mock()
+        save.reset_mock()
         apply_settings_result(MagicMock(), {"image_default_aspect": "正方形"})
-        set_configs.assert_not_called()
+        save.assert_not_called()
 
 
 def test_canonical_aspect_label_maps_translated_and_english():
@@ -101,9 +107,9 @@ def test_core_field_specs_omit_stt_model():
     from plugin.chatbot.settings_dialog import _get_core_field_specs
 
     with (
-        patch("plugin.chatbot.settings_dialog.get_config_str", return_value=""),
-        patch("plugin.chatbot.settings_dialog.get_config_int", return_value=0),
-        patch("plugin.chatbot.settings_dialog.get_config_float", return_value=0.0),
+        patch("plugin.chatbot.settings_dialog.get_config", return_value=""),
+        patch("plugin.chatbot.settings_dialog.get_config", return_value=0),
+        patch("plugin.chatbot.settings_dialog.get_config", return_value=0.0),
         patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value=""),
     ):
@@ -145,7 +151,7 @@ def test_apply_settings_skips_model_combobox_placeholders():
     )
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
+         patch("plugin.chatbot.settings_dialog.save", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_config", side_effect=_cfg), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://example.test/v1"), \
          patch("plugin.framework.model_lru.update_lru_history") as mock_lru:
@@ -170,7 +176,7 @@ def test_apply_settings_skips_model_combobox_placeholders():
     assert stored.get("image_model") == "flux-dev"
     assert stored.get("audio.stt_model") == "whisper-1"
     assert stored.get("audio.tts_model") == "hexgrad/Kokoro-82M"
-    # The three lists ride in the same set_configs dict. No per-key LRU write.
+    # The three lists ride in the same save dict. No per-key LRU write.
     assert stored.get(f"image_model_lru@{ep}") == ["flux-dev"]
     assert stored.get(f"audio_model_lru@{ep}") == ["whisper-1"]
     assert stored.get(f"tts_model_lru@{ep}") == ["hexgrad/Kokoro-82M"]
@@ -185,7 +191,7 @@ def test_apply_settings_writes_audio_stt_model():
     specs = [{"name": "audio__stt_model", "value": ""}]
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)) as batch, \
+         patch("plugin.chatbot.settings_dialog.save", side_effect=lambda values: stored.update(values)) as batch, \
          patch("plugin.chatbot.settings_dialog.get_config", return_value=""), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
          patch("plugin.framework.model_lru.update_lru_history") as mock_lru:
@@ -218,9 +224,9 @@ def test_apply_settings_result_tts_provider_and_voice():
     ]
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
+         patch("plugin.chatbot.settings_dialog.save", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.framework.config.set_config") as tts_set:
+         patch("plugin.framework.config.save") as tts_set:
         apply_settings_result(MagicMock(), {
             "audio__tts_provider": "Kokoro (Local Neural, ONNX CPU)",
             "audio__tts_voice": "af_bella (Kokoro US Female - Bella)",
@@ -256,9 +262,9 @@ def test_apply_settings_voice_display_label_stores_id_for_that_provider():
     ]
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
+         patch("plugin.chatbot.settings_dialog.save", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.framework.config.set_config") as tts_set:
+         patch("plugin.framework.config.save") as tts_set:
         apply_settings_result(MagicMock(), {
             "audio__tts_provider": "Piper (Local Fast Neural, CPU)",
             "audio__tts_voice": "French Female - Siwis",
@@ -293,9 +299,9 @@ def test_apply_settings_result_tts_speed():
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
          patch("plugin.chatbot.settings_dialog.get_config", side_effect=lambda k, d=None: disk.get(k, d)), \
-         patch("plugin.chatbot.settings_dialog.set_configs", mock_set), \
+         patch("plugin.chatbot.settings_dialog.save", mock_set), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"):
-        # "1.0x" matches disk default -> does not call set_configs
+        # "1.0x" matches disk default -> does not call save
         apply_settings_result(MagicMock(), {"audio__tts_speed": "1.0x"})
         mock_set.assert_not_called()
 
@@ -356,7 +362,7 @@ def test_apply_settings_stt_provider_and_local_model():
         return ""
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
+         patch("plugin.chatbot.settings_dialog.save", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_config", side_effect=_read), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"):
         apply_settings_result(MagicMock(), {
@@ -390,7 +396,7 @@ def test_apply_settings_translated_select_stores_value():
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
          patch("plugin.chatbot.settings_dialog.get_config", return_value=""), \
-         patch("plugin.chatbot.settings_dialog.set_configs") as batch, \
+         patch("plugin.chatbot.settings_dialog.save") as batch, \
          patch("plugin.framework.model_lru.update_lru_history"), \
          patch.object(get_event_bus(), "emit"), \
          patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext):
@@ -404,7 +410,7 @@ def test_apply_settings_translated_select_stores_value():
 
 
 def test_apply_settings_result_one_batch_no_extra_emit():
-    """Endpoint, model, API key, and voice are one set_configs call.
+    """Endpoint, model, API key, and voice are one save call.
 
     LRU lists for the keys that changed are in that same dict. This function
     must not emit config:changed itself — that unconditional emit refreshed
@@ -439,10 +445,10 @@ def test_apply_settings_result_one_batch_no_extra_emit():
 
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
          patch("plugin.chatbot.settings_dialog.get_config", side_effect=_cfg), \
-         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: order.append("batch") or values) as batch, \
+         patch("plugin.chatbot.settings_dialog.save", side_effect=lambda values: order.append("batch") or values) as batch, \
          patch("plugin.framework.model_lru.update_lru_history", side_effect=lambda *args: order.append("lru")) as lru, \
          patch.object(get_event_bus(), "emit") as emit, \
-         patch("plugin.framework.config.set_config") as single:
+         patch("plugin.framework.config.save") as single:
         apply_settings_result(MagicMock(), {
             "endpoint": raw_endpoint,
             "text_model": "new-model",
@@ -490,10 +496,10 @@ def test_ok_does_not_attach_previous_api_key_to_a_new_endpoint():
     """Changing the URL leaves the previous host's key on that host.
 
     A key typed for the new URL is stored there, and other endpoints' keys
-    stay. The batch is still one set_configs.
+    stay. The batch is still one save.
     """
     from plugin.chatbot.settings_dialog import apply_settings_result
-    from plugin.framework.config import get_config, set_api_key_for_endpoint, set_config
+    from plugin.framework.config import get_config, set_api_key_for_endpoint, save
     from plugin.framework.url_utils import normalize_endpoint_url
 
     old = "https://openrouter.ai/api"
@@ -502,7 +508,7 @@ def test_ok_does_not_attach_previous_api_key_to_a_new_endpoint():
     old_norm = normalize_endpoint_url(old)
     new_norm = normalize_endpoint_url(new)
     other_norm = normalize_endpoint_url(other)
-    set_config("endpoint", old)
+    save({"endpoint": old})
     set_api_key_for_endpoint(old, "sk-old")
     set_api_key_for_endpoint(other, "sk-keep")
 
@@ -533,18 +539,18 @@ def test_ok_does_not_write_unchanged_keys_and_writes_only_real_changes():
     """OK leaves the file alone when every dialog value matches disk.
 
     A missing key whose schema default is the dialog value is not a change.
-    One real edit is the only key passed to set_configs. A translated caption
+    One real edit is the only key passed to save. A translated caption
     that still means the stored id is not a write, and a new choice stores
     the id.
     """
     import json
 
     from plugin.chatbot.settings_dialog import apply_settings_result
-    from plugin.framework.config import get_config, get_config_file_path, set_config, set_configs
+    from plugin.framework.config import get_config, get_config_file_path, save
 
     path = get_config_file_path()
     assert path
-    set_config("text_model", "llama3")
+    save({"text_model": "llama3"})
     before = open(path, encoding="utf-8").read()
     specs = [
         {"name": "text_model"},
@@ -569,11 +575,11 @@ def test_ok_does_not_write_unchanged_keys_and_writes_only_real_changes():
 
     def _spy(values: dict) -> None:
         seen.append(set(values))
-        set_configs(values)
+        save(values)
 
     with (
         patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
-        patch("plugin.chatbot.settings_dialog.set_configs", side_effect=_spy),
+        patch("plugin.chatbot.settings_dialog.save", side_effect=_spy),
         patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
         patch("plugin.framework.model_lru.update_lru_history"),
     ):
@@ -608,7 +614,7 @@ def test_ok_does_not_write_unchanged_keys_and_writes_only_real_changes():
     seen.clear()
     with (
         patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
-        patch("plugin.chatbot.settings_dialog.set_configs", side_effect=_spy),
+        patch("plugin.chatbot.settings_dialog.save", side_effect=_spy),
         patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
         patch("plugin.framework.model_lru.update_lru_history"),
     ):
@@ -646,7 +652,7 @@ def test_settings_ok_many_keys_one_write_and_one_emit(tmp_path):
             "image_model": "old-image",
             "additional_instructions": "be brief",
             "temperature": 0.7,
-            "python_venv_path": "/old",
+            "scripting.python_venv_path": "/old",
             f"model_lru@{normalized}": ["kept-model"],
         }),
         encoding="utf-8",
@@ -702,7 +708,7 @@ def test_settings_ok_many_keys_one_write_and_one_emit(tmp_path):
             assert data[f"model_lru@{normalized}"] == ["new-model", "kept-model"]
             assert data[f"image_model_lru@{normalized}"] == ["flux-dev"]
             assert data["prompt_lru"] == ["be formal"]
-            assert data["python_venv_path"] == "/old"
+            assert data["scripting.python_venv_path"] == "/old"
 
             # Model id changes, but that id is already the LRU head: still one write, list untouched.
             path.write_text(
@@ -712,7 +718,7 @@ def test_settings_ok_many_keys_one_write_and_one_emit(tmp_path):
                     "image_model": "flux-dev",
                     "additional_instructions": "be formal",
                     "temperature": 0.2,
-                    "python_venv_path": "/old",
+                    "scripting.python_venv_path": "/old",
                     f"model_lru@{normalized}": ["target-model", "old-model"],
                 }),
                 encoding="utf-8",
@@ -762,8 +768,8 @@ def test_apply_settings_result_uses_passed_field_specs():
         patch("plugin.chatbot.settings_dialog.get_settings_field_specs", side_effect=AssertionError("rebuilt")),
         patch("plugin.chatbot.settings_dialog.get_config", return_value=""),
         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://api.test"),
-        patch("plugin.chatbot.settings_dialog.set_configs") as mock_set_configs,
+        patch("plugin.chatbot.settings_dialog.save") as mock_save,
         patch("plugin.chatbot.settings_fields._", side_effect=fake_gettext),
     ):
         apply_settings_result(MagicMock(), {"doc__grammar_provider": "Gedeelde kernel"}, specs)
-        mock_set_configs.assert_called_once_with({"doc.grammar_provider": "shared"})
+        mock_save.assert_called_once_with({"doc.grammar_provider": "shared"})

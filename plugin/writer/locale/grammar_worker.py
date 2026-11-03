@@ -756,7 +756,7 @@ def _worker_batch_gates(items: list[GrammarWorkItem]) -> bool:
     if not item_provider and not grammar_settings.is_grammar_enabled():
         grammar_obs("worker_batch_skip", reason="grammar_disabled", item_count=len(items))
         return False
-    pause_during_agent = config.get_config_bool_safe("doc.grammar_proofreader_pause_during_agent")
+    pause_during_agent = bool(config.get_config("doc.grammar_proofreader_pause_during_agent"))
     if pause_during_agent and send_cancellation.is_agent_active():
         # Local engines do not share the LLM request lane; only pause the LLM provider.
         active_prov = item_provider or grammar_settings.provider()

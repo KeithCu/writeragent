@@ -250,7 +250,7 @@ def test_delegate_length_truncated_reply_is_incomplete_not_finished(
     ctx = _structural_registry(writer_gateway)
 
     with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
-        with patch("plugin.chatbot.smol_agent.create_smol_model", return_value=WriterAgentSmolModel(client, max_tokens=256)), patch("plugin.chatbot.smol_agent.get_config_int", return_value=5):
+        with patch("plugin.chatbot.smol_agent.create_smol_model", return_value=WriterAgentSmolModel(client, max_tokens=256)), patch("plugin.chatbot.smol_agent.get_config", return_value=5):
             result = writer_gateway.execute(ctx, domain="structural", task="Build the delivery")
 
     assert client.request_with_tools.call_count == 1

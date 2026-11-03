@@ -140,11 +140,11 @@ def annotate_review_status(result: Any) -> dict[str, Any]:
 
 def edit_review_wait_seconds() -> int:
     """Max seconds ``apply_document_content`` may block waiting for review; 0 = don't wait."""
-    from plugin.framework.config import get_config_int_safe
+    from plugin.framework.config import get_config
 
     if get_agent_edit_review_mode() != "wait":
         return 0
-    return max(0, get_config_int_safe("doc.edit_review_timeout"))
+    return max(0, int(get_config("doc.edit_review_timeout")))
 
 
 def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:

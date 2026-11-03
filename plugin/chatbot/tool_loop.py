@@ -35,8 +35,6 @@ from plugin.framework.client.errors import (
 from plugin.framework.config import (
     get_api_config,
     get_config,
-    get_config_bool_safe,
-    get_config_int,
     validate_api_config,
 )
 from plugin.framework.client import model_fetcher
@@ -183,7 +181,7 @@ def _compact_bound_session(
 
     Disabled compaction returns True without writing the turn fields.
     """
-    if not get_config_bool_safe("chat_compaction_enabled"):
+    if not get_config("chat_compaction_enabled"):
         return True
     result = compact_session(
         session,
@@ -497,7 +495,7 @@ class ToolCallingMixin:
                 set_image_model(selected_image_model)
                 log.debug("_do_send: image model updated to %s" % selected_image_model)
 
-        max_tokens = get_config_int("chat_max_tokens")
+        max_tokens = get_config("chat_max_tokens")
         log.debug("_do_send: config loaded: max_tokens=%d, max_context=%d" % (max_tokens, CHAT_DOCUMENT_CONTEXT_MAX_CHARS))
 
         api_config = get_api_config()
@@ -917,7 +915,7 @@ class ToolCallingMixin:
         # compact_session on this drain / UI thread (UNO + lane). Process death
         # is not overflow — compact-and-retry on a dead llama-server is worse
         # than today's sentence. Kill switch offs this path too.
-        if get_config_bool_safe("chat_compaction_enabled"):
+        if get_config("chat_compaction_enabled"):
             stop_checker = self._panel.resolve_stop_checker()
             stopped = bool(self._panel.stop_requested or stop_checker())
             live_turn = running_turn(self._panel)

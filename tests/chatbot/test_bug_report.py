@@ -82,7 +82,7 @@ def test_collect_environment_block_includes_endpoint_and_model():
 
 def test_collect_environment_block_librepy_uses_venv_path():
     with patch("plugin.framework.uno_context.resolve_package_extension_id", return_value=EXTENSION_ID_LIBREPY):
-        with patch("plugin.framework.config.get_config_str", return_value="/home/user/venv"):
+        with patch("plugin.framework.config.get_config", return_value="/home/user/venv"):
             with patch("plugin.framework.config.user_config_dir", return_value="/tmp/lo-user"):
                 with patch("plugin.framework.logging.get_debug_log_path", return_value=None):
                     with patch("plugin.version.EXTENSION_VERSION", "0.8.33"):

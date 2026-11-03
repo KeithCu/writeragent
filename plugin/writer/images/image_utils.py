@@ -29,7 +29,7 @@ from typing import Any
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, canonical_resolution
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.requests import sync_request
-from plugin.framework.config import get_config_int
+from plugin.framework.config import get_config
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.framework.errors import NetworkError, ToolExecutionError, resolve_exception_message
 
@@ -139,7 +139,7 @@ class EndpointImageProvider:
             url,
             parse_json=False,
             include_meta=True,
-            timeout=get_config_int("request_timeout"),
+            timeout=get_config("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
             stop_checker=stop_checker,
             status_callback=status_callback,
@@ -335,10 +335,10 @@ class ImageService:
         api_config = get_api_config().copy()
         api_config["model"] = get_image_model()
         provider = EndpointImageProvider(api_config, self.ctx)
-        base_size = get_config_int("image_base_size")
+        base_size = get_config("image_base_size")
         for key in ("width", "height"):
             if kwargs.get(key) is None:
                 kwargs[key] = base_size
-        kwargs.setdefault("steps", get_config_int("image_steps"))
+        kwargs.setdefault("steps", get_config("image_steps"))
 
         return provider.generate(prompt, status_callback=status_callback, stop_checker=stop_checker, **kwargs)

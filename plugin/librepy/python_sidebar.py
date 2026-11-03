@@ -14,7 +14,7 @@ from plugin.calc.navigation import navigate_to_cell
 from plugin.calc.python.cell_discovery import PythonCellInfo, list_python_cells_in_doc
 from plugin.calc.python.diagnostics import DiagnosticEntry, DiagnosticFilter, diagnostics_detail_text, get_diagnostics_store
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_visible, translate_dialog
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler
 from plugin.framework.queue_executor import post_to_main_thread
@@ -240,7 +240,7 @@ def format_runtime_status(ctx: Any) -> str:
     """Compact status text: session mode + venv path resolution (no package probe)."""
     mode = python_session_mode()
     mode_label = _("Shared kernel") if mode == "shared" else _("Isolated")
-    venv = (get_config_str("scripting.python_venv_path") or "").strip()
+    venv = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv:
         return _("{mode}\nVenv: (LibreOffice embedded Python)").format(mode=mode_label)
     exe = resolve_venv_python(venv)

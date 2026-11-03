@@ -39,12 +39,12 @@ class TestEndpointImageProvider:
         assert (len(paths)) == (1)
         assert (err) == ("")
         assert (paths[0].endswith(".png"))
-        from plugin.framework.config import get_config_int
+        from plugin.framework.config import get_config
         mock_sync.assert_called_once_with(
             "http://example.com/image.png",
             parse_json=False,
             include_meta=True,
-            timeout=get_config_int("request_timeout"),
+            timeout=get_config("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
             stop_checker=None,
             status_callback=None,
@@ -102,12 +102,12 @@ class TestEndpointImageProvider:
         assert (len(paths)) == (1)
         assert (err) == ("")
         assert paths[0].endswith(".png")
-        from plugin.framework.config import get_config_int
+        from plugin.framework.config import get_config
         mock_sync.assert_called_with(
             "http://fallback.com/image.png",
             parse_json=False,
             include_meta=True,
-            timeout=get_config_int("request_timeout"),
+            timeout=get_config("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
             stop_checker=None,
             status_callback=None,
@@ -541,7 +541,7 @@ class TestImageService:
         import plugin.writer.images.image_utils as image_utils_mod
 
         sizes = {"image_base_size": 1024, "image_steps": 20}
-        monkeypatch.setattr(image_utils_mod, "get_config_int", lambda key: sizes.get(key, 0))
+        monkeypatch.setattr(image_utils_mod, "get_config", lambda key: sizes.get(key, 0))
         fake_provider = MagicMock()
         fake_provider.generate.return_value = (["/tmp/x.png"], "")
         service = ImageService(MagicMock())

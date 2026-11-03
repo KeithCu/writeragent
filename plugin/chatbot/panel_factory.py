@@ -632,7 +632,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         removeItems, addItems) synchronously fires UNO listeners (ModelSyncListener,
         ModelTextSyncListener, ImageModelSyncListener). Without ``_in_refresh_controls``,
         those listeners treat programmatic UI updates as user edits, calling
-        sync_sidebar_text_model -> update_lru_history -> set_config -> event_bus
+        sync_sidebar_text_model -> update_lru_history -> save -> event_bus
         emit('config_changed') -> _refresh_controls_from_config in an infinite synchronous
         recursion loop on the main UI thread that freezes LibreOffice.
         """
@@ -695,9 +695,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             chk_voice = get_optional_control(root, "chk_voice")
             if chk_voice is not None and hasattr(chk_voice, "setState"):
                 with suppress_disposed("refresh chk_voice from audio.tts_enabled", logger=log):
-                    from plugin.framework.config import get_config_bool_safe
+                    from plugin.framework.config import get_config
 
-                    want = 1 if get_config_bool_safe("audio.tts_enabled") else 0
+                    want = 1 if get_config("audio.tts_enabled") else 0
                     cur = int(chk_voice.getState()) if hasattr(chk_voice, "getState") else None
                     if cur != want:
                         chk_voice.setState(want)
@@ -1217,9 +1217,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         if controls.get("chk_voice"):
             chk_ctrl = controls["chk_voice"]
-            from plugin.framework.config import get_config_bool_safe, set_config
+            from plugin.framework.config import get_config, save
 
-            is_voice = get_config_bool_safe("audio.tts_enabled")
+            is_voice = get_config("audio.tts_enabled")
             if hasattr(chk_ctrl, "setState"):
                 chk_ctrl.setState(1 if is_voice else 0)
             if hasattr(chk_ctrl, "getModel") and hasattr(chk_ctrl.getModel(), "HelpText"):
@@ -1227,7 +1227,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             def _sync_voice() -> None:
                 val = chk_ctrl.getState() == 1
-                set_config("audio.tts_enabled", val)
+                save({"audio.tts_enabled": val})
                 log.info("Voice checkbox toggled: tts_enabled=%s", val)
 
             if hasattr(chk_ctrl, "addItemListener"):

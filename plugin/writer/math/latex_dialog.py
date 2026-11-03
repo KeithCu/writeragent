@@ -12,7 +12,7 @@ import uno
 
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.uno_context import get_active_document
-from plugin.framework.config import get_config, get_config_str, set_config
+from plugin.framework.config import get_config, save
 from plugin.framework.errors import best_effort, resolve_exception_message
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
@@ -178,13 +178,16 @@ def _apply_latex_to_writer(
             # str() of a PyUNO exception is often empty; the detail is in .Message.
             return False, resolve_exception_message(exc)
         msg = _("Formula updated.")
+        save({"last_latex_input": latex})
     else:
         controller = doc.getCurrentController()
         view_cursor = controller.getViewCursor()
         insert_writer_math_formula(doc, view_cursor, starmath, display_block=display_block)
-        set_config("last_latex_display_block", display_block)
+        patch: dict[str, Any] = {"last_latex_input": latex}
+        if display_block is not None:
+            patch["last_latex_display_block"] = display_block
+        save(patch)
         msg = _("Formula inserted.")
-    set_config("last_latex_input", latex)
     return True, msg
 
 
@@ -196,7 +199,7 @@ def insert_latex_math_dialog(ctx: Any) -> None:
             msgbox(ctx, _("Error"), _("This command is only available in Writer documents."))
             return
 
-        last_latex = get_config_str("last_latex_input")
+        last_latex = get_config("last_latex_input")
         last_display = bool(get_config("last_latex_display_block"))
         prefill = _selection_latex_prefill(ctx, doc, last_latex)
         if prefill is None:

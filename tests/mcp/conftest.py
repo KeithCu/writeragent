@@ -8,7 +8,7 @@
 
 import socket
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import urllib.request
@@ -62,6 +62,29 @@ def mcp_server():
     services.main_thread = main_thread
     services.get.side_effect = lambda name: getattr(services, name, None)
 
+    import plugin.framework.config as config_mod
+
+    orig_get_config = config_mod.get_config
+    config_values = {
+        "mcp.mcp_enabled": True,
+        "mcp.host": "127.0.0.1",
+        "mcp.use_ssl": False,
+        "mcp.ssl_cert": "",
+        "mcp.ssl_key": "",
+        "mcp.mcp_remote_access": False,
+        "mcp.tunnel_enabled": False,
+    }
+
+    def mock_get_config(key, *args, **kwargs):
+        if key in config_values:
+            return config_values[key]
+        return orig_get_config(key, *args, **kwargs)
+
+    config_patcher = patch("plugin.framework.config.get_config", side_effect=mock_get_config)
+    mcp_config_patcher = patch("plugin.mcp.get_config", side_effect=mock_get_config)
+    config_patcher.start()
+    mcp_config_patcher.start()
+
     http_module = None
     url = ""
     server_ready = False
@@ -69,16 +92,7 @@ def mcp_server():
     for _attempt in range(3):
         _reset_globals()
         port = get_free_port()
-
-        config_svc = MagicMock()
-        config_svc.proxy_for.return_value = {
-            "enabled": True,
-            "mcp_enabled": True,
-            "mcp_port": port,
-            "host": "127.0.0.1",
-            "use_ssl": False,
-        }
-        services.config = config_svc
+        config_values["mcp.mcp_port"] = port
 
         http_module = McpModule()
         http_module.name = "mcp"
@@ -107,6 +121,8 @@ def mcp_server():
         http_module.shutdown()
 
     if not server_ready or not http_module:
+        config_patcher.stop()
+        mcp_config_patcher.stop()
         _reset_globals()
         pytest.fail("Server did not start in time after retries")
 
@@ -114,5 +130,7 @@ def mcp_server():
         yield url
     finally:
         http_module.shutdown()
+        config_patcher.stop()
+        mcp_config_patcher.stop()
         _reset_globals()
 

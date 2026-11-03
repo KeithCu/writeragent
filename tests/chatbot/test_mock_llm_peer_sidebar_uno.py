@@ -54,15 +54,15 @@ def _setup_peer(ctx):
     init_config(ctx)
     from plugin.chatbot.chat_sidebar_mode import mark_librarian_invoked
     from plugin.chatbot.memory import MemoryStore
-    from plugin.framework.config import get_config_bool, set_config
+    from plugin.framework.config import get_config, save
 
     mark_librarian_invoked()
     try:
         MemoryStore().write("# Test User Profile\n")
     except Exception:
         pass
-    if get_config_bool("chatbot.prompt_for_web_research"):
-        set_config("chatbot.prompt_for_web_research", False)
+    if get_config("chatbot.prompt_for_web_research"):
+        save({"chatbot.prompt_for_web_research": False})
 
     import plugin.chatbot.sidebar_test_hooks  # noqa: F401
 

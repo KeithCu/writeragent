@@ -15,7 +15,7 @@ class TestPythonRunnerConfig:
     @patch('plugin.scripting.python_runner.is_calc')
     @patch('plugin.scripting.python_runner.is_draw')
     @patch('plugin.scripting.python_runner.get_user_scripts', return_value={})
-    @patch('plugin.framework.config.get_config_str')
+    @patch('plugin.scripting.document_scripts.config.get_config')
     @patch('plugin.scripting.document_scripts.resolve_run_script_name_config_key')
     @patch('plugin.scripting.python_runner.execute_and_insert_result')
     @patch('plugin.scripting.document_scripts.save_user_script')
@@ -49,7 +49,7 @@ class TestPythonRunnerConfig:
         
         run_python_dialog()
         mock_name_key.assert_called_with(mock_doc)
-        mock_get_str.assert_called_with("last_python_script_name_writer")
+        mock_get_str.assert_any_call("last_python_script_name_writer")
         mock_show.assert_called()
         mock_save_user.assert_not_called()
         mock_execute.assert_not_called()
@@ -61,7 +61,7 @@ class TestPythonRunnerConfig:
         mock_name_key.return_value = "last_python_script_name_calc"
         
         run_python_dialog()
-        mock_get_str.assert_called_with("last_python_script_name_calc")
+        mock_get_str.assert_any_call("last_python_script_name_calc")
         mock_save_user.assert_not_called()
         mock_execute.assert_not_called()
 
@@ -72,7 +72,7 @@ class TestPythonRunnerConfig:
         mock_name_key.return_value = "last_python_script_name_draw"
         
         run_python_dialog()
-        mock_get_str.assert_called_with("last_python_script_name_draw")
+        mock_get_str.assert_any_call("last_python_script_name_draw")
         mock_save_user.assert_not_called()
         mock_execute.assert_not_called()
 
@@ -98,8 +98,7 @@ class TestPythonRunnerConfig:
             patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10),
             patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable),
             patch("plugin.scripting.venv_worker.PythonWorkerManager.execute") as mock_execute,
-            patch("plugin.scripting.venv_worker.get_config_bool", side_effect=lambda k: True if k == "scripting.python_allow_network" else False),
-            patch("plugin.scripting.venv_worker.get_config_str", side_effect=lambda k: "extra_pkg" if k == "scripting.python_extra_modules" else ""),
+            patch("plugin.scripting.venv_worker.get_config", side_effect=lambda k: True if k == "scripting.python_allow_network" else ("extra_pkg" if k == "scripting.python_extra_modules" else False if k in ("scripting.python_allow_files", "scripting.python_allow_os") else "")),
         ):
             mock_execute.return_value = {"status": "ok", "result": 42}
             res = _run_prepared_rps(prepared)

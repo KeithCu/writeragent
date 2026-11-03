@@ -51,7 +51,7 @@ from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.client.model_fetcher import has_native_vision, set_native_audio_support
 from plugin.framework.html_stripper import StreamingHTMLStripper
 from plugin.framework.json_utils import safe_json_loads
-from plugin.framework.config import get_config_bool
+from plugin.framework.config import get_config
 from plugin.framework.errors import (
     DocumentDisposedError,
     ToolExecutionError,
@@ -847,7 +847,7 @@ def build_tool_execute_fn(
         prompt_for_web = False
         if needs_web_research_ui:
             try:
-                prompt_for_web = get_config_bool("chatbot.prompt_for_web_research")
+                prompt_for_web = bool(get_config("chatbot.prompt_for_web_research"))
             except Exception as ex:
                 # Fail closed. Leaving approval_cb as None after a config
                 # error skips Accept/Change/Reject: web_research prompts only

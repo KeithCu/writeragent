@@ -22,7 +22,7 @@ import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.uno_context import get_ctx, get_desktop, get_runtime_uid
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import msgbox
@@ -681,7 +681,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
             return {"type": "error", "message": _("A script is already running.")}
         # Save the edited code back to the currently selected script
         name_config_key = resolve_run_script_name_config_key(doc)
-        last_name = get_config_str(name_config_key).strip()
+        last_name = str(get_config(name_config_key) or "").strip()
         if not last_name:
             if action == "save":
                 # What was wrong: Saving with an empty script selection returned success and cleared dirty state without saving.

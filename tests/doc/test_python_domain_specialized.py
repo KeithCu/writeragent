@@ -27,7 +27,7 @@ from plugin.writer.specialized_base import (
     ToolWriterFootnoteBase,
     ToolWriterShapeBase,
 )
-from tests.chatbot.test_tool_loop import _mock_get_config_int_for_sub_agent
+from tests.chatbot.test_tool_loop import _mock_get_config_for_sub_agent
 
 
 class _ShapeUpsertProbe(ToolWriterShapeBase):
@@ -601,8 +601,8 @@ def test_delegate_tool_domains_execute_returns_inner_result(mock_inner):
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -615,7 +615,7 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     registry = ToolRegistry(services={})
     registry.register(DelegateToolDomains())
