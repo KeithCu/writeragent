@@ -150,7 +150,11 @@ def test_mcp_module_does_not_register_api_config(monkeypatch):
     import plugin.mcp as mcp_mod
     from plugin.mcp.routes import HttpRouteRegistry
 
-    mcp_mod._current_module = None
+    # McpModule.initialize() publishes the instance to global _current_module.
+    # Previously mcp_mod._current_module = None was set directly and mod.shutdown()
+    # was outside try/finally, leaking the half-built module to subsequent tests.
+    # Monkeypatch guarantees restoration and shutdown() unregisters the module.
+    monkeypatch.setattr(mcp_mod, "_current_module", None)
 
     services = MagicMock()
     services.config.proxy_for.return_value = {
@@ -166,17 +170,18 @@ def test_mcp_module_does_not_register_api_config(monkeypatch):
 
     mod = mcp_mod.McpModule()
     mod.name = "mcp"
-    mod.initialize(services)
+    try:
+        mod.initialize(services)
 
-    assert not hasattr(mod, "_handle_config_get")
-    assert not hasattr(mod, "_handle_config_set")
-    routes = set(mod._registry.list_routes())
-    assert ("GET", "/api/config") not in routes
-    assert ("POST", "/api/config") not in routes
-    assert ("GET", "/health") in routes
-    assert isinstance(mod._registry, HttpRouteRegistry)
-
-    mod.shutdown()
+        assert not hasattr(mod, "_handle_config_get")
+        assert not hasattr(mod, "_handle_config_set")
+        routes = set(mod._registry.list_routes())
+        assert ("GET", "/api/config") not in routes
+        assert ("POST", "/api/config") not in routes
+        assert ("GET", "/health") in routes
+        assert isinstance(mod._registry, HttpRouteRegistry)
+    finally:
+        mod.shutdown()
 
 
 class _Cfg:

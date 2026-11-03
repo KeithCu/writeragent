@@ -119,11 +119,7 @@ def test_mcp_module_toggle_keeps_route_snapshots_consistent(monkeypatch) -> None
     """Register/unregister on McpModule is one locked batch, same as GET / sees."""
     from unittest.mock import MagicMock
 
-    import plugin.mcp as mcp_mod
     from plugin.mcp import McpModule
-
-    saved_module = mcp_mod._current_module
-    mcp_mod._current_module = None
 
     services = MagicMock()
     services.config.proxy_for.return_value = {
@@ -177,4 +173,3 @@ def test_mcp_module_toggle_keeps_route_snapshots_consistent(monkeypatch) -> None
             mod.shutdown()
         except Exception:
             pass
-        mcp_mod._current_module = saved_module

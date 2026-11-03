@@ -25,13 +25,7 @@ from plugin.mcp.tunnel import TunnelManager
 
 @pytest.fixture(autouse=True)
 def _isolate_snippet_cache_from_loaded_mcp_module(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Snippet URL cache uses the live McpModule tunnel when loaded.
-
-    Other MCP tests (e.g. module-scoped ``mcp_server`` in ``test_cors``) leave
-    ``_current_module`` set on the same xdist worker. These UI unit tests assert
-    on ``_standalone_tunnel.tested_provider_tunnel_urls`` and must not read/write
-    a different dict via ``_tested_tunnel_urls()``.
-    """
+    """_tested_tunnel_urls() prefers the live McpModule tunnel; pin the standalone path so these tests do not depend on other tests' module lifecycle."""
     import plugin.mcp as mcp_mod
 
     monkeypatch.setattr(mcp_mod, "_current_module", None)
