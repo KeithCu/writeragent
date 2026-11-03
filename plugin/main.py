@@ -475,7 +475,7 @@ def bootstrap(ctx: Any | None = None) -> None:
         extension_id=EXTENSION_ID,
         register_prompt_hooks=_register_writeragent_prompt_hooks,
         finish=_writeragent_bootstrap_finish,
-        owner=sys.modules[__name__],
+        state=globals(),
     )
 
 

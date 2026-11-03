@@ -80,7 +80,7 @@ def bootstrap(ctx: Any | None = None) -> None:
         ctx,
         extension_id=EXTENSION_ID,
         finish=_librepy_bootstrap_finish,
-        owner=sys.modules[__name__],
+        state=globals(),
     )
 
 
