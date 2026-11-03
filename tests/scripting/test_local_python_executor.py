@@ -53,8 +53,10 @@ def test_os_path_metadata_allowed_without_files_sandbox_flag():
     from plugin.contrib.smolagents.local_python_executor import (
         SANDBOX_POLICY_CONTEXT,
         _check_dangerous_value,
+        _get_os_path_metadata_ids,
     )
 
+    assert id(os.path.exists) in _get_os_path_metadata_ids()
     token = SANDBOX_POLICY_CONTEXT.set((frozenset(), frozenset()))
     try:
         _check_dangerous_value(os.path.exists, authorized_imports=[])
@@ -77,16 +79,12 @@ def _reset_abandoned_timeout() -> Any:
     import plugin.contrib.smolagents.local_python_executor as lpe
 
     lpe.abandoned_timeout = False
-    lpe._pending_timeout_future = None
-    lpe._pending_timeout_grace_sec = 0.0
-    lpe._pending_timeout_executor = None
+    lpe.discard_thread_pool_timeout()
     try:
         yield
     finally:
         lpe.abandoned_timeout = False
-        lpe._pending_timeout_future = None
-        lpe._pending_timeout_grace_sec = 0.0
-        lpe._pending_timeout_executor = None
+        lpe.discard_thread_pool_timeout()
 
 
 def test_nested_generatorexp_via_evaluate_generatorexp():

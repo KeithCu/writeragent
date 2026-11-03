@@ -107,6 +107,22 @@ def _install_sandbox_alias_authorizer_for_tests():
 
 
 @pytest.fixture(autouse=True)
+def _discard_lpe_thread_pool_timeout_between_tests():
+    """Windows xdist: orphaned @timeout thread pools blocked workers until pytest-timeout."""
+    try:
+        import plugin.contrib.smolagents.local_python_executor as lpe
+    except ImportError:
+        yield
+        return
+
+    lpe.discard_thread_pool_timeout()
+    lpe.abandoned_timeout = False
+    yield
+    lpe.discard_thread_pool_timeout()
+    lpe.abandoned_timeout = False
+
+
+@pytest.fixture(autouse=True)
 def _drain_scheduler_override_for_tests():
     from plugin.framework.async_stream import set_drain_scheduler_override
     previous = set_drain_scheduler_override(lambda: None)

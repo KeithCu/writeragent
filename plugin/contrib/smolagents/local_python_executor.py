@@ -526,6 +526,22 @@ _PATH_METADATA_MODULE_ROOTS = frozenset({"genericpath", "ntpath", "posixpath"})
 _PATH_METADATA_FUNCTION_NAMES = frozenset(
     {"exists", "isfile", "isdir", "islink", "lexists", "commonpath"}
 )
+_OS_PATH_METADATA_IDS: frozenset[int] | None = None
+
+
+def _get_os_path_metadata_ids() -> frozenset[int]:
+    """``os.path.*`` metadata callables by object identity (Windows binds ``nt._path_*``)."""
+    global _OS_PATH_METADATA_IDS
+    if _OS_PATH_METADATA_IDS is None:
+        import os.path as _osp
+
+        ids: set[int] = set()
+        for name in _PATH_METADATA_FUNCTION_NAMES:
+            fn = getattr(_osp, name, None)
+            if callable(fn):
+                ids.add(id(fn))
+        _OS_PATH_METADATA_IDS = frozenset(ids)
+    return _OS_PATH_METADATA_IDS
 
 
 def _is_path_metadata_callable(module_root: str, fn_name: str) -> bool:
@@ -537,6 +553,17 @@ def _is_path_metadata_callable(module_root: str, fn_name: str) -> bool:
     if fn_name.startswith("_path_"):
         return fn_name[len("_path_") :] in _PATH_METADATA_FUNCTION_NAMES
     return False
+
+
+def discard_thread_pool_timeout() -> None:
+    """Drop a deferred thread-pool timeout without waiting (pytest / host cleanup)."""
+    global _pending_timeout_executor, _pending_timeout_future, _pending_timeout_grace_sec
+    pool = _pending_timeout_executor
+    _pending_timeout_future = None
+    _pending_timeout_grace_sec = 0.0
+    _pending_timeout_executor = None
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def finalize_thread_pool_timeout() -> None:
@@ -601,6 +628,8 @@ def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None
             except (ImportError, ModuleNotFoundError):
                 pass
             allowed_file_ids = file_os_ids or _get_default_file_os_ids()
+            if id(val) in _get_os_path_metadata_ids():
+                return
             if _is_path_metadata_callable(root, fn_name):
                 return
             if root in _DANGEROUS_CALLABLE_MODULES:

@@ -33,6 +33,7 @@ def _reset_abandoned_timeout() -> Any:
         import plugin.contrib.smolagents.local_python_executor as lpe
 
         lpe.abandoned_timeout = False
+        lpe.discard_thread_pool_timeout()
     except ImportError:
         pass
     try:
@@ -42,6 +43,7 @@ def _reset_abandoned_timeout() -> Any:
             import plugin.contrib.smolagents.local_python_executor as lpe
 
             lpe.abandoned_timeout = False
+            lpe.discard_thread_pool_timeout()
         except ImportError:
             pass
 
