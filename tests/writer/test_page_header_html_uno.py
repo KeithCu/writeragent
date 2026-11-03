@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -8,6 +7,7 @@ from __future__ import annotations
 Logos, fields, and tables set without force; get still lists scan extras.
 """
 
+from __future__ import annotations
 
 import base64
 import os

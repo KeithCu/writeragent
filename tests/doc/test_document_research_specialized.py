@@ -1,8 +1,8 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 """Tests for document_research delegation and read-only enforcement."""
 
+from __future__ import annotations
 
 import os
 import tempfile
@@ -1067,7 +1067,7 @@ def test_delegate_read_document_resolves_before_the_main_thread_open(
 ):
     order: list[str] = []
 
-    def fake_run_on_main(fn, *a, **k):
+    def fake_run_on_main(fn, *a, timeout=None, bound_scope=None, **k):
         order.append("main")
         return fn(*a, **k)
 

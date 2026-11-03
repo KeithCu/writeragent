@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -8,6 +7,7 @@ from __future__ import annotations
 # (at your option) any later version.
 """Shared helpers for payload_codec / split_grid tests."""
 
+from __future__ import annotations
 
 import base64
 import math

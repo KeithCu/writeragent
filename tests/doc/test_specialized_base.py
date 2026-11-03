@@ -1,9 +1,9 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Unit tests for DelegateToSpecializedBase (domain validation and mutation lock)."""
 
+from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock

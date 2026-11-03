@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Formal verification (Hypothesis + Deal) for Excel/Calc PY formula DAG translation."""
 
+from __future__ import annotations
 
 from typing import get_args, get_origin, get_type_hints
 

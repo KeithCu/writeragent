@@ -513,7 +513,7 @@ def _new_xcallback(fn: Callable[[], None]) -> Any:
 class _AsyncCallbackRearm:
     """Re-arm a drain slice via ``AsyncCallback.addCallback``.
 
-    ``post`` must not run *fn* on the caller. ``QueueExecutor.post`` does that
+    ``post`` must not run *fn* on the caller. ``MainThread.post`` does that
     under ``WRITERAGENT_TESTING``, which would put the loop back on this stack.
     ``addCallback`` queues a user event and returns (LibreOffice
     ``AsyncCallback``). The idle path sleeps on a dedicated thread, then

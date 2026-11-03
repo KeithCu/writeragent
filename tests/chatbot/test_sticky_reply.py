@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -6,6 +5,7 @@ from __future__ import annotations
 
 """Unit tests for sticky sidebar reply_to_user (leave flag = old tool name)."""
 
+from __future__ import annotations
 
 from unittest.mock import MagicMock
 

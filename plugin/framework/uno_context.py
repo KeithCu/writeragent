@@ -30,7 +30,7 @@ gave the extension at load, stored in ``_fallback_ctx``. Calling
 can return a **different** context with no UI, which then segfaults or
 fails to find dialogs. This module does **not** make the Writer/Calc
 document model safe from any thread — wrap document access with
-``guard_uno`` and marshal UI work through ``QueueExecutor``.
+``guard_uno`` and marshal UI work through ``MainThread``.
 """
 
 from __future__ import annotations
@@ -253,7 +253,7 @@ def _stable_component_context(ctx: Any) -> Any:
     ``get_ctx() is get_ctx()`` would be False. The release stub returns the
     raw object, so identity holds. The bootstrap context is one long-lived
     PyUNO object. Mocks and guard-off returns stay the raw object, which
-    is already stable. QueueExecutor still unwraps before it stores a
+    is already stable. MainThread still unwraps before it stores a
     context; that compare is on the raw target.
     """
     from plugin.framework.thread_guard import _UnoThreadGuardProxy

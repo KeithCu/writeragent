@@ -1,6 +1,6 @@
-from __future__ import annotations
 """plugin.framework.client package init must not load the LLM stack."""
 
+from __future__ import annotations
 
 import ast
 import os

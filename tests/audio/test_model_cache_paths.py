@@ -1,6 +1,6 @@
-from __future__ import annotations
 """Shared Kokoro / Piper cache discovery. No network."""
 
+from __future__ import annotations
 
 from pathlib import Path
 

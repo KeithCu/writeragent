@@ -1,5 +1,5 @@
-from __future__ import annotations
 # WriterAgent tests for scripts/eval_2_calc_primary_oracle.py
+from __future__ import annotations
 
 import json
 import sys

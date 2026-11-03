@@ -1,9 +1,9 @@
-from __future__ import annotations
 # WriterAgent - Formula worker force="never" serialization tests
 # Copyright (c) 2026 KeithCu
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests verifying formula_worker.execute_code uses force="never" to bypass split_grid."""
 
+from __future__ import annotations
 
 import json
 from typing import Any

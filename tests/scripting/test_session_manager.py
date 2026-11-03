@@ -1,7 +1,7 @@
-from __future__ import annotations
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Import-closure tests for plugin.scripting.session_manager."""
 
+from __future__ import annotations
 
 import ast
 from pathlib import Path

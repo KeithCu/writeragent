@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -9,6 +7,8 @@ from __future__ import annotations
 Opt-in via the ``uno_thread_safety`` fixture in tests/framework/conftest.py.
 See docs/framework/uno-thread-safety.md (Layer B).
 """
+
+from __future__ import annotations
 
 import threading
 from typing import Any

@@ -1,6 +1,6 @@
-from __future__ import annotations
 # WriterAgent - tests for document user-defined properties
 
+from __future__ import annotations
 
 from unittest.mock import MagicMock
 

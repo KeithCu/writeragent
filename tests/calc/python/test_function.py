@@ -1,6 +1,6 @@
-from __future__ import annotations
 # WriterAgent - =PYTHON() return coercion tests
 
+from __future__ import annotations
 
 import logging
 import math
@@ -738,8 +738,9 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
 
 
 def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Set WRITERAGENT_TESTING to 1 to force inline execution in queue_executor
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    from plugin.framework.queue_executor import Policy, main
+
+    main.install(Policy.test_inline)
 
     # When off main thread, session_key and get_python_init_kwargs must not touch UNO
     # or cause thread safety violations / recursion (Issue #402).
@@ -1410,7 +1411,7 @@ def test_format_error_for_display_distinguishes_timeout_error() -> None:
 def _skip_if_release_bundle() -> None:
     from plugin.framework import thread_guard as tg
     # In release bundles, thread_guard is replaced by a no-op stub that lacks internal guard machinery
-    if not hasattr(tg, "_designated_main_thread") or not hasattr(tg, "_violation_ui_lock"):
+    if not hasattr(tg, "_violation_ui_lock"):
         pytest.skip("Thread-guard background tests require active dev thread_guard (stripped in release bundles)")
 
 

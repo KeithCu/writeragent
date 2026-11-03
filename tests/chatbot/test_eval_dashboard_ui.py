@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Eval dashboard: lazy tests.eval_runner import (Pyright must not follow it)."""
 
+from __future__ import annotations
 
 import sys
 import threading
@@ -120,7 +120,9 @@ def test_importing_eval_dashboard_ui_does_not_load_eval_runner() -> None:
 
 def test_run_suite_imports_eval_runner_at_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     # Posted status runs inline so the worker can finish the dialog update.
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    from plugin.framework.queue_executor import Policy, main
+
+    main.install(Policy.test_inline)
     sys.modules.pop("tests.eval_runner", None)
     fake_mod = MagicMock()
     fake_mod.run_benchmark_suite.return_value = {
@@ -185,7 +187,6 @@ def test_run_suite_reports_when_eval_runner_is_missing() -> None:
 
 
 def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     sys.modules.pop("tests.eval_runner", None)
     release = threading.Event()
     entered = threading.Event()
@@ -234,7 +235,6 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
 
 
 def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     sys.modules.pop("tests.eval_runner", None)
 
     def _boom(*_args: object, **_kwargs: object) -> dict[str, object]:
@@ -327,7 +327,9 @@ def test_closed_dialog_skips_late_paint_and_clears_running(monkeypatch: pytest.M
     """Close disposes the dialog while the suite can still post. Ignore that window."""
     from plugin.chatbot.eval_dashboard_ui import EvalDashboard
 
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    from plugin.framework.queue_executor import Policy, main
+
+    main.install(Policy.test_inline)
     dialog, controls = _dialog()
     dash = EvalDashboard(MagicMock())
     dash._dlg = dialog

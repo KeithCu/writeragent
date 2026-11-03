@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -14,6 +13,7 @@ Every parity test compares force=\"always\" (split_grid wire) vs force=\"never\"
 This file deliberately avoids any LibreOffice/UNO dependencies.
 """
 
+from __future__ import annotations
 
 from typing import Any
 

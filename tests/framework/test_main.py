@@ -1,7 +1,6 @@
-from __future__ import annotations
-from plugin.framework.queue_executor import main as main_thread
 """Unit tests for plugin.main: bootstrap lifecycle, dispatch, listeners, and icon caching."""
 
+from __future__ import annotations
 
 import logging
 import os
@@ -12,6 +11,8 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from plugin.framework.queue_executor import main as main_thread
 
 
 def _ensure_main_import_stubs() -> None:

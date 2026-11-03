@@ -1,6 +1,6 @@
-from __future__ import annotations
 """LibrePy build-core: slim gettext catalogs from bundled sources only."""
 
+from __future__ import annotations
 
 import glob
 import subprocess

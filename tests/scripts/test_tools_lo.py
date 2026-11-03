@@ -1,9 +1,9 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """LOBackend pins: fallback ctx on start, caller document at each queued call. No soffice."""
+from __future__ import annotations
 
 import os
 import sys

@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for sandbox_cache (parse + static validation LRU)."""
 
+from __future__ import annotations
 
 import ast
 from unittest.mock import patch

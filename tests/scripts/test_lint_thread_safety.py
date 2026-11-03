@@ -168,3 +168,30 @@ def bg_worker():
     assert len(findings) == 1
     assert "bg_worker" in findings[0].message
     assert "get_ctx" in findings[0].message
+
+
+def test_unrelated_post_does_not_sanitize_uno_call(tmp_path: Path) -> None:
+    """requests.post wrapping a UNO call must NOT be treated as a marshal sanitizer."""
+    worker_file = tmp_path / "worker.py"
+    worker_file.write_text(
+        """
+from plugin.framework.thread_guard import background
+from plugin.framework.uno_context import get_active_document
+
+class DummyRequests:
+    def post(self, url, data=None):
+        pass
+
+requests = DummyRequests()
+
+@background
+def bad_network_worker():
+    requests.post("https://example.com", data=get_active_document())
+""",
+        encoding="utf-8",
+    )
+
+    findings = scan_cross_file_callgraph(tmp_path)
+    assert len(findings) == 1
+    assert "bad_network_worker" in findings[0].message
+    assert "get_active_document" in findings[0].message

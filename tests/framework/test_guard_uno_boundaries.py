@@ -1,14 +1,15 @@
-from __future__ import annotations
-from plugin.framework.queue_executor import main
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for guard_uno boundaries (Tier 1/2 chokepoints)."""
 
+from __future__ import annotations
 
 import sys
 from unittest.mock import MagicMock, patch
+
+from plugin.framework.queue_executor import main
 
 
 class TestGuardUnoBoundaries:

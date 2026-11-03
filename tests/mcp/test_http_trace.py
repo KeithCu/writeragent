@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -8,6 +7,7 @@ from __future__ import annotations
 # (at your option) any later version.
 """Tests for plugin.mcp.http_trace."""
 
+from __future__ import annotations
 
 import email.message
 import logging

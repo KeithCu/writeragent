@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """CI status page is generated from Actions API data, not placeholders."""
 
+from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path

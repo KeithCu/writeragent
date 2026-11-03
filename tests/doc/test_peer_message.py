@@ -1,6 +1,6 @@
-from __future__ import annotations
 """Unit tests for A1 send_peer_work / send_peer_result (no live soffice)."""
 
+from __future__ import annotations
 
 import ast
 import logging

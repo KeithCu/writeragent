@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for spreadsheet import formula dependency graph (no LibreOffice)."""
 
+from __future__ import annotations
 
 from plugin.calc.spreadsheet_import.graph import (
     build_dependency_graph,

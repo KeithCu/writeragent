@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Pure unit tests for Ask-box slash filter, LRU rank, and key classification."""
 
+from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch

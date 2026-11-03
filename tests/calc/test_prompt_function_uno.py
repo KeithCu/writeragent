@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -7,6 +6,7 @@ from __future__ import annotations
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+from __future__ import annotations
 
 import math
 import struct

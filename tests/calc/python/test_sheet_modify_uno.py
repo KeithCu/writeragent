@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UNO tests for sheet modify dispatcher and rename migration."""
 
+from __future__ import annotations
 
 from types import SimpleNamespace
 

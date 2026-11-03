@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Native UNO test for Calc =PY() data-arg DAG chaining (Issue #412 / Packet C2.4)."""
 
+from __future__ import annotations
 
 import time
 

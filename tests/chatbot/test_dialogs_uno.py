@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -11,6 +10,7 @@ pyuno's ``queryInterface`` rejects an imported IDL class ("Couldn't convert
 failed to build. Mocked tests could not see this.
 """
 
+from __future__ import annotations
 
 from plugin.testing_runner import native_test
 

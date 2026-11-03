@@ -493,6 +493,7 @@ def set_background_task(name: str | None) -> None:
 def get_background_task_name() -> str | None:
     return getattr(_bg, "task_name", None)
 
+# In release bundles untagged Dummy-N is not current so linguistic worker Dummy-21 does not skip PE2I posts.
 UNTAGGED_DUMMY_IS_CURRENT = False
 
 def on_python_main_thread() -> bool:

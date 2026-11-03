@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - Keep-Alive Tests for Python Compute Service
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """HTTP/1.1 persistent connections: idle sockets live on the accept thread, a worker holds one only per request."""
 
+from __future__ import annotations
 
 import json
 import selectors

@@ -1122,7 +1122,7 @@ def handle_debug_sidebar_command(command: str) -> None:
     """Run inside soffice (protocol handler). Packet G URP FSM ops + OPEN_CALC.
 
     ``DispatchHandler`` runs on the URP thread. ``WRITERAGENT_TESTING=1`` makes
-    ``QueueExecutor.post`` inline, so Stop Rec used to start ``_do_send`` off
+    ``MainThread.post`` inline, so Stop Rec used to start ``_do_send`` off
     the VCL thread and freeze on ``Getting document...``. Marshal FSM work onto
     the listener's executor (VCL) before StartSendEffect posts the drain.
     ``OPEN_CALC`` uses the same post-to-VCL rule: factory ``scalc`` over URP
@@ -1718,7 +1718,7 @@ def _load_visible_calc_factory() -> None:
 def _post_to_soffice_vcl(fn: Callable[[], None], *, sl: Any = None) -> None:
     """Enqueue *fn* on soffice VCL. Do not run it inline on the URP Dummy thread.
 
-    ``WRITERAGENT_TESTING=1`` makes ``QueueExecutor.post`` inline. Force-marshal
+    ``WRITERAGENT_TESTING=1`` makes ``MainThread.post`` inline. Force-marshal
     so AsyncCallback runs the work on VCL. ``execute()`` from URP dispatch
     deadlocks (office idle, tests wait forever) — same as Packet G FSM ops.
     """
@@ -1736,14 +1736,7 @@ def _post_to_soffice_vcl(fn: Callable[[], None], *, sl: Any = None) -> None:
             init_cb()
         except Exception:
             log.exception("debug_sidebar: AsyncCallback init failed")
-    from plugin.framework.queue_executor import MainThread, Policy, main
-
-    saved_policy = main.policy
-    main.install(Policy.test_marshal, designated=MainThread.designated, poke=MainThread.poke)
-    try:
-        qe.post(fn)
-    finally:
-        main.install(saved_policy, designated=MainThread.designated, poke=MainThread.poke)
+    qe.post(fn, force_queue=True)
 
 
 def open_calc_document(ctx: Any, *, timeout: float = 30.0) -> Any:

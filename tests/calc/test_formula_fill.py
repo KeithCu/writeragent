@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Pure unit tests for Calc formula fill-down / =PY span-peek (no soffice)."""
 
+from __future__ import annotations
 
 import pytest
 

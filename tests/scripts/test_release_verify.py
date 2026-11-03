@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent — tests for scripts/release_verify.py
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for release bundle verification script."""
 
+from __future__ import annotations
 
 import os
 import shutil

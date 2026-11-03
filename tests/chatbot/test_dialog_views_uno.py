@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -12,6 +11,7 @@ paints Audio Model on General every time. Image then General re-filters.
 Enable/disable must not paint it there.
 """
 
+from __future__ import annotations
 
 from plugin.testing_runner import native_test
 

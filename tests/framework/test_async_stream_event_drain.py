@@ -306,7 +306,7 @@ def test_async_callback_for_drain_rearm_keeps_testing_flag(monkeypatch: pytest.M
     previous_ctx = executor._ctx
     executor._async_callback_service = sentinel
     try:
-        monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+        qe.main.install(qe.Policy.test_inline)
         assert qe.async_callback_for_drain_rearm() is sentinel
         saved_policy = qe.main.policy
         qe.main.install(qe.Policy.test_marshal)

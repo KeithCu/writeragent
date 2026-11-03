@@ -1846,10 +1846,13 @@ def main() -> int:
     # Suppress MCP server startup in the soffice child process; it inherits
     # this env var and McpModule.start_background() checks it.
     #
-    # WRITERAGENT_TESTING only short-circuits QueueExecutor inline execution; it does
+    # WRITERAGENT_TESTING only short-circuits MainThread inline execution; it does
     # NOT disable Layer A (WRITERAGENT_UNO_THREAD_GUARD). Use make lo-test-threadguard
     # to run this suite with the viral UNO proxy so worker-thread violations fail loudly.
     os.environ["WRITERAGENT_TESTING"] = "1"
+    from plugin.framework.queue_executor import install_from_environ
+
+    install_from_environ()
 
     try:
         ctx = _bootstrap_office()

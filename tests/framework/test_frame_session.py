@@ -1,11 +1,10 @@
-from __future__ import annotations
-from plugin.framework.queue_executor import main
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Per-frame session: a second frame must not touch the first frame's listeners or panel."""
 
+from __future__ import annotations
 
 import logging
 import sys
@@ -13,6 +12,8 @@ import types
 from contextlib import contextmanager
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
+
+from plugin.framework.queue_executor import main
 
 import pytest
 

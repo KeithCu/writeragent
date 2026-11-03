@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -16,6 +15,7 @@ Worker code is a **single expression** (no ``result =``); venv_sandbox uses the
 last value when ``result`` is not assigned.
 """
 
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Literal

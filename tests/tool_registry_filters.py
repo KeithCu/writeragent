@@ -1,5 +1,5 @@
-from __future__ import annotations
 # Test helpers for ToolRegistry filters registered at WriterAgent bootstrap.
+from __future__ import annotations
 
 from typing import Any
 

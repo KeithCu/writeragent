@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for grammar observability helpers and C10 batch_stats counters."""
 
+from __future__ import annotations
 
 import logging
 from unittest.mock import MagicMock, patch

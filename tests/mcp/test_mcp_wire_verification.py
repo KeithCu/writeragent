@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -6,6 +5,7 @@ from __future__ import annotations
 
 """deal / Hypothesis verification for MCP wire_types JSON-RPC 2.0 message parsing."""
 
+from __future__ import annotations
 
 from hypothesis import given, settings
 from hypothesis import strategies as st

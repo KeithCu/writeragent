@@ -1,7 +1,7 @@
-from __future__ import annotations
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for quant result sheet egress formatting."""
 
+from __future__ import annotations
 
 from plugin.calc.quant_egress import (
     format_quant_for_calc,

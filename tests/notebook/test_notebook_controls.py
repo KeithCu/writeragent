@@ -1,6 +1,6 @@
-from __future__ import annotations
 # WriterAgent - tests for notebook run button wiring
 
+from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 

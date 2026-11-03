@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for OpenAI Responses API path, payload building, stream and sync parsing."""
 
+from __future__ import annotations
 
 import json
 from typing import Any

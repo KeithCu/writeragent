@@ -66,7 +66,7 @@ class SendCancellation:
         return self._cancelled.is_set()
 
     def bind_executor(self, executor: "MainThread") -> None:
-        """Track a :class:`QueueExecutor` whose pending work Stop must cancel."""
+        """Track a :class:`MainThread` whose pending work Stop must cancel."""
         with self._lock:
             if executor not in self._executors:
                 self._executors.append(executor)

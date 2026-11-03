@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Threading tests for specialized delegation setup (UNO on main thread)."""
 
+from __future__ import annotations
 
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
@@ -616,7 +616,7 @@ def test_writer_smol_adapter_marshals_sync_footnotes_tool():
     mock_main.assert_called_once()
 
 
-def test_writer_footnotes_list_runs_uno_only_is_current():
+def test_writer_footnotes_list_runs_uno_only_when_current():
     """Regression: footnotes_list touches doc UNO; sub-agent worker must marshal before execute."""
     session = start_uno_thread_safety_session()
     try:
@@ -668,7 +668,7 @@ def test_calc_sync_tool_marshals_via_smol_adapter():
     mock_main.assert_called_once()
 
 
-def test_calc_list_sheets_runs_uno_only_is_current():
+def test_calc_list_sheets_runs_uno_only_when_current():
     """Regression: list_sheets touches doc UNO; sub-agent worker must marshal before execute."""
     session = start_uno_thread_safety_session()
     try:

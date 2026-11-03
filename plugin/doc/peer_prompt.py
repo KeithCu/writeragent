@@ -163,7 +163,7 @@ def _peer_block_on_main_thread(build: Any, fail_log: str) -> str:
     try:
         from plugin.framework.queue_executor import main
 
-        return build() if main.is_current() else main.call(build)
+        return main.run(build)
     except Exception:
         logging.getLogger(__name__).exception(fail_log)
         return ""

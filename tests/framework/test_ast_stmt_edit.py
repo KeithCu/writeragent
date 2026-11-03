@@ -1,7 +1,7 @@
-from __future__ import annotations
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for shared expression-statement AST edits."""
 
+from __future__ import annotations
 
 import ast
 

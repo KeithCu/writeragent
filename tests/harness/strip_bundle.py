@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -11,6 +10,7 @@ logger ``.debug`` / ``.info`` call sites.
 ``make test-run`` uses unstripped source with deal installed. Assertions must accept both.
 """
 
+from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
@@ -93,7 +93,7 @@ def is_release_build() -> bool:
     try:
         from plugin.framework import thread_guard as tg
 
-        if not hasattr(tg, "_designated_main_thread"):
+        if not hasattr(tg, "_violation_ui_lock"):
             return True
     except Exception:
         pass

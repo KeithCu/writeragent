@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -9,6 +8,7 @@ Run via ``make test-mock-sidebar FILTER=P`` (visible soffice, user profile).
 Opens Calc with ``open_calc_document`` (E12 / #674: VCL-posted factory, ``_blank``).
 """
 
+from __future__ import annotations
 
 import os
 import time

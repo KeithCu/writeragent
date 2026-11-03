@@ -1,9 +1,9 @@
-from __future__ import annotations
 # WriterAgent tests for eval-2 AFC writer prompt column axes
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Writer prompt axes and step-3 keys come from the Population fixture, not gold."""
+from __future__ import annotations
 
 import zipfile
 from pathlib import Path

@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -9,6 +8,7 @@ These require spaCy (and ideally textdescriptives) in the test environment.
 They are skipped gracefully if the packages are not present.
 """
 
+from __future__ import annotations
 
 from tests.harness.strip_bundle import is_release_build
 import sys

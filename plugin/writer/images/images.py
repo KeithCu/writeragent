@@ -313,11 +313,7 @@ class ImageGenerate(ToolWriterImageBase):
 
             return ("ok", (obj, b64, nw, nh, frame_w, frame_h))
 
-        tag, payload = (
-            _read_selection_for_edit()
-            if main.is_current()
-            else main.call(_read_selection_for_edit, timeout=mt_timeout)
-        )
+        tag, payload = main.run(_read_selection_for_edit, timeout=mt_timeout)
         if tag == "too_large":
             return self._tool_error(
                 "Selected image is larger than %d MB; crop it or choose a smaller image to edit."
@@ -423,11 +419,7 @@ class ImageGenerate(ToolWriterImageBase):
         # cancel the queued insert after the bytes are downloaded. Insert unscoped.
         # Stop after the download must not turn a finished insert into an error.
         try:
-            msg = (
-                _insert_or_replace()
-                if main.is_current()
-                else main.call(_insert_or_replace, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
-            )
+            msg = main.run(_insert_or_replace, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
         finally:
             _unlink_temp_paths(paths)
 
@@ -512,7 +504,7 @@ class ImageListNearbyFiles(ToolWriterImageBase):
         def _run() -> dict[str, typing.Any]:
             return list_nearby_files(ctx.ctx, ctx.doc, filter=filt, file_kind="images")
 
-        return _run() if main.is_current() else main.call(_run, timeout=60.0)
+        return main.run(_run, timeout=60.0)
 
 
 # ------------------------------------------------------------------
@@ -1403,11 +1395,7 @@ class ImageInsert(ToolWriterImageBase):
             image_name = graphic.getName() if hasattr(graphic, "getName") else ""
             return {"status": "ok", "image_name": image_name, "width_mm": width_mm, "height_mm": height_mm}
 
-        return (
-            _place()
-            if main.is_current()
-            else main.call(_place, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
-        )
+        return main.run(_place, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
 
 
 # ------------------------------------------------------------------
@@ -1499,7 +1487,7 @@ class ImageReplace(ToolWriterImageBase):
             def _probe() -> Any:
                 return _resolve_graphic(self, ctx, image_name, sheet_index=sheet_index)[1]
 
-            err = _probe() if main.is_current() else main.call(_probe, timeout=60.0)
+            err = main.run(_probe, timeout=60.0)
             if err is not None:
                 return err
             local_path = _local_image_path(self, new_image_path, getattr(ctx, "send_cancellation", None))
@@ -1528,11 +1516,7 @@ class ImageReplace(ToolWriterImageBase):
                 return self._tool_error("Failed to replace image.", code="REPLACE_FAILED", image_name=image_name)
             return {"status": "ok", "image_name": image_name}
 
-        return (
-            _apply()
-            if main.is_current()
-            else main.call(_apply, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
-        )
+        return main.run(_apply, timeout=_DOCUMENT_MARSHAL_TIMEOUT_SEC, bound_scope=None)
 
 
 # ------------------------------------------------------------------

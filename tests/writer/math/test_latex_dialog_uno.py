@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - LaTeX Math Insertion Dialog UNO Tests
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UNO integration tests for LaTeX Math Insertion Dialog in Writer."""
 
+from __future__ import annotations
 
 
 from typing import Any

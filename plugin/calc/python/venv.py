@@ -131,11 +131,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
             from plugin.calc import calc_addin_data
 
             _resolve = calc_addin_data._resolve_python_data
-            py_data, err = (
-                _resolve(ctx.doc, data_range=data_range, data=data)
-                if main.is_current()
-                else main.call(_resolve, ctx.doc, data_range=data_range, data=data)
-            )
+            py_data, err = main.run(_resolve, ctx.doc, data_range=data_range, data=data)
             if err:
                 return self._tool_error(err, code="DATA_RESOLUTION_ERROR")
 

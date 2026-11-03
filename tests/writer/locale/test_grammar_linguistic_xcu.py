@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Keep Linguistic grammar registry XML aligned with ``GRAMMAR_REGISTRY_LOCALE_TAGS``."""
 
+from __future__ import annotations
 
 import os
 import ast

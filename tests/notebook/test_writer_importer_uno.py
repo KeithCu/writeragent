@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -12,6 +11,7 @@ hard failure (PR 453 treated that as a clean error). A worker
 ``ModuleNotFoundError`` for numpy is allowed when the venv has no NumPy.
 """
 
+from __future__ import annotations
 
 import logging
 import sys

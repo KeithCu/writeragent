@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -6,6 +5,7 @@ from __future__ import annotations
 
 """deal / Hypothesis / CrossHair verification for response_normalizers wire helpers."""
 
+from __future__ import annotations
 
 import re
 import shutil

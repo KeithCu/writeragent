@@ -1,9 +1,9 @@
-from __future__ import annotations
 # WriterAgent - tests for external editor launcher
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
 
 import os
 import stat

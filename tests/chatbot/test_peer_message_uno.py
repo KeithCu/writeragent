@@ -1,6 +1,6 @@
-from __future__ import annotations
 """UNO tests for A1 peer messaging: addressing, missing deck, inject/queue."""
 
+from __future__ import annotations
 
 import sys
 

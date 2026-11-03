@@ -1,9 +1,9 @@
-from __future__ import annotations
 # WriterAgent tests for eval-2 sibling stubs
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Stub folders stay light: required files, no fake gold, no product internals."""
+from __future__ import annotations
 
 from pathlib import Path
 

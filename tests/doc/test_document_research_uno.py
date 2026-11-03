@@ -1,8 +1,8 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 """UNO tests for document_research nearby file discovery and read-only open."""
 
+from __future__ import annotations
 
 import os
 import shutil

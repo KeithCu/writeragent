@@ -1,5 +1,5 @@
-from __future__ import annotations
 # WriterAgent tests for LlmClient-based eval judge
+from __future__ import annotations
 
 import json
 import sys

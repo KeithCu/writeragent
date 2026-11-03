@@ -80,7 +80,7 @@ def test_venv_probe_progress_pumps_events():
     mock_pump.assert_called_once_with(ctx)
 
 
-def test_venv_probe_progress_finish_pumps_only_is_current() -> None:
+def test_venv_probe_progress_finish_pumps_only_when_current() -> None:
     ctx = MagicMock()
     progress = VenvProbeProgressDialog(ctx)
     progress._dlg = MagicMock()

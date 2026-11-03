@@ -62,7 +62,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
 
     from plugin.framework.send_cancellation import SendCancelled
     try:
-        tools = _fetch_inner_tools() if main.is_current() else main.call(_fetch_inner_tools)
+        tools = main.run(_fetch_inner_tools)
     except SendCancelled:
         return user_stopped_payload()
 
@@ -146,10 +146,8 @@ class DelegateReadDocument(ToolBase):
             if path is None:
                 return self._tool_error(url_or_err or "Could not resolve file", path_or_name=path_or_name)
             target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
-            model, doc_type, err, opened_for_document_research = (
-                open_document_for_read(ctx.ctx, target)
-                if main.is_current()
-                else main.call(open_document_for_read, ctx.ctx, target)
+            model, doc_type, err, opened_for_document_research = main.run(
+                open_document_for_read, ctx.ctx, target
             )
         except SendCancelled:
             return user_stopped_payload()
@@ -165,7 +163,7 @@ class DelegateReadDocument(ToolBase):
                 close_document_research_document(model, opened_for_document_research=opened_for_document_research)
 
             try:
-                _do_close() if main.is_current() else main.call(_do_close)
+                main.run(_do_close)
             except (SendCancelled, TimeoutError, RuntimeError):
                 # Post unscoped (bound_scope=None) so the cancelled turn scope does not drop
                 # this close during queue processing or cancel_pending_work.

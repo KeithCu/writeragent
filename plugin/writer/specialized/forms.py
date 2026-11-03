@@ -359,7 +359,7 @@ class FormCreateControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return _create_control(ctx, **kwargs) if main.is_current() else main.call(_create_control, ctx, **kwargs)
+        return main.run(_create_control, ctx, **kwargs)
 
 
 def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dict[str, Any]:
@@ -622,11 +622,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             )
 
             # Process the content
-            return (
-                self._process_form_content(ctx, content)
-                if main.is_current()
-                else main.call(self._process_form_content, ctx, content)
-            )
+            return main.run(self._process_form_content, ctx, content)
 
         except Exception as e:
             if is_real_disposal(e):
@@ -743,7 +739,7 @@ class FormListControls(ToolWriterFormBase):
     parameters: dict[str, Any] | None = _PAGE_ONLY_PARAMETERS
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return self._execute_main(ctx, **kwargs) if main.is_current() else main.call(self._execute_main, ctx, **kwargs)
+        return main.run(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -820,7 +816,7 @@ class FormEditControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return self._execute_main(ctx, **kwargs) if main.is_current() else main.call(self._execute_main, ctx, **kwargs)
+        return main.run(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         _unused_dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)
@@ -933,7 +929,7 @@ class FormDeleteControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return self._execute_main(ctx, **kwargs) if main.is_current() else main.call(self._execute_main, ctx, **kwargs)
+        return main.run(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)

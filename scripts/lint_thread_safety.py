@@ -108,14 +108,52 @@ SYNC_ADDIN_FUNCTIONS = {
     "prompt",
 }
 
-BLOCKING_MARSHAL_FUNCS = {
-    "call",
+def _dotted_name(node: ast.AST) -> str:
+    parts: list[str] = []
+    curr: ast.AST = node
+    while isinstance(curr, ast.Attribute):
+        parts.append(curr.attr)
+        curr = curr.value
+    if isinstance(curr, ast.Name):
+        parts.append(curr.id)
+    return ".".join(reversed(parts))
+
+
+MARSHAL_METHOD_NAMES = {"call", "post", "run", "post_or_run"}
+MARSHAL_RECEIVERS = {"main", "queue_executor", "qe"}
+MARSHAL_SANITIZERS = {
+    f"{r}.{m}" for r in MARSHAL_RECEIVERS for m in MARSHAL_METHOD_NAMES
 }
 
-MARSHAL_SANITIZERS = {
-    "call",
-    "post",
-}
+
+def is_marshal_call(node: ast.Call) -> bool:
+    dotted = _dotted_name(node.func)
+    if not dotted:
+        return False
+    parts = dotted.split(".")
+    if len(parts) >= 2 and parts[-1] in MARSHAL_METHOD_NAMES:
+        return parts[-2] in MARSHAL_RECEIVERS
+    return False
+
+
+def is_blocking_marshal(node: ast.Call) -> bool:
+    dotted = _dotted_name(node.func)
+    if not dotted:
+        return False
+    parts = dotted.split(".")
+    if len(parts) >= 2 and parts[-1] in {"call", "run"}:
+        return parts[-2] in MARSHAL_RECEIVERS
+    return False
+
+
+def _has_on_main_guard(cond_str: str) -> bool:
+    if "on_python_main_thread()" in cond_str:
+        return True
+    for prefix in ("main.", "self.queue_executor.", "queue_executor.", "qe.", "ex."):
+        if f"{prefix}is_current()" in cond_str:
+            return True
+    return False
+
 
 REGISTRATION_FUNCS = {
     "register_action_handler",
@@ -168,7 +206,7 @@ class ThreadSafetyASTVisitor(ast.NodeVisitor):
 
     def visit_IfExp(self, node: ast.IfExp) -> None:
         cond_str = ast.unparse(node.test)
-        has_on_main = "is_current()" in cond_str or "on_python_main_thread()" in cond_str
+        has_on_main = _has_on_main_guard(cond_str)
         if has_on_main and not cond_str.startswith("not ") and " not " not in cond_str:
             self.guarded_scopes.append(True)
             self.visit(node.body)
@@ -185,7 +223,7 @@ class ThreadSafetyASTVisitor(ast.NodeVisitor):
         for stmt in statements:
             if isinstance(stmt, ast.If):
                 cond_str = ast.unparse(stmt.test)
-                has_on_main = "is_current()" in cond_str or "on_python_main_thread()" in cond_str
+                has_on_main = _has_on_main_guard(cond_str)
                 # Case 1: if not is_current(): ... return / raise
                 if has_on_main and (cond_str.startswith("not ") or " not " in cond_str):
                     exits_early = bool(stmt.body) and isinstance(
@@ -294,7 +332,7 @@ class ThreadSafetyASTVisitor(ast.NodeVisitor):
                 )
 
         # Rule 2: Blocking marshal in synchronous dispatch
-        if func_name in BLOCKING_MARSHAL_FUNCS:
+        if is_blocking_marshal(node):
             if current_fn in SYNC_ADDIN_FUNCTIONS:
                 self.findings.append(
                     Finding(
@@ -341,7 +379,7 @@ class CrossFileCallGraphBuilder(ast.NodeVisitor):
 
     def visit_IfExp(self, node: ast.IfExp) -> None:
         cond_str = ast.unparse(node.test)
-        has_on_main = "is_current()" in cond_str or "on_python_main_thread()" in cond_str
+        has_on_main = _has_on_main_guard(cond_str)
         if has_on_main and not cond_str.startswith("not ") and " not " not in cond_str:
             self.guarded_scopes.append(True)
             self.visit(node.body)
@@ -358,7 +396,7 @@ class CrossFileCallGraphBuilder(ast.NodeVisitor):
         for stmt in statements:
             if isinstance(stmt, ast.If):
                 cond_str = ast.unparse(stmt.test)
-                has_on_main = "is_current()" in cond_str or "on_python_main_thread()" in cond_str
+                has_on_main = _has_on_main_guard(cond_str)
                 # Case 1: if not is_current(): ... return / raise
                 if has_on_main and (cond_str.startswith("not ") or " not " in cond_str):
                     exits_early = bool(stmt.body) and isinstance(
@@ -504,9 +542,12 @@ class CrossFileCallGraphBuilder(ast.NodeVisitor):
 
         is_guarded = any(self.guarded_scopes)
 
-        # Detect marshal sanitizers: main.call / main.post
-        if bare_name in MARSHAL_SANITIZERS:
-            self.call_edges.append((self.current_function, func_name, node.lineno, is_guarded))
+        # Detect marshal sanitizers: main.call / main.post / main.run / main.post_or_run
+        if is_marshal_call(node):
+            dotted = _dotted_name(node.func)
+            parts = dotted.split(".")
+            sanitizer_name = f"{parts[-2]}.{parts[-1]}"
+            self.call_edges.append((self.current_function, sanitizer_name, node.lineno, is_guarded))
             return
 
         # Registration functions: do not treat callback arguments as immediate synchronous calls
@@ -605,7 +646,7 @@ def scan_cross_file_callgraph(root_dir: Path) -> list[Finding]:
 
             for callee, file_path, lineno, is_guarded in graph.get(curr, []):
                 bare_callee = callee.split(".")[-1]
-                if callee in MARSHAL_SANITIZERS or bare_callee in MARSHAL_SANITIZERS:
+                if callee in MARSHAL_SANITIZERS:
                     continue  # Marshaled to main thread -> safe
                 if is_guarded:
                     continue  # Guarded by main.is_current() -> safe

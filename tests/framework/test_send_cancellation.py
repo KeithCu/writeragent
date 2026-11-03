@@ -1,6 +1,6 @@
-from __future__ import annotations
 """Tests for per-send cancellation (Stop button + sub-agent HTTP)."""
 
+from __future__ import annotations
 
 import threading
 from unittest.mock import MagicMock, patch

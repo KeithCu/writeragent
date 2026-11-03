@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -9,6 +8,7 @@ from __future__ import annotations
 
 """Unit tests for RichTextControl append path in SendButtonListener."""
 
+from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
@@ -85,7 +85,7 @@ class TestRichAppendResponse:
         send.rich_text_widget.paint_session.assert_not_called()
         assert send.session.messages == []
 
-    def test_background_task_name_posts_even_is_current(self):
+    def test_background_task_name_posts_even_when_current(self):
         send = _make_send_listener()
         with (
             patch("plugin.framework.queue_executor.main.is_current", return_value=True),

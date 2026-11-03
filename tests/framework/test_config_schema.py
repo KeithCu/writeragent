@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -6,6 +5,7 @@ from __future__ import annotations
 
 """Filesystem-free tests for plugin.framework.config_schema."""
 
+from __future__ import annotations
 
 import ast
 from pathlib import Path

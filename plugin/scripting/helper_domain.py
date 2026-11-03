@@ -704,14 +704,14 @@ def run_trusted_calc_data_helper(
         return py_data, err, context
 
     # forecast_data / optimize_data used to wrap this whole helper in
-    # main.call, so the venv IPC ran on the UI thread and froze
+    # blocking main-thread marshal, so the venv IPC ran on the UI thread and froze
     # Calc. Hop only the UNO read to the main thread; client_run stays on the caller.
     from plugin.framework.queue_executor import main
 
     # What was wrong: untagged PyUNO Dummy-N threads ran the sheet read inline
-    # because main.is_current() returned True.
+    # because the main-thread predicate returned True.
     # How it happened: analysis_runner was unified with run_trusted_calc_data_helper,
-    # which bypassed main.call when main.is_current() was True.
+    # which bypassed the marshal queue when on the main thread.
     # Why this change: force_queue forces the sheet read through main.call,
     # enqueuing work on Dummy-N threads while still running inline on the true main thread.
     if not force_queue and main.is_current():

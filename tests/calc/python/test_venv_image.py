@@ -1,6 +1,6 @@
-from __future__ import annotations
 # WriterAgent - tests for run_venv_python_script image handling
 
+from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, mock_open, patch

@@ -1,4 +1,3 @@
-from __future__ import annotations
 """UNO component modules must not define dataclasses at import time.
 
 LibreOffice's pythonloader execs a component file into a module that is not in
@@ -6,6 +5,7 @@ LibreOffice's pythonloader execs a component file into a module that is not in
 attribute '__dict__'`` and ``unopkg add`` aborts.
 """
 
+from __future__ import annotations
 
 import ast
 from pathlib import Path

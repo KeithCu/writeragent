@@ -1,6 +1,6 @@
-from __future__ import annotations
 """Misaki G2P selection for local Kokoro. The venv script is exec'd with fake modules."""
 
+from __future__ import annotations
 
 import re
 import subprocess

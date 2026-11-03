@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -9,6 +8,7 @@ Extracts all Calc tools across all tiers (core, specialized, specialized_control
 and provides verification against MCP wire format requirements.
 """
 
+from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 from unittest.mock import MagicMock

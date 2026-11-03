@@ -1,6 +1,6 @@
-from __future__ import annotations
 """Unit tests for RMS silence / end-of-speech detection."""
 
+from __future__ import annotations
 
 import os
 import struct

@@ -1,7 +1,7 @@
-from __future__ import annotations
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for plugin.calc.excel_py_convert.cli."""
 
+from __future__ import annotations
 
 import io
 import json

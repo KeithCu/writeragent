@@ -154,7 +154,7 @@ class PythonPanelElement(unohelper.Base, XUIElement):
                     self.controller = controller
                     self.toolpanel = panel
 
-                _create_panel() if main.is_current() else main.call(_create_panel)
+                main.run(_create_panel)
             except Exception as e:
                 # Publish toolpanel only after the controller finishes. A
                 # failure before that leaves nothing latched, so the next

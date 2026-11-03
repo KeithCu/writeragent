@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - Online =PY() dumb-JSON contract tests
 # Copyright (c) 2026 KeithCu
 #
@@ -9,6 +8,7 @@ The C++ add-in (collabofficefull scaddins/pythoncompute) emits the same shapes
 over the compute_service wire. Keep this file aligned when changing anyjson.cxx.
 """
 
+from __future__ import annotations
 
 import json
 from typing import Any

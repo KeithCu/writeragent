@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -10,6 +9,7 @@ page, writes stdout as its own paragraph, and a re-click replaces output without
 eating the following markdown heading.
 """
 
+from __future__ import annotations
 
 import json
 import tempfile

@@ -91,7 +91,10 @@ def in_sync_host_dispatch() -> bool:
     return getattr(_sync_host, "active", False)
 
 
+# In dev builds untagged Dummy-N is current so LO status/dispatch upcalls run inline.
 UNTAGGED_DUMMY_IS_CURRENT = True
+# Dev marker present only in development checkouts; stripped release stub lacks this.
+DEV_GUARD = True
 
 
 def on_python_main_thread() -> bool:

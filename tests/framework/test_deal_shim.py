@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -6,6 +5,7 @@ from __future__ import annotations
 
 """Unit tests for ascii_bounded helper and deal_shim constants."""
 
+from __future__ import annotations
 
 import ast
 import os

@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -6,6 +5,7 @@ from __future__ import annotations
 
 """deal / Hypothesis verification for pure chatbot helpers (chat_sidebar_mode, skills, web_research_cache)."""
 
+from __future__ import annotations
 
 from hypothesis import given, settings
 from hypothesis import strategies as st

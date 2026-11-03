@@ -273,7 +273,7 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                         # Inlines when main.is_current() is true, including an untagged Dummy thread.
                         from plugin.framework.queue_executor import main
 
-                        _geometric_open_job(ctx, doc) if main.is_current() else main.call(_geometric_open_job, ctx, doc)
+                        main.run(_geometric_open_job, ctx, doc)
                     except Exception:
                         log.warning("geometric recalc on open failed", exc_info=True)
                 if doc is None:

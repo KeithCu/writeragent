@@ -531,11 +531,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         try:
             # A busy VCL thread must not stall a Linguistic worker for the 30 s default;
             # a failed hop is already backed off by _failed_bind_deadlines.
-            (
-                self._ensure_document_bound_on_main(doc_id)
-                if main.is_current()
-                else main.call(self._ensure_document_bound_on_main, doc_id, timeout=BIND_RETRY_SEC)
-            )
+            main.run(self._ensure_document_bound_on_main, doc_id, timeout=BIND_RETRY_SEC)
         except TimeoutError:
             with self._bind_lock:
                 self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
@@ -837,11 +833,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def _run_doc_op(self, op: str, action: Any) -> None:
         try:
-            doc_id = (
-                self._resolve_doc_id_for_ignore()
-                if main.is_current()
-                else main.call(self._resolve_doc_id_for_ignore)
-            )
+            doc_id = main.run(self._resolve_doc_id_for_ignore)
             if not doc_id:
                 raise RuntimeError(f"{op} failed: no active document found")
             action(doc_id)
@@ -853,20 +845,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         del aLocale
         self._run_doc_op(
             "ignoreRule",
-            lambda doc_id: (
-                _ignore_rule_on_main(self.ctx, doc_id, aRuleIdentifier)
-                if main.is_current()
-                else main.call(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier)
-            ),
+            lambda doc_id: main.run(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier),
         )
 
     def resetIgnoreRules(self) -> None:
         def _action(doc_id: str) -> None:
-            (
-                _reset_ignore_rules_on_main(self.ctx, doc_id)
-                if main.is_current()
-                else main.call(_reset_ignore_rules_on_main, self.ctx, doc_id)
-            )
+            main.run(_reset_ignore_rules_on_main, self.ctx, doc_id)
             self.broadcast_proofread_again()
 
         self._run_doc_op("resetIgnoreRules", _action)

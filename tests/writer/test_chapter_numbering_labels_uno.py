@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -12,6 +11,7 @@ sequence. Does **not** implement ``chapter_number`` on ``writer_tree``.
 Heading 2 ``NumberingStyleName='Outline'``, which breaks the list-only suite.
 """
 
+from __future__ import annotations
 
 import uno  # noqa: F401
 

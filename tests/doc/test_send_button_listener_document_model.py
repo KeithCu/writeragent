@@ -1,6 +1,6 @@
-from __future__ import annotations
 """Tests for SendButtonListener._get_document_model (frame-only; no Desktop fallback)."""
 
+from __future__ import annotations
 
 import sys
 from unittest.mock import MagicMock, patch

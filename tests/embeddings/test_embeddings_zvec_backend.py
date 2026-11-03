@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -14,6 +13,7 @@ plus the exercised paths in the updated embeddings tools/indexer/service when th
 is "zvec".
 """
 
+from __future__ import annotations
 
 import json
 import re

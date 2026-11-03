@@ -1,7 +1,7 @@
-from __future__ import annotations
 # WriterAgent — EditTextObject range formatting on a real Draw shape.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
 
 from plugin.draw.transform_engine import _apply_cursor_uno_format
 from plugin.testing_runner import native_test

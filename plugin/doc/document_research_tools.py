@@ -99,7 +99,7 @@ class ListOpenDocuments(ToolBase):
             return {"status": "ok", "documents": docs, "current_local_datetime": _format_mcp_clock_context()}
 
         try:
-            return _run() if main.is_current() else main.call(_run)
+            return main.run(_run)
         except SendCancelled:
             return user_stopped_payload()
 

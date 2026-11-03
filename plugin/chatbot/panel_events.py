@@ -278,11 +278,7 @@ class PanelEventsController:
             # queue sits until the drain ends, so an MCP result during Send
             # never reaches the sidebar until the turn is over.
             from plugin.framework.queue_executor import main
-            from plugin.framework.thread_guard import get_background_task_name
 
-            if main.is_current() and not get_background_task_name():
-                _update_ui()
-            else:
-                main.post(_update_ui)
+            main.post_or_run(_update_ui)
         except Exception:
             log.exception("_on_mcp_result post error")

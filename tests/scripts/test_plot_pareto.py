@@ -1,5 +1,5 @@
-from __future__ import annotations
 # WriterAgent tests for scripts/prompt_optimization/plot_pareto.py
+from __future__ import annotations
 
 import sys
 from pathlib import Path

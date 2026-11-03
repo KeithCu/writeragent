@@ -1,6 +1,6 @@
-from __future__ import annotations
 """PR CI mock-sidebar option stays off by default and skips the other jobs when on."""
 
+from __future__ import annotations
 
 from pathlib import Path
 

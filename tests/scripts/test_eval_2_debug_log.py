@@ -1,5 +1,5 @@
-from __future__ import annotations
 # WriterAgent tests for scripts/eval_2_debug_log.py / save_eval2_debug_log.py
+from __future__ import annotations
 
 import io
 import sys

@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -14,6 +13,7 @@ Skipped because the four kinds are already tested, or they do not produce an
 error: ``t``, ``text``, ``textjoin``, ``type``, ``unicode``, ``unique``, ``xor``.
 """
 
+from __future__ import annotations
 
 import datetime as dt
 import math

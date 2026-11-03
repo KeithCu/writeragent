@@ -42,7 +42,7 @@ def _debug_env_active() -> bool:  # pyright: ignore[reportUnusedFunction]
     """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1``)."""
     from plugin.framework import thread_guard as tg
 
-    if getattr(tg, "UNTAGGED_DUMMY_IS_CURRENT", False):
+    if getattr(tg, "DEV_GUARD", False):
         return True
     return os.environ.get("WRITERAGENT_TESTING") == "1"
 

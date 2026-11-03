@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """In-process mock-LLM helpers for native sidebar tests (not shipped)."""
 
+from __future__ import annotations
 
 import os
 import threading

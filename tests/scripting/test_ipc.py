@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for shared subprocess IPC framing helpers."""
 
+from __future__ import annotations
 
 from tests.harness.strip_bundle import is_release_build
 import io

@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UNO: Collabora GETPY OriginalName rewrites to =PY() and evaluates."""
 
+from __future__ import annotations
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc

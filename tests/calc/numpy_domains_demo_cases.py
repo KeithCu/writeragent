@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -8,6 +7,7 @@ from __future__ import annotations
 Shared by ``scripts/generate_numpy_domains_demo_spreadsheet.py`` and pytest smoke tests.
 """
 
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Literal

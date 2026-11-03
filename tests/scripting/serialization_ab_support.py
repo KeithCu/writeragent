@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -8,6 +7,7 @@ from __future__ import annotations
 # (at your option) any later version.
 """Shared fixtures, oracles, and venv round-trip harness for A/B serialization tests."""
 
+from __future__ import annotations
 
 import math
 import sys

@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -23,6 +22,7 @@ Live lock (StarWriter HTML import on a default Writer doc):
   not a leftover list item.
 """
 
+from __future__ import annotations
 
 import re
 

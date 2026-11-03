@@ -103,7 +103,7 @@ def _run_on_main_or_none(fn: Callable[[], Any], what: str, *, reraise_disposed: 
     from plugin.framework.send_cancellation import SendCancelled
 
     try:
-        return fn() if main.is_current() else main.call(fn)
+        return main.run(fn)
     except SendCancelled:
         log.debug("research cache: %s cancelled", what)
     except TimeoutError:

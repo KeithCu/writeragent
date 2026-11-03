@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -13,6 +12,7 @@ cursor on model.getText() while the selection lived in a table cell.
 This is not a LibreOffice harness: no keystrokes, layout, fonts, undo, or UNO.
 """
 
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Sequence, Tuple

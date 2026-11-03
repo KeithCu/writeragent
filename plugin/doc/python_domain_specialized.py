@@ -203,7 +203,7 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
                     finish.append(tool)
         return body + venv + finish
 
-    return _fetch() if main.is_current() else main.call(_fetch)
+    return main.run(_fetch)
 
 
 def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
@@ -257,7 +257,7 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
         def _get_canvas() -> str:
             return format_shapes_canvas_context(getattr(parent_ctx, "doc", None))
 
-        canvas = _get_canvas() if main.is_current() else main.call(_get_canvas)
+        canvas = main.run(_get_canvas)
         if canvas:
             parts.append(canvas if canvas.startswith(" ") else " " + canvas)
     return "".join(parts)

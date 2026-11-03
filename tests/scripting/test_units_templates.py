@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for units Run Python Script templates."""
 
+from __future__ import annotations
 
 from plugin.scripting.helper_registry import names, specs
 from plugin.scripting.units import get_units_script_templates

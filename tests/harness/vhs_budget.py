@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -10,6 +9,7 @@ from __future__ import annotations
 remains an alias so older Make/docs keep working.
 """
 
+from __future__ import annotations
 
 import os
 

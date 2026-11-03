@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for whole-axis range clipping in spreadsheet import."""
 
+from __future__ import annotations
 
 from plugin.calc.spreadsheet_import.range_clip import clip_workbook_data_ranges
 

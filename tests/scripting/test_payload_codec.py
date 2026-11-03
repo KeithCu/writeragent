@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -13,6 +12,7 @@ realistic Calc-shaped grids (rectangular 2D). Uneven row lengths raise on split_
 the small list path returns them unchanged.
 """
 
+from __future__ import annotations
 
 import array
 import ast

@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Trusted vision runs via run_trusted_action dispatch (not sandbox string stubs)."""
 
+from __future__ import annotations
 
 from unittest.mock import patch
 

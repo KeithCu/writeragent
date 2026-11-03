@@ -1,6 +1,6 @@
-from __future__ import annotations
 """Import-graph ownership tests for the sidebar factory (no UNO import)."""
 
+from __future__ import annotations
 
 import ast
 from pathlib import Path
@@ -334,7 +334,10 @@ def test_initialize_extension_paths_impl_sets_flag_when_hop_inlines():
     try:
         with (
             patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch(
+                "plugin.framework.queue_executor.main.call",
+                side_effect=lambda fn, *args, timeout=None, bound_scope=None, **kwargs: fn(*args, **kwargs),
+            ),
             patch.object(pf, "get_extension_path", return_value="/tmp/ext"),
             patch.object(pf, "init_logging"),
             patch("plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"),
@@ -1317,7 +1320,10 @@ def test_initialize_extension_paths_logging_failure_does_not_escape():
         mock_init_logging = MagicMock(side_effect=RuntimeError("logging fail"))
         with (
             patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch(
+                "plugin.framework.queue_executor.main.call",
+                side_effect=lambda fn, *args, timeout=None, bound_scope=None, **kwargs: fn(*args, **kwargs),
+            ),
             patch.object(pf, "get_extension_path", return_value="/tmp/ext"),
             patch.object(pf, "init_logging", mock_init_logging),
             patch("plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"),
@@ -1338,7 +1344,10 @@ def test_initialize_extension_paths_handler_still_inits_logging():
         mock_init_logging = MagicMock()
         with (
             patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch(
+                "plugin.framework.queue_executor.main.call",
+                side_effect=lambda fn, *args, timeout=None, bound_scope=None, **kwargs: fn(*args, **kwargs),
+            ),
             patch.object(pf, "get_extension_path", side_effect=RuntimeError("path fail")),
             patch.object(pf, "init_logging", mock_init_logging),
         ):

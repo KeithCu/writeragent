@@ -320,7 +320,7 @@ def insert_image_result_on_sheet(
     Raises:
         ImageEgressError: the synchronous (main-thread) insert did not place a graphic.
             Off-main, this function posts and returns; the posted call's exception is
-            caught and logged by QueueExecutor.process_queue when notify_cell is false.
+            caught and logged by MainThread.process_queue when notify_cell is false.
             When notify_cell is true, a posted ImageEgressError is written to the formula
             cell's note only if that note is empty or already starts with
             "WriterAgent image: "; any other note is left unchanged. main.post

@@ -1,9 +1,9 @@
-from __future__ import annotations
 # WriterAgent tests for eval-2 Floorstand Writer→Calc writer prompt
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Writer prompt deltas stay tiny; gold tree stays an untouched HF copy."""
+from __future__ import annotations
 
 import json
 import zipfile

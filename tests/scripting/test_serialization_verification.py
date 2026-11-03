@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -13,6 +12,7 @@ Excluded from default ``make test`` (CrossHair can take minutes). Run: ``make sl
 (contracts + CrossHair here; extensive A/B Hypothesis in ``test_serialization_ab.py``).
 """
 
+from __future__ import annotations
 
 import re
 import shutil

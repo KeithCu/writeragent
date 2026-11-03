@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -12,6 +11,7 @@ either as NaN (#NUM! / #DIV/0! / #VALUE!, depending on the function) or as a
 finite number or a boolean is the accepted result for that input.
 """
 
+from __future__ import annotations
 
 import datetime as dt
 import math

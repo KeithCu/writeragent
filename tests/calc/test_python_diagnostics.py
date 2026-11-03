@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for the Python diagnostics store."""
 
+from __future__ import annotations
 
 from plugin.calc.python.diagnostics import (
     PythonDiagnosticsStore,

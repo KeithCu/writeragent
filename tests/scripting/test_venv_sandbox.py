@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for host-provided sandbox bindings (e.g. selected image bytes)."""
 
+from __future__ import annotations
 
 import io
 import pathlib

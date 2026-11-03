@@ -1,9 +1,9 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Eval tool catalog is live ToolRegistry.get_schemas (same as sidebar)."""
+from __future__ import annotations
 
 import json
 import sys

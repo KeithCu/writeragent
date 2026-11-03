@@ -1,6 +1,6 @@
-from __future__ import annotations
 """Hermetic LibrePy OXT surface contract: required/forbidden remapped archive entries."""
 
+from __future__ import annotations
 
 import os
 import subprocess

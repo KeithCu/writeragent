@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for bbox layout HTML builder."""
 
+from __future__ import annotations
 
 from plugin.vision.venv.vision_layout_html import _box_xywh, html_from_layout_blocks
 

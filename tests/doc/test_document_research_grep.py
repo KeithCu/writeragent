@@ -1,8 +1,8 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 """Unit tests for document_research grep (grep_nearby_files)."""
 
+from __future__ import annotations
 
 import os
 import sys

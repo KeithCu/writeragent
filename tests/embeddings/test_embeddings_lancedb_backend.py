@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Basic tests for the LanceDB side-by-side backend (plugin.embeddings.venv.embeddings_lancedb)."""
 
+from __future__ import annotations
 
 import pytest
 

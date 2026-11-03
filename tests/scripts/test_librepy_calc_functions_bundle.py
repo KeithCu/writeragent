@@ -1,6 +1,6 @@
-from __future__ import annotations
 """LibrePy bundle excludes spreadsheet-import calc helpers; keeps calc_functions_common."""
 
+from __future__ import annotations
 
 import sys
 from pathlib import Path

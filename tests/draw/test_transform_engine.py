@@ -1,7 +1,7 @@
-from __future__ import annotations
 # WriterAgent — SlideCommandEngine current-slide and text-range formatting
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any

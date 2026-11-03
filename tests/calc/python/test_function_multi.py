@@ -1,6 +1,6 @@
-from __future__ import annotations
 # WriterAgent - multi-range =PYTHON() add-in tests
 
+from __future__ import annotations
 
 import unittest.mock
 

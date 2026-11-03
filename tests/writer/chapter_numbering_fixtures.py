@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -22,6 +21,7 @@ suite deliberately keeps Chapter Numbering OFF (see
 ``docs/writer/list-numbering.md``).
 """
 
+from __future__ import annotations
 
 import uno
 

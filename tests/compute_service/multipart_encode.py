@@ -1,9 +1,9 @@
-from __future__ import annotations
 # WriterAgent - Multipart test & benchmark encoding helpers
 # Copyright (c) 2026 KeithCu
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Multipart form-data encoding helpers for tests and benchmarks."""
 
+from __future__ import annotations
 
 import json
 from typing import Any

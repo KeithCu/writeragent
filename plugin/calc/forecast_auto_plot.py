@@ -107,7 +107,7 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         def _fetch() -> tuple[Any, Any]:
             return _resolve_python_data(doc, data_range=data_range, data=None)
 
-        py_data, err = _fetch() if main.is_current() else main.call(_fetch)
+        py_data, err = main.run(_fetch)
         if err:
             return {"status": "error", "message": f"Could not read forecast history: {err}"}
         if py_data is None:

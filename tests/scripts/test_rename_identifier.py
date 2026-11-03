@@ -1,7 +1,7 @@
-from __future__ import annotations
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for scripts/rename_identifier.py."""
 
+from __future__ import annotations
 
 from scripts.rename_identifier import rewrite_import_from, rewrite_text
 

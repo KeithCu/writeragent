@@ -1,6 +1,6 @@
-from __future__ import annotations
 # Tests for scripts/prune_vendored_websockets.py
 
+from __future__ import annotations
 
 import os
 import shutil

@@ -442,7 +442,7 @@ The direct modes **add** direct access; they don't remove delegation. The `deleg
 The MCP server is **implemented and opt-in** (default off). Live summary (paths under `plugin/`):
 
 - **HTTP + JSON-RPC:** [`plugin/mcp/server.py`](../plugin/mcp/server.py), [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py), [`plugin/mcp/cors.py`](../plugin/mcp/cors.py), package wiring in [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py). Endpoints: `/mcp`, `/health`, `/`, optional localhost `POST /debug` (see [Current HTTP MCP (2026)](#current-http-mcp-2026)).
-- **Main-thread marshalling:** [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) (`execute_on_main_thread`, queue drain via `com.sun.star.awt.AsyncCallback`). Chat streaming uses [`plugin/framework/async_stream.py`](../plugin/framework/async_stream.py) separately — MCP does **not** piggyback on the chat drain loop.
+- **Main-thread marshalling:** [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) (`main.call`, `main.post`, queue drain via `com.sun.star.awt.AsyncCallback`). Chat streaming uses [`plugin/framework/async_stream.py`](../plugin/framework/async_stream.py) separately — MCP does **not** piggyback on the chat drain loop.
 - **Document targeting** (two supported paths):
   - **Preferred:** `document_url` in `tools/call` arguments (popped before tool dispatch). Best for multi-document clients (Cursor, Hermes, custom agents).
   - **Fallback:** `X-Document-URL` HTTP header.
@@ -668,7 +668,7 @@ would never be serviced if we only drained there.
 
 ### Reference: `core/mcp_server.py` (archive — live is `plugin/mcp/`)
 
-Early REST sketch: thin HTTP server reusing `execute_tool()` / Calc / Draw helpers, `GET /tools`, `POST /tools/{name}`, header-based `_resolve_document`. **Shipped surface is JSON-RPC on `/mcp`** in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) + [`plugin/mcp/server.py`](../plugin/mcp/server.py), with `document_url` args and `X-Document-URL` fallback, all UNO work via `execute_on_main_thread`.
+Early REST sketch: thin HTTP server reusing `execute_tool()` / Calc / Draw helpers, `GET /tools`, `POST /tools/{name}`, header-based `_resolve_document`. **Shipped surface is JSON-RPC on `/mcp`** in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) + [`plugin/mcp/server.py`](../plugin/mcp/server.py), with `document_url` args and `X-Document-URL` fallback, all UNO work via `main.call`.
 
 ---
 

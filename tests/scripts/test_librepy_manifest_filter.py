@@ -1,6 +1,6 @@
-from __future__ import annotations
 """LibrePy manifest generation filters WriterAgent-only config keys."""
 
+from __future__ import annotations
 
 import sys
 from pathlib import Path

@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for AI grammar locale-aware policy (BCP-47 registry, UNO bridging, terminators, parsing)."""
 
+from __future__ import annotations
 
 import os
 import re

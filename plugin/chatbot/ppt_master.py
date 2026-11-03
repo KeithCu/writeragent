@@ -36,13 +36,13 @@ def _run_ppt_master_venv_agent(
     from plugin.framework.queue_executor import main
 
     # The tool runs on a background thread (is_async=True). ctx.doc and
-    # get_active_document() are main-thread-only; main keeps
+    # get_active_document() are main-thread-only; main.run keeps
     # that access on VCL.
     def _resolve_session() -> str:
         uno_doc = ctx.doc if hasattr(ctx.doc, "getURL") else get_active_document(get_ctx())
         return ppt_master_session_id(uno_doc)
 
-    session_id = _resolve_session() if main.is_current() else main.call(_resolve_session)
+    session_id = main.run(_resolve_session)
 
     def on_worker_event(event: dict[str, Any]) -> None:
         kind = event.get("kind")

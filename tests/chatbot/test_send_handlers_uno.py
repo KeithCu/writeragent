@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - Native UNO tests for sidebar Image-mode send
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -7,6 +6,7 @@ from __future__ import annotations
 Does not exercise the images specialist / #757 prompt-steer path.
 """
 
+from __future__ import annotations
 
 import os
 from unittest.mock import MagicMock, patch

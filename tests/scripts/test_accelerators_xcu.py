@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Structural tests for Calc and Writer accelerators in both OXTs."""
 
+from __future__ import annotations
 
 import sys
 import xml.etree.ElementTree as ET

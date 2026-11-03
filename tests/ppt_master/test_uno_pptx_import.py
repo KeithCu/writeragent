@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -6,6 +5,7 @@ from __future__ import annotations
 
 """PPTX import keeps target shapes on failure and copies the NotesShape."""
 
+from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any

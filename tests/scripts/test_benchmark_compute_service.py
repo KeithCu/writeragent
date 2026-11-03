@@ -1,8 +1,8 @@
-from __future__ import annotations
 # WriterAgent - Tests for scripts/benchmark_compute_service.py
 # Copyright (c) 2026 KeithCu
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
 
 import sys
 from pathlib import Path

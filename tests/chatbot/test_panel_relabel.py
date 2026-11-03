@@ -1,4 +1,3 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -8,6 +7,7 @@ from __future__ import annotations
 # (at your option) any later version.
 """Send/Record relabel keeps the shared button width and the VCL mnemonic."""
 
+from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any

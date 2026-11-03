@@ -85,7 +85,11 @@ def install_from_environ(
         policy = Policy.test_inline
     else:
         policy = Policy.production
-    MainThread.install(policy, designated=designated, poke=poke)
+    MainThread._policy = policy
+    if designated is not None:
+        MainThread.designated = designated
+    if poke is not None:
+        MainThread.poke = poke
 
 
 def _marshal_thread_tag(executor: "MainThread | None" = None) -> str:
@@ -152,10 +156,6 @@ class MainThread:
     def policy(self) -> Policy:
         return MainThread._policy
 
-    @policy.setter
-    def policy(self, value: Policy) -> None:
-        MainThread._policy = value
-
     @classmethod
     def install(
         cls,
@@ -169,31 +169,80 @@ class MainThread:
         cls.poke = poke
 
     def is_current(self) -> bool:
-        """True on the VCL thread, designated thread, or an untagged LibreOffice upcall."""
-        current = threading.current_thread()
-        if MainThread.designated is not None:
-            return current is MainThread.designated
-        if current is threading.main_thread():
-            return True
-        from plugin.framework.thread_guard import UNTAGGED_DUMMY_IS_CURRENT, get_background_task_name
+        """True on the VCL thread, designated thread, or an untagged LibreOffice upcall holding SolarMutex."""
+        from plugin.framework.thread_guard import UNTAGGED_DUMMY_IS_CURRENT, get_background_task_name, on_python_main_thread
 
+        if self.designated is not None:
+            return threading.current_thread() is self.designated
+        if on_python_main_thread():
+            return True
         if not UNTAGGED_DUMMY_IS_CURRENT:
             return False
         if get_background_task_name():
             return False
-        return isinstance(current, threading._DummyThread)
+        return isinstance(threading.current_thread(), threading._DummyThread)
 
     def _is_marshal_thread(self) -> bool:
-        from plugin.framework.thread_guard import get_background_task_name
+        """True only when the caller is the thread that may run UNO work inline.
+
+        Do not use is_current() alone: designated-main test hooks and LO embed quirks
+        can mark workers as logical main while the drain loop runs on MainThread.
+        """
+        from plugin.framework.thread_guard import get_background_task_name, on_python_main_thread
 
         if self.policy is Policy.test_marshal:
             return False
         if get_background_task_name():
             return False
-        current = threading.current_thread()
-        if MainThread.designated is not None:
-            return current is MainThread.designated
-        return current is threading.main_thread()
+        return on_python_main_thread()
+
+    def run(
+        self,
+        fn: Any,
+        *args: Any,
+        timeout: float = 30.0,
+        bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
+        **kwargs: Any,
+    ) -> Any:
+        """Call fn now if is_current() (including untagged Dummy-N), else marshal via call().
+
+        is_current() is true for the Python main thread, designated test pump,
+        and an untagged PyUNO Dummy thread. call() does not inline those Dummy
+        threads, and it refuses inline work under test_marshal and background-task
+        tags. This helper ensures untagged LO upcalls run inline rather than
+        waiting 30 s on AsyncCallback.
+        """
+        if self.is_current():
+            return fn(*args, **kwargs)
+        call_kwargs: dict[str, Any] = dict(kwargs)
+        if timeout != 30.0:
+            call_kwargs["timeout"] = timeout
+        if bound_scope is not _SCOPE_UNSET:
+            call_kwargs["bound_scope"] = bound_scope
+        return self.call(fn, *args, **call_kwargs)
+
+    def post_or_run(
+        self,
+        fn: Any,
+        *args: Any,
+        executor: Any = None,
+        bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
+        **kwargs: Any,
+    ) -> Any:
+        """Run fn immediately if on main thread without a background task tag, else post.
+
+        Matches the sidebar UI update idiom: paint inline on the VCL main thread,
+        but enqueue via post when called from a background thread or a task-tagged
+        worker (e.g. MCP, audio recording, grammar observer).
+        """
+        assert callable(fn), "fn must be callable"
+        from plugin.framework.thread_guard import get_background_task_name
+
+        if self.is_current() and not get_background_task_name():
+            return fn(*args, **kwargs)
+        target = executor if executor is not None else self
+        target.post(fn, *args, bound_scope=bound_scope, **kwargs)
+        return None
 
     def __init__(self, ctx: Any | None = None) -> None:
         from plugin.framework.thread_guard import _unwrap_uno
@@ -290,7 +339,7 @@ class MainThread:
                 # Keep tail pending and continue caller work; later flush retries the tail.
                 with self._pending_lock:
                     self._pending_posts = list(pending[enqueued:]) + self._pending_posts
-                log.exception("QueueExecutor: flush failed after %d pending post(s); %d put back", enqueued, len(pending) - enqueued)
+                log.exception("MainThread: flush failed after %d pending post(s); %d put back", enqueued, len(pending) - enqueued)
         if enqueued:
             self._poke_main_thread()
 
@@ -312,7 +361,10 @@ class MainThread:
             if self._initialized:
                 return self._async_callback_service
             if self.policy is Policy.eval_harness:
-                log.info("QueueExecutor: EVAL_HARNESS set — AsyncCallback disabled (UNO stays on designated thread)")
+                # Headless eval: one designated _lo_thread owns the URP bridge.
+                # A poke from a LoLane worker runs UNO on the VCL path while _lo_thread
+                # is mid-call -> "Binary URP bridge already disposed". Keep UNO on designated thread.
+                log.info("MainThread: EVAL_HARNESS set — AsyncCallback disabled (UNO stays on designated thread)")
                 self._async_callback_service = None
                 self._initialized = True
                 return None
@@ -335,7 +387,7 @@ class MainThread:
                     # to fail the assert below and then refuse every later marshal
                     # until the context object identity changed.
                     if not self._logged_callback_problem:
-                        log.warning("QueueExecutor has no component context; call set_context() from bootstrap on the main thread")
+                        log.warning("MainThread has no component context; call set_context() from bootstrap on the main thread")
                         self._logged_callback_problem = True
                     return None
 
@@ -347,7 +399,7 @@ class MainThread:
                     raise RuntimeError("createInstance com.sun.star.awt.AsyncCallback returned None")
                 self._callback_instance = self._make_callback_instance()
                 self._initialized = True
-                log.info("QueueExecutor initialized (AsyncCallback ready)")
+                log.info("MainThread initialized (AsyncCallback ready)")
             except Exception as exc:
                 # Leave initialized flag clear on toolkit failure so subsequent calls retry.
                 self._async_callback_service = None
@@ -420,7 +472,7 @@ class MainThread:
                     skipped = True
 
         if skipped:
-            log.debug("QueueExecutor: skipping cancelled item %s (%s)", id(item), _fn_label(item.fn))
+            log.debug("MainThread: skipping cancelled item %s (%s)", id(item), _fn_label(item.fn))
         else:
             # The item is claimed: anything that raises from here must reach the
             # ``finally`` that sets the event.
@@ -434,7 +486,7 @@ class MainThread:
                 # instead of seeing result=None while the exception hits VCL.
                 item.exception = exc
                 if item.event is None:
-                    log.exception("QueueExecutor: non-blocking main-thread work failed (%s)", fn_label)
+                    log.exception("MainThread: non-blocking main-thread work failed (%s)", fn_label)
             finally:
                 if item.event is not None:
                     item.event.set()
@@ -555,7 +607,7 @@ class MainThread:
                     if waited >= next_log:
                         next_log += 60.0
                         log.warning(
-                            "QueueExecutor: waiting unbound for in-flight fn=%s %s (%.0fs)",
+                            "MainThread: waiting unbound for in-flight fn=%s %s (%.0fs)",
                             _fn_label(item.fn),
                             _marshal_thread_tag(self),
                             waited,
@@ -589,7 +641,7 @@ class MainThread:
         fn_label = _fn_label(fn)
         bg_task = get_background_task_name()
 
-        if self.policy is not Policy.test_marshal and self._is_marshal_thread():
+        if self._is_marshal_thread():
             return fn(*args, **kwargs)
 
         if in_sync_host_dispatch():
@@ -597,6 +649,8 @@ class MainThread:
             _log_marshal(logging.ERROR, "%s %s", msg, executor=self)
             raise RuntimeError(msg)
 
+        # test_inline inlines call on Dummy-N because call() blocks, and a Dummy-N
+        # UNO test waiting on AsyncCallback deadlocks. post is fire-and-forget so it can enqueue.
         if self.policy is Policy.test_inline and not bg_task:
             return fn(*args, **kwargs)
 
@@ -615,6 +669,7 @@ class MainThread:
         /,
         *args: Any,
         bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
+        force_queue: bool = False,
         **kwargs: Any,
     ) -> None:
         """Post function to main thread without waiting for its result.
@@ -630,14 +685,16 @@ class MainThread:
         fn_label = _fn_label(fn)
         bg_task = get_background_task_name()
 
-        if self.policy is Policy.test_inline and not bg_task and (self._is_marshal_thread() or self._get_async_callback() is None):
+        # Spill timer and untagged workers enqueue when AsyncCallback exists; inlining touches UNO off-main.
+        if not force_queue and self.policy is Policy.test_inline and not bg_task and (self._is_marshal_thread() or self._get_async_callback() is None):
             fn(*args, **kwargs)
             return
 
-        if self.policy is not Policy.test_marshal and self._get_async_callback() is None:
+        if not force_queue and self.policy is not Policy.test_marshal and self._get_async_callback() is None:
             if self._is_marshal_thread():
                 fn(*args, **kwargs)
                 return
+            # Wait for a flush to free a slot; a dropped icon or status update would look like a normal return.
             with self._pending_lock:
                 if not self._await_pending_slot_locked():
                     raise TimeoutError("marshal post timed out: AsyncCallback unavailable and pending list is full (fn=%s)" % fn_label)
@@ -701,6 +758,8 @@ def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: MainThread
         return
 
     pump_main_thread_work_queue(max_items=max_queue_items, executor=ex)
+    # owner_may_pump_vcl (depth > 1) notes the suppression and skips VCL.
+    # The marshal queue above still runs so main.call is not stuck behind a suppressed VCL pump.
     if not owner_may_pump_vcl():
         note_suppressed_vcl_pump(get_drain_owner())
         return

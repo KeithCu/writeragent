@@ -1,9 +1,9 @@
-from __future__ import annotations
 # WriterAgent - venv_sandbox force keyword tests
 # Copyright (c) 2026 KeithCu
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests verifying venv_sandbox.run_sandboxed_code preserves force='auto' by default."""
 
+from __future__ import annotations
 
 from plugin.scripting.payload_codec import is_split_grid
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code

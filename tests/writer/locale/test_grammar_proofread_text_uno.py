@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Native UNO tests for grammar text processing (sentence splitting, BreakIterator)."""
 
+from __future__ import annotations
 
 from typing import Any
 from plugin.writer.locale import grammar_proofread_text as gt

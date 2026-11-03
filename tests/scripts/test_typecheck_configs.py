@@ -1,10 +1,10 @@
-from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Keep the fast vs full Basedpyright configs aligned so make release cannot hang."""
 
+from __future__ import annotations
 
 import json
 import tomllib
