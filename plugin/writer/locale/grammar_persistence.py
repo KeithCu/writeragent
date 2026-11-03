@@ -84,7 +84,6 @@ _SNIFF_PREFIXES: tuple[tuple[str, str], ...] = (
 )
 
 
-
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 
 
@@ -206,9 +205,6 @@ class GrammarRegistry:
                 self.lang_detect_cache.popitem(last=False)
 
 grammar_registry = GrammarRegistry()
-
-
-
 
 
 def get_document_model_for_id(doc_id: str) -> Any | None:

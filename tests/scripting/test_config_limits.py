@@ -70,12 +70,12 @@ def test_configured_python_exec_timeout_clamps_legacy_high(mock_get):
     assert configured_python_exec_timeout() == 600
 
 
-@patch("plugin.framework.config_schema._resolve_default", side_effect=ConfigError("no schema default"))
+@patch("plugin.framework.config_schema.resolve_default", side_effect=ConfigError("no schema default"))
 @patch("plugin.framework.config.get_config", side_effect=ConfigError("read failed"))
 def test_configured_python_exec_timeout_failed_read_uses_default_not_min(mock_get, mock_resolve_default):
     """Failed read uses the schema/fallback default, not the 1s floor.
 
-    The _resolve_default patch is not used by the fixed function. It is what
+    The resolve_default patch is not used by the fixed function. It is what
     makes get_config return 0 if the function goes back to that helper.
     In this checkout the manifest is present, so without this patch the old
     helper still returns 10 and the assertion would pass on the bug.
