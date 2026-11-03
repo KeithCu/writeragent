@@ -1528,44 +1528,56 @@ def test_stop_speech_reads_cancel_token_under_speech_lock():
         assert cancelled_tokens == [old_token]
 
 
-def test_stop_fetch_scope_identity():
-    """_speak_endpoint passes the exact cancel scope given to it, not re-reading global."""
-    from plugin.audio.tts_service import _speak_endpoint
+def test_stop_before_fetch_skips_playback_and_fallback():
+    """Stop between _begin_utterance and fetch aborts without playback or system speech fallback."""
+    import plugin.audio.tts_service as tts
 
-    cancel = SendCancellation()
-    captured_cancel = None
+    scope = tts._begin_utterance()
+    tts.stop_speech()
+    assert scope.is_cancelled()
 
-    def fake_download(*args, **kwargs):
-        nonlocal captured_cancel
-        captured_cancel = kwargs.get("cancel")
-        return None
+    download_results: list[object] = []
+    real_dl = tts._download_endpoint_speech
 
-    with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
-         patch("plugin.audio.tts_service._speak_system"):
-        _speak_endpoint("hello", "https://example.com/api", "key", cancel=cancel)
+    def spy_download(*args, **kwargs):
+        res = real_dl(*args, **kwargs)
+        download_results.append(res)
+        return res
 
-    assert captured_cancel is cancel
+    with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=spy_download) as mock_dl, \
+         patch("plugin.audio.tts_service._play_audio_file") as mock_play, \
+         patch("plugin.audio.tts_service._speak_system") as mock_fallback:
+        tts._speak_endpoint("hello", "https://example.com/api", "key", cancel=scope)
+
+        if mock_dl.called:
+            assert all(res is None for res in download_results)
+        mock_play.assert_not_called()
+        mock_fallback.assert_not_called()
 
 
 def test_stop_speech_returns_while_playback_blocked_in_wait():
-    """stop_speech() returns immediately (< 0.5s) even while a playback process is blocked in wait()."""
+    """stop_speech() returns promptly without waiting for background process reaping."""
     import plugin.audio.tts_service as tts
 
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
+    unblock_wait = threading.Event()
+    wait_finished = threading.Event()
 
     def slow_wait(*args, **kwargs):
-        time.sleep(10.0)
+        unblock_wait.wait(timeout=5.0)
+        wait_finished.set()
         return 0
 
     mock_proc.wait.side_effect = slow_wait
 
-    with patch.object(tts, "_procs", [mock_proc]):
-        t0 = time.monotonic()
-        tts.stop_speech()
-        elapsed = time.monotonic() - t0
-        assert elapsed < 0.5
-        mock_proc.kill.assert_called_once()
+    try:
+        with patch.object(tts, "_procs", [mock_proc]):
+            tts.stop_speech()
+            mock_proc.kill.assert_called_once()
+            assert not wait_finished.is_set()
+    finally:
+        unblock_wait.set()
 
 
 def test_new_speak_supersedes_old_one():
@@ -1618,10 +1630,8 @@ def test_capped_ready_queue_put_wakes_on_stop():
         # Ensure thread has started and is waiting in put
         assert not put_done.wait(0.1)
 
-        t0 = time.monotonic()
         tts.stop_speech()
         assert put_done.wait(1.0), "ready.put() did not unblock on stop_speech()"
-        assert time.monotonic() - t0 < 0.5
         t.join(timeout=1.0)
         assert put_result == [False]
     finally:

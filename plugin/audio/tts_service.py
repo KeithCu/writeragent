@@ -290,9 +290,12 @@ def _cleanup_stopped(
     temps: list[str],
     cancel_token: object | None,
 ) -> None:
+    """Non-blocking signal/kill on caller thread; process reaping, spd-say stop,
+    and temporary file unlinking run on the dedicated tts-cleanup background thread."""
     if queue_ref is not None:
         queue_ref.close()
 
+    # Non-blocking signal/kill on current thread
     stop_spd = any(_proc_running(proc) and _is_spd_say(proc) for proc in procs)
     for proc in procs:
         _signal_stop_proc(proc)
@@ -315,11 +318,39 @@ def _cleanup_stopped(
         for path in paths:
             _unlink_quiet(path)
 
+    # This job blocks in _reap_proc (wait timeout 5s per process, plus
+    # spd-say -S timeout 2s) and the shared pool has two workers.
+    # Bugfix: stop_speech raised if starting tts-cleanup thread failed, leaving procs and temps.
+    # run_in_background was unwrapped; catch Exception and reap inline so cleanup always completes.
     try:
         run_in_background(_bg_cleanup, dedicated=True, name="tts-cleanup")
     except Exception:
         log.exception("stop_speech: failed to start cleanup thread; reaping inline")
         _bg_cleanup()
+
+
+def _swap_scope_locked(
+    new: SendCancellation | None,
+    active: bool,
+) -> tuple[list[subprocess.Popen[Any]], _ReadyQueue | None, list[str], object | None]:
+    """Swap the active scope and drain per-utterance state under _speech_lock."""
+    global _speech_active, _speech_cancel, _ready_queue
+    if _speech_cancel is not None:
+        _speech_cancel.cancel()
+        clear_scope_downloads(_speech_cancel)
+    _speech_cancel = new
+    _speech_active = active
+    procs = list(_procs)
+    _procs.clear()
+    queue_ref = _ready_queue
+    _ready_queue = None
+    temps = list(_tracked_temps)
+    _tracked_temps.clear()
+    _reply_misaki_ready.clear()
+    # The token is the job that was in flight during this Stop; reading it
+    # after the lock lets the next utterance publish a new token.
+    cancel_token = get_kokoro_inflight_token()
+    return procs, queue_ref, temps, cancel_token
 
 
 def stop_speech() -> None:
@@ -328,43 +359,17 @@ def stop_speech() -> None:
     UI-thread safe: sends signals/kills immediately and delegates waiting/reaping,
     spd-say -S, and temp unlinking to a background worker.
     """
-    global _speech_active, _ready_queue, _speech_cancel
     with _speech_lock:
-        if _speech_cancel is not None:
-            _speech_cancel.cancel()
-            clear_scope_downloads(_speech_cancel)
-        _speech_cancel = None
-        _speech_active = False
-        procs = list(_procs)
-        _procs.clear()
-        queue_ref = _ready_queue
-        _ready_queue = None
-        temps = list(_tracked_temps)
-        _tracked_temps.clear()
-        _reply_misaki_ready.clear()
-        cancel_token = get_kokoro_inflight_token()
+        procs, queue_ref, temps, cancel_token = _swap_scope_locked(None, False)
 
     _cleanup_stopped(procs, queue_ref, temps, cancel_token)
 
 
 def _begin_utterance() -> SendCancellation:
     """Create the scope, cancel the previous one, and publish the new one under a single lock hold."""
-    global _speech_active, _speech_cancel, _ready_queue
+    scope = SendCancellation()
     with _speech_lock:
-        if _speech_cancel is not None:
-            _speech_cancel.cancel()
-            clear_scope_downloads(_speech_cancel)
-        scope = SendCancellation()
-        _speech_cancel = scope
-        _speech_active = True
-        procs = list(_procs)
-        _procs.clear()
-        queue_ref = _ready_queue
-        _ready_queue = None
-        temps = list(_tracked_temps)
-        _tracked_temps.clear()
-        _reply_misaki_ready.clear()
-        cancel_token = get_kokoro_inflight_token()
+        procs, queue_ref, temps, cancel_token = _swap_scope_locked(scope, True)
 
     _cleanup_stopped(procs, queue_ref, temps, cancel_token)
     return scope
@@ -731,6 +736,9 @@ def _notify_kokoro_g2p_fallback(
 
 def _remember_misaki_ready(cancel: SendCancellation, lang: str, ready: bool) -> None:
     with _speech_lock:
+        # stop_speech() clears this map under the same lock. A late write from
+        # the prefetch thread used to setdefault a new entry for the scope
+        # that had just been cancelled.
         if cancel is not _speech_cancel:
             return
         _reply_misaki_ready.setdefault(cancel, {})[lang] = ready

@@ -81,7 +81,7 @@ _failed_model_downloads: dict[SendCancellation, set[str]] = {}
 
 def remember_download_failed(cancel: SendCancellation | None, key: str) -> None:
     """Record a failed download key for the current speech scope."""
-    if cancel is None or cancel.is_cancelled():
+    if cancel is None:
         return
     from plugin.audio.tts_service import _speech_cancel, _speech_lock
 
@@ -103,8 +103,8 @@ def is_download_failed(cancel: SendCancellation | None, key: str) -> bool:
 
 def clear_scope_downloads(cancel: SendCancellation) -> None:
     """Drop remembered download failures for one utterance; the caller must hold
-    tts_service._speech_lock; stop_speech and _end_utterance do; the lock is not
-    taken here because it is not reentrant."""
+    tts_service._speech_lock; _swap_scope_locked (via stop_speech and _begin_utterance)
+    and _end_utterance do; the lock is not taken here because it is not reentrant."""
     _failed_model_downloads.pop(cancel, None)
 
 
