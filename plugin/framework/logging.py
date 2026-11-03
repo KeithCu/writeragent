@@ -761,39 +761,101 @@ def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
     process_global("watchdog", _start)
 
 
-def _install_safe_log_record_factory() -> None:
-    """Install a custom LogRecord factory to prevent TypeError in Python 3.12+
-    when logging a single PyUNO proxy object.
+def _coerce_logged_value(value: Any) -> tuple[Any, bool]:
+    """Return a logging-safe copy and whether it differs from ``value``.
+
+    ``PyUNO_str`` runs in deep mode and calls ``getImplementationName``,
+    ``getSupportedServiceNames``, and ``getTypes``. Those take SolarMutex.
+    ``Handler.handle`` holds the handler lock across ``LogRecord.getMessage``,
+    which evaluates ``str(msg) % args``. A proxy left in the record deadlocks
+    the UI thread, which already holds SolarMutex, on that handler lock.
+    Replace the proxy with a string and do not call into it. Lists, tuples,
+    and dicts are walked because ``%s`` on a container stringifies their items.
     """
+    if type(value).__name__ == "pyuno":
+        return "<pyuno>", True
+    if isinstance(value, dict):
+        changed = False
+        rebuilt: dict[Any, Any] = {}
+        for key, item in value.items():
+            new_key = key
+            key_changed = False
+            if type(key).__name__ == "pyuno":
+                new_key = "<pyuno>"
+                key_changed = True
+            new_item, item_changed = _coerce_logged_value(item)
+            changed = changed or key_changed or item_changed
+            rebuilt[new_key] = new_item
+        if changed:
+            return rebuilt, True
+        return value, False
+    if isinstance(value, (tuple, list)):
+        changed = False
+        items: list[Any] = []
+        for item in value:
+            new_item, item_changed = _coerce_logged_value(item)
+            changed = changed or item_changed
+            items.append(new_item)
+        if not changed:
+            return value, False
+        if isinstance(value, tuple):
+            return tuple(items), True
+        return items, True
+    return value, False
+
+
+def _coerce_factory_slot(slots: list[Any] | dict[str, Any], key: int | str) -> bool:
+    """Replace ``slots[key]`` when it contains a PyUNO proxy. Keep the object otherwise."""
+    if isinstance(slots, list):
+        if not isinstance(key, int) or key >= len(slots):
+            return False
+        new_value, changed = _coerce_logged_value(slots[key])
+        if changed:
+            slots[key] = new_value
+        return changed
+    if not isinstance(key, str) or key not in slots:
+        return False
+    new_value, changed = _coerce_logged_value(slots[key])
+    if changed:
+        slots[key] = new_value
+    return changed
+
+
+def _install_safe_log_record_factory() -> None:
+    """Install a log-record factory that never calls into a PyUNO proxy.
+
+    A single PyUNO argument used to raise TypeError on Python 3.12+ while the
+    record was formatted. ``str(proxy)`` is also a UNO call (deep ``val2str``),
+    so formatting it under ``Handler.lock`` deadlocks against the UI thread's
+    SolarMutex. The factory replaces proxies, including ones nested in lists,
+    tuples, and dicts, and formats ``exc_text`` here, outside that lock.
+    ``Formatter.format`` skips ``formatException`` when ``exc_text`` is already set.
+    """
+
     def _install() -> bool:
         current = logging.getLogRecordFactory()
         _original_factory = current
 
         def safe_logRecordFactory(*args: Any, **kwargs: Any) -> Any:
-            def _coerce_logged_arg(x: Any) -> Any:
-                if type(x).__name__ == "pyuno":
-                    try:
-                        return str(x)
-                    except Exception:
-                        # Fall back to "<pyuno>" if string conversion of a proxy raises.
-                        return "<pyuno>"
-                return x
-
-            # args contains (name, level, fn, lno, msg, args, exc_info, func, sinfo)
-            # args is at index 5.
-            if len(args) > 5:
-                log_args = args[5]
-                if isinstance(log_args, tuple):
-                    if any(type(x).__name__ == "pyuno" for x in log_args):
-                        new_args = list(args)
-                        new_args[5] = tuple(_coerce_logged_arg(x) for x in log_args)
-                        args = tuple(new_args)
-            if "args" in kwargs:
-                log_args = kwargs["args"]
-                if isinstance(log_args, tuple):
-                    if any(type(x).__name__ == "pyuno" for x in log_args):
-                        kwargs["args"] = tuple(_coerce_logged_arg(x) for x in log_args)
-            return _original_factory(*args, **kwargs)
+            # makeRecord passes (name, level, fn, lno, msg, args, exc_info, func, sinfo).
+            # msg is index 4, the interpolation args are index 5.
+            # Do not compare the copies with !=: a log arg may not implement equality.
+            if args:
+                args_list = list(args)
+                msg_changed = _coerce_factory_slot(args_list, 4)
+                args_changed = _coerce_factory_slot(args_list, 5)
+                if msg_changed or args_changed:
+                    args = tuple(args_list)
+            if kwargs:
+                kwargs_copy = dict(kwargs)
+                msg_changed = _coerce_factory_slot(kwargs_copy, "msg")
+                args_changed = _coerce_factory_slot(kwargs_copy, "args")
+                if msg_changed or args_changed:
+                    kwargs = kwargs_copy
+            record = _original_factory(*args, **kwargs)
+            if record.exc_info and not record.exc_text:
+                record.exc_text = logging.Formatter().formatException(record.exc_info)
+            return record
 
         logging.setLogRecordFactory(safe_logRecordFactory)
         return True
