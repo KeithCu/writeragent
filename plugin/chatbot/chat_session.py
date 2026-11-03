@@ -7,6 +7,27 @@ from plugin.chatbot.history_db import get_chat_history
 
 log = logging.getLogger(__name__)
 
+SNAPSHOT_HEADER = "[DOCUMENT CONTENT — current state, not written by the user]"  # U+2014
+
+
+def snapshot_text(doc_text: str) -> str:
+    """Empty string when doc_text is empty. Else header, doc_text, then [END DOCUMENT]."""
+    if not doc_text:
+        return ""
+    return f"{SNAPSHOT_HEADER}\n{doc_text}\n[END DOCUMENT]"
+
+
+def strip_legacy_document_suffix(content: str) -> str:
+    """If content endswith '\n[END DOCUMENT]' and contains '\n\n[DOCUMENT CONTENT]\n',
+    return content[:content.rfind(that marker)]. Otherwise return content.
+    """
+    marker = "\n\n[DOCUMENT CONTENT]\n"
+    if content.endswith("\n[END DOCUMENT]") and marker in content:
+        idx = content.rfind(marker)
+        if idx != -1:
+            return content[:idx]
+    return content
+
 
 # ---------------------------------------------------------------------------
 # ChatSession - holds conversation history for multi-turn chat
@@ -43,6 +64,10 @@ class ChatSession:
             try:
                 self.db = get_chat_history(session_id)
                 self.messages = self.db.get_messages()
+                if self.messages:
+                    first = self.messages[0]
+                    if isinstance(first, dict) and first.get("role") == "system" and isinstance(first.get("content"), str):
+                        first["content"] = strip_legacy_document_suffix(first["content"])
             except Exception:
                 # JSONDecodeError and sqlite json.loads used to land here with
                 # messages still []. The seed below then add_message'd a system
@@ -70,26 +95,29 @@ class ChatSession:
             self.db.replace_messages(list(self.messages))
 
     def set_system_context(self, base_prompt: str, doc_text: str = "") -> None:
-        """Update the system prompt and document context, combining them into the first message."""
+        """Update the system prompt and document context.
+
+        base_system_prompt = base_prompt; document_context = doc_text.
+        messages[0] content is base_prompt only. Insert a system row when the
+        first row is not a system dict. Do not touch the DB.
+        """
         self.base_system_prompt = base_prompt
         self.document_context = doc_text
-        
-        content = base_prompt
-        if doc_text:
-            content += f"\n\n[DOCUMENT CONTENT]\n{doc_text}\n[END DOCUMENT]"
-            
+
         # Bugfix: a loaded dict with no "role" raised KeyError on every send.
         # SQLite3History.get_messages keeps every JSON object, and refresh_document_context
         # calls set_system_context on every send. Anything that is not a system dict gets
         # a system row inserted in front, leaving the existing first row in place.
         first = self.messages[0] if self.messages else None
         if not isinstance(first, dict) or first.get("role") != "system":
-            self.messages.insert(0, {"role": "system", "content": content})
+            self.messages.insert(0, {"role": "system", "content": base_prompt})
         else:
-            first["content"] = content
+            first["content"] = base_prompt
 
     def refresh_document_context(self, model: Any, ctx: Any) -> None:
-        """Reload the Chat system prompt and ``[DOCUMENT CONTENT]`` from the live document.
+        """Reload the Chat system prompt and document context from the live document.
+
+        Excerpt is stored on document_context, not messages[0].
 
         Why this lives on ChatSession, not panel_factory: the factory only wires
         XDL/controls. Mode switch, each send, and mid-loop refresh after a
@@ -107,6 +135,35 @@ class ChatSession:
             model, CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True, ctx=ctx
         )
         self.set_system_context(base_prompt, doc_text)
+
+    def messages_for_request(self) -> list[dict[str, Any]]:
+        """Return the messages to send to the LLM for a request.
+
+        Starts with messages_for_llm(self), then appends one snapshot at the tail.
+        Does not mutate self.messages or self.compaction. Empty snapshot_text:
+        return the view as-is.
+        """
+        from plugin.chatbot.compaction import messages_for_llm
+
+        view = list(messages_for_llm(self))
+        snap = snapshot_text(self.document_context)
+        if not snap or not view:
+            return view
+
+        last = view[-1]
+        if isinstance(last, dict) and last.get("role") == "user":
+            old_content = last.get("content")
+            if isinstance(old_content, list):
+                new_content = list(old_content) + [{"type": "text", "text": snap}]
+            elif isinstance(old_content, str):
+                new_content = [{"type": "text", "text": old_content}, {"type": "text", "text": snap}]
+            else:
+                new_content = [{"type": "text", "text": str(old_content or "")}, {"type": "text", "text": snap}]
+            new_last = dict(last)
+            new_last["content"] = new_content
+            return view[:-1] + [new_last]
+        else:
+            return view + [{"role": "user", "content": snap}]
 
     def add_user_message(self, content: Any) -> None:
         self.messages.append({"role": "user", "content": content})

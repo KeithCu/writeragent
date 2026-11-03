@@ -30,7 +30,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from plugin.chatbot.chat_session import message_text
+from plugin.chatbot.chat_session import message_text, snapshot_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -278,9 +278,16 @@ def should_compact(tokens: int, window: int | None) -> bool:
     return tokens >= int(window * compaction_ratio(window))
 
 
-def keep_recent_tokens(window: int, system_tokens: int, tool_tokens: int, force: bool = False) -> int | None:
+def keep_recent_tokens(
+    window: int,
+    system_tokens: int,
+    tool_tokens: int,
+    force: bool = False,
+    *,
+    snapshot_tokens: int = 0,
+) -> int | None:
     reserve = gen_reserve(window)
-    remainder = window - system_tokens - tool_tokens - _summary_budget(window) - reserve
+    remainder = window - system_tokens - snapshot_tokens - tool_tokens - _summary_budget(window) - reserve
     if remainder < MIN_TAIL_TOKENS:
         return None  # document+system+tools already fill the window
     # Floor of KEEP_RECENT_FRACTION (0.30). int(window * 0.30) matches
@@ -301,7 +308,7 @@ def find_cut_index(messages: list[dict[str, Any]], keep_tokens: int, start_index
     (``context_compressor.py:2589-2608``); Hermes has a ``min_tail``
     message-count floor, WA is a pure token ceiling.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L2589-L2608
-    start_index is 1 (skip DOCUMENT CONTENT) or the previous
+    start_index is 1 (skip base system prompt) or the previous
     first_kept_index. None if nothing to compact or if even the last
     user turn cannot fit in keep_tokens.
     """
@@ -853,16 +860,23 @@ def compact_session(
     state = getattr(session, "compaction", None)
     # Hermes estimate_request_tokens_rough (model_metadata.py:2155-2167):
     # count the request, not just the transcript.
-    before = estimate_tokens(view) + tool_tokens
+    gate_tokens = estimate_tokens(view) + tool_tokens
+    snap_text = snapshot_text(getattr(session, "document_context", "") or "")
+    snapshot_tokens = (
+        estimate_message_tokens({"role": "user", "content": snap_text})
+        if snap_text
+        else 0
+    )
+    before = gate_tokens + snapshot_tokens
     if window is None or window <= 0:
         # No denominator → no remaining-budget clamp. Skip proactive *and* force.
         return CompactResult(False, "no_window", before, before)
 
-    if not force and not should_compact(before, window):
+    if not force and not should_compact(gate_tokens, window):
         return CompactResult(False, "below_threshold", before, before)
 
     system_tokens = estimate_message_tokens(messages[0])
-    keep = keep_recent_tokens(window, system_tokens, tool_tokens, force=force)
+    keep = keep_recent_tokens(window, system_tokens, tool_tokens, force=force, snapshot_tokens=snapshot_tokens)
     if keep is None:
         return CompactResult(False, "nothing_to_compact", before, before)
 
@@ -910,7 +924,7 @@ def compact_session(
         stubbed_tool_call_ids=stubbed_ids,
         kept_message_id=id(messages[new_cut]),
     )
-    after = estimate_tokens(messages_for_llm(session)) + tool_tokens
+    after = estimate_tokens(messages_for_llm(session)) + tool_tokens + snapshot_tokens
     reserve = gen_reserve(window)
     if after > window - reserve:
         session.compaction = state  # revert; do not ship a too-large view

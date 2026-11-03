@@ -358,3 +358,100 @@ def test_anthropic_unset_omits_output_config() -> None:
     assert "output_config" not in json.loads(body)
 
 
+def test_anthropic_tool_loop_prompt_caching_and_merge():
+    from plugin.chatbot.chat_session import snapshot_text
+
+    class DummyClient:
+        def _endpoint(self):
+            return "http://test"
+
+        def _headers(self):
+            return {}
+
+    shim = AnthropicShim(DummyClient())
+    snap = snapshot_text("Current doc context")
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t1", "function": {"name": "func1", "arguments": "{}"}},
+                {"id": "t2", "function": {"name": "func2", "arguments": "{}"}},
+            ],
+            "reasoning_content": "thinking text that must not become a block",
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": "res1"},
+        {"role": "tool", "tool_call_id": "t2", "content": "res2"},
+        {"role": "user", "content": snap},
+    ]
+
+    _m, _p, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None
+    )
+    data = json.loads(body)
+    assert "cache_control" not in data  # No top-level cache_control
+
+    converted_messages = data["messages"]
+    assert len(converted_messages) == 2
+    asst_msg = converted_messages[0]
+    assert asst_msg["role"] == "assistant"
+    # No thinking block
+    assert not any(part.get("type") == "thinking" for part in asst_msg["content"])
+
+    user_msg = converted_messages[1]
+    assert user_msg["role"] == "user"
+    parts = user_msg["content"]
+    assert len(parts) == 3
+    assert parts[0]["type"] == "tool_result"
+    assert parts[0]["tool_use_id"] == "t1"
+    assert "cache_control" not in parts[0]
+
+    assert parts[1]["type"] == "tool_result"
+    assert parts[1]["tool_use_id"] == "t2"
+    assert parts[1].get("cache_control") == {"type": "ephemeral"}
+
+    assert parts[2]["type"] == "text"
+    assert parts[2]["text"] == snap
+    assert "cache_control" not in parts[2]
+
+
+def test_anthropic_user_send_prompt_caching():
+    from plugin.chatbot.chat_session import snapshot_text
+
+    class DummyClient:
+        def _endpoint(self):
+            return "http://test"
+
+        def _headers(self):
+            return {}
+
+    shim = AnthropicShim(DummyClient())
+    snap = snapshot_text("Document snapshot")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Please summarize this document."},
+                {"type": "text", "text": snap},
+            ],
+        }
+    ]
+
+    _m, _p, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None
+    )
+    data = json.loads(body)
+    assert "cache_control" not in data
+
+    converted_messages = data["messages"]
+    assert len(converted_messages) == 1
+    user_msg = converted_messages[0]
+    parts = user_msg["content"]
+    assert len(parts) == 2
+    assert parts[0]["text"] == "Please summarize this document."
+    assert parts[0].get("cache_control") == {"type": "ephemeral"}
+
+    assert parts[1]["text"] == snap
+    assert "cache_control" not in parts[1]
+
+

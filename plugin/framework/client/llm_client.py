@@ -97,6 +97,7 @@ from .stream_normalizer import (
     strip_think_tags,
 )
 from .provider_detection import is_openrouter_endpoint
+from .shim_helpers import cache_read_count
 
 log = logging.getLogger(__name__)
 
@@ -718,6 +719,7 @@ class LlmClient:
                     used_model = None
                     retry_outer = False
                     stream_state: dict[str, Any] = {}
+                    last_usage_obj: dict[str, Any] | None = None
 
                     for payload in iterate_sse(response):
                         if payload == "[DONE]":
@@ -864,6 +866,14 @@ class LlmClient:
                         if usage_obj and not (isinstance(shim_usage, dict) and shim_usage):
                             outgoing = dict(outgoing or {})
                             outgoing["usage"] = usage_obj
+                        cur_usage = outgoing.get("usage") if isinstance(outgoing, dict) else None
+                        if not isinstance(cur_usage, dict):
+                            cur_usage = usage_obj
+                        if isinstance(cur_usage, dict):
+                            if last_usage_obj is None:
+                                last_usage_obj = dict(cur_usage)
+                            else:
+                                last_usage_obj.update(cur_usage)
                         if outgoing and on_delta:
                             # on_delta receives this normalized delta; do not normalize twice.
                             normalize_delta(outgoing)
@@ -887,7 +897,7 @@ class LlmClient:
                         # CONNECTION_LOST.
                         raise ConnectionResetError("Stream truncated without [DONE] or finish_reason")
 
-                    log.info("LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s", self._get_provider(), requested_model, used_model or requested_model, last_finish_reason)
+                    log.info("LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s cache_read=%s", self._get_provider(), requested_model, used_model or requested_model, last_finish_reason, cache_read_count(last_usage_obj))
 
                     # Flush any trailing buffered text from the think tag splitter
                     # (trailing buffer contains small tag prefix remnants like '<' at EOF).
@@ -1110,7 +1120,6 @@ class LlmClient:
                 log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
 
             used_model = str(result.get("model") or requested_model) if isinstance(result, dict) else requested_model
-            log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
 
             # Use unified extraction for shims/native providers
             try:
@@ -1128,6 +1137,8 @@ class LlmClient:
                 err_msg = format_error_message(e)
                 log.exception("parse_sync_response failed")
                 raise NetworkError(err_msg, code="BAD_RESPONSE", details={"url": path}) from e
+
+            log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r cache_read=%s", self._get_provider(), requested_model, used_model, cache_read_count(usage))
             content, extracted_thinking = strip_think_tags(raw_parsed_content)
             if extracted_thinking and "reasoning" not in message:
                 message["reasoning"] = extracted_thinking

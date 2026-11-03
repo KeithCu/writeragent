@@ -57,3 +57,18 @@ def _openai_model_leaf(model_name: str | None) -> str:  # pyright: ignore[report
     if "/" in name:
         name = name.rsplit("/", 1)[-1]
     return name
+
+
+def cache_read_count(usage: Any) -> int | None:
+    """Return cached input token count from Anthropic or OpenAI usage dict, or None."""
+    if not isinstance(usage, dict):
+        return None
+    c = usage.get("cache_read_input_tokens")
+    if isinstance(c, int) and not isinstance(c, bool):
+        return c
+    details = usage.get("prompt_tokens_details")
+    if isinstance(details, dict):
+        c = details.get("cached_tokens")
+        if isinstance(c, int) and not isinstance(c, bool):
+            return c
+    return None

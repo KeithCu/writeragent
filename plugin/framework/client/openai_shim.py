@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.chatbot.chat_session import SNAPSHOT_HEADER
 from plugin.framework.errors import NetworkError
 from .anthropic_shim import AnthropicShim
 from .shim_helpers import _openai_model_leaf
@@ -215,8 +216,76 @@ class OllamaShim(BaseProviderShim):
         return super().parse_image_responses(response_data)
 
 
+def _annotate_openrouter_anthropic_cache(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Apply Anthropic prompt caching markers for OpenRouter anthropic/* models."""
+    if not messages:
+        return messages
+    last_msg = messages[-1]
+    if not isinstance(last_msg, dict) or last_msg.get("role") != "user":
+        return messages
+
+    c = last_msg.get("content")
+    # Check if last_msg is snapshot only
+    is_snapshot = False
+    if isinstance(c, str) and c.startswith(SNAPSHOT_HEADER):
+        is_snapshot = True
+    elif isinstance(c, list) and len(c) == 1 and isinstance(c[0], dict) and c[0].get("type") == "text":
+        txt = c[0].get("text")
+        if isinstance(txt, str) and txt.startswith(SNAPSHOT_HEADER):
+            is_snapshot = True
+
+    # Tool loop: marker on the last role:"tool" message before the snapshot
+    if is_snapshot and len(messages) >= 2:
+        idx = len(messages) - 2
+        while idx >= 0 and isinstance(messages[idx], dict) and messages[idx].get("role") != "tool":
+            break
+        if idx >= 0 and isinstance(messages[idx], dict) and messages[idx].get("role") == "tool":
+            tool_msg = messages[idx]
+            tool_content = tool_msg.get("content")
+            if isinstance(tool_content, list):
+                parts = [dict(p) if isinstance(p, dict) else p for p in tool_content]
+                if parts and isinstance(parts[-1], dict):
+                    parts[-1] = dict(parts[-1], cache_control={"type": "ephemeral"})
+            elif isinstance(tool_content, str):
+                parts = [{"type": "text", "text": tool_content, "cache_control": {"type": "ephemeral"}}]
+            else:
+                parts = [{"type": "text", "text": str(tool_content or ""), "cache_control": {"type": "ephemeral"}}]
+            new_tool_msg = dict(tool_msg, content=parts)
+            new_messages = list(messages)
+            new_messages[idx] = new_tool_msg
+            return new_messages
+
+    # User send: content list has previous block and ends with snapshot text
+    if isinstance(c, list) and len(c) >= 2:
+        last_part = c[-1]
+        if isinstance(last_part, dict) and last_part.get("type") == "text":
+            txt = last_part.get("text")
+            if isinstance(txt, str) and txt.startswith(SNAPSHOT_HEADER):
+                prev_part = c[-2]
+                if isinstance(prev_part, dict):
+                    new_prev = dict(prev_part, cache_control={"type": "ephemeral"})
+                elif isinstance(prev_part, str):
+                    new_prev = {"type": "text", "text": prev_part, "cache_control": {"type": "ephemeral"}}
+                else:
+                    new_prev = {"type": "text", "text": str(prev_part or ""), "cache_control": {"type": "ephemeral"}}
+                new_parts = list(c[:-2]) + [new_prev, last_part]
+                new_last = dict(last_msg, content=new_parts)
+                return list(messages[:-1]) + [new_last]
+
+    return messages
+
+
 class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
+
+    def build_chat_request(
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+    ) -> tuple[str, str, bytes, dict[str, str]]:
+        if isinstance(model_name, str) and model_name.startswith("anthropic/"):
+            messages = _annotate_openrouter_anthropic_cache(messages)
+        return super().build_chat_request(
+            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra
+        )
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. OpenRouter /images has no steps field.
