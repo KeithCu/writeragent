@@ -17,7 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Operations for Calc (Extend/Edit Selection)."""
 
-from typing import Any, Callable, cast
+from typing import Any
 
 from plugin.calc.calc_utils import TEXT
 from plugin.chatbot.dialogs import msgbox
@@ -121,6 +121,10 @@ def do_calc_extend_edit(
     if client is None:
         return
 
+    from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
+
+    record_agent_turn_before(model)
+
     def prepare_task(task: StreamCompletionTask) -> tuple[ApplyChunkFn, ErrorFn]:
         col, row, original = task.payload
         cell = sheet.getCellByPosition(col, row)
@@ -154,8 +158,13 @@ def do_calc_extend_edit(
     # this step (WriterCompoundUndo).
     undo = WriterCompoundUndo(model, title)
 
+    def on_finished() -> None:
+        undo.close()
+        record_agent_turn_after(model)
+
     try:
-        stream_completion_tasks(ctx, client, tasks, prepare_task, cast("Callable[[], None]", undo.close))
+        stream_completion_tasks(ctx, client, tasks, prepare_task, on_finished)
     except BaseException:
         undo.close()
+        record_agent_turn_after(model)
         raise

@@ -42,7 +42,7 @@ class SlashKind(str, Enum):
     ANSWER = "answer"
 
 
-_POPUP_IMMEDIATE = frozenset({"help", "clear", "stop"})
+_POPUP_IMMEDIATE = frozenset({"help", "clear", "stop", "undo"})
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,7 @@ class SlashCommand:
     requires_arg: bool = False
     usage: str = ""
     needs_turn: bool = False
+    runs_in_send_turn: bool = False
 
 
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
@@ -126,6 +127,20 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         kind=SlashKind.LOCAL,
         usage="/compact [focus]",
         needs_turn=True,
+    ),
+    SlashCommand(
+        "undo",
+        N_("Undo the last agent edit as one step"),
+        kind=SlashKind.LOCAL,
+        usage="/undo",
+    ),
+    SlashCommand(
+        "formula",
+        N_("Write a Calc formula from a plain-English description"),
+        kind=SlashKind.LOCAL,
+        requires_arg=True,
+        usage="/formula <description>",
+        runs_in_send_turn=True,
     ),
 )
 
@@ -335,7 +350,7 @@ def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
 
 def slash_send_continues_after_begin(cmd: SlashCommand, host: Any | None = None) -> bool:
     """True when Send must call ``_begin_send`` before finishing the command."""
-    if cmd.needs_turn or cmd.kind == SlashKind.ANSWER:
+    if cmd.needs_turn or cmd.runs_in_send_turn or cmd.kind == SlashKind.ANSWER:
         return True
     if host is not None:
         model = host.slash_document_model()
@@ -404,12 +419,20 @@ def _run_compact(host: Any, arg: str) -> None:
     host.run_slash_compact(arg.strip())
 
 
+def _run_undo(host: Any) -> None:
+    host.clear_ask()
+    from plugin.chatbot.slash_undo_formula import run_slash_undo
+
+    run_slash_undo(host)
+
+
 _LOCAL_HANDLERS: dict[str, Any] = {
     "help": lambda host, _cmd, _arg: _run_help(host),
     "clear": lambda host, _cmd, _arg: _run_clear(host),
     "stop": lambda host, _cmd, _arg: _run_stop(host),
     "remember": lambda host, _cmd, arg: _run_remember(host, arg.strip()),
     "compact": lambda host, _cmd, arg: _run_compact(host, arg),
+    "undo": lambda host, _cmd, _arg: _run_undo(host),
 }
 
 
@@ -436,7 +459,8 @@ def run_slash_command(
     """Run a registry command.
 
     Returns ``False`` when ``name`` is unknown, or when Send must continue after
-    ``_begin_send`` (answer presets and ``/compact``). Returns ``True`` when the
+    ``_begin_send`` (answer presets, ``/compact``, and commands with ``runs_in_send_turn``).
+    Returns ``True`` when the
     command is fully handled (including usage lines and rewrites).
 
     Mocks echo ``slash: /name`` so the popup can be exercised. ``/help``
@@ -464,7 +488,7 @@ def run_slash_command(
         _run_mock_echo(host, cmd)
         return True
 
-    if cmd.name in _LOCAL_HANDLERS and not cmd.needs_turn:
+    if cmd.name in _LOCAL_HANDLERS and not cmd.needs_turn and not cmd.runs_in_send_turn:
         _LOCAL_HANDLERS[cmd.name](host, cmd, arg)
         return True
 
@@ -475,7 +499,7 @@ def run_slash_command(
         _run_rewrite(host, cmd, arg)
         return True
 
-    if cmd.kind == SlashKind.ANSWER or cmd.needs_turn:
+    if cmd.kind == SlashKind.ANSWER or cmd.needs_turn or cmd.runs_in_send_turn:
         return False
 
     host.clear_ask()

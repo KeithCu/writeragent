@@ -45,7 +45,6 @@ from plugin.framework import uno_context
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
-from plugin.framework.queue_executor import MainThread
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.errors import resolve_exception_message, format_error_payload, make_tool_error
 import plugin.mcp.document_mutation_gate as document_mutation_gate

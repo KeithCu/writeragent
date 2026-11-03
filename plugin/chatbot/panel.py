@@ -269,6 +269,7 @@ class SendButtonListener(BaseActionListener):
     _acp_backend_id: str | None
     _approval_event: Any
     slash_popup: Any
+    _skip_agent_undo_after: bool
     clear_listener: Any
     rich_text_widget: Any
     _rich_plain_fallback_warned: bool
@@ -360,6 +361,7 @@ class SendButtonListener(BaseActionListener):
         self._stop_mouse_listener = None
         self._record_mouse_listener = None
         self.slash_popup = None
+        self._skip_agent_undo_after = False
         self.clear_listener = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
@@ -556,6 +558,25 @@ class SendButtonListener(BaseActionListener):
 
         line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
         self.append_output(line)
+
+    def slash_agent_edit_in_flight(self) -> bool:
+        from plugin.framework.async_drain_guard import get_drain_owner
+
+        return self.sidebar_state.send.is_busy or get_drain_owner() is not None
+
+    def run_slash_formula(self, description: str) -> None:
+        from plugin.chatbot.slash_undo_formula import run_slash_formula_worker
+        from plugin.framework.doc_type import DocumentType, get_document_type
+        from plugin.framework.i18n import _
+
+        model = self._get_document_model(log_failure=True)
+        if not model:
+            self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
+            return
+        if get_document_type(model) != DocumentType.CALC:
+            self.append_output("\n" + _("Only in Calc") + "\n")
+            return
+        run_slash_formula_worker(self, ctx=self.ctx, model=model, description=description)
 
     def _set_status(self, text: str) -> None:
         """Update the status field in the sidebar (read-only TextField).
@@ -1122,6 +1143,13 @@ class SendButtonListener(BaseActionListener):
             # exception) skips them and leaks the turn, including Stop
             # with TTS enabled.
             strip_audio_from_last_user_message(self, speak=speak)
+            from plugin.chatbot.tool_loop_actions import current_turn
+            from plugin.doc.agent_undo import record_agent_turn_after
+
+            turn = current_turn(self)
+            if turn is not None and turn.model is not None and not self._skip_agent_undo_after:
+                record_agent_turn_after(turn.model)
+            self._skip_agent_undo_after = False
             # Spoken text was copied above. Later callbacks must not find this turn.
             drop_turn(self)
             kick_pending_peer_starts()
@@ -1245,6 +1273,9 @@ class SendButtonListener(BaseActionListener):
         if doc_info is not None:
             if (started := current_turn(self)) is not None:
                 started.model = doc_info[0]
+                from plugin.doc.agent_undo import record_agent_turn_before
+
+                record_agent_turn_before(doc_info[0])
         return doc_info
 
     def _do_send(self) -> None:
@@ -1298,6 +1329,13 @@ class SendButtonListener(BaseActionListener):
         if slash_cmd is not None:
             if slash_cmd.needs_turn:
                 self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
+                return
+            if slash_cmd.runs_in_send_turn:
+                from plugin.doc.agent_undo import cancel_pending_agent_turn
+
+                cancel_pending_agent_turn(model)
+                self._skip_agent_undo_after = True
+                self.run_slash_formula(slash_arg)
                 return
             if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)

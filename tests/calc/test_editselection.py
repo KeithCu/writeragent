@@ -64,7 +64,7 @@ def test_calc_extend_streams_each_non_empty_cell():
     model, sheet = _model_for_data((("=1+1", ""),))
     stream_calls = []
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         stream_calls.append((prompt, system_prompt, max_tokens))
         apply_chunk_fn("+2", False)
         on_done_fn()
@@ -86,7 +86,7 @@ def test_calc_edit_skips_empty_cells():
     input_box = MagicMock(return_value=("shorten", "extra system"))
     stream_calls = []
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         stream_calls.append((prompt, system_prompt, max_tokens))
         apply_chunk_fn("Edited", False)
         on_done_fn()
@@ -111,7 +111,7 @@ def test_calc_edit_uses_extra_prompt_and_restores_original_on_error():
     error = RuntimeError("provider failed")
     stream_calls = []
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         stream_calls.append((prompt, system_prompt, max_tokens))
         apply_chunk_fn("=2", False)
         on_error_fn(error)
@@ -137,7 +137,7 @@ def test_calc_extend_text_cell():
 
     model, sheet = _model_for_data((("Hello",),))
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn(" world", False)
         on_done_fn()
 
@@ -157,7 +157,7 @@ def test_calc_edit_text_cell_with_formula_looking_output():
     model, sheet = _model_for_data((("Original",),))
     input_box = MagicMock(return_value=("change", "extra system"))
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn("=2", False)
         on_done_fn()
 
@@ -180,7 +180,7 @@ def test_calc_edit_formula_cell():
     model, sheet = _model_for_data((("=1+1",),))
     input_box = MagicMock(return_value=("change", "extra system"))
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn("=1+2", False)
         on_done_fn()
 
@@ -204,7 +204,7 @@ def test_calc_edit_number_cell_stays_numeric():
     sheet.getCellRangeByPosition = MagicMock(return_value=MagicMock(getFormulaArray=MagicMock(return_value=(("42",),))))
     input_box = MagicMock(return_value=("change", "extra system"))
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn("43", False)
         on_done_fn()
 
@@ -227,7 +227,7 @@ def test_calc_edit_text_cell_restores_original_on_error():
     model, sheet = _model_for_data((("123",),))
     input_box = MagicMock(return_value=("change", "extra system"))
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn("x", False)
         on_error_fn(RuntimeError("provider failed"))
 
@@ -294,6 +294,10 @@ class _UndoManager:
         self.enters: list[str] = []
         self.leaves = 0
         self.events = events
+        self._titles: list[str] = []
+
+    def getAllUndoActionTitles(self) -> list[str]:
+        return list(self._titles)
 
     def isLocked(self) -> bool:
         return False
@@ -308,6 +312,7 @@ class _UndoManager:
         assert not self.open
         self.open = True
         self.enters.append(title)
+        self._titles.insert(0, title)
         if self.events is not None:
             self.events.append(("enter", title))
 
@@ -347,7 +352,7 @@ def test_calc_extend_multi_cell_is_one_undo_context():
     events = []
     um = _attach_undo(model, events)
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn("+1", False)
         apply_chunk_fn("+2", False)
         on_done_fn()
@@ -386,7 +391,7 @@ def test_calc_edit_error_closes_undo_after_cell_restore():
     um = _attach_undo(model, events)
     stream_calls = [0]
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         idx = stream_calls[0]
         stream_calls[0] += 1
         if idx == 0:

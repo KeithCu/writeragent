@@ -311,6 +311,9 @@ def test_slash_send_continues_after_begin_uses_kind_and_needs_turn():
     assert slash_send_continues_after_begin(compact) is True
     assert slash_send_continues_after_begin(summarize) is True
     assert slash_send_continues_after_begin(proofread) is False
+    formula = next(c for c in SLASH_COMMANDS if c.name == "formula")
+    assert slash_send_continues_after_begin(formula) is True
+    assert formula.runs_in_send_turn is True
 
 
 def test_run_translate_writer_no_selection_continues_send():
@@ -448,6 +451,8 @@ def test_tier1_commands_are_in_product_table():
         "explain",
         "remember",
         "compact",
+        "undo",
+        "formula",
     ):
         assert name in names
 
@@ -487,6 +492,23 @@ def test_summarizer_user_body_includes_focus():
     assert "Keep details about: budget" in body
 
 
+def test_do_edit_selection_skips_dialog_with_preset():
+    from plugin.writer import editselection as es
+
+    ctx = object()
+    model = MagicMock()
+    model.getCurrentController.return_value = MagicMock()
+    with patch.object(es, "_selection_target", return_value=(MagicMock(), "text")):
+        with patch.object(es, "create_validated_client", return_value=MagicMock()):
+            with patch.object(es, "prompt_for_edit_instructions") as prompt:
+                with patch.object(es, "_stream_into_session"):
+                    with patch.object(es, "update_lru_history"):
+                            with patch("plugin.writer.editselection.review_recording_enabled", return_value=False):
+                                with patch("plugin.writer.editselection.get_config", return_value=100):
+                                    es.do_edit_selection(ctx, model, preset_instruction="Fix typos")
+    prompt.assert_not_called()
+
+
 def test_enable_mock_slash_commands_adds_stubs(monkeypatch):
     import plugin.chatbot.slash_commands as slash
 
@@ -500,3 +522,40 @@ def test_enable_mock_slash_commands_adds_stubs(monkeypatch):
         assert run_slash_command("mock-bravo", host) is True
     slash._mock_commands_enabled = False
     assert "mock-bravo" not in [c.name for c in slash.registered_slash_commands()]
+
+
+def test_run_undo_delegates_to_agent_undo():
+    host = MagicMock()
+    host.slash_agent_edit_in_flight.return_value = False
+    model = object()
+    host.slash_document_model.return_value = model
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.doc.agent_undo.undo_last_agent_edit", return_value="Undid the last agent edit (2 steps)") as undo_fn:
+            assert run_slash_command("undo", host) is True
+    undo_fn.assert_called_once_with(model)
+    host.clear_ask.assert_called_once()
+    assert "Undid" in host.append_output.call_args[0][0]
+
+
+def test_run_undo_refuses_while_in_flight():
+    host = MagicMock()
+    host.slash_agent_edit_in_flight.return_value = True
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("undo", host) is True
+    host.slash_document_model.assert_not_called()
+
+
+def test_popup_accept_runs_undo_immediately():
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
+        slash_agent_edit_in_flight=lambda: False,
+        slash_document_model=lambda: None,
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.doc.agent_undo.undo_last_agent_edit", return_value="There is no agent edit to undo."):
+            assert run_slash_command("undo", host, from_popup=True) is True
+    host.clear_ask.assert_called_once()
+    host.append_output.assert_called_once()
+
