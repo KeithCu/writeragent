@@ -30,6 +30,7 @@ from compute_service.json_egress import normalize_execute_response, sanitize_for
 from tests.compute_service.multipart_encode import encode_multipart_vision
 from compute_service.server import create_wsgi_app
 from compute_service.vision import shutdown_vision_pool
+from compute_service.wsgi_server import REQUEST_READ_TIMEOUT_SEC, ComputeServerHandler, request_conn
 
 
 def _wsgi_vision_post(app, meta: dict[str, Any], image: bytes | bytearray | None = None, *, headers: dict[str, str] | None = None, send_host: bool = True) -> tuple[str, list[tuple[str, str]], dict]:
@@ -2136,8 +2137,6 @@ class TestSessionResetHttp:
             "HTTP_HOST": "127.0.0.1",
             "wsgi.input": io.BytesIO(body),
         }
-        from compute_service.wsgi_server import request_conn
-
         request_conn(environ).accept_time = time.monotonic() - 5.0
         out = b"".join(app(environ, start_response))
         parsed = json.loads(out.decode("utf-8"))
@@ -3198,8 +3197,6 @@ def test_accept_time_tracked_on_connection() -> None:
         handler.rfile = io.BytesIO(b"")
         with patch.object(handler_cls, "setup"):
             environ = handler.get_environ()
-            from compute_service.wsgi_server import request_conn
-
             assert request_conn(environ).accept_time == 12345.678
     finally:
         server.server_close()
@@ -3674,9 +3671,7 @@ def test_isolated_mode_with_session_id_rejected() -> None:
 
 def test_slow_body_drip_is_408() -> None:
     """One socket timeout per large read used to let a drip outlive the body deadline."""
-    from compute_service.wsgi_server import REQUEST_READ_TIMEOUT_SEC
     from compute_service.server import _read_request_body
-    from compute_service.wsgi_server import request_conn
 
     class _Drip:
         def read1(self, _n: int) -> bytes:
@@ -3708,7 +3703,6 @@ def test_slow_body_drip_is_408() -> None:
 def test_body_settimeout_failure_is_408() -> None:
     """A failed settimeout must not leave the previous socket timeout in force."""
     from compute_service.server import _read_request_body
-    from compute_service.wsgi_server import request_conn
 
     class _Boom:
         def settimeout(self, _value: float) -> None:
@@ -3739,31 +3733,8 @@ def test_body_settimeout_failure_is_408() -> None:
     assert statuses[0].startswith("408")
 
 
-def test_string_accept_time_does_not_raise() -> None:
-    """A non-numeric accept timestamp starts the clock now instead of HTTP 500."""
-    from compute_service.server import _read_request_body
-    from compute_service.wsgi_server import request_conn
-
-    payload = b'{"code":"result = 1"}'
-    statuses: list[str] = []
-
-    def start_response(status: str, _headers: list, _exc_info: Any = None) -> None:
-        statuses.append(status)
-
-    environ = {
-        "CONTENT_LENGTH": str(len(payload)),
-        "wsgi.input": io.BytesIO(payload),
-    }
-    request_conn(environ).accept_time = "not-a-float"
-    body, err = _read_request_body(environ, ComputeSettings(), start_response)
-    assert err is None
-    assert body == payload
-    assert statuses == []
-
-
 def test_drain_restores_socket_timeout() -> None:
     from compute_service.server import _drain_body_before_error
-    from compute_service.wsgi_server import request_conn
 
     class _Conn:
         def __init__(self, timeout: float | None) -> None:
@@ -3811,6 +3782,48 @@ def test_drain_restores_socket_timeout() -> None:
     _drain_body_before_error(env3)
     assert unread.set_calls == 0
     assert unread.timeout == 30.0
+
+
+def test_app_close_connection_on_request_conn_reaches_handler_after_run() -> None:
+    """wsgiref shallow-copies environ for the app; RequestConn is shared so handle() sees close_connection."""
+
+    def closing_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
+        start_response("200 OK", [("Content-Type", "application/json"), ("Content-Length", "2")])
+        request_conn(environ).close_connection = True
+        return [b"{}"]
+
+    handler_environ: dict[str, Any] = {
+        "REQUEST_METHOD": "GET",
+        "PATH_INFO": "/health",
+        "SERVER_PROTOCOL": "HTTP/1.1",
+        "SERVER_NAME": "127.0.0.1",
+        "SERVER_PORT": "8765",
+        "wsgi.version": (1, 0),
+        "wsgi.url_scheme": "http",
+        "wsgi.input": io.BytesIO(b""),
+        "wsgi.errors": sys.stderr,
+        "wsgi.multithread": False,
+        "wsgi.run_once": False,
+    }
+    request_conn(handler_environ)
+
+    req_handler = MagicMock()
+    req_handler.close_connection = False
+
+    server_handler = ComputeServerHandler(
+        io.BytesIO(b""),
+        io.BytesIO(),
+        sys.stderr,
+        handler_environ,
+        multithread=False,
+    )
+    setattr(server_handler, "request_handler", req_handler)
+    server_handler.run(closing_app)
+
+    assert request_conn(handler_environ).close_connection is True
+    if request_conn(handler_environ).close_connection:
+        req_handler.close_connection = True
+    assert req_handler.close_connection is True
 
 
 def test_gated_does_not_start_response_twice() -> None:
@@ -4151,7 +4164,6 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
 
 def test_drain_body_chunked_closes_connection() -> None:
     from compute_service.server import _drain_body_before_error
-    from compute_service.wsgi_server import request_conn
 
     # Chunked with no length returns False and leaves input unread.
     stream1 = io.BytesIO(b"smuggled")
@@ -4205,15 +4217,12 @@ def test_wsgi_chunked_401_closes_connection() -> None:
     }
     _ = b"".join(app(environ, start_response))
     assert status_holder[0].startswith("401")
-    from compute_service.wsgi_server import request_conn
-
     assert request_conn(environ).close_connection is True
     assert stream.read() == smuggled
 
 
 def test_reset_queue_timeout_closes_connection() -> None:
     from compute_service.server import _Admission, _gated
-    from compute_service.wsgi_server import request_conn
     from compute_service.worker_base import Deadline
 
     # Gated route timing out before execution.

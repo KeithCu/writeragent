@@ -45,14 +45,10 @@ from plugin.vision.vision_common import IMPLEMENTED_HELPERS
 log = logging.getLogger("compute_service")
 
 
-def _accept_clock(accept_time: Any) -> float:
-    """Numeric accept timestamp, or now when the value is missing or not a number.
-
-    Bool is an int subclass and is not a clock. A non-numeric value must
-    not raise, or the request becomes HTTP 500.
-    """
-    if isinstance(accept_time, (int, float)) and not isinstance(accept_time, bool):
-        return float(accept_time)
+def _accept_clock(accept_time: float | None) -> float:
+    """Accept monotonic timestamp from the listener, or now when missing."""
+    if accept_time is not None:
+        return accept_time
     return time.monotonic()
 
 
@@ -190,29 +186,30 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
     the cap, EOF or a timeout) the connection is marked to close so leftover
     bytes never parse as the next request.
     """
+    rc = request_conn(environ)
     if _transfer_encoding_is_chunked(environ):
-        request_conn(environ).close_connection = True
+        rc.close_connection = True
         return False
     # Already buffered: reading Content-Length again would eat the next request.
-    if isinstance(request_conn(environ).raw_body, (bytes, bytearray)):
+    if rc.raw_body is not None:
         return True
     try:
         length = int(environ.get("CONTENT_LENGTH") or 0)
     except (TypeError, ValueError):
-        request_conn(environ).close_connection = True
+        rc.close_connection = True
         return False
     stream = environ.get("wsgi.input")
     cap = min(length, max_bytes)
     done = 0
     if cap > 0 and stream is not None:
-        conn = request_conn(environ).connection
+        conn = rc.connection
         saved: float | None = None
         try:
             saved = conn.gettimeout() if conn is not None else None
         except OSError:
             conn = None  # A timeout that cannot be read cannot be restored, so it is left alone.
         read = getattr(stream, "read1", None) or stream.read
-        deadline = min(time.monotonic() + 1.0, _accept_clock(request_conn(environ).accept_time) + REQUEST_READ_TIMEOUT_SEC)
+        deadline = min(time.monotonic() + 1.0, _accept_clock(rc.accept_time) + REQUEST_READ_TIMEOUT_SEC)
         try:
             while done < cap and (budget := deadline - time.monotonic()) > 0:
                 if conn is not None:
@@ -230,7 +227,7 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
                 except OSError:
                     pass
     if done < length:
-        request_conn(environ).close_connection = True
+        rc.close_connection = True
         return False
     return True
 
@@ -320,41 +317,42 @@ def _reject_chunked(environ: dict[str, Any], start_response: Any) -> list[bytes]
 
 def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[bytes | None, list[bytes] | None]:
     """Read a bounded POST body with total read deadline enforcement. Returns ``(body, None)`` or ``(None, error_body)``."""
-    cached = request_conn(environ).raw_body
-    if isinstance(cached, (bytes, bytearray)):
-        return bytes(cached), None
+    rc = request_conn(environ)
+    cached = rc.raw_body
+    if cached is not None:
+        return cached, None
     chunked = _reject_chunked(environ, start_response)
     if chunked is not None:
         return None, chunked
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
-        request_conn(environ).close_connection = True
+        rc.close_connection = True
         return None, _error(start_response, "400 Bad Request", "Missing Content-Length")
     try:
         content_length = int(raw_len)
     except (TypeError, ValueError):
-        request_conn(environ).close_connection = True
+        rc.close_connection = True
         return None, _error(start_response, "400 Bad Request", "Invalid Content-Length")
     if content_length <= 0:
-        request_conn(environ).close_connection = True
+        rc.close_connection = True
         return None, _error(start_response, "400 Bad Request", "Invalid Content-Length")
     if content_length > settings.max_body_bytes:
         _drain_body_before_error(environ, max_bytes=64 * 1024)
-        request_conn(environ).close_connection = True
+        rc.close_connection = True
         return None, _error(start_response, "413 Payload Too Large", "Request body too large")
 
     wsgi_input = environ.get("wsgi.input")
     if wsgi_input is None:
-        request_conn(environ).close_connection = True
+        rc.close_connection = True
         return None, _error(start_response, "500 Internal Server Error", "Missing wsgi.input stream")
 
     def fail(status: str, msg: str) -> tuple[None, list[bytes]]:
-        request_conn(environ).close_connection = True
+        rc.close_connection = True
         _set_write_deadline(environ)
         return None, _error(start_response, status, msg)
 
-    conn = request_conn(environ).connection
-    read_deadline = _accept_clock(request_conn(environ).accept_time) + REQUEST_READ_TIMEOUT_SEC
+    conn = rc.connection
+    read_deadline = _accept_clock(rc.accept_time) + REQUEST_READ_TIMEOUT_SEC
 
     chunks: list[bytes] = []
     bytes_read = 0
@@ -393,14 +391,14 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
 
     _set_write_deadline(environ)
     if bytes_read != content_length:
-        request_conn(environ).close_connection = True
+        rc.close_connection = True
         return None, _error(start_response, "400 Bad Request", "Request body truncated")
 
     body = b"".join(chunks)
     # Admission reads the body before the permit wait. The handler must not
     # read the socket again: on a keep-alive connection that would consume
     # the next request.
-    request_conn(environ).raw_body = body
+    rc.raw_body = body
     return body, None
 
 

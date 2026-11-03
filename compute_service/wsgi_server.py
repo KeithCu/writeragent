@@ -45,10 +45,15 @@ WSGI_REQUEST_CONN = "compute_service.request_conn"
 
 @dataclass
 class RequestConn:
-    """Per-request connection state shared by the WSGI handler and server.py."""
+    """Per-request connection state shared by the WSGI handler and server.py.
 
-    connection: Any = None
-    accept_time: Any = None
+    Stored by reference on ``environ``: wsgiref gives the app a shallow copy of
+    ``environ``, so a scalar flag set only in the app dict would not reach
+    ``DeadlineRequestHandler.handle()``; this object is shared across both.
+    """
+
+    connection: socket.socket | None = None
+    accept_time: float | None = None
     close_connection: bool = False
     raw_body: bytes | None = None
 
@@ -215,6 +220,7 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         handler = ComputeServerHandler(self.rfile, cast("Any", self.wfile), self.get_stderr(), environ, multithread=False)
         cast("Any", handler).request_handler = self
         handler.run(cast("Any", self.server).get_app())
+        # RequestConn is shared with the app's shallow copy of environ (see RequestConn).
         if request_conn(environ).close_connection:
             self.close_connection = True
 
