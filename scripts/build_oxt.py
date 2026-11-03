@@ -47,19 +47,14 @@ ALWAYS_INCLUDE_EXTENSION = [
     "extension/assets/",
 ]
 
-ALWAYS_INCLUDE_PLUGIN_FILES = [
-    "plugin/__init__.py",
-    "plugin/main.py",
-    "plugin/version.py",
-    "plugin/_manifest.py",
-    "plugin/plugin.yaml",
-]
+# Top-level plugin/*.py shipped in WriterAgent OXT (LibrePy-only and test runner excluded).
+_EXCLUDE_TOP_LEVEL_PLUGIN_PY = frozenset({"testing_runner.py", "main_core.py"})
 
 
 def get_always_include_plugin(base_dir):
-    """Dynamically discover all subdirectories under plugin/ except tests, cache, and lib."""
+    """Include every top-level plugin/*.py (except exclusions), plugin.yaml, and package subdirs."""
     plugin_dir = os.path.join(base_dir, "plugin")
-    includes = list(ALWAYS_INCLUDE_PLUGIN_FILES)
+    includes: list[str] = []
     if os.path.isdir(plugin_dir):
         for entry in sorted(os.listdir(plugin_dir)):
             if entry in ("tests", "__pycache__", "lib") or entry.startswith("."):
@@ -67,6 +62,11 @@ def get_always_include_plugin(base_dir):
             entry_path = os.path.join(plugin_dir, entry)
             if os.path.isdir(entry_path):
                 includes.append(f"plugin/{entry}/")
+            elif entry.endswith(".py") and entry not in _EXCLUDE_TOP_LEVEL_PLUGIN_PY:
+                includes.append(f"plugin/{entry}")
+        yaml_path = os.path.join(plugin_dir, "plugin.yaml")
+        if os.path.isfile(yaml_path):
+            includes.append("plugin/plugin.yaml")
     return includes
 
 # Only included when --with-tests (make release)

@@ -37,14 +37,11 @@ def json_route(fn: Callable[..., tuple[int, Any]]) -> Callable[..., None]:
     """Wrap ``(body, headers, query) -> (status, dict)`` for HTTP dispatch."""
 
     def wrapped(handler: Any) -> None:
-        from plugin.framework.errors import format_error_payload
         from plugin.framework.url_utils import get_url_query_dict
         from plugin.mcp.server import read_json_body, write_http_json
 
-        data, rejected = read_json_body(handler)
-        if rejected is not None:
-            status, err = rejected
-            write_http_json(handler, status, format_error_payload(err))
+        data = read_json_body(handler)
+        if data is None:
             return
         query = get_url_query_dict(handler.path)
         status, payload = fn(data, handler.headers, query)

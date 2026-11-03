@@ -253,7 +253,13 @@ def test_writeragent_mcp_images_section_points_at_assets():
 
 
 def test_static_menu_titles_cover_addons_commands():
-    from plugin.main import _STATIC_MENU_TITLES
+    from plugin._manifest import MENU_TITLES, MODULES
+
+    action_titles: dict[str, str] = {}
+    for mod in MODULES:
+        mod_name = mod.get("name", "")
+        for act, title in mod.get("action_titles", {}).items():
+            action_titles[f"{mod_name}.{act}"] = title
 
     root = ET.parse(_ADDONS_XCU).getroot()
     urls: set[str] = set()
@@ -269,4 +275,4 @@ def test_static_menu_titles_cover_addons_commands():
     for url in urls:
         if url.startswith(prefix):
             cmd = url[len(prefix) :]
-            assert cmd in _STATIC_MENU_TITLES, f"Missing static menu title for {cmd}"
+            assert cmd in action_titles or cmd in MENU_TITLES, f"Missing static menu title for {cmd}"

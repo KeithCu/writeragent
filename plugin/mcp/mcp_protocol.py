@@ -378,7 +378,7 @@ class MCPProtocolHandler:
             status, response = version_error
             self._send_json(handler, status, response)
             return
-        body = self._read_body(handler)
+        body = read_json_body(handler, reply=self._send_json)
         if body is None:
             return
         document_url = handler.headers.get("X-Document-URL") or None
@@ -598,7 +598,7 @@ class MCPProtocolHandler:
             self._send_json(handler, 403, {"error": forbidden})
             return
 
-        body = self._read_body(handler)
+        body = read_json_body(handler, reply=self._send_json)
         if body is None:
             return
         # What was wrong: a JSON array or scalar is a successful read_json_body
@@ -1162,19 +1162,6 @@ class MCPProtocolHandler:
         return {key: value, "persisted": True}
 
     # ── Helpers ───────────────────────────────────────────────────────
-
-    def _read_body(self, handler: Any) -> Any:
-        """Read and parse JSON body from an HTTP handler.
-
-        Same cap, chunked rejection, and socket-timeout failure as ``GenericRequestHandler._read_body``.
-        The two entry points used to each call ``rfile.read(content_length)``.
-        """
-        data, rejected = read_json_body(handler)
-        if rejected is not None:
-            status, err = rejected
-            self._send_json(handler, status, format_error_payload(err))
-            return None
-        return data
 
     def _send_empty(self, handler: Any, status: int) -> None:
         """Send an empty response via an HTTP handler."""
