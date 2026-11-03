@@ -949,7 +949,7 @@ def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch, tm
     """A reset scheduled by stop() must no-op after a newer Tailscale start."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     marker = tmp_path / "writeragent-tailscale-funnel-armed"
-    monkeypatch.setattr("plugin.mcp.tunnel.TailscaleProvider.arm_path", lambda self: str(marker))
+    monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
     mgr = TunnelManager()
     reset_cmds: list[list[str]] = []
     scheduled: list = []
@@ -1049,7 +1049,7 @@ def test_stopped_stop_resets_tailscale_when_crash_marker_exists(monkeypatch, tmp
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     marker = tmp_path / "writeragent-tailscale-funnel-armed"
     marker.write_text("armed\n", encoding="utf-8")
-    monkeypatch.setattr("plugin.mcp.tunnel.TailscaleProvider.arm_path", lambda self: str(marker))
+    monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
 
     mgr = TunnelManager()
     reset_cmds: list[list[str]] = []
@@ -1085,7 +1085,7 @@ def test_failed_tailscale_reset_keeps_crash_marker_for_retry(monkeypatch, tmp_pa
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     marker = tmp_path / "writeragent-tailscale-funnel-armed"
     marker.write_text("armed\n", encoding="utf-8")
-    monkeypatch.setattr("plugin.mcp.tunnel.TailscaleProvider.arm_path", lambda self: str(marker))
+    monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
 
     mgr = TunnelManager()
     reset_cmds: list[list[str]] = []
@@ -1127,7 +1127,7 @@ def test_tailscale_reset_oserror_keeps_crash_marker_for_retry(monkeypatch, tmp_p
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     marker = tmp_path / "writeragent-tailscale-funnel-armed"
     marker.write_text("armed\n", encoding="utf-8")
-    monkeypatch.setattr("plugin.mcp.tunnel.TailscaleProvider.arm_path", lambda self: str(marker))
+    monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
 
     mgr = TunnelManager()
     reset_cmds: list[list[str]] = []
@@ -1166,7 +1166,7 @@ def test_tailscale_reset_oserror_keeps_crash_marker_for_retry(monkeypatch, tmp_p
 def test_stale_tailscale_reset_does_not_drop_a_newer_inflight_count(monkeypatch, tmp_path):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     marker = tmp_path / "writeragent-tailscale-funnel-armed"
-    monkeypatch.setattr("plugin.mcp.tunnel.TailscaleProvider.arm_path", lambda self: str(marker))
+    monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
     mgr = TunnelManager()
     reset_cmds: list[list[str]] = []
     scheduled: list = []
@@ -1212,7 +1212,7 @@ def test_stale_tailscale_reset_does_not_drop_a_newer_inflight_count(monkeypatch,
 def test_tailscale_spawn_writes_arm_marker_and_post_stop_clears_it(monkeypatch, tmp_path):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     marker = tmp_path / "writeragent-tailscale-funnel-armed"
-    monkeypatch.setattr("plugin.mcp.tunnel.TailscaleProvider.arm_path", lambda self: str(marker))
+    monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
 
     mgr = TunnelManager()
     scheduled: list = []
@@ -1249,7 +1249,9 @@ def test_pytest_does_not_use_config_dir_for_tailscale_arm(monkeypatch, tmp_path)
     fake_config.write_text("{}", encoding="utf-8")
     monkeypatch.setattr("plugin.framework.config._resolved_config_path", str(fake_config))
     expected = tmp_path / "writeragent-tailscale-funnel-armed"
-    assert TailscaleProvider().arm_path() == str(expected)
+    reset = TailscaleProvider().reset
+    assert reset is not None
+    assert reset.arm_path() == str(expected)
     assert not expected.exists()
 
 
