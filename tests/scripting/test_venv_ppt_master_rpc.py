@@ -141,7 +141,7 @@ def test_handle_llm_request_uses_host_cancellation_scope():
         )
 
     assert out["status"] == "ok"
-    assert mock_llm.call_args.kwargs["cancellation_scope"] is scope
+    assert mock_llm.call_args.kwargs["cancel"] is scope
 
 
 def test_intermediate_llm_frame_forwards_cancellation_scope():
@@ -282,7 +282,7 @@ def test_handle_llm_request_returns_user_stopped_via_client_stopped():
     from plugin.ppt_master.venv.host_rpc import handle_llm_request
 
     client = MagicMock()
-    client._stopped = True
+    client.stopped.return_value = True
     client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}
     with (
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
@@ -304,7 +304,7 @@ def test_handle_llm_request_returns_user_stopped_via_stop_checker():
     from plugin.ppt_master.venv.host_rpc import handle_llm_request
 
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}
     with (
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),

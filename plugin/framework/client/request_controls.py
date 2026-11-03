@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from .http_transport import HttpResult, LlmHttpTransport
 
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 from .errors import stream_error_message
 from .ssl_helpers import is_certificate_verify_error
@@ -172,17 +172,17 @@ def wait_abortable(
     """Sleep ``delay_sec`` in small chunks so Stop aborts the wait. False if stopped."""
     sleeper = sleep or time.sleep
     now = monotonic or time.monotonic
-    if cancel is not None and cancel.is_cancelled():
+    if is_cancelled(cancel):
         return False
     if not math.isfinite(delay_sec) or delay_sec <= 0:
-        return not (cancel is not None and cancel.is_cancelled())
+        return not is_cancelled(cancel)
     deadline = now() + delay_sec
     while True:
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             return False
         remaining = deadline - now()
         if remaining <= 0:
-            return not (cancel is not None and cancel.is_cancelled())
+            return not is_cancelled(cancel)
         sleeper(min(chunk_sec, remaining))
 
 
@@ -435,21 +435,10 @@ class RetryBudget:
         self._last_body = None
 
     def stopped(self) -> bool:
-        return self._cancel is not None and self._cancel.is_cancelled()
-
-    def prepare_body(self, body: bytes, *, provider: str, endpoint: str) -> bytes:
-        from .base_provider_shim import accepted_effort_body
-
-        prepared = accepted_effort_body(provider, endpoint, body)
-        return prepared if isinstance(prepared, bytes) else prepared.encode("utf-8")
+        return is_cancelled(self._cancel)
 
     def note_emitted(self) -> None:
         self.emitted_any = True
-
-    def remember_success(self, first_body: bytes, last_body: bytes) -> None:
-        from .base_provider_shim import remember_accepted_effort
-
-        remember_accepted_effort(self._transport._endpoint_getter(), first_body, last_body)
 
     def run_exchange(
         self,

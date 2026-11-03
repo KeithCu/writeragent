@@ -34,7 +34,7 @@ import threading
 import time
 from typing import Any, Callable, Literal
 
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC, USER_AGENT
 from plugin.framework.errors import NetworkError, format_error_message
@@ -222,7 +222,7 @@ class LlmHttpTransport:
         cancel: SendCancellation | None,
         conn: http.client.HTTPConnection | http.client.HTTPSConnection | None = None,
     ) -> None:
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             if conn is not None:
                 self._drop_stopped_connection(conn)
             else:
@@ -283,7 +283,7 @@ class LlmHttpTransport:
             # failure while connecting a new socket still uses the budget.
             # Close and send this same request once. Do not reconnect if Stop
             # was requested.
-            if (cancel is not None and cancel.is_cancelled()) or not reused_socket or not allow_stale_resend:
+            if is_cancelled(cancel) or not reused_socket or not allow_stale_resend:
                 raise
             log.debug("Keep-alive socket failed before a response; reconnecting once")
             self._drop_stopped_connection(conn)
@@ -322,7 +322,7 @@ class LlmHttpTransport:
         handle = run_in_background(_do_connect, name="http-connect", dedicated=True)
         deadline = time.monotonic() + float(LLM_CONNECT_TIMEOUT_SEC)
         while not outcome.get("done"):
-            if cancel is not None and cancel.is_cancelled():
+            if is_cancelled(cancel):
                 cancelled.set()
                 self._drop_stopped_connection(conn)
                 raise _stopped_error()
@@ -456,7 +456,7 @@ class LlmHttpTransport:
         """Close failed connections and decide whether a request should retry."""
         # Stop closes the socket, which looks like a broken pipe. Check
         # cancel before log.error so a user cancel is debug, not ERROR.
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             log.debug("Connection closed by user stop; exiting streaming loop")
             self.close()
             return "stop"

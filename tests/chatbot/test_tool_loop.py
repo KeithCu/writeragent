@@ -1129,15 +1129,16 @@ def _run_captured_llm_worker(spawn):
 
     panel.resolve_stop_checker = resolve
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     seen = {}
 
     def during_stream(*_args, **kwargs):
-        seen["checker"] = kwargs["stop_checker"]
+        seen["scope"] = kwargs["cancel"]
+        assert kwargs["cancel"] is old
         old.cancel()
         panel._send_cancellation = new
         panel._stop_requested_fallback = False
-        client._stopped = False
+        client.stopped.return_value = False
 
         def boom():
             calls.append(panel._send_cancellation)
@@ -1164,8 +1165,8 @@ def _run_captured_llm_worker(spawn):
         started[0]()
 
     assert calls == [old]
-    assert seen["checker"] is bound["checker"]
-    assert seen["checker"]() is True
+    assert seen["scope"] is old
+    assert old.is_cancelled()
     assert bind_send_stop_checker(new, lambda: False)() is False
     item = q.get(timeout=1)
     assert item[0] == StreamQueueKind.STOPPED
@@ -1240,7 +1241,7 @@ def test_retry_status_restored_on_first_chunk():
     batched = BatchingStreamQueue(q, batch_interval=10)
     turn.batcher = batched
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
 
     def fake_stream(*_args, **kwargs):
         kwargs["status_callback"]("Provider busy, retrying in 0.4s…")
@@ -1285,7 +1286,7 @@ def test_retry_status_restored_on_first_chunk_final_stream():
     batched = BatchingStreamQueue(q, batch_interval=10)
     turn.batcher = batched
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
 
     def fake_stream(messages, max_tokens, append_c, append_t, **kwargs):
         kwargs["status_callback"]("Provider busy, retrying in 0.4s…")
@@ -1324,9 +1325,9 @@ def test_bind_spawn_without_live_turn_has_no_session():
     host = Mock()
     host._panel = Mock(_turn=None)
     with patch("plugin.chatbot.tool_loop.capture_send_stop", return_value=(Mock(is_cancelled=lambda: True), lambda: False)):
-        turn, session, stop_checker, emit, stopped_cb = ToolCallingMixin._bind_spawn(host, Mock())
+        turn, session, bound_scope, emit, stopped_cb = ToolCallingMixin._bind_spawn(host, Mock())
     assert turn is None and session is None
-    assert stop_checker() is False
+    assert bound_scope.is_cancelled() is True
     emit("x")  # no live turn: put_for_turn drops the item instead of raising
     assert stopped_cb() is True
 
@@ -1361,7 +1362,7 @@ def test_compact_bound_session_tolerates_missing_turn():
     with patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_on_config), \
          patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=1000), \
          patch("plugin.chatbot.tool_loop.compact_session", return_value=result):
-        assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, stop_checker=None, force=False, status_cb=Mock()) is True
+        assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, cancel=None, force=False, status_cb=Mock()) is True
 
 
 def test_compact_bound_session_disabled_skips_compact():
@@ -1369,5 +1370,5 @@ def test_compact_bound_session_disabled_skips_compact():
 
     with patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config), \
          patch("plugin.chatbot.tool_loop.compact_session") as mock_compact:
-        assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, stop_checker=None, force=True, status_cb=Mock()) is True
+        assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, cancel=None, force=True, status_cb=Mock()) is True
         mock_compact.assert_not_called()

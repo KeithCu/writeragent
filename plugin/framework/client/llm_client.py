@@ -57,7 +57,7 @@ from .response_normalizers import normalize_message_content, prepare_chat_messag
 # accumulate_delta merges streaming deltas into message_snapshot; coalesce_split_tool_calls repairs OpenRouter empty-name split tool_calls.
 from plugin.framework.stream_delta import accumulate_delta, coalesce_split_tool_calls
 from plugin.framework.constants import USER_AGENT
-from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation
+from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation, is_cancelled
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
@@ -225,10 +225,10 @@ class LlmClient:
             scope.register_client(self)
 
     def stopped(self) -> bool:
-        return self._owned.is_cancelled()
+        return is_cancelled(self._owned)
 
     def _activate(self, cancel: SendCancellation | None) -> SendCancellation:
-        if self._owned.is_cancelled():
+        if is_cancelled(self._owned):
             return self._owned
         if cancel is not None:
             return cancel
@@ -336,7 +336,7 @@ class LlmClient:
     def _send_request(self, method: str, path: str, body: Any, headers: dict[str, str], *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
         """Send through the transport with cancellation scope."""
         active = self._activate(cancel)
-        if active.is_cancelled():
+        if is_cancelled(active):
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
 
         return self._transport.send(method, path, body, headers, cancel=active, status_callback=status_callback)
@@ -392,7 +392,7 @@ class LlmClient:
         """One non-streaming JSON exchange with the shared retry budget."""
         active = self._activate(cancel)
         self._inflight = active
-        if active.is_cancelled():
+        if is_cancelled(active):
             self._close_connection()
             return "stop", None
         api_key = str(self.config.get("api_key") or "").strip()
@@ -402,7 +402,7 @@ class LlmClient:
 
         def on_bad_request(body_bytes: bytes) -> bytes | None:
             nonlocal effort_pending, body, first_body, effort_used
-            if active.is_cancelled():
+            if is_cancelled(active):
                 return None
             if effort_pending is None:
                 from .base_provider_shim import effort_retry_bodies
@@ -487,7 +487,7 @@ class LlmClient:
         except NetworkError as e:
             if "not supported" in str(e):
                 new_body = adjust_image_body_for_rejection(body, str(e))
-                if new_body and (cancel is None or not cancel.is_cancelled()):
+                if new_body and not is_cancelled(cancel):
                     # The adjusted body is multi-MB base64. Log a 500-character
                     # preview plus the total length, not the whole payload.
                     body_text = new_body.decode("utf-8", errors="replace")
@@ -641,11 +641,12 @@ class LlmClient:
             status_callback=status_callback,
             on_bad_request=on_bad_request,
         )
-        body = budget.prepare_body(
+        prepared = accepted_effort_body(
+            self._get_shim()._reasoning_provider(),
+            self._endpoint(),
             bytes(body) if isinstance(body, bytearray) else body,
-            provider=self._get_shim()._reasoning_provider(),
-            endpoint=self._endpoint(),
         )
+        body = prepared if isinstance(prepared, bytes) else prepared.encode("utf-8")
 
         def consume(response: Any) -> str | None:
             if not budget.emitted_any and reset_unemitted_attempt is not None:

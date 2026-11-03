@@ -917,6 +917,7 @@ def test_web_research_tool():
     ctx.status_callback = MagicMock()
     ctx.append_thinking_callback = MagicMock()
     ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
 
     # Track the steps of our mock model
     call_count = [0]
@@ -1091,6 +1092,7 @@ def test_web_research_tool_approval():
     ctx.status_callback = MagicMock()
     ctx.append_thinking_callback = MagicMock()
     ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
 
     # We will provide an approval_callback
     approval_called = []
