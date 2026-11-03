@@ -1452,11 +1452,10 @@ def test_document_content_len_and_words_snapshot_header():
     assert "WriterAgent" in words
     assert "Welcome" in words
 
-    # Tool loop format: separate user turn with snapshot text
+    # Tool loop format: snapshot folded into the last tool result message
     messages_tool = [
         {"role": "system", "content": "You are helpful."},
-        {"role": "tool", "content": "result", "tool_call_id": "1"},
-        {"role": "user", "content": snap},
+        {"role": "tool", "content": f"result\n\n{snap}", "tool_call_id": "1"},
     ]
     assert document_content_len(messages_tool) == len(doc)
     words_tool = _extract_document_words(messages_tool)

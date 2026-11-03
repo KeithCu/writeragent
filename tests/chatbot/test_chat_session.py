@@ -322,7 +322,7 @@ def test_messages_for_request_never_has_adjacent_user_messages():
     s1.document_context = "Doc C"
     req3 = s1.messages_for_request()
     assert_no_adjacent_user(req3)
-    assert [m["role"] for m in req3] == ["system", "user", "assistant", "user", "assistant", "tool", "user"]
+    assert [m["role"] for m in req3] == ["system", "user", "assistant", "user", "assistant", "tool"]
 
     # 4. Without document context
     s2 = ChatSession(system_prompt="System")
@@ -331,6 +331,11 @@ def test_messages_for_request_never_has_adjacent_user_messages():
     req4 = s2.messages_for_request()
     assert_no_adjacent_user(req4)
     assert [m["role"] for m in req4] == ["system", "user"]
+    # Consistent shape: newest user turn is always a list of content blocks
+    assert isinstance(req4[-1]["content"], list)
+    assert req4[-1]["content"] == [{"type": "text", "text": "No doc query"}]
+
+
 def test_messages_for_request_tool_loop_stable_prefix():
     mock_db = MagicMock()
     mock_db.get_messages.return_value = []
@@ -348,12 +353,16 @@ def test_messages_for_request_tool_loop_stable_prefix():
     session.document_context = "Doc 2"
     req_tool1 = session.messages_for_request()
 
-    # The new payload's last message is {"role": "user", "content": tail}
-    assert req_tool1[-1]["role"] == "user"
+    # The payload's last message is the tool result with snapshot folded in
+    assert req_tool1[-1]["role"] == "tool"
+    assert req_tool1[-1]["tool_call_id"] == "c1"
     assert isinstance(req_tool1[-1]["content"], str)
+    assert req_tool1[-1]["content"].startswith("42")
     assert snapshot_text("Doc 2") in req_tool1[-1]["content"]
     # The messages before it equal the stored history
-    assert req_tool1[:-1] == session.messages
+    assert req_tool1[:-1] == session.messages[:-1]
+    # The stored tool result content in session.messages is unchanged
+    assert session.messages[-1]["content"] == "42"
     # The stored user content is still the original string, not the first snapshot
     assert session.messages[1]["content"] == "Do math"
 
@@ -363,12 +372,12 @@ def test_messages_for_request_tool_loop_stable_prefix():
     session.document_context = "Doc 3"
     req_tool2 = session.messages_for_request()
 
-    assert req_tool2[-1]["role"] == "user"
+    assert req_tool2[-1]["role"] == "tool"
+    assert req_tool2[-1]["tool_call_id"] == "c2"
     assert isinstance(req_tool2[-1]["content"], str)
     assert snapshot_text("Doc 3") in req_tool2[-1]["content"]
-    # The payload with the snapshot message removed extends the previous payload with snapshot removed
-    assert req_tool2[:-1] == req_tool1[:-1] + session.messages[len(req_tool1) - 1 :]
-    # Shared prefix is byte-identical across rounds
+    assert session.messages[-1]["content"] == "84"
+    # Shared prefix (all messages before the last tool result) is byte-identical across rounds
     assert req_tool2[: len(req_tool1) - 1] == req_tool1[:-1]
 
     # After those calls, session.messages has no SNAPSHOT_HEADER, date line, or memory block

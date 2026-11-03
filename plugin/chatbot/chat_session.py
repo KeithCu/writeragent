@@ -7,7 +7,7 @@ from plugin.chatbot.history_db import get_chat_history
 
 log = logging.getLogger(__name__)
 
-from plugin.framework.client.shim_helpers import fold_trailing_user_message, snapshot_text
+from plugin.framework.client.shim_helpers import snapshot_text
 
 
 def strip_legacy_document_suffix(content: str) -> str:
@@ -144,10 +144,15 @@ class ChatSession:
     def messages_for_request(self) -> list[dict[str, Any]]:
         """Return the messages to send to the LLM for a request.
 
-        Starts with messages_for_llm(self), then appends request_tail(self).
-        When the conversation ends with a user turn, the tail is merged into that
-        trailing user message so strict alternating-role templates (Gemma, Mistral,
-        llama.cpp, vLLM) never see two adjacent user messages.
+        Starts with messages_for_llm(self), then folds request_tail(self)
+        into the trailing message:
+        - On normal chat turns (ending in a user message), the snapshot is
+          placed at the tail of the newest user turn as a content block, keeping
+          the newest user turn a consistent shape (list of content blocks) and
+          preserving prompt cache prefix stability.
+        - On tool rounds (ending in a tool message), the snapshot is folded
+          into the last tool result message so models (like gpt-oss-20b) do not
+          see an instruction-less trailing user message and enter runaway edit loops.
         Does not mutate self.messages or self.compaction.
         """
         from plugin.chatbot.compaction import messages_for_llm
@@ -157,14 +162,41 @@ class ChatSession:
             return view
 
         tail = request_tail(self)
-        if tail:
-            # Bugfix: in #3085, appending the tail as a separate user message resulted
-            # in two consecutive user messages for all OpenAI-format providers. Jinja
-            # templates enforcing role alternation (Gemma, Mistral on LM Studio, llama.cpp,
-            # vLLM) reject adjacent user messages with HTTP 400/500. Merging here ensures
-            # one unified place for all providers without duplicate adjacent user messages.
-            view.append({"role": "user", "content": tail})
-            view = fold_trailing_user_message(view)
+        last = view[-1]
+        role = last.get("role") if isinstance(last, dict) else None
+
+        if role == "user":
+            content = last.get("content")
+            if isinstance(content, str):
+                parts = [{"type": "text", "text": content}]
+            elif isinstance(content, list):
+                parts = list(content)
+            else:
+                parts = [{"type": "text", "text": str(content or "")}]
+            if tail:
+                parts.append({"type": "text", "text": tail})
+            new_last = dict(last, content=parts)
+            return view[:-1] + [new_last]
+
+        if role == "tool" and tail:
+            # Bugfix: in #3080/#3085, tool rounds ended with an instruction-less
+            # user message holding the snapshot appended after the tool result.
+            # Models (e.g. gpt-oss-20b) treated that trailing user turn as a new
+            # request to re-edit the document, causing a runaway edit loop.
+            # Folding the snapshot into the last tool result message leaves the
+            # conversation in a proper tool-response state so the model produces
+            # its final textual answer instead of re-invoking tools.
+            content = last.get("content")
+            new_content: Any
+            if isinstance(content, str):
+                new_content = f"{content}\n\n{tail}" if content else tail
+            elif isinstance(content, list):
+                new_content = list(content) + [{"type": "text", "text": tail}]
+            else:
+                new_content = f"{content}\n\n{tail}" if content is not None else tail
+            new_last = dict(last, content=new_content)
+            return view[:-1] + [new_last]
+
         return view
 
     def add_user_message(self, content: Any) -> None:
