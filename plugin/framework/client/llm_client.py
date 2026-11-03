@@ -59,7 +59,7 @@ from plugin.framework.stream_delta import accumulate_delta, coalesce_split_tool_
 from plugin.framework.constants import USER_AGENT
 from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation, is_cancelled
 
-from plugin.framework.logging import init_logging, is_logging_initialized, redact_sensitive_payload_for_log
+from plugin.framework.logging import init_logging as init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
 from plugin.framework.errors import NetworkError, WriterAgentException, is_disposal
 from plugin.framework.url_utils import get_api_version_suffix, get_url_path_and_query, normalize_endpoint_url
@@ -388,8 +388,6 @@ class LlmClient:
             messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice
         )
 
-        if not is_logging_initialized():
-            init_logging(self.ctx)
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
         log.debug("URL: %s" % _path_without_query(path))
         if log.isEnabledFor(logging.DEBUG):
@@ -501,8 +499,6 @@ class LlmClient:
             url = path
 
         # log.debug...
-        if not is_logging_initialized():
-            init_logging(self.ctx)
         log.debug("=== Image Request ===")
         # Path/query must not include API keys.
         log.debug("URL: %s" % urllib.parse.urlunparse(urllib.parse.urlparse(url)._replace(query="", fragment="")))
@@ -633,8 +629,6 @@ class LlmClient:
 
     def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None, reset_unemitted_attempt: Any = None) -> Any:
         """Common low-level streaming engine."""
-        if not is_logging_initialized():
-            init_logging(self.ctx)
         log.info("=== Starting streaming loop (persistent) ===")
         log.debug("Request Path: %s" % path)
 
@@ -1004,8 +998,6 @@ class LlmClient:
 
         Returns a dict: {role, content, tool_calls, finish_reason, images, usage}
         """
-        if not is_logging_initialized():
-            init_logging(self.ctx)
         requested_model = model or self.config.get("model") or "default"
         n_tool_defs = len(tools) if isinstance(tools, list) else 0
         log.info("Sending LLM chat request: provider=%s requested_model=%r stream=%s n_messages=%d n_tool_defs=%d", self._get_provider(), requested_model, stream, len(messages), n_tool_defs)

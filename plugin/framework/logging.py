@@ -54,7 +54,6 @@ class _LoggingShared(TypedDict):
     activity_lock: threading.Lock
     hung_shown: bool
     stacks_dumped: bool
-    initialized: bool
 
 
 def _create_logging_shared() -> _LoggingShared:
@@ -71,7 +70,6 @@ def _create_logging_shared() -> _LoggingShared:
         "activity_lock": threading.Lock(),
         "hung_shown": False,
         "stacks_dumped": False,
-        "initialized": False,
     }
 
 
@@ -342,11 +340,6 @@ def get_debug_log_path() -> str | None:
     return _shared()["debug_log_path"]
 
 
-def is_logging_initialized() -> bool:
-    """Return True if init_logging has been called."""
-    return bool(_shared().get("initialized"))
-
-
 def _is_matching_debug_handler(handler: logging.Handler) -> bool:
     return isinstance(handler, logging.FileHandler) and getattr(handler, "baseFilename", "") == _shared()["debug_log_path"]
 
@@ -464,8 +457,6 @@ def init_logging(ctx: Any | None = None) -> None:
                 audit_plugin_roots()
             except Exception:
                 log.exception("plugin path audit failed")
-
-        shared["initialized"] = True
 
 
 def _install_global_exception_hooks() -> None:
