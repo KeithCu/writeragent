@@ -59,7 +59,7 @@ from plugin.framework.stream_delta import accumulate_delta, coalesce_split_tool_
 from plugin.framework.constants import USER_AGENT
 from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation, is_cancelled
 
-from plugin.framework.logging import init_logging as init_logging, redact_sensitive_payload_for_log
+from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
 from plugin.framework.errors import NetworkError, WriterAgentException, is_disposal
 from plugin.framework.url_utils import get_api_version_suffix, get_url_path_and_query, normalize_endpoint_url
