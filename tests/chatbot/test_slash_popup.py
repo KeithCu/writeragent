@@ -21,6 +21,7 @@ from plugin.chatbot.slash_popup import (
     _POPUP_ROW_PX,
     _above_ready_rect,
     _create_ask_peer_listbox,
+    _hscroll_height,
     _list_height,
     _overlay_height,
     _printable_key_char,
@@ -867,3 +868,54 @@ def test_overlay_offset_without_peer_accessibility(monkeypatch):
 
     assert _overlay_offset(host, ask, _R(10, 851, 400, 60), ctx) == (1010 - 10 - 10, 951 - 51 - 851)
     assert len(made) == 1 and made[0].parent is host and made[0].disposed
+
+
+class _VclList:
+    """VCLXListBox.getMinimumSize stand-in: ListBox::CalcBlockSize semantics."""
+
+    def __init__(self, row_px: int, text_w: int, bar: int, border: int = 2):
+        self.row_px, self.text_w, self.bar, self.border = row_px, text_w, bar, border
+
+    def getMinimumSize(self, cols, rows):
+        h = rows * self.row_px
+        w = cols * 8 if cols else self.text_w
+        if w < self.text_w:
+            h += self.bar
+        return SimpleNamespace(Width=w + 2 * self.border, Height=h + 2 * self.border)
+
+
+def test_hscroll_height_only_when_rows_wider_than_list():
+    # Keith 2026-11-03: "/tr" -> one /translate row, half hidden by the HScroll.
+    wide = _VclList(row_px=36, text_w=900, bar=24)  # HiDPI-ish
+    assert _hscroll_height(wide, 1, 1, 700) == 24
+    narrow = _VclList(row_px=18, text_w=300, bar=12)
+    assert _hscroll_height(narrow, 1, 1, 400) == 0
+    # 7 matches in 6 rows: the VScroll eats width, so 395px text overflows 400.
+    assert _hscroll_height(narrow, 6, 7, 310) == 12
+    assert _hscroll_height(SimpleNamespace(), 1, 1, 400) == 0
+
+
+def test_single_wide_match_list_is_tall_enough_for_row_and_hscroll():
+    popup, _box = _controller()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/")
+    popup._matches = popup._matches[:1]
+    host = _Win()
+    lst = _VclList(row_px=18, text_w=5000, bar=14)
+    popup.control = lst
+    popup._popup_floater = host
+    popup._ask_origin = (0, 0)
+    popup.reposition()
+    assert host.pos[-1][3] == 18 + 4 + 14
+    assert popup._row_px == 18 + 4
+
+
+def test_show_matches_fills_before_reposition():
+    popup, _box = _controller()
+    order: list[str] = []
+    fill, repos = popup._fill_visible_list, popup.reposition
+    popup._fill_visible_list = lambda: (order.append("fill"), fill())[1]  # type: ignore[method-assign]
+    popup.reposition = lambda: (order.append("reposition"), repos())[1]  # type: ignore[method-assign]
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/")
+    assert order[:2] == ["fill", "reposition"]
