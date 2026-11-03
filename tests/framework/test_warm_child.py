@@ -437,6 +437,24 @@ def test_spawn_helper_read_exception_clears_io_owner(monkeypatch: pytest.MonkeyP
     assert spawned._io_owner is None
 
 
+def test_missing_interpreter_lease_raises_oserror(supervisor: Supervisor) -> None:
+    env = {k: v for k, v in os.environ.items() if isinstance(v, str)}
+    spec = ChildSpec(
+        name="missing-interpreter",
+        argv=["/nonexistent/writeragent-python", "unused.py"],
+        env=env,
+        log_start_failure=False,
+    )
+    warm = WarmChild(spec, supervisor=supervisor)
+    try:
+        with pytest.raises(OSError):
+            with warm.lease(Deadline(5.0)) as leased:
+                assert not isinstance(leased, dict)
+        assert warm._child is None
+    finally:
+        warm.retire()
+
+
 def test_warm_ensure_live_interrupted_drops_child(
     tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
 ) -> None:
