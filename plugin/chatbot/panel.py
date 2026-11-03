@@ -550,7 +550,7 @@ class SendButtonListener(BaseActionListener):
         )
 
     def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
-        from plugin.chatbot.slash_commands import run_slash_compact_sync
+        from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
         from plugin.framework.blocking_wait import run_blocking_in_thread
         from plugin.framework.i18n import _
 
@@ -560,14 +560,20 @@ class SendButtonListener(BaseActionListener):
         if cancel is None:
             cancel = self._send_cancellation
         self._set_status(_("Thinking..."))
+        # Resolve UNO here: the caller holds SolarMutex while it waits for the worker
+        # (run_blocking_in_thread with pump_idle), so UNO on the worker can deadlock.
+        client, tools = prepare_slash_compact_on_ui_thread(self, self.ctx, self.session)
+        if client is None:
+            self.append_output("\n" + _("Configure an API key to compact.") + "\n")
+            return
 
         def worker() -> str:
             return run_slash_compact_sync(
-                self,
                 focus=focus,
                 session=self.session,
-                ctx=self.ctx,
                 cancel=cancel,
+                client=client,
+                tools=tools,
             )
 
         line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
