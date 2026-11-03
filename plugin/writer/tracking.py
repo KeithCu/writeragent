@@ -28,6 +28,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcSpecialTracking
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.uno_context import uno_same
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
 from plugin.writer.search import LocationLabeler
@@ -41,23 +42,15 @@ log = logging.getLogger("writeragent.writer")
 _TRACK_CHANGES_UNO_SERVICES = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
 
-def _enum_has_more(enum: Any) -> bool:
-    try:
-        return enum.hasMoreElements() is True
-    except Exception:
-        log.debug("redline enumeration hasMoreElements failed", exc_info=True)
-        return False
-
-
 def _enumerate_redlines(redlines: Any) -> tuple[list[Any], int]:
-    # What was wrong: enumeration could yield fewer elements than getCount() without detection, corrupting indexes.
-    # How it happened: loop only checked hasMoreElements() and did not verify length against getCount().
-    # Why this change fixes it: read getCount() upfront, cap at total, and return (objs, total) so callers can detect truncation.
+    # Cap at getCount() and return (objs, total) so callers can detect truncation.
     total = int(redlines.getCount())
     enum = redlines.createEnumeration()
     objs: list[Any] = []
-    while len(objs) < total and _enum_has_more(enum):
-        objs.append(enum.nextElement())
+    for elem in iter_elements(enum):
+        if len(objs) >= total:
+            break
+        objs.append(elem)
     return objs, total
 
 

@@ -569,7 +569,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     # this function returns.
     model: Any = None
     try:
-        from plugin.writer.format import create_property_value
+        from plugin.framework.uno_context import create_property_value
         desktop = get_desktop(ctx)
         load_props = (
             create_property_value("Hidden", True),

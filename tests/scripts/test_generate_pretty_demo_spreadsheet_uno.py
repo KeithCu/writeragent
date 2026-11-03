@@ -15,7 +15,7 @@ import uno
 from plugin.doc.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test
-from plugin.writer.format import create_property_value
+from plugin.framework.uno_context import create_property_value
 
 _ODS = Path(__file__).resolve().parents[1] / "fixtures" / "python_showcase_demo.ods"
 

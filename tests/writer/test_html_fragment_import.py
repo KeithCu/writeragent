@@ -19,7 +19,7 @@ def _capture_temp_buffer(content_holder):
         content_holder["content"] = content
         yield ("/tmp/fake.html", "file:///tmp/fake.html")
 
-    with patch("plugin.writer.format._with_temp_buffer", side_effect=fake_with_temp_buffer):
+    with patch("plugin.doc.temp_files.with_temp_buffer", side_effect=fake_with_temp_buffer):
         yield
 
 
@@ -114,7 +114,7 @@ def test_filter_name_starwriter():
 
     cursor.insertDocumentFromURL.side_effect = capture_insert
 
-    with patch("plugin.writer.format._with_temp_buffer", side_effect=fake_with_temp_buffer):
+    with patch("plugin.doc.temp_files.with_temp_buffer", side_effect=fake_with_temp_buffer):
         insert_html_fragment_at_cursor(cursor, "<p>Hi</p>")
 
     assert filter_holder["props"][0].Name == "FilterName"

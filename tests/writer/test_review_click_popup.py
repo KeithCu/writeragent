@@ -9,14 +9,14 @@ from typing import Any
 from unittest.mock import MagicMock
 import pytest
 
-from plugin.writer import review_click_popup
+from plugin.writer import review_click_popup, review_view_attachment as rva
 
 
 @pytest.fixture(autouse=True)
 def clean_attached() -> Any:
-    review_click_popup._attached.clear()
+    rva.reset_all()
     yield
-    review_click_popup._attached.clear()
+    rva.reset_all()
 
 
 def test_same_click_point() -> None:
@@ -184,6 +184,12 @@ class FakeController:
     def getModel(self) -> Any:  # noqa: N802 -- UNO API
         return self.model
 
+    def registerContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
+        pass
+
+    def releaseContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
+        pass
+
 
 class FakeHandler:
     def __init__(self, model: Any) -> None:
@@ -202,8 +208,13 @@ class FakeHandler:
 
 def test_registration_dedup_and_detach(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl: FakeHandler(mdl))
-
-    ctrl = FakeController()
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu._make_interceptor",
+        lambda m: MagicMock(_model=m),
+    )
+    model = MagicMock()
+    model.supportsService.return_value = True
+    ctrl = FakeController(model=model)
     review_click_popup.register_click_review(ctrl)
     assert len(review_click_popup._attached) == 1
     assert ctrl.add_count == 1
@@ -225,8 +236,13 @@ def test_registration_dedup_and_detach(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_handler_disposing_calls_remove_mouse_click_handler(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl: FakeHandler(mdl))
-
-    ctrl = FakeController()
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu._make_interceptor",
+        lambda m: MagicMock(_model=m),
+    )
+    model = MagicMock()
+    model.supportsService.return_value = True
+    ctrl = FakeController(model=model)
     review_click_popup.register_click_review(ctrl)
     assert len(review_click_popup._attached) == 1
 
@@ -239,12 +255,23 @@ def test_handler_disposing_calls_remove_mouse_click_handler(monkeypatch: pytest.
 
 def test_cleanup_disposed_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl: FakeHandler(mdl))
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu._make_interceptor",
+        lambda m: MagicMock(_model=m),
+    )
+    live_model = MagicMock()
+    live_model.supportsService.return_value = True
+    live_ctrl = FakeController(model=live_model)
+    dead_ctrl = FakeController(model=live_model)
 
-    live_ctrl = FakeController(model=object())
-    dead_ctrl = FakeController(model=None)
+    def _dead_get_model() -> Any:
+        raise RuntimeError("disposed")
+
+    dead_ctrl.getModel = _dead_get_model  # type: ignore[method-assign]
 
     review_click_popup.register_click_review(live_ctrl)
-    review_click_popup.register_click_review(dead_ctrl)
+    key = rva.attachment_key(live_model)
+    rva._attachments[key].controllers.append((dead_ctrl, MagicMock(), FakeHandler(live_model)))
     assert len(review_click_popup._attached) == 2
 
     review_click_popup.cleanup_disposed_controllers()

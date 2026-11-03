@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from plugin.doc.text_helpers import iter_elements_limited
 from plugin.framework.errors import (
     best_effort,
     is_disposed_exception,
@@ -333,13 +334,7 @@ def _scan_region_content(doc: Any, text_obj: Any, *, strict: bool = False) -> di
     notes: list[str] = []
     # `is True` and the hard caps match the enumeration walk in format.py: a UNO enumeration that
     # misbehaves otherwise spins here forever.
-    while para_enum.hasMoreElements() is True and out["paragraph_count"] < _SCAN_PARA_LIMIT:
-        try:
-            para = para_enum.nextElement()
-        except Exception:
-            if strict:
-                raise
-            break
+    for para in iter_elements_limited(para_enum, _SCAN_PARA_LIMIT):
         out["paragraph_count"] += 1
         try:
             is_table = para.supportsService("com.sun.star.text.TextTable") is True
@@ -359,10 +354,9 @@ def _scan_region_content(doc: Any, text_obj: Any, *, strict: bool = False) -> di
                 raise
             continue
         seen_portions = 0
-        while portions.hasMoreElements() is True and seen_portions < _SCAN_PORTION_LIMIT:
+        for portion in iter_elements_limited(portions, _SCAN_PORTION_LIMIT):
             seen_portions += 1
             try:
-                portion = portions.nextElement()
                 if portion.getPropertyValue("TextPortionType") != "TextField":
                     continue
                 field = portion.getPropertyValue("TextField")
@@ -1069,12 +1063,8 @@ def _paragraph_cursor_text(para: Any) -> str | None:
         return None
     parts: list[str] = []
     seen = 0
-    while portions.hasMoreElements() is True and seen < _SCAN_PORTION_LIMIT:
+    for portion in iter_elements_limited(portions, _SCAN_PORTION_LIMIT):
         seen += 1
-        try:
-            portion = portions.nextElement()
-        except Exception:
-            break
         parts.append(_portion_cursor_text(portion))
     record_walk_cap(portions, seen, _SCAN_PORTION_LIMIT, "text portions", None)
     return "".join(parts)
@@ -1121,12 +1111,8 @@ def _find_region_matches(text_obj: Any, needle: str, case_sensitive: bool) -> tu
     except Exception:
         return hits, notes
     seen = 0
-    while enum.hasMoreElements() is True and seen < _SCAN_PARA_LIMIT:
+    for para in iter_elements_limited(enum, _SCAN_PARA_LIMIT):
         seen += 1
-        try:
-            para = enum.nextElement()
-        except Exception:
-            break
         hay = _paragraph_cursor_text(para)
         if hay is None:
             continue

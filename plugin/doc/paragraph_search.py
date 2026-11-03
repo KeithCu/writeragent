@@ -102,10 +102,9 @@ def get_paragraph_ranges(model: Any) -> list[Any]:
     """
     text = model.getText()
     enum = text.createEnumeration()
-    ranges = []
-    while enum.hasMoreElements() is True:  # a MagicMock return never stops a plain truth test
-        ranges.append(enum.nextElement())
-    return ranges
+    from plugin.doc.text_helpers import iter_elements
+
+    return list(iter_elements(enum))
 
 
 def _anchor_contains_point(text_obj: Any, match_start: Any, element: Any) -> bool:

@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Any, Iterator, NamedTuple, Sequence
 
-from plugin.doc.text_helpers import go_right
+from plugin.doc.text_helpers import FAILED, go_right
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 import plugin.writer.range_copy as range_copy
 
@@ -151,8 +151,8 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
     ``Text`` run; the end mark is empty. ``getString()`` on the paragraph is
     base only — reading is not a text field.
     """
-    portion_enum = uno_read(lambda: para.createEnumeration(), range_copy._FAILED)
-    if portion_enum is range_copy._FAILED:
+    portion_enum = uno_read(lambda: para.createEnumeration(), FAILED)
+    if portion_enum is FAILED:
         return
     in_delete = False
     in_ruby = False
