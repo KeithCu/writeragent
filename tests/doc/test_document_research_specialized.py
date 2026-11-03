@@ -27,6 +27,13 @@ from plugin.doc.document_research_grep_tool import GrepNearbyFiles
 from plugin.doc.document_research_tools import ListNearbyFiles
 
 
+@pytest.fixture(autouse=True)
+def _register_prompt_hooks_for_document_research_tests():
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
+
+
 class _MutatingTool(ToolBase):
     name = "apply_fake"
     description = "test mutator"
@@ -348,7 +355,7 @@ def test_document_research_return_idles_outer_after_peer_send(
 ):
     """Host appends idle-after-send when an inner peer send was accepted."""
     from plugin.doc.peer_message import SendPeerWork
-    from plugin.framework.prompts import PEER_OUTER_IDLE_AFTER_SEND
+    from plugin.doc.peer_prompt import PEER_OUTER_IDLE_AFTER_SEND
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
         # A bare ToolCall is not delivery. The adapter must see accepted=true.
@@ -418,7 +425,7 @@ def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(
 ):
     """Nested ranges finish on a Peer-work turn must not look like peer delivery."""
     from plugin.calc.cells import SortRange
-    from plugin.framework.prompts import PEER_OUTER_DELIVERY_STILL_REQUIRED
+    from plugin.doc.peer_prompt import PEER_OUTER_DELIVERY_STILL_REQUIRED
 
     mock_executor_cls.return_value.execute_safe.return_value = {
         "status": "ok",
@@ -469,7 +476,7 @@ def test_document_research_send_peer_result_skips_delivery_pending(
 ):
     """Accepted send_peer_result on a Peer-work turn keeps idle-after-send, not delivery-pending."""
     from plugin.doc.peer_message import SendPeerResult
-    from plugin.framework.prompts import (
+    from plugin.doc.peer_prompt import (
         PEER_OUTER_DELIVERY_STILL_REQUIRED,
         PEER_OUTER_IDLE_AFTER_SEND,
     )
@@ -558,7 +565,7 @@ def test_document_research_failed_send_peer_result_does_not_stamp_idle(
     so the inner agent can retry or surface the error.
     """
     from plugin.doc.peer_message import SendPeerResult
-    from plugin.framework.prompts import (
+    from plugin.doc.peer_prompt import (
         PEER_OUTER_DELIVERY_STILL_REQUIRED,
         PEER_OUTER_IDLE_AFTER_SEND,
     )

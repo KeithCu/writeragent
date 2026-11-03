@@ -1359,11 +1359,17 @@ class TestRobustNumericParsing:
 
     def test_validate_falls_back_when_config_ui_helpers_missing(self):
         """LibrePy omits config_ui_helpers; endpoint still normalizes."""
-        from plugin.framework.config_schema import validate
+        from plugin.framework import config_schema as schema
+        from plugin.framework.config_schema import validate, set_endpoint_normalizer
         from plugin.framework.url_utils import normalize_endpoint_url
 
-        with patch.dict(sys.modules, {"plugin.chatbot.config_ui_helpers": None}):
-            validated = validate({"endpoint": "http://localhost:11434/"})
+        previous = schema._endpoint_normalizer
+        set_endpoint_normalizer(lambda ep_str, is_openwebui: normalize_endpoint_url(ep_str))
+        try:
+            with patch.dict(sys.modules, {"plugin.chatbot.config_ui_helpers": None}):
+                validated = validate({"endpoint": "http://localhost:11434/"})
+        finally:
+            set_endpoint_normalizer(previous)
         assert (validated["endpoint"]) == (normalize_endpoint_url("http://localhost:11434/"))
 
     def test_validate_api_config_without_config_ui_helpers(self):

@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.calc.base import ToolCalcSheetBase, ToolCalcSpecialBase
 from plugin.calc.sheets import ListSheets
 from plugin.calc.specialized import DelegateToSpecializedCalc
@@ -17,16 +19,21 @@ from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.doc.peer_message import SendPeerResult, SendPeerWork
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework import thread_guard as tg
-from plugin.framework.prompts import (
-    get_document_research_workflow_hint,
-    get_peer_inner_choice_block,
-)
+from plugin.doc.peer_prompt import get_peer_inner_choice_block
+from plugin.framework.prompts import get_document_research_workflow_hint
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.worker_pool import run_in_background
 from plugin.writer.specialized.footnotes import FootnotesList
 from plugin.writer.specialized_base import DelegateToSpecializedWriter, ToolWriterFootnoteBase, ToolWriterShapeBase
 from tests.framework.thread_safety import start_uno_thread_safety_session
+
+
+@pytest.fixture(autouse=True)
+def _register_prompt_hooks_for_delegation_threading_tests():
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
 
 
 class _DummyAnalysisBase(ToolCalcSpecialBase):
