@@ -20,7 +20,6 @@ SYNC_HOST_ENTRYPOINTS: frozenset[str] = frozenset({
     "execute_python_addin",
     "_execute_python_addin_impl",
     "execute_prompt_addin",
-    "_execute_prompt_addin_impl",
     "py",
     "python",
     "prompt",
