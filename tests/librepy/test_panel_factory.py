@@ -65,7 +65,7 @@ def test_get_real_interface_create_runs_on_hop():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch(
             "plugin.framework.queue_executor.main.call",
-            side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+            side_effect=lambda fn, *args, **kwargs: fn(),
         ) as hop,
         patch("plugin.librepy.panel_factory._ensure_paths") as ensure,
         patch.object(
