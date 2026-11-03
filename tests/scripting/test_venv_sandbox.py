@@ -766,6 +766,8 @@ def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
 
     assert exit_calls == [1]
     stdout.seek(0)
+    ready = read_pickle_frame(stdout, require_dict=True)
+    assert ready is not None and ready.get("status") == "ready"
     started = read_pickle_frame(stdout, require_dict=True)
     assert started == {"type": "exec_started", "id": "req-timeout"}
     err_frame = read_pickle_frame(stdout, require_dict=True)

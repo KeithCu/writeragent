@@ -246,6 +246,8 @@ class ChildSpec:
     stderr_tail_chars: int = _STDERR_LOG_CAP
     max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
     unpacker: Callable[[bytes], Any] | None = None
+    log_start_failure: bool = True
+    scrub_env: bool = True
 
 
 @dataclass(frozen=True)
@@ -466,14 +468,15 @@ class WarmChild:
         timeout_sec = min(self.spec.ready_timeout_sec, SPAWN_READY_TIMEOUT_SEC, spawn_for)
         managed = ManagedSubprocess(
             self.spec.argv,
-            base_env=None,
-            env=self.spec.env,
+            base_env=self.spec.env,
+            env={},
             command_wrapper=self.spec.command_wrapper,
-            scrub_env=True,
+            scrub_env=self.spec.scrub_env,
             optimize_pipes=True,
             stderr_tail_chars=self.spec.stderr_tail_chars,
             stderr_name=self._stderr_name(),
             label=self.spec.name,
+            log_start_failure=self.spec.log_start_failure,
         )
         spawned: Child | None = None
         published = False
@@ -529,6 +532,8 @@ class WarmChild:
             finally:
                 if spawned is not None and spawned.end_io():
                     self._drop_child(spawned)
+        except OSError:
+            raise
         except Exception as exc:
             if spawned is not None and not published:
                 spawned.signal_from()
