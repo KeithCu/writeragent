@@ -172,6 +172,9 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
     if verb:
         return f"[delegate ({domain}) {verb}: {_result_note(result_data)}]\n"
     cache_block = web_research_cache_chat_text(result_data) if domain == "web_research" else ""
+    msg = result_data.get("message")
+    if isinstance(msg, str) and msg.strip():
+        return cache_block + f"[delegate ({domain}): {msg.strip()}]\n"
     return cache_block + f"[delegate ({domain}): done]\n"
 
 

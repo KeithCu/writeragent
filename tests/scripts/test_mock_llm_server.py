@@ -1462,6 +1462,25 @@ def test_document_content_len_and_words_snapshot_header():
     assert "WriterAgent" in words_tool
 
 
+def test_current_query_strips_folded_document_snapshot():
+    from scripts.mock_llm_server import current_query_text, summarize_chat_payload
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    snap = snapshot_text("Sidebar body text.")
+    joined = "hello\n\n" + snap
+    assert current_query_text(joined) == "hello"
+
+    payload = {
+        "stream": True,
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "hello"}, {"type": "text", "text": snap}]},
+        ],
+        "tools": [],
+    }
+    rec = summarize_chat_payload(payload)
+    assert rec["current_query"] == "hello"
+
+
 def test_fail_tool_followup_http500():
     cfg = MockLLMConfig(delay_ms=0, fail_tool_followup=True)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
