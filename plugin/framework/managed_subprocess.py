@@ -7,7 +7,8 @@ Provides explicit start, environment merging, thread-guard refusal, bounded stde
 tree kill, reaping, and registered shutdown. Stderr can be subprocess.DEVNULL (no drain),
 and registry membership and start-error wrapping are optional. `raw_spawn=True` is a pass-through
 Popen for short-lived children, and ManagedSubprocess.run is subprocess.run plus Windows
-CREATE_NO_WINDOW from get_subprocess_creationflags().
+CREATE_NO_WINDOW from get_subprocess_creationflags(). run_with_process_tree is like run
+but uses its own session and kill_process_tree on timeout.
 Worker start, stderr drain, tree kill, and shutdown_all stay the default.
 When `stderr_name_with_pid` is true and `stderr_name` is set, the drain thread name is `{stderr_name}-{pid}`.
 """
@@ -538,6 +539,84 @@ class ManagedSubprocess:
             check=check,
             **get_subprocess_creationflags(),
         )
+
+    @staticmethod
+    def run_with_process_tree(
+        args: list[str],
+        *,
+        check: bool = False,
+        capture_output: bool = False,
+        stdout: Any = None,
+        stderr: Any = None,
+        stdin: Any = None,
+        timeout: float | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        text: bool = False,
+        encoding: str | None = None,
+        errors: str | None = None,
+    ) -> subprocess.CompletedProcess[Any]:
+        """One-shot run in its own session; timeout kills the full process tree.
+
+        Like ``subprocess.run`` with ``capture_output`` / ``timeout``, but uses
+        ``start_new_session`` (POSIX) and ``kill_process_tree`` on timeout instead
+        of killing only the direct child (e.g. soffice → oosplash → soffice.bin).
+        """
+        if capture_output:
+            if stdout is not None or stderr is not None:
+                raise ValueError("stdout and stderr arguments may not be used with capture_output.")
+            run_stdout: Any = subprocess.PIPE
+            run_stderr: Any = subprocess.PIPE
+        else:
+            run_stdout = stdout
+            run_stderr = stderr
+
+        popen_kw: dict[str, Any] = {
+            "stdin": stdin if stdin is not None else subprocess.DEVNULL,
+            "stdout": run_stdout,
+            "stderr": run_stderr,
+            "env": env,
+            "cwd": cwd,
+            "text": text,
+            "encoding": encoding,
+            "errors": errors,
+            **get_subprocess_creationflags(),
+        }
+        if sys.platform != "win32":
+            popen_kw["start_new_session"] = True
+
+        proc = subprocess.Popen(args, **popen_kw)
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            # subprocess.run kills only the Popen pid; LO convert spawns soffice.bin
+            # as a grandchild, so tear down the whole session group.
+            kill_process_tree(proc)
+            try:
+                out, err = proc.communicate(timeout=_REAP_WAIT_SEC)
+            except subprocess.TimeoutExpired as exc2:
+                _kill_direct(proc)
+                try:
+                    out, err = proc.communicate(timeout=_REAP_WAIT_SEC)
+                except subprocess.TimeoutExpired:
+                    out, err = exc2.output, exc2.stderr
+            raise subprocess.TimeoutExpired(
+                exc.cmd,
+                exc.timeout,
+                output=out,
+                stderr=err,
+            ) from None
+        except BaseException:
+            if proc.poll() is None:
+                kill_process_tree(proc)
+            raise
+
+        retcode = proc.returncode
+        if retcode is None:
+            retcode = proc.wait()
+        if check and retcode:
+            raise subprocess.CalledProcessError(retcode, args, output=out, stderr=err)
+        return subprocess.CompletedProcess(args, retcode, out, err)
 
     def unregister(self) -> None:
         """Unregister this instance from shutdown_all without closing pipes or killing processes."""
