@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-26 12:14-0400\n"
+"POT-Creation-Date: 2026-11-03 13:09-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bengali <LL@li.org>\n"
@@ -16,6 +16,23 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/agent_undo.py
+msgid "There is no agent edit to undo."
+msgstr "পূর্বাবস্থায় ফেরানোর মতো কোনো এজেন্ট সম্পাদনা নেই।"
+
+#: plugin/doc/agent_undo.py
+msgid "The document was edited since the last agent edit."
+msgstr "সর্বশেষ এজেন্ট সম্পাদনার পর নথিতে পরিবর্তন করা হয়েছে।"
+
+#: plugin/doc/agent_undo.py
+msgid "Could not undo the last agent edit."
+msgstr "সর্বশেষ এজেন্ট সম্পাদনাটি পূর্বাবস্থায় ফেরানো যায়নি।"
+
+#: plugin/doc/agent_undo.py
+#, python-brace-format
+msgid "Undid the last agent edit ({0} steps)"
+msgstr "সর্বশেষ এজেন্ট সম্পাদনাটি পূর্বাবস্থায় ফেরানো হয়েছে ({0} ধাপ)"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -33,6 +50,15 @@ msgstr "নির্বাচিত ছবি(গুলি)-তে স্থা�
 #, python-brace-format
 msgid "Specialized task ({domain}) completed."
 msgstr "বিশেষায়িত কাজ ({domain}) সম্পন্ন হয়েছে।"
+
+#: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "ত্রুটি"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -55,6 +81,14 @@ msgid "Code cell is empty."
 msgstr "কোড সেল খালি।"
 
 #: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "এই নিয়ন্ত্রণের জন্য নোটবুক সেল খুঁজে পাওয়া যায়নি।"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Open a Writer document first."
+msgstr "প্রথমে একটি Writer ডকুমেন্ট খুলুন।"
+
+#: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
 msgstr "নোটবুক রান শুধুমাত্র LibreOffice Writer-এ সমর্থিত।"
 
@@ -66,19 +100,11 @@ msgstr ""
 "এই নথিতে কোনো ইম্পোর্ট করা নোটবুক নেই। প্রথমে ফাইল → একটি জুপিটার নোটবুক "
 "(.ipynb) খুলুন।"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Could not find notebook cell for this control."
-msgstr "এই নিয়ন্ত্রণের জন্য নোটবুক সেল খুঁজে পাওয়া যায়নি।"
-
-#: plugin/notebook/notebook_runner.py
-msgid "Open a Writer document first."
-msgstr "প্রথমে একটি Writer ডকুমেন্ট খুলুন।"
-
-#: plugin/notebook/notebook_controls.py
+#: plugin/notebook/layout.py
 msgid "Run code cell"
 msgstr "কোড সেল চালান"
 
-#: plugin/notebook/notebook_controls.py
+#: plugin/notebook/layout.py
 msgid "Code"
 msgstr "কোড"
 
@@ -248,29 +274,6 @@ msgstr ""
 "কোনো এপিআই (API) কি কনফিগার করা নেই। সেটিংস খুলুন এবং একটি কি যোগ করুন।"
 
 #: plugin/framework/errors.py
-msgid ""
-"Python venv not found. Open Settings → Python, set the venv path, then Test."
-msgstr ""
-"Python venv পাওয়া যায়নি। সেটিংস → Python খুলুন, venv পাথ সেট করুন, তারপর "
-"পরীক্ষা করুন।"
-
-#: plugin/framework/errors.py
-msgid ""
-"Python execution timed out. Open Settings → Python to raise the timeout."
-msgstr ""
-"Python এক্সিকিউশন সময়সীমা অতিক্রম করেছে। সময়সীমা বাড়াতে সেটিংস → Python "
-"খুলুন।"
-
-#: plugin/framework/errors.py
-msgid "Formula spill collision: destination range contains non-empty cells."
-msgstr "ফর্মুলা স্পিল সংঘর্ষ: গন্তব্য পরিসরে খালি নয় এমন সেল রয়েছে।"
-
-#: plugin/framework/errors.py
-#, python-brace-format
-msgid "Script execution blocked by sandbox policy: {0}"
-msgstr "স্যান্ডবক্স নীতির কারণে স্ক্রিপ্ট এক্সিকিউশন ব্লক করা হয়েছে: {0}"
-
-#: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
 "অনুরোধের সময় শেষ হয়েছে (Request Timed Out)। সেটিংস-এ 'Request Timeout' "
@@ -293,6 +296,24 @@ msgid "Connection Error: {0}"
 msgstr "সংযোগ ত্রুটি: {0}"
 
 #: plugin/framework/errors.py
+msgid ""
+"Python venv not found. Open Settings → Python, set the venv path, then Test."
+msgstr ""
+"Python venv পাওয়া যায়নি। সেটিংস → Python খুলুন, venv পাথ সেট করুন, তারপর "
+"পরীক্ষা করুন।"
+
+#: plugin/framework/errors.py
+msgid ""
+"Python execution timed out. Open Settings → Python to raise the timeout."
+msgstr ""
+"Python এক্সিকিউশন সময়সীমা অতিক্রম করেছে। সময়সীমা বাড়াতে সেটিংস → Python "
+"খুলুন।"
+
+#: plugin/framework/errors.py
+msgid "Formula spill collision: destination range contains non-empty cells."
+msgstr "ফর্মুলা স্পিল সংঘর্ষ: গন্তব্য পরিসরে খালি নয় এমন সেল রয়েছে।"
+
+#: plugin/framework/errors.py
 msgid "The AI provider reported an error. Try again."
 msgstr "AI প্রোভাইডার একটি ত্রুটির রিপোর্ট করেছে। আবার চেষ্টা করুন।"
 
@@ -301,11 +322,6 @@ msgstr "AI প্রোভাইডার একটি ত্রুটির র
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "ত্রুটি: {0}"
-
-#: plugin/framework/errors.py
-#, python-brace-format
-msgid "{resource_type} not found: {identifier}"
-msgstr "{resource_type} পাওয়া যায়নি: {identifier}"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -411,25 +427,6 @@ msgstr ""
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr ""
 "অ্যানথ্রোপিক (Anthropic) মডেল সেট করা নেই। সেটিংস থেকে একটি মডেল বেছে নিন।"
-
-#: plugin/framework/main_shared.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} সফল, {2} ব্যর্থ।"
-
-#: plugin/framework/main_shared.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "পরীক্ষা চালাতে ব্যর্থ: {0}"
-
-#: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
-#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
-#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Error"
-msgstr "ত্রুটি"
 
 #: plugin/framework/config.py
 msgid "Please set Endpoint in Settings."
@@ -596,6 +593,10 @@ msgid "Installing Kokoro phonemizer…"
 msgstr "Kokoro phonemizer ইনস্টল করা হচ্ছে…"
 
 #: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "জাপানিজ phonemizer ডিকশনারি ডাউনলোড করা হচ্ছে…"
+
+#: plugin/audio/kokoro_g2p.py
 #, python-brace-format
 msgid ""
 "Couldn't install the Kokoro phonemizer; this language may be misread. "
@@ -604,12 +605,9 @@ msgstr ""
 "Kokoro phonemizer ইনস্টল করা যায়নি; এই ভাষাটি ভুলভাবে পড়া হতে পারে। এটি "
 "ইনস্টল করুন: {0}"
 
-#: plugin/audio/kokoro_g2p.py
-msgid "Downloading Japanese phonemizer dictionary…"
-msgstr "জাপানিজ phonemizer ডিকশনারি ডাউনলোড করা হচ্ছে…"
-
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/_manifest.py
 msgid "Edit Python in Cell..."
 msgstr "সেল-এ পাইথন সম্পাদনা করুন..."
 
@@ -650,10 +648,6 @@ msgstr "ইনিশিয়ালাইজেশন স্ক্রিপ্ট �
 msgid "Save initialization script"
 msgstr "ইনিশিয়ালাইজেশন স্ক্রিপ্ট সংরক্ষণ করুন"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Status:"
-msgstr "অবস্থা:"
-
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
 #: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
@@ -669,12 +663,12 @@ msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
 msgstr "Calc রানটাইমে এই রেঞ্জ(গুলি) থেকে `data` এবং `ranges` ইনজেক্ট করে।"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr "অবস্থা:"
+
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saving…"
 msgstr "সংরক্ষণ করা হচ্ছে…"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/calc/python/editor.py
-msgid "Saved without =PY()."
-msgstr "=PY() ছাড়া সংরক্ষিত।"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -718,6 +712,10 @@ msgstr "{0}-এ কোড সংরক্ষণ করা হয়েছে।"
 msgid "WriterAgent: Save Python cell"
 msgstr "WriterAgent: পাইথন সেল সংরক্ষণ করুন"
 
+#: plugin/calc/python/editor.py
+msgid "Saved without =PY()."
+msgstr "=PY() ছাড়া সংরক্ষিত।"
+
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
 msgstr "পাইথন সেল এডিটর"
@@ -745,16 +743,6 @@ msgstr "পাইথন সম্পাদনা করতে Calc স্প্�
 #, python-brace-format
 msgid "Could not open the code cell {0}."
 msgstr "কোড সেল {0} খোলা যায়নি।"
-
-#: plugin/calc/python/editor.py
-msgid ""
-"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
-"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
-"quoted code."
-msgstr ""
-"এই PY ফর্মুলাটি এমন একটি ফরম্যাট ব্যবহার করছে যা এডিটর নিরাপদে রিরাইট করতে "
-"পারে না (যেমন অন্য সেলের কোড)। ফর্মুলা বারে এটি এডিট করুন অথবা কোটেড কোড সহ "
-"=PY(\"code\"; range) ব্যবহার করুন।"
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -794,7 +782,7 @@ msgstr "ছবি সন্নিবেশিত হয়েছে"
 msgid "Images inserted"
 msgstr "ছবিগুলি সন্নিবেশিত হয়েছে"
 
-#: plugin/calc/python/geometric_recalc_core.py
+#: plugin/calc/python/geometric_recalc.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -804,16 +792,6 @@ msgstr ""
 "Geometric Recalc Order '%(sheet)s' শিটটি এড়িয়ে গেছে: %(cap)s বা তার বেশি "
 "পাইথন সেল পাওয়া গেছে (ডিসকভারি ক্যাপ)। শিটটি অপরিবর্তিত রাখা হয়েছে যাতে "
 "আংশিক তালিকাকে সম্পূর্ণ হিসেবে গণ্য না করা হয়।"
-
-#: plugin/calc/python/formula_edit.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"এই সেলের PY ফর্মুলা আর্গুমেন্টগুলি (যেমন ডেটা রেঞ্জ) সংরক্ষণ করা সম্ভব হয়নি।"
-" Calc-এ ফর্মুলাটি এডিট করুন অথবা =PY(\"code\"; A1:B10)-এর মতো কোটেড কোড "
-"স্ট্রিং ব্যবহার করুন।"
 
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
@@ -937,48 +915,53 @@ msgid "(no =PY() cells on active sheet)"
 msgstr "(সক্রিয় শিটে কোনো =PY() সেল নেই)"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_factory.py plugin/_manifest.py
 msgid "Run Python Script..."
 msgstr "পাইথন স্ক্রিপ্ট চালান..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_factory.py plugin/_manifest.py
 msgid "Insert LaTeX Math..."
 msgstr "LaTeX গণিত সন্নিবেশ করুন..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Text Analytics..."
 msgstr "টেক্সট অ্যানালিটিক্স..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
 #: plugin/chatbot/dialog_views.py plugin/chatbot/panel_factory.py
-#: plugin/xdl_strings.py
+#: plugin/_manifest.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "সেটিংস"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR সেটিংস..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Reset Python Session"
 msgstr "পাইথন সেশন রিসেট করুন"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Run All"
 msgstr "সব চালান"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Run From Here"
 msgstr "এখান থেকে চালান"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/xdl_strings.py
+#: plugin/_manifest.py plugin/xdl_strings.py
 msgid "Stop"
 msgstr "থামুন"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/dialogs.py
-#: plugin/chatbot/hamburger_menu.py plugin/xdl_strings.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py plugin/xdl_strings.py
 msgid "Report bug..."
 msgstr "বাগ রিপোর্ট করুন..."
 
@@ -993,10 +976,6 @@ msgstr "সম্পূর্ণ পরিবর্তন গ্রহণ কর
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "সম্পূর্ণ পরিবর্তন প্রত্যাখ্যান করুন (এজেন্ট)"
-
-#: plugin/writer/inline_review.py
-msgid "No agent changes to review in this document."
-msgstr "এই নথিতে পর্যালোচনা করার মতো কোনো এজেন্ট পরিবর্তন নেই।"
 
 #: plugin/writer/inline_review.py
 #, python-format
@@ -1044,6 +1023,20 @@ msgstr ""
 
 #: plugin/writer/inline_review.py
 msgid ""
+"Could not resolve this change here -- it may share a paragraph with one of "
+"your tracked changes or another agent change. Resolve it from Edit > Track "
+"Changes > Manage."
+msgstr ""
+"এখানে এই পরিবর্তনটি সমাধান করা যায়নি -- এটি আপনার ট্র্যাক করা পরিবর্তন বা "
+"অন্য কোনো এজেন্টের পরিবর্তনের সাথে একটি অনুচ্ছেদ শেয়ার করতে পারে। সম্পাদনা >"
+" পরিবর্তন ট্র্যাক করুন > পরিচালনা থেকে এটি সমাধান করুন।"
+
+#: plugin/writer/inline_review.py
+msgid "No agent changes to review in this document."
+msgstr "এই নথিতে পর্যালোচনা করার মতো কোনো এজেন্ট পরিবর্তন নেই।"
+
+#: plugin/writer/inline_review.py
+msgid ""
 "None could be resolved here -- each overlaps with one of your own tracked "
 "changes. Resolve them from Edit > Track Changes > Manage."
 msgstr ""
@@ -1060,16 +1053,6 @@ msgstr ""
 "%(total)d-এর মধ্যে %(resolved)dটি সমাধান করা হয়েছে। বাকিগুলো আপনার নিজের "
 "ট্র্যাক করা পরিবর্তনের সাথে ওভারল্যাপ করছে -- সম্পাদনা > পরিবর্তন ট্র্যাক "
 "করুন > পরিচালনা থেকে সেগুলো সমাধান করুন।"
-
-#: plugin/writer/inline_review.py
-msgid ""
-"Could not resolve this change here -- it may share a paragraph with one of "
-"your tracked changes or another agent change. Resolve it from Edit > Track "
-"Changes > Manage."
-msgstr ""
-"এখানে এই পরিবর্তনটি সমাধান করা যায়নি -- এটি আপনার ট্র্যাক করা পরিবর্তন বা "
-"অন্য কোনো এজেন্টের পরিবর্তনের সাথে একটি অনুচ্ছেদ শেয়ার করতে পারে। সম্পাদনা >"
-" পরিবর্তন ট্র্যাক করুন > পরিচালনা থেকে এটি সমাধান করুন।"
 
 #: plugin/writer/inline_review.py
 msgid "Put the cursor on a highlighted agent change first."
@@ -1148,6 +1131,10 @@ msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: নির্বাচন প্রসারিত করুন"
 
 #: plugin/writer/editselection.py
+msgid "The document is empty."
+msgstr "নথিটি খালি।"
+
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: নির্বাচন সম্পাদনা করুন"
 
@@ -1176,10 +1163,6 @@ msgid "AI Grammar"
 msgstr "AI ব্যাকরণ"
 
 #: plugin/writer/math/latex_dialog.py
-msgid "Could not open the LaTeX input dialog."
-msgstr "LaTeX ইনপুট ডায়ালগ খোলা যায়নি।"
-
-#: plugin/writer/math/latex_dialog.py
 msgid "Update"
 msgstr "আপডেট"
 
@@ -1187,6 +1170,10 @@ msgstr "আপডেট"
 #: plugin/xdl_strings.py
 msgid "Insert"
 msgstr "সন্নিবেশ করুন"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "LaTeX ইনপুট ডায়ালগ খোলা যায়নি।"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Edit LaTeX Math"
@@ -1548,23 +1535,24 @@ msgstr "কপি করা হয়েছে!"
 msgid "Copy URL"
 msgstr "URL কপি করুন"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Extend Selection"
 msgstr "নির্বাচন প্রসারিত করুন"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Edit Selection"
 msgstr "নির্বাচন সম্পাদনা করুন"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Convert Sheet to Python..."
 msgstr "শীটকে পাইথনে রূপান্তর করুন..."
 
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/_manifest.py
 msgid "Search Nearby Files..."
 msgstr "আশেপাশের ফাইল খুঁজুন..."
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Toggle MCP Server"
 msgstr "MCP সার্ভার টগল করুন"
 
@@ -1576,27 +1564,27 @@ msgstr "MCP সার্ভার (চলছে)"
 msgid "MCP Server (Stopped)"
 msgstr "MCP সার্ভার (বন্ধ)"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run format tests"
 msgstr "ফরম্যাট পরীক্ষা চালান"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run calc tests"
 msgstr "Calc পরীক্ষা চালান"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run Calc API integration tests"
 msgstr "Calc API ইন্টিগ্রেশন পরীক্ষা চালান"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run draw tests"
 msgstr "Draw পরীক্ষা চালান"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Evaluation Dashboard"
 msgstr "মূল্যায়ন ড্যাশবোর্ড"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Debug"
 msgstr "ডিবাগ"
 
@@ -1604,9 +1592,89 @@ msgstr "ডিবাগ"
 msgid "[No speech detected.]"
 msgstr "[কোনো স্পিচ শনাক্ত হয়নি।]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
 msgid "[Voice message]"
 msgstr "[ভয়েস বার্তা]"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "WriterAgent: Formula"
+msgstr "WriterAgent: সূত্র"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Wait for the current operation to finish before /undo."
+msgstr "/undo করার আগে বর্তমান অপারেশন শেষ হওয়ার জন্য অপেক্ষা করুন।"
+
+#: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "কোনো নথি খোলা নেই।"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Select a cell first."
+msgstr "প্রথমে একটি সেল নির্বাচন করুন।"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Write exactly one LibreOffice Calc formula for this request: {0}"
+msgstr "এই অনুরোধের জন্য ঠিক একটি LibreOffice Calc সূত্র লিখুন: {0}"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Target cell: {0} on sheet \"{1}\"."
+msgstr "টার্গেট সেল: {0}, \"{1}\" শিটে।"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Used range: {0}."
+msgstr "ব্যবহৃত পরিসর: {0}।"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Header row: {0}."
+msgstr "হেডার সারি: {0}।"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "(empty)"
+msgstr "(খালি)"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid ""
+"Reply with the formula only. It must start with =. Use English function "
+"names. Use semicolon (;) between function arguments (Calc setFormula API "
+"grammar). No prose or markdown."
+msgstr ""
+"শুধুমাত্র সূত্র দিয়ে উত্তর দিন। এটি অবশ্যই = দিয়ে শুরু হতে হবে। ইংরেজি "
+"ফাংশনের নাম ব্যবহার করুন। ফাংশনের আর্গুমেন্টগুলোর মধ্যে সেমিকোলন (;) ব্যবহার"
+" করুন (Calc setFormula API ব্যাকরণ)। কোনো গদ্য বা মার্কডাউন নয়।"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Could not insert the formula."
+msgstr "সূত্রটি সন্নিবেশ করা যায়নি।"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Formula for {0}: {1}"
+msgstr "{0}-এর জন্য সূত্র: {1}"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "The cell shows an error"
+msgstr "সেলটিতে একটি ত্রুটি দেখাচ্ছে"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid ""
+"You write LibreOffice Calc formulas. Output a single formula starting with "
+"=, nothing else."
+msgstr ""
+"আপনি LibreOffice Calc সূত্র লেখেন। = দিয়ে শুরু হওয়া একটি মাত্র সূত্র আউটপুট "
+"দিন, অন্য কিছু নয়।"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Stopped."
+msgstr "বন্ধ করা হয়েছে।"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Formula generation failed."
+msgstr "সূত্র তৈরি ব্যর্থ হয়েছে।"
 
 #: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Chat"
@@ -1621,26 +1689,6 @@ msgid "Web Research"
 msgstr "ওয়েব গবেষণা"
 
 #: plugin/chatbot/chat_sidebar_mode.py
-msgid "Deep Research"
-msgstr "ডিপ রিসার্চ"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Brainstorming"
-msgstr "ব্রেইনস্টর্মিং"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Writing Plan"
-msgstr "লেখার পরিকল্পনা"
-
-#: plugin/chatbot/chat_sidebar_mode.py plugin/chatbot/dialog_views.py
-msgid "PPT-Master"
-msgstr "PPT-Master"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Librarian"
-msgstr "লাইব্রেরিয়ান"
-
-#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
@@ -1648,6 +1696,14 @@ msgstr ""
 "AI: আমি আপনার নথি না দেখেই বা পরিবর্তন না করেই যেকোনো প্রশ্নের উত্তর দিতে "
 "ওয়েব অনুসন্ধান করতে পারি অথবা কোনো ওয়েব পৃষ্ঠার সারাংশ তৈরি করতে পারি। চলুন "
 "কথা বলি।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown research error."
+msgstr "অজানা গবেষণা ত্রুটি।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "ডিপ রিসার্চ"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
@@ -1660,6 +1716,14 @@ msgstr ""
 "করতে পারে। এতে সময় বেশি লাগে কিন্তু আরও পুঙ্খানুপুঙ্খ ফলাফল পাওয়া যায়।"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown deep research error."
+msgstr "অজানা ডিপ রিসার্চ ত্রুটি।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming"
+msgstr "ব্রেইনস্টর্মিং"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
@@ -1668,6 +1732,18 @@ msgstr ""
 "AI: চলুন আপনার আইডিয়াটি একসাথে অন্বেষণ এবং ডিজাইন করি। আমি প্রশ্ন করব, "
 "পদ্ধতির পরামর্শ দেব এবং আপনি প্রস্তুত হলে আপনার নথিতে একটি অনুমোদিত "
 "স্পেসিফিকেশন তৈরি করতে সাহায্য করব।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown brainstorming error."
+msgstr "অজানা ব্রেইনস্টর্মিং ত্রুটি।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming complete."
+msgstr "ব্রেইনস্টর্মিং সম্পন্ন।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing Plan"
+msgstr "লেখার পরিকল্পনা"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
@@ -1680,6 +1756,18 @@ msgstr ""
 "বাস্তবায়ন করব।"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown writing plan error."
+msgstr "লেখার পরিকল্পনায় অজানা ত্রুটি।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing plan complete."
+msgstr "লেখার পরিকল্পনা সম্পন্ন হয়েছে।"
+
+#: plugin/chatbot/chat_sidebar_mode.py plugin/chatbot/dialog_views.py
+msgid "PPT-Master"
+msgstr "PPT-Master"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
 "Python venv (scripts + export to Impress). Describe your topic or point me "
@@ -1690,6 +1778,18 @@ msgstr ""
 "অথবা আমাকে একটি প্রজেক্ট ফোল্ডারের নির্দেশ দিন।"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown PPT-Master error."
+msgstr "অজানা PPT-Master ত্রুটি।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master সেশন সম্পন্ন হয়েছে।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Librarian"
+msgstr "লাইব্রেরিয়ান"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
 " colors, and give a short tour. Pick Chat in the dropdown whenever you want "
@@ -1698,6 +1798,14 @@ msgstr ""
 "AI: আমি WriterAgent লাইব্রেরিয়ান — একজন হোস্ট যে আপনার নাম, প্রিয় রঙ মনে "
 "রাখতে পারে এবং আপনাকে একটি সংক্ষিপ্ত ট্যুর দিতে পারে। আপনি যখনই নথিতে কাজ "
 "করতে চান, ড্রপডাউন থেকে Chat নির্বাচন করুন।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown librarian error."
+msgstr "অজানা লাইব্রেরিয়ান ত্রুটি।"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "চমৎকার! আমি এখন আপনাকে প্রধান সহকারীর কাছে স্থানান্তর করছি।"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
@@ -1710,6 +1818,87 @@ msgstr "নতুন চ্যাট শুরু করুন"
 #: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "চলমান পাঠানো বাতিল করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Summarize the selection or document in the sidebar"
+msgstr "সাইডবারে নির্বাচন বা নথিটির সারাংশ তৈরি করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid ""
+"Summarize the selected text, or the whole document if nothing is selected."
+msgstr ""
+"নির্বাচিত পাঠ্য বা কোনো কিছু নির্বাচিত না থাকলে সম্পূর্ণ নথির সারাংশ তৈরি "
+"করুন।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Fix spelling, grammar, and punctuation without restyling"
+msgstr "শৈলী পরিবর্তন না করে বানান, ব্যাকরণ এবং যতিচিহ্ন ঠিক করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid ""
+"Fix spelling, grammar, and punctuation only. Do not change style, tone, or "
+"meaning."
+msgstr ""
+"শুধুমাত্র বানান, ব্যাকরণ এবং যতিচিহ্ন ঠিক করুন। শৈলী, সুর বা অর্থ পরিবর্তন "
+"করবেন না।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Shorten the selection"
+msgstr "নির্বাচনটি সংক্ষিপ্ত করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Make the text shorter while preserving the meaning."
+msgstr "অর্থ ঠিক রেখে পাঠ্যটিকে সংক্ষিপ্ত করুন।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Expand the selection with more detail"
+msgstr "আরও বিস্তারিত দিয়ে নির্বাচনটি প্রসারিত করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Expand the text with more detail and clarity."
+msgstr "আরও বিস্তারিত এবং স্পষ্টতা দিয়ে পাঠ্যটিকে প্রসারিত করুন।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Rewrite the selection to match a described tone"
+msgstr "বর্ণিত সুরের সাথে মিল রেখে নির্বাচনটি পুনরায় লিখুন"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Rewrite the text to match this tone or style: {arg}"
+msgstr "এই সুর বা শৈলীর সাথে মিল রেখে পাঠ্যটি পুনরায় লিখুন: {arg}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Translate the selection (sidebar when nothing is selected in Writer)"
+msgstr "নির্বাচন অনুবাদ করুন (Writer-এ কিছু নির্বাচন না করা থাকলে সাইডবার)"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Translate the text into {arg}. Keep formatting and structure."
+msgstr "{arg}-এ টেক্সট অনুবাদ করুন। ফরম্যাটিং এবং গঠন বজায় রাখুন।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Explain the selection or active Calc formula"
+msgstr "নির্বাচন বা সক্রিয় Calc ফর্মুলা ব্যাখ্যা করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Explain the following in plain language."
+msgstr "নিম্নলিখিত বিষয়টি সহজ ভাষায় ব্যাখ্যা করুন।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Save a fact to persistent memory"
+msgstr "একটি তথ্য স্থায়ী মেমরিতে সংরক্ষণ করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compact older chat history now"
+msgstr "পুরানো চ্যাট ইতিহাস এখন কমপ্যাক্ট করুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Undo the last agent edit as one step"
+msgstr "এজেন্টের শেষ সম্পাদনাটি এক ধাপে পূর্বাবস্থায় ফিরিয়ে আনুন"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Write a Calc formula from a plain-English description"
+msgstr "সাধারণ ইংরেজি বর্ণনা থেকে একটি Calc ফর্মুলা লিখুন"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Mock command (echo only)"
@@ -1731,6 +1920,83 @@ msgstr "মডেল পরিবর্তন করুন (মক)"
 msgid "Slash commands:"
 msgstr "স্ল্যাশ কমান্ড:"
 
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Usage: {0}"
+msgstr "ব্যবহার: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Cell {0} formula: {1}"
+msgstr "সেল {0} ফর্মুলা: {1}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Cell {0} value: {1}"
+msgstr "সেল {0} মান: {1}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "মেমরি সংরক্ষণ করতে ব্যর্থ হয়েছে।"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "মেমরিতে সংরক্ষিত: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Conversation compacted."
+msgstr "কথোপকথন কম্প্যাক্ট করা হয়েছে।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Nothing to compact."
+msgstr "কম্প্যাক্ট করার মতো কিছু নেই।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Nothing to compact yet (history is still small)."
+msgstr "এখনও কম্প্যাক্ট করার মতো কিছু নেই (ইতিহাস এখনও ছোট)।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction is not available for this model."
+msgstr "এই মডেলের জন্য কম্প্যাকশন উপলব্ধ নেই।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction failed."
+msgstr "কম্প্যাকশন ব্যর্থ হয়েছে।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "WriterAgent"
+msgstr "WriterAgent"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Configure an API key to compact."
+msgstr "কম্প্যাক্ট করার জন্য একটি API কী কনফিগার করুন।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Chat compaction is disabled in settings."
+msgstr "সেটিংসে চ্যাট কমপ্যাকশন নিষ্ক্রিয় করা আছে।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction cancelled."
+msgstr "কমপ্যাকশন বাতিল করা হয়েছে।"
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
+#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "ভাবছি..."
+
+#: plugin/chatbot/panel.py
+msgid "[No compatible LibreOffice document found.]"
+msgstr "[কোনো সামঞ্জস্যপূর্ণ LibreOffice ডকুমেন্ট পাওয়া যায়নি।]"
+
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
+msgid "Wait for the current reply to finish before /compact."
+msgstr "/compact করার আগে বর্তমান উত্তরটি শেষ হওয়া পর্যন্ত অপেক্ষা করুন।"
+
+#: plugin/chatbot/panel.py
+msgid "Only in Calc"
+msgstr "শুধুমাত্র Calc-এ"
+
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "ডকুমেন্ট পাওয়া যাচ্ছে..."
@@ -1742,15 +2008,6 @@ msgid ""
 msgstr ""
 "[সক্রিয় উইন্ডোতে কোনো সামঞ্জস্যপূর্ণ লিবারঅফিস ডকুমেন্ট (Writer, Calc, বা "
 "Draw) পাওয়া যায়নি।]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Internal Error: Could not identify document type for {0}. Please report "
-"this!]"
-msgstr ""
-"[অভ্যন্তরীণ ত্রুটি: {0}-এর জন্য ডকুমেন্টের ধরন শনাক্ত করা যায়নি। অনুগ্রহ "
-"করে এটি রিপোর্ট করুন!]"
 
 #: plugin/chatbot/panel.py
 msgid "[Audio error: recording stopped without a sound file.]"
@@ -1781,6 +2038,10 @@ msgstr "হ্যান্ডস-ফ্রি রেকর্ডিং..."
 #, python-format
 msgid "Hands-free… (%d ms silence)"
 msgstr "হ্যান্ডস-ফ্রি… (%d মি.সে. নীরবতা)"
+
+#: plugin/chatbot/tool_loop_state.py
+msgid "Reached the maximum number of tool rounds."
+msgstr "টুল রাউন্ডের সর্বোচ্চ সংখ্যায় পৌঁছেছে।"
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1897,46 +2158,6 @@ msgid "MCP server stopped"
 msgstr "MCP সার্ভার বন্ধ হয়েছে"
 
 #: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "অজানা লাইব্রেরিয়ান ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "চমৎকার! আমি এখন আপনাকে প্রধান সহকারীর কাছে স্থানান্তর করছি।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "অজানা ব্রেইনস্টর্মিং ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "ব্রেইনস্টর্মিং সম্পন্ন।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "লেখার পরিকল্পনায় অজানা ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "লেখার পরিকল্পনা সম্পন্ন হয়েছে।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "অজানা PPT-Master ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master সেশন সম্পন্ন হয়েছে।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "অজানা ডিপ রিসার্চ ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "অজানা গবেষণা ত্রুটি।"
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[নথির প্রসঙ্গ ত্রুটি: {0}]"
@@ -1947,10 +2168,6 @@ msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[এজেন্ট ব্যাকএন্ড '{0}' উপলব্ধ নেই। সেটিংস পরীক্ষা করুন (পাথ, ইনস্টল)।]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "ভাবছি..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -2141,21 +2358,13 @@ msgstr "নতুন পাইথন স্ক্রিপ্ট"
 msgid "Script name:"
 msgstr "স্ক্রিপ্টের নাম:"
 
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-msgid "Attach to this document (no document is open)"
-msgstr "এই নথির সাথে সংযুক্ত করুন (কোন নথি খোলা নেই)"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-msgid "Attach to this document (this document is read-only)"
-msgstr "এই নথির সাথে সংযুক্ত করুন (এই নথিটি শুধুমাত্র-পঠনযোগ্য)"
-
 #: plugin/scripting/editor_ui_strings.py
 msgid "Running…"
 msgstr "চলছে…"
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Monaco loader missing."
-msgstr "Monaco লোডার অনুপস্থিত।"
+msgid "Editor loader missing."
+msgstr "এডিটর লোডার অনুপস্থিত।"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Install jedi in the Python venv for completions."
@@ -2177,6 +2386,14 @@ msgstr "ডেটা:"
 #: plugin/scripting/editor_ui_strings.py
 msgid "A1:C1  or  A1:C1, C1:C5"
 msgstr "A1:C1 অথবা A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to this document (no document is open)"
+msgstr "এই নথির সাথে সংযুক্ত করুন (কোন নথি খোলা নেই)"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to this document (this document is read-only)"
+msgstr "এই নথির সাথে সংযুক্ত করুন (এই নথিটি শুধুমাত্র-পঠনযোগ্য)"
 
 #: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "New"
@@ -2273,6 +2490,10 @@ msgstr ""
 msgid "Are you sure you want to delete script '{0}'?"
 msgstr "আপনি কি নিশ্চিত যে আপনি '{0}' স্ক্রিপ্টটি মুছে ফেলতে চান?"
 
+#: plugin/scripting/editor_ui_strings.py
+msgid "this script"
+msgstr "এই স্ক্রিপ্ট"
+
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr ""
@@ -2285,6 +2506,10 @@ msgstr ""
 "সংরক্ষিত নথির স্ক্রিপ্টগুলি পাঠযোগ্য নয়, তাই সেগুলিকে অপরিবর্তিত রাখা হয়েছে।"
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "ডকুমেন্টটি রিড-অনলি বা বৈশিষ্ট্যগুলি লেখা সম্ভব নয়।"
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid ""
 "Stored document scripts are in an unsupported format (version {0}), so they "
@@ -2293,18 +2518,14 @@ msgstr ""
 "সংরক্ষিত নথির স্ক্রিপ্টগুলি একটি অসমর্থিত ফরম্যাটে (সংস্করণ {0}) রয়েছে, তাই "
 "সেগুলিকে অপরিবর্তিত রাখা হয়েছে।"
 
-#: plugin/scripting/document_scripts.py
-msgid "Document is read-only or properties cannot be written."
-msgstr "ডকুমেন্টটি রিড-অনলি বা বৈশিষ্ট্যগুলি লেখা সম্ভব নয়।"
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open to save scripts."
+msgstr "স্ক্রিপ্ট সংরক্ষণ করার জন্য কোনো ডকুমেন্ট খোলা নেই।"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr "ডকুমেন্ট স্ক্রিপ্টগুলি নথিতে সংরক্ষণ করার জন্য খুব বড় ({0} বাইট)।"
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open to save scripts."
-msgstr "স্ক্রিপ্ট সংরক্ষণ করার জন্য কোনো ডকুমেন্ট খোলা নেই।"
 
 #: plugin/scripting/document_scripts.py
 msgid ""
@@ -2366,10 +2587,6 @@ msgid ""
 "Script '{0}' is not in My Scripts or this document, so it was not saved."
 msgstr ""
 "'{0}' স্ক্রিপ্টটি 'My Scripts' বা এই নথিতে নেই, তাই এটি সংরক্ষণ করা হয়নি।"
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "কোনো নথি খোলা নেই।"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2498,11 +2715,11 @@ msgstr "Venv পরীক্ষা ব্যর্থ হয়েছে"
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
 "pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" Monaco editor."
+" editor."
 msgstr ""
 "সেটিংস → Python-এ Python venv পাথ সেট করুন (যে venv-এ আপনি 'uv pip install "
-"pywebview rocher' চালিয়েছেন)। LibreOffice-এর বিল্ট-ইন Python মোনাকো এডিটর "
-"চালাতে পারে না।"
+"pywebview rocher' চালিয়েছেন)। LibreOffice-এর বিল্ট-ইন Python এডিটর চালাতে "
+"পারে না।"
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -2591,6 +2808,14 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "অডিও প্রোব ব্যর্থ হয়েছে (writeragent_debug.log দেখুন)।"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Monaco প্রোবের সময় শেষ হয়েছে।"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Monaco প্রোব ব্যর্থ হয়েছে (writeragent_debug.log দেখুন)।"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
@@ -2626,68 +2851,12 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "ভেক্টর সার্চ প্রোব ব্যর্থ হয়েছে (writeragent_debug.log দেখুন)।"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco প্রোব ব্যর্থ হয়েছে (writeragent_debug.log দেখুন)।"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco প্রোবের সময় শেষ হয়েছে।"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "DuckDB probe failed (see writeragent_debug.log)."
-msgstr "DuckDB প্রোব ব্যর্থ হয়েছে (writeragent_debug.log দেখুন)।"
-
-#: plugin/scripting/venv_diagnostics.py
 msgid "DuckDB probe timed out."
 msgstr "DuckDB প্রোবের সময় শেষ হয়েছে।"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording & Speech"
-msgstr "অডিও রেকর্ডিং ও স্পিচ"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Scientific Libraries"
-msgstr "সায়েন্টিফিক লাইব্রেরি"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Analysis / EDA Libraries"
-msgstr "ডেটা অ্যানালিসিস / EDA লাইব্রেরি"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries"
-msgstr "UI / মোনাকো লাইব্রেরি"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Visualization Libraries"
-msgstr "ভিজ্যুয়ালাইজেশন লাইব্রেরি"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Computer Algebra"
-msgstr "কম্পিউটার অ্যালজেব্রা"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Quantitative Finance Libraries"
-msgstr "কোয়ান্টিটেটিভ ফিন্যান্স লাইব্রেরি"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Engineering Libraries"
-msgstr "ডেটা ইঞ্জিনিয়ারিং লাইব্রেরি"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries"
-msgstr "টেক্সট / NLP লাইব্রেরি"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries"
-msgstr "ভিশন লাইব্রেরি"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries"
-msgstr "ভেক্টর সার্চ লাইব্রেরি"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "To install remaining packages:"
-msgstr "অবশিষ্ট প্যাকেজগুলি ইনস্টল করতে:"
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "DuckDB প্রোব ব্যর্থ হয়েছে (writeragent_debug.log দেখুন)।"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
@@ -2700,6 +2869,10 @@ msgstr "স্থানীয় TTS ইঞ্জিন (ঐচ্ছিক):"
 #: plugin/scripting/venv_diagnostics.py
 msgid "Local Whisper (optional):"
 msgstr "স্থানীয় হুইস্পার (ঐচ্ছিক):"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "To install remaining packages:"
+msgstr "অবশিষ্ট প্যাকেজগুলি ইনস্টল করতে:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
@@ -2715,6 +2888,10 @@ msgstr ""
 "অডিও ও স্পিচ: sounddevice, TTS এবং স্থানীয় হুইস্পার পরীক্ষা করা হচ্ছে..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording & Speech"
+msgstr "অডিও রেকর্ডিং ও স্পিচ"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "UI / Monaco Libraries: checking outside the script worker..."
 msgstr ""
 "UI / Monaco লাইব্রেরি: স্ক্রিপ্ট ওয়ার্কারের বাইরে পরীক্ষা করা হচ্ছে..."
@@ -2725,13 +2902,25 @@ msgstr ""
 "Text / NLP লাইব্রেরি: লোড হচ্ছে (প্রথমবার চলতে কিছুটা সময় নিতে পারে)..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "টেক্সট / NLP লাইব্রেরি"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Vision Libraries: লোড হচ্ছে (প্রথমবার চলতে কিছুটা সময় নিতে পারে)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries"
+msgstr "ভিশন লাইব্রেরি"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "ভেক্টর সার্চ লাইব্রেরি: লোড হচ্ছে (প্রথমবার চলতে কিছুটা সময় নিতে পারে)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "ভেক্টর সার্চ লাইব্রেরি"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2788,6 +2977,11 @@ msgid "Could not read the scope checkbox."
 msgstr "স্কোপ চেকবাক্সটি পড়া যায়নি।"
 
 #: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr ""
+"spaCy / textdescriptives / transformers ইনস্টলেশন পরীক্ষা করা হচ্ছে..."
+
+#: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
 msgstr "বিশ্লেষণ করার জন্য একটি Writer ডকুমেন্ট খুলুন।"
 
@@ -2798,11 +2992,6 @@ msgstr "কিছুই নির্বাচন করা হয়নি।"
 #: plugin/scripting/text_analytics_ui.py
 msgid "Not enough text in the chosen scope."
 msgstr "নির্বাচিত পরিসরে পর্যাপ্ত পাঠ্য নেই।"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr ""
-"spaCy / textdescriptives / transformers ইনস্টলেশন পরীক্ষা করা হচ্ছে..."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Analyzing..."
@@ -2978,12 +3167,12 @@ msgstr ""
 "হয়েছে।"
 
 #: plugin/scripting/session_manager.py
-msgid "Notebook Python session reset for this document."
-msgstr "এই ডকুমেন্টের জন্য নোটবুক Python সেশন রিসেট করা হয়েছে।"
-
-#: plugin/scripting/session_manager.py
 msgid "Could not reset Python session."
 msgstr "Python সেশন রিসেট করা যায়নি।"
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "এই ডকুমেন্টের জন্য নোটবুক Python সেশন রিসেট করা হয়েছে।"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -3034,10 +3223,6 @@ msgid "Python session reset for this document."
 msgstr "এই নথির জন্য পাইথন সেশন রিসেট করা হয়েছে।"
 
 #: plugin/scripting/session_manager.py
-msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
-msgstr "পাইথন সেশন রিসেট Writer, Calc এবং Draw নথিতে প্রযোজ্য।"
-
-#: plugin/scripting/session_manager.py
 msgid ""
 "Several Calc spreadsheets are open and none is focused. Switch to the "
 "spreadsheet to reset and try again."
@@ -3060,6 +3245,10 @@ msgid ""
 msgstr ""
 "বেশ কয়েকটি Draw নথি খোলা আছে এবং কোনোটিই ফোকাস করা নেই। রিসেট করতে এবং "
 "পুনরায় চেষ্টা করতে নথিতে সুইচ করুন।"
+
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr "পাইথন সেশন রিসেট Writer, Calc এবং Draw নথিতে প্রযোজ্য।"
 
 #: plugin/scripting/session_manager.py
 msgid "Open a Writer, Calc, or Draw document and try again."
@@ -3099,14 +3288,6 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "'{helper}' সম্পন্ন হয়েছে। {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Info"
-msgstr "তথ্য"
-
-#: plugin/scripting/python_runner.py
-msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr "Draw/Impress-এ ফলাফল সন্নিবেশ করা এখনও সমর্থিত নয়। PR স্বাগত!"
-
-#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "ভিশন হেল্পারসের জন্য একটি Writer বা Calc ডকুমেন্ট প্রয়োজন।"
 
@@ -3133,6 +3314,14 @@ msgstr ""
 "({time} সময় লেগেছে)"
 
 #: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "তথ্য"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr "Draw/Impress-এ ফলাফল সন্নিবেশ করা এখনও সমর্থিত নয়। PR স্বাগত!"
+
+#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr "ফলাফল সন্নিবেশের জন্য অসমর্থিত নথির ধরন। ({time} সময় লেগেছে)"
@@ -3141,10 +3330,6 @@ msgstr "ফলাফল সন্নিবেশের জন্য অসমর
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "স্ক্রিপ্ট সফলভাবে কার্যকর হয়েছে। ({time} সময় লেগেছে)"
-
-#: plugin/scripting/python_runner.py
-msgid "Script preparation failed."
-msgstr "স্ক্রিপ্ট প্রস্তুতির কাজ ব্যর্থ হয়েছে।"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3170,8 +3355,8 @@ msgid "Run Python Script"
 msgstr "পাইথন স্ক্রিপ্ট চালান"
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script failed to open the Monaco editor."
-msgstr "Run Python Script, Monaco এডিটর খুলতে ব্যর্থ হয়েছে।"
+msgid "Run Python Script failed to open the editor."
+msgstr "Python স্ক্রিপ্ট চালিয়ে এডিটর খুলতে ব্যর্থ হয়েছে।"
 
 #: plugin/scripting/python_runner.py
 msgid "Could not open the built-in script dialog."
@@ -3180,6 +3365,26 @@ msgstr "বিল্ট-ইন স্ক্রিপ্ট ডায়ালগ �
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Run Python Script খোলার সময় একটি অপ্রত্যাশিত ত্রুটি ঘটেছে।"
+
+#: plugin/_manifest.py plugin/xdl_strings.py
+msgid "MCP Server Status"
+msgstr "MCP সার্ভারের স্থিতি"
+
+#: plugin/_manifest.py
+msgid "◀ Prev"
+msgstr "◀ পূর্ববর্তী"
+
+#: plugin/_manifest.py
+msgid "Next ▶"
+msgstr "পরবর্তী ▶"
+
+#: plugin/_manifest.py
+msgid "Accept all"
+msgstr "সব গ্রহণ করুন"
+
+#: plugin/_manifest.py
+msgid "Reject all"
+msgstr "সব প্রত্যাখ্যান করুন"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3232,7 +3437,7 @@ msgstr "{total}-এর মধ্যে {count}টি ছবি পরে থা�
 msgid "OCR complete ({count} images)."
 msgstr "OCR সম্পন্ন হয়েছে ({count}টি ছবি)।"
 
-#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
+#: plugin/vision/vision_runner.py
 msgid "OCR complete."
 msgstr "OCR সম্পন্ন হয়েছে।"
 
@@ -3266,12 +3471,12 @@ msgid "The image was removed during OCR insert."
 msgstr "OCR সন্নিবেশের সময় ছবিটি সরিয়ে ফেলা হয়েছিল।"
 
 #: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP সার্ভার শুরু করতে ব্যর্থ হয়েছে"
-
-#: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr "আপনার LibreOffice ইউজার কনফিগ ফোল্ডারে writeragent_debug.log চেক করুন"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP সার্ভার শুরু করতে ব্যর্থ হয়েছে"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -3482,6 +3687,16 @@ msgstr ""
 "দ্রষ্টব্য: MCP সার্ভার বর্তমানে {3} পোর্টে চলছে না।"
 
 #: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} সফল, {2} ব্যর্থ।"
+
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "পরীক্ষা চালাতে ব্যর্থ: {0}"
+
+#: plugin/main.py
 msgid "Dispatch Error"
 msgstr "ডিসপ্যাচ ত্রুটি"
 
@@ -3664,10 +3879,6 @@ msgstr "এখানে রিপোর্ট সন্নিবেশ করু
 #: plugin/xdl_strings.py
 msgid "Key Phrases"
 msgstr "মূল শব্দগুচ্ছ"
-
-#: plugin/xdl_strings.py
-msgid "MCP Server Status"
-msgstr "MCP সার্ভারের স্থিতি"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -4162,6 +4373,16 @@ msgstr "রিচ টেক্সট কন্ট্রোল সাইডবা
 msgid "Formatted chat via RichTextControl. Requires restart."
 msgstr "RichTextControl এর মাধ্যমে ফরম্যাট করা চ্যাট। রিস্টার্ট প্রয়োজন।"
 
+msgid "Enter sends message"
+msgstr "এন্টার চাপলে বার্তা পাঠানো হবে"
+
+msgid ""
+"When on, Enter in the sidebar query runs the same action as Send; "
+"Shift+Enter inserts a newline. When off, Enter inserts a newline."
+msgstr ""
+"চালু থাকলে, সাইডবার ক্যোয়ারিতে এন্টার চাপলে 'পাঠান' (Send)-এর মতো একই কাজ "
+"হয়; শিফট+এন্টার নতুন লাইন যোগ করে। বন্ধ থাকলে, এন্টার নতুন লাইন যোগ করে।"
+
 msgid "Humanizer skill (natural prose)"
 msgstr "হিউম্যানাইজার স্কিল (স্বাভাবিক গদ্য)"
 
@@ -4290,16 +4511,6 @@ msgstr ""
 
 msgid "Local (langdetect)"
 msgstr "Local (langdetect)"
-
-msgid "Enter key sends sidebar chat message"
-msgstr "এন্টার কী সাইডবার চ্যাট বার্তা পাঠায়"
-
-msgid ""
-"When on, Enter in the sidebar query runs the same action as Send; "
-"Shift+Enter inserts a newline. When off, Enter inserts a newline."
-msgstr ""
-"চালু থাকলে, সাইডবার ক্যোয়ারিতে এন্টার চাপলে 'পাঠান' (Send)-এর মতো একই কাজ "
-"হয়; শিফট+এন্টার নতুন লাইন যোগ করে। বন্ধ থাকলে, এন্টার নতুন লাইন যোগ করে।"
 
 msgid "Agent edit review"
 msgstr "এজেন্ট সম্পাদনা পর্যালোচনা"
@@ -4480,6 +4691,9 @@ msgstr "ক্লায়েন্ট কনফিগ (Claude / Hermes-Agent-�
 msgid "Copy Config"
 msgstr "কনফিগারেশন কপি করুন"
 
+msgid "Notebook"
+msgstr "নোটবুক"
+
 msgid "Python"
 msgstr "পাইথন"
 
@@ -4571,45 +4785,67 @@ msgid "Allow network access"
 msgstr "নেটওয়ার্ক অ্যাক্সেসের অনুমতি দিন"
 
 msgid ""
-"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
-"checked."
+"When checked, Python may open network connections (socket, requests, http, "
+"urllib, ssl, and the other network imports). When unchecked, those imports "
+"are blocked."
 msgstr ""
-"চেক করা না থাকলে নেটওয়ার্ক ইমপোর্ট (socket, requests, http, urllib, ssl, …) "
-"ব্লক করে।"
+"এটি চেক করা থাকলে, পাইথন নেটওয়ার্ক সংযোগ খুলতে পারে (সকেট, রিকোয়েস্ট, "
+"এইচটিটিপি, ইউআরএললিব, এসএসএল এবং অন্যান্য নেটওয়ার্ক ইমপোর্ট)। চেক করা না "
+"থাকলে, এই ইমপোর্টগুলো ব্লক করা থাকে।"
 
 msgid "Allow file access"
 msgstr "ফাইল অ্যাক্সেসের অনুমতি দিন"
 
 msgid ""
-"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
-"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
-" stay allowed."
+"When checked, Python may read and write files anywhere (open, io, pathlib, "
+"shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
+"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
+" (io.BytesIO, io.StringIO) stay available."
 msgstr ""
-"চেক না করা পর্যন্ত ফাইল লেখা (os write কল, shutil, tempfile, sqlite3, এবং "
-"open() বিল্টইন) ব্লক করে। pathlib, glob, io, এবং logging-এর মাধ্যমে পড়া "
-"অনুমোদিত থাকে।"
+"এটি চেক করা থাকলে, পাইথন যেকোনো জায়গায় ফাইল পড়তে ও লিখতে পারে (ওপেন, আইও,"
+" পাথলিব, শিউটিল, টেম্পফাইল, এসকিউলাইট৩, গ্লোব এবং ওএস ফাইল কল যেমন লিস্টডির "
+"ও স্ট্যাট)। চেক করা না থাকলে, এই পড়া ও লেখা ব্লক করা থাকে। ইন-মেমোরি বাফার "
+"(আইও.বাইটআইও, আইও.স্ট্রিংআইও) ব্যবহারযোগ্য থাকে।"
 
 msgid "Allow OS access"
 msgstr "OS অ্যাক্সেসের অনুমতি দিন"
 
 msgid ""
-"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
-"processes); includes file access."
+"When checked, Python gets the real os module and may run other programs "
+"(subprocess, multiprocessing, pty, os.system). Includes file read and write."
+" When unchecked, process spawning is blocked."
 msgstr ""
-"raw os, subprocess, multiprocessing, এবং pty (অন্যান্য প্রোগ্রাম এবং প্রসেস "
-"চালানোর জন্য) অনুমতি দেয়; এতে ফাইল অ্যাক্সেস অন্তর্ভুক্ত।"
+"এটি চেক করা থাকলে, পাইথন আসল ওএস মডিউল পায় এবং অন্যান্য প্রোগ্রাম চালাতে "
+"পারে (সাবপ্রসেস, মাল্টিপ্রসেসিং, পিটিওয়াই, ওএস.সিস্টেম)। এতে ফাইল পড়া ও "
+"লেখা অন্তর্ভুক্ত। চেক করা না থাকলে, প্রসেস স্পনিং ব্লক করা থাকে।"
 
 msgid "Extra allowed modules"
 msgstr "অতিরিক্ত অনুমোদিত মডিউল"
 
 msgid ""
 "Comma-separated extra modules Python may import (each name also allows "
-"name.*). Overrides the built-in blocklist, including os, socket and "
-"subprocess."
+"name.*). Overrides the sandbox blocklist, including the file, network, and "
+"process lists (os, socket, subprocess)."
 msgstr ""
-"কমা দিয়ে আলাদা করা অতিরিক্ত মডিউল যা পাইথন ইমপোর্ট করতে পারে (প্রতিটি নাম "
-"name.*-কেও অনুমতি দেয়)। এটি os, socket এবং subprocess সহ বিল্ট-ইন "
-"ব্লকলিস্টকে ওভাররাইড করে।"
+"কমা দ্বারা পৃথক করা অতিরিক্ত মডিউল যা পাইথন ইমপোর্ট করতে পারে (প্রতিটি নাম "
+"name.*-কেও অনুমতি দেয়)। এটি স্যান্ডবক্স ব্লকলিস্টকে ওভাররাইড করে, যার মধ্যে"
+" ফাইল, নেটওয়ার্ক এবং প্রসেস তালিকা (ওএস, সকেট, সাবপ্রসেস) অন্তর্ভুক্ত।"
+
+msgid "Python editor"
+msgstr "পাইথন এডিটর"
+
+msgid ""
+"Editor window for Edit Python in Cell, Run Python Script, the init script "
+"and LaTeX."
+msgstr ""
+"সেল-এ পাইথন সম্পাদনা, পাইথন স্ক্রিপ্ট চালানো, ইনিট স্ক্রিপ্ট এবং ল্যাটেক্স "
+"(LaTeX)-এর জন্য এডিটর উইন্ডো।"
+
+msgid "Monaco (default)"
+msgstr "মোনাকো (ডিফল্ট)"
+
+msgid "CodeMirror"
+msgstr "কোডমিরর"
 
 msgid "Vision / OCR"
 msgstr "Vision / OCR"

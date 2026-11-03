@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-26 12:14-0400\n"
+"POT-Creation-Date: 2026-11-03 13:09-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -16,6 +16,23 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/agent_undo.py
+msgid "There is no agent edit to undo."
+msgstr "Geri alınacak bir aracı düzenlemesi yok."
+
+#: plugin/doc/agent_undo.py
+msgid "The document was edited since the last agent edit."
+msgstr "Belge, son aracı düzenlemesinden bu yana değiştirildi."
+
+#: plugin/doc/agent_undo.py
+msgid "Could not undo the last agent edit."
+msgstr "Son aracı düzenlemesi geri alınamadı."
+
+#: plugin/doc/agent_undo.py
+#, python-brace-format
+msgid "Undid the last agent edit ({0} steps)"
+msgstr "Son aracı düzenlemesi geri alındı ({0} adım)"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -33,6 +50,15 @@ msgstr "Yerel OCR seçili resim(ler) üzerinde çalıştırılıyor..."
 #, python-brace-format
 msgid "Specialized task ({domain}) completed."
 msgstr "Özelleştirilmiş görev ({domain}) tamamlandı."
+
+#: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Hata"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -55,6 +81,14 @@ msgid "Code cell is empty."
 msgstr "Kod hücresi boş."
 
 #: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Bu denetim için not defteri hücresi bulunamadı."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Open a Writer document first."
+msgstr "Önce bir Writer belgesi açın."
+
+#: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
 msgstr "Not defteri çalıştırma yalnızca LibreOffice Writer'da desteklenir."
 
@@ -66,19 +100,11 @@ msgstr ""
 "Bu belgenin içe aktarılmış bir not defteri yok. Önce Dosya → Bir Jupyter not"
 " defteri (.ipynb) açın."
 
-#: plugin/notebook/notebook_runner.py
-msgid "Could not find notebook cell for this control."
-msgstr "Bu denetim için not defteri hücresi bulunamadı."
-
-#: plugin/notebook/notebook_runner.py
-msgid "Open a Writer document first."
-msgstr "Önce bir Writer belgesi açın."
-
-#: plugin/notebook/notebook_controls.py
+#: plugin/notebook/layout.py
 msgid "Run code cell"
 msgstr "Kod hücresini çalıştır"
 
-#: plugin/notebook/notebook_controls.py
+#: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Kod"
 
@@ -248,29 +274,6 @@ msgstr ""
 "Yapılandırılmış API anahtarı yok. Ayarları açın ve bir anahtar ekleyin."
 
 #: plugin/framework/errors.py
-msgid ""
-"Python venv not found. Open Settings → Python, set the venv path, then Test."
-msgstr ""
-"Python venv bulunamadı. Ayarlar → Python yolunu açın, venv yolunu ayarlayın "
-"ve ardından Test edin."
-
-#: plugin/framework/errors.py
-msgid ""
-"Python execution timed out. Open Settings → Python to raise the timeout."
-msgstr ""
-"Python yürütme zaman aşımına uğradı. Zaman aşımını artırmak için Ayarlar → "
-"Python yolunu açın."
-
-#: plugin/framework/errors.py
-msgid "Formula spill collision: destination range contains non-empty cells."
-msgstr "Formül taşırma çakışması: hedef aralık boş olmayan hücreler içeriyor."
-
-#: plugin/framework/errors.py
-#, python-brace-format
-msgid "Script execution blocked by sandbox policy: {0}"
-msgstr "Betik yürütme korumalı alan ilkesi tarafından engellendi: {0}"
-
-#: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
 "İstek Zaman Aşımına Uğradı. Ayarlar kısmından 'İstek Zaman Aşımı' süresini "
@@ -293,6 +296,24 @@ msgid "Connection Error: {0}"
 msgstr "Bağlantı Hatası: {0}"
 
 #: plugin/framework/errors.py
+msgid ""
+"Python venv not found. Open Settings → Python, set the venv path, then Test."
+msgstr ""
+"Python venv bulunamadı. Ayarlar → Python yolunu açın, venv yolunu ayarlayın "
+"ve ardından Test edin."
+
+#: plugin/framework/errors.py
+msgid ""
+"Python execution timed out. Open Settings → Python to raise the timeout."
+msgstr ""
+"Python yürütme zaman aşımına uğradı. Zaman aşımını artırmak için Ayarlar → "
+"Python yolunu açın."
+
+#: plugin/framework/errors.py
+msgid "Formula spill collision: destination range contains non-empty cells."
+msgstr "Formül taşırma çakışması: hedef aralık boş olmayan hücreler içeriyor."
+
+#: plugin/framework/errors.py
 msgid "The AI provider reported an error. Try again."
 msgstr "Yapay zeka sağlayıcısı bir hata bildirdi. Tekrar deneyin."
 
@@ -301,11 +322,6 @@ msgstr "Yapay zeka sağlayıcısı bir hata bildirdi. Tekrar deneyin."
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Hata: {0}"
-
-#: plugin/framework/errors.py
-#, python-brace-format
-msgid "{resource_type} not found: {identifier}"
-msgstr "{resource_type} bulunamadı: {identifier}"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -409,25 +425,6 @@ msgstr ""
 #: plugin/framework/client/anthropic_shim.py
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Anthropic modeli ayarlanmadı. Ayarlar'dan bir model seçin."
-
-#: plugin/framework/main_shared.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} başarılı, {2} başarısız."
-
-#: plugin/framework/main_shared.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Testler çalıştırılamadı: {0}"
-
-#: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
-#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
-#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Error"
-msgstr "Hata"
 
 #: plugin/framework/config.py
 msgid "Please set Endpoint in Settings."
@@ -592,6 +589,10 @@ msgid "Installing Kokoro phonemizer…"
 msgstr "Kokoro fonemleyici kuruluyor…"
 
 #: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Japonca fonemleyici sözlüğü indiriliyor…"
+
+#: plugin/audio/kokoro_g2p.py
 #, python-brace-format
 msgid ""
 "Couldn't install the Kokoro phonemizer; this language may be misread. "
@@ -599,12 +600,9 @@ msgid ""
 msgstr ""
 "Kokoro fonemleyici kurulamadı; bu dil yanlış okunabilir. Şununla kurun: {0}"
 
-#: plugin/audio/kokoro_g2p.py
-msgid "Downloading Japanese phonemizer dictionary…"
-msgstr "Japonca fonemleyici sözlüğü indiriliyor…"
-
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/_manifest.py
 msgid "Edit Python in Cell..."
 msgstr "Hücredeki Python'u Düzenle..."
 
@@ -645,10 +643,6 @@ msgstr "Başlatma betiği kaydedildi."
 msgid "Save initialization script"
 msgstr "Başlatma betiğini kaydet"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Status:"
-msgstr "Durum:"
-
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
 #: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
@@ -665,12 +659,12 @@ msgstr ""
 "Calc, çalışma zamanında bu aralık(lar)dan `data` ve `ranges` enjekte eder."
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr "Durum:"
+
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saving…"
 msgstr "Kaydediliyor…"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/calc/python/editor.py
-msgid "Saved without =PY()."
-msgstr "=PY() olmadan kaydedildi."
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -715,6 +709,10 @@ msgstr "Kod {0} konumuna kaydedildi."
 msgid "WriterAgent: Save Python cell"
 msgstr "WriterAgent: Python hücresini kaydet"
 
+#: plugin/calc/python/editor.py
+msgid "Saved without =PY()."
+msgstr "=PY() olmadan kaydedildi."
+
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
 msgstr "Python hücre düzenleyici"
@@ -742,16 +740,6 @@ msgstr "Python'u düzenlemek için bir Calc hesap tablosunda bir hücre seçin."
 #, python-brace-format
 msgid "Could not open the code cell {0}."
 msgstr "{0} kod hücresi açılamadı."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
-"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
-"quoted code."
-msgstr ""
-"Bu PY formülü, düzenleyicinin güvenli bir şekilde yeniden yazamayacağı bir "
-"biçim kullanıyor (örneğin başka bir hücredeki kod). Formülü formül çubuğunda"
-" düzenleyin veya tırnak içinde kod ile =PY(\"kod\"; aralık) kullanın."
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -791,7 +779,7 @@ msgstr "Görüntü eklendi"
 msgid "Images inserted"
 msgstr "Görseller eklendi"
 
-#: plugin/calc/python/geometric_recalc_core.py
+#: plugin/calc/python/geometric_recalc.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -801,16 +789,6 @@ msgstr ""
 "Geometrik Yeniden Hesaplama Sırası '%(sheet)s' sayfasını atladı: %(cap)s "
 "veya daha fazla Python hücresi bulundu (keşif sınırı). Kısmi bir listenin "
 "tam olarak kabul edilmemesi için sayfa zincirlenmemiş halde bırakıldı."
-
-#: plugin/calc/python/formula_edit.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Bu hücrenin PY formül bağımsız değişkenleri (örneğin veri aralıkları) "
-"korunamadı. Formülü Calc içinde düzenleyin veya =PY(\"kod\"; A1:B10) gibi "
-"tırnak içinde bir kod dizisi kullanın."
 
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
@@ -933,48 +911,53 @@ msgid "(no =PY() cells on active sheet)"
 msgstr "(etkin sayfada =PY() hücresi yok)"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_factory.py plugin/_manifest.py
 msgid "Run Python Script..."
 msgstr "Python Betiğini Çalıştır..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_factory.py plugin/_manifest.py
 msgid "Insert LaTeX Math..."
 msgstr "LaTeX Matematiği Ekle..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Text Analytics..."
 msgstr "Metin Analizi..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
 #: plugin/chatbot/dialog_views.py plugin/chatbot/panel_factory.py
-#: plugin/xdl_strings.py
+#: plugin/_manifest.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Ayarlar"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR Ayarları..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Reset Python Session"
 msgstr "Python Oturumunu Sıfırla"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Run All"
 msgstr "Tümünü Çalıştır"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Run From Here"
 msgstr "Buradan İtibaren Çalıştır"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/xdl_strings.py
+#: plugin/_manifest.py plugin/xdl_strings.py
 msgid "Stop"
 msgstr "Durdur"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/dialogs.py
-#: plugin/chatbot/hamburger_menu.py plugin/xdl_strings.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py plugin/xdl_strings.py
 msgid "Report bug..."
 msgstr "Hata bildir..."
 
@@ -989,10 +972,6 @@ msgstr "Tüm değişikliği kabul et (aracı)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "Tüm değişikliği reddet (aracı)"
-
-#: plugin/writer/inline_review.py
-msgid "No agent changes to review in this document."
-msgstr "Bu belgede incelenecek hiçbir aracı değişikliği yok."
 
 #: plugin/writer/inline_review.py
 #, python-format
@@ -1040,6 +1019,20 @@ msgstr ""
 
 #: plugin/writer/inline_review.py
 msgid ""
+"Could not resolve this change here -- it may share a paragraph with one of "
+"your tracked changes or another agent change. Resolve it from Edit > Track "
+"Changes > Manage."
+msgstr ""
+"Bu değişiklik burada çözümlenemedi; kendi izlediğiniz değişikliklerinizden "
+"biriyle veya başka bir aracı değişikliğiyle aynı paragrafı paylaşıyor "
+"olabilir. Bunu Düzenle > Değişiklikleri İzle > Yönet menüsünden çözümleyin."
+
+#: plugin/writer/inline_review.py
+msgid "No agent changes to review in this document."
+msgstr "Bu belgede incelenecek hiçbir aracı değişikliği yok."
+
+#: plugin/writer/inline_review.py
+msgid ""
 "None could be resolved here -- each overlaps with one of your own tracked "
 "changes. Resolve them from Edit > Track Changes > Manage."
 msgstr ""
@@ -1056,16 +1049,6 @@ msgstr ""
 "%(total)d değişiklikten %(resolved)d tanesi çözümlendi. Geri kalanlar kendi "
 "izlediğiniz değişikliklerinizle çakışıyor; bunları Düzenle > Değişiklikleri "
 "İzle > Yönet menüsünden çözümleyin."
-
-#: plugin/writer/inline_review.py
-msgid ""
-"Could not resolve this change here -- it may share a paragraph with one of "
-"your tracked changes or another agent change. Resolve it from Edit > Track "
-"Changes > Manage."
-msgstr ""
-"Bu değişiklik burada çözümlenemedi; kendi izlediğiniz değişikliklerinizden "
-"biriyle veya başka bir aracı değişikliğiyle aynı paragrafı paylaşıyor "
-"olabilir. Bunu Düzenle > Değişiklikleri İzle > Yönet menüsünden çözümleyin."
 
 #: plugin/writer/inline_review.py
 msgid "Put the cursor on a highlighted agent change first."
@@ -1142,6 +1125,10 @@ msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Seçimi Genişlet"
 
 #: plugin/writer/editselection.py
+msgid "The document is empty."
+msgstr "Belge boş."
+
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Seçimi Düzenle"
 
@@ -1168,10 +1155,6 @@ msgid "AI Grammar"
 msgstr "YZ Dilbilgisi"
 
 #: plugin/writer/math/latex_dialog.py
-msgid "Could not open the LaTeX input dialog."
-msgstr "LaTeX giriş iletişim kutusu açılamadı."
-
-#: plugin/writer/math/latex_dialog.py
 msgid "Update"
 msgstr "Güncelle"
 
@@ -1179,6 +1162,10 @@ msgstr "Güncelle"
 #: plugin/xdl_strings.py
 msgid "Insert"
 msgstr "Ekle"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "LaTeX giriş iletişim kutusu açılamadı."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Edit LaTeX Math"
@@ -1540,23 +1527,24 @@ msgstr "Kopyalandı!"
 msgid "Copy URL"
 msgstr "URL'yi kopyala"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Extend Selection"
 msgstr "Seçimi Genişlet"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Edit Selection"
 msgstr "Seçimi Düzenle"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Convert Sheet to Python..."
 msgstr "Sayfayı Python'a Dönüştür..."
 
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/_manifest.py
 msgid "Search Nearby Files..."
 msgstr "Yakındaki Dosyaları Ara..."
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Toggle MCP Server"
 msgstr "MCP Sunucusunu Aç/Kapat"
 
@@ -1568,27 +1556,27 @@ msgstr "MCP Sunucusu (Çalışıyor)"
 msgid "MCP Server (Stopped)"
 msgstr "MCP Sunucusu (Durduruldu)"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run format tests"
 msgstr "Biçimlendirme testlerini çalıştır"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run calc tests"
 msgstr "Calc testlerini çalıştır"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run Calc API integration tests"
 msgstr "Calc API entegrasyon testlerini çalıştır"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run draw tests"
 msgstr "Draw testlerini çalıştır"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Evaluation Dashboard"
 msgstr "Değerlendirme Panosu"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Debug"
 msgstr "Hata Ayıklama"
 
@@ -1596,9 +1584,89 @@ msgstr "Hata Ayıklama"
 msgid "[No speech detected.]"
 msgstr "[Konuşma algılanmadı.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
 msgid "[Voice message]"
 msgstr "[Sesli mesaj]"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "WriterAgent: Formula"
+msgstr "WriterAgent: Formül"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Wait for the current operation to finish before /undo."
+msgstr "/undo komutundan önce mevcut işlemin bitmesini bekleyin."
+
+#: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "Açık bir belge yok."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Select a cell first."
+msgstr "Önce bir hücre seçin."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Write exactly one LibreOffice Calc formula for this request: {0}"
+msgstr "Bu istek için tam olarak bir LibreOffice Calc formülü yazın: {0}"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Target cell: {0} on sheet \"{1}\"."
+msgstr "Hedef hücre: \"{1}\" sayfasında {0}."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Used range: {0}."
+msgstr "Kullanılan aralık: {0}."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Header row: {0}."
+msgstr "Başlık satırı: {0}."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "(empty)"
+msgstr "(boş)"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid ""
+"Reply with the formula only. It must start with =. Use English function "
+"names. Use semicolon (;) between function arguments (Calc setFormula API "
+"grammar). No prose or markdown."
+msgstr ""
+"Yalnızca formülle yanıt verin. = ile başlamalıdır. İngilizce işlev adlarını "
+"kullanın. İşlev bağımsız değişkenleri arasında noktalı virgül (;) kullanın "
+"(Calc setFormula API dil bilgisi). Düz yazı veya markdown kullanmayın."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Could not insert the formula."
+msgstr "Formül eklenemedi."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Formula for {0}: {1}"
+msgstr "{0} için formül: {1}"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "The cell shows an error"
+msgstr "Hücre bir hata gösteriyor"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid ""
+"You write LibreOffice Calc formulas. Output a single formula starting with "
+"=, nothing else."
+msgstr ""
+"LibreOffice Calc formülleri yazıyorsunuz. = ile başlayan tek bir formül "
+"çıktısı verin, başka hiçbir şey yazmayın."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Stopped."
+msgstr "Durduruldu."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Formula generation failed."
+msgstr "Formül oluşturma başarısız oldu."
 
 #: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Chat"
@@ -1613,26 +1681,6 @@ msgid "Web Research"
 msgstr "Web Araştırması"
 
 #: plugin/chatbot/chat_sidebar_mode.py
-msgid "Deep Research"
-msgstr "Derin Araştırma"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Brainstorming"
-msgstr "Beyin Fırtınası"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Writing Plan"
-msgstr "Yazma Planı"
-
-#: plugin/chatbot/chat_sidebar_mode.py plugin/chatbot/dialog_views.py
-msgid "PPT-Master"
-msgstr "PPT-Master"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Librarian"
-msgstr "Kütüphaneci"
-
-#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
@@ -1640,6 +1688,14 @@ msgstr ""
 "YZ: Belgenizi görmeden veya değiştirmeden, herhangi bir soruyu yanıtlamak "
 "için web araştırması yapabilir veya bir web sayfasını özetleyebilirim. Hadi "
 "sohbet edelim."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown research error."
+msgstr "Bilinmeyen araştırma hatası."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Derin Araştırma"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
@@ -1652,6 +1708,14 @@ msgstr ""
 "ekleyebilir. Daha uzun sürer ancak daha kapsamlı sonuçlar üretir."
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown deep research error."
+msgstr "Bilinmeyen derin araştırma hatası."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming"
+msgstr "Beyin Fırtınası"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
@@ -1660,6 +1724,18 @@ msgstr ""
 "YZ: Fikrinizi birlikte keşfedelim ve tasarlayalım. Sorular soracağım, "
 "yaklaşımlar önereceğim ve hazır olduğunuzda belgenizde onaylanmış bir "
 "şartname oluşturmanıza yardımcı olacağım."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown brainstorming error."
+msgstr "Bilinmeyen beyin fırtınası hatası."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming complete."
+msgstr "Beyin fırtınası tamamlandı."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing Plan"
+msgstr "Yazma Planı"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
@@ -1672,6 +1748,18 @@ msgstr ""
 "yardımcı olacağım."
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown writing plan error."
+msgstr "Bilinmeyen yazma planı hatası."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing plan complete."
+msgstr "Yazma planı tamamlandı."
+
+#: plugin/chatbot/chat_sidebar_mode.py plugin/chatbot/dialog_views.py
+msgid "PPT-Master"
+msgstr "PPT-Master"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
 "Python venv (scripts + export to Impress). Describe your topic or point me "
@@ -1682,6 +1770,18 @@ msgstr ""
 "tanımlayın veya beni bir proje klasörüne yönlendirin."
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown PPT-Master error."
+msgstr "Bilinmeyen PPT-Master hatası."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master oturumu tamamlandı."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Librarian"
+msgstr "Kütüphaneci"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
 " colors, and give a short tour. Pick Chat in the dropdown whenever you want "
@@ -1690,6 +1790,14 @@ msgstr ""
 "YZ: Ben WriterAgent Kütüphanecisiyim; adınızı, favori renklerinizi "
 "öğrenebilen ve size kısa bir tur yaptırabilen bir rehberim. Belge üzerinde "
 "çalışmak istediğinizde açılır menüden Sohbet'i seçin."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown librarian error."
+msgstr "Bilinmeyen kütüphaneci hatası."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Harika! Sizi şimdi ana asistana yönlendiriyorum."
 
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
@@ -1702,6 +1810,87 @@ msgstr "Yeni bir sohbet başlat"
 #: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Devam eden gönderimi iptal et"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Summarize the selection or document in the sidebar"
+msgstr "Seçimi veya belgeyi kenar çubuğunda özetle"
+
+#: plugin/chatbot/slash_commands.py
+msgid ""
+"Summarize the selected text, or the whole document if nothing is selected."
+msgstr ""
+"Seçili metni veya hiçbir şey seçili değilse belgenin tamamını özetleyin."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Fix spelling, grammar, and punctuation without restyling"
+msgstr ""
+"Yeniden biçimlendirmeden yazım, dil bilgisi ve noktalama işaretlerini düzelt"
+
+#: plugin/chatbot/slash_commands.py
+msgid ""
+"Fix spelling, grammar, and punctuation only. Do not change style, tone, or "
+"meaning."
+msgstr ""
+"Yalnızca yazım, dil bilgisi ve noktalama işaretlerini düzeltin. Biçemi, tonu"
+" veya anlamı değiştirmeyin."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Shorten the selection"
+msgstr "Seçimi kısalt"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Make the text shorter while preserving the meaning."
+msgstr "Anlamı koruyarak metni kısaltın."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Expand the selection with more detail"
+msgstr "Seçimi daha fazla ayrıntıyla genişlet"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Expand the text with more detail and clarity."
+msgstr "Metni daha fazla ayrıntı ve netlikle genişletin."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Rewrite the selection to match a described tone"
+msgstr "Seçimi tanımlanan tona uyacak şekilde yeniden yaz"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Rewrite the text to match this tone or style: {arg}"
+msgstr "Metni şu tona veya biçeme uyacak şekilde yeniden yazın: {arg}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Translate the selection (sidebar when nothing is selected in Writer)"
+msgstr "Seçimi çevir (Writer'da hiçbir şey seçili değilken kenar çubuğu)"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Translate the text into {arg}. Keep formatting and structure."
+msgstr "Metni {arg} diline çevir. Biçimlendirmeyi ve yapıyı koru."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Explain the selection or active Calc formula"
+msgstr "Seçimi veya etkin Calc formülünü açıkla"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Explain the following in plain language."
+msgstr "Aşağıdakileri sade bir dille açıkla."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Save a fact to persistent memory"
+msgstr "Bir gerçeği kalıcı belleğe kaydet"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compact older chat history now"
+msgstr "Eski sohbet geçmişini şimdi sıkıştır"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Undo the last agent edit as one step"
+msgstr "Son aracı düzenlemesini tek adımda geri al"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Write a Calc formula from a plain-English description"
+msgstr "Sade İngilizce bir açıklamadan Calc formülü yaz"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Mock command (echo only)"
@@ -1723,6 +1912,83 @@ msgstr "Model değiştir (taslak)"
 msgid "Slash commands:"
 msgstr "Eğik çizgi komutları:"
 
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Usage: {0}"
+msgstr "Kullanım: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Cell {0} formula: {1}"
+msgstr "{0} hücresi formülü: {1}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Cell {0} value: {1}"
+msgstr "Hücre {0} değeri: {1}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Belleğe kaydetme başarısız oldu."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Belleğe kaydedildi: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Conversation compacted."
+msgstr "Sohbet sıkıştırıldı."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Nothing to compact."
+msgstr "Sıkıştırılacak bir şey yok."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Nothing to compact yet (history is still small)."
+msgstr "Henüz sıkıştırılacak bir şey yok (geçmiş hala küçük)."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction is not available for this model."
+msgstr "Bu model için sıkıştırma kullanılamaz."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction failed."
+msgstr "Sıkıştırma başarısız oldu."
+
+#: plugin/chatbot/slash_commands.py
+msgid "WriterAgent"
+msgstr "WriterAgent"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Configure an API key to compact."
+msgstr "Sıkıştırmak için bir API anahtarı yapılandırın."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Chat compaction is disabled in settings."
+msgstr "Sohbet sıkıştırma ayarlar içinde devre dışı bırakılmış."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction cancelled."
+msgstr "Sıkıştırma iptal edildi."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
+#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Düşünülüyor..."
+
+#: plugin/chatbot/panel.py
+msgid "[No compatible LibreOffice document found.]"
+msgstr "[Uyumlu bir LibreOffice belgesi bulunamadı.]"
+
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
+msgid "Wait for the current reply to finish before /compact."
+msgstr "/compact komutundan önce mevcut yanıtın tamamlanmasını bekleyin."
+
+#: plugin/chatbot/panel.py
+msgid "Only in Calc"
+msgstr "Sadece Calc içinde"
+
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Belge alınıyor..."
@@ -1734,14 +2000,6 @@ msgid ""
 msgstr ""
 "[Etkin pencerede uyumlu bir LibreOffice belgesi (Writer, Calc veya Draw) "
 "bulunamadı.]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Internal Error: Could not identify document type for {0}. Please report "
-"this!]"
-msgstr ""
-"[Dahili Hata: {0} için belge türü tanımlanamadı. Lütfen bunu bildirin!]"
 
 #: plugin/chatbot/panel.py
 msgid "[Audio error: recording stopped without a sound file.]"
@@ -1772,6 +2030,10 @@ msgstr "Eller serbest kayıt..."
 #, python-format
 msgid "Hands-free… (%d ms silence)"
 msgstr "Eller serbest… (%d ms sessizlik)"
+
+#: plugin/chatbot/tool_loop_state.py
+msgid "Reached the maximum number of tool rounds."
+msgstr "Maksimum araç turu sayısına ulaşıldı."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1888,46 +2150,6 @@ msgid "MCP server stopped"
 msgstr "MCP sunucusu durduruldu"
 
 #: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Bilinmeyen kütüphaneci hatası."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Harika! Sizi şimdi ana asistana yönlendiriyorum."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Bilinmeyen beyin fırtınası hatası."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Beyin fırtınası tamamlandı."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Bilinmeyen yazma planı hatası."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Yazma planı tamamlandı."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Bilinmeyen PPT-Master hatası."
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master oturumu tamamlandı."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Bilinmeyen derin araştırma hatası."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Bilinmeyen araştırma hatası."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[Belge bağlamı hatası: {0}]"
@@ -1938,10 +2160,6 @@ msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "['{0}' aracı arka ucu kullanılamıyor. Ayarları kontrol edin (yol, kurulum).]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Düşünülüyor..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -2133,21 +2351,13 @@ msgstr "Yeni Python Betiği"
 msgid "Script name:"
 msgstr "Betik adı:"
 
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-msgid "Attach to this document (no document is open)"
-msgstr "Bu belgeye ekle (hiçbir belge açık değil)"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-msgid "Attach to this document (this document is read-only)"
-msgstr "Bu belgeye ekle (bu belge salt okunur)"
-
 #: plugin/scripting/editor_ui_strings.py
 msgid "Running…"
 msgstr "Çalışıyor…"
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Monaco loader missing."
-msgstr "Monaco yükleyicisi eksik."
+msgid "Editor loader missing."
+msgstr "Düzenleyici yükleyici eksik."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Install jedi in the Python venv for completions."
@@ -2169,6 +2379,14 @@ msgstr "Veri:"
 #: plugin/scripting/editor_ui_strings.py
 msgid "A1:C1  or  A1:C1, C1:C5"
 msgstr "A1:C1 veya A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to this document (no document is open)"
+msgstr "Bu belgeye ekle (hiçbir belge açık değil)"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to this document (this document is read-only)"
+msgstr "Bu belgeye ekle (bu belge salt okunur)"
 
 #: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "New"
@@ -2263,6 +2481,10 @@ msgstr "Betiklerimde '{0}' adında bir betik zaten var. Üzerine yazılsın mı?
 msgid "Are you sure you want to delete script '{0}'?"
 msgstr "'{0}' betiğini silmek istediğinizden emin misiniz?"
 
+#: plugin/scripting/editor_ui_strings.py
+msgid "this script"
+msgstr "bu betik"
+
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr "Veri aralığını seçin veya A1 adresini girin (veri olarak eklenir)."
@@ -2274,6 +2496,10 @@ msgstr ""
 "bırakıldılar."
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "Belge salt okunur veya özellikler yazılamıyor."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid ""
 "Stored document scripts are in an unsupported format (version {0}), so they "
@@ -2282,18 +2508,14 @@ msgstr ""
 "Depolanan belge betikleri desteklenmeyen bir biçimde ({0} sürümü), bu yüzden"
 " değiştirilmeden bırakıldılar."
 
-#: plugin/scripting/document_scripts.py
-msgid "Document is read-only or properties cannot be written."
-msgstr "Belge salt okunur veya özellikler yazılamıyor."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open to save scripts."
+msgstr "Betikleri kaydetmek için açık bir belge yok."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr "Belge betikleri belgeye kaydedilemeyecek kadar büyük ({0} bayt)."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open to save scripts."
-msgstr "Betikleri kaydetmek için açık bir belge yok."
 
 #: plugin/scripting/document_scripts.py
 msgid ""
@@ -2355,10 +2577,6 @@ msgid ""
 msgstr ""
 "'{0}' betiği 'Betiğim' içinde veya bu belgede bulunmuyor, bu yüzden "
 "kaydedilmedi."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Açık bir belge yok."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2487,11 +2705,11 @@ msgstr "Venv denetimi başarısız oldu"
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
 "pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" Monaco editor."
+" editor."
 msgstr ""
-"Python venv yolunu Ayarlar → Python içinde ayarlayın ('uv pip install "
-"pywebview rocher' komutunu çalıştırdığınız venv ile aynı olmalıdır). "
-"LibreOffice'in yerleşik Python'u Monaco düzenleyicisini çalıştıramaz."
+"Python sanal ortam (venv) yolunu Ayarlar → Python kısmından ayarlayın ('uv "
+"pip install pywebview rocher' komutunu çalıştırdığınız sanal ortam ile aynı "
+"olmalıdır). LibreOffice'in yerleşik Python'ı düzenleyiciyi çalıştıramaz."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -2580,6 +2798,16 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Ses algılama başarısız oldu (bkz. writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "Arayüz / Monaco incelemesi zaman aşımına uğradı."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr ""
+"Arayüz / Monaco incelemesi başarısız oldu (writeragent_debug.log dosyasına "
+"bakın)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
@@ -2619,71 +2847,13 @@ msgstr ""
 "bakın)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr ""
-"Arayüz / Monaco incelemesi başarısız oldu (writeragent_debug.log dosyasına "
-"bakın)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "Arayüz / Monaco incelemesi zaman aşımına uğradı."
+msgid "DuckDB probe timed out."
+msgstr "DuckDB incelemesi zaman aşımına uğradı."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "DuckDB probe failed (see writeragent_debug.log)."
 msgstr ""
 "DuckDB incelemesi başarısız oldu (writeragent_debug.log dosyasına bakın)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "DuckDB probe timed out."
-msgstr "DuckDB incelemesi zaman aşımına uğradı."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording & Speech"
-msgstr "Ses Kaydı ve Konuşma"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Scientific Libraries"
-msgstr "Bilimsel Kütüphaneler"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Analysis / EDA Libraries"
-msgstr "Veri Analizi / EDA Kütüphaneleri"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries"
-msgstr "Arayüz / Monaco Kütüphaneleri"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Visualization Libraries"
-msgstr "Görselleştirme Kütüphaneleri"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Computer Algebra"
-msgstr "Bilgisayarlı Cebir"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Quantitative Finance Libraries"
-msgstr "Nicel Finans Kütüphaneleri"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Engineering Libraries"
-msgstr "Veri Mühendisliği Kütüphaneleri"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries"
-msgstr "Metin / NLP Kütüphaneleri"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries"
-msgstr "Görüntü Kütüphaneleri"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries"
-msgstr "Vektör Arama Kütüphaneleri"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "To install remaining packages:"
-msgstr "Kalan paketleri yüklemek için:"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
@@ -2698,6 +2868,10 @@ msgid "Local Whisper (optional):"
 msgstr "Yerel Whisper (isteğe bağlı):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "To install remaining packages:"
+msgstr "Kalan paketleri yüklemek için:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Python çalışanı başlatılıyor..."
 
@@ -2708,6 +2882,10 @@ msgstr "Python sürümü okunuyor..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
 msgstr "Ses ve Konuşma: sounddevice, TTS ve yerel Whisper kontrol ediliyor..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording & Speech"
+msgstr "Ses Kaydı ve Konuşma"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "UI / Monaco Libraries: checking outside the script worker..."
@@ -2722,14 +2900,26 @@ msgstr ""
 "alabilir)..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Metin / NLP Kütüphaneleri"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Vision Libraries: yükleniyor (ilk çalıştırma biraz zaman alabilir)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries"
+msgstr "Görüntü Kütüphaneleri"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Vektör Arama Kütüphaneleri: yükleniyor (ilk çalıştırma biraz zaman "
 "alabilir)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Vektör Arama Kütüphaneleri"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2786,6 +2976,10 @@ msgid "Could not read the scope checkbox."
 msgstr "Kapsam onay kutusu okunamadı."
 
 #: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "spaCy / textdescriptives / transformers kurulumu kontrol ediliyor..."
+
+#: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
 msgstr "Analiz etmek için bir Writer belgesi açın."
 
@@ -2796,10 +2990,6 @@ msgstr "Hiçbir şey seçili değil."
 #: plugin/scripting/text_analytics_ui.py
 msgid "Not enough text in the chosen scope."
 msgstr "Seçilen kapsamda yeterli metin yok."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr "spaCy / textdescriptives / transformers kurulumu kontrol ediliyor..."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Analyzing..."
@@ -2972,12 +3162,12 @@ msgstr ""
 "sıfırlandı."
 
 #: plugin/scripting/session_manager.py
-msgid "Notebook Python session reset for this document."
-msgstr "Bu belge için not defteri Python oturumu sıfırlandı."
-
-#: plugin/scripting/session_manager.py
 msgid "Could not reset Python session."
 msgstr "Python oturumu sıfırlanamadı."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Bu belge için not defteri Python oturumu sıfırlandı."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -3027,11 +3217,6 @@ msgid "Python session reset for this document."
 msgstr "Bu belge için Python oturumu sıfırlandı."
 
 #: plugin/scripting/session_manager.py
-msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
-msgstr ""
-"Python Oturumunu Sıfırla; Writer, Calc ve Draw belgeleri için geçerlidir."
-
-#: plugin/scripting/session_manager.py
 msgid ""
 "Several Calc spreadsheets are open and none is focused. Switch to the "
 "spreadsheet to reset and try again."
@@ -3054,6 +3239,11 @@ msgid ""
 msgstr ""
 "Birden fazla Draw belgesi açık ve hiçbiri odaklanmamış. Sıfırlamak ve tekrar"
 " denemek için belgeye geçin."
+
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr ""
+"Python Oturumunu Sıfırla; Writer, Calc ve Draw belgeleri için geçerlidir."
 
 #: plugin/scripting/session_manager.py
 msgid "Open a Writer, Calc, or Draw document and try again."
@@ -3092,16 +3282,6 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' tamamlandı. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Info"
-msgstr "Bilgi"
-
-#: plugin/scripting/python_runner.py
-msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr ""
-"Draw/Impress içine sonuç ekleme henüz desteklenmiyor. Katkılarınızı "
-"bekliyoruz!"
-
-#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Görüntü yardımcıları bir Writer veya Calc belgesi gerektirir."
 
@@ -3128,6 +3308,16 @@ msgstr ""
 "({time} sürdü)"
 
 #: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Bilgi"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"Draw/Impress içine sonuç ekleme henüz desteklenmiyor. Katkılarınızı "
+"bekliyoruz!"
+
+#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr "Sonuç ekleme için desteklenmeyen belge türü. ({time} sürdü)"
@@ -3136,10 +3326,6 @@ msgstr "Sonuç ekleme için desteklenmeyen belge türü. ({time} sürdü)"
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Betik başarıyla çalıştırıldı. ({time} sürdü)"
-
-#: plugin/scripting/python_runner.py
-msgid "Script preparation failed."
-msgstr "Betik hazırlığı başarısız oldu."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3165,8 +3351,8 @@ msgid "Run Python Script"
 msgstr "Python Betiğini Çalıştır"
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script failed to open the Monaco editor."
-msgstr "Python Betiğini Çalıştır, Monaco düzenleyicisini açamadı."
+msgid "Run Python Script failed to open the editor."
+msgstr "Python Betiğini Çalıştır düzenleyiciyi açamadı."
 
 #: plugin/scripting/python_runner.py
 msgid "Could not open the built-in script dialog."
@@ -3175,6 +3361,26 @@ msgstr "Yerleşik betik iletişim kutusu açılamadı."
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Python Betiğini Çalıştır açılırken beklenmeyen bir hata oluştu."
+
+#: plugin/_manifest.py plugin/xdl_strings.py
+msgid "MCP Server Status"
+msgstr "MCP Sunucu Durumu"
+
+#: plugin/_manifest.py
+msgid "◀ Prev"
+msgstr "◀ Önceki"
+
+#: plugin/_manifest.py
+msgid "Next ▶"
+msgstr "Sonraki ▶"
+
+#: plugin/_manifest.py
+msgid "Accept all"
+msgstr "Tümünü kabul et"
+
+#: plugin/_manifest.py
+msgid "Reject all"
+msgstr "Tümünü reddet"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3229,7 +3435,7 @@ msgstr "{total} görselden {count} tanesinden sonra durduruldu."
 msgid "OCR complete ({count} images)."
 msgstr "OCR tamamlandı ({count} resim)."
 
-#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
+#: plugin/vision/vision_runner.py
 msgid "OCR complete."
 msgstr "OCR tamamlandı."
 
@@ -3263,14 +3469,14 @@ msgid "The image was removed during OCR insert."
 msgstr "OCR ekleme sırasında görüntü kaldırıldı."
 
 #: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP sunucusu başlatılamadı"
-
-#: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
 "LibreOffice kullanıcı yapılandırma klasörünüzdeki writeragent_debug.log "
 "dosyasını kontrol edin"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP sunucusu başlatılamadı"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -3481,6 +3687,16 @@ msgstr ""
 "Not: MCP sunucusu şu anda {3} numaralı bağlantı noktasında çalışmıyor."
 
 #: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} başarılı, {2} başarısız."
+
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Testler çalıştırılamadı: {0}"
+
+#: plugin/main.py
 msgid "Dispatch Error"
 msgstr "Gönderim Hatası"
 
@@ -3666,10 +3882,6 @@ msgstr "Raporu buraya ekle"
 #: plugin/xdl_strings.py
 msgid "Key Phrases"
 msgstr "Anahtar İfadeler"
-
-#: plugin/xdl_strings.py
-msgid "MCP Server Status"
-msgstr "MCP Sunucu Durumu"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -4168,6 +4380,17 @@ msgstr ""
 "Zengin metin denetimi (RichTextControl) ile biçimlendirilmiş sohbet. Yeniden"
 " başlatma gerektirir."
 
+msgid "Enter sends message"
+msgstr "Enter tuşu mesajı gönderir"
+
+msgid ""
+"When on, Enter in the sidebar query runs the same action as Send; "
+"Shift+Enter inserts a newline. When off, Enter inserts a newline."
+msgstr ""
+"Açık olduğunda, kenar çubuğu sorgusunda Enter tuşu Gönder ile aynı işlemi "
+"yapar; Shift+Enter yeni bir satır ekler. Kapalı olduğunda, Enter yeni bir "
+"satır ekler."
+
 msgid "Humanizer skill (natural prose)"
 msgstr "İnsanileştirme yeteneği (doğal düzyazı)"
 
@@ -4299,17 +4522,6 @@ msgstr ""
 
 msgid "Local (langdetect)"
 msgstr "Yerel (langdetect)"
-
-msgid "Enter key sends sidebar chat message"
-msgstr "Enter tuşu kenar çubuğu sohbet iletisini gönderir"
-
-msgid ""
-"When on, Enter in the sidebar query runs the same action as Send; "
-"Shift+Enter inserts a newline. When off, Enter inserts a newline."
-msgstr ""
-"Açık olduğunda, kenar çubuğu sorgusunda Enter tuşu Gönder ile aynı işlemi "
-"yapar; Shift+Enter yeni bir satır ekler. Kapalı olduğunda, Enter yeni bir "
-"satır ekler."
 
 msgid "Agent edit review"
 msgstr "Ajan düzenleme incelemesi"
@@ -4493,6 +4705,9 @@ msgstr "İstemci yapılandırması (Claude / Hermes-Agent içine kopyalayın):"
 msgid "Copy Config"
 msgstr "Yapılandırmayı Kopyala"
 
+msgid "Notebook"
+msgstr "Not Defteri"
+
 msgid "Python"
 msgstr "Python"
 
@@ -4586,45 +4801,68 @@ msgid "Allow network access"
 msgstr "Ağ erişimine izin ver"
 
 msgid ""
-"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
-"checked."
+"When checked, Python may open network connections (socket, requests, http, "
+"urllib, ssl, and the other network imports). When unchecked, those imports "
+"are blocked."
 msgstr ""
-"İşaretlenmediği sürece ağ içe aktarmalarını (socket, requests, http, urllib,"
-" ssl, …) engeller."
+"İşaretlendiğinde, Python ağ bağlantıları açabilir (socket, requests, http, "
+"urllib, ssl ve diğer ağ içe aktarmaları). İşaretlenmediğinde, bu içe "
+"aktarmalar engellenir."
 
 msgid "Allow file access"
 msgstr "Dosya erişimine izin ver"
 
 msgid ""
-"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
-"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
-" stay allowed."
+"When checked, Python may read and write files anywhere (open, io, pathlib, "
+"shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
+"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
+" (io.BytesIO, io.StringIO) stay available."
 msgstr ""
-"İşaretlenmediği sürece dosya yazma işlemlerini (os write çağrıları, shutil, "
-"tempfile, sqlite3 ve open() yerleşik işlevi) engeller. pathlib, glob, io ve "
-"logging üzerinden okuma işlemleri izinli kalır."
+"İşaretlendiğinde, Python her yerde dosya okuyabilir ve yazabilir (open, io, "
+"pathlib, shutil, tempfile, sqlite3, glob ve listdir ile stat gibi os dosya "
+"çağrıları). İşaretlenmediğinde, bu okuma ve yazma işlemleri engellenir. "
+"Bellek içi arabellekler (io.BytesIO, io.StringIO) kullanılabilir kalır."
 
 msgid "Allow OS access"
 msgstr "İşletim sistemi erişimine izin ver"
 
 msgid ""
-"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
-"processes); includes file access."
+"When checked, Python gets the real os module and may run other programs "
+"(subprocess, multiprocessing, pty, os.system). Includes file read and write."
+" When unchecked, process spawning is blocked."
 msgstr ""
-"Ham os, subprocess, multiprocessing ve pty (diğer programları ve süreçleri "
-"çalıştırma) erişimine izin verir; dosya erişimini de kapsar."
+"İşaretlendiğinde, Python gerçek os modülünü alır ve diğer programları "
+"çalıştırabilir (subprocess, multiprocessing, pty, os.system). Dosya okuma ve"
+" yazma işlemlerini içerir. İşaretlenmediğinde, süreç oluşturma engellenir."
 
 msgid "Extra allowed modules"
 msgstr "Ek izin verilen modüller"
 
 msgid ""
 "Comma-separated extra modules Python may import (each name also allows "
-"name.*). Overrides the built-in blocklist, including os, socket and "
-"subprocess."
+"name.*). Overrides the sandbox blocklist, including the file, network, and "
+"process lists (os, socket, subprocess)."
 msgstr ""
-"Python'ın içe aktarabileceği, virgülle ayrılmış ek modüller (her isim, "
-"name.* alt modüllerine de izin verir). os, socket ve subprocess dahil olmak "
-"üzere yerleşik engelleme listesini geçersiz kılar."
+"Python'ın içe aktarabileceği virgülle ayrılmış ek modüller (her ad name.* "
+"biçimine de izin verir). Dosya, ağ ve süreç listeleri (os, socket, "
+"subprocess) dahil olmak üzere korumalı alan (sandbox) engelleme listesini "
+"geçersiz kılar."
+
+msgid "Python editor"
+msgstr "Python düzenleyici"
+
+msgid ""
+"Editor window for Edit Python in Cell, Run Python Script, the init script "
+"and LaTeX."
+msgstr ""
+"Hücrede Python Düzenle, Python Betiğini Çalıştır, başlangıç betiği ve LaTeX "
+"için düzenleyici penceresi."
+
+msgid "Monaco (default)"
+msgstr "Monaco (varsayılan)"
+
+msgid "CodeMirror"
+msgstr "CodeMirror"
 
 msgid "Vision / OCR"
 msgstr "Vizyon / OCR"

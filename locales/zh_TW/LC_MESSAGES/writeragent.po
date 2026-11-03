@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-26 12:14-0400\n"
+"POT-Creation-Date: 2026-11-03 13:09-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -16,6 +16,23 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/agent_undo.py
+msgid "There is no agent edit to undo."
+msgstr "沒有可復原的代理編輯。"
+
+#: plugin/doc/agent_undo.py
+msgid "The document was edited since the last agent edit."
+msgstr "自上次代理編輯後，文件內容已有變更。"
+
+#: plugin/doc/agent_undo.py
+msgid "Could not undo the last agent edit."
+msgstr "無法復原上次的代理編輯。"
+
+#: plugin/doc/agent_undo.py
+#, python-brace-format
+msgid "Undid the last agent edit ({0} steps)"
+msgstr "已復原上次的代理編輯 ({0} 個步驟)"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -33,6 +50,15 @@ msgstr "正在對選取的影像執行本機 OCR..."
 #, python-brace-format
 msgid "Specialized task ({domain}) completed."
 msgstr "專屬任務 ({domain}) 已完成。"
+
+#: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "錯誤"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -55,6 +81,14 @@ msgid "Code cell is empty."
 msgstr "程式碼儲存格為空。"
 
 #: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "找不到此控制項對應的 Notebook 儲存格。"
+
+#: plugin/notebook/notebook_runner.py
+msgid "Open a Writer document first."
+msgstr "請先開啟一份 Writer 文件。"
+
+#: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
 msgstr "Notebook 執行僅支援於 LibreOffice Writer。"
 
@@ -64,19 +98,11 @@ msgid ""
 "(.ipynb) first."
 msgstr "本文件未匯入任何筆記本。請先執行「檔案」→「開啟 Jupyter 筆記本 (.ipynb)」。"
 
-#: plugin/notebook/notebook_runner.py
-msgid "Could not find notebook cell for this control."
-msgstr "找不到此控制項對應的 Notebook 儲存格。"
-
-#: plugin/notebook/notebook_runner.py
-msgid "Open a Writer document first."
-msgstr "請先開啟一份 Writer 文件。"
-
-#: plugin/notebook/notebook_controls.py
+#: plugin/notebook/layout.py
 msgid "Run code cell"
 msgstr "執行程式碼儲存格"
 
-#: plugin/notebook/notebook_controls.py
+#: plugin/notebook/layout.py
 msgid "Code"
 msgstr "程式碼"
 
@@ -237,25 +263,6 @@ msgid "No API key configured. Open Settings and add a key."
 msgstr "未設定 API 金鑰。請開啟「設定」並新增金鑰。"
 
 #: plugin/framework/errors.py
-msgid ""
-"Python venv not found. Open Settings → Python, set the venv path, then Test."
-msgstr "找不到 Python venv。請開啟「設定」→「Python」，設定 venv 路徑，然後進行測試。"
-
-#: plugin/framework/errors.py
-msgid ""
-"Python execution timed out. Open Settings → Python to raise the timeout."
-msgstr "Python 執行逾時。請開啟「設定」→「Python」以增加逾時時間。"
-
-#: plugin/framework/errors.py
-msgid "Formula spill collision: destination range contains non-empty cells."
-msgstr "公式溢出衝突：目標範圍包含非空白儲存格。"
-
-#: plugin/framework/errors.py
-#, python-brace-format
-msgid "Script execution blocked by sandbox policy: {0}"
-msgstr "指令碼執行被沙盒原則封鎖：{0}"
-
-#: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr "請求逾時。請嘗試在設定中增加「請求逾時」。"
 
@@ -274,6 +281,20 @@ msgid "Connection Error: {0}"
 msgstr "連線錯誤：{0}"
 
 #: plugin/framework/errors.py
+msgid ""
+"Python venv not found. Open Settings → Python, set the venv path, then Test."
+msgstr "找不到 Python venv。請開啟「設定」→「Python」，設定 venv 路徑，然後進行測試。"
+
+#: plugin/framework/errors.py
+msgid ""
+"Python execution timed out. Open Settings → Python to raise the timeout."
+msgstr "Python 執行逾時。請開啟「設定」→「Python」以增加逾時時間。"
+
+#: plugin/framework/errors.py
+msgid "Formula spill collision: destination range contains non-empty cells."
+msgstr "公式溢出衝突：目標範圍包含非空白儲存格。"
+
+#: plugin/framework/errors.py
 msgid "The AI provider reported an error. Try again."
 msgstr "AI 提供者報告錯誤。請再試一次。"
 
@@ -282,11 +303,6 @@ msgstr "AI 提供者報告錯誤。請再試一次。"
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "錯誤：{0}"
-
-#: plugin/framework/errors.py
-#, python-brace-format
-msgid "{resource_type} not found: {identifier}"
-msgstr "{resource_type} 未找到：{identifier}"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -373,25 +389,6 @@ msgstr "正在間隔自由模型請求，下次傳送於 {0} 秒後…"
 #: plugin/framework/client/anthropic_shim.py
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "未設定 Anthropic 模型。請在「設定」中選擇模型。"
-
-#: plugin/framework/main_shared.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}：{1} 通過，{2} 失敗。"
-
-#: plugin/framework/main_shared.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "測試無法執行：{0}"
-
-#: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
-#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
-#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Error"
-msgstr "錯誤"
 
 #: plugin/framework/config.py
 msgid "Please set Endpoint in Settings."
@@ -548,18 +545,19 @@ msgid "Installing Kokoro phonemizer…"
 msgstr "正在安裝 Kokoro 音素轉換器…"
 
 #: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "正在下載日語音素轉換器字典…"
+
+#: plugin/audio/kokoro_g2p.py
 #, python-brace-format
 msgid ""
 "Couldn't install the Kokoro phonemizer; this language may be misread. "
 "Install with: {0}"
 msgstr "無法安裝 Kokoro 音素轉換器；此語言可能無法正確讀取。請使用下列指令安裝：{0}"
 
-#: plugin/audio/kokoro_g2p.py
-msgid "Downloading Japanese phonemizer dictionary…"
-msgstr "正在下載日語音素轉換器字典…"
-
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/_manifest.py
 msgid "Edit Python in Cell..."
 msgstr "編輯儲存格中的 Python..."
 
@@ -600,10 +598,6 @@ msgstr "初始化指令碼已儲存。"
 msgid "Save initialization script"
 msgstr "儲存初始化指令碼"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Status:"
-msgstr "狀態："
-
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
 #: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
@@ -618,12 +612,12 @@ msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
 msgstr "Calc 會在執行階段從這些範圍注入 `data` 和 `ranges`。"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr "狀態："
+
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saving…"
 msgstr "儲存中…"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/calc/python/editor.py
-msgid "Saved without =PY()."
-msgstr "已儲存，不含 =PY()。"
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -666,6 +660,10 @@ msgstr "程式碼已儲存於 {0}。"
 msgid "WriterAgent: Save Python cell"
 msgstr "WriterAgent：儲存 Python 儲存格"
 
+#: plugin/calc/python/editor.py
+msgid "Saved without =PY()."
+msgstr "已儲存，不含 =PY()。"
+
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
 msgstr "Python 儲存格編輯器"
@@ -693,15 +691,6 @@ msgstr "請選取 Calc 試算表中的儲存格以編輯 Python。"
 #, python-brace-format
 msgid "Could not open the code cell {0}."
 msgstr "無法開啟程式碼儲存格 {0}。"
-
-#: plugin/calc/python/editor.py
-msgid ""
-"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
-"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
-"quoted code."
-msgstr ""
-"此 PY 公式使用的格式無法由編輯器安全地重寫（例如位於其他儲存格中的程式碼）。請在公式列中編輯它，或使用 =PY(\"code\"; range) "
-"並搭配引號括住的程式碼。"
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -737,7 +726,7 @@ msgstr "已插入影像"
 msgid "Images inserted"
 msgstr "已插入影像"
 
-#: plugin/calc/python/geometric_recalc_core.py
+#: plugin/calc/python/geometric_recalc.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -746,15 +735,6 @@ msgid ""
 msgstr ""
 "幾何重新計算順序已跳過工作表「%(sheet)s」：發現 %(cap)s 個或更多 Python "
 "儲存格（探索上限）。該工作表未被鏈結，因此部分清單不會被視為完整。"
-
-#: plugin/calc/python/formula_edit.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"無法保留此儲存格的 PY 公式引數（例如資料範圍）。請在 Calc 中編輯公式，或使用引號括住的程式碼字串，例如 =PY(\"code\"; "
-"A1:B10)。"
 
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
@@ -875,48 +855,53 @@ msgid "(no =PY() cells on active sheet)"
 msgstr "(目前工作表無 =PY() 儲存格)"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_factory.py plugin/_manifest.py
 msgid "Run Python Script..."
 msgstr "執行 Python 指令碼..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_factory.py plugin/_manifest.py
 msgid "Insert LaTeX Math..."
 msgstr "插入 LaTeX 數學式..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Text Analytics..."
 msgstr "文字分析..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
 #: plugin/chatbot/dialog_views.py plugin/chatbot/panel_factory.py
-#: plugin/xdl_strings.py
+#: plugin/_manifest.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "設定"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Vision OCR Settings..."
 msgstr "Vision OCR 設定..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Reset Python Session"
 msgstr "重設 Python 工作階段"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Run All"
 msgstr "全部執行"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Run From Here"
 msgstr "從此處執行"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/xdl_strings.py
+#: plugin/_manifest.py plugin/xdl_strings.py
 msgid "Stop"
 msgstr "停止"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/dialogs.py
-#: plugin/chatbot/hamburger_menu.py plugin/xdl_strings.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py plugin/xdl_strings.py
 msgid "Report bug..."
 msgstr "回報錯誤..."
 
@@ -931,10 +916,6 @@ msgstr "接受所有變更 (代理)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "拒絕所有變更 (代理)"
-
-#: plugin/writer/inline_review.py
-msgid "No agent changes to review in this document."
-msgstr "此文件中沒有可供檢閱的代理程式變更。"
 
 #: plugin/writer/inline_review.py
 #, python-format
@@ -975,6 +956,17 @@ msgstr "未進行任何變更。請至「編輯」>「追蹤變更」>「管理�
 
 #: plugin/writer/inline_review.py
 msgid ""
+"Could not resolve this change here -- it may share a paragraph with one of "
+"your tracked changes or another agent change. Resolve it from Edit > Track "
+"Changes > Manage."
+msgstr "無法在此處解決此變更，它可能與您自己的追蹤變更或其他代理程式變更位於同一個段落中。請至「編輯」>「追蹤變更」>「管理」解決它。"
+
+#: plugin/writer/inline_review.py
+msgid "No agent changes to review in this document."
+msgstr "此文件中沒有可供檢閱的代理程式變更。"
+
+#: plugin/writer/inline_review.py
+msgid ""
 "None could be resolved here -- each overlaps with one of your own tracked "
 "changes. Resolve them from Edit > Track Changes > Manage."
 msgstr "此處無法解決任何變更，因為每一項都與您自己的追蹤變更重疊。請至「編輯」>「追蹤變更」>「管理」解決它們。"
@@ -986,13 +978,6 @@ msgid ""
 "changes -- resolve those from Edit > Track Changes > Manage."
 msgstr ""
 "已解決 %(total)d 項中的 %(resolved)d 項。其餘變更與您自己的追蹤變更重疊，請至「編輯」>「追蹤變更」>「管理」解決這些變更。"
-
-#: plugin/writer/inline_review.py
-msgid ""
-"Could not resolve this change here -- it may share a paragraph with one of "
-"your tracked changes or another agent change. Resolve it from Edit > Track "
-"Changes > Manage."
-msgstr "無法在此處解決此變更，它可能與您自己的追蹤變更或其他代理程式變更位於同一個段落中。請至「編輯」>「追蹤變更」>「管理」解決它。"
 
 #: plugin/writer/inline_review.py
 msgid "Put the cursor on a highlighted agent change first."
@@ -1060,6 +1045,10 @@ msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent：擴展選取"
 
 #: plugin/writer/editselection.py
+msgid "The document is empty."
+msgstr "文件為空白。"
+
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent：編輯選取"
 
@@ -1085,10 +1074,6 @@ msgid "AI Grammar"
 msgstr "AI 文法"
 
 #: plugin/writer/math/latex_dialog.py
-msgid "Could not open the LaTeX input dialog."
-msgstr "無法開啟 LaTeX 輸入對話方塊。"
-
-#: plugin/writer/math/latex_dialog.py
 msgid "Update"
 msgstr "更新"
 
@@ -1096,6 +1081,10 @@ msgstr "更新"
 #: plugin/xdl_strings.py
 msgid "Insert"
 msgstr "插入"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "無法開啟 LaTeX 輸入對話方塊。"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Edit LaTeX Math"
@@ -1452,23 +1441,24 @@ msgstr "已複製！"
 msgid "Copy URL"
 msgstr "複製網址"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Extend Selection"
 msgstr "擴展選取"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Edit Selection"
 msgstr "編輯選取"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Convert Sheet to Python..."
 msgstr "將工作表轉換為 Python..."
 
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/_manifest.py
 msgid "Search Nearby Files..."
 msgstr "搜尋鄰近檔案..."
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Toggle MCP Server"
 msgstr "切換 MCP 伺服器"
 
@@ -1480,27 +1470,27 @@ msgstr "MCP 伺服器 (執行中)"
 msgid "MCP Server (Stopped)"
 msgstr "MCP 伺服器 (已停止)"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run format tests"
 msgstr "執行格式測試"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run calc tests"
 msgstr "執行 Calc 測試"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run Calc API integration tests"
 msgstr "執行 Calc API 整合測試"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run draw tests"
 msgstr "執行 Draw 測試"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Evaluation Dashboard"
 msgstr "評估儀表板"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Debug"
 msgstr "除錯"
 
@@ -1508,9 +1498,86 @@ msgstr "除錯"
 msgid "[No speech detected.]"
 msgstr "[未偵測到語音。]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
 msgid "[Voice message]"
 msgstr "[語音訊息]"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "WriterAgent: Formula"
+msgstr "WriterAgent：公式"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Wait for the current operation to finish before /undo."
+msgstr "請等待目前的操作完成後再執行 /undo。"
+
+#: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "沒有開啟任何文件。"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Select a cell first."
+msgstr "請先選取一個儲存格。"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Write exactly one LibreOffice Calc formula for this request: {0}"
+msgstr "請針對此請求撰寫一個 LibreOffice Calc 公式：{0}"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Target cell: {0} on sheet \"{1}\"."
+msgstr "目標儲存格：工作表「{1}」上的 {0}。"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Used range: {0}."
+msgstr "已使用範圍：{0}。"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Header row: {0}."
+msgstr "標題列：{0}。"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "(empty)"
+msgstr "(空)"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid ""
+"Reply with the formula only. It must start with =. Use English function "
+"names. Use semicolon (;) between function arguments (Calc setFormula API "
+"grammar). No prose or markdown."
+msgstr ""
+"僅回覆公式。必須以 = 開頭。請使用英文函數名稱。函數引數之間請使用分號 (;)（Calc setFormula API 語法）。不要包含任何說明文字或"
+" Markdown 格式。"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Could not insert the formula."
+msgstr "無法插入公式。"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Formula for {0}: {1}"
+msgstr "{0} 的公式：{1}"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "The cell shows an error"
+msgstr "儲存格顯示錯誤"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid ""
+"You write LibreOffice Calc formulas. Output a single formula starting with "
+"=, nothing else."
+msgstr "您正在撰寫 LibreOffice Calc 公式。請輸出單一以 = 開頭的公式，不要包含其他內容。"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Stopped."
+msgstr "已停止。"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Formula generation failed."
+msgstr "公式產生失敗。"
 
 #: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Chat"
@@ -1525,30 +1592,18 @@ msgid "Web Research"
 msgstr "網路研究"
 
 #: plugin/chatbot/chat_sidebar_mode.py
-msgid "Deep Research"
-msgstr "深度研究"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Brainstorming"
-msgstr "腦力激盪"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Writing Plan"
-msgstr "寫作計畫"
-
-#: plugin/chatbot/chat_sidebar_mode.py plugin/chatbot/dialog_views.py
-msgid "PPT-Master"
-msgstr "PPT-Master"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Librarian"
-msgstr "圖書管理員"
-
-#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr "AI：我可以進行網路搜尋來回答任何問題，或是摘要網頁內容，且不會查看或變更您的文件。我們來聊聊吧。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown research error."
+msgstr "未知研究錯誤。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "深度研究"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
@@ -1559,6 +1614,14 @@ msgstr ""
 "AI：深度研究模式會執行多步驟的網路調查（規劃、多次搜尋、綜合分析），並能將格式化後的報告插入您的文件中。這需要較長的時間，但能產生更詳盡的結果。"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown deep research error."
+msgstr "未知的深度研究錯誤。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming"
+msgstr "腦力激盪"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
@@ -1566,11 +1629,35 @@ msgid ""
 msgstr "AI：讓我們一起探索並設計您的想法。我會提出問題、建議方法，並在您準備好時協助您在文件中建立核准的規格書。"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown brainstorming error."
+msgstr "未知的腦力激盪錯誤。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming complete."
+msgstr "腦力激盪完成。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing Plan"
+msgstr "寫作計畫"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
 "writing plan outline, and then implement it incrementally with your "
 "approval."
 msgstr "AI：讓我們逐節草擬您的文件。我會協助您建立寫作大綱，並在您核准後逐步執行。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown writing plan error."
+msgstr "未知的寫作計畫錯誤。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing plan complete."
+msgstr "寫作計畫已完成。"
+
+#: plugin/chatbot/chat_sidebar_mode.py plugin/chatbot/dialog_views.py
+msgid "PPT-Master"
+msgstr "PPT-Master"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
@@ -1582,12 +1669,32 @@ msgstr ""
 "Impress）。請描述您的主題或指定專案資料夾給我。"
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown PPT-Master error."
+msgstr "未知的 PPT-Master 錯誤。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master session complete."
+msgstr "PPT-Master 工作階段已完成。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Librarian"
+msgstr "圖書管理員"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
 " colors, and give a short tour. Pick Chat in the dropdown whenever you want "
 "to work on the document."
 msgstr ""
 "AI：我是 WriterAgent 圖書館員 — 我可以記住您的名字、喜愛的顏色，並為您進行簡短導覽。隨時想處理文件時，請在下拉選單中選擇「聊天」。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown librarian error."
+msgstr "未知的圖書館員錯誤。"
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "完美！現在我將您切換到主要助手。"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
@@ -1600,6 +1707,83 @@ msgstr "開始新對話"
 #: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "取消傳送中的請求"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Summarize the selection or document in the sidebar"
+msgstr "在側邊欄摘要選取範圍或文件"
+
+#: plugin/chatbot/slash_commands.py
+msgid ""
+"Summarize the selected text, or the whole document if nothing is selected."
+msgstr "摘要選取的文字，若未選取任何內容則摘要整份文件。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Fix spelling, grammar, and punctuation without restyling"
+msgstr "修正拼字、語法與標點符號，但不更改樣式"
+
+#: plugin/chatbot/slash_commands.py
+msgid ""
+"Fix spelling, grammar, and punctuation only. Do not change style, tone, or "
+"meaning."
+msgstr "僅修正拼字、語法與標點符號。請勿更改樣式、語氣或意義。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Shorten the selection"
+msgstr "縮短選取範圍"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Make the text shorter while preserving the meaning."
+msgstr "在保留意義的前提下縮短文字。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Expand the selection with more detail"
+msgstr "以更多細節擴充選取範圍"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Expand the text with more detail and clarity."
+msgstr "以更多細節與清晰度擴充文字。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Rewrite the selection to match a described tone"
+msgstr "依據描述的語氣重寫選取範圍"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Rewrite the text to match this tone or style: {arg}"
+msgstr "將文字重寫為符合此語氣或樣式：{arg}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Translate the selection (sidebar when nothing is selected in Writer)"
+msgstr "翻譯所選內容（當 Writer 中未選取任何內容時顯示於側邊欄）"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Translate the text into {arg}. Keep formatting and structure."
+msgstr "將文字翻譯為 {arg}。請保留格式與結構。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Explain the selection or active Calc formula"
+msgstr "解釋所選內容或作用中的 Calc 公式"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Explain the following in plain language."
+msgstr "用淺顯易懂的語言解釋下列內容。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Save a fact to persistent memory"
+msgstr "將事實儲存至永久記憶體"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compact older chat history now"
+msgstr "立即壓縮較舊的對話記錄"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Undo the last agent edit as one step"
+msgstr "將上一次代理程式的編輯復原為單一步驟"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Write a Calc formula from a plain-English description"
+msgstr "根據純英文描述編寫 Calc 公式"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Mock command (echo only)"
@@ -1621,6 +1805,83 @@ msgstr "切換模型 (模擬)"
 msgid "Slash commands:"
 msgstr "斜線指令："
 
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Usage: {0}"
+msgstr "用法：{0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Cell {0} formula: {1}"
+msgstr "儲存格 {0} 公式：{1}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Cell {0} value: {1}"
+msgstr "儲存格 {0} 的值：{1}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "無法儲存至記憶體。"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "已儲存至記憶體：{0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Conversation compacted."
+msgstr "對話已壓縮。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Nothing to compact."
+msgstr "沒有可壓縮的內容。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Nothing to compact yet (history is still small)."
+msgstr "尚無可壓縮的內容（歷史記錄仍很短）。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction is not available for this model."
+msgstr "此模型不支援壓縮功能。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction failed."
+msgstr "壓縮失敗。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "WriterAgent"
+msgstr "WriterAgent"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Configure an API key to compact."
+msgstr "請設定 API 金鑰以進行壓縮。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Chat compaction is disabled in settings."
+msgstr "設定中已停用對話壓縮。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction cancelled."
+msgstr "壓縮已取消。"
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
+#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "思考中..."
+
+#: plugin/chatbot/panel.py
+msgid "[No compatible LibreOffice document found.]"
+msgstr "[找不到相容的 LibreOffice 文件。]"
+
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
+msgid "Wait for the current reply to finish before /compact."
+msgstr "請等待目前回覆完成後再執行 /compact。"
+
+#: plugin/chatbot/panel.py
+msgid "Only in Calc"
+msgstr "僅限 Calc"
+
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "正在取得文件…"
@@ -1630,13 +1891,6 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr "[在活動視窗中未找到相容的 LibreOffice 文件 (Writer、Calc 或 Draw)。]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Internal Error: Could not identify document type for {0}. Please report "
-"this!]"
-msgstr "[內部錯誤：無法識別 {0} 的文件類型。請回報此問題！]"
 
 #: plugin/chatbot/panel.py
 msgid "[Audio error: recording stopped without a sound file.]"
@@ -1667,6 +1921,10 @@ msgstr "免持錄製中..."
 #, python-format
 msgid "Hands-free… (%d ms silence)"
 msgstr "免持模式…（靜音 %d 毫秒）"
+
+#: plugin/chatbot/tool_loop_state.py
+msgid "Reached the maximum number of tool rounds."
+msgstr "已達到工具執行的最大輪數。"
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1775,46 +2033,6 @@ msgid "MCP server stopped"
 msgstr "MCP 伺服器已停止"
 
 #: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "未知的圖書館員錯誤。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "完美！現在我將您切換到主要助手。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "未知的腦力激盪錯誤。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "腦力激盪完成。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "未知的寫作計畫錯誤。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "寫作計畫已完成。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "未知的 PPT-Master 錯誤。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "PPT-Master 工作階段已完成。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "未知的深度研究錯誤。"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "未知研究錯誤。"
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[文件上下文錯誤：{0}]"
@@ -1824,10 +2042,6 @@ msgstr "[文件上下文錯誤：{0}]"
 msgid ""
 "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr "[代理後端 '{0}' 不可用。請檢查設定（路徑、安裝）。]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "思考中..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -2006,21 +2220,13 @@ msgstr "新增 Python 指令碼"
 msgid "Script name:"
 msgstr "指令碼名稱："
 
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-msgid "Attach to this document (no document is open)"
-msgstr "附加至此文件（無開啟的文件）"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-msgid "Attach to this document (this document is read-only)"
-msgstr "附加至此文件（此文件為唯讀）"
-
 #: plugin/scripting/editor_ui_strings.py
 msgid "Running…"
 msgstr "執行中…"
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Monaco loader missing."
-msgstr "遺失 Monaco 載入器。"
+msgid "Editor loader missing."
+msgstr "編輯器載入程式遺失。"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Install jedi in the Python venv for completions."
@@ -2042,6 +2248,14 @@ msgstr "資料："
 #: plugin/scripting/editor_ui_strings.py
 msgid "A1:C1  or  A1:C1, C1:C5"
 msgstr "A1:C1 或 A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to this document (no document is open)"
+msgstr "附加至此文件（無開啟的文件）"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to this document (this document is read-only)"
+msgstr "附加至此文件（此文件為唯讀）"
 
 #: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "New"
@@ -2132,6 +2346,10 @@ msgstr "「我的指令碼」中已存在名為「{0}」的指令碼。是否覆
 msgid "Are you sure you want to delete script '{0}'?"
 msgstr "確定要刪除指令碼「{0}」嗎？"
 
+#: plugin/scripting/editor_ui_strings.py
+msgid "this script"
+msgstr "此指令碼"
+
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr "選取資料範圍或輸入 A1 位址 (將作為資料注入)。"
@@ -2141,24 +2359,24 @@ msgid "Stored document scripts are unreadable, so they were left unchanged."
 msgstr "儲存的文件指令碼無法讀取，因此保持不變。"
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "文件為唯讀，或無法寫入屬性。"
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid ""
 "Stored document scripts are in an unsupported format (version {0}), so they "
 "were left unchanged."
 msgstr "儲存的文件指令碼格式不受支援（版本 {0}），因此保持不變。"
 
-#: plugin/scripting/document_scripts.py
-msgid "Document is read-only or properties cannot be written."
-msgstr "文件為唯讀，或無法寫入屬性。"
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open to save scripts."
+msgstr "沒有開啟任何文件以儲存指令碼。"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr "文件指令碼過大，無法儲存於文件中（{0} 位元組）。"
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open to save scripts."
-msgstr "沒有開啟任何文件以儲存指令碼。"
 
 #: plugin/scripting/document_scripts.py
 msgid ""
@@ -2213,10 +2431,6 @@ msgstr "「我的指令碼」中不存在指令碼「{0}」。"
 msgid ""
 "Script '{0}' is not in My Scripts or this document, so it was not saved."
 msgstr "指令稿「{0}」不在「我的指令稿」或本文件中，因此未儲存。"
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "沒有開啟任何文件。"
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2345,10 +2559,10 @@ msgstr "虛擬環境檢查失敗"
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
 "pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" Monaco editor."
+" editor."
 msgstr ""
-"請在「設定」→「Python」中設定 Python venv 路徑（即您執行 'uv pip install pywebview rocher' "
-"的同一個 venv）。LibreOffice 內建的 Python 無法執行 Monaco 編輯器。"
+"請在「設定」→「Python」中設定 Python venv 路徑（與您執行 'uv pip install pywebview rocher' 的 "
+"venv 相同）。LibreOffice 內建的 Python 無法執行編輯器。"
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -2433,6 +2647,14 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "音訊探測失敗（請參閱 writeragent_debug.log）。"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Monaco 探測逾時。"
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Monaco 探測失敗（請參閱 writeragent_debug.log）。"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
@@ -2462,68 +2684,12 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "向量搜尋探測失敗 (請參閱 writeragent_debug.log)。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco 探測失敗（請參閱 writeragent_debug.log）。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco 探測逾時。"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "DuckDB probe failed (see writeragent_debug.log)."
-msgstr "DuckDB 探測失敗（請參閱 writeragent_debug.log）。"
-
-#: plugin/scripting/venv_diagnostics.py
 msgid "DuckDB probe timed out."
 msgstr "DuckDB 探測逾時。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording & Speech"
-msgstr "錄音與語音"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Scientific Libraries"
-msgstr "科學運算庫"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Analysis / EDA Libraries"
-msgstr "資料分析 / EDA 函式庫"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries"
-msgstr "UI / Monaco 函式庫"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Visualization Libraries"
-msgstr "視覺化函式庫"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Computer Algebra"
-msgstr "電腦代數"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Quantitative Finance Libraries"
-msgstr "量化金融函式庫"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Engineering Libraries"
-msgstr "資料工程函式庫"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries"
-msgstr "文字 / NLP 函式庫"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries"
-msgstr "視覺函式庫"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries"
-msgstr "向量搜尋程式庫"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "To install remaining packages:"
-msgstr "若要安裝剩餘的套件："
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "DuckDB 探測失敗（請參閱 writeragent_debug.log）。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
@@ -2538,6 +2704,10 @@ msgid "Local Whisper (optional):"
 msgstr "本機 Whisper（選用）："
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "To install remaining packages:"
+msgstr "若要安裝剩餘的套件："
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "正在啟動 Python 背景程式..."
 
@@ -2550,6 +2720,10 @@ msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
 msgstr "音訊與語音：正在檢查 sounddevice、TTS 以及本機 Whisper..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording & Speech"
+msgstr "錄音與語音"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "UI / Monaco Libraries: checking outside the script worker..."
 msgstr "UI / Monaco 程式庫：正在檢查指令碼工作執行緒之外的區域..."
 
@@ -2558,12 +2732,24 @@ msgid "Text / NLP Libraries: loading (first run may take a while)..."
 msgstr "文字 / NLP 函式庫：載入中（首次執行可能需要一些時間）..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "文字 / NLP 函式庫"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "視覺函式庫：載入中（首次執行可能需要一些時間）..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries"
+msgstr "視覺函式庫"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr "向量搜尋程式庫：載入中 (首次執行可能需要一些時間)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "向量搜尋程式庫"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2618,6 +2804,10 @@ msgid "Could not read the scope checkbox."
 msgstr "無法讀取範圍核取方塊。"
 
 #: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "正在檢查 spaCy / textdescriptives / transformers 安裝狀態..."
+
+#: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
 msgstr "請開啟一份 Writer 文件以進行分析。"
 
@@ -2628,10 +2818,6 @@ msgstr "未選取任何項目。"
 #: plugin/scripting/text_analytics_ui.py
 msgid "Not enough text in the chosen scope."
 msgstr "所選範圍內的文字不足。"
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr "正在檢查 spaCy / textdescriptives / transformers 安裝狀態..."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Analyzing..."
@@ -2796,12 +2982,12 @@ msgid ""
 msgstr "此筆記本尚未建立 Python 背景工作階段。執行計數器已重設。"
 
 #: plugin/scripting/session_manager.py
-msgid "Notebook Python session reset for this document."
-msgstr "已為此文件重設筆記本 Python 工作階段。"
-
-#: plugin/scripting/session_manager.py
 msgid "Could not reset Python session."
 msgstr "無法重設 Python 工作階段。"
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "已為此文件重設筆記本 Python 工作階段。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2845,10 +3031,6 @@ msgid "Python session reset for this document."
 msgstr "已重設此文件的 Python 工作階段。"
 
 #: plugin/scripting/session_manager.py
-msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
-msgstr "重設 Python 工作階段適用於 Writer、Calc 與 Draw 文件。"
-
-#: plugin/scripting/session_manager.py
 msgid ""
 "Several Calc spreadsheets are open and none is focused. Switch to the "
 "spreadsheet to reset and try again."
@@ -2865,6 +3047,10 @@ msgid ""
 "Several Draw documents are open and none is focused. Switch to the document "
 "to reset and try again."
 msgstr "目前開啟了多個 Draw 文件，且沒有任何一個處於焦點狀態。請切換至該文件以重設並再試一次。"
+
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr "重設 Python 工作階段適用於 Writer、Calc 與 Draw 文件。"
 
 #: plugin/scripting/session_manager.py
 msgid "Open a Writer, Calc, or Draw document and try again."
@@ -2903,14 +3089,6 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' 已完成。{msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Info"
-msgstr "資訊"
-
-#: plugin/scripting/python_runner.py
-msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr "尚不支援將結果插入 Draw/Impress。歡迎提交 PR！"
-
-#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "視覺輔助工具需要 Writer 或 Calc 文件。"
 
@@ -2933,6 +3111,14 @@ msgid ""
 msgstr "指令碼執行成功，但未傳回結果且未產生任何輸出。（耗時 {time}）"
 
 #: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "資訊"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr "尚不支援將結果插入 Draw/Impress。歡迎提交 PR！"
+
+#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr "不支援此文件類型以插入結果。（耗時 {time}）"
@@ -2941,10 +3127,6 @@ msgstr "不支援此文件類型以插入結果。（耗時 {time}）"
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "指令碼執行成功。（耗時 {time}）"
-
-#: plugin/scripting/python_runner.py
-msgid "Script preparation failed."
-msgstr "指令碼準備失敗。"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2968,8 +3150,8 @@ msgid "Run Python Script"
 msgstr "執行 Python 指令稿"
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script failed to open the Monaco editor."
-msgstr "「執行 Python 指令碼」無法開啟 Monaco 編輯器。"
+msgid "Run Python Script failed to open the editor."
+msgstr "執行 Python 指令碼開啟編輯器失敗。"
 
 #: plugin/scripting/python_runner.py
 msgid "Could not open the built-in script dialog."
@@ -2978,6 +3160,26 @@ msgstr "無法開啟內建指令碼對話方塊。"
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "開啟「執行 Python 指令碼」時發生未預期的錯誤。"
+
+#: plugin/_manifest.py plugin/xdl_strings.py
+msgid "MCP Server Status"
+msgstr "MCP 伺服器狀態"
+
+#: plugin/_manifest.py
+msgid "◀ Prev"
+msgstr "◀ 上一則"
+
+#: plugin/_manifest.py
+msgid "Next ▶"
+msgstr "下一則 ▶"
+
+#: plugin/_manifest.py
+msgid "Accept all"
+msgstr "全部接受"
+
+#: plugin/_manifest.py
+msgid "Reject all"
+msgstr "全部拒絕"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3026,7 +3228,7 @@ msgstr "已在處理 {total} 張圖片中的第 {count} 張後停止。"
 msgid "OCR complete ({count} images)."
 msgstr "OCR 已完成（{count} 張影像）。"
 
-#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
+#: plugin/vision/vision_runner.py
 msgid "OCR complete."
 msgstr "OCR 已完成。"
 
@@ -3060,12 +3262,12 @@ msgid "The image was removed during OCR insert."
 msgstr "OCR 插入期間影像已被移除。"
 
 #: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "MCP 伺服器啟動失敗"
-
-#: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr "請檢查 LibreOffice 使用者設定資料夾中的 writeragent_debug.log"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "MCP 伺服器啟動失敗"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -3275,6 +3477,16 @@ msgstr ""
 "注意：MCP 伺服器目前未在連接埠 {3} 上執行。"
 
 #: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}：{1} 通過，{2} 失敗。"
+
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "測試無法執行：{0}"
+
+#: plugin/main.py
 msgid "Dispatch Error"
 msgstr "調度錯誤"
 
@@ -3457,10 +3669,6 @@ msgstr "在此插入報告"
 #: plugin/xdl_strings.py
 msgid "Key Phrases"
 msgstr "關鍵詞組"
-
-#: plugin/xdl_strings.py
-msgid "MCP Server Status"
-msgstr "MCP 伺服器狀態"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -3931,6 +4139,15 @@ msgstr "RTF 控制項側邊欄"
 msgid "Formatted chat via RichTextControl. Requires restart."
 msgstr "透過 RichTextControl 進行格式化對話。需要重新啟動。"
 
+msgid "Enter sends message"
+msgstr "按下 Enter 鍵傳送訊息"
+
+msgid ""
+"When on, Enter in the sidebar query runs the same action as Send; "
+"Shift+Enter inserts a newline. When off, Enter inserts a newline."
+msgstr ""
+"開啟時，在側邊欄查詢中按下 Enter 鍵會執行與「發送」相同的動作；Shift+Enter 則會插入換行符號。關閉時，Enter 鍵僅插入換行符號。"
+
 msgid "Humanizer skill (natural prose)"
 msgstr "擬人化技能（自然散文）"
 
@@ -4041,15 +4258,6 @@ msgstr ""
 
 msgid "Local (langdetect)"
 msgstr "本機 (langdetect)"
-
-msgid "Enter key sends sidebar chat message"
-msgstr "按下 Enter 鍵發送側邊欄聊天訊息"
-
-msgid ""
-"When on, Enter in the sidebar query runs the same action as Send; "
-"Shift+Enter inserts a newline. When off, Enter inserts a newline."
-msgstr ""
-"開啟時，在側邊欄查詢中按下 Enter 鍵會執行與「發送」相同的動作；Shift+Enter 則會插入換行符號。關閉時，Enter 鍵僅插入換行符號。"
 
 msgid "Agent edit review"
 msgstr "Agent 編輯審閱"
@@ -4215,6 +4423,9 @@ msgstr "用戶端設定（複製到 Claude / Hermes-Agent）："
 msgid "Copy Config"
 msgstr "複製設定"
 
+msgid "Notebook"
+msgstr "筆記本"
+
 msgid "Python"
 msgstr "Python"
 
@@ -4298,39 +4509,60 @@ msgid "Allow network access"
 msgstr "允許網路存取"
 
 msgid ""
-"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
-"checked."
-msgstr "除非勾選，否則會封鎖網路匯入（socket、requests、http、urllib、ssl 等）。"
+"When checked, Python may open network connections (socket, requests, http, "
+"urllib, ssl, and the other network imports). When unchecked, those imports "
+"are blocked."
+msgstr ""
+"勾選後，Python 可開啟網路連線（socket、requests、http、urllib、ssl "
+"及其他網路匯入項目）。若未勾選，則會封鎖這些匯入項目。"
 
 msgid "Allow file access"
 msgstr "允許檔案存取"
 
 msgid ""
-"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
-"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
-" stay allowed."
+"When checked, Python may read and write files anywhere (open, io, pathlib, "
+"shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
+"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
+" (io.BytesIO, io.StringIO) stay available."
 msgstr ""
-"若未勾選，將封鎖檔案寫入操作（os write 呼叫、shutil、tempfile、sqlite3 以及 open() 內建函式）。透過 "
-"pathlib、glob、io 與 logging 進行的讀取操作仍被允許。"
+"勾選後，Python 可讀取與寫入任何位置的檔案（open、io、pathlib、shutil、tempfile、sqlite3、glob 及 os "
+"檔案呼叫，例如 listdir 與 stat）。若未勾選，則會封鎖這些讀寫操作。記憶體緩衝區（io.BytesIO、io.StringIO）仍可使用。"
 
 msgid "Allow OS access"
 msgstr "允許作業系統存取"
 
 msgid ""
-"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
-"processes); includes file access."
-msgstr "允許原始 os、subprocess、multiprocessing 與 pty（執行其他程式與處理程序）；包含檔案存取權限。"
+"When checked, Python gets the real os module and may run other programs "
+"(subprocess, multiprocessing, pty, os.system). Includes file read and write."
+" When unchecked, process spawning is blocked."
+msgstr ""
+"勾選後，Python 可取得真實的 os "
+"模組並執行其他程式（subprocess、multiprocessing、pty、os.system）。包含檔案讀取與寫入。若未勾選，則會封鎖處理程序生成。"
 
 msgid "Extra allowed modules"
 msgstr "額外允許的模組"
 
 msgid ""
 "Comma-separated extra modules Python may import (each name also allows "
-"name.*). Overrides the built-in blocklist, including os, socket and "
-"subprocess."
+"name.*). Overrides the sandbox blocklist, including the file, network, and "
+"process lists (os, socket, subprocess)."
 msgstr ""
-"以逗號分隔的額外 Python 匯入模組（每個名稱亦允許其子模組 name.*）。此設定將覆寫內建的封鎖清單，包含 os、socket 與 "
-"subprocess。"
+"以逗號分隔的額外 Python 可匯入模組（每個名稱亦允許使用 "
+"name.*）。此設定會覆寫沙盒封鎖清單，包含檔案、網路與處理程序清單（os、socket、subprocess）。"
+
+msgid "Python editor"
+msgstr "Python 編輯器"
+
+msgid ""
+"Editor window for Edit Python in Cell, Run Python Script, the init script "
+"and LaTeX."
+msgstr "用於編輯儲存格內 Python、執行 Python 指令碼、初始化指令碼與 LaTeX 的編輯器視窗。"
+
+msgid "Monaco (default)"
+msgstr "Monaco (預設)"
+
+msgid "CodeMirror"
+msgstr "CodeMirror"
 
 msgid "Vision / OCR"
 msgstr "視覺 / OCR"

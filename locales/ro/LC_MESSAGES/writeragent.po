@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-26 12:14-0400\n"
+"POT-Creation-Date: 2026-11-03 13:09-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -16,6 +16,23 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/agent_undo.py
+msgid "There is no agent edit to undo."
+msgstr "Nu există nicio modificare a agentului de anulat."
+
+#: plugin/doc/agent_undo.py
+msgid "The document was edited since the last agent edit."
+msgstr "Documentul a fost modificat de la ultima modificare a agentului."
+
+#: plugin/doc/agent_undo.py
+msgid "Could not undo the last agent edit."
+msgstr "Nu s-a putut anula ultima modificare a agentului."
+
+#: plugin/doc/agent_undo.py
+#, python-brace-format
+msgid "Undid the last agent edit ({0} steps)"
+msgstr "Ultima modificare a agentului a fost anulată ({0} pași)"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -33,6 +50,15 @@ msgstr "Se rulează OCR local pe imaginea/imaginile selectată/e..."
 #, python-brace-format
 msgid "Specialized task ({domain}) completed."
 msgstr "Sarcină specializată ({domain}) finalizată."
+
+#: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Eroare"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -55,6 +81,14 @@ msgid "Code cell is empty."
 msgstr "Celula de cod este goală."
 
 #: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Nu s-a putut găsi celula notebook pentru acest control."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Open a Writer document first."
+msgstr "Deschideți mai întâi un document Writer."
+
+#: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
 msgstr "Executarea notebook-ului este suportată doar în LibreOffice Writer."
 
@@ -66,19 +100,11 @@ msgstr ""
 "Acest document nu are niciun notebook importat. Deschideți mai întâi un "
 "notebook Jupyter (.ipynb) din Fișier → Deschidere."
 
-#: plugin/notebook/notebook_runner.py
-msgid "Could not find notebook cell for this control."
-msgstr "Nu s-a putut găsi celula notebook pentru acest control."
-
-#: plugin/notebook/notebook_runner.py
-msgid "Open a Writer document first."
-msgstr "Deschideți mai întâi un document Writer."
-
-#: plugin/notebook/notebook_controls.py
+#: plugin/notebook/layout.py
 msgid "Run code cell"
 msgstr "Execută celula de cod"
 
-#: plugin/notebook/notebook_controls.py
+#: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Cod"
 
@@ -247,31 +273,6 @@ msgid "No API key configured. Open Settings and add a key."
 msgstr "Nicio cheie API configurată. Deschideți Setări și adăugați o cheie."
 
 #: plugin/framework/errors.py
-msgid ""
-"Python venv not found. Open Settings → Python, set the venv path, then Test."
-msgstr ""
-"venv Python nu a fost găsit. Deschideți Setări → Python, setați calea către "
-"venv, apoi Test."
-
-#: plugin/framework/errors.py
-msgid ""
-"Python execution timed out. Open Settings → Python to raise the timeout."
-msgstr ""
-"Execuția Python a expirat. Deschideți Setări → Python pentru a mări timpul "
-"de așteptare."
-
-#: plugin/framework/errors.py
-msgid "Formula spill collision: destination range contains non-empty cells."
-msgstr ""
-"Coliziune la propagarea formulei: intervalul de destinație conține celule "
-"care nu sunt goale."
-
-#: plugin/framework/errors.py
-#, python-brace-format
-msgid "Script execution blocked by sandbox policy: {0}"
-msgstr "Execuția scriptului blocată de politica sandbox: {0}"
-
-#: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
 "Timpul de așteptare a expirat. Încercați să măriți „Timpul de așteptare "
@@ -292,6 +293,26 @@ msgid "Connection Error: {0}"
 msgstr "Eroare de conexiune: {0}"
 
 #: plugin/framework/errors.py
+msgid ""
+"Python venv not found. Open Settings → Python, set the venv path, then Test."
+msgstr ""
+"venv Python nu a fost găsit. Deschideți Setări → Python, setați calea către "
+"venv, apoi Test."
+
+#: plugin/framework/errors.py
+msgid ""
+"Python execution timed out. Open Settings → Python to raise the timeout."
+msgstr ""
+"Execuția Python a expirat. Deschideți Setări → Python pentru a mări timpul "
+"de așteptare."
+
+#: plugin/framework/errors.py
+msgid "Formula spill collision: destination range contains non-empty cells."
+msgstr ""
+"Coliziune la propagarea formulei: intervalul de destinație conține celule "
+"care nu sunt goale."
+
+#: plugin/framework/errors.py
 msgid "The AI provider reported an error. Try again."
 msgstr "Furnizorul AI a raportat o eroare. Încercați din nou."
 
@@ -300,11 +321,6 @@ msgstr "Furnizorul AI a raportat o eroare. Încercați din nou."
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Eroare: {0}"
-
-#: plugin/framework/errors.py
-#, python-brace-format
-msgid "{resource_type} not found: {identifier}"
-msgstr "{resource_type} nu a fost găsit: {identifier}"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -407,25 +423,6 @@ msgstr "Se spațiază cererile modelului liber, următoarea trimitere în {0}s�
 #: plugin/framework/client/anthropic_shim.py
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Modelul Anthropic nu este setat. Alegeți un model în Setări."
-
-#: plugin/framework/main_shared.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} reușite, {2} eșuate."
-
-#: plugin/framework/main_shared.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Testele nu au putut fi executate: {0}"
-
-#: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
-#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
-#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Error"
-msgstr "Eroare"
 
 #: plugin/framework/config.py
 msgid "Please set Endpoint in Settings."
@@ -592,6 +589,10 @@ msgid "Installing Kokoro phonemizer…"
 msgstr "Se instalează fonemizatorul Kokoro…"
 
 #: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Se descarcă dicționarul pentru fonemizatorul japonez…"
+
+#: plugin/audio/kokoro_g2p.py
 #, python-brace-format
 msgid ""
 "Couldn't install the Kokoro phonemizer; this language may be misread. "
@@ -600,12 +601,9 @@ msgstr ""
 "Nu s-a putut instala fonemizatorul Kokoro; este posibil ca această limbă să "
 "fie citită greșit. Instalați cu: {0}"
 
-#: plugin/audio/kokoro_g2p.py
-msgid "Downloading Japanese phonemizer dictionary…"
-msgstr "Se descarcă dicționarul pentru fonemizatorul japonez…"
-
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/_manifest.py
 msgid "Edit Python in Cell..."
 msgstr "Editează Python în celulă..."
 
@@ -647,10 +645,6 @@ msgstr "Scriptul de inițializare a fost salvat."
 msgid "Save initialization script"
 msgstr "Salvează scriptul de inițializare"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Status:"
-msgstr "Stare:"
-
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
 #: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
@@ -667,12 +661,12 @@ msgstr ""
 "execuției."
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr "Stare:"
+
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saving…"
 msgstr "Se salvează…"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/calc/python/editor.py
-msgid "Saved without =PY()."
-msgstr "Salvat fără =PY()."
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -717,6 +711,10 @@ msgstr "Cod salvat în {0}."
 msgid "WriterAgent: Save Python cell"
 msgstr "WriterAgent: Salvare celulă Python"
 
+#: plugin/calc/python/editor.py
+msgid "Saved without =PY()."
+msgstr "Salvat fără =PY()."
+
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
 msgstr "Editor de celule Python"
@@ -745,16 +743,6 @@ msgstr ""
 #, python-brace-format
 msgid "Could not open the code cell {0}."
 msgstr "Nu s-a putut deschide celula de cod {0}."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
-"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
-"quoted code."
-msgstr ""
-"Această formulă PY utilizează o formă pe care editorul nu o poate rescrie în"
-" siguranță (de ex. cod într-o altă celulă). Editați-o în bara de formule sau"
-" utilizați =PY(\"cod\"; interval) cu cod între ghilimele."
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -794,7 +782,7 @@ msgstr "Imagine inserată"
 msgid "Images inserted"
 msgstr "Imagini inserate"
 
-#: plugin/calc/python/geometric_recalc_core.py
+#: plugin/calc/python/geometric_recalc.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -805,16 +793,6 @@ msgstr ""
 "%(cap)s sau mai multe celule Python (limită de descoperire). Foaia a fost "
 "lăsată neînlănțuită, astfel încât o listă parțială să nu fie tratată ca "
 "fiind completă."
-
-#: plugin/calc/python/formula_edit.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Nu s-au putut păstra argumentele formulei PY ale acestei celule (de ex. "
-"intervale de date). Editați formula în Calc sau utilizați un șir de cod "
-"între ghilimele, cum ar fi =PY(\"cod\"; A1:B10)."
 
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
@@ -937,48 +915,53 @@ msgid "(no =PY() cells on active sheet)"
 msgstr "(nu există celule =PY() pe foaia activă)"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_factory.py plugin/_manifest.py
 msgid "Run Python Script..."
 msgstr "Execută script Python..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_factory.py plugin/_manifest.py
 msgid "Insert LaTeX Math..."
 msgstr "Inserează formulă LaTeX..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Text Analytics..."
 msgstr "Analiză text..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
 #: plugin/chatbot/dialog_views.py plugin/chatbot/panel_factory.py
-#: plugin/xdl_strings.py
+#: plugin/_manifest.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Setări"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Vision OCR Settings..."
 msgstr "Setări Vision OCR..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Reset Python Session"
 msgstr "Resetează sesiunea Python"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Run All"
 msgstr "Execută tot"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Run From Here"
 msgstr "Execută de aici"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/xdl_strings.py
+#: plugin/_manifest.py plugin/xdl_strings.py
 msgid "Stop"
 msgstr "Oprire"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/dialogs.py
-#: plugin/chatbot/hamburger_menu.py plugin/xdl_strings.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py plugin/xdl_strings.py
 msgid "Report bug..."
 msgstr "Raportează o eroare..."
 
@@ -993,10 +976,6 @@ msgstr "Acceptă întreaga modificare (agent)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "Respinge întreaga modificare (agent)"
-
-#: plugin/writer/inline_review.py
-msgid "No agent changes to review in this document."
-msgstr "Nu există modificări ale agentului de revizuit în acest document."
 
 #: plugin/writer/inline_review.py
 #, python-format
@@ -1044,6 +1023,20 @@ msgstr ""
 
 #: plugin/writer/inline_review.py
 msgid ""
+"Could not resolve this change here -- it may share a paragraph with one of "
+"your tracked changes or another agent change. Resolve it from Edit > Track "
+"Changes > Manage."
+msgstr ""
+"Nu s-a putut rezolva această modificare aici – este posibil să împartă un "
+"paragraf cu una dintre modificările urmărite sau cu o altă modificare a "
+"agentului. Rezolvați-o din Editare > Urmărire modificări > Gestionare."
+
+#: plugin/writer/inline_review.py
+msgid "No agent changes to review in this document."
+msgstr "Nu există modificări ale agentului de revizuit în acest document."
+
+#: plugin/writer/inline_review.py
+msgid ""
 "None could be resolved here -- each overlaps with one of your own tracked "
 "changes. Resolve them from Edit > Track Changes > Manage."
 msgstr ""
@@ -1060,16 +1053,6 @@ msgstr ""
 "S-au rezolvat %(resolved)d din %(total)d. Restul se suprapun cu propriile "
 "modificări urmărite – rezolvați-le din Editare > Urmărire modificări > "
 "Gestionare."
-
-#: plugin/writer/inline_review.py
-msgid ""
-"Could not resolve this change here -- it may share a paragraph with one of "
-"your tracked changes or another agent change. Resolve it from Edit > Track "
-"Changes > Manage."
-msgstr ""
-"Nu s-a putut rezolva această modificare aici – este posibil să împartă un "
-"paragraf cu una dintre modificările urmărite sau cu o altă modificare a "
-"agentului. Rezolvați-o din Editare > Urmărire modificări > Gestionare."
 
 #: plugin/writer/inline_review.py
 msgid "Put the cursor on a highlighted agent change first."
@@ -1147,6 +1130,10 @@ msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Extindere selecție"
 
 #: plugin/writer/editselection.py
+msgid "The document is empty."
+msgstr "Documentul este gol."
+
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Editare selecție"
 
@@ -1175,10 +1162,6 @@ msgid "AI Grammar"
 msgstr "Gramatică AI"
 
 #: plugin/writer/math/latex_dialog.py
-msgid "Could not open the LaTeX input dialog."
-msgstr "Nu s-a putut deschide dialogul de introducere LaTeX."
-
-#: plugin/writer/math/latex_dialog.py
 msgid "Update"
 msgstr "Actualizare"
 
@@ -1186,6 +1169,10 @@ msgstr "Actualizare"
 #: plugin/xdl_strings.py
 msgid "Insert"
 msgstr "Inserează"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "Nu s-a putut deschide dialogul de introducere LaTeX."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Edit LaTeX Math"
@@ -1549,23 +1536,24 @@ msgstr "Copiat!"
 msgid "Copy URL"
 msgstr "Copiază URL-ul"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Extend Selection"
 msgstr "Extinde selecția"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Edit Selection"
 msgstr "Editare selecție"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Convert Sheet to Python..."
 msgstr "Convertește foaia în Python..."
 
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/_manifest.py
 msgid "Search Nearby Files..."
 msgstr "Caută în fișierele din apropiere..."
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Toggle MCP Server"
 msgstr "Comutare server MCP"
 
@@ -1577,27 +1565,27 @@ msgstr "Server MCP (În execuție)"
 msgid "MCP Server (Stopped)"
 msgstr "Server MCP (Oprit)"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run format tests"
 msgstr "Execută teste de formatare"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run calc tests"
 msgstr "Execută teste Calc"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run Calc API integration tests"
 msgstr "Execută teste de integrare API Calc"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run draw tests"
 msgstr "Execută teste Draw"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Evaluation Dashboard"
 msgstr "Tablou de bord evaluare"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Debug"
 msgstr "Depanare"
 
@@ -1605,9 +1593,90 @@ msgstr "Depanare"
 msgid "[No speech detected.]"
 msgstr "[Nu a fost detectată nicio voce.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
 msgid "[Voice message]"
 msgstr "[Mesaj vocal]"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "WriterAgent: Formula"
+msgstr "WriterAgent: Formulă"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Wait for the current operation to finish before /undo."
+msgstr "Așteptați finalizarea operațiunii curente înainte de /undo."
+
+#: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "Niciun document nu este deschis."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Select a cell first."
+msgstr "Selectați mai întâi o celulă."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Write exactly one LibreOffice Calc formula for this request: {0}"
+msgstr ""
+"Scrieți exact o formulă LibreOffice Calc pentru această solicitare: {0}"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Target cell: {0} on sheet \"{1}\"."
+msgstr "Celulă țintă: {0} pe foaia „{1}”."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Used range: {0}."
+msgstr "Zonă utilizată: {0}."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Header row: {0}."
+msgstr "Rând antet: {0}."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "(empty)"
+msgstr "(gol)"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid ""
+"Reply with the formula only. It must start with =. Use English function "
+"names. Use semicolon (;) between function arguments (Calc setFormula API "
+"grammar). No prose or markdown."
+msgstr ""
+"Răspundeți doar cu formula. Trebuie să înceapă cu =. Folosiți nume de "
+"funcții în engleză. Folosiți punct și virgulă (;) între argumentele funcției"
+" (gramatica API setFormula din Calc). Fără proză sau markdown."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Could not insert the formula."
+msgstr "Nu s-a putut insera formula."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Formula for {0}: {1}"
+msgstr "Formulă pentru {0}: {1}"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "The cell shows an error"
+msgstr "Celula afișează o eroare"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid ""
+"You write LibreOffice Calc formulas. Output a single formula starting with "
+"=, nothing else."
+msgstr ""
+"Scrieți formule LibreOffice Calc. Afișați o singură formulă care începe cu "
+"=, nimic altceva."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Stopped."
+msgstr "Oprit."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Formula generation failed."
+msgstr "Generarea formulei a eșuat."
 
 #: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Chat"
@@ -1622,26 +1691,6 @@ msgid "Web Research"
 msgstr "Cercetare web"
 
 #: plugin/chatbot/chat_sidebar_mode.py
-msgid "Deep Research"
-msgstr "Deep Research"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Brainstorming"
-msgstr "Brainstorming"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Writing Plan"
-msgstr "Plan de scriere"
-
-#: plugin/chatbot/chat_sidebar_mode.py plugin/chatbot/dialog_views.py
-msgid "PPT-Master"
-msgstr "PPT-Master"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Librarian"
-msgstr "Bibliotecar"
-
-#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
@@ -1649,6 +1698,14 @@ msgstr ""
 "AI: Pot efectua cercetări pe web pentru a răspunde la orice întrebare sau "
 "pot rezuma o pagină web, fără a vedea sau modifica documentul tău. Hai să "
 "discutăm."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown research error."
+msgstr "Eroare necunoscută de cercetare."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Deep Research"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
@@ -1662,6 +1719,14 @@ msgstr ""
 "rezultate mai detaliate."
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown deep research error."
+msgstr "Eroare necunoscută în Deep Research."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming"
+msgstr "Brainstorming"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
@@ -1670,6 +1735,18 @@ msgstr ""
 "AI: Hai să explorăm și să concepem ideea ta împreună. Îți voi pune "
 "întrebări, voi sugera abordări și te voi ajuta să construiești o "
 "specificație aprobată în documentul tău când ești gata."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown brainstorming error."
+msgstr "Eroare necunoscută de brainstorming."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming complete."
+msgstr "Brainstorming finalizat."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing Plan"
+msgstr "Plan de scriere"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
@@ -1682,6 +1759,18 @@ msgstr ""
 " aprobarea ta."
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown writing plan error."
+msgstr "Eroare necunoscută a planului de scriere."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing plan complete."
+msgstr "Plan de scriere finalizat."
+
+#: plugin/chatbot/chat_sidebar_mode.py plugin/chatbot/dialog_views.py
+msgid "PPT-Master"
+msgstr "PPT-Master"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
 "Python venv (scripts + export to Impress). Describe your topic or point me "
@@ -1692,6 +1781,18 @@ msgstr ""
 "tău sau indică-mi un dosar de proiect."
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown PPT-Master error."
+msgstr "Eroare PPT-Master necunoscută."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master session complete."
+msgstr "Sesiune PPT-Master finalizată."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Librarian"
+msgstr "Bibliotecar"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
 " colors, and give a short tour. Pick Chat in the dropdown whenever you want "
@@ -1700,6 +1801,14 @@ msgstr ""
 "AI: Sunt bibliotecarul WriterAgent — o gazdă care îți poate învăța numele, "
 "culorile preferate și îți poate oferi un scurt tur. Alege Chat din meniul "
 "derulant oricând dorești să lucrezi la document."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown librarian error."
+msgstr "Eroare necunoscută a bibliotecarului."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Perfect! Vă trec acum la asistentul principal."
 
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
@@ -1712,6 +1821,87 @@ msgstr "Începe un chat nou"
 #: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Anulează trimiterea în curs"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Summarize the selection or document in the sidebar"
+msgstr "Rezumați selecția sau documentul în bara laterală"
+
+#: plugin/chatbot/slash_commands.py
+msgid ""
+"Summarize the selected text, or the whole document if nothing is selected."
+msgstr ""
+"Rezumați textul selectat sau întregul document dacă nu este nimic selectat."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Fix spelling, grammar, and punctuation without restyling"
+msgstr "Corectați ortografia, gramatica și punctuația fără a modifica stilul"
+
+#: plugin/chatbot/slash_commands.py
+msgid ""
+"Fix spelling, grammar, and punctuation only. Do not change style, tone, or "
+"meaning."
+msgstr ""
+"Corectați doar ortografia, gramatica și punctuația. Nu modificați stilul, "
+"tonul sau sensul."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Shorten the selection"
+msgstr "Scurtați selecția"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Make the text shorter while preserving the meaning."
+msgstr "Faceți textul mai scurt, păstrând în același timp sensul."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Expand the selection with more detail"
+msgstr "Extindeți selecția cu mai multe detalii"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Expand the text with more detail and clarity."
+msgstr "Extindeți textul cu mai multe detalii și claritate."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Rewrite the selection to match a described tone"
+msgstr "Rescrieți selecția pentru a se potrivi cu un ton descris"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Rewrite the text to match this tone or style: {arg}"
+msgstr "Rescrieți textul pentru a se potrivi cu acest ton sau stil: {arg}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Translate the selection (sidebar when nothing is selected in Writer)"
+msgstr ""
+"Traduceți selecția (bara laterală când nu este nimic selectat în Writer)"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Translate the text into {arg}. Keep formatting and structure."
+msgstr "Traduceți textul în {arg}. Păstrați formatarea și structura."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Explain the selection or active Calc formula"
+msgstr "Explicați selecția sau formula activă din Calc"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Explain the following in plain language."
+msgstr "Explicați următoarele într-un limbaj simplu."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Save a fact to persistent memory"
+msgstr "Salvați un fapt în memoria persistentă"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compact older chat history now"
+msgstr "Compactați istoricul de chat mai vechi acum"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Undo the last agent edit as one step"
+msgstr "Anulați ultima editare a agentului ca un singur pas"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Write a Calc formula from a plain-English description"
+msgstr "Scrieți o formulă Calc dintr-o descriere în engleză simplă"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Mock command (echo only)"
@@ -1733,6 +1923,83 @@ msgstr "Schimbare model (mock)"
 msgid "Slash commands:"
 msgstr "Comenzi slash:"
 
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Usage: {0}"
+msgstr "Utilizare: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Cell {0} formula: {1}"
+msgstr "Formula celulei {0}: {1}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Cell {0} value: {1}"
+msgstr "Valoare celulă {0}: {1}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Salvarea în memorie a eșuat."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Salvat în memorie: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Conversation compacted."
+msgstr "Conversație compactată."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Nothing to compact."
+msgstr "Nimic de compactat."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Nothing to compact yet (history is still small)."
+msgstr "Nimic de compactat încă (istoricul este încă mic)."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction is not available for this model."
+msgstr "Compactarea nu este disponibilă pentru acest model."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction failed."
+msgstr "Compactarea a eșuat."
+
+#: plugin/chatbot/slash_commands.py
+msgid "WriterAgent"
+msgstr "WriterAgent"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Configure an API key to compact."
+msgstr "Configurați o cheie API pentru a compacta."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Chat compaction is disabled in settings."
+msgstr "Compactarea chat-ului este dezactivată în setări."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction cancelled."
+msgstr "Compactare anulată."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
+#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Se gândește..."
+
+#: plugin/chatbot/panel.py
+msgid "[No compatible LibreOffice document found.]"
+msgstr "[Nu a fost găsit niciun document LibreOffice compatibil.]"
+
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
+msgid "Wait for the current reply to finish before /compact."
+msgstr "Așteptați finalizarea răspunsului curent înainte de /compact."
+
+#: plugin/chatbot/panel.py
+msgid "Only in Calc"
+msgstr "Doar în Calc"
+
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Se preia documentul..."
@@ -1744,15 +2011,6 @@ msgid ""
 msgstr ""
 "[Nu a fost găsit niciun document LibreOffice compatibil (Writer, Calc sau "
 "Draw) în fereastra activă.]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Internal Error: Could not identify document type for {0}. Please report "
-"this!]"
-msgstr ""
-"[Eroare internă: Nu s-a putut identifica tipul documentului pentru {0}. Vă "
-"rugăm să raportați acest lucru!]"
 
 #: plugin/chatbot/panel.py
 msgid "[Audio error: recording stopped without a sound file.]"
@@ -1784,6 +2042,10 @@ msgstr "Înregistrare hands-free..."
 #, python-format
 msgid "Hands-free… (%d ms silence)"
 msgstr "Hands-free… (%d ms liniște)"
+
+#: plugin/chatbot/tool_loop_state.py
+msgid "Reached the maximum number of tool rounds."
+msgstr "S-a atins numărul maxim de runde ale instrumentului."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1901,46 +2163,6 @@ msgid "MCP server stopped"
 msgstr "Serverul MCP a fost oprit"
 
 #: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Eroare necunoscută a bibliotecarului."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Perfect! Vă trec acum la asistentul principal."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Eroare necunoscută de brainstorming."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Brainstorming finalizat."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Eroare necunoscută a planului de scriere."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Plan de scriere finalizat."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Eroare PPT-Master necunoscută."
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "Sesiune PPT-Master finalizată."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Eroare necunoscută în Deep Research."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Eroare necunoscută de cercetare."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[Eroare context document: {0}]"
@@ -1952,10 +2174,6 @@ msgid ""
 msgstr ""
 "[Backend-ul agentului „{0}” nu este disponibil. Verificați Setările (cale, "
 "instalare).]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Se gândește..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -2148,21 +2366,13 @@ msgstr "Script Python nou"
 msgid "Script name:"
 msgstr "Nume script:"
 
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-msgid "Attach to this document (no document is open)"
-msgstr "Atașare la acest document (niciun document nu este deschis)"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-msgid "Attach to this document (this document is read-only)"
-msgstr "Atașare la acest document (acest document este doar în citire)"
-
 #: plugin/scripting/editor_ui_strings.py
 msgid "Running…"
 msgstr "Se execută…"
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Monaco loader missing."
-msgstr "Încărcătorul Monaco lipsește."
+msgid "Editor loader missing."
+msgstr "Încărcătorul editorului lipsește."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Install jedi in the Python venv for completions."
@@ -2184,6 +2394,14 @@ msgstr "Date:"
 #: plugin/scripting/editor_ui_strings.py
 msgid "A1:C1  or  A1:C1, C1:C5"
 msgstr "A1:C1 sau A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to this document (no document is open)"
+msgstr "Atașare la acest document (niciun document nu este deschis)"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to this document (this document is read-only)"
+msgstr "Atașare la acest document (acest document este doar în citire)"
 
 #: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "New"
@@ -2279,6 +2497,10 @@ msgstr ""
 msgid "Are you sure you want to delete script '{0}'?"
 msgstr "Sigur doriți să ștergeți scriptul „{0}”?"
 
+#: plugin/scripting/editor_ui_strings.py
+msgid "this script"
+msgstr "acest script"
+
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr ""
@@ -2291,6 +2513,10 @@ msgstr ""
 "neschimbate."
 
 #: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "Documentul este doar în citire sau proprietățile nu pot fi scrise."
+
+#: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid ""
 "Stored document scripts are in an unsupported format (version {0}), so they "
@@ -2299,9 +2525,9 @@ msgstr ""
 "Scripturile documentului stocat sunt într-un format neacceptat (versiunea "
 "{0}), așa că au fost lăsate neschimbate."
 
-#: plugin/scripting/document_scripts.py
-msgid "Document is read-only or properties cannot be written."
-msgstr "Documentul este doar în citire sau proprietățile nu pot fi scrise."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open to save scripts."
+msgstr "Niciun document nu este deschis pentru a salva scripturile."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2309,10 +2535,6 @@ msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
 "Scripturile documentului sunt prea mari pentru a fi stocate în document ({0}"
 " octeți)."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open to save scripts."
-msgstr "Niciun document nu este deschis pentru a salva scripturile."
 
 #: plugin/scripting/document_scripts.py
 msgid ""
@@ -2376,10 +2598,6 @@ msgid ""
 msgstr ""
 "Scriptul „{0}” nu se află în „Scripturile mele” sau în acest document, deci "
 "nu a fost salvat."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Niciun document nu este deschis."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2508,11 +2726,11 @@ msgstr "Verificarea Venv a eșuat"
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
 "pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" Monaco editor."
+" editor."
 msgstr ""
 "Setați calea venv Python în Setări → Python (același venv unde ați rulat 'uv"
-" pip install pywebview rocher'). Python-ul integrat în LibreOffice nu poate "
-"rula editorul Monaco."
+" pip install pywebview rocher'). Python-ul încorporat în LibreOffice nu "
+"poate rula editorul."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -2599,6 +2817,14 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Sonda audio a eșuat (consultați writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Sonda Monaco a expirat."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Sonda Monaco a eșuat (consultați writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
@@ -2635,68 +2861,12 @@ msgstr ""
 "Sonda de căutare vectorială a eșuat (consultați writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Sonda Monaco a eșuat (consultați writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Sonda Monaco a expirat."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "DuckDB probe failed (see writeragent_debug.log)."
-msgstr "Sonda DuckDB a eșuat (consultați writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
 msgid "DuckDB probe timed out."
 msgstr "Sonda DuckDB a expirat."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording & Speech"
-msgstr "Înregistrare audio și vorbire"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Scientific Libraries"
-msgstr "Biblioteci științifice"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Analysis / EDA Libraries"
-msgstr "Biblioteci pentru analiza datelor / EDA"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries"
-msgstr "Biblioteci UI / Monaco"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Visualization Libraries"
-msgstr "Biblioteci de vizualizare"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Computer Algebra"
-msgstr "Algebră computațională"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Quantitative Finance Libraries"
-msgstr "Biblioteci de finanțe cantitative"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Engineering Libraries"
-msgstr "Biblioteci de inginerie a datelor"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries"
-msgstr "Biblioteci text / NLP"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries"
-msgstr "Biblioteci de viziune"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries"
-msgstr "Biblioteci de căutare vectorială"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "To install remaining packages:"
-msgstr "Pentru a instala pachetele rămase:"
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "Sonda DuckDB a eșuat (consultați writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
@@ -2711,6 +2881,10 @@ msgid "Local Whisper (optional):"
 msgstr "Whisper local (opțional):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "To install remaining packages:"
+msgstr "Pentru a instala pachetele rămase:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Se pornește worker-ul Python..."
 
@@ -2723,6 +2897,10 @@ msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
 msgstr "Audio și vorbire: se verifică sounddevice, TTS și Whisper local..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording & Speech"
+msgstr "Înregistrare audio și vorbire"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "UI / Monaco Libraries: checking outside the script worker..."
 msgstr "UI / Biblioteci Monaco: se verifică în afara worker-ului de script..."
 
@@ -2732,14 +2910,26 @@ msgstr ""
 "Biblioteci Text / NLP: se încarcă (prima rulare poate dura ceva timp)..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Biblioteci text / NLP"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Biblioteci Vision: se încarcă (prima rulare poate dura)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries"
+msgstr "Biblioteci de viziune"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Biblioteci de căutare vectorială: se încarcă (prima rulare poate dura ceva "
 "timp)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Biblioteci de căutare vectorială"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2796,6 +2986,10 @@ msgid "Could not read the scope checkbox."
 msgstr "Nu s-a putut citi caseta de selectare a domeniului."
 
 #: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "Se verifică instalarea spaCy / textdescriptives / transformers..."
+
+#: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
 msgstr "Deschideți un document Writer pentru a analiza."
 
@@ -2806,10 +3000,6 @@ msgstr "Nu este nimic selectat."
 #: plugin/scripting/text_analytics_ui.py
 msgid "Not enough text in the chosen scope."
 msgstr "Nu există suficient text în domeniul ales."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr "Se verifică instalarea spaCy / textdescriptives / transformers..."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Analyzing..."
@@ -2984,13 +3174,13 @@ msgstr ""
 " fost resetat."
 
 #: plugin/scripting/session_manager.py
+msgid "Could not reset Python session."
+msgstr "Nu s-a putut reseta sesiunea Python."
+
+#: plugin/scripting/session_manager.py
 msgid "Notebook Python session reset for this document."
 msgstr ""
 "Sesiunea Python a notebook-ului a fost resetată pentru acest document."
-
-#: plugin/scripting/session_manager.py
-msgid "Could not reset Python session."
-msgstr "Nu s-a putut reseta sesiunea Python."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -3041,11 +3231,6 @@ msgid "Python session reset for this document."
 msgstr "Sesiunea Python a fost resetată pentru acest document."
 
 #: plugin/scripting/session_manager.py
-msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
-msgstr ""
-"Resetarea sesiunii Python se aplică documentelor Writer, Calc și Draw."
-
-#: plugin/scripting/session_manager.py
 msgid ""
 "Several Calc spreadsheets are open and none is focused. Switch to the "
 "spreadsheet to reset and try again."
@@ -3068,6 +3253,11 @@ msgid ""
 msgstr ""
 "Sunt deschise mai multe documente Draw și niciunul nu este activ. Comutați "
 "la document pentru a reseta și încercați din nou."
+
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr ""
+"Resetarea sesiunii Python se aplică documentelor Writer, Calc și Draw."
 
 #: plugin/scripting/session_manager.py
 msgid "Open a Writer, Calc, or Draw document and try again."
@@ -3106,16 +3296,6 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' finalizat. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Info"
-msgstr "Informații"
-
-#: plugin/scripting/python_runner.py
-msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr ""
-"Inserarea rezultatului în Draw/Impress nu este încă suportată. Contribuțiile"
-" sunt binevenite!"
-
-#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Asistenții vizuali necesită un document Writer sau Calc."
 
@@ -3142,6 +3322,16 @@ msgstr ""
 "a produs nicio ieșire. (a durat {time})"
 
 #: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Informații"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"Inserarea rezultatului în Draw/Impress nu este încă suportată. Contribuțiile"
+" sunt binevenite!"
+
+#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr ""
@@ -3151,10 +3341,6 @@ msgstr ""
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Scriptul a fost executat cu succes. (a durat {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Script preparation failed."
-msgstr "Pregătirea scriptului a eșuat."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3180,8 +3366,8 @@ msgid "Run Python Script"
 msgstr "Execută script Python"
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script failed to open the Monaco editor."
-msgstr "Executarea scriptului Python nu a reușit să deschidă editorul Monaco."
+msgid "Run Python Script failed to open the editor."
+msgstr "Rularea scriptului Python nu a reușit să deschidă editorul."
 
 #: plugin/scripting/python_runner.py
 msgid "Could not open the built-in script dialog."
@@ -3191,6 +3377,26 @@ msgstr "Nu s-a putut deschide dialogul de script încorporat."
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr ""
 "A apărut o eroare neașteptată la deschiderea Executării scriptului Python."
+
+#: plugin/_manifest.py plugin/xdl_strings.py
+msgid "MCP Server Status"
+msgstr "Stare server MCP"
+
+#: plugin/_manifest.py
+msgid "◀ Prev"
+msgstr "◀ Înapoi"
+
+#: plugin/_manifest.py
+msgid "Next ▶"
+msgstr "Înainte ▶"
+
+#: plugin/_manifest.py
+msgid "Accept all"
+msgstr "Acceptă tot"
+
+#: plugin/_manifest.py
+msgid "Reject all"
+msgstr "Respinge tot"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3245,7 +3451,7 @@ msgstr "Oprit după {count} din {total} imagini."
 msgid "OCR complete ({count} images)."
 msgstr "OCR finalizat ({count} imagini)."
 
-#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
+#: plugin/vision/vision_runner.py
 msgid "OCR complete."
 msgstr "OCR finalizat."
 
@@ -3279,14 +3485,14 @@ msgid "The image was removed during OCR insert."
 msgstr "Imaginea a fost eliminată în timpul inserării OCR."
 
 #: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Pornirea serverului MCP a eșuat"
-
-#: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
 "Verificați writeragent_debug.log în folderul de configurare utilizator "
 "LibreOffice"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "Pornirea serverului MCP a eșuat"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -3497,6 +3703,16 @@ msgstr ""
 "Notă: Serverul MCP nu rulează în prezent pe portul {3}."
 
 #: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} reușite, {2} eșuate."
+
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Testele nu au putut fi executate: {0}"
+
+#: plugin/main.py
 msgid "Dispatch Error"
 msgstr "Eroare de expediere"
 
@@ -3683,10 +3899,6 @@ msgstr "Inserează raportul aici"
 #: plugin/xdl_strings.py
 msgid "Key Phrases"
 msgstr "Expresii cheie"
-
-#: plugin/xdl_strings.py
-msgid "MCP Server Status"
-msgstr "Stare server MCP"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -4188,6 +4400,17 @@ msgstr "Bară laterală control text îmbogățit"
 msgid "Formatted chat via RichTextControl. Requires restart."
 msgstr "Chat formatat prin RichTextControl. Necesită repornire."
 
+msgid "Enter sends message"
+msgstr "Enter trimite mesajul"
+
+msgid ""
+"When on, Enter in the sidebar query runs the same action as Send; "
+"Shift+Enter inserts a newline. When off, Enter inserts a newline."
+msgstr ""
+"Când este activat, Enter în interogarea din bara laterală execută aceeași "
+"acțiune ca Trimitere; Shift+Enter inserează o linie nouă. Când este "
+"dezactivat, Enter inserează o linie nouă."
+
 msgid "Humanizer skill (natural prose)"
 msgstr "Abilitate de umanizare (proză naturală)"
 
@@ -4319,17 +4542,6 @@ msgstr ""
 
 msgid "Local (langdetect)"
 msgstr "Local (langdetect)"
-
-msgid "Enter key sends sidebar chat message"
-msgstr "Tasta Enter trimite mesajul de chat din bara laterală"
-
-msgid ""
-"When on, Enter in the sidebar query runs the same action as Send; "
-"Shift+Enter inserts a newline. When off, Enter inserts a newline."
-msgstr ""
-"Când este activat, Enter în interogarea din bara laterală execută aceeași "
-"acțiune ca Trimitere; Shift+Enter inserează o linie nouă. Când este "
-"dezactivat, Enter inserează o linie nouă."
 
 msgid "Agent edit review"
 msgstr "Revizuire editare agent"
@@ -4513,6 +4725,9 @@ msgstr "Configurație client (copiați în Claude / Hermes-Agent):"
 msgid "Copy Config"
 msgstr "Copiază configurația"
 
+msgid "Notebook"
+msgstr "Carnet"
+
 msgid "Python"
 msgstr "Python"
 
@@ -4605,45 +4820,68 @@ msgid "Allow network access"
 msgstr "Permite accesul la rețea"
 
 msgid ""
-"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
-"checked."
+"When checked, Python may open network connections (socket, requests, http, "
+"urllib, ssl, and the other network imports). When unchecked, those imports "
+"are blocked."
 msgstr ""
-"Blochează importurile de rețea (socket, requests, http, urllib, ssl, …) dacă"
-" nu este bifat."
+"Dacă este bifat, Python poate deschide conexiuni de rețea (socket, requests,"
+" http, urllib, ssl și alte importuri de rețea). Dacă este debifat, aceste "
+"importuri sunt blocate."
 
 msgid "Allow file access"
 msgstr "Permite accesul la fișiere"
 
 msgid ""
-"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
-"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
-" stay allowed."
+"When checked, Python may read and write files anywhere (open, io, pathlib, "
+"shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
+"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
+" (io.BytesIO, io.StringIO) stay available."
 msgstr ""
-"Blochează scrierea fișierelor (apeluri os write, shutil, tempfile, sqlite3 "
-"și funcția încorporată open()) dacă nu este bifat. Citirea prin pathlib, "
-"glob, io și logging rămâne permisă."
+"Dacă este bifat, Python poate citi și scrie fișiere oriunde (open, io, "
+"pathlib, shutil, tempfile, sqlite3, glob și apeluri de fișiere os precum "
+"listdir și stat). Dacă este debifat, aceste citiri și scrieri sunt blocate. "
+"Memoria tampon (io.BytesIO, io.StringIO) rămâne disponibilă."
 
 msgid "Allow OS access"
 msgstr "Permite accesul la sistemul de operare"
 
 msgid ""
-"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
-"processes); includes file access."
+"When checked, Python gets the real os module and may run other programs "
+"(subprocess, multiprocessing, pty, os.system). Includes file read and write."
+" When unchecked, process spawning is blocked."
 msgstr ""
-"Permite utilizarea modulelor brute os, subprocess, multiprocessing și pty "
-"(pentru a rula alte programe și procese); include accesul la fișiere."
+"Dacă este bifat, Python primește modulul os real și poate rula alte programe"
+" (subprocess, multiprocessing, pty, os.system). Include citirea și scrierea "
+"fișierelor. Dacă este debifat, lansarea proceselor este blocată."
 
 msgid "Extra allowed modules"
 msgstr "Module suplimentare permise"
 
 msgid ""
 "Comma-separated extra modules Python may import (each name also allows "
-"name.*). Overrides the built-in blocklist, including os, socket and "
-"subprocess."
+"name.*). Overrides the sandbox blocklist, including the file, network, and "
+"process lists (os, socket, subprocess)."
 msgstr ""
 "Module suplimentare separate prin virgulă pe care Python le poate importa "
-"(fiecare nume permite și name.*). Suprascrie lista de blocare încorporată, "
-"inclusiv os, socket și subprocess."
+"(fiecare nume permite și name.*). Suprascrie lista de blocare a sandbox-"
+"ului, inclusiv listele de fișiere, rețea și procese (os, socket, "
+"subprocess)."
+
+msgid "Python editor"
+msgstr "Editor Python"
+
+msgid ""
+"Editor window for Edit Python in Cell, Run Python Script, the init script "
+"and LaTeX."
+msgstr ""
+"Fereastră editor pentru Editare Python în celulă, Executare script Python, "
+"scriptul de inițializare și LaTeX."
+
+msgid "Monaco (default)"
+msgstr "Monaco (implicit)"
+
+msgid "CodeMirror"
+msgstr "CodeMirror"
 
 msgid "Vision / OCR"
 msgstr "Viziune / OCR"
