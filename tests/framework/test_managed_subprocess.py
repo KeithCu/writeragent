@@ -1770,3 +1770,91 @@ def test_managed_subprocess_run_capture_output_rejects_stdout_and_stderr(monkeyp
 
     with pytest.raises(ValueError, match=r"^stdout and stderr arguments may not be used with capture_output\.$"):
         ms.ManagedSubprocess.run(["x"], capture_output=True, stderr=subprocess.PIPE)
+
+
+def _pid_is_alive(pid: int) -> bool:
+    from pathlib import Path
+
+    stat_path = Path(f"/proc/{pid}/stat")
+    if stat_path.is_file():
+        try:
+            stat = stat_path.read_text()
+            close_paren = stat.rfind(")")
+            if close_paren >= 0 and close_paren + 2 < len(stat) and stat[close_paren + 2] == "Z":
+                return False
+        except OSError:
+            pass
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def test_managed_subprocess_run_kill_tree_timeout_calls_kill_process_tree(monkeypatch):
+    import plugin.framework.managed_subprocess as ms
+
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.__enter__ = MagicMock(return_value=proc)
+    proc.__exit__ = MagicMock(return_value=None)
+    killed: list[object] = []
+    monkeypatch.setattr(ms.subprocess, "Popen", lambda *a, **k: proc)
+    monkeypatch.setattr(ms, "kill_process_tree", lambda p: killed.append(p))
+    proc.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd=["x"], timeout=1.0),
+        ("", ""),
+    ]
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        ms.ManagedSubprocess.run(["x"], capture_output=True, timeout=1.0, kill_tree=True)
+
+    assert killed == [proc]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="POSIX process group integration")
+def test_managed_subprocess_run_kill_tree_timeout_reaps_grandchild(tmp_path):
+    """Timeout must not leave a forked grandchild running (soffice.bin pattern)."""
+
+    import plugin.framework.managed_subprocess as ms
+
+    pidfile = tmp_path / "grandchild.pid"
+    code = (
+        "import os, sys, time\n"
+        f"pidfile = {str(pidfile)!r}\n"
+        "pid = os.fork()\n"
+        "if pid == 0:\n"
+        "    time.sleep(300)\n"
+        "    os._exit(0)\n"
+        "with open(pidfile, 'w') as f:\n"
+        "    f.write(str(pid))\n"
+        "sys.stdout.write(str(pid) + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(300)\n"
+    )
+    gpid: int | None = None
+    try:
+        with pytest.raises(subprocess.TimeoutExpired) as exc_info:
+            ms.ManagedSubprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True,
+                text=True,
+                timeout=3.0,
+                kill_tree=True,
+            )
+        out = exc_info.value.output or ""
+        assert out.strip(), f"expected grandchild pid on stdout before timeout, got {out!r}"
+        gpid = int(out.strip().splitlines()[0])
+        assert pidfile.read_text().strip() == str(gpid)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and _pid_is_alive(gpid):
+            time.sleep(0.05)
+        assert not _pid_is_alive(gpid), f"grandchild {gpid} survived convert-style timeout"
+    finally:
+        if gpid is not None and _pid_is_alive(gpid):
+            try:
+                os.kill(gpid, signal.SIGKILL)
+            except OSError:
+                pass

@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from PIL import Image
 
@@ -315,26 +314,23 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
     assert any("reference PNG rasterize failed" in err for err in res3.errors)
 
 
-def test_soffice_convert_to_pdf_timeout_uses_tree_kill(monkeypatch, tmp_path: Path):
+def test_soffice_convert_to_pdf_timeout_returns_none(monkeypatch, tmp_path: Path):
     import subprocess
 
-    import plugin.framework.managed_subprocess as ms
     from plugin.ppt_master import fidelity
 
-    proc = MagicMock()
-    proc.poll.return_value = None
-    killed: list[object] = []
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
-    monkeypatch.setattr(ms.subprocess, "Popen", lambda *args, **kwargs: proc)
-    monkeypatch.setattr(ms, "kill_process_tree", lambda p: killed.append(p))
-    proc.communicate.side_effect = [
-        subprocess.TimeoutExpired(cmd=["soffice"], timeout=1.0),
-        ("", ""),
-    ]
+    def fake_run(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise subprocess.TimeoutExpired(cmd=list(args[0]), timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(fidelity.ManagedSubprocess, "run", fake_run)
 
     source = tmp_path / "deck.odp"
     source.write_text("x", encoding="utf-8")
     out_dir = tmp_path / "pdf_out"
 
     assert fidelity.soffice_convert_to_pdf("soffice", source, out_dir, timeout_sec=1) is None
-    assert killed == [proc]
+    assert len(calls) == 1
+    assert calls[0][1]["timeout"] == 1
