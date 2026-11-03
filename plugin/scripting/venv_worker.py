@@ -30,8 +30,7 @@ from plugin.framework.constants import (
     WORKER_POOL_DEFAULT,
     WORKER_POOL_EMBEDDINGS,
 )
-from plugin.framework.process_worker import Deadline
-from plugin.framework.warm_child import ChildSpec, Death, Lease, WarmChild
+from plugin.framework.warm_child import ChildSpec, Death, Deadline, Lease, WarmChild
 from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,

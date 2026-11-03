@@ -106,8 +106,8 @@ def test_spawn_retries_plain_when_scoped_start_raises(monkeypatch):
     attempts = {"n": 0}
 
     @contextlib.contextmanager
-    def fake_io(*args, **kwargs):
-        del args, kwargs
+    def lease_stub(self, spawn_deadline, wait=0.0):
+        del spawn_deadline, wait
         attempts["n"] += 1
         if attempts["n"] == 1:
             raise OSError("systemd-run vanished")
@@ -117,12 +117,9 @@ def test_spawn_retries_plain_when_scoped_start_raises(monkeypatch):
         proc.poll.return_value = None
         from plugin.framework.warm_child import Lease
 
-        warm = mgr._warm
-        assert warm is not None
-        yield Lease(stdin=proc.stdin, stdout=proc.stdout, pid=1, generation=0, warm=warm)
-        return
+        yield Lease(stdin=proc.stdin, stdout=proc.stdout, pid=1, generation=0, warm=self)
 
-    monkeypatch.setattr(mgr, "_io_session", fake_io)
+    monkeypatch.setattr(vw.WarmChild, "lease", lease_stub)
     monkeypatch.setattr(mgr, "_ensure_warmed_unlocked", lambda leased: None)
     monkeypatch.setattr(mgr, "_execute_ipc_unlocked", lambda req, *, leased: {"status": "ok", "result": 1})
     result = mgr.execute("result = 1", timeout_sec=1)
@@ -137,6 +134,13 @@ def test_env_without_runtime_dir_ignores_earlier_scoped_probe(tmp_path):
     without XDG_RUNTIME_DIR and the worker died with 'not defined'."""
     run, first = _wrap(tmp_path)
     assert first[0] == "/usr/bin/systemd-run"
-    run2, second = _wrap(tmp_path)
+    run2, ps = _patches()
+    for p in ps:
+        p.start()
+    try:
+        second = vw.wrap_worker_command(list(CMD), env={"PATH": "/usr/bin"})
+    finally:
+        for p in ps:
+            p.stop()
     assert second == CMD
     assert run2.call_count == 0
