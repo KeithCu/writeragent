@@ -192,7 +192,7 @@ def test_uno_setup_teardown_preserves_string_grammar_provider() -> None:
             side_effect=lambda patch, **kwargs: [set_calls.append((k, v)) for k, v in patch.items()],
         ),
         patch.object(uno_tests.gc.grammar_registry, "clear_all"),
-        patch.object(uno_tests.gc, "ignore_rules_clear"),
+        patch.object(uno_tests.gir, "ignore_rules_clear"),
     ):
         saved = uno_tests.setup_grammar_proof_tests(MagicMock())
         uno_tests.teardown_grammar_proof_tests(saved)
@@ -1158,17 +1158,17 @@ def test_try_harper_fast_path_emits_status_when_ready() -> None:
     with (
         patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
         patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
-        patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status") as mock_status,
+        patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status") as mock_status_fn,
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()),
-        patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=()),
+        patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
     ):
         pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined, checker_identity="harper")
-    phases = [c.args[0] for c in mock_status.call_args_list]
-    assert phases == ["start", "request", "done"]
-    assert mock_status.call_args_list[0].kwargs.get("result") == "Harper"
-    assert mock_status.call_args_list[-1].kwargs.get("result") == "0 issues"
+    mock_status = mock_status_fn.return_value
+    mock_status.start.assert_called_once_with("This are an test.", result="Harper")
+    mock_status.request.assert_called_once_with("This are an test.", result="Harper check")
+    mock_status.done.assert_called_once_with("This are an test.", result="0 issues")
 
 
 def test_try_harper_fast_path_emits_starting_when_ensure(
@@ -1186,13 +1186,13 @@ def test_try_harper_fast_path_emits_starting_when_ensure(
     with (
         patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
         patch("plugin.writer.locale.harper.harper_try_lint", return_value=None),
-        patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status") as mock_status,
+        patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status") as mock_status_fn,
     ):
         pr._try_harper_fast_path("doc", "en-US", [(0, 5, "Hello.")], [], checker_identity="harper")
-    phases = [c.args[0] for c in mock_status.call_args_list]
-    assert phases == ["start", "request"]
-    assert mock_status.call_args_list[-1].kwargs.get("result") == "Starting Harper…"
-    assert not any(c.args[0] == "done" for c in mock_status.call_args_list)
+    mock_status = mock_status_fn.return_value
+    mock_status.start.assert_called_once_with("Hello.", result="Harper")
+    mock_status.request.assert_called_once_with("Hello.", result="Starting Harper…")
+    mock_status.done.assert_not_called()
 
     with (
         patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
@@ -1486,10 +1486,10 @@ def test_doc_ignored_rules_runs_once_for_multi_sentence_harper(
         patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
         patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()) as mock_doc_ignored,
-        patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=()),
+        patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
-        patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status"),
+        patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status", return_value=MagicMock()),
     ):
         pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined, checker_identity="harper")
         assert mock_doc_ignored.call_count == 1
@@ -1583,10 +1583,10 @@ def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_con
         patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
         patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": [{"wrong": "They is"}]}),
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"agr"}),
-        patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=()),
+        patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[norm_err]),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
-        patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status") as mock_status,
+        patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status") as mock_status_fn,
     ):
         pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined, checker_identity="harper")
         mock_put.assert_called_once()
@@ -1595,7 +1595,7 @@ def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_con
         assert len(cached_payload) == 1
         assert cached_payload[0]["rule_identifier"] == "harper||agr"
         # Status text reports 0 issues
-        assert any(call[1].get("result") == "0 issues" for call in mock_status.call_args_list)
+        mock_status_fn.return_value.done.assert_called_once_with(work_spans[-1][2], result="0 issues")
 
 
 def test_reset_ignore_rules_broadcasts_and_subsequent_call_returns_error(

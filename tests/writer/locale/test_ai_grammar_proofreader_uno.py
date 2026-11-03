@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import Any
+from plugin.writer.locale import grammar_ignore_rules as gir
 from plugin.writer.locale import grammar_proofread_cache as gc
 from plugin.writer.locale import grammar_proofread_text as gt
 from plugin.framework.config import get_config, save
@@ -28,7 +29,7 @@ def setup_grammar_proof_tests(_ctx: Any = None) -> Any:
 def teardown_grammar_proof_tests(saved_enabled: Any) -> None:
     save({"doc.grammar_proofreader_enabled": saved_enabled})
     gc.grammar_registry.clear_all()
-    gc.ignore_rules_clear()
+    gir.ignore_rules_clear()
 
 
 @native_test

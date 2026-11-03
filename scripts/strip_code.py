@@ -32,7 +32,7 @@ Why bother (measured 2026-08-10 under ``plugin/``, excluding tests):
   keep-list preserves stderr fallbacks, subprocess IPC, and CLI UX)
 * ``@deal.*`` — ~364 decorators, ~34 KB (shim already no-ops; strip skips def-time wrappers)
 
-Imports, logger setup, ``grammar_obs.py``, ``emit_grammar_status``, and
+Imports, logger setup, ``grammar_obs.py``, ``GrammarStatus``, and
 ``from plugin.framework.deal_shim import deal`` stay intact.
 
 Line edits / empty-suite ``pass`` live in
