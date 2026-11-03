@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
-from plugin.embeddings.embeddings_cache import dim_from_meta_path
+from plugin.embeddings.embeddings_cache import CorpusMeta
 from plugin.embeddings.embeddings_split import CHUNK_OVERLAP, CHUNK_SIZE
 from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE, EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
 from plugin.embeddings.venv.embeddings_index import embed_texts
@@ -72,7 +72,8 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
     build_fts = bool(state.get("build_fts"))
     build_vectors = bool(state.get("build_vectors"))
     model = str(state.get("model") or "")
-    dim = dim_from_meta_path(str(state.get("meta_path") or ""))
+    meta = CorpusMeta.load(str(state.get("meta_path") or ""))
+    dim = meta.dim if (meta.is_valid and meta.dim > 0) else None
 
     conn = connect_corpus_db(str(state["db_path"]))
     try:
@@ -132,7 +133,8 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
         if build_vectors:
             from plugin.embeddings.venv.embeddings_sqlite import _load_vec_extension
             _load_vec_extension(conn)
-        schema_dim = dim_from_meta_path(str(state.get("meta_path") or ""))
+        meta = CorpusMeta.load(str(state.get("meta_path") or ""))
+        schema_dim = meta.dim if (meta.is_valid and meta.dim > 0) else None
 
         # Same cold-DB catch as delete_stale: this connection's OperationalError.
         if schema_dim is None and build_vectors:

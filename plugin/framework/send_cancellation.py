@@ -98,10 +98,8 @@ class SendCancellation:
 
     def unregister_on_cancel(self, hook: Callable[[], None]) -> None:
         with self._lock:
-            try:
+            if hook in self._hooks:
                 self._hooks.remove(hook)
-            except ValueError:
-                pass
 
     def cancel(self) -> None:
         # Set the flag under the lock so two callers cannot both run the hooks.

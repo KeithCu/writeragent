@@ -31,19 +31,18 @@ def test_maintain_cold_calls_heartbeat_and_ingest(tmp_path: Path):
     _write_min_odt(doc)
     heartbeats: list[dict] = []
 
-    with patch("plugin.embeddings.venv.embeddings_folder_maintain.index_is_empty", return_value=True):
-        with patch("plugin.embeddings.venv.embeddings_folder_maintain.needs_cold_rebuild", return_value=True):
-            with patch("plugin.embeddings.venv.embeddings_folder_maintain.clear_folder_cache") as clear_mock:
-                with patch(
-                    "plugin.embeddings.venv.embeddings_folder_maintain._ingest_rows",
-                    return_value={"upserted": 1},
-                ) as ingest_mock:
-                    result = embeddings_folder_maintain.maintain_folder_index(
-                        str(tmp_path),
-                        embedding_model="all-MiniLM-L6-v2",
-                        mode="cold",
-                        heartbeat_fn=heartbeats.append,
-                    )
+    with patch.object(embeddings_folder_maintain.CorpusMeta, "load", return_value=MagicMock(needs_cold_rebuild=MagicMock(return_value=True))):
+        with patch("plugin.embeddings.venv.embeddings_folder_maintain.clear_folder_cache") as clear_mock:
+            with patch(
+                "plugin.embeddings.venv.embeddings_folder_maintain._ingest_rows",
+                return_value={"upserted": 1},
+            ) as ingest_mock:
+                result = embeddings_folder_maintain.maintain_folder_index(
+                    str(tmp_path),
+                    embedding_model="all-MiniLM-L6-v2",
+                    mode="cold",
+                    heartbeat_fn=heartbeats.append,
+                )
     clear_mock.assert_called_once()
     ingest_mock.assert_called_once()
     assert result["mode"] == "cold"

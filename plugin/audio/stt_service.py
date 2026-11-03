@@ -106,23 +106,14 @@ def stt_controls_enabled(provider: str) -> tuple[bool, bool]:
     return (not local, local)
 
 
-def _config_str_or_empty(key: str) -> str:
-    """Read a string config value, returning empty string on missing key."""
-    try:
-        val = get_config(key)
-        return str(val) if val is not None else ""
-    except ConfigError:
-        return ""
-
-
 def get_stt_local_model() -> str:
     """``audio.stt_local_model``, default ``base``."""
-    return normalize_stt_local_model(_config_str_or_empty("audio.stt_local_model"))
+    return normalize_stt_local_model(str(get_config("audio.stt_local_model") or ""))
 
 
 def uses_local_stt() -> bool:
     """True when Record should transcribe in the venv instead of over HTTP."""
-    return normalize_stt_provider(_config_str_or_empty("audio.stt_provider")) == STT_PROVIDER_LOCAL
+    return normalize_stt_provider(str(get_config("audio.stt_provider") or "")) == STT_PROVIDER_LOCAL
 
 
 def _hf_hub_cache_dir() -> str:
@@ -224,7 +215,7 @@ def status_for_transcription() -> str:
 
 def resolve_stt_python() -> str | None:
     """Venv interpreter from Settings → Python, or None when it is not set."""
-    venv_dir = _config_str_or_empty("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return None
     return resolve_venv_python(venv_dir)

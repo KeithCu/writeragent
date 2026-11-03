@@ -144,7 +144,7 @@ def test_show_tests_unavailable_invokes_msgbox() -> None:
     """_show_tests_unavailable invokes msgbox with package info."""
     fake_ctx = MagicMock()
     with (
-        patch("plugin.framework.uno_context.get_ctx", return_value=fake_ctx),
+        patch("plugin.main.get_ctx", return_value=fake_ctx),
         patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
     ):
         main_mod._show_tests_unavailable("writer.format_tests")

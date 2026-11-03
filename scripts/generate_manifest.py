@@ -246,6 +246,18 @@ def _filter_librepy_config(config):
     }
 
 
+class _NCall:
+    """Wrapper to format N_("...") in generated code via pprint."""
+
+    def __init__(self, s: str) -> None:
+        self.s = s
+
+    def __repr__(self) -> str:
+        import json
+
+        return f"N_({json.dumps(self.s, ensure_ascii=False)})"
+
+
 def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
     """Generate _manifest.py containing the MODULES list."""
     from manifest_common import write_if_changed
@@ -256,8 +268,16 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
         "Extension version lives in plugin/version.py.",
         '"""',
         "",
+        "from plugin.framework.i18n import N_",
+        "",
         "MODULES = [",
     ]
+
+    menu_titles: dict[str, str] = {}
+    for m in modules:
+        raw_titles = m.pop("menu_titles", None)
+        if isinstance(raw_titles, dict):
+            menu_titles.update(raw_titles)
 
     for m in modules:
         config = m.get("config", {})
@@ -277,6 +297,11 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
                 for k, v in m.get("actions", {}).items()
                 if isinstance(v, dict) and v.get("icon")
             },
+            "action_titles": {
+                k: _NCall(v["title"])
+                for k, v in m.get("actions", {}).items()
+                if isinstance(v, dict) and isinstance(v.get("title"), str)
+            },
         }
         if m.get("settings_tab") is False:
             entry["settings_tab"] = False
@@ -289,6 +314,13 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
         lines.append(f"{indented},")
 
     lines.append("]")
+    lines.append("")
+    formatted_menu_titles = {
+        cmd: _NCall(title)
+        for cmd, title in menu_titles.items()
+    }
+    menu_titles_text = pprint.pformat(formatted_menu_titles, indent=4, sort_dicts=False)
+    lines.append(f"MENU_TITLES = {menu_titles_text}")
     lines.append("")
 
     source = "\n".join(lines)

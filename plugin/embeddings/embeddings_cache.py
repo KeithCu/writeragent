@@ -18,7 +18,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast, get_args
 
 from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
 
@@ -143,7 +143,7 @@ def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
     try:
         raw_text = meta_path.read_text(encoding="utf-8")
     except OSError:
-        log.debug("read_corpus_meta failed for %s", meta_path, exc_info=True)
+        log.debug("corpus_meta read failed for %s", meta_path, exc_info=True)
         return None
     # read_text is str. A non-str means the path handle did not yield a file.
     if not isinstance(raw_text, str):
@@ -151,7 +151,7 @@ def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(raw_text)
     except json.JSONDecodeError:
-        log.debug("read_corpus_meta failed for %s", meta_path, exc_info=True)
+        log.debug("corpus_meta read failed for %s", meta_path, exc_info=True)
         return None
     if not isinstance(data, dict):
         log.debug("corpus_meta %s is %s, not an object", meta_path, type(data).__name__)
@@ -161,111 +161,76 @@ def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
 
 @dataclass
 class CorpusMeta:
-    """Typed view and atomic read-merge-write gateway for corpus_meta.json."""
+    """Typed view and atomic gateway for corpus_meta.json."""
 
-    schema_version: str = ""
-    embedding_model: str = ""
-    dim: int = 0
-    chunk_count: int = 0
-    storage_backend: str = ""
-    updated_at: str = ""
-    extra: dict[str, str] = field(default_factory=dict)
+    data: dict[str, str] = field(default_factory=dict)
     path: Path | None = None
     is_valid: bool = False
-    _schema_version_present: bool = False
-    _embedding_model_present: bool = False
-    _dim_present: bool = False
-    _chunk_count_present: bool = False
-    _storage_backend_present: bool = False
-    _updated_at_present: bool = False
 
     @classmethod
     def load(cls, meta_path: Path | str) -> CorpusMeta:
         path = Path(meta_path)
-        data = _load_meta_object(path)
-        if data is None:
+        raw = _load_meta_object(path)
+        if raw is None:
             return cls(path=path, is_valid=False)
+        data = {str(k): str(v) for k, v in raw.items()}
+        return cls(data=data, path=path, is_valid=True)
 
-        def _to_int(val: Any) -> int:
-            try:
-                i = int(val)
-                return i if i >= 0 else 0
-            except (ValueError, TypeError):
-                return 0
+    @property
+    def schema_version(self) -> str:
+        return self.data.get("schema_version", "")
 
-        schema_version = str(data.get("schema_version") or "")
-        embedding_model = str(data.get("embedding_model") or "")
-        dim = _to_int(data.get("dim"))
-        chunk_count = _to_int(data.get("chunk_count"))
-        storage_backend = str(data.get("storage_backend") or "")
-        updated_at = str(data.get("updated_at") or "")
+    @property
+    def embedding_model(self) -> str:
+        return self.data.get("embedding_model", "")
 
-        known = {"schema_version", "embedding_model", "dim", "chunk_count", "storage_backend", "updated_at"}
-        extra = {str(k): str(v) for k, v in data.items() if k not in known}
+    @property
+    def storage_backend(self) -> str:
+        return self.data.get("storage_backend", "")
 
-        return cls(
-            schema_version=schema_version,
-            embedding_model=embedding_model,
-            dim=dim,
-            chunk_count=chunk_count,
-            storage_backend=storage_backend,
-            updated_at=updated_at,
-            extra=extra,
-            path=path,
-            is_valid=True,
-            _schema_version_present=("schema_version" in data),
-            _embedding_model_present=("embedding_model" in data),
-            _dim_present=("dim" in data),
-            _chunk_count_present=("chunk_count" in data),
-            _storage_backend_present=("storage_backend" in data),
-            _updated_at_present=("updated_at" in data),
-        )
+    @property
+    def updated_at(self) -> str:
+        return self.data.get("updated_at", "")
+
+    @property
+    def dim(self) -> int:
+        val = self.data.get("dim")
+        if val is None:
+            return 0
+        try:
+            i = int(val)
+            return i if i >= 0 else 0
+        except (ValueError, TypeError):
+            return 0
+
+    @property
+    def chunk_count(self) -> int:
+        val = self.data.get("chunk_count")
+        if val is None:
+            return 0
+        try:
+            i = int(val)
+            return i if i >= 0 else 0
+        except (ValueError, TypeError):
+            return 0
 
     def update(self, **fields: Any) -> CorpusMeta:
         for k, v in fields.items():
-            if k == "schema_version":
-                self.schema_version = str(v or "")
-                self._schema_version_present = True
-            elif k == "embedding_model":
-                self.embedding_model = str(v or "")
-                self._embedding_model_present = True
-            elif k == "dim":
+            if k in ("dim", "chunk_count"):
                 try:
-                    self.dim = int(v) if v is not None else 0
+                    i = int(v) if v is not None else 0
+                    val = i if i >= 0 else 0
                 except (ValueError, TypeError):
-                    self.dim = 0
-                self._dim_present = True
-            elif k == "chunk_count":
-                try:
-                    self.chunk_count = int(v) if v is not None else 0
-                except (ValueError, TypeError):
-                    self.chunk_count = 0
-                self._chunk_count_present = True
-            elif k == "storage_backend":
-                self.storage_backend = str(v or "")
-                self._storage_backend_present = True
-            elif k == "updated_at":
-                self.updated_at = str(v or "")
-                self._updated_at_present = True
+                    val = 0
+                self.data[k] = str(val)
+            elif k in ("schema_version", "embedding_model", "storage_backend", "updated_at"):
+                self.data[k] = str(v or "")
             else:
-                self.extra[str(k)] = str(v)
+                self.data[str(k)] = str(v)
         return self
 
     def to_dict(self) -> dict[str, str]:
-        res = dict(self.extra)
-        if self._schema_version_present or self.schema_version:
-            res["schema_version"] = self.schema_version
-        if self._embedding_model_present or self.embedding_model:
-            res["embedding_model"] = self.embedding_model
-        if self._dim_present or self.dim > 0:
-            res["dim"] = str(self.dim)
-        if self._chunk_count_present or self.chunk_count > 0:
-            res["chunk_count"] = str(self.chunk_count)
-        if self._storage_backend_present or self.storage_backend:
-            res["storage_backend"] = self.storage_backend
-        if self._updated_at_present or self.updated_at:
-            res["updated_at"] = self.updated_at
-        return res
+        return dict(self.data)
 
     def save(self, meta_path: Path | str | None = None) -> CorpusMeta:
         dest = Path(meta_path) if meta_path is not None else self.path
@@ -273,16 +238,14 @@ class CorpusMeta:
             raise ValueError("No destination path specified for CorpusMeta.save")
         dest.parent.mkdir(parents=True, exist_ok=True)
 
-        disk_data = read_corpus_meta(dest)
-        merged = dict(disk_data)
-        merged.update(self.to_dict())
-
-        payload = json.dumps(merged, indent=2, sort_keys=True)
+        payload = json.dumps(self.data, indent=2, sort_keys=True)
         fd, tmp_name = tempfile.mkstemp(prefix=dest.name + ".", suffix=".tmp", dir=str(dest.parent))
         tmp_path = Path(tmp_name)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(payload)
+            # The in-memory dict is the merge base; os.replace is the publish.
+            # A second read of dest before writing was not atomic either and could overwrite concurrent writes.
             os.replace(tmp_path, dest)
         except Exception:
             tmp_path.unlink(missing_ok=True)
@@ -291,6 +254,39 @@ class CorpusMeta:
         self.path = dest
         self.is_valid = True
         return self
+
+    @classmethod
+    def ensure(cls, meta_path: Path | str, *, embedding_model: str, dim: int | None = None, chunk_count: int | None = None) -> CorpusMeta:
+        """Initialize or refresh corpus metadata on the host."""
+        now = str(time.time())
+        fields: dict[str, Any] = {
+            "schema_version": SCHEMA_VERSION,
+            "embedding_model": embedding_model,
+            "storage_backend": STORAGE_BACKEND,
+            "updated_at": now,
+        }
+        if dim is not None:
+            fields["dim"] = dim
+        if chunk_count is not None:
+            fields["chunk_count"] = chunk_count
+        return cls.load(meta_path).update(**fields).save(meta_path)
+
+    @classmethod
+    def write_row_count(cls, listing_root: str, row_count: int, *, embedding_model: str = "", dim: int = 0) -> CorpusMeta:
+        """Record row and chunk counts into folder corpus metadata (sqlite-vec backend)."""
+        fields: dict[str, Any] = {
+            "schema_version": SCHEMA_VERSION,
+            "storage_backend": STORAGE_BACKEND,
+            "row_count": str(row_count),
+            "chunk_count": row_count,
+            "updated_at": str(time.time()),
+        }
+        if embedding_model:
+            fields["embedding_model"] = embedding_model
+        if dim > 0:
+            fields["dim"] = dim
+        path = corpus_meta_path(listing_root)
+        return cls.load(path).update(**fields).save(path)
 
     def schema_matches(self) -> bool:
         return self.is_valid and self.schema_version == SCHEMA_VERSION
@@ -317,48 +313,7 @@ class CorpusMeta:
         return self.needs_cold_rebuild(embedding_model)
 
 
-def read_corpus_meta(meta_path: Path) -> dict[str, str]:
-    """Load corpus_meta.json; return empty dict when missing, unreadable, or not an object."""
-    meta = CorpusMeta.load(meta_path)
-    return meta.to_dict() if meta.is_valid else {}
-
-
-def write_corpus_meta(meta_path: Path, **fields: Any) -> None:
-    """Merge *fields* into corpus_meta.json."""
-    CorpusMeta.load(meta_path).update(**fields).save(meta_path)
-
-
-def ensure_corpus_meta(meta_path: Path, *, embedding_model: str, dim: int | None = None, chunk_count: int | None = None) -> None:
-    """Initialize or refresh corpus metadata on the host."""
-    now = str(time.time())
-    fields: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "embedding_model": embedding_model, "storage_backend": STORAGE_BACKEND, "updated_at": now}
-    if dim is not None:
-        fields["dim"] = dim
-    if chunk_count is not None:
-        fields["chunk_count"] = chunk_count
-    CorpusMeta.load(meta_path).update(**fields).save(meta_path)
-
-
-def write_row_count_meta(listing_root: str, row_count: int, *, embedding_model: str = "", dim: int = 0) -> None:
-    """Record row and chunk counts into folder corpus metadata (sqlite-vec backend)."""
-    fields: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "storage_backend": STORAGE_BACKEND, "row_count": str(row_count), "chunk_count": row_count, "updated_at": str(time.time())}
-    if embedding_model:
-        fields["embedding_model"] = embedding_model
-    if dim > 0:
-        fields["dim"] = dim
-    CorpusMeta.load(corpus_meta_path(listing_root)).update(**fields).save(corpus_meta_path(listing_root))
-
-
-def chunk_count_from_meta(meta_path: Path) -> int:
-    return CorpusMeta.load(meta_path).chunk_count
-
-
-def dim_from_meta_path(meta_path: str) -> int | None:
-    meta = CorpusMeta.load(meta_path)
-    return meta.dim if (meta.is_valid and meta.dim > 0) else None
-
-
-def _vector_backend_is_empty(mode: str, listing_root: str | None, meta_path: Path) -> bool:
+def _vector_backend_is_empty(mode: str, listing_root: str | None, meta_path: Path, meta: CorpusMeta | None = None) -> bool:
     """True when a zvec or lancedb folder store has nothing to search.
 
     A built store has a positive ``chunk_count`` in corpus_meta.json and at
@@ -378,13 +333,21 @@ def _vector_backend_is_empty(mode: str, listing_root: str | None, meta_path: Pat
         return True
     if not meta_path.is_file():
         return False
-    meta = CorpusMeta.load(meta_path)
+    if meta is None:
+        meta = CorpusMeta.load(meta_path)
     if not meta.is_valid:
         return False
     return meta.chunk_count <= 0
 
 
-def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode: str | None = None, listing_root: str | None = None) -> bool:
+def index_is_empty(
+    meta_path: Path,
+    db_path: Path | None = None,
+    *,
+    search_mode: str | None = None,
+    listing_root: str | None = None,
+    meta: CorpusMeta | None = None,
+) -> bool:
     """True when the active folder store has no indexed chunks.
 
     sqlite callers may omit *db_path*; it is the corpus.db beside *meta_path*.
@@ -400,7 +363,7 @@ def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode:
         # and the research tools use. Treating a missing file as empty there
         # resolved cold on every tick and clear_folder_cache deleted the
         # real collection.
-        return _vector_backend_is_empty(mode, listing_root, meta_path)
+        return _vector_backend_is_empty(mode, listing_root, meta_path, meta=meta)
     if db_path is None:
         db_path = meta_path.parent / CORPUS_DB_FILENAME
     if not db_path.is_file():
@@ -416,13 +379,41 @@ def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode:
     # Corrupt or non-object meta with a live DB is not "empty". Treating it as
     # empty selects a cold rebuild and deletes the corpus. #1153 covered JSON
     # decode errors; a JSON list or string took the chunk_count-0 path.
-    meta = CorpusMeta.load(meta_path)
+    if meta is None:
+        meta = CorpusMeta.load(meta_path)
     if not meta.is_valid and db_path.is_file():
         return False
     return meta.chunk_count <= 0
 
 
-def ready_search_path(mode: str, listing_root: str | None, meta_path: Any, db_path: Any) -> str | None:
+SearchMode = Literal["fts", "embeddings", "hybrid", "llama_index", "zvec", "lancedb"]
+_MODES: tuple[SearchMode, ...] = cast("tuple[SearchMode, ...]", get_args(SearchMode))
+
+
+def parse_search_mode(raw: str | None) -> SearchMode:
+    """Worker mode. Unknown values and "none" map to "hybrid"."""
+    mode = str(raw or "").strip().lower()
+    if mode in _MODES:
+        return cast("SearchMode", mode)
+    return "hybrid"
+
+
+@dataclass(frozen=True)
+class FolderStore:
+    mode: str
+    search_path: str | None
+    is_empty: bool
+    meta: CorpusMeta
+
+
+def ready_search_path(
+    mode: str,
+    listing_root: str | None,
+    meta_path: Any,
+    db_path: Any,
+    *,
+    meta: CorpusMeta | None = None,
+) -> str | None:
     """Path to search, or None when that store is not built yet.
 
     create_parent=True runs only after the probe says the store is populated.
@@ -442,18 +433,27 @@ def ready_search_path(mode: str, listing_root: str | None, meta_path: Any, db_pa
         if not lancedb_collection_looks_populated(probe):
             return None
         return str(lancedb_collection_path(listing_root, create_parent=True))
-    if index_is_empty(meta_path, db_path):
+    if index_is_empty(meta_path, db_path, meta=meta):
         return None
     return str(db_path)
 
 
-def model_matches_index(meta_path: Path, embedding_model: str) -> bool:
-    """False when stored embedding_model differs (requires cold rebuild)."""
-    return CorpusMeta.load(meta_path).model_matches_index(embedding_model)
+def folder_store(
+    listing_root: str | None,
+    meta_path: Path,
+    db_path: Path | None = None,
+    mode: str | None = None,
+) -> FolderStore:
+    """Consolidated folder store state: mode, search_path, is_empty, meta."""
+    from plugin.framework.constants import configured_folder_search_mode
 
-
-def schema_matches(meta_path: Path) -> bool:
-    return CorpusMeta.load(meta_path).schema_matches()
+    resolved_mode = configured_folder_search_mode() if mode is None else mode
+    meta = CorpusMeta.load(meta_path)
+    empty = index_is_empty(meta_path, db_path, search_mode=resolved_mode, listing_root=listing_root, meta=meta)
+    search_path = None if empty else ready_search_path(
+        resolved_mode, listing_root, meta_path, db_path, meta=meta
+    )
+    return FolderStore(mode=resolved_mode, search_path=search_path, is_empty=empty, meta=meta)
 
 
 def remove_stale_corpus_stores(listing_root: str) -> bool:
@@ -531,22 +531,7 @@ def resolve_index_context(ctx: Any = None, model: Any = None, *, listing_root: A
         return None, None, None, "No nearby files found. Save the document or open sibling files in LibreOffice."
     folder_key = folder_corpus_key(listing_root)
     maybe_upgrade_legacy_index(listing_root)
-    # This resolve is a read; writers already mkdir in write_corpus_meta and connect_corpus_db.
+    # This resolve is a read; writers already mkdir in CorpusMeta.save and connect_corpus_db.
     db_path = corpus_db_path(listing_root, create_parent=False)
     meta = corpus_meta_path(listing_root, create_parent=False)
     return folder_key, db_path, meta, listing_root
-
-
-def needs_cold_rebuild(meta_path: Path, embedding_model: str) -> bool:
-    return CorpusMeta.load(meta_path).needs_cold_rebuild(embedding_model)
-
-
-def query_blocked_for_model(meta_path: Path, embedding_model: str) -> bool:
-    """True when a vector query would hit a stale or wrong-dimension index.
-
-    Missing meta is not blocked here (``index_is_empty`` covers that and
-    enqueues a first build). A different embedding model must cold-rebuild
-    before search: querying now reads an empty, partial, or wrong-dim vec
-    table and reports it as a normal result.
-    """
-    return CorpusMeta.load(meta_path).query_blocked_for_model(embedding_model)

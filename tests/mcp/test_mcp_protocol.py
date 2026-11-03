@@ -503,7 +503,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
             status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 403
         else:
-            with patch.object(handler, "_read_body", return_value={}):
+            with patch("plugin.mcp.mcp_protocol.read_json_body", return_value={}):
                 handler.handle_debug_post(req)
             assert 403 in req.sent_responses
 
@@ -520,7 +520,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
             status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 200
         else:
-            with patch.object(handler, "_read_body", return_value={}):
+            with patch("plugin.mcp.mcp_protocol.read_json_body", return_value={}):
                 handler.handle_debug_post(req)
             assert 200 in req.sent_responses
 
@@ -531,7 +531,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
             status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 403
         else:
-            with patch.object(handler, "_read_body", return_value={}):
+            with patch("plugin.mcp.mcp_protocol.read_json_body", return_value={}):
                 handler.handle_debug_post(req)
             assert 403 in req.sent_responses
 
@@ -545,7 +545,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
             status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 403
         else:
-            with patch.object(handler, "_read_body", return_value={}):
+            with patch("plugin.mcp.mcp_protocol.read_json_body", return_value={}):
                 handler.handle_debug_post(req)
             assert 403 in req.sent_responses
 

@@ -51,6 +51,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/__init__.py",
     "plugin/main_core.py",
     "plugin/menu_handlers.py",
+    "plugin/bootstrap.py",
     "plugin/bootstrap_ui_hooks.py",
     "plugin/version.py",
     "plugin/librepy/__init__.py",
