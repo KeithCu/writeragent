@@ -577,7 +577,7 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     client.stream_request_with_tools.return_value = {"content": "ok"}
     view = [{"role": "system", "content": "view"}]
     q = MagicMock()
@@ -637,9 +637,9 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
-    # MagicMock._stopped is truthy. The worker treats that as Stop and
-    # returns before compact, so the aborted-compact path never runs.
-    client._stopped = False
+    # MagicMock attributes are truthy. Use stopped.return_value so send_stopped
+    # does not treat an idle client as Stop before compact runs.
+    client.stopped.return_value = False
     q = MagicMock()
     from plugin.chatbot.tool_loop_actions import current_turn
 
@@ -675,7 +675,7 @@ def test_llm_worker_skips_compact_when_flag_false(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     client.stream_request_with_tools.return_value = {}
     view = [{"role": "user", "content": "hi"}]
     from plugin.chatbot.tool_loop_actions import current_turn
@@ -705,7 +705,7 @@ def test_final_stream_compacts_then_sends_view(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     view = [{"role": "system", "content": "final-view"}]
     from plugin.chatbot.tool_loop_actions import current_turn
 
@@ -741,10 +741,10 @@ def test_final_stream_done_and_stop_partial(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     view = [{"role": "system", "content": "final-view"}]
 
-    def fake_stream(messages, max_tokens, append_c, append_t, stop_checker=None, status_callback=None):
+    def fake_stream(messages, max_tokens, append_c, append_t, cancel=None, status_callback=None):
         append_c("ab")
         append_c("c")
 
@@ -791,11 +791,11 @@ def test_final_stream_done_and_stop_partial(test_instance):
     b2 = BatchingStreamQueue(q2, batch_interval=10)
     turn.queue = q2
     turn.batcher = b2
-    client._stopped = False
+    client.stopped.return_value = False
 
-    def fake_stream_abort(messages, max_tokens, append_c, append_t, stop_checker=None, status_callback=None):
+    def fake_stream_abort(messages, max_tokens, append_c, append_t, cancel=None, status_callback=None):
         append_c("ab")
-        client._stopped = True
+        client.stopped.return_value = True
 
     client.stream_chat_response.side_effect = fake_stream_abort
 
@@ -824,7 +824,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
     b3 = BatchingStreamQueue(q3, batch_interval=10)
     turn.queue = q3
     turn.batcher = b3
-    client._stopped = True
+    client.stopped.return_value = True
     client.stream_chat_response.reset_mock()
 
     with (
@@ -1055,7 +1055,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
 
     client = MagicMock()
     client.stream_request_with_tools.return_value = {"content": "ok"}
-    client._stopped = False
+    client.stopped.return_value = False
     client.config = {"api_key": ""}
     with (
         patch("plugin.framework.client.model_fetcher.get_config", return_value={}),
@@ -1102,7 +1102,7 @@ def test_first_send_cold_model_worker_resolves_true_keeps_image(test_instance):
     q = MagicMock()
     client = MagicMock()
     client.stream_request_with_tools.return_value = {"content": "ok"}
-    client._stopped = False
+    client.stopped.return_value = False
     client.config = {"api_key": "test-key"}
 
     test_instance.session.messages = [{
@@ -1154,7 +1154,7 @@ def test_first_send_cold_model_worker_resolves_false_or_none_strips_image(test_i
         q = MagicMock()
         client = MagicMock()
         client.stream_request_with_tools.return_value = {"content": "ok"}
-        client._stopped = False
+        client.stopped.return_value = False
         client.config = {"api_key": "test-key"}
 
         test_instance.session.messages = [{

@@ -19,6 +19,7 @@ import threading
 from collections import deque
 from typing import Any, Callable, NamedTuple, cast
 
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.audio.kokoro_g2p import (
     G2P_FAILED_MARK,
     KOKORO_PIP_INSTALL,
@@ -84,6 +85,7 @@ _speech_lock = threading.Lock()
 # Bumped on every stop and every new speak. In-flight work captured the old
 # id and must not play or enqueue after that.
 _speech_generation: int = 0
+_speech_cancel: "SendCancellation | None" = None
 _tracked_temps: set[str] = set()
 _ready_queue: "_ReadyQueue | None" = None
 # generation -> {g2p lang: install succeeded}. One probe per language per
@@ -297,9 +299,12 @@ def stop_speech() -> None:
     UI-thread safe: sends signals/kills immediately and delegates waiting/reaping,
     spd-say -S, and temp unlinking to a background worker.
     """
-    global _speech_active, _speech_generation, _ready_queue
+    global _speech_active, _speech_generation, _ready_queue, _speech_cancel
     with _speech_lock:
+        if _speech_cancel is not None:
+            _speech_cancel.cancel()
         _speech_generation += 1
+        _speech_cancel = SendCancellation()
         _speech_active = False
         procs = list(_procs)
         _procs.clear()
@@ -1265,8 +1270,8 @@ def _speak_endpoint(
     if not chunks:
         return
 
-    def stop_checker() -> bool:
-        return _playback_blocked(generation)
+    with _speech_lock:
+        cancel = _speech_cancel
 
     if len(chunks) == 1:
         chunk = chunks[0]
@@ -1278,7 +1283,7 @@ def _speak_endpoint(
             voice,
             speed=speed,
             on_status=on_status,
-            stop_checker=stop_checker,
+            cancel=cancel,
         )
         if _playback_blocked(generation):
             return
@@ -1320,7 +1325,7 @@ def _speak_endpoint(
                     voice,
                     speed=speed,
                     on_status=on_status,
-                    stop_checker=stop_checker,
+                    cancel=cancel,
                 )
                 if _playback_blocked(generation):
                     return

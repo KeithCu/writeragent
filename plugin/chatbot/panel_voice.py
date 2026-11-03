@@ -17,7 +17,7 @@ from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.config import get_api_config
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.send_cancellation import capture_send_stop
+from plugin.framework.send_cancellation import capture_send_stop, is_cancelled
 from plugin.chatbot.tool_loop_actions import assign_send_outcome, send_outcome_is_stopped, send_outcome_terminal_display
 
 log = logging.getLogger("plugin.chatbot.panel")
@@ -354,8 +354,8 @@ class PanelVoiceController:
         try:
             # Spawn-time scope. Do not call resolve_stop_checker inside the
             # worker: Stop's drain clears the field and the next send replaces it.
-            cancel_scope, stop_checker = capture_send_stop(self._panel)
-            if stop_checker():
+            cancel_scope, _unused = capture_send_stop(self._panel)
+            if is_cancelled(cancel_scope):
                 assign_send_outcome(self._panel, "Stopped")
                 return ""
 
@@ -367,10 +367,10 @@ class PanelVoiceController:
                 client = LlmClient(
                     api_config,
                     self._panel.ctx,
-                    cancellation_scope=cancel_scope,
+                    cancel=cancel_scope,
                     register_with_send=False,
                 )
-                if cancel_scope is not None and not cancel_scope.is_cancelled():
+                if not is_cancelled(cancel_scope):
                     client.clear_stop()
 
             transcribing = status_for_transcription()
@@ -410,7 +410,7 @@ class PanelVoiceController:
                 log.exception("Transcription error in _transcribe_audio")
                 self._panel._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
                 raise
-            if stop_checker():
+            if is_cancelled(cancel_scope):
                 log.info("Speech-to-text finished after Stop; preserving transcript for query box")
                 assign_send_outcome(self._panel, "Stopped")
             return transcript_text

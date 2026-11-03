@@ -10,6 +10,15 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+from plugin.framework.send_cancellation import SendCancellation
+
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
+
 
 from plugin.framework.stream_batch import BatchingStreamQueue, DeadlineThread, StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, StreamQueue, run_stream_drain_loop
@@ -487,7 +496,7 @@ def test_stop_applies_flushed_batcher_text():
         on_stream_done=lambda _i: True,
         on_stopped=lambda: None,
         on_error=lambda _e: None,
-        stop_checker=lambda: True,
+        stop_checker=lambda: _cancelled_scope().is_cancelled(),
         flush_pending=flush_pending,
     )
     assert outcome.done is True

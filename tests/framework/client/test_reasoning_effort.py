@@ -317,24 +317,39 @@ def test_retry_body_shapes() -> None:
 # --- HTTP 400 retry tests ---
 
 
+_EFFORT_400 = NetworkError("HTTP Error 400: Invalid reasoning_effort for this model", code="HTTP_ERROR", details={"status": 400, "url": "/v1/chat/completions"})
+_OK = ("ok", {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
+
+
+def _effort_400_http_response() -> MagicMock:
+    response = MagicMock()
+    response.status = 400
+    response.reason = "Bad Request"
+    response.getheader.return_value = None
+    response.read.return_value = b'{"error":"Unsupported parameter: reasoning_effort"}'
+    return response
+
+
+def _ok_sync_http_response() -> MagicMock:
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = json.dumps(
+        {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}
+    ).encode()
+    response.getheader.return_value = "application/json"
+    return response
+
+
 def test_400_retry_sync_success_on_second_attempt() -> None:
     client = LlmClient(
         {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "o3", "reasoning_effort": "high"},
         MockContext(),
     )
-    err_400 = NetworkError(
-        "HTTP Error 400 from AI Provider: Bad Request. Unsupported parameter: reasoning_effort",
-        code="HTTP_ERROR",
-        details={"status": 400, "url": "/v1/chat/completions"},
-    )
-    ok_response = ("ok", {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
-
-    with patch.object(client, "_exchange_json", side_effect=[err_400, ok_response]) as mock_exchange:
+    with patch.object(client._transport, "send", side_effect=[_effort_400_http_response(), _ok_sync_http_response()]) as mock_send:
         res = client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
         assert res["content"] == "ok"
-        assert mock_exchange.call_count == 2
-        # Check that the second call stepped down effort to medium
-        _method, _path, second_body, _headers = mock_exchange.call_args_list[1][0]
+        assert mock_send.call_count == 2
+        second_body = mock_send.call_args_list[1][0][2]
         data = json.loads(second_body)
         assert data.get("reasoning_effort") == "medium"
 
@@ -361,18 +376,12 @@ def test_400_retry_exhausts_then_raises() -> None:
         {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "o3", "reasoning_effort": "high"},
         MockContext(),
     )
-    err_400 = NetworkError(
-        "HTTP Error 400: Unsupported parameter: reasoning_effort",
-        code="HTTP_ERROR",
-        details={"status": 400, "url": "/v1/chat/completions"},
-    )
-
     # high, then medium, low, xhigh, max, then no field: six sends, then raise.
-    with patch.object(client, "_exchange_json", side_effect=[err_400] * 6) as mock_exchange:
+    with patch.object(client._transport, "send", side_effect=[_effort_400_http_response()] * 6) as mock_send:
         with pytest.raises(NetworkError, match="reasoning_effort"):
             client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
-        assert mock_exchange.call_count == 6
-        assert "reasoning_effort" not in json.loads(mock_exchange.call_args_list[-1][0][2])
+        assert mock_send.call_count == 6
+        assert "reasoning_effort" not in json.loads(mock_send.call_args_list[-1][0][2])
 
 
 def test_400_no_effort_field_in_body_does_not_retry() -> None:
@@ -381,16 +390,11 @@ def test_400_no_effort_field_in_body_does_not_retry() -> None:
         {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "gpt-4o"},
         MockContext(),
     )
-    err_400 = NetworkError(
-        "HTTP Error 400: effort error message",
-        code="HTTP_ERROR",
-        details={"status": 400, "url": "/v1/chat/completions"},
-    )
 
-    with patch.object(client, "_exchange_json", side_effect=err_400) as mock_exchange:
-        with pytest.raises(NetworkError, match="effort error"):
+    with patch.object(client._transport, "send", side_effect=_effort_400_http_response()) as mock_send:
+        with pytest.raises(NetworkError):
             client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
-        assert mock_exchange.call_count == 1
+        assert mock_send.call_count == 1
 
 
 def test_400_retry_mistral_low_moves_up_to_high() -> None:
@@ -399,17 +403,14 @@ def test_400_retry_mistral_low_moves_up_to_high() -> None:
         {"endpoint": "https://api.mistral.ai", "api_key": "k", "model": "mistral-small-2603", "reasoning_effort": "low"},
         MockContext(),
     )
-    err_400 = NetworkError(
-        "HTTP Error 400: Invalid reasoning_effort for this model",
-        code="HTTP_ERROR",
-        details={"status": 400, "url": "/v1/chat/completions"},
-    )
-    ok_response = ("ok", {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
-
-    with patch.object(client, "_exchange_json", side_effect=[err_400, err_400, ok_response]) as mock_exchange:
+    with patch.object(
+        client._transport,
+        "send",
+        side_effect=[_effort_400_http_response(), _effort_400_http_response(), _ok_sync_http_response()],
+    ) as mock_send:
         res = client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
         assert res["content"] == "ok"
-        sent = [json.loads(c[0][2]).get("reasoning_effort") for c in mock_exchange.call_args_list]
+        sent = [json.loads(c[0][2]).get("reasoning_effort") for c in mock_send.call_args_list]
         assert sent == ["low", "medium", "high"]
 
 
@@ -420,25 +421,25 @@ def _mistral_client(model: str = "mistral-small-2603") -> LlmClient:
     return LlmClient({"endpoint": "https://api.mistral.ai", "api_key": "k", "model": model, "reasoning_effort": "low"}, MockContext())
 
 
-_EFFORT_400 = NetworkError("HTTP Error 400: Invalid reasoning_effort for this model", code="HTTP_ERROR", details={"status": 400, "url": "/v1/chat/completions"})
-_OK = ("ok", {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
-
-
 def test_accepted_effort_remembered_sync() -> None:
     client = _mistral_client()
-    with patch.object(client, "_exchange_json", side_effect=[_EFFORT_400, _EFFORT_400, _OK]) as first:
+    with patch.object(
+        client._transport,
+        "send",
+        side_effect=[_effort_400_http_response(), _effort_400_http_response(), _ok_sync_http_response()],
+    ) as first:
         client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
     assert [json.loads(c[0][2]).get("reasoning_effort") for c in first.call_args_list] == ["low", "medium", "high"]
 
     # Same endpoint, model and level: the accepted value goes out first, one request.
-    with patch.object(client, "_exchange_json", side_effect=[_OK]) as second:
+    with patch.object(client._transport, "send", side_effect=[_ok_sync_http_response()]) as second:
         assert client.request_with_tools([{"role": "user", "content": "again"}], stream=False)["content"] == "ok"
     assert second.call_count == 1
     assert json.loads(second.call_args_list[0][0][2])["reasoning_effort"] == "high"
 
     # Another model on the same endpoint starts from its own level.
     other = _mistral_client("mistral-large-2604")
-    with patch.object(other, "_exchange_json", side_effect=[_OK]) as third:
+    with patch.object(other._transport, "send", side_effect=[_ok_sync_http_response()]) as third:
         other.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
     assert json.loads(third.call_args_list[0][0][2])["reasoning_effort"] == "low"
 
@@ -446,10 +447,14 @@ def test_accepted_effort_remembered_sync() -> None:
 def test_accepted_no_effort_remembered() -> None:
     client = _mistral_client()
     # low, medium, high, max rejected; the body without effort works.
-    with patch.object(client, "_exchange_json", side_effect=[_EFFORT_400] * 4 + [_OK]) as first:
+    with patch.object(
+        client._transport,
+        "send",
+        side_effect=[_effort_400_http_response()] * 4 + [_ok_sync_http_response()],
+    ) as first:
         client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
     assert first.call_count == 5
-    with patch.object(client, "_exchange_json", side_effect=[_OK]) as second:
+    with patch.object(client._transport, "send", side_effect=[_ok_sync_http_response()]) as second:
         client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
     assert second.call_count == 1
     assert "reasoning_effort" not in json.loads(second.call_args_list[0][0][2])
@@ -457,7 +462,7 @@ def test_accepted_no_effort_remembered() -> None:
 
 def test_failed_dance_records_nothing() -> None:
     client = _mistral_client()
-    with patch.object(client, "_exchange_json", side_effect=[_EFFORT_400] * 5):
+    with patch.object(client._transport, "send", side_effect=[_effort_400_http_response()] * 5):
         with pytest.raises(NetworkError):
             client.request_with_tools([{"role": "user", "content": "hi"}], stream=False)
     assert base_provider_shim._ACCEPTED_EFFORT == {}
@@ -467,21 +472,30 @@ def test_accepted_effort_remembered_streaming() -> None:
     client = _mistral_client()
     body = json.dumps({"model": "mistral-small-2603", "messages": [], "stream": True, "reasoning_effort": "low"}).encode("utf-8")
 
-    def ok_attempt() -> tuple[str, Any, int, int]:
+    def ok_response() -> MagicMock:
         response = MagicMock()
+        response.status = 200
         response.getheader.return_value = None
         response.read.return_value = b""
         lines = [b'data: {"choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}]}\n', b"data: [DONE]\n"]
         response.__iter__ = lambda _self: iter(lines)
-        return "ok", response, 5, 0
+        return response
 
-    with patch.object(client, "_send_http_attempt", side_effect=[_EFFORT_400, _EFFORT_400, ok_attempt()]) as first:
+    def effort_400_response() -> MagicMock:
+        response = MagicMock()
+        response.status = 400
+        response.reason = "Bad Request"
+        response.getheader.return_value = None
+        response.read.return_value = b'{"error":"reasoning effort invalid"}'
+        return response
+
+    with patch.object(client._transport, "send", side_effect=[effort_400_response(), effort_400_response(), ok_response()]) as first:
         parts: list[str] = []
         client._run_streaming_loop("POST", "/v1/chat/completions", body, {}, parts.append)
     assert parts == ["ok"]
     assert [json.loads(c[0][2]).get("reasoning_effort") for c in first.call_args_list] == ["low", "medium", "high"]
 
-    with patch.object(client, "_send_http_attempt", side_effect=[ok_attempt()]) as second:
+    with patch.object(client._transport, "send", side_effect=[ok_response()]) as second:
         client._run_streaming_loop("POST", "/v1/chat/completions", body, {}, lambda _t: None)
     assert second.call_count == 1
     assert json.loads(second.call_args_list[0][0][2])["reasoning_effort"] == "high"
