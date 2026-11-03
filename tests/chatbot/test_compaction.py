@@ -1551,3 +1551,13 @@ def test_summarizer_stop_between_chunks_aborts():
     assert result.reason == "aborted"
     assert session.compaction is None
 
+
+def test_compact_session_summarizer_user_body_includes_focus():
+    session = DummySession(_history_3x1000())
+    client = DummyClient(content="test summary")
+    result = C.compact_session(session, client, window=4096, focus="budget")
+    assert result.compacted
+    assert client.calls
+    user_messages = [m for m in client.calls[0]["messages"] if m.get("role") == "user"]
+    assert user_messages
+    assert "Keep details about: budget" in user_messages[-1]["content"]

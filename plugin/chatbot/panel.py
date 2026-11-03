@@ -513,6 +513,50 @@ class SendButtonListener(BaseActionListener):
     def stop_in_flight(self) -> None:
         StopButtonListener(self).on_action_performed(None)
 
+    def slash_document_model(self) -> Any:
+        return self._get_document_model(log_failure=False)
+
+    def slash_run_rewrite(self, instruction: str) -> None:
+        """Edit Selection with a preset instruction (sidebar frame document)."""
+        from plugin.chatbot.selection import do_selection_action_for_document
+        from plugin.framework.i18n import _
+
+        model = self._get_document_model(log_failure=True)
+        if not model:
+            self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
+            return
+        do_selection_action_for_document(
+            self.ctx,
+            model,
+            True,
+            preset_instruction=instruction,
+            allow_whole_document=True,
+        )
+
+    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
+        from plugin.chatbot.slash_commands import run_slash_compact_sync
+        from plugin.framework.blocking_wait import run_blocking_in_thread
+        from plugin.framework.i18n import _
+
+        if self.sidebar_state.tool_loop is not None:
+            self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
+            return
+        if cancel is None:
+            cancel = self._send_cancellation
+        self._set_status(_("Thinking..."))
+
+        def worker() -> str:
+            return run_slash_compact_sync(
+                self,
+                focus=focus,
+                session=self.session,
+                ctx=self.ctx,
+                cancel=cancel,
+            )
+
+        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
+        self.append_output(line)
+
     def _set_status(self, text: str) -> None:
         """Update the status field in the sidebar (read-only TextField).
         Uses setText() (XTextComponent) to write directly to the control/peer,
@@ -1216,6 +1260,32 @@ class SendButtonListener(BaseActionListener):
             return
 
         log.info("=== _do_send START ===")
+
+        from plugin.chatbot.slash_commands import (
+            SlashKind,
+            build_slash_answer_query,
+            effective_slash_kind,
+            parse_slash_text,
+            run_slash_command,
+            slash_send_continues_after_begin,
+        )
+
+        peek_text = ""
+        if self.query_control and self.query_control.getModel():
+            from plugin.chatbot.dialogs import get_control_text
+
+            peek_text = (get_control_text(self.query_control) or "").strip()
+
+        parsed = parse_slash_text(peek_text)
+        slash_cmd = None
+        slash_arg = ""
+        if parsed is not None:
+            slash_cmd, slash_arg = parsed
+            if not slash_send_continues_after_begin(slash_cmd, self):
+                if run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False):
+                    self._terminal_status = "Ready"
+                    return
+
         doc_info = self._begin_send()
         if not doc_info:
             return
@@ -1224,6 +1294,13 @@ class SendButtonListener(BaseActionListener):
         query_text = self._read_and_clear_query()
         if query_text is None:
             return
+
+        if slash_cmd is not None:
+            if slash_cmd.needs_turn:
+                self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
+                return
+            if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
+                query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model

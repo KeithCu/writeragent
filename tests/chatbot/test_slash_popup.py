@@ -174,7 +174,9 @@ def test_product_popup_lists_no_mock_commands(monkeypatch):
     popup, _box = _controller(lru=["mock-bravo"])
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=["mock-bravo"]):
         popup.on_query_text("/")
-    assert popup.visible_names == ["help", "clear", "stop"]
+    assert "mock-bravo" not in popup.visible_names
+    assert popup.visible_names[:3] == ["help", "clear", "stop"]
+    assert "summarize" in popup.visible_names
 
 
 def test_he_leaves_help_selected():
