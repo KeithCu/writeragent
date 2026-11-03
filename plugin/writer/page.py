@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import iter_elements_limited
+from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
 from plugin.framework.errors import (
     best_effort,
     is_disposal,
@@ -33,7 +33,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
-from .format import PAGE_NUMBER_NUMBERING_TYPE_NAMES, record_walk_cap
+from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES
 from .range_copy import _ANCHORED_GRAPHIC_PROPS
 from .search import parse_non_negative_int
 from .specialized_base import ToolWriterPageBase, enum_param
@@ -1184,35 +1184,50 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
 def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[str | None, int, int]:
     """setString from the last match backward. Returns (error, fields, shapes)."""
     from .edit_review import next_agent_edit_undo_title
-    from plugin.doc.compound_undo import WriterCompoundUndo
+    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     before = _scan_region_content(doc, text_obj)
-    after = before
+    after_box: list[dict[str, Any]] = [before]
     title = next_agent_edit_undo_title()
-    group = WriterCompoundUndo.try_enter(doc, title)
-    if group is None and len(cursors) > 1:
-        return "Cannot replace every match in one undo step. Nothing was changed.", 0, 0
+    rolled_back: list[bool] = []
 
-    error: str | None = None
-    try:
+    def on_fail() -> None:
+        rolled_back.append(True)
+
+    def mutate() -> None:
         for cursor in reversed(cursors):
             cursor.setString(new_text)
         after = _scan_region_content(doc, text_obj)
+        after_box[0] = after
         if len(after["fields"]) < len(before["fields"]) or len(after["images"]) < len(before["images"]):
             raise RuntimeError("the replace removed a field or graphic")
+
+    try:
+        err = commit_or_rollback(doc, title, mutate, on_fail=on_fail)
+    except UndoUnavailable:
+        if len(cursors) > 1:
+            return "Cannot replace every match in one undo step. Nothing was changed.", 0, 0
+        try:
+            mutate()
+            after = after_box[0]
+            return None, len(after["fields"]), len(after["images"])
+        except Exception as exc:
+            return "the replacement was written and could not be rolled back: " + str(exc), 0, 0
     except Exception as exc:
-        error = str(exc)
-    undone = False
-    if group is not None:
-        left = group.close()
-        if not left:
-            error = error or "Could not close the header/footer undo context."
-        if error and left:
-            undone = group.rollback_if_top()
-    if error:
-        if not undone:
-            error = "the replacement was written and could not be rolled back: " + error
-        return error, 0, 0
+        err_msg = str(exc)
+        if not rolled_back:
+            err_msg = "the replacement was written and could not be rolled back: " + err_msg
+        return err_msg, 0, 0
+
+    if err is not None:
+        if err.get("code") == "UNDO_CONTEXT_LEAK":
+            return "Could not close the header/footer undo context.", 0, 0
+        err_msg = str(err.get("message", "undo error"))
+        if not rolled_back:
+            err_msg = "the replacement was written and could not be rolled back: " + err_msg
+        return err_msg, 0, 0
+
+    after = after_box[0]
     return None, len(after["fields"]), len(after["images"])
 
 

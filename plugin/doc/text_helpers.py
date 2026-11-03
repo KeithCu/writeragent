@@ -75,6 +75,31 @@ def iter_elements_limited(enum: Any, limit: int) -> Generator[Any, None, None]:
         yield enum.nextElement()
 
 
+def walk_cap_warning(kind: str, seen: int, limit: int) -> str:
+    """Agent-facing note when a text walk stopped at a hard cap.
+
+    The walk still returns what it collected; anything after the cap was not read, so
+    formatting (or a header scan) may be incomplete. DO: treat the result as partial and
+    re-read a smaller range rather than assuming the rest is unformatted.
+    """
+    return (
+        "Walk stopped after %d %s (cap %d). Later content was not read, so formatting "
+        "may be incomplete. Read a smaller range (or split the target) rather than "
+        "treating this result as the whole picture." % (seen, kind, limit)
+    )
+
+
+def record_walk_cap(enum: Any, seen: int, limit: int, kind: str, dest: list[str] | None = None) -> bool:
+    """Log (and optionally collect) a walk-cap warning. Returns True when the cap was hit."""
+    if seen < limit or enum is None or enum.hasMoreElements() is not True:
+        return False
+    msg = walk_cap_warning(kind, seen, limit)
+    log.warning("%s", msg)
+    if dest is not None:
+        dest.append(msg)
+    return True
+
+
 def normalize_linebreaks(text: str | None) -> str:
     """Ensure all linebreaks use \\n (LF).
 

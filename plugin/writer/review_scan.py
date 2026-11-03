@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
+from plugin.doc.text_helpers import iter_elements_limited
+
 TOKEN_PREFIX = "wa-review:"
 _TOKEN_RE = re.compile(r"\A" + re.escape(TOKEN_PREFIX) + r"[^\s:]+:\d+\Z")
 
@@ -95,23 +97,20 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
     seen = 0
     # Cap iterations at getCount(), not hasMoreElements() alone: auto-mocked UNO enumerations
     # (pytest MagicMock) return a truthy hasMoreElements forever and would hang otherwise.
-    while seen < total:
-        try:
-            if not enum.hasMoreElements():
-                break
-            rl = enum.nextElement()
-        except Exception:
-            return False, seen, total
-        seen += 1
-        try:
-            if not on_item(rl):
-                reliable = False
-        except RedlineScanAbort:
-            return False, seen, total
-        except Exception:
-            # A per-redline read failed (for example the document closed mid-scan).
-            # Fail closed in one place so callbacks can read properties directly.
-            return False, seen, total
+    try:
+        for rl in iter_elements_limited(enum, total):
+            seen += 1
+            try:
+                if not on_item(rl):
+                    reliable = False
+            except RedlineScanAbort:
+                return False, seen, total
+            except Exception:
+                # A per-redline read failed (for example the document closed mid-scan).
+                # Fail closed in one place so callbacks can read properties directly.
+                return False, seen, total
+    except Exception:
+        return False, seen, total
     if seen != total:
         reliable = False
     return reliable, seen, total

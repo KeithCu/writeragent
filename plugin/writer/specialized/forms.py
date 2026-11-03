@@ -228,7 +228,7 @@ def _commit_form_batch(
     mutate: Any,
     undo_message: str,
 ) -> dict[str, Any] | None:
-    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     try:
         error = commit_or_rollback(doc, title, mutate)

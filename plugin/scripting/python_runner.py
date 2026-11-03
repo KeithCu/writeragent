@@ -30,7 +30,7 @@ from plugin.scripting.editor_host import DeferredEditorResult, launch_monaco_edi
 from plugin.scripting.venv_worker import run_code_in_user_venv
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.python_runner_ui import show_python_input_dialog
-from plugin.writer.format import insert_content_at_position
+from plugin.writer.html_import import insert_content_at_position
 from plugin.framework.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import index_to_column
 from plugin.scripting.payload_codec import is_dataframe_payload
@@ -479,7 +479,7 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
             elif is_writer(doc):
                 formatted = format_result_for_writer(result_data)
                 if formatted:
-                    from plugin.writer.format import run_writer_mutation_with_optional_review
+                    from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
                     run_writer_mutation_with_optional_review(doc, ctx, lambda: insert_content_at_position(doc, ctx, formatted, "selection"))
             elif is_draw(doc):
