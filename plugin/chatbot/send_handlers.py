@@ -22,6 +22,7 @@ from plugin.framework.errors import (
     AgentParsingError,
     BlockingWaitStopped,
     best_effort,
+    format_error_for_display,
     format_error_payload,
     is_disposal,
     suppress_disposed,
@@ -34,19 +35,6 @@ from plugin.framework.llm_lanes import llm_request_lane
 from plugin.framework.send_cancellation import capture_send_stop
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
-from plugin.chatbot.state_machine import (
-    SendHandlerEffect,
-    SendHandlerEvent,
-    SendHandlerState,
-    SendHandlerUIEffect,
-    StartEvent,
-    StreamChunkEvent,
-    StreamDoneEvent,
-    ErrorEvent,
-    StopRequestedEvent,
-    next_state,
-    EffectInterpreter,
-)
 from plugin.chatbot.tool_loop import _PanelDescriptor
 from plugin.chatbot.tool_loop_actions import (
     TurnController,
@@ -134,15 +122,11 @@ def _send_worker_queues(host: Any) -> tuple[StreamQueue, Any]:
     return raw, turn
 
 
-def _step_and_interpret(
-    state: SendHandlerState,
-    event: SendHandlerEvent,
-    interpreter: EffectInterpreter,
-) -> tuple[SendHandlerState, list[SendHandlerEffect]]:
-    step = next_state(state, event)
-    for eff in step.effects:
-        interpreter.interpret(eff)
-    return step.state, step.effects
+def _ui_lines_for_handler_error(handler_type: str, err_msg: str) -> str:
+    """Append chat line for a send-handler error (string message, not Exception)."""
+    if handler_type == "web":
+        return f"\n[Research Chat error: {err_msg}]\n"
+    return f"\n[Operation failed: {err_msg}]\n"
 
 
 class SendHandlersMixin:
@@ -163,24 +147,20 @@ class SendHandlersMixin:
         on_approval_callback: Callable[[Any], None] | None = None,
         on_finished: Callable[[], None] | None = None,
     ) -> None:
-        current_state = SendHandlerState(handler_type=handler_type, status=status)
-        interpreter = EffectInterpreter(self._panel)
-
-        def dispatch_event(event: SendHandlerEvent) -> list[str]:
-            nonlocal current_state
-            current_state, effects = _step_and_interpret(current_state, event, interpreter)
-            return [eff.text for eff in effects if isinstance(eff, SendHandlerUIEffect) and eff.kind == "append"]
-
         agent_parts: list[str] = []
 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if is_thinking and not show_thinking:
                 return
+            # Bugfix: If the handler is already stopped, late chunks arriving after Stop
+            # must not be appended to the UI.
+            if status == "stopped":
+                return
             # External-agent text is persisted once on STREAM_DONE / stop.
             # Writing each chunk from the worker raced the UI drain.
-            if current_state.handler_type == "agent" and not is_thinking and chunk_text:
+            if handler_type == "agent" and not is_thinking and chunk_text:
                 agent_parts.append(chunk_text)
-            dispatch_event(StreamChunkEvent(chunk_text, is_thinking))
+            self._panel._append_response(chunk_text, is_thinking=is_thinking)
 
         def _finish_specialized_session(payload: dict[str, Any]) -> None:
             key = payload.get("mode_finished")
@@ -188,6 +168,7 @@ class SendHandlersMixin:
                 self._panel._sidebar_mode.on_mode_finished(key, payload)
 
         def on_stream_done(item: Any) -> None:
+            nonlocal status
             # Stop or a new send already aborted this turn. The worker
             # wrapper may still post STREAM_DONE so the drain unblocks.
             # That sentinel is not a successful answer.
@@ -199,43 +180,68 @@ class SendHandlersMixin:
                 # Store the answer before a mode handoff aborts this turn.
                 # Web, librarian, brainstorm, writing, PPT, and deep research
                 # used to persist on the worker. That write raced Clear.
-                if current_state.handler_type != "agent":
+                if handler_type != "agent":
                     answer = payload.get("assistant_content")
                     if isinstance(answer, str) and answer:
                         persist_assistant_on_turn(self._panel, content=answer)
                 _finish_specialized_session(payload)
-            if current_state.handler_type == "agent":
+            if handler_type == "agent":
                 text = "".join(agent_parts).strip()
                 if text:
                     persist_assistant_on_turn(self._panel, content=text)
-            dispatch_event(StreamDoneEvent())
+            if status not in ("error", "stopped"):
+                # Bugfix: Always emit status "Ready" on normal completion, regardless of
+                # handler_type string, so unknown/future handler types don't finish with
+                # missing status updates.
+                status = "done"
+                self._panel._terminal_status = "Ready"
+                self._panel._set_status("Ready")
 
         def on_stopped() -> None:
+            nonlocal status
             # The turn commits the open row and writes the stop line.
             # Agent still prefers the non-thinking chunks it accumulated.
             # Only agent Stop used to store a row. Web and image pass no
             # on_stopped_callback, and finalize skips rerender after Stop,
             # so the painted partial never lands in session.messages.
             turn = current_turn(self._panel)
-            partial = "".join(agent_parts).strip() if current_state.handler_type == "agent" else None
+            partial = "".join(agent_parts).strip() if handler_type == "agent" else None
             if isinstance(turn, TurnController):
                 turn.close_stopped(self._panel, partial)
             if on_stopped_callback:
                 on_stopped_callback()
-            dispatch_event(StopRequestedEvent())
+            # Bugfix: A Stop that arrives after StreamDoneEvent rewrote a finished turn
+            # from Ready to Stopped (assigns _terminal_status), and a second Stop re-emitted
+            # that pair. "error" was already absorbing. "done" and "stopped" were not,
+            # unlike chunks and errors after Stop (#1435).
+            if status in ("done", "stopped", "error"):
+                return
+            status = "stopped"
+            self._panel._set_status("Stopped")
+            self._panel._terminal_status = "Stopped"
 
         def on_error(e: Exception) -> None:
+            nonlocal status
             live = current_turn(self._panel)
             if isinstance(live, TurnController) and not live.alive:
                 return
-            append_texts = dispatch_event(ErrorEvent(e))
+            # Bugfix: If the handler is already stopped or done, late error events arriving from
+            # background threads (or a late error after Ready) must not transition status to
+            # "error" or append error lines.
+            if status in ("stopped", "done", "error"):
+                return
+            status = "error"
+            self._panel._set_status("Error")
+            self._panel._terminal_status = "Error"
+            err_msg = format_error_for_display(e)
+            append_text = _ui_lines_for_handler_error(handler_type, err_msg)
+            self._panel._append_response(append_text)
             # Same write for web, agent, and image, using the lines
             # handle_error already shows. The tool loop stores that banner
             # with persist_assistant_on_turn. Painting the banner and storing
             # the user row without this write leaves the next send a hole
             # where the assistant row should be.
-            if append_texts:
-                persist_assistant_on_turn(self._panel, "".join(append_texts))
+            persist_assistant_on_turn(self._panel, append_text)
 
         turn = current_turn(self._panel)
         if isinstance(turn, TurnController) and turn.queue is None:
@@ -270,35 +276,25 @@ class SendHandlersMixin:
 
             defer_until_drain_done(_drain_epilogue)
 
-    def _start_send_handler(
-        self,
-        handler_type: str,
-        query_text: str,
-        model: Any,
-        doc_type_str: str = "",
-        mode: str = "",
-    ) -> None:
-        interpreter = EffectInterpreter(self._panel)
-        current_state = SendHandlerState(handler_type=handler_type, status="ready")
-        _step_and_interpret(current_state, StartEvent(query_text, model, doc_type_str, mode=mode), interpreter)
-
     def _do_send_direct_image(self, query_text: str, model: Any) -> None:
         turn_session = turn_session_or_stop(self._panel)
         # Store the user row once here, before the append, like web
-        # research; the fold then sees it and only paints. The StartEvent
-        # user append already folds the prompt into the session, and the
-        # spawn effect calling add_user_message again paints 'You: <prompt>'
-        # twice. An aborted turn (None) must not spawn the image worker.
+        # research; the fold then sees it and only paints. An aborted
+        # turn (None) must not spawn the image worker.
         if turn_session is None:
             return
         turn_session.add_user_message(query_text)
-        self._start_send_handler("image", query_text, model)
+        self._panel._append_response(query_text, role="user")
+        self._panel._append_response("\n[Using image model (direct).]\n")
+        self._panel._append_response("AI: Creating image...\n")
+        self._panel._set_status("Creating image...")
+        self._execute_direct_image_effect(query_text, model)
 
     def _execute_direct_image_effect(self, query_text: str, model: Any) -> None:
         turn_session = turn_session_or_stop(self._panel)
         if turn_session is None:
             return
-        # The user row was stored by _do_send_direct_image before StartEvent.
+        # The user row was stored by _do_send_direct_image before execution.
         drain_q, turn = _send_worker_queues(self._panel)
         # Probe on the UI thread. The tool re-reads the selection when it
         # executes; this flag only decides whether to request img2img.
@@ -396,7 +392,10 @@ class SendHandlersMixin:
         """Send via external agent backend. No fallback to built-in on failure."""
         # User row is stored after the backend exists. Writing it here left
         # a user turn with no assistant row when the adapter was missing.
-        self._start_send_handler("agent", query_text, model, doc_type_str)
+        self._panel._append_response("\n[Using external agent backend.]\n")
+        self._panel._append_response("AI: ")
+        self._panel._set_status("Starting agent...")
+        self._execute_agent_backend_effect(query_text, model, doc_type_str)
 
     def _retained_agent_backend(self, backend_id: str) -> Any:
         """Keep one CLI on this sidebar until the backend id changes.
@@ -431,11 +430,12 @@ class SendHandlersMixin:
         if turn_session is None:
             return
 
-        current_state = SendHandlerState(handler_type="agent", status="starting")
-        interpreter = EffectInterpreter(self._panel)
-
         def _handle_early_error(exception_instance: Exception) -> None:
-            _step_and_interpret(current_state, ErrorEvent(exception_instance), interpreter)
+            self._panel._set_status("Error")
+            self._panel._terminal_status = "Error"
+            err_msg = format_error_for_display(exception_instance)
+            append_text = _ui_lines_for_handler_error("agent", err_msg)
+            self._panel._append_response(append_text)
             # Ensure turn is closed out properly, just as _do_send_direct_image does
             defer_until_drain_done(lambda: abort_turn(self._panel))
 
@@ -568,8 +568,9 @@ class SendHandlersMixin:
             self._panel._active_mode = mode
 
         turn_session.add_user_message(query_text)
-
-        self._start_send_handler("web", query_text, model, mode=mode)
+        self._panel._append_response(query_text, role="user")
+        self._panel._set_status("Starting research...")
+        self._execute_web_research_effect(query_text, model, mode=mode)
 
     def _execute_web_research_effect(self, query_text: str, model: Any, mode: str = "") -> None:
         from plugin.main import get_tools

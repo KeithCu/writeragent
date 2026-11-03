@@ -354,7 +354,7 @@ The refactor **separates concerns** in the same “hexagonal” spirit as the re
 
 **Why this matters for formal verification:** We treat the UNO bridge as axiomatic (opening of this document); we want proofs about **our** Python. `deal` contracts and CrossHair apply to **pure** functions. Code that mixes UI updates, I/O, and state updates in one procedure is a poor verification target—see *Verification Anti-Patterns* (do not verify tangled orchestration; verify the extracted machine instead).
 
-**Why this matters even before full FV:** Deterministic, fast **unit tests** over transition functions (`tests/chatbot/test_tool_loop_state.py`, `tests/chatbot/test_state_machine.py`, `tests/chatbot/test_send_state.py`, `tests/chatbot/test_audio_recorder_state.py`, etc.) document **allowed transitions**, catch regressions without a running office, and make refactors in chat, MCP, and audio paths safer.
+**Why this matters even before full FV:** Deterministic, fast **unit tests** over transition functions (`tests/chatbot/test_tool_loop_state.py`, `tests/chatbot/test_send_state.py`, `tests/chatbot/test_audio_recorder_state.py`, etc.) document **allowed transitions**, catch regressions without a running office, and make refactors in chat, MCP, and audio paths safer.
 
 This was a **pragmatic** foundation: Phase 5 records design tradeoffs and what we avoided over-engineering. Attaching `deal` and running CrossHair on every transition is **Phase 6**, not something we claim is already complete.
 
@@ -381,22 +381,17 @@ The following summarizes the implemented modules and the simplified patterns we 
    - Full test coverage in `tests/chatbot/test_tool_loop_state.py`
    - **Host dual-mirrors removed:** round/pending/stop/async/max live only in `ToolLoopState` (`sidebar_state.tool_loop` via `_sm_state`). Remaining `_active_*` fields on the panel are session I/O handles (queues, client, tools, model) for the effect interpreter in `tool_loop_actions.py` — not a second control state.
 
-2. **Send Handler State Machine** (`plugin/chatbot/state_machine.py`)
-   - Handles audio, image, agent, and web workflows
-   - Uses union types for events and effects (cleaner than inheritance hierarchies)
-   - Comprehensive test coverage in `tests/chatbot/test_state_machine.py`
-
-3. **Send Button State Machine** (`plugin/chatbot/send_state.py`)
+2. **Send Button State Machine** (`plugin/chatbot/send_state.py`)
    - Manages UI button state transitions
    - Simple enum-based events and union effects
    - Test coverage in `tests/chatbot/test_send_state.py`
 
-4. **Audio Recorder State Machine** (`plugin/chatbot/audio_recorder_state.py`)
+3. **Audio Recorder State Machine** (`plugin/chatbot/audio_recorder_state.py`)
    - Audio recording lifecycle management
    - Minimal state and effect types
    - Test coverage in `tests/chatbot/test_audio_recorder_state.py`
 
-5. **MCP Tunnel Reconnection State Machine** (`plugin/mcp/tunnel_state.py`)
+4. **MCP Tunnel Reconnection State Machine** (`plugin/mcp/tunnel_state.py`)
    - Lifecycle and exponential backoff retry management for public tunnels (`cloudflared`, `ngrok`, `bore`, `tailscale`)
    - Explicit typed effects (`StartProcessEffect`, `TerminateProcessEffect`, `ScheduleRetryTimerEffect`, `CancelRetryTimerEffect`, `NotifyUrlAcquiredEffect`)
    - Formal invariants and contracts (`@deal.ensure`) with Hypothesis test coverage in `tests/mcp/test_tunnel_state.py`
@@ -479,7 +474,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 4. **`plugin/framework/config_schema.py`** — `as_bool` / `parse_int_robust` / `parse_float_robust` ([`tests/framework/test_config_coerce_verification.py`](../../tests/framework/test_config_coerce_verification.py)); not whole-file CrossHair
 5. **`plugin/framework/tool_schema.py`** — `_normalize_schema_for_strict_providers`, `to_openai_schema`, `to_mcp_schema` (re-exported from [`tool.py`](../../plugin/framework/tool.py); CrossHair FQN stays `plugin.framework.tool._normalize_schema_for_strict_providers`) ([`tests/framework/test_tool_schema_verification.py`](../../tests/framework/test_tool_schema_verification.py))
 6. **`plugin/framework/stream_delta.py`** — `accumulate_delta` (CrossHair FQN `plugin.framework.stream_delta.accumulate_delta`). **`plugin/framework/async_stream.py`** — `_format_agent_tool_stream_line` ([`tests/framework/test_accumulate_delta_verification.py`](../../tests/framework/test_accumulate_delta_verification.py))
-7. **FSM catch-up** — CrossHair on `state_machine.py` + `tool_loop_state.py` helpers (`next_state` is `# crosshair: off`) ([`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py))
+7. **FSM catch-up** — CrossHair on `tool_loop_state.py` helpers (`next_state` is `# crosshair: off`) ([`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py))
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../../tests/framework/test_json_utils_verification.py))
 9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_error_payload_verification.py`](../../tests/framework/test_error_payload_verification.py))
 10. **`plugin/scripting/sandbox.py`** — `scrub_subprocess_env`, `wrap_command_for_sandbox`, `is_safe_workspace_path` ([`tests/scripting/test_sandbox_path_verification.py`](../../tests/scripting/test_sandbox_path_verification.py))
@@ -553,7 +548,7 @@ Snapshot **2026-08-27**: **48 verified / 8 partial** in [`verification_status.js
 
 #### 2. FSM partials (Phase 6 catch-up — do not fight engine)
 
-[`send_state`](../../plugin/chatbot/send_state.py), [`audio_recorder_state`](../../plugin/chatbot/audio_recorder_state.py), [`tool_loop_state`](../../plugin/chatbot/tool_loop_state.py) / [`state_machine`](../../plugin/chatbot/state_machine.py) helpers: deal + Hypothesis already on `vhs`. **`next_state` stays `# crosshair: off`** (Exception/JSON/host paths). Do not promote these rows to `verified`.
+[`send_state`](../../plugin/chatbot/send_state.py), [`audio_recorder_state`](../../plugin/chatbot/audio_recorder_state.py), [`tool_loop_state`](../../plugin/chatbot/tool_loop_state.py) helpers: deal + Hypothesis already on `vhs`. **`next_state` stays `# crosshair: off`** (Exception/JSON/host paths). Do not promote these rows to `verified`.
 
 **Done:** **stopped-latched pending tools never spawn** (`stopped_effects_exclude_tool_spawns`; `is_stopped` sticky; pending length never shrinks while stopped). Biased strategies in [`fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py).
 

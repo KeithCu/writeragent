@@ -2567,3 +2567,164 @@ def test_specialized_runner_empty_mode_defaults_to_web_research():
     mock_registry.execute.assert_called_once()
     assert mock_registry.execute.call_args[0][0] == "web_research"
 
+
+def test_ui_lines_for_handler_error():
+    from plugin.chatbot.send_handlers import _ui_lines_for_handler_error
+
+    web_line = _ui_lines_for_handler_error("web", "network error")
+    assert "Research Chat error: network error" in web_line
+    assert web_line.endswith("\n")
+
+    img_line = _ui_lines_for_handler_error("image", "failed generation")
+    assert "Operation failed: failed generation" in img_line
+    assert img_line.endswith("\n")
+
+    agent_line = _ui_lines_for_handler_error("agent", "process died")
+    assert "Operation failed: process died" in agent_line
+    assert agent_line.endswith("\n")
+
+
+class TestSendHandlerDirectInlining:
+    """Ported behavioural tests for send handling that verify direct method calls."""
+
+    def test_start_image_inlines_effects(self):
+        panel = DummyChatbotPanel()
+        with patch.object(panel, "_execute_direct_image_effect") as mock_exec:
+            panel._do_send_direct_image("draw a cat", MagicMock())
+            assert "draw a cat" in panel.responses
+            assert "\n[Using image model (direct).]\n" in panel.responses
+            assert "AI: Creating image...\n" in panel.responses
+            assert "Creating image..." in panel.status_history
+            mock_exec.assert_called_once()
+
+    def test_start_web_inlines_effects(self):
+        panel = DummyChatbotPanel()
+        with patch.object(panel, "_execute_web_research_effect") as mock_exec:
+            panel._run_specialized("search python", MagicMock(), mode="")
+            assert "search python" in panel.responses
+            assert "Starting research..." in panel.status_history
+            mock_exec.assert_called_once()
+
+    def test_start_agent_inlines_effects(self):
+        panel = DummyChatbotPanel()
+        with patch.object(panel, "_execute_agent_backend_effect") as mock_exec:
+            panel._do_send_via_agent_backend("format doc", MagicMock(), "writer")
+            assert "\n[Using external agent backend.]\n" in panel.responses
+            assert "AI: " in panel.responses
+            assert "Starting agent..." in panel.status_history
+            mock_exec.assert_called_once()
+
+    def test_stream_done_marks_ready(self):
+        panel = DummyChatbotPanel()
+
+        def worker(q):
+            q.put((StreamQueueKind.STREAM_DONE, {}))
+
+        _drive_unified_drain(panel, worker, "web")
+        assert panel._terminal_status == "Ready"
+        assert panel.status_history[-1] == "Ready"
+
+    def test_stop_event_terminates_with_stopped(self):
+        panel = DummyChatbotPanel()
+
+        def worker(q):
+            q.put((StreamQueueKind.STOPPED,))
+
+        _drive_unified_drain(panel, worker, "agent")
+        assert panel._terminal_status == "Stopped"
+        assert panel.status_history[-1] == "Stopped"
+
+    def test_error_event_terminates_with_error(self):
+        panel = DummyChatbotPanel()
+
+        def worker(q):
+            q.put((StreamQueueKind.ERROR, Exception("network crash")))
+
+        _drive_unified_drain(panel, worker, "web")
+        assert panel._terminal_status == "Error"
+        assert panel.status_history[-1] == "Error"
+        assert any("Research Chat error:" in r and "network crash" in r for r in panel.responses)
+
+    def test_chunk_after_stop_ignored(self):
+        panel = DummyChatbotPanel()
+
+        def drain_stopped_then_chunk(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+            on_stopped()
+            # Late chunk arrives after stop
+            apply_chunk("late chunk", False)
+            outcome.done = True
+
+        q = StreamQueue()
+        with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
+            with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=drain_stopped_then_chunk):
+                panel._run_unified_worker_drain_loop(q, lambda: None, "agent")
+
+        assert "late chunk" not in panel.responses
+
+    def test_error_after_stop_ignored(self):
+        panel = DummyChatbotPanel()
+
+        def drain_stopped_then_error(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+            on_stopped()
+            # Late error arrives after stop
+            on_error(Exception("late error"))
+            outcome.done = True
+
+        q = StreamQueue()
+        with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
+            with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=drain_stopped_then_error):
+                panel._run_unified_worker_drain_loop(q, lambda: None, "web")
+
+        assert panel._terminal_status == "Stopped"
+        assert not any("Research Chat error" in r for r in panel.responses)
+
+    def test_stop_after_done_is_noop(self):
+        panel = DummyChatbotPanel()
+
+        def drain_done_then_stop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+            on_stream_done((StreamQueueKind.STREAM_DONE, {}))
+            # Late stop arrives after done
+            on_stopped()
+            outcome.done = True
+
+        q = StreamQueue()
+        with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
+            with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=drain_done_then_stop):
+                panel._run_unified_worker_drain_loop(q, lambda: None, "web")
+
+        assert panel._terminal_status == "Ready"
+
+    def test_error_after_done_is_noop(self):
+        panel = DummyChatbotPanel()
+
+        def drain_done_then_error(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+            on_stream_done((StreamQueueKind.STREAM_DONE, {}))
+            # Late error arrives after done
+            on_error(Exception("late error"))
+            outcome.done = True
+
+        q = StreamQueue()
+        with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
+            with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=drain_done_then_error):
+                panel._run_unified_worker_drain_loop(q, lambda: None, "web")
+
+        assert panel._terminal_status == "Ready"
+        assert not any("Research Chat error" in r for r in panel.responses)
+
+    def test_append_keeps_thinking_flag(self):
+        panel = DummyChatbotPanel()
+
+        def worker(q):
+            q.put((StreamQueueKind.THINKING, "thinking chunk"))
+            q.put((StreamQueueKind.CHUNK, "answer chunk"))
+            q.put((StreamQueueKind.STREAM_DONE, {}))
+
+        _drive_unified_drain(panel, worker, "web")
+        assert "thinking chunk" in panel.responses
+        assert "answer chunk" in panel.responses
+        idx_thinking = panel.responses.index("thinking chunk")
+        idx_answer = panel.responses.index("answer chunk")
+        assert panel.thinking_flags[idx_thinking] is True
+        assert panel.thinking_flags[idx_answer] is False
+
+

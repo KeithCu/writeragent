@@ -98,7 +98,6 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 ### smolagents and FSM helpers
 
 - **`model_output`** not always **`str`**: guard with **`isinstance`** or **`str(...)`** before **`strip()`** (several agent/chat paths).
-- **`EffectInterpreter.interpret`**: takes the `state` argument explicitly; there is no `EffectInterpreter.current_state` side channel (**`send_handlers`**).
 
 ### Cross-check workflow
 
