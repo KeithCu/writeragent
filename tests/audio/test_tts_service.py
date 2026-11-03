@@ -519,12 +519,16 @@ def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
     utt = tts._begin_utterance()
 
     finished = threading.Event()
+    system_mock: list[Any] = []
 
     def run() -> None:
         try:
-            with patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(
+            with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(
+                tts, "_prepare_kokoro_misaki", return_value=True
+            ), patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(
                 tts, "_play_audio_file", side_effect=play
-            ):
+            ), patch.object(tts, "_speak_system") as mock_system:
+                system_mock.append(mock_system)
                 tts._run_sentence_pipeline(
                     ["First sentence.", "Second sentence."],
                     "kokoro",
@@ -543,12 +547,133 @@ def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
         tts.stop_speech()
         hold_second.set()
         assert finished.wait(2)
+        assert system_mock and system_mock[0].called is False
     finally:
         hold_second.set()
         tts.stop_speech()
         worker.join(2)
     assert len(played) == 1
     assert not late_path.exists()
+
+
+def test_stop_during_synthesis_plays_nothing(tmp_path):
+    """Stop while synthesis is blocked must not play or fall back to system speech."""
+    import plugin.audio.tts_service as tts
+
+    synth_entered = threading.Event()
+    release_synth = threading.Event()
+    temp_path: list[str] = []
+
+    def blocking_synth(sentence, provider, voice, speed, on_status, utt):
+        del sentence, provider, voice, speed, on_status
+        cancel = utt.scope
+        path = tts._new_speech_temp(".wav", cancel)
+        assert path is not None
+        temp_path.append(path)
+        with open(path, "wb") as handle:
+            handle.write(b"wav")
+        synth_entered.set()
+        release_synth.wait(5)
+        return tts._ReadyClip(path, "Hello.", 3)
+
+    utt = tts._begin_utterance()
+    finished = threading.Event()
+    mocks: list[Any] = []
+
+    def run() -> None:
+        try:
+            with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(
+                tts, "_prepare_kokoro_misaki", return_value=True
+            ), patch.object(tts, "_synthesize_sentence_clip", side_effect=blocking_synth), patch.object(
+                tts, "_play_audio_file"
+            ) as mock_play, patch.object(tts, "_speak_system") as mock_system:
+                mocks.extend([mock_play, mock_system])
+                tts._run_sentence_pipeline(
+                    ["Hello."],
+                    "kokoro",
+                    "af_bella",
+                    1.0,
+                    None,
+                    utt,
+                )
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        assert synth_entered.wait(2)
+        tts.stop_speech()
+        release_synth.set()
+        assert finished.wait(2)
+        assert len(mocks) == 2
+        assert mocks[0].called is False
+        assert mocks[1].called is False
+        tracked = temp_path[0] if temp_path else ""
+        deadline = time.monotonic() + 2.0
+        while tracked and os.path.exists(tracked) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert not tracked or not os.path.exists(tracked)
+    finally:
+        release_synth.set()
+        worker.join(2)
+
+
+def test_stop_before_start_spawns_nothing():
+    """stop_speech before the pipeline runs must not spawn synth or playback."""
+    import plugin.audio.tts_service as tts
+
+    utt = tts._begin_utterance()
+    tts.stop_speech()
+
+    with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(
+        tts, "_prepare_kokoro_misaki", return_value=True
+    ), patch.object(tts, "_popen_for_speech") as mock_popen, patch.object(
+        tts, "_synthesize_sentence_clip"
+    ) as mock_synth, patch.object(tts, "_play_audio_file") as mock_play:
+        tts._run_sentence_pipeline(
+            ["Hello."],
+            "kokoro",
+            "af_bella",
+            1.0,
+            None,
+            utt,
+        )
+        mock_popen.assert_not_called()
+        mock_synth.assert_not_called()
+        mock_play.assert_not_called()
+
+
+def test_stop_speech_twice_is_idempotent(tmp_path):
+    """Repeated stop_speech is safe while cleanup runs on a background thread."""
+    import plugin.audio.tts_service as tts
+
+    hook_calls: list[bool] = []
+    temp = tmp_path / "tracked.wav"
+    temp.write_bytes(b"x")
+
+    def hook() -> None:
+        hook_calls.append(True)
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+
+    utt = tts._begin_utterance()
+    utt.scope.register_on_cancel(hook)
+    with tts._speech_lock:
+        utt.temps.add(str(temp))
+        tts._procs.append(mock_proc)
+
+    tts.stop_speech()
+    tts.stop_speech()
+
+    assert len(hook_calls) == 1
+    mock_proc.kill.assert_called_once()
+    assert is_speaking() is False
+    deadline = time.monotonic() + 2.0
+    while temp.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert not temp.exists()
 
 
 def test_uses_sentence_by_sentence_only_kokoro_and_piper():

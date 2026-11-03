@@ -2185,6 +2185,53 @@ def test_do_send_logs_missing_document(caplog: pytest.LogCaptureFixture) -> None
     assert listener._terminal_status == "Error"
 
 
+def test_do_send_missing_document_keeps_ask_text() -> None:
+    listener = _make_send_listener()
+    listener.frame = None
+    listener.query_control = MagicMock()
+    listener.query_control.getModel.return_value = MagicMock()
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value="keep this"), patch.object(
+        listener, "_read_and_clear_query"
+    ) as mock_read_clear:
+        listener._do_send()
+    mock_read_clear.assert_not_called()
+
+
+def test_do_send_local_slash_skips_begin_send() -> None:
+    listener = _make_send_listener()
+    listener.query_control = MagicMock()
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value="/help"), patch.object(
+        listener, "_begin_send"
+    ) as mock_begin, patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        listener._do_send()
+    mock_begin.assert_not_called()
+
+
+def test_do_send_answer_slash_calls_begin_send_then_chat() -> None:
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+    listener = _make_send_listener()
+    listener.query_control = MagicMock()
+    listener._require_send_document = MagicMock(return_value=(MagicMock(), "writer"))
+    listener._tool_calling = MagicMock()
+    listener._voice.resolve_voice_query = MagicMock(side_effect=lambda q: (q, False))
+    real_begin = listener._begin_send
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value="/summarize budget"), patch(
+        "plugin.chatbot.dialogs.set_control_text"
+    ), patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"), patch(
+        "plugin.chatbot.send_handlers.dispatch_sidebar_send", return_value=False
+    ), patch(
+        "plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT
+    ), patch("plugin.framework.config.get_config", return_value=None), patch(
+        "plugin.acp.registry.normalize_backend_id", return_value="builtin"
+    ), patch.object(listener, "_begin_send", wraps=real_begin) as mock_begin:
+        listener._do_send()
+    mock_begin.assert_called_once()
+    listener._tool_calling._do_send_chat_with_tools.assert_called_once()
+    sent_query = listener._tool_calling._do_send_chat_with_tools.call_args[0][0]
+    assert "budget" in sent_query
+
+
 def test_extracted_peer_send_logs_missing_document(caplog: pytest.LogCaptureFixture) -> None:
     listener = _make_send_listener()
     listener.frame = None

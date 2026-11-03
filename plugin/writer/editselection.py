@@ -43,11 +43,18 @@ from plugin.writer.edit_review import (
 )
 
 
-def _selection_target(ctx: Any, model: Any, title: str) -> tuple[Any, str] | None:
+def _selection_target(
+    ctx: Any,
+    model: Any,
+    title: str,
+    *,
+    silent_empty: bool = False,
+) -> tuple[Any, str] | None:
     """Return (range, text without tracked deletions), or None after telling the user why not."""
     text_range = selected_text_range(model.CurrentController)
     if text_range is None:
-        msgbox(ctx, title, _("Select text first"))
+        if not silent_empty:
+            msgbox(ctx, title, _("Select text first"))
         return None
     # Stop Extend/Edit Selection when the range already has an Insert or Delete.
     #
@@ -63,7 +70,8 @@ def _selection_target(ctx: Any, model: Any, title: str) -> tuple[Any, str] | Non
         return None
     original_text = get_string_without_tracked_deletions(text_range)
     if not original_text:
-        msgbox(ctx, title, _("Select text first"))
+        if not silent_empty:
+            msgbox(ctx, title, _("Select text first"))
         return None
     return text_range, original_text
 
@@ -157,15 +165,19 @@ def do_edit_selection(
     allow_whole_document: bool = False,
 ) -> None:
     title = _("WriterAgent: Edit Selection")
+    extra_instructions = ""
+    client: Any | None = None
     if preset_instruction is not None:
         user_input = preset_instruction
-        extra_instructions = ""
-        target = _selection_target(ctx, model, title)
+        target = _selection_target(ctx, model, title, silent_empty=True)
         if target is None and allow_whole_document:
             target = _whole_body_target(ctx, model, title)
     else:
         target = _selection_target(ctx, model, title)
         if target is None:
+            return
+        client = create_validated_client(ctx, title)
+        if client is None:
             return
         edit_request = prompt_for_edit_instructions(ctx, title)
         if edit_request is None:
@@ -176,9 +188,10 @@ def do_edit_selection(
         return
     text_range, original_text = target
 
-    client = create_validated_client(ctx, title)
-    if client is None:
-        return
+    if preset_instruction is not None:
+        client = create_validated_client(ctx, title)
+        if client is None:
+            return
 
     update_lru_history(get_text_model(), "model_lru", get_current_endpoint())
     prompt = build_writer_rewrite_prompt(original_text, user_input)
@@ -192,4 +205,5 @@ def do_edit_selection(
         model, text_range, original_text,
         track_reviewable=review_recording_enabled(),
     )
+    assert client is not None
     _stream_into_session(ctx, title, client, prompt, system_prompt, max_tokens, session)

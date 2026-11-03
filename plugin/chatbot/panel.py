@@ -522,16 +522,6 @@ class SendButtonListener(BaseActionListener):
     def slash_document_model(self) -> Any:
         return self._get_document_model(log_failure=False)
 
-    def slash_send_answer(self, query_text: str) -> None:
-        """Start a normal chat turn for a slash answer preset (send already begun)."""
-        model = self._get_document_model(log_failure=True)
-        if not model or self.cached_doc_type is None:
-            from plugin.framework.i18n import _
-
-            self._fail_send(_("[No compatible LibreOffice document found.]"), set_status_text=False)
-            return
-        self._tool_calling._do_send_chat_with_tools(query_text, model, self.cached_doc_type)
-
     def slash_run_rewrite(self, instruction: str) -> None:
         """Edit Selection with a preset instruction (sidebar frame document)."""
         from plugin.chatbot.selection import do_selection_action_for_document
@@ -549,14 +539,29 @@ class SendButtonListener(BaseActionListener):
             allow_whole_document=True,
         )
 
-    def run_slash_compact(self, focus: str) -> None:
-        from plugin.chatbot.slash_commands import run_slash_compact_worker
+    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
+        from plugin.chatbot.slash_commands import run_slash_compact_sync
+        from plugin.framework.blocking_wait import run_blocking_in_thread
         from plugin.framework.i18n import _
 
-        if self.sidebar_state.send.is_busy and not getattr(self, "_slash_compact_allowed", False):
+        if self.sidebar_state.tool_loop is not None:
             self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
             return
-        run_slash_compact_worker(self, focus=focus, session=self.session, ctx=self.ctx)
+        if cancel is None:
+            cancel = self._send_cancellation
+        self._set_status(_("Thinking..."))
+
+        def worker() -> str:
+            return run_slash_compact_sync(
+                self,
+                focus=focus,
+                session=self.session,
+                ctx=self.ctx,
+                cancel=cancel,
+            )
+
+        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
+        self.append_output(line)
 
     def slash_agent_edit_in_flight(self) -> bool:
         from plugin.framework.async_drain_guard import get_drain_owner
@@ -1293,6 +1298,32 @@ class SendButtonListener(BaseActionListener):
             return
 
         log.info("=== _do_send START ===")
+
+        from plugin.chatbot.slash_commands import (
+            SlashKind,
+            build_slash_answer_query,
+            effective_slash_kind,
+            parse_slash_text,
+            run_slash_command,
+            slash_send_continues_after_begin,
+        )
+
+        peek_text = ""
+        if self.query_control and self.query_control.getModel():
+            from plugin.chatbot.dialogs import get_control_text
+
+            peek_text = (get_control_text(self.query_control) or "").strip()
+
+        parsed = parse_slash_text(peek_text)
+        slash_cmd = None
+        slash_arg = ""
+        if parsed is not None:
+            slash_cmd, slash_arg = parsed
+            if not slash_send_continues_after_begin(slash_cmd, self):
+                if run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False):
+                    self._terminal_status = "Ready"
+                    return
+
         doc_info = self._begin_send()
         if not doc_info:
             return
@@ -1302,36 +1333,23 @@ class SendButtonListener(BaseActionListener):
         if query_text is None:
             return
 
-        from plugin.chatbot.slash_commands import (
-            format_usage_line,
-            parse_slash_text,
-            run_slash_command,
-            slash_command_holds_send_turn,
-        )
-
-        parsed = parse_slash_text(query_text)
-        if parsed is not None:
-            cmd, arg = parsed
-            if cmd.requires_arg and not arg.strip():
-                self.append_output("\n" + format_usage_line(cmd) + "\n")
-                self._terminal_status = "Ready"
+        if slash_cmd is not None:
+            if slash_cmd.needs_turn:
+                self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
                 return
-            self._slash_compact_allowed = cmd.name == "compact"
-            self._slash_formula_allowed = cmd.name == "formula"
-            self._skip_agent_undo_after = False
-            try:
-                if cmd.name == "formula":
-                    from plugin.doc.agent_undo import cancel_pending_agent_turn
+            if slash_cmd.name == "formula":
+                from plugin.doc.agent_undo import cancel_pending_agent_turn
 
-                    cancel_pending_agent_turn(model)
-                    self._skip_agent_undo_after = True
-                if run_slash_command(cmd.name, self, arg, from_popup=False):
-                    if not slash_command_holds_send_turn(cmd):
-                        self._terminal_status = "Ready"
-                    return
-            finally:
-                self._slash_compact_allowed = False
-                self._slash_formula_allowed = False
+                cancel_pending_agent_turn(model)
+                self._skip_agent_undo_after = True
+                self._slash_formula_allowed = True
+                try:
+                    run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False)
+                finally:
+                    self._slash_formula_allowed = False
+                return
+            if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
+                query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model

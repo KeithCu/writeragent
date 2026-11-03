@@ -25,6 +25,7 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Callable
 from weakref import WeakKeyDictionary
 
@@ -972,7 +973,7 @@ def _apply_fake_tts(mode: str) -> None:
 
             def fake_stop_speech(*args: Any, **kwargs: Any) -> None:
                 # What was wrong: on_complete was skipped after a fake hold/stop even though the child was reaped.
-                # How it happened: stop_speech cancels _speech_cancel and SIGKILLs before it returns.
+                # How it happened: stop_speech cancels Utterance.scope and SIGKILLs before it returns.
                 # The tts-speak thread wakes from communicate/wait, _end_utterance sees the cancelled scope,
                 # returns False, and never calls on_complete. The restore below that call ran too late. A slow
                 # tts-cleanup thread start (CI xdist) makes the window likely. The 2s wait cannot help.
@@ -2400,12 +2401,21 @@ class _UrpSlashHost:
         self.query_control = query
         self.response_control = response
         self.slash_popup: Any = None
+        self._send_cancellation: Any = None
+        self.sidebar_state: Any = SimpleNamespace(tool_loop=None)
+        self.session: Any = None
         self.clear_listener = type(
             "ClearProxy",
             (),
             {"on_action_performed": staticmethod(lambda _ev: uno_click(clear) if clear is not None else None)},
         )()
         self._stop = stop
+
+    def dispatch(self, _event: Any) -> None:
+        return
+
+    def _set_status(self, _text: str) -> None:
+        return
 
     def hide_popup(self) -> None:
         popup = getattr(self, "slash_popup", None)
@@ -2416,9 +2426,7 @@ class _UrpSlashHost:
     def clear_ask(self) -> None:
         from plugin.chatbot.dialogs import set_control_text
         set_control_text(self.query_control, "")
-        dispatch = getattr(self, "dispatch", None)
-        if callable(dispatch):
-            dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
+        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
 
     def append_output(self, text: str) -> None:
         from plugin.chatbot.dialogs import get_control_text, set_control_text
@@ -2439,16 +2447,32 @@ class _UrpSlashHost:
     def slash_document_model(self) -> Any:
         return None
 
-    def slash_send_answer(self, query_text: str) -> None:
-        self.append_output("\n" + query_text + "\n")
-
     def slash_run_rewrite(self, instruction: str) -> None:
         self.append_output("\n" + instruction + "\n")
 
-    def run_slash_compact(self, focus: str) -> None:
-        from plugin.chatbot.slash_commands import run_slash_compact_worker
+    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
+        from plugin.chatbot.slash_commands import run_slash_compact_sync
+        from plugin.framework.blocking_wait import run_blocking_in_thread
+        from plugin.framework.i18n import _
 
-        run_slash_compact_worker(self, focus=focus, session=getattr(self, "session", None), ctx=self.ctx)
+        if cancel is None:
+            cancel = self._send_cancellation
+        if self.sidebar_state.tool_loop is not None:
+            self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
+            return
+        self._set_status(_("Thinking..."))
+
+        def worker() -> str:
+            return run_slash_compact_sync(
+                self,
+                focus=focus,
+                session=self.session,
+                ctx=self.ctx,
+                cancel=cancel,
+            )
+
+        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
+        self.append_output(line)
 
     def slash_agent_edit_in_flight(self) -> bool:
         return False

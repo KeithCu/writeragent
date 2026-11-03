@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -236,9 +237,173 @@ def test_slash_descriptions_are_translated_at_display_time(monkeypatch):
 
     assert slash.SLASH_COMMANDS[0].description == "Print the command list"
     monkeypatch.setattr(slash, "_", lambda msg: "T:" + msg)
-    assert slash.format_slash_item(slash.SLASH_COMMANDS[0]) == "/help — T:Print the command list (/help)"
+    assert slash.format_slash_item(slash.SLASH_COMMANDS[0]) == "/help — T:Print the command list"
+    tone = next(c for c in slash.SLASH_COMMANDS if c.name == "tone")
+    assert slash.format_slash_item(tone) == "/tone — T:Rewrite the selection to match a described tone (/tone <description>)"
     assert "/help — T:Print the command list" in slash.format_help_text()
 
+
+def test_build_slash_answer_query_is_instruction_only():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, build_slash_answer_query
+    from plugin.framework.doc_type import DocumentType
+
+    summarize = next(c for c in SLASH_COMMANDS if c.name == "summarize")
+    model = MagicMock()
+    with patch("plugin.chatbot.slash_commands.get_document_type", return_value=DocumentType.WRITER):
+        text = build_slash_answer_query(summarize, "meetings", model)
+    assert "meetings" in text
+    assert "Selected text" not in text
+    assert "Whole document" not in text
+
+
+def test_build_slash_answer_explain_calc_adds_formula_line():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, build_slash_answer_query
+    from plugin.framework.doc_type import DocumentType
+
+    explain = next(c for c in SLASH_COMMANDS if c.name == "explain")
+    model = MagicMock()
+    sheet = MagicMock()
+    cell = MagicMock()
+    cell.getFormula.return_value = "=SUM(A1:A3)"
+    cell.getString.return_value = ""
+    sheet.getCellByPosition.return_value = cell
+    view = MagicMock()
+    view.ActiveSheet = sheet
+    selection = MagicMock()
+    selection.getCellAddress.return_value = SimpleNamespace(Column=0, Row=1)
+    view.getSelection.return_value = selection
+    model.CurrentController = view
+    with patch("plugin.chatbot.slash_commands.get_document_type", return_value=DocumentType.CALC):
+        text = build_slash_answer_query(explain, "", model)
+    assert "formula: =SUM(A1:A3)" in text
+    assert "A2" in text
+
+
+def test_run_rewrite_passes_instruction_text():
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        slash_document_model=lambda: object(),
+        slash_run_rewrite=MagicMock(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("proofread", host) is True
+    instruction = host.slash_run_rewrite.call_args[0][0]
+    assert "grammar" in instruction.lower()
+
+
+def test_run_answer_returns_continue_for_send():
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        slash_document_model=lambda: object(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("summarize", host, "budget") is False
+
+
+def test_slash_send_continues_after_begin_uses_kind_and_needs_turn():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, slash_send_continues_after_begin
+
+    compact = next(c for c in SLASH_COMMANDS if c.name == "compact")
+    summarize = next(c for c in SLASH_COMMANDS if c.name == "summarize")
+    proofread = next(c for c in SLASH_COMMANDS if c.name == "proofread")
+    assert slash_send_continues_after_begin(compact) is True
+    assert slash_send_continues_after_begin(summarize) is True
+    assert slash_send_continues_after_begin(proofread) is False
+    formula = next(c for c in SLASH_COMMANDS if c.name == "formula")
+    assert slash_send_continues_after_begin(formula) is True
+
+
+def test_run_translate_writer_no_selection_continues_send():
+    from plugin.framework.doc_type import DocumentType
+
+    model = MagicMock()
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        slash_document_model=lambda: model,
+        slash_run_rewrite=MagicMock(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.slash_commands._writer_has_selection", return_value=False):
+            with patch("plugin.chatbot.slash_commands.get_document_type", return_value=DocumentType.WRITER):
+                assert run_slash_command("translate", host, "French") is False
+    host.slash_run_rewrite.assert_not_called()
+
+
+def test_run_compact_returns_continue_for_send():
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        run_slash_compact=MagicMock(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("compact", host, "budget") is False
+    host.run_slash_compact.assert_not_called()
+
+
+def test_run_compact_busy_refuses():
+    from plugin.chatbot.panel import SendButtonListener
+
+    listener = MagicMock(spec=SendButtonListener)
+    listener.sidebar_state = SimpleNamespace(tool_loop=object())
+    listener.append_output = MagicMock()
+    listener.ctx = object()
+    listener.session = None
+    listener._send_cancellation = None
+    listener._set_status = MagicMock()
+
+    listener.run_slash_compact = SendButtonListener.run_slash_compact.__get__(listener, SendButtonListener)
+    listener.run_slash_compact("focus")
+    assert "Wait for the current reply" in listener.append_output.call_args[0][0]
+
+
+def test_run_compact_sync_passes_cancel():
+    from plugin.framework.send_cancellation import SendCancellation
+
+    cancel = SendCancellation()
+    host = SimpleNamespace()
+    session = MagicMock()
+    session.messages = [{"role": "user", "content": "hi"}]
+    ctx = object()
+    with patch("plugin.chatbot.selection.create_validated_client", return_value=MagicMock()):
+        with patch("plugin.framework.config.get_config", return_value=True):
+            with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
+                compact_mod.return_value = MagicMock(compacted=True, reason="ok")
+                with patch("plugin.main.get_tools", return_value=MagicMock()):
+                    with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=4096):
+                        with patch("plugin.framework.llm_lanes.llm_request_lane"):
+                            from plugin.chatbot.slash_commands import run_slash_compact_sync
+
+                            run_slash_compact_sync(host, focus="", session=session, ctx=ctx, cancel=cancel)
+    assert compact_mod.call_args.kwargs.get("cancel") is cancel
+
+
+def test_run_remember_writes_user_md(tmp_path, monkeypatch):
+    from plugin.chatbot.memory import MemoryStore
+
+    mem_dir = tmp_path / "memories"
+    mem_dir.mkdir()
+    user_md = mem_dir / "USER.md"
+    user_md.write_text("{}", encoding="utf-8")
+
+    def fake_store() -> MemoryStore:
+        store = MemoryStore.__new__(MemoryStore)
+        store.path = str(user_md)
+        return store
+
+    monkeypatch.setattr("plugin.chatbot.memory.MemoryStore", fake_store)
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("remember", host, "British spelling") is True
+    saved = json.loads(user_md.read_text(encoding="utf-8"))
+    assert any("British spelling" in str(v) for v in saved.values())
+    assert "Saved to memory" in host.append_output.call_args[0][0]
 
 
 def test_mock_commands_not_registered_outside_harness(monkeypatch):
@@ -252,7 +417,11 @@ def test_mock_commands_not_registered_outside_harness(monkeypatch):
     assert "compact" in names
     assert "mock-bravo" not in names
     assert "[mock]" not in format_help_text()
-    host = MagicMock()
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
+    )
     assert run_slash_command("mock-bravo", host) is False
     host.append_output.assert_not_called()
 
@@ -322,32 +491,6 @@ def test_summarizer_user_body_includes_focus():
     assert "Keep details about: budget" in body
 
 
-def test_run_answer_routes_to_host_send():
-    host = MagicMock()
-    host.hide_popup = MagicMock()
-    host.clear_ask = MagicMock()
-    model = object()
-    host.slash_document_model.return_value = model
-    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        with patch("plugin.chatbot.slash_commands.build_slash_answer_query", return_value="Q"):
-            assert run_slash_command("summarize", host, "meetings") is True
-    host.slash_send_answer.assert_called_once_with("Q")
-
-
-def test_run_rewrite_routes_to_host():
-    host = MagicMock()
-    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("proofread", host) is True
-    host.slash_run_rewrite.assert_called_once()
-
-
-def test_run_compact_delegates_to_host():
-    host = MagicMock()
-    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("compact", host, "budget") is True
-    host.run_slash_compact.assert_called_once_with("budget")
-
-
 def test_do_edit_selection_skips_dialog_with_preset():
     from plugin.writer import editselection as es
 
@@ -363,23 +506,6 @@ def test_do_edit_selection_skips_dialog_with_preset():
                                 with patch("plugin.writer.editselection.get_config", return_value=100):
                                     es.do_edit_selection(ctx, model, preset_instruction="Fix typos")
     prompt.assert_not_called()
-
-
-def test_run_remember_upserts_memory():
-    host = SimpleNamespace(
-        hide_popup=MagicMock(),
-        clear_ask=MagicMock(),
-        append_output=MagicMock(),
-    )
-    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        with patch("plugin.chatbot.memory.MemoryStore") as store_cls:
-            store_cls.return_value.upsert.return_value = {"status": "ok"}
-            assert run_slash_command("remember", host, "British spelling") is True
-    store_cls.return_value.upsert.assert_called_once()
-    key, content = store_cls.return_value.upsert.call_args[0]
-    assert content == "British spelling"
-    assert key.startswith("slash.")
-    assert "Saved to memory" in host.append_output.call_args[0][0]
 
 
 def test_enable_mock_slash_commands_adds_stubs(monkeypatch):
