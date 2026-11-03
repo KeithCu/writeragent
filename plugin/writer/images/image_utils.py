@@ -32,6 +32,7 @@ from plugin.framework.client.requests import sync_request
 from plugin.framework.config import get_config
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.framework.errors import NetworkError, ToolExecutionError, resolve_exception_message
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 log = logging.getLogger(__name__)
 
@@ -99,9 +100,11 @@ def _unlink_temp_paths(paths: list[str]) -> None:
             pass
 
 
-def _abandon_image_paths(paths: list[str], cancel: Any, exc: Exception, log_message: str) -> tuple[list[str], str]:
+def _abandon_image_paths(
+    paths: list[str], cancel: SendCancellation | None, exc: Exception, log_message: str
+) -> tuple[list[str], str]:
     _unlink_temp_paths(paths)
-    if (isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED") or (cancel is not None and cancel.is_cancelled()):
+    if (isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED") or is_cancelled(cancel):
         log.debug("Image generation cancelled by Stop: %s", exc)
         raise ToolExecutionError("Image generation stopped by user.", code="USER_STOPPED") from exc
     message = resolve_exception_message(exc)
@@ -134,7 +137,7 @@ class EndpointImageProvider:
             raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
         return _write_temp_image(base64.b64decode(b64_data))
 
-    def _save_url(self, url: str, *, cancel: Any = None, status_callback: Any = None) -> str:
+    def _save_url(self, url: str, *, cancel: SendCancellation | None = None, status_callback: Any = None) -> str:
         resp = sync_request(
             url,
             parse_json=False,
@@ -154,7 +157,7 @@ class EndpointImageProvider:
         self,
         ref: str,
         *,
-        cancel: Any,
+        cancel: SendCancellation | None,
         status_callback: Any,
         http_text: str,
         fetch_http_if_data_failed: bool,
@@ -177,7 +180,7 @@ class EndpointImageProvider:
         height: int,
         steps: int | None,
         source_image: str | None,
-        cancel: Any,
+        cancel: SendCancellation | None,
         status_callback: Any,
         log_message: str,
     ) -> tuple[list[str], str]:
@@ -208,7 +211,7 @@ class EndpointImageProvider:
         height: int = DEFAULT_IMAGE_BASE_SIZE,
         steps: int | None = None,
         status_callback: Any = None,
-        cancel: Any = None,
+        cancel: SendCancellation | None = None,
         image_model: str | None = None,
         source_image: str | None = None,
         aspect_ratio: str | None = None,
@@ -328,7 +331,9 @@ class ImageService:
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
 
-    def generate_image(self, prompt: str, status_callback: Any = None, cancel: Any = None, **kwargs: Any) -> tuple[list[str], str]:
+    def generate_image(
+        self, prompt: str, status_callback: Any = None, cancel: SendCancellation | None = None, **kwargs: Any
+    ) -> tuple[list[str], str]:
         from plugin.framework.config import get_api_config
         from plugin.framework.client.model_fetcher import get_image_model
 

@@ -2964,7 +2964,42 @@ def test_stream_abort_during_tool_call_stays_stop(client):
             cancel=scope,
         )
     assert result["finish_reason"] == "stop"
+    assert result["tool_calls"] is None
     assert client.stopped() is True
+
+
+def test_stream_abort_during_tool_call_honours_caller_cancel_without_client_stop():
+    """Caller cancel= scope (client not registered) must drop partial tool_calls."""
+    config = {
+        "endpoint": "https://api.openai.com",
+        "api_key": "sk-test-key",
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "request_timeout": 60,
+    }
+    client = LlmClient(config, MockContext(), register_with_send=False)
+    scope = SendCancellation()
+
+    def _iter():
+        yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}\n'
+        scope.cancel()
+        yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]}\n'
+        yield b'data: {"choices": [{"finish_reason": "stop", "delta": {}}]}\n'
+
+    resp = create_mock_http_response(sse_lines=[])
+    resp.__iter__.return_value = _iter()
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Weather?"}],
+            max_tokens=100,
+            tools=[{"type": "function", "function": {"name": "get_weather"}}],
+            cancel=scope,
+        )
+    assert result["finish_reason"] == "stop"
+    assert result["tool_calls"] is None
+    assert client.stopped() is False
+    assert scope.is_cancelled() is True
 
 
 def test_stream_malformed_and_truncated_chunks_are_skipped(client):

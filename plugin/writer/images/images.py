@@ -38,6 +38,7 @@ from plugin.framework.errors import (
     resolve_exception_message,
 )
 from plugin.framework.queue_executor import main
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from ..specialized_base import ToolWriterImageBase, enum_param
 
 # Queue pickup bound for document mutations when bytes are already in hand.
@@ -448,7 +449,7 @@ def _download_for_tool(
     *,
     verify_ssl: bool = True,
     force: bool = False,
-    cancel: Any = None,
+    cancel: SendCancellation | None = None,
 ) -> str | dict[str, Any]:
     try:
         return _download_image_to_cache(url, verify_ssl=verify_ssl, force=force, cancel=cancel)
@@ -1217,7 +1218,7 @@ def _is_url(path: str) -> bool:
     return path.startswith("http://") or path.startswith("https://")
 
 
-def _local_image_path(tool: Any, path: str, cancel: Any = None) -> str | dict[str, Any]:
+def _local_image_path(tool: Any, path: str, cancel: SendCancellation | None = None) -> str | dict[str, Any]:
     if _is_url(path):
         dl_result = _download_for_tool(tool, path, cancel=cancel)
         if isinstance(dl_result, dict):
@@ -1619,14 +1620,8 @@ def _response_socket(response: Any) -> Any | None:
     return sock if sock is not None and hasattr(sock, "settimeout") else None
 
 
-def _send_cancelled(cancel: Any) -> bool:
-    if cancel is None:
-        return False
-    if hasattr(cancel, "is_cancelled"):
-        return bool(cancel.is_cancelled())
-    if callable(cancel):
-        return bool(cancel())
-    return False
+def _send_cancelled(cancel: SendCancellation | None) -> bool:
+    return is_cancelled(cancel)
 
 
 def _set_read_timeout(response: Any, seconds: float) -> bool:
@@ -1651,7 +1646,7 @@ def _download_image_to_cache(
     url: str,
     verify_ssl: bool = True,
     force: bool = False,
-    cancel: Any = None,
+    cancel: SendCancellation | None = None,
 ) -> str:
     """Download an image URL to the local cache directory.
 
