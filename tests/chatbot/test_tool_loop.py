@@ -1321,6 +1321,32 @@ def test_retry_status_restored_on_first_chunk_final_stream():
     assert items[0] == (StreamQueueKind.STATUS, "Provider busy, retrying in 0.4s…")
     assert items[1] == (StreamQueueKind.STATUS, "Finishing...")
     assert items[2] == (StreamQueueKind.CHUNK, "World")
+    assert client.stream_chat_response.call_args.kwargs["tool_choice"] == "none"
+
+
+def test_spawn_final_stream_passes_active_tools_and_tool_choice_none():
+    import queue
+
+    panel, session = setup_mock_panel()
+    q = queue.Queue()
+    batched = BatchingStreamQueue(q, batch_interval=10)
+    client = MagicMock()
+    client.stopped.return_value = False
+    tools = [{"type": "function", "function": {"name": "test_tool"}}]
+
+    started = []
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
+        patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
+    ):
+        ToolCallingMixin._spawn_final_stream(panel, batched, client, 100, tools=tools)
+        started[0]()
+    batched._timer.stop()
+
+    client.stream_chat_response.assert_called_once()
+    assert client.stream_chat_response.call_args.kwargs["tools"] == tools
+    assert client.stream_chat_response.call_args.kwargs["tool_choice"] == "none"
+    client.stream_request_with_tools.assert_not_called()
 
 
 

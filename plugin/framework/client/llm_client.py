@@ -347,7 +347,19 @@ class LlmClient:
 
         return self._transport.send(method, path, body, headers, cancel=active, status_callback=status_callback)
 
-    def make_chat_request(self, messages: list[Any], max_tokens: int = 512, tools: Any = None, stream: bool = False, model: str | None = None, response_format: Any = None, chat_extra: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> tuple[str, str, Any, dict[str, str]]:
+    def make_chat_request(
+        self,
+        messages: list[Any],
+        max_tokens: int = 512,
+        tools: Any = None,
+        stream: bool = False,
+        model: str | None = None,
+        response_format: Any = None,
+        chat_extra: Any = None,
+        tool_choice: str | None = None,
+        *,
+        prepend_dev_build_system_prefix: bool = True,
+    ) -> tuple[str, str, Any, dict[str, str]]:
         """Build a chat completions request from a full messages array (provider-aware)."""
         try:
             max_tokens = int(max_tokens)
@@ -370,7 +382,9 @@ class LlmClient:
         temperature = self.config.get("temperature")
 
         shim = self._get_shim()
-        method, path, body, headers = shim.build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
+        method, path, body, headers = shim.build_chat_request(
+            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice
+        )
 
         init_logging(self.ctx)
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
@@ -863,9 +877,28 @@ class LlmClient:
                 self._inflight = None
 
 
-    def stream_chat_response(self, messages: list[Any], max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> None:
-        """Stream a final chat response (no tools) using the messages array."""
-        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=None, stream=True, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+    def stream_chat_response(
+        self,
+        messages: list[Any],
+        max_tokens: int,
+        append_callback: Any,
+        append_thinking_callback: Any = None,
+        cancel: SendCancellation | None = None,
+        status_callback: Any = None,
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
+        prepend_dev_build_system_prefix: bool = True,
+    ) -> None:
+        """Stream a chat response using the messages array."""
+        method, path, body, headers = self.make_chat_request(
+            messages,
+            max_tokens,
+            tools=tools,
+            tool_choice=tool_choice,
+            stream=True,
+            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
+        )
         self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, cancel=cancel, status_callback=status_callback)
 
     def request_with_tools(

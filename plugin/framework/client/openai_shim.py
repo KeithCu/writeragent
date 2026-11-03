@@ -11,7 +11,7 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from .anthropic_shim import AnthropicShim
-from .shim_helpers import _openai_model_leaf, annotate_anthropic_cache
+from .shim_helpers import _openai_model_leaf, annotate_anthropic_cache, fold_trailing_user_message
 from .base_provider_shim import (
     BaseProviderShim,
     canonical_aspect_ratio,
@@ -75,7 +75,7 @@ class OpenAIShim(BaseProviderShim):
     """
 
     def _chat_payload(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
     ) -> dict[str, Any]:
         # api.openai.com Chat Completions rejects reasoning_details. The Responses
         # branch does not call this method, so that key stays on messages there.
@@ -85,7 +85,7 @@ class OpenAIShim(BaseProviderShim):
             else message
             for message in messages
         ]
-        data = super()._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
+        data = super()._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice)
         # api.openai.com o1/o3/o4 and gpt-5 reject max_tokens and any
         # temperature other than the default (1), which is HTTP 400. This
         # class is only constructed for provider openai; Groq, OpenRouter,
@@ -101,7 +101,7 @@ class OpenAIShim(BaseProviderShim):
         return data
 
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
         if uses_responses_api(model_name, tools):
             level = self._requested_effort_level(chat_extra)
@@ -110,11 +110,12 @@ class OpenAIShim(BaseProviderShim):
             mapped = frag.get("reasoning_effort") or (frag.get("reasoning") or {}).get("effort")
             data = responses_payload(
                 messages, max_tokens, temperature, tools, stream, model_name, response_format,
+                tool_choice=tool_choice,
                 effort=mapped or level,
             )
             return self._post(self._url("/responses"), data)
         return super().build_chat_request(
-            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra,
+            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice,
         )
 
     def parse_response_chunk(
@@ -219,12 +220,13 @@ class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
 
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
         if isinstance(model_name, str) and model_name.startswith("anthropic/"):
+            messages = fold_trailing_user_message(messages)
             messages = annotate_anthropic_cache(messages)
         return super().build_chat_request(
-            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra
+            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice,
         )
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:

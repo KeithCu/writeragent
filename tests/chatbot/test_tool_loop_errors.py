@@ -732,6 +732,7 @@ def test_final_stream_compacts_then_sends_view(test_instance):
     assert mock_compact.call_args.kwargs["max_tokens"] == 256
     client.stream_chat_response.assert_called_once()
     assert client.stream_chat_response.call_args[0][0] is view
+    assert client.stream_chat_response.call_args.kwargs["tool_choice"] == "none"
 
 
 def test_final_stream_done_and_stop_partial(test_instance):
@@ -744,7 +745,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
     client.stopped.return_value = False
     view = [{"role": "system", "content": "final-view"}]
 
-    def fake_stream(messages, max_tokens, append_c, append_t, cancel=None, status_callback=None):
+    def fake_stream(messages, max_tokens, append_c, append_t, cancel=None, status_callback=None, **kwargs):
         append_c("ab")
         append_c("c")
 
@@ -793,7 +794,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
     turn.batcher = b2
     client.stopped.return_value = False
 
-    def fake_stream_abort(messages, max_tokens, append_c, append_t, cancel=None, status_callback=None):
+    def fake_stream_abort(messages, max_tokens, append_c, append_t, cancel=None, status_callback=None, **kwargs):
         append_c("ab")
         client.stopped.return_value = True
 

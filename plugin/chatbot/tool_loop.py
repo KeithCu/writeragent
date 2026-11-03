@@ -745,8 +745,14 @@ class ToolCallingMixin:
 
         run_in_background(run, name=f"llm-worker-{round_num}", dedicated=True)
 
-    def _spawn_final_stream(self, batched: BatchingStreamQueue, client: "LlmClient", max_tokens: int) -> None:
-        """Spawn a background thread for a final no-tools stream into the batcher."""
+    def _spawn_final_stream(
+        self,
+        batched: BatchingStreamQueue,
+        client: "LlmClient",
+        max_tokens: int,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Spawn a background thread for a final stream into the batcher."""
         update_activity_state("exhausted_rounds")
         self._panel._set_status("Finishing...")
         self._panel._append_response("\nAI: ")
@@ -761,7 +767,12 @@ class ToolCallingMixin:
                 last_streamed.append(c)
 
             client.stream_chat_response(
-                sess.messages_for_request(), max_tokens, append_c, thinking_cb,
+                sess.messages_for_request(),
+                max_tokens,
+                append_c,
+                thinking_cb,
+                tools=tools,
+                tool_choice="none",
                 cancel=scope,
                 status_callback=status_cb,
             )
@@ -773,6 +784,7 @@ class ToolCallingMixin:
                 batched=batched,
                 client=client,
                 max_tokens=max_tokens,
+                tools=tools,
                 resume_status="Finishing...",
                 stream_call=stream_call,
                 done_kind=StreamQueueKind.FINAL_DONE,

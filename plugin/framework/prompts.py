@@ -840,7 +840,6 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
         if peer_block:
             base += "\n\n" + peer_block
 
-        base += _call_system_prompt_block("memory")
         base += _call_system_prompt_block("humanizer")
 
     # After custom instructions so those stay intact and the reminder is last.

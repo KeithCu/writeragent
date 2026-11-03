@@ -22,6 +22,27 @@ def strip_legacy_document_suffix(content: str) -> str:
     return content
 
 
+def request_tail(session: Any) -> str:
+    """Return the dynamic request tail (date, memory, document snapshot)."""
+    import datetime
+    from plugin.chatbot.memory import format_user_memory_prompt_block
+
+    today = datetime.date.today().strftime("%A, %Y-%m-%d")
+    parts = [f"Today's date is {today}."]
+
+    memory = format_user_memory_prompt_block()
+    if memory:
+        parts.append(memory.lstrip("\n"))
+
+    doc_text = getattr(session, "document_context", "") or ""
+    if doc_text:
+        snap = snapshot_text(doc_text)
+        if snap:
+            parts.append(snap)
+
+    return "\n\n".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # ChatSession - holds conversation history for multi-turn chat
 # ---------------------------------------------------------------------------
@@ -132,31 +153,20 @@ class ChatSession:
     def messages_for_request(self) -> list[dict[str, Any]]:
         """Return the messages to send to the LLM for a request.
 
-        Starts with messages_for_llm(self), then appends one snapshot at the tail.
-        Does not mutate self.messages or self.compaction. Empty snapshot_text:
-        return the view as-is.
+        Starts with messages_for_llm(self), then appends one trailing message
+        with request_tail(self) when that view is non-empty. Does not mutate
+        self.messages or self.compaction.
         """
         from plugin.chatbot.compaction import messages_for_llm
 
-        view = list(messages_for_llm(self))
-        snap = snapshot_text(self.document_context)
-        if not snap or not view:
+        view = [dict(m) for m in messages_for_llm(self)]
+        if not view:
             return view
 
-        last = view[-1]
-        if isinstance(last, dict) and last.get("role") == "user":
-            old_content = last.get("content")
-            if isinstance(old_content, list):
-                new_content = list(old_content) + [{"type": "text", "text": snap}]
-            elif isinstance(old_content, str):
-                new_content = [{"type": "text", "text": old_content}, {"type": "text", "text": snap}]
-            else:
-                new_content = [{"type": "text", "text": str(old_content or "")}, {"type": "text", "text": snap}]
-            new_last = dict(last)
-            new_last["content"] = new_content
-            return view[:-1] + [new_last]
-        else:
-            return view + [{"role": "user", "content": snap}]
+        tail = request_tail(self)
+        if tail:
+            view.append({"role": "user", "content": tail})
+        return view
 
     def add_user_message(self, content: Any) -> None:
         self.messages.append({"role": "user", "content": content})

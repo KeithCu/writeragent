@@ -293,6 +293,7 @@ def responses_payload(
     model_name: str | None,
     response_format: dict[str, Any] | None,
     *,
+    tool_choice: str | None = None,
     effort: str = "",
 ) -> dict[str, Any]:
     instructions, items = responses_input(messages, model_name=model_name)
@@ -310,7 +311,7 @@ def responses_payload(
     converted = _responses_tools(tools)
     if converted:
         data["tools"] = converted
-        data["tool_choice"] = "auto"
+        data["tool_choice"] = tool_choice if tool_choice is not None else "auto"
         data["parallel_tool_calls"] = False  # chat path, base_provider_shim.py lines 212–215
     if effort:
         data["reasoning"] = {"effort": effort, "summary": "auto"}

@@ -236,7 +236,7 @@ def get_document_context_for_chat(
                 start_excerpt = _text_helpers._read_writer_text_slice(model, 0, start_chars)
                 end_excerpt = _text_helpers._read_writer_text_slice(model, tail_start, end_chars)
                 start_excerpt = _inject_selection_markers(model, start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
-                end_excerpt = _inject_selection_markers(model, end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "\n[END DOCUMENT]")
+                end_excerpt = _inject_selection_markers(model, end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "")
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _with_math_ole_chat_hint(
                     model,
@@ -247,7 +247,7 @@ def get_document_context_for_chat(
             excerpt = _text_helpers._read_writer_text_slice(model, 0, take)
             if doc_len > max_context:
                 excerpt += "\n\n[... document truncated ...]"
-            excerpt = _inject_selection_markers(model, excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]")
+            excerpt = _inject_selection_markers(model, excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "")
             return _with_math_ole_chat_hint(
                 model,
                 "Document length: %d characters.\n\n%s" % (shown_len, excerpt),

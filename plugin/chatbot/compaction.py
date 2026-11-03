@@ -30,8 +30,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from plugin.chatbot.chat_session import message_text
-from plugin.framework.client.shim_helpers import snapshot_text
+from plugin.chatbot.chat_session import message_text, request_tail
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -850,10 +849,10 @@ def compact_session(
     # Hermes estimate_request_tokens_rough (model_metadata.py:2155-2167):
     # count the request, not just the transcript.
     gate_tokens = estimate_tokens(view) + tool_tokens
-    snap_text = snapshot_text(getattr(session, "document_context", "") or "")
+    doc_text = getattr(session, "document_context", "") or ""
     snapshot_tokens = (
-        estimate_message_tokens({"role": "user", "content": snap_text})
-        if snap_text
+        estimate_message_tokens({"role": "user", "content": request_tail(session)})
+        if doc_text
         else 0
     )
     before = gate_tokens + snapshot_tokens

@@ -390,22 +390,25 @@ def test_prepare_chat_messages_non_dict_passthrough():
     assert "non-dict-string" in res
     assert any(isinstance(m, dict) and m.get("role") == "user" and "hi" in str(m.get("content")) for m in res)
 
-    # System dict following a non-dict still gets date line
+    # System dict following a non-dict stays system without date line
     messages2 = ["nope", {"role": "system", "content": "prompt"}]
     res2 = prepare_chat_messages(messages2, "openai", prepend_dev_build_system_prefix=False)
     assert "nope" in res2
     sys_m = next(m for m in res2 if isinstance(m, dict) and m.get("role") == "system")
-    assert "Today's date is " in sys_m["content"]
+    assert sys_m["content"] == "prompt"
+    assert "Today's date is" not in sys_m["content"]
 
 
 def test_prepare_chat_messages_null_text_in_system_list():
     messages = [{"role": "system", "content": [{"type": "text", "text": None}]}]
     res = prepare_chat_messages(messages, "openai", prepend_dev_build_system_prefix=False)
     assert isinstance(res[0]["content"], str)
-    assert "Today's date is " in res[0]["content"]
+    assert "Today's date is" not in res[0]["content"]
 
 
-def test_prepare_chat_messages_midstring_date_no_duplicate():
-    messages = [{"role": "system", "content": "Context before. Today's date is Monday. More context."}]
+def test_prepare_chat_messages_user_only_no_system_row():
+    messages = [{"role": "user", "content": "hello"}]
     res = prepare_chat_messages(messages, "openai", prepend_dev_build_system_prefix=False)
-    assert res[0]["content"].count("Today's date is ") == 1
+    assert len(res) == 1
+    assert res[0]["role"] == "user"
+    assert not any(isinstance(m, dict) and m.get("role") == "system" for m in res)

@@ -12,7 +12,6 @@ control tokens, and extract base64 images.
 from __future__ import annotations
 
 import copy
-import datetime
 from functools import lru_cache
 import importlib.util
 import logging
@@ -76,11 +75,6 @@ def normalize_message_content(raw: Any) -> str | None:
                     parts.append(_text_of(item.get("text")))
         return "".join(parts) if parts else None
     return str(raw)
-
-
-def _has_date_line(text: str, date_msg: str) -> bool:
-    """Return True if date_msg or standard date prefix appears anywhere in text."""
-    return date_msg in text or "Today's date is " in text
 
 
 def _record_image(extracted: list[dict[str, Any]], ext: str, raw_b64: str) -> str:
@@ -238,11 +232,9 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
 
 
 def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_build_system_prefix: bool = True) -> list[Any]:
-    """Coalesce consecutive system messages, inject the date line, then flatten text-only system content.
+    """Coalesce consecutive system messages, then flatten text-only system content.
 
-    Dev-build prefix and ``normalize_multimodal_messages`` stay between the date
-    line and the flatten. That was the order inside ``make_chat_request``;
-    pulling the three blocks out must not reorder them around image normalization.
+    Dev-build prefix and ``normalize_multimodal_messages`` stay before the flatten.
     """
     coalesced_messages: list[Any] = []
     coalesced_any = False
@@ -281,45 +273,6 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
         log.debug("prepare_chat_messages: Coalesced multiple consecutive system messages.")
 
     messages = coalesced_messages
-
-    # Inject date into the first system message
-    today = datetime.date.today().strftime("%A, %Y-%m-%d")
-    date_msg = f"Today's date is {today}."
-    system_message: Any = None
-    for m in messages:
-        if not isinstance(m, dict):
-            continue
-        if m.get("role") == "system":
-            system_message = m
-            # Only the first system message is dated; later non-adjacent system messages are left unchanged.
-            break
-
-    if system_message:
-        old_content = system_message.get("content")
-        if isinstance(old_content, str):
-            already_has_date_line = _has_date_line(old_content, date_msg)
-            if not already_has_date_line:
-                system_message["content"] = f"{date_msg}\n\n{old_content}" if old_content else date_msg
-        elif isinstance(old_content, list):
-            already_has_date_line = False
-            text_item = None
-            for item in old_content:
-                if isinstance(item, dict) and item.get("type") == "text":
-                    if text_item is None:
-                        text_item = item
-                    t = _text_of(item.get("text"))
-                    if _has_date_line(t, date_msg):
-                        already_has_date_line = True
-                        break
-
-            if not already_has_date_line:
-                if text_item:
-                    t = _text_of(text_item.get("text"))
-                    text_item["text"] = f"{date_msg}\n\n{t}" if t else date_msg
-                else:
-                    old_content.insert(0, {"type": "text", "text": date_msg})
-    else:
-        messages.insert(0, {"role": "system", "content": date_msg})
 
     if prepend_dev_build_system_prefix:
         prepend_dev_build_system_prefix_to_messages(messages)
