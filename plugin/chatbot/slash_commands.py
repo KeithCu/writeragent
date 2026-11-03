@@ -245,6 +245,11 @@ def slash_command_continues_chat_turn(cmd: SlashCommand) -> bool:
     return cmd.kind == _KIND_ANSWER
 
 
+def slash_command_holds_send_turn(cmd: SlashCommand) -> bool:
+    """True when the slash handler keeps the Send drain open until async work finishes."""
+    return cmd.kind == _KIND_ANSWER or cmd.name == "formula"
+
+
 def load_slash_lru() -> list[str]:
     from plugin.framework.config import get_config
 
@@ -492,27 +497,16 @@ def run_slash_command(
 
     if cmd.name == "undo":
         host.clear_ask()
-        in_flight = getattr(host, "slash_agent_edit_in_flight", None)
-        if callable(in_flight) and in_flight():
-            host.append_output("\n" + _("Wait for the current operation to finish before /undo.") + "\n")
-            return True
-        model_fn = getattr(host, "slash_document_model", None)
-        model = model_fn() if callable(model_fn) else None
-        if model is None:
-            host.append_output("\n" + _("No document is open.") + "\n")
-            return True
-        from plugin.doc.agent_undo import undo_last_agent_edit
+        from plugin.chatbot.slash_undo_formula import run_slash_undo
 
-        host.append_output("\n" + undo_last_agent_edit(model) + "\n")
+        run_slash_undo(host)
         return True
 
     if cmd.name == "formula":
         host.clear_ask()
-        run_formula = getattr(host, "run_slash_formula", None)
-        if not callable(run_formula):
-            host.append_output("\n" + _("Formula generation is unavailable.") + "\n")
-            return True
-        run_formula(arg.strip())
+        from plugin.chatbot.slash_undo_formula import run_slash_formula_dispatch
+
+        run_slash_formula_dispatch(host, arg)
         return True
 
     model_fn = getattr(host, "slash_document_model", None)
@@ -621,151 +615,3 @@ def run_slash_compact_worker(
     from plugin.framework.worker_pool import run_in_background
 
     run_in_background(worker, name="slash-compact", dedicated=True)
-
-
-_FORMULA_UNDO_TITLE = N_("WriterAgent: Formula")
-
-
-def clean_formula_model_reply(text: str) -> str:
-    """Strip fences and whitespace from a one-line formula completion."""
-    raw = (text or "").strip()
-    if raw.startswith("```"):
-        lines = raw.splitlines()
-        if len(lines) >= 2 and lines[-1].strip() == "```":
-            raw = "\n".join(lines[1:-1]).strip()
-        else:
-            raw = raw.strip("`").strip()
-    return raw.strip()
-
-
-def build_slash_formula_prompt(model: Any, description: str) -> tuple[str, str, Any]:
-    """Return (prompt, target_cell_address, cell) for the active Calc cell."""
-    from plugin.calc.address_utils import format_address, format_range
-
-    view = model.CurrentController
-    sheet = view.ActiveSheet
-    sheet_name = str(sheet.getName() or "")
-    selection = view.getSelection()
-    addr = selection.getCellAddress()
-    cell = sheet.getCellByPosition(addr.Column, addr.Row)
-    target = format_address(addr.Column, addr.Row)
-
-    cursor = sheet.createCursor()
-    cursor.gotoStartOfUsedArea(False)
-    cursor.gotoEndOfUsedArea(True)
-    used = cursor.getRangeAddress()
-    used_label = format_range(used.StartColumn, used.StartRow, used.EndColumn, used.EndRow)
-    header_range = sheet.getCellRangeByPosition(
-        used.StartColumn,
-        used.StartRow,
-        used.EndColumn,
-        used.StartRow,
-    )
-    header_row = str(header_range.getString() or "").replace("\t", " | ")
-
-    prompt = (
-        _("Write exactly one LibreOffice Calc formula for this request: {0}").format(description.strip())
-        + "\n\n"
-        + _("Target cell: {0} on sheet \"{1}\".").format(target, sheet_name)
-        + "\n"
-        + _("Used range: {0}.").format(used_label)
-        + "\n"
-        + _("Header row: {0}.").format(header_row or _("(empty)"))
-        + "\n\n"
-        + _(
-            "Reply with the formula only. It must start with =. "
-            "Use English function names. Use comma separators. No prose or markdown."
-        )
-    )
-    return prompt, target, cell
-
-
-def run_slash_formula_worker(host: Any, *, ctx: Any, model: Any, description: str) -> None:
-    """Background LLM call; formula insert and sidebar lines run on the main thread."""
-    from plugin.chatbot.selection import create_validated_client, stream_completion
-    from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
-    from plugin.doc.compound_undo import commit_or_rollback
-    from plugin.framework.config import get_config
-    from plugin.framework.errors import format_error_message
-    from plugin.framework.llm_lanes import llm_request_lane
-    from plugin.framework.queue_executor import main
-
-    title = _("WriterAgent: Formula")
-    client = create_validated_client(ctx, title)
-    if client is None:
-        return
-
-    try:
-        prompt, target_addr, cell = build_slash_formula_prompt(model, description)
-    except Exception:
-        log.exception("slash /formula prompt build failed")
-        main.post(lambda: host.append_output("\n" + _("Could not read the spreadsheet.") + "\n"))
-        return
-
-    system_prompt = _(
-        "You write LibreOffice Calc formulas. Output a single formula starting with =, nothing else."
-    )
-    max_tokens = get_config("chatbot.extend_selection_max_tokens")
-    chunks: list[str] = []
-
-    def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
-        if not is_thinking:
-            chunks.append(chunk_text)
-
-    def insert_on_main() -> None:
-        formula = clean_formula_model_reply("".join(chunks))
-        if not formula.startswith("="):
-            host.append_output("\n" + formula + "\n")
-            return
-
-        record_agent_turn_before(model)
-
-        def mutate() -> None:
-            cell.setFormula(formula)
-
-        try:
-            err = commit_or_rollback(model, _(_FORMULA_UNDO_TITLE), mutate)
-        except Exception as exc:
-            host.append_output("\n" + format_error_message(exc) + "\n")
-            record_agent_turn_after(model)
-            return
-        if err is not None:
-            host.append_output("\n" + str(err.get("message", _("Could not insert the formula."))) + "\n")
-            record_agent_turn_after(model)
-            return
-
-        record_agent_turn_after(model)
-        lines = [_("Formula for {0}: {1}").format(target_addr, formula)]
-        try:
-            if int(cell.getError()) != 0:
-                lines.append(_("The cell shows an error"))
-        except Exception:
-            log.debug("slash /formula: could not read cell error", exc_info=True)
-        host.append_output("\n" + "\n".join(lines) + "\n")
-
-    def on_done() -> None:
-        main.post(insert_on_main)
-
-    def on_error(exc: Exception) -> None:
-        main.post(lambda: host.append_output("\n" + format_error_message(exc) + "\n"))
-
-    def worker() -> None:
-        try:
-            with llm_request_lane(resume_status=_("Thinking...")):
-                stream_completion(
-                    ctx,
-                    client,
-                    prompt,
-                    system_prompt,
-                    max_tokens,
-                    apply_chunk,
-                    on_done,
-                    on_error,
-                )
-        except Exception:
-            log.exception("slash /formula failed")
-            main.post(lambda: host.append_output("\n" + _("Formula generation failed.") + "\n"))
-
-    from plugin.framework.worker_pool import run_in_background
-
-    run_in_background(worker, name="slash-formula", dedicated=True)

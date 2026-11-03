@@ -2454,7 +2454,7 @@ class _UrpSlashHost:
         return False
 
     def run_slash_formula(self, description: str) -> None:
-        from plugin.chatbot.slash_commands import run_slash_formula_worker
+        from plugin.chatbot.slash_undo_formula import run_slash_formula_worker
 
         model = self.slash_document_model()
         if model is None:

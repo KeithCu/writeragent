@@ -77,9 +77,8 @@ def _stream_into_session(
     max_tokens: int,
     session: Any,
 ) -> None:
-    from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
+    from plugin.doc.agent_undo import record_agent_turn_after
 
-    record_agent_turn_before(session.doc)
     # Extend/Edit has no Stop control; a chunk already in hand is a document write
     # and lands (session.append_chunk).
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
@@ -119,6 +118,9 @@ def do_extend_selection(ctx: Any, model: Any) -> None:
     system_prompt = get_config("extend_selection_system_prompt")
     max_tokens = get_config("chatbot.extend_selection_max_tokens")
 
+    from plugin.doc.agent_undo import record_agent_turn_before
+
+    record_agent_turn_before(model)
     session = WriterStreamedAppendSession(
         model, text_range, original_text,
         track_reviewable=review_recording_enabled(),
@@ -183,6 +185,9 @@ def do_edit_selection(
     system_prompt = extra_instructions or get_config("edit_selection_system_prompt")
     max_tokens = len(original_text) + get_config("chatbot.edit_selection_max_new_tokens")
 
+    from plugin.doc.agent_undo import record_agent_turn_before
+
+    record_agent_turn_before(model)
     session = WriterStreamedRewriteSession(
         model, text_range, original_text,
         track_reviewable=review_recording_enabled(),

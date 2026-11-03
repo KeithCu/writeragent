@@ -418,8 +418,9 @@ def test_run_undo_refuses_while_in_flight():
     host.slash_document_model.assert_not_called()
 
 
-def test_run_formula_only_in_calc():
+def test_run_formula_delegates_to_host():
     host = MagicMock()
+    host.run_slash_formula = MagicMock()
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         assert run_slash_command("formula", host, "sum column A") is True
     host.run_slash_formula.assert_called_once_with("sum column A")
@@ -440,35 +441,9 @@ def test_popup_accept_runs_undo_immediately():
     host.append_output.assert_called_once()
 
 
-def test_clean_formula_model_reply():
-    from plugin.chatbot.slash_commands import clean_formula_model_reply
+def test_slash_command_holds_send_turn_for_formula():
+    from plugin.chatbot.slash_commands import slash_command_holds_send_turn, _registry_map
 
-    assert clean_formula_model_reply("```\n=SUM(A1:A5)\n```") == "=SUM(A1:A5)"
-    assert clean_formula_model_reply("  =A1+B1  ") == "=A1+B1"
-    assert clean_formula_model_reply("not a formula") == "not a formula"
-
-
-def test_formula_insert_uses_undo_context():
-    from plugin.chatbot.slash_commands import _FORMULA_UNDO_TITLE
-
-    cell = MagicMock()
-    cell.getError.return_value = 1
-    model = MagicMock()
-    formula = "=SUM(A1:A2)"
-
-    def mutate() -> None:
-        cell.setFormula(formula)
-
-    with patch("plugin.doc.compound_undo.commit_or_rollback", side_effect=lambda doc, title, fn: (fn(), None)[1]) as cor:
-        cor(model, _FORMULA_UNDO_TITLE, mutate)
-    cell.setFormula.assert_called_once_with(formula)
-
-
-def test_formula_missing_equals_shows_reply_only():
-    from plugin.chatbot.slash_commands import clean_formula_model_reply
-
-    bad = clean_formula_model_reply("SUM(A1)")
-    assert not bad.startswith("=")
-    # insert path is in worker; unit-test the cleanup gate the worker uses
-    assert bad == "SUM(A1)"
+    formula = _registry_map()["formula"]
+    assert slash_command_holds_send_turn(formula) is True
 

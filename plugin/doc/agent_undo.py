@@ -2,15 +2,19 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Per-document undo snapshots for /undo (last agent edit as one step)."""
+"""Per-document undo snapshots for /undo (last agent edit as one step).
+
+Undo titles are the only cheap stack identity UNO exposes; we refuse when the
+current stack no longer matches the recorded ``after`` snapshot.
+"""
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
 from typing import Any
-from weakref import WeakKeyDictionary
 
+from plugin.doc.document_helpers import _compute_doc_key, is_cacheable_doc_key
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
 
@@ -23,8 +27,12 @@ class _AgentUndoRecord:
     after: tuple[str, ...]
 
 
-_records: WeakKeyDictionary[Any, _AgentUndoRecord] = WeakKeyDictionary()
-_pending_before: WeakKeyDictionary[Any, tuple[str, ...]] = WeakKeyDictionary()
+_records: dict[str, _AgentUndoRecord] = {}
+_pending_before: dict[str, tuple[str, ...]] = {}
+
+
+def _doc_key(doc: Any) -> str:
+    return _compute_doc_key(doc)
 
 
 def _undo_titles(doc: Any) -> tuple[str, ...] | None:
@@ -44,6 +52,8 @@ def _undo_titles(doc: Any) -> tuple[str, ...] | None:
 
 def compute_undo_steps(before: tuple[str, ...], after: tuple[str, ...]) -> int:
     """Smallest k>0 with after[k:] == before[:len(after) - k] (newest-first stacks)."""
+    # Match prefix of ``before`` to suffix of ``after``: new undo steps sit at the
+    # front of the newest-first title list; k is how many were pushed on top.
     for k in range(1, len(after) + 1):
         tail = len(after) - k
         if after[k:] == before[:tail]:
@@ -52,13 +62,26 @@ def compute_undo_steps(before: tuple[str, ...], after: tuple[str, ...]) -> int:
 
 
 def record_agent_turn_before(doc: Any) -> None:
+    key = _doc_key(doc)
+    if not is_cacheable_doc_key(key):
+        return
     titles = _undo_titles(doc)
     if titles is not None:
-        _pending_before[doc] = titles
+        _pending_before[key] = titles
+
+
+def cancel_pending_agent_turn(doc: Any) -> None:
+    """Drop a turn-start snapshot without recording (e.g. /formula owns undo)."""
+    key = _doc_key(doc)
+    if is_cacheable_doc_key(key):
+        _pending_before.pop(key, None)
 
 
 def record_agent_turn_after(doc: Any) -> None:
-    before = _pending_before.pop(doc, None)
+    key = _doc_key(doc)
+    if not is_cacheable_doc_key(key):
+        return
+    before = _pending_before.pop(key, None)
     if before is None:
         return
     after = _undo_titles(doc)
@@ -66,16 +89,18 @@ def record_agent_turn_after(doc: Any) -> None:
         return
     if compute_undo_steps(before, after) <= 0:
         return
-    _records[doc] = _AgentUndoRecord(before=before, after=after)
+    _records[key] = _AgentUndoRecord(before=before, after=after)
 
 
 def clear_agent_undo_record(doc: Any) -> None:
-    _records.pop(doc, None)
-    _pending_before.pop(doc, None)
+    key = _doc_key(doc)
+    _records.pop(key, None)
+    _pending_before.pop(key, None)
 
 
 def undo_last_agent_edit(doc: Any) -> str:
-    record = _records.get(doc)
+    key = _doc_key(doc)
+    record = _records.get(key)
     if record is None:
         return _("There is no agent edit to undo.")
     current = _undo_titles(doc)

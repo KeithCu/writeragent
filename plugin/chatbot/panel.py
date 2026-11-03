@@ -270,6 +270,8 @@ class SendButtonListener(BaseActionListener):
     _approval_event: Any
     slash_popup: Any
     _slash_compact_allowed: bool
+    _slash_formula_allowed: bool
+    _skip_agent_undo_after: bool
     clear_listener: Any
     rich_text_widget: Any
     _rich_plain_fallback_warned: bool
@@ -362,6 +364,8 @@ class SendButtonListener(BaseActionListener):
         self._record_mouse_listener = None
         self.slash_popup = None
         self._slash_compact_allowed = False
+        self._slash_formula_allowed = False
+        self._skip_agent_undo_after = False
         self.clear_listener = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
@@ -560,11 +564,11 @@ class SendButtonListener(BaseActionListener):
         return self.sidebar_state.send.is_busy or get_drain_owner() is not None
 
     def run_slash_formula(self, description: str) -> None:
-        from plugin.chatbot.slash_commands import run_slash_formula_worker
+        from plugin.chatbot.slash_undo_formula import run_slash_formula_worker
         from plugin.framework.doc_type import DocumentType, get_document_type
         from plugin.framework.i18n import _
 
-        if self.slash_agent_edit_in_flight():
+        if self.slash_agent_edit_in_flight() and not self._slash_formula_allowed:
             self.append_output("\n" + _("Wait for the current operation to finish before /formula.") + "\n")
             return
         model = self._get_document_model(log_failure=True)
@@ -1145,8 +1149,9 @@ class SendButtonListener(BaseActionListener):
             from plugin.doc.agent_undo import record_agent_turn_after
 
             turn = current_turn(self)
-            if turn is not None and turn.model is not None:
+            if turn is not None and turn.model is not None and not self._skip_agent_undo_after:
                 record_agent_turn_after(turn.model)
+            self._skip_agent_undo_after = False
             # Spoken text was copied above. Later callbacks must not find this turn.
             drop_turn(self)
             kick_pending_peer_starts()
@@ -1301,7 +1306,7 @@ class SendButtonListener(BaseActionListener):
             format_usage_line,
             parse_slash_text,
             run_slash_command,
-            slash_command_continues_chat_turn,
+            slash_command_holds_send_turn,
         )
 
         parsed = parse_slash_text(query_text)
@@ -1312,13 +1317,21 @@ class SendButtonListener(BaseActionListener):
                 self._terminal_status = "Ready"
                 return
             self._slash_compact_allowed = cmd.name == "compact"
+            self._slash_formula_allowed = cmd.name == "formula"
+            self._skip_agent_undo_after = False
             try:
+                if cmd.name == "formula":
+                    from plugin.doc.agent_undo import cancel_pending_agent_turn
+
+                    cancel_pending_agent_turn(model)
+                    self._skip_agent_undo_after = True
                 if run_slash_command(cmd.name, self, arg, from_popup=False):
-                    if not slash_command_continues_chat_turn(cmd):
+                    if not slash_command_holds_send_turn(cmd):
                         self._terminal_status = "Ready"
                     return
             finally:
                 self._slash_compact_allowed = False
+                self._slash_formula_allowed = False
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
