@@ -26,11 +26,12 @@ from plugin.audio.tts_models import (
     _notify_tts_status,
     _resolve_kokoro_model_files,
     _resolve_piper_model_file,
-    clear_generation_downloads,
+    clear_scope_downloads,
     DownloadOutcome,
     is_download_failed,
     remember_download_failed,
 )
+from plugin.framework.send_cancellation import SendCancellation
 
 
 def _isolate_home_cache(tmp_path, monkeypatch):
@@ -56,20 +57,20 @@ def test_download_to_cancellable_and_cleans_tmp(tmp_path):
     dest = tmp_path / "model.bin"
 
     call_count = 0
+    cancel = SendCancellation()
 
     class SlowStream(io.BytesIO):
         def read(self, n=-1):
             nonlocal call_count
             call_count += 1
+            if call_count >= 1:
+                cancel.cancel()
             if call_count > 2:
                 return b""
             return b"chunk"
 
-    def cancelled_after_first():
-        return call_count >= 1
-
     with patch("urllib.request.urlopen", return_value=SlowStream(b"data")):
-        outcome = _download_to("https://example.com/model", str(dest), timeout=10.0, cancelled=cancelled_after_first)
+        outcome = _download_to("https://example.com/model", str(dest), timeout=10.0, cancel=cancel)
         assert outcome is DownloadOutcome.CANCELLED
         assert not dest.exists()
         assert list(tmp_path.glob("*.tmp")) == []
@@ -112,9 +113,12 @@ def test_overlapping_downloads_waiter_shares_result(tmp_path):
         urlopen_calls += 1
         return BlockingStream(b"model-content")
 
-    def waiter_cancelled():
-        waiter_polled.set()
-        return False
+    class PollingCancellation(SendCancellation):
+        def is_cancelled(self) -> bool:
+            waiter_polled.set()
+            return super().is_cancelled()
+
+    waiter_cancel = PollingCancellation()
 
     outcome_owner = None
     outcome_waiter = None
@@ -125,7 +129,7 @@ def test_overlapping_downloads_waiter_shares_result(tmp_path):
 
     def run_waiter():
         nonlocal outcome_waiter
-        outcome_waiter = _download_to("https://example.com/model", str(dest), cancelled=waiter_cancelled)
+        outcome_waiter = _download_to("https://example.com/model", str(dest), cancel=waiter_cancel)
 
     with patch("urllib.request.urlopen", side_effect=fake_urlopen):
         t_owner = threading.Thread(target=run_owner)
@@ -152,7 +156,7 @@ def test_overlapping_downloads_waiter_shares_result(tmp_path):
 def test_overlapping_downloads_cancel_waiter_only(tmp_path):
     dest = tmp_path / "model.bin"
     owner_in_read = threading.Event()
-    waiter_can_cancel = threading.Event()
+    waiter_cancel = SendCancellation()
     allow_owner_finish = threading.Event()
     urlopen_calls = 0
 
@@ -176,7 +180,7 @@ def test_overlapping_downloads_cancel_waiter_only(tmp_path):
 
     def run_waiter():
         nonlocal outcome_waiter
-        outcome_waiter = _download_to("https://example.com/model", str(dest), cancelled=waiter_can_cancel.is_set)
+        outcome_waiter = _download_to("https://example.com/model", str(dest), cancel=waiter_cancel)
 
     with patch("urllib.request.urlopen", side_effect=fake_urlopen):
         t_owner = threading.Thread(target=run_owner)
@@ -186,7 +190,7 @@ def test_overlapping_downloads_cancel_waiter_only(tmp_path):
         t_waiter = threading.Thread(target=run_waiter)
         t_waiter.start()
 
-        waiter_can_cancel.set()
+        waiter_cancel.cancel()
         t_waiter.join(timeout=5.0)
         assert not t_waiter.is_alive()
         assert outcome_waiter is DownloadOutcome.CANCELLED
@@ -203,7 +207,7 @@ def test_overlapping_downloads_cancel_waiter_only(tmp_path):
 def test_overlapping_downloads_cancel_owner_waiter_becomes_owner(tmp_path):
     dest = tmp_path / "model.bin"
     owner_in_read = threading.Event()
-    cancel_owner = threading.Event()
+    cancel_owner = SendCancellation()
     urlopen_calls = 0
 
     class StreamOwner:
@@ -215,7 +219,7 @@ def test_overlapping_downloads_cancel_owner_waiter_becomes_owner(tmp_path):
 
         def read(self, n=-1):
             owner_in_read.set()
-            while not cancel_owner.is_set():
+            while not cancel_owner.is_cancelled():
                 time.sleep(0.05)
             raise InterruptedError("owner cancelled")
 
@@ -232,7 +236,7 @@ def test_overlapping_downloads_cancel_owner_waiter_becomes_owner(tmp_path):
     def run_owner():
         nonlocal outcome_owner
         outcome_owner = _download_to(
-            "https://example.com/model", str(dest), cancelled=cancel_owner.is_set
+            "https://example.com/model", str(dest), cancel=cancel_owner
         )
 
     def run_waiter():
@@ -247,7 +251,7 @@ def test_overlapping_downloads_cancel_owner_waiter_becomes_owner(tmp_path):
         t_waiter = threading.Thread(target=run_waiter)
         t_waiter.start()
 
-        cancel_owner.set()
+        cancel_owner.cancel()
         t_owner.join(timeout=5.0)
         assert not t_owner.is_alive()
         assert outcome_owner is DownloadOutcome.CANCELLED
@@ -285,38 +289,39 @@ def test_download_failure_remembered_per_generation():
     """Bug 1: Failed model downloads are remembered per generation and not retried every sentence."""
     import plugin.audio.tts_service as tts
 
-    saved_gen = tts._speech_generation
-    tts._speech_generation = 1
+    scope1 = SendCancellation()
+    scope2 = SendCancellation()
+    tts._speech_cancel = scope1
     try:
-        clear_generation_downloads(1)
-        clear_generation_downloads(2)
+        clear_scope_downloads(scope1)
+        clear_scope_downloads(scope2)
 
-        assert not is_download_failed(1, "kokoro")
-        remember_download_failed(1, "kokoro")
-        assert is_download_failed(1, "kokoro")
-        assert not is_download_failed(2, "kokoro")
+        assert not is_download_failed(scope1, "kokoro")
+        remember_download_failed(scope1, "kokoro")
+        assert is_download_failed(scope1, "kokoro")
+        assert not is_download_failed(scope2, "kokoro")
 
-        clear_generation_downloads(1)
-        assert not is_download_failed(1, "kokoro")
+        clear_scope_downloads(scope1)
+        assert not is_download_failed(scope1, "kokoro")
     finally:
-        tts._speech_generation = saved_gen
-        clear_generation_downloads(1)
-        clear_generation_downloads(2)
+        tts._speech_cancel = None
+        clear_scope_downloads(scope1)
+        clear_scope_downloads(scope2)
 
 
 def test_remember_download_failed_ignores_stale_generation():
     import plugin.audio.tts_service as tts
 
-    generation = tts._begin_utterance()
+    scope = tts._begin_utterance()
     try:
-        remember_download_failed(generation, "kokoro")
-        assert is_download_failed(generation, "kokoro")
+        remember_download_failed(scope, "kokoro")
+        assert is_download_failed(scope, "kokoro")
         tts.stop_speech()
-        remember_download_failed(generation, "kokoro")
-        assert generation not in _failed_model_downloads
+        remember_download_failed(scope, "kokoro")
+        assert scope not in _failed_model_downloads
     finally:
         tts.stop_speech()
-        clear_generation_downloads(generation)
+        clear_scope_downloads(scope)
 
 
 def test_notify_tts_status_progress_prefers_progress_method():
@@ -608,29 +613,30 @@ def test_is_download_failed_takes_speech_lock_clear_does_not():
             return real_lock.__exit__(exc_type, exc_val, exc_tb)
 
     setattr(tts, "_speech_lock", LockWrapper())
-    generation = tts._begin_utterance()
+    scope = tts._begin_utterance()
     try:
-        remember_download_failed(generation, "kokoro")
+        remember_download_failed(scope, "kokoro")
         before = lock_count
-        assert is_download_failed(generation, "kokoro") is True
+        assert is_download_failed(scope, "kokoro") is True
         assert lock_count == before + 1
         before = lock_count
-        clear_generation_downloads(generation)
+        clear_scope_downloads(scope)
         assert lock_count == before
     finally:
         tts._speech_lock = real_lock
         tts.stop_speech()
-        clear_generation_downloads(generation)
+        clear_scope_downloads(scope)
 
 
 def test_resolve_kokoro_model_files_cancelled_during_voices(tmp_path, monkeypatch):
     messages: list[str] = []
     _kokoro_cache(tmp_path, monkeypatch)
+    cancel = SendCancellation()
 
     with patch("plugin.audio.tts_models._download_to", return_value=DownloadOutcome.CANCELLED):
-        _resolve_kokoro_model_files(on_status=messages.append, generation=1, cancelled=lambda: False)
+        _resolve_kokoro_model_files(on_status=messages.append, cancel=cancel)
 
-    assert not is_download_failed(1, "kokoro")
+    assert not is_download_failed(cancel, "kokoro")
     assert not any("using OS speech" in m for m in messages)
 
 
@@ -639,23 +645,25 @@ def test_resolve_kokoro_model_files_cancelled_during_model(tmp_path, monkeypatch
     cache_dir = _kokoro_cache(tmp_path, monkeypatch)
     cache_dir.mkdir(parents=True)
     (cache_dir / KOKORO_VOICES_FILENAME).write_bytes(b"x" * 20_000_000)
+    cancel = SendCancellation()
 
     with patch("plugin.audio.tts_models._download_to", return_value=DownloadOutcome.CANCELLED):
-        _resolve_kokoro_model_files(on_status=messages.append, generation=1, cancelled=lambda: False)
+        _resolve_kokoro_model_files(on_status=messages.append, cancel=cancel)
 
-    assert not is_download_failed(1, "kokoro")
+    assert not is_download_failed(cancel, "kokoro")
     assert not any("using OS speech" in m for m in messages)
 
 
 def test_resolve_piper_model_file_cancelled_during_download(tmp_path, monkeypatch):
     messages: list[str] = []
     _piper_cache(tmp_path, monkeypatch)
+    cancel = SendCancellation()
 
     with patch("plugin.audio.tts_models._download_to", return_value=DownloadOutcome.CANCELLED):
-        res = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, generation=1)
+        res = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, cancel=cancel)
 
     assert res is None
-    assert not is_download_failed(1, "de_DE-thorsten-medium")
+    assert not is_download_failed(cancel, "de_DE-thorsten-medium")
     assert not any("using OS speech" in m for m in messages)
     assert not any("using Lessac" in m for m in messages)
 
@@ -663,11 +671,13 @@ def test_resolve_piper_model_file_cancelled_during_download(tmp_path, monkeypatc
 def test_resolve_piper_model_file_cancelled_before_download(tmp_path, monkeypatch):
     messages: list[str] = []
     _piper_cache(tmp_path, monkeypatch)
+    cancel = SendCancellation()
+    cancel.cancel()
 
-    res = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, generation=1, cancelled=lambda: True)
+    res = _resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, cancel=cancel)
     assert res is None
     assert not any("Downloading Piper" in m for m in messages)
-    assert not is_download_failed(1, "de_DE-thorsten-medium")
+    assert not is_download_failed(cancel, "de_DE-thorsten-medium")
 
 
 def test_piper_cancelled_attempt_does_not_delete_other_files(tmp_path, monkeypatch):
@@ -677,8 +687,10 @@ def test_piper_cancelled_attempt_does_not_delete_other_files(tmp_path, monkeypat
     json_path = cache_dir / "de_DE-thorsten-medium.onnx.json"
     onnx_path.write_bytes(b"B_BYTES_ONNX")
     json_path.write_bytes(b"B_BYTES_JSON")
+    cancel = SendCancellation()
+    cancel.cancel()
 
-    outcome = _download_piper_pair("de_DE-thorsten-medium", str(onnx_path), str(json_path), cancelled=lambda: True)
+    outcome = _download_piper_pair("de_DE-thorsten-medium", str(onnx_path), str(json_path), cancel=cancel)
     assert outcome is DownloadOutcome.CANCELLED
     assert onnx_path.read_bytes() == b"B_BYTES_ONNX"
     assert json_path.read_bytes() == b"B_BYTES_JSON"
@@ -849,16 +861,16 @@ def test_content_type_failure_is_one_attempt(tmp_path):
 def test_cancelled_during_backoff_returns_cancelled(tmp_path):
     dest = tmp_path / "file.bin"
     calls = 0
-    cancelled = False
+    cancel = SendCancellation()
 
     def fake_urlopen(req, timeout=30.0):
-        nonlocal calls, cancelled
+        nonlocal calls
         calls += 1
-        cancelled = True
+        cancel.cancel()
         raise urllib.error.HTTPError(req.full_url if hasattr(req, "full_url") else str(req), 503, "Unavailable", email.message.Message(), None)
 
     with patch("urllib.request.urlopen", side_effect=fake_urlopen):
-        outcome = _download_to("https://example.com/f", str(dest), cancelled=lambda: cancelled)
+        outcome = _download_to("https://example.com/f", str(dest), cancel=cancel)
     assert outcome is DownloadOutcome.CANCELLED
     assert calls == 1
 
@@ -871,19 +883,18 @@ def test_disk_space_below_floor_emits_status_and_remembers_failure(tmp_path, mon
 
     mock_usage = MagicMock(free=100)
 
-    saved_gen = tts._speech_generation
-    tts._speech_generation = 42
+    scope = tts._begin_utterance()
     try:
         with patch("shutil.disk_usage", return_value=mock_usage), \
              patch("urllib.request.urlopen") as mock_url:
-            _resolve_kokoro_model_files(on_status=messages.append, generation=42)
+            _resolve_kokoro_model_files(on_status=messages.append, cancel=scope)
 
         mock_url.assert_not_called()
-        assert is_download_failed(42, "kokoro")
+        assert is_download_failed(scope, "kokoro")
         assert any("Not enough disk space" in m for m in messages)
     finally:
-        tts._speech_generation = saved_gen
-        clear_generation_downloads(42)
+        tts.stop_speech()
+        clear_scope_downloads(scope)
 
 
 def test_percent_callbacks_throttled_and_stops_on_cancel(tmp_path):

@@ -20,7 +20,10 @@ class MockSession:
 
     def set_system_context(self, base_prompt, doc_text=""):
         self.document_context = doc_text
-        self.messages[0]["content"] = f"{base_prompt}\n\n[DOCUMENT CONTENT]\n{doc_text}\n[END DOCUMENT]"
+        self.messages[0]["content"] = base_prompt
+
+    def messages_for_request(self):
+        return list(self.messages)
 
     def refresh_document_context(self, model, ctx):
         self.set_system_context("base", "doc text")
@@ -581,6 +584,7 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
     from plugin.chatbot.tool_loop_actions import current_turn
 
     current_turn(test_instance).queue = q
+    current_turn(test_instance).session.messages_for_request = MagicMock(return_value=view)
     compact_inside_lane = {"value": False}
 
     class _Lane:
@@ -606,7 +610,6 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
         patch("plugin.chatbot.tool_loop.get_config", return_value=True),
         patch("plugin.chatbot.tool_loop.compact_session", side_effect=fake_compact) as mock_compact,
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         test_instance._spawn_llm_worker(q, client, 128, [{"name": "t"}], 0)
         # Host Thinking is expected on the caller; the background run must not UNO.
@@ -641,6 +644,7 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
     from plugin.chatbot.tool_loop_actions import current_turn
 
     current_turn(test_instance).queue = q
+    current_turn(test_instance).session.messages_for_request = MagicMock(return_value=[])
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
@@ -650,7 +654,6 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
             return_value=CompactResult(False, "aborted", 10, 10),
         ) as mock_compact,
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=[]),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
@@ -675,12 +678,14 @@ def test_llm_worker_skips_compact_when_flag_false(test_instance):
     client.stopped.return_value = False
     client.stream_request_with_tools.return_value = {}
     view = [{"role": "user", "content": "hi"}]
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    current_turn(test_instance).session.messages_for_request = MagicMock(return_value=view)
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
         patch("plugin.chatbot.tool_loop.get_config", return_value=False),
         patch("plugin.chatbot.tool_loop.compact_session") as mock_compact,
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
@@ -702,6 +707,9 @@ def test_final_stream_compacts_then_sends_view(test_instance):
     client = MagicMock()
     client.stopped.return_value = False
     view = [{"role": "system", "content": "final-view"}]
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    current_turn(test_instance).session.messages_for_request = MagicMock(return_value=view)
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
@@ -711,7 +719,6 @@ def test_final_stream_compacts_then_sends_view(test_instance):
             return_value=CompactResult(False, "below_threshold", 4, 4),
         ) as mock_compact,
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
@@ -745,6 +752,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
 
     turn = current_turn(test_instance)
     assert turn is not None
+    turn.session.messages_for_request = MagicMock(return_value=view)
     q1: queue.Queue[Any] = queue.Queue()
     b1 = BatchingStreamQueue(q1, batch_interval=10)
     turn.queue = q1
@@ -754,7 +762,6 @@ def test_final_stream_done_and_stop_partial(test_instance):
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
         patch("plugin.chatbot.tool_loop.get_config", return_value=False),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
@@ -796,7 +803,6 @@ def test_final_stream_done_and_stop_partial(test_instance):
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
         patch("plugin.chatbot.tool_loop.get_config", return_value=False),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
@@ -825,7 +831,6 @@ def test_final_stream_done_and_stop_partial(test_instance):
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
         patch("plugin.chatbot.tool_loop.get_config", return_value=False),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         test_instance._spawn_final_stream(b3, client, 256)
         captured["fn"]()

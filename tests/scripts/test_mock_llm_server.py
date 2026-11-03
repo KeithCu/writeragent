@@ -1436,6 +1436,33 @@ def test_summarize_chat_payload_doc_len_and_current_query():
     assert "web_research" in rec2["called_tools"]
 
 
+def test_document_content_len_and_words_snapshot_header():
+    from scripts.mock_llm_server import _extract_document_words, document_content_len
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    doc = "Welcome to WriterAgent with important words."
+    snap = snapshot_text(doc)
+    # User send format: list of content blocks
+    messages_user = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": [{"type": "text", "text": "hello"}, {"type": "text", "text": snap}]},
+    ]
+    assert document_content_len(messages_user) == len(doc)
+    words = _extract_document_words(messages_user)
+    assert "WriterAgent" in words
+    assert "Welcome" in words
+
+    # Tool loop format: separate user turn with snapshot text
+    messages_tool = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "tool", "content": "result", "tool_call_id": "1"},
+        {"role": "user", "content": snap},
+    ]
+    assert document_content_len(messages_tool) == len(doc)
+    words_tool = _extract_document_words(messages_tool)
+    assert "WriterAgent" in words_tool
+
+
 def test_fail_tool_followup_http500():
     cfg = MockLLMConfig(delay_ms=0, fail_tool_followup=True)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))

@@ -16,9 +16,12 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from plugin.framework.errors import best_effort
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.audio.model_cache_paths import (
     KOKORO_MODEL_FILENAME,
@@ -71,38 +74,38 @@ class _DownloadSlot:
 _download_slots: dict[str, _DownloadSlot] = {}
 _download_slots_lock = threading.Lock()
 
-# generation -> set of failed model download keys.
-# Remembered per utterance generation so offline/failed downloads do not retry per sentence.
-_failed_model_downloads: dict[int, set[str]] = {}
+# cancel -> set of failed model download keys.
+# Remembered per utterance scope so offline/failed downloads do not retry per sentence.
+_failed_model_downloads: dict[SendCancellation, set[str]] = {}
 
 
-def remember_download_failed(generation: int | None, key: str) -> None:
-    """Record a failed download key for the current speech generation."""
-    if generation is None:
+def remember_download_failed(cancel: SendCancellation | None, key: str) -> None:
+    """Record a failed download key for the current speech scope."""
+    if cancel is None or cancel.is_cancelled():
         return
-    from plugin.audio.tts_service import _speech_generation, _speech_lock
+    from plugin.audio.tts_service import _speech_cancel, _speech_lock
 
     with _speech_lock:
-        if generation != _speech_generation:
+        if cancel is not _speech_cancel:
             return
-        _failed_model_downloads.setdefault(generation, set()).add(key)
+        _failed_model_downloads.setdefault(cancel, set()).add(key)
 
 
-def is_download_failed(generation: int | None, key: str) -> bool:
-    """True if key already failed to download during this speech generation."""
-    if generation is None:
+def is_download_failed(cancel: SendCancellation | None, key: str) -> bool:
+    """True if key already failed to download during this speech scope."""
+    if cancel is None:
         return False
     from plugin.audio.tts_service import _speech_lock
 
     with _speech_lock:
-        return key in _failed_model_downloads.get(generation, set())
+        return key in _failed_model_downloads.get(cancel, set())
 
 
-def clear_generation_downloads(generation: int) -> None:
+def clear_scope_downloads(cancel: SendCancellation) -> None:
     """Drop remembered download failures for one utterance; the caller must hold
     tts_service._speech_lock; stop_speech and _end_utterance do; the lock is not
     taken here because it is not reentrant."""
-    _failed_model_downloads.pop(generation, None)
+    _failed_model_downloads.pop(cancel, None)
 
 
 def _notify_tts_status(
@@ -143,13 +146,13 @@ def _unlink_temp(path: str | None) -> None:
             os.remove(path)
 
 
-def _sleep_cancellable(duration: float, cancelled: Callable[[], bool] | None) -> bool:
+def _sleep_cancellable(duration: float, cancel: SendCancellation | None) -> bool:
     end = time.monotonic() + duration
     while time.monotonic() < end:
-        if cancelled and cancelled():
+        if cancel is not None and cancel.is_cancelled():
             return False
         time.sleep(min(0.2, max(0.0, end - time.monotonic())))
-    return not (cancelled and cancelled())
+    return not (cancel is not None and cancel.is_cancelled())
 
 
 def _check_disk_space(dest: str, min_bytes: int) -> bool:
@@ -176,21 +179,21 @@ def _download_to(
     url: str,
     dest: str,
     timeout: float = 30.0,
-    cancelled: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
     min_bytes: int = 1,
     max_bytes: int | None = None,
     deadline_seconds: float = 600.0,
     on_status: Callable[[str], None] | None = None,
 ) -> DownloadOutcome:
     """Download a file from url to dest using chunked reads with cancellation and single-flight lock."""
-    if cancelled and cancelled():
+    if cancel is not None and cancel.is_cancelled():
         return DownloadOutcome.CANCELLED
 
     deadline = time.monotonic() + deadline_seconds
     canon_dest = os.path.abspath(dest)
 
     while True:
-        if cancelled and cancelled():
+        if cancel is not None and cancel.is_cancelled():
             return DownloadOutcome.CANCELLED
         if time.monotonic() > deadline:
             return DownloadOutcome.FAILED
@@ -207,9 +210,9 @@ def _download_to(
         if is_owner:
             break
 
-        # Waiter loop: check waiter's own cancelled() every 0.2s
+        # Waiter loop: check waiter's own is_cancelled() every 0.2s
         while True:
-            if cancelled and cancelled():
+            if cancel is not None and cancel.is_cancelled():
                 return DownloadOutcome.CANCELLED
             if time.monotonic() > deadline:
                 return DownloadOutcome.FAILED
@@ -226,7 +229,7 @@ def _download_to(
             url,
             dest,
             timeout=timeout,
-            cancelled=cancelled,
+            cancel=cancel,
             min_bytes=min_bytes,
             max_bytes=max_bytes,
             deadline=deadline,
@@ -245,7 +248,7 @@ def _download_to_inner(
     url: str,
     dest: str,
     timeout: float,
-    cancelled: Callable[[], bool] | None,
+    cancel: SendCancellation | None,
     min_bytes: int,
     max_bytes: int | None,
     deadline: float,
@@ -260,14 +263,14 @@ def _download_to_inner(
         os.makedirs(dest_dir, exist_ok=True)
 
     for attempt in range(3):
-        if cancelled and cancelled():
+        if cancel is not None and cancel.is_cancelled():
             return DownloadOutcome.CANCELLED
         if time.monotonic() > deadline:
             return DownloadOutcome.FAILED
 
         if attempt > 0:
             delay = 0.5 if attempt == 1 else 1.5
-            if not _sleep_cancellable(delay, cancelled):
+            if not _sleep_cancellable(delay, cancel):
                 return DownloadOutcome.CANCELLED
 
         tmp_path: str | None = None
@@ -319,7 +322,7 @@ def _download_to_inner(
 
                 with open(tmp_path, "wb") as f_out:
                     while True:
-                        if cancelled and cancelled():
+                        if cancel is not None and cancel.is_cancelled():
                             _unlink_temp(tmp_path)
                             return DownloadOutcome.CANCELLED
                         if time.monotonic() > deadline:
@@ -329,7 +332,7 @@ def _download_to_inner(
                         try:
                             chunk = resp.read(chunk_size)
                         except (TimeoutError, socket.timeout):
-                            if cancelled and cancelled():
+                            if cancel is not None and cancel.is_cancelled():
                                 _unlink_temp(tmp_path)
                                 return DownloadOutcome.CANCELLED
                             if time.monotonic() > deadline:
@@ -345,7 +348,7 @@ def _download_to_inner(
                         now = time.monotonic()
                         if expected_len and expected_len > 0 and (now - last_progress >= 0.25):
                             percent = int(downloaded * 100 / expected_len)
-                            if not (cancelled and cancelled()):
+                            if not (cancel is not None and cancel.is_cancelled()):
                                 _notify_tts_status(
                                     _("Downloading… {0}%").format(percent),
                                     on_status,
@@ -414,8 +417,7 @@ def _download_to_inner(
 
 def _resolve_kokoro_model_files(  # pyright: ignore[reportUnusedFunction]
     on_status: Callable[[str], None] | None = None,
-    generation: int | None = None,
-    cancelled: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[str, str]:
     """Resolve paths to Kokoro ONNX model and voices file, downloading if missing."""
     model_path, voices_path = resolve_kokoro_model_paths()
@@ -438,7 +440,7 @@ def _resolve_kokoro_model_files(  # pyright: ignore[reportUnusedFunction]
     if model_ok and voices_ok:
         return model_s, voices_s
 
-    if is_download_failed(generation, "kokoro") or (cancelled and cancelled()):
+    if is_download_failed(cancel, "kokoro") or (cancel is not None and cancel.is_cancelled()):
         return model_s, voices_s
 
     needs_voices = (not voices_ok and not is_env_v) or kokoro_should_download(voices_path, "KOKORO_VOICES_PATH")
@@ -450,7 +452,7 @@ def _resolve_kokoro_model_files(  # pyright: ignore[reportUnusedFunction]
     needed_disk = (KOKORO_VOICES_MIN_BYTES if needs_voices else 0) + (KOKORO_ONNX_MIN_BYTES if needs_model else 0)
     target_dest = voices_s if needs_voices else model_s
     if needed_disk > 1 and not _check_disk_space(target_dest, needed_disk):
-        remember_download_failed(generation, "kokoro")
+        remember_download_failed(cancel, "kokoro")
         _notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
         _clear_tts_status(on_status)
         return model_s, voices_s
@@ -464,7 +466,7 @@ def _resolve_kokoro_model_files(  # pyright: ignore[reportUnusedFunction]
             f"{_KOKORO_RELEASE_BASE}/{KOKORO_VOICES_FILENAME}",
             voices_s,
             timeout=30.0,
-            cancelled=cancelled,
+            cancel=cancel,
             min_bytes=KOKORO_VOICES_MIN_BYTES,
             max_bytes=KOKORO_VOICES_MAX_BYTES,
             deadline_seconds=KOKORO_VOICES_DEADLINE,
@@ -482,7 +484,7 @@ def _resolve_kokoro_model_files(  # pyright: ignore[reportUnusedFunction]
             f"{_KOKORO_RELEASE_BASE}/{KOKORO_MODEL_FILENAME}",
             model_s,
             timeout=30.0,
-            cancelled=cancelled,
+            cancel=cancel,
             min_bytes=KOKORO_ONNX_MIN_BYTES,
             max_bytes=KOKORO_ONNX_MAX_BYTES,
             deadline_seconds=KOKORO_ONNX_DEADLINE,
@@ -495,7 +497,7 @@ def _resolve_kokoro_model_files(  # pyright: ignore[reportUnusedFunction]
             failed = True
 
     if failed:
-        remember_download_failed(generation, "kokoro")
+        remember_download_failed(cancel, "kokoro")
         _notify_tts_status(_("Couldn't download Kokoro; using OS speech"), on_status, progress=True)
         _clear_tts_status(on_status)
     else:
@@ -508,7 +510,7 @@ def _download_piper_pair(
     voice_id: str,
     onnx: str,
     json_path: str,
-    cancelled: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
     on_status: Callable[[str], None] | None = None,
 ) -> DownloadOutcome:
     model_info = PIPER_VOICE_MODELS.get(voice_id)
@@ -529,7 +531,7 @@ def _download_piper_pair(
         f"{_PIPER_RELEASE_BASE}/{rel_onnx}",
         onnx_tmp,
         timeout=30.0,
-        cancelled=cancelled,
+        cancel=cancel,
         min_bytes=PIPER_ONNX_MIN_BYTES,
         max_bytes=PIPER_ONNX_MAX_BYTES,
         deadline_seconds=PIPER_ONNX_DEADLINE,
@@ -544,7 +546,7 @@ def _download_piper_pair(
         f"{_PIPER_RELEASE_BASE}/{rel_json}",
         json_tmp,
         timeout=30.0,
-        cancelled=cancelled,
+        cancel=cancel,
         min_bytes=PIPER_JSON_MIN_BYTES,
         max_bytes=PIPER_JSON_MAX_BYTES,
         deadline_seconds=PIPER_JSON_DEADLINE,
@@ -555,7 +557,7 @@ def _download_piper_pair(
         _unlink_temp(json_tmp)
         return outcome2
 
-    if cancelled and cancelled():
+    if cancel is not None and cancel.is_cancelled():
         _unlink_temp(onnx_tmp)
         _unlink_temp(json_tmp)
         return DownloadOutcome.CANCELLED
@@ -581,8 +583,7 @@ def _download_piper_pair(
 def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
     voice: str,
     on_status: Callable[[str], None] | None = None,
-    generation: int | None = None,
-    cancelled: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> str | None:
     """Resolve path to Piper ONNX model file, downloading on demand if missing."""
     from plugin.audio.tts_voices import clean_voice_name
@@ -606,22 +607,22 @@ def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
     ):
         return voice_s
 
-    if cancelled and cancelled():
+    if cancel is not None and cancel.is_cancelled():
         return None
 
     download_failed = False
     short = voice_short_name(clean_v)
 
-    if clean_v in PIPER_VOICE_MODELS and not is_download_failed(generation, clean_v):
+    if clean_v in PIPER_VOICE_MODELS and not is_download_failed(cancel, clean_v):
         if not _check_disk_space(voice_s, PIPER_ONNX_MIN_BYTES + PIPER_JSON_MIN_BYTES):
-            remember_download_failed(generation, clean_v)
+            remember_download_failed(cancel, clean_v)
             _notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
             _clear_tts_status(on_status)
             return None
 
         _notify_tts_status(_("Downloading Piper voice {0}…").format(short), on_status, progress=True)
         log.info("Downloading Piper voice model '%s' to %s...", clean_v, voice_s)
-        outcome = _download_piper_pair(clean_v, voice_s, json_s, cancelled=cancelled, on_status=on_status)
+        outcome = _download_piper_pair(clean_v, voice_s, json_s, cancel=cancel, on_status=on_status)
         if outcome is DownloadOutcome.OK:
             _clear_tts_status(on_status)
             return voice_s
@@ -630,7 +631,7 @@ def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
             return None
 
         download_failed = True
-        remember_download_failed(generation, clean_v)
+        remember_download_failed(cancel, clean_v)
         log.warning("Could not auto-download Piper voice '%s'", clean_v)
 
     default_voice_file, default_json = resolve_piper_voice_paths(PIPER_FALLBACK_VOICE)
@@ -650,11 +651,11 @@ def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
             _clear_tts_status(on_status)
         return default_voice_s
 
-    if not is_download_failed(generation, PIPER_FALLBACK_VOICE):
-        if cancelled and cancelled():
+    if not is_download_failed(cancel, PIPER_FALLBACK_VOICE):
+        if cancel is not None and cancel.is_cancelled():
             return None
         if not _check_disk_space(default_voice_s, PIPER_ONNX_MIN_BYTES + PIPER_JSON_MIN_BYTES):
-            remember_download_failed(generation, PIPER_FALLBACK_VOICE)
+            remember_download_failed(cancel, PIPER_FALLBACK_VOICE)
             _notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
             _clear_tts_status(on_status)
             return None
@@ -666,7 +667,7 @@ def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
             fallback_short = voice_short_name(PIPER_FALLBACK_VOICE)
             _notify_tts_status(_("Downloading Piper voice {0}…").format(fallback_short), on_status, progress=True)
         log.info("Downloading Piper default voice model to %s...", default_voice_s)
-        outcome_fallback = _download_piper_pair(PIPER_FALLBACK_VOICE, default_voice_s, default_json_s, cancelled=cancelled, on_status=on_status)
+        outcome_fallback = _download_piper_pair(PIPER_FALLBACK_VOICE, default_voice_s, default_json_s, cancel=cancel, on_status=on_status)
         if outcome_fallback is DownloadOutcome.OK:
             _clear_tts_status(on_status)
             return default_voice_s
@@ -674,7 +675,7 @@ def _resolve_piper_model_file(  # pyright: ignore[reportUnusedFunction]
             _clear_tts_status(on_status)
             return None
 
-        remember_download_failed(generation, PIPER_FALLBACK_VOICE)
+        remember_download_failed(cancel, PIPER_FALLBACK_VOICE)
         log.warning("Could not auto-download Piper default voice model")
 
     failed_name = short if download_failed else voice_short_name(PIPER_FALLBACK_VOICE)

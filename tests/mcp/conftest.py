@@ -24,16 +24,17 @@ def get_free_port():
     return port
 
 
+@pytest.fixture(autouse=True)
+def _isolate_mcp_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reset global _current_module before each test to isolate module lifecycle."""
+    import plugin.mcp as mcp_mod
+
+    monkeypatch.setattr(mcp_mod, "_current_module", None)
+
+
 @pytest.fixture(scope="module")
 def mcp_server():
     """Start the HTTP server using McpModule with mocked services."""
-    import plugin.mcp as http_mod
-
-    def _reset_globals():
-        http_mod._current_module = None
-
-    _reset_globals()
-
     services = MagicMock()
 
     tool_registry = MagicMock()
@@ -90,7 +91,6 @@ def mcp_server():
     server_ready = False
 
     for _attempt in range(3):
-        _reset_globals()
         port = get_free_port()
         config_values["mcp.mcp_port"] = port
 
@@ -123,7 +123,6 @@ def mcp_server():
     if not server_ready or not http_module:
         config_patcher.stop()
         mcp_config_patcher.stop()
-        _reset_globals()
         pytest.fail("Server did not start in time after retries")
 
     try:
@@ -132,5 +131,4 @@ def mcp_server():
         http_module.shutdown()
         config_patcher.stop()
         mcp_config_patcher.stop()
-        _reset_globals()
 

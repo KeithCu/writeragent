@@ -48,6 +48,7 @@ from .request_controls import (
     RequestPacer,
     RetryBudget,
     backoff_delay_sec,
+    clear_host_gap,
     emit_retry_status,
     enable_local_unverified,
     mark_host_sent,
@@ -357,18 +358,40 @@ class LlmHttpTransport:
         Reads the error body once. ``observe_http_error`` is the chat 500
         diagnostic hook; catalog and speech omit it and still get redaction.
         """
-        err_body = response.read().decode("utf-8", errors="replace")
+        if is_cancelled(cancel):
+            self.close()
+            return "stop"
+        raw_body = response.read()
+        if isinstance(raw_body, (bytes, bytearray)):
+            err_body = raw_body.decode("utf-8", errors="replace")
+        elif isinstance(raw_body, str):
+            err_body = raw_body
+        else:
+            err_body = str(raw_body or "")
+        if not isinstance(err_body, str):
+            err_body = str(err_body)
         wire_secrets = http_security.collect_secrets(secrets, http_security.secrets_from_target(path))
         if observe_http_error is not None:
             message = observe_http_error(response, err_body, path, request_body)
         else:
-            message = _format_http_error_response(int(response.status), str(getattr(response, "reason", "") or ""), err_body)
+            try:
+                st = int(response.status)
+            except (TypeError, ValueError):
+                st = 500
+            message = _format_http_error_response(st, str(getattr(response, "reason", "") or ""), err_body)
         message = http_security.redact_secrets(message, wire_secrets)
+        if not isinstance(message, str):
+            message = str(message)
         safe_target = http_security.public_target(path)
         if observe_http_error is None:
             log.error("HTTP %s for %s: %s", response.status, safe_target, message)
         self.close()
-        status = int(response.status)
+        if is_cancelled(cancel):
+            return "stop"
+        try:
+            status = int(response.status)
+        except (TypeError, ValueError):
+            status = 500
         model = request_model_from_body(request_body)
         retry_after = parse_retry_after(response.getheader("Retry-After"))
         if retry_after is None:
@@ -385,6 +408,7 @@ class LlmHttpTransport:
             log.warning("Retrying HTTP %s after %.3fs (Retry-After=%s attempt=%s left=%s)", status, delay, retry_after, attempt, retries_left)
             emit_retry_status(status_callback, delay)
             if not wait_abortable(delay, cancel):
+                clear_host_gap(self.pacing_key_for_model(model))
                 return "stop"
             return "retry"
         raise NetworkError(message, code="HTTP_ERROR", details=details)
@@ -477,6 +501,7 @@ class LlmHttpTransport:
             remember_host_gap(self.pacing_key_for_model(model), delay)
             emit_retry_status(status_callback, delay)
             if not wait_abortable(delay, cancel):
+                clear_host_gap(self.pacing_key_for_model(model))
                 return "stop"
             return "retry"
         log.error("Connection retry failed: %s" % err_msg)

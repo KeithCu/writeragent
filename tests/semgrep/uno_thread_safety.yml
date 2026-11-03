@@ -352,7 +352,8 @@ rules:
             ...
       - metavariable-regex:
           metavariable: $FN
-          regex: ^(execute_python_addin|_execute_python_addin_impl|execute_prompt_addin|_execute_prompt_addin_impl|_notify_thread_violation|session_key|py|python|prompt)$
+          # The scan substitutes this from scripts.thread_safety_roots.SYNC_HOST_ENTRYPOINTS. Do not type function names on this line.
+          regex: __SYNC_HOST_ENTRYPOINT_REGEX__
     paths:
       exclude:
         - "**/plugin/contrib/**"

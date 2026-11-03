@@ -35,14 +35,18 @@ from plugin.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
 class MockSession:
     def __init__(self):
         self.messages = []
+        self.document_context = ""
         self.db = None
 
     def set_system_context(self, base_prompt, doc_text=""):
-        content = f"{base_prompt}\n\n[DOCUMENT CONTENT]\n{doc_text}\n[END DOCUMENT]"
+        self.document_context = doc_text
         if not self.messages or self.messages[0]["role"] != "system":
-            self.messages.insert(0, {"role": "system", "content": content})
+            self.messages.insert(0, {"role": "system", "content": base_prompt})
         else:
-            self.messages[0]["content"] = content
+            self.messages[0]["content"] = base_prompt
+
+    def messages_for_request(self):
+        return list(self.messages)
 
     def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None):
         msg = {"role": "assistant"}

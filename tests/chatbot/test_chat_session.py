@@ -2,7 +2,14 @@
 
 from unittest.mock import MagicMock, patch
 
-from plugin.chatbot.chat_session import ChatSession
+from plugin.chatbot.chat_session import (
+    ChatSession,
+    strip_legacy_document_suffix,
+)
+from plugin.framework.client.shim_helpers import (
+    SNAPSHOT_HEADER,
+    snapshot_text,
+)
 from plugin.framework.errors import WriterAgentException
 
 
@@ -25,24 +32,24 @@ def test_set_system_context_inserts_and_replaces():
     session = ChatSession()
     session.set_system_context("Base", "Doc body")
     assert session.messages[0]["role"] == "system"
-    assert "[DOCUMENT CONTENT]\nDoc body\n[END DOCUMENT]" in session.messages[0]["content"]
+    assert session.messages[0]["content"] == "Base"
     assert session.document_context == "Doc body"
 
     session.add_user_message("hi")
     session.set_system_context("Base2", "Other")
-    assert session.messages[0]["content"].startswith("Base2")
-    assert "Other" in session.messages[0]["content"]
+    assert session.messages[0]["content"] == "Base2"
+    assert session.document_context == "Other"
     assert session.messages[1]["role"] == "user"
 
 
 def test_set_system_context_clears_document_block():
     session = ChatSession(system_prompt="Base")
     session.set_system_context("Base", "Doc body")
-    assert "[DOCUMENT CONTENT]" in session.messages[0]["content"]
+    assert session.messages[0]["content"] == "Base"
+    assert session.document_context == "Doc body"
 
     session.set_system_context("Base", "")
     assert session.messages[0]["content"] == "Base"
-    assert "[DOCUMENT CONTENT]" not in session.messages[0]["content"]
     assert session.document_context == ""
 
 
@@ -195,8 +202,7 @@ def test_refresh_document_context_sets_prompt_and_excerpt():
     mock_prompt.assert_called_once_with(model, "extra notes", ctx=ctx)
     assert session.base_system_prompt == "FRESH PROMPT"
     assert session.document_context == "DOC BODY"
-    assert session.messages[0]["content"].startswith("FRESH PROMPT")
-    assert "[DOCUMENT CONTENT]\nDOC BODY\n[END DOCUMENT]" in session.messages[0]["content"]
+    assert session.messages[0]["content"] == "FRESH PROMPT"
     assert session.messages[1]["role"] == "user"
 
 
@@ -216,12 +222,14 @@ def test_set_system_context_missing_role_inserts_system():
     session.messages = [{"content": "orphan"}]
     session.set_system_context("Base", "Doc")
     assert session.messages[0]["role"] == "system"
-    assert "Doc" in session.messages[0]["content"]
+    assert session.messages[0]["content"] == "Base"
+    assert session.document_context == "Doc"
     assert session.messages[1] == {"content": "orphan"}
 
     session.set_system_context("Base", "Doc2")
     assert session.messages[0]["role"] == "system"
-    assert "Doc2" in session.messages[0]["content"]
+    assert session.messages[0]["content"] == "Base"
+    assert session.document_context == "Doc2"
     assert session.messages[1] == {"content": "orphan"}
 
 
@@ -237,4 +245,98 @@ def test_logger_is_module_scoped():
     from plugin.chatbot import chat_session
 
     assert chat_session.log.name == "plugin.chatbot.chat_session"
+
+
+def test_messages_for_request_user_send_stable_prefix():
+    session = ChatSession(system_prompt="Base system")
+    session.add_user_message("Hello AI")
+    session.document_context = "Doc state 1"
+    req1 = session.messages_for_request()
+
+    session.document_context = "Doc state 2 (selected text changed)"
+    req2 = session.messages_for_request()
+
+    assert len(req1) == 2
+    assert len(req2) == 2
+    assert req1[0] == req2[0]  # Base system unchanged
+    assert req1[1]["role"] == "user"
+    assert req2[1]["role"] == "user"
+    assert req1[1]["content"][:-1] == req2[1]["content"][:-1]
+    assert req1[1]["content"][-1]["text"] == snapshot_text("Doc state 1")
+    assert req2[1]["content"][-1]["text"] == snapshot_text("Doc state 2 (selected text changed)")
+
+    # Stored user message content is still the original string
+    assert session.messages[1]["content"] == "Hello AI"
+
+
+def test_messages_for_request_tool_loop_stable_prefix():
+    mock_db = MagicMock()
+    mock_db.get_messages.return_value = []
+    with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
+        session = ChatSession(system_prompt="Base system", session_id="sid-prefix")
+    mock_db.reset_mock()
+
+    session.add_user_message("Do math")
+    session.document_context = "Doc 1"
+    assert session.messages_for_request()
+
+    # Append assistant tool call and tool result
+    session.add_assistant_message(tool_calls=[{"id": "c1", "function": {"name": "calc"}}])
+    session.add_tool_result("c1", "42")
+    session.document_context = "Doc 2"
+    req_tool1 = session.messages_for_request()
+
+    # The new payload's last message is {"role": "user", "content": snapshot}
+    assert req_tool1[-1] == {"role": "user", "content": snapshot_text("Doc 2")}
+    # The messages before it equal the stored history
+    assert req_tool1[:-1] == session.messages
+    # The stored user content is still the original string, not the first snapshot
+    assert session.messages[1]["content"] == "Do math"
+
+    # A further tool row plus another excerpt:
+    session.add_assistant_message(tool_calls=[{"id": "c2", "function": {"name": "calc2"}}])
+    session.add_tool_result("c2", "84")
+    session.document_context = "Doc 3"
+    req_tool2 = session.messages_for_request()
+
+    # The payload with the snapshot message removed extends the previous payload with snapshot removed
+    assert req_tool2[:-1] == req_tool1[:-1] + session.messages[len(req_tool1) - 1 :]
+    # Shared prefix is byte-identical (req_tool1[:-1] is a prefix of req_tool2[:-1])
+    assert req_tool2[: len(req_tool1) - 1] == req_tool1[:-1]
+
+    # After those calls, session.messages has no SNAPSHOT_HEADER
+    for m in session.messages:
+        content_str = str(m.get("content") or "")
+        assert SNAPSHOT_HEADER not in content_str
+
+    # A mock DB's add_message / replace_messages were not called with that header
+    for call in mock_db.add_message.call_args_list:
+        for arg in call.args:
+            assert SNAPSHOT_HEADER not in str(arg)
+    for call in mock_db.replace_messages.call_args_list:
+        for arg in call.args:
+            assert SNAPSHOT_HEADER not in str(arg)
+
+
+def test_history_load_strips_legacy_document_suffix_with_inner_end_doc():
+    legacy_content = (
+        "Base\n\n[DOCUMENT CONTENT]\n"
+        "[DOCUMENT START]\nhello\n[END DOCUMENT]\nSECRET\n[END DOCUMENT]"
+    )
+    mock_db = MagicMock()
+    mock_db.get_messages.return_value = [
+        {"role": "system", "content": legacy_content},
+        {"role": "user", "content": "Question"},
+    ]
+    with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
+        session = ChatSession(system_prompt="New base", session_id="sid-legacy")
+
+    assert session.messages[0] == {"role": "system", "content": "Base"}
+    assert session.messages[1] == {"role": "user", "content": "Question"}
+    mock_db.replace_messages.assert_not_called()
+    mock_db.add_message.assert_not_called()
+
+    # Also prove strip_legacy_document_suffix on new header does not match
+    new_header_content = f"Base\n\n{SNAPSHOT_HEADER}\nSECRET\n[END DOCUMENT]"
+    assert strip_legacy_document_suffix(new_header_content) == new_header_content
 

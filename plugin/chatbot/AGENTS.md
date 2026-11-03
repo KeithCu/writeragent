@@ -18,7 +18,7 @@ the area gotchas.
 
 - `panel_factory.py` — UNO `XUIElementFactory` / XDL load / control wiring / listener attach. Resolves the document from the frame (`get_document_from_frame`). Does **not** import or call `get_document_context_for_chat`.
 - `panel.py` — button listeners (`SendButtonListener`, `StopButtonListener`, `ClearButtonListener`, etc.).
-- `chat_session.py` — `ChatSession` holds conversation history for multi-turn chat. `ChatSession.refresh_document_context` rebuilds system prompt + `[DOCUMENT CONTENT]` on Chat-mode switch, each send, and mid-loop refresh after a mutating tool.
+- `chat_session.py` — `ChatSession` holds conversation history for multi-turn chat. `ChatSession.refresh_document_context` stores the latest excerpt on the session; `messages_for_request()` appends the fresh snapshot after the view at request time so stored history never contains it (prompt caching).
 - `panel_voice.py` — `PanelVoiceController` for voice lifecycle (STT child termination, TTS stop/wait, audio slice sync, hands-free recording gestures).
 - `panel_events.py` — `PanelEventsController` for MCP events, HTTP server events, and inline web search approval.
 - `chat_sidebar_mode.py` — mode dropdown constants, combobox helpers, `SidebarMode`, `release_sticky_session`, and `SidebarModeController` (finish is `on_mode_finished`; the panel does not forward per-mode methods). `chat_sidebar_mode` does not import `panel`.

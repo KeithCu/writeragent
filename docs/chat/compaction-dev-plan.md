@@ -34,7 +34,7 @@ WriterAgent sidebar chat sends conversational history along with a freshly rebui
 
 Do not break these:
 
-- Never compact `messages[0]`. `[DOCUMENT CONTENT]` is rebuilt every send; the summarizer sees `messages[prev_kept:new_cut]`, never index 0.
+- Never compact `messages[0]`. `messages[0]` is the base system prompt only. The snapshot is not in the view; `messages_for_request` appends it after the view. The summarizer sees `messages[prev_kept:new_cut]`, never index 0.
 - Never mutate `session.messages` or rewrite `history_db`. Compaction is a cached view (`session.compaction` + `messages_for_llm`).
 - `chat_compaction_enabled: false` disables overflow retry as well as proactive compact. One kill switch.
 - No 256k unknown-window fallback. Unresolved window → `no_window` and skip.
@@ -48,8 +48,8 @@ Do not break these:
 
 ```mermaid
 flowchart TD
-  send["_do_send / _do_send_chat_with_tools"] --> refresh["refresh_document_context<br/>messages[0] = prompt + DOCUMENT CONTENT"]
-  refresh --> worker["_spawn_llm_worker / _spawn_final_stream<br/>dedicated thread"]
+  send["_do_send / _do_send_chat_with_tools"] --> refresh["refresh_document_context<br/>stores excerpt on session"]
+  refresh --> worker["_spawn_llm_worker / _spawn_final_stream<br/>sends messages_for_request<br/>dedicated thread"]
   worker --> lane["with llm_request_lane — one hold"]
   lane --> estimate["prompt_tokens = estimate_tokens(view) + tool_schema_tokens"]
   estimate --> window["resolve_context_window (model_fetcher)"]
@@ -155,15 +155,16 @@ class CompactResult:
 
 ### 3. Cached View Model (`messages_for_llm`)
 
-WriterAgent does not mutate `session.messages` in-place and does not rewrite SQLite history. Instead, `messages_for_llm(session)` constructs the exact model-facing payload on the fly:
+WriterAgent does not mutate `session.messages` in-place and does not rewrite SQLite history. Instead, `messages_for_llm(session)` constructs the compacted view on the fly:
 
 ```
-[session.messages[0]]                       # Always live system + DOCUMENT CONTENT
+[session.messages[0]]                       # Base system prompt only
 + summary_pair(state.summary)               # User summary + dummy Assistant ack (ack omitted when tail starts with assistant)
 + tail from session.messages[state.first_kept_index:]
     # role=tool matching stubbed_tool_call_ids replaced by [name] (N chars)
 ```
 
+The document snapshot is not in this view; `messages_for_request` appends it after the view at request time. The summarizer still never sees index 0.
 The cache is dropped when `first_kept_index` is out of range or the row at that index is no longer the row that was published (e.g. after `clear()` or an in-place insert). Then `sanitize_tool_pairs` runs to prune orphaned tool calls or results. If `session.compaction is None`, it returns a sanitized copy of `session.messages`.
 
 ### 4. Token Estimator (`estimate_tokens_rough`)

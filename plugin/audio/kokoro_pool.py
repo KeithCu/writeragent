@@ -295,7 +295,7 @@ class KokoroProcessPool:
         """Run one Kokoro job. Spawns the child on first use and after a crash.
 
         The pool lock is not held across spawn or the job, and cancel_check is
-        not called under it (_playback_blocked takes the speech lock).
+        not called under it.
         cancel_check runs before the job is marked in-flight and a true result
         leaves _worker in place. _job_lock is the pipe lock. cancel_inflight
         does not take _job_lock.
