@@ -195,10 +195,7 @@ def test_spec_runner_omits_headers_when_unset(ctx):
 
 def test_run_text_analytics_string_spec_applies_sentiment_model(ctx):
     with (
-        patch(
-            "plugin.framework.config.get_config_dict",
-            return_value={"text_analytics_sentiment_model": "xlm-roberta"},
-        ),
+        patch("plugin.framework.config.get_config", return_value="xlm-roberta"),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value={"status": "ok"}) as mock_run,
     ):
         client.run_text_analytics(ctx, "sentiment", "hi")
@@ -230,7 +227,7 @@ def test_run_optimize_dunder_name():
 
 def test_run_text_analytics_non_dict_spec(ctx):
     with (
-        patch("plugin.framework.config.get_config_dict", return_value={}),
+        patch("plugin.framework.config.get_config", return_value=""),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value={"status": "ok"}) as mock_run,
     ):
         client.run_text_analytics(ctx, None, "hi")
@@ -238,10 +235,7 @@ def test_run_text_analytics_non_dict_spec(ctx):
     assert mock_run.call_args.kwargs["params"] == {}
 
     with (
-        patch(
-            "plugin.framework.config.get_config_dict",
-            return_value={"text_analytics_sentiment_model": "xlm-roberta"},
-        ),
+        patch("plugin.framework.config.get_config", return_value="xlm-roberta"),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value={"status": "ok"}) as mock_run2,
     ):
         client.run_text_analytics(ctx, None, "hi")
