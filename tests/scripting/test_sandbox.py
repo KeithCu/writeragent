@@ -666,7 +666,7 @@ def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
 
 
 def test_scrub_subprocess_env_keep() -> None:
-    from plugin.scripting.sandbox import scrub_subprocess_env
+    from plugin.framework.subprocess_env import scrub_subprocess_env
 
     base = {
         "LD_LIBRARY_PATH": "/custom/lib",

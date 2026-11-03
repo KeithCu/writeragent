@@ -17,7 +17,7 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Container, Sequence
+    from collections.abc import Sequence
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_ARGV,

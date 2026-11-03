@@ -37,7 +37,9 @@ def _find_spec_without_writeragent_api(name: str, package=None):
 def test_alias_importer_refuses_config_and_llm_client():
     """Unauthorized writeragent aliases must not resolve, even if find_spec would."""
     from plugin.framework.uno_bootstrap import AliasImporter
+    from plugin.scripting.sandbox import install_alias_authorizer
 
+    install_alias_authorizer()
     importer = AliasImporter()
     with patch("importlib.util.find_spec") as mock_find:
         assert importer.find_spec("writeragent.framework.config") is None
@@ -48,7 +50,9 @@ def test_alias_importer_refuses_config_and_llm_client():
 def test_alias_importer_ignores_blanket_writeragent_star():
     """Re-adding writeragent.* to the list must not reopen the config import."""
     from plugin.framework.uno_bootstrap import AliasImporter
+    from plugin.scripting.sandbox import install_alias_authorizer
 
+    install_alias_authorizer()
     importer = AliasImporter()
     starred = ("writeragent.*", "duckdb", "duckdb.*", "plugin.scripting.analysis")
     with patch("plugin.scripting.sandbox.VENV_AUTHORIZED_IMPORTS", starred), patch(
