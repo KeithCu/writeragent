@@ -10,6 +10,7 @@ import sys
 import signal
 import threading
 import time
+from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock, call, patch
 import pytest
@@ -1371,6 +1372,39 @@ def test_io_session_body_oserror_does_not_disable_systemd_scope():
                 with mgr._io_session():
                     raise OSError('session body')
         assert venv_worker_module._systemd_scope_disabled is False
+    finally:
+        venv_worker_module._systemd_scope_disabled = orig_disabled
+
+def test_io_session_spawn_oserror_retries_without_systemd_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spawn OSError before lease acquisition disables systemd-run and retries once."""
+    import contextlib
+
+    from plugin.framework.warm_child import Lease, WarmChild
+
+    mgr = PythonWorkerManager(sys.executable, {"PATH": os.environ.get("PATH", "")})
+    monkeypatch.setattr(venv_worker_module, "_systemd_run_path", lambda env: "/usr/bin/systemd-run")
+    orig_disabled = venv_worker_module._systemd_scope_disabled
+    lease_calls = [0]
+
+    @contextlib.contextmanager
+    def counting_lease(self: WarmChild, deadline: object, wait: float | None = None) -> Generator[Lease, None, None]:
+        del deadline, wait
+        lease_calls[0] += 1
+        if lease_calls[0] == 1:
+            raise OSError(2, "No such file or directory", "fake-spawn")
+        proc = MagicMock()
+        proc.stdin = io.BytesIO()
+        proc.stdout = io.BytesIO()
+        yield Lease(stdin=proc.stdin, stdout=proc.stdout, pid=1, generation=1, warm=self)
+
+    monkeypatch.setattr(WarmChild, "lease", counting_lease)
+    try:
+        venv_worker_module._systemd_scope_disabled = False
+        with patch.object(mgr, "_ensure_warmed_unlocked", return_value=None):
+            with mgr._io_session():
+                pass
+        assert venv_worker_module._systemd_scope_disabled is True
+        assert lease_calls[0] == 2
     finally:
         venv_worker_module._systemd_scope_disabled = orig_disabled
 

@@ -597,6 +597,20 @@ class WarmChild:
             finally:
                 if spawned.end_io():
                     self._drop_child(spawned)
+        except OSError as exc:
+            if spawned is not None:
+                if spawned.end_io():
+                    self._drop_child(spawned)
+            if not published:
+                if spawned is not None:
+                    spawned.signal_from()
+                raise
+            self.kill()
+            tail = spawned.diagnostic_tail() if spawned is not None else ""
+            msg = f"Failed to spawn {self.spec.name}: {exc}"
+            if tail:
+                msg = f"{msg}\n{tail}"
+            return error_dict("WORKER_SPAWN_FAILED", msg)
         except Exception as exc:
             if spawned is not None:
                 if spawned.end_io():
