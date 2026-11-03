@@ -47,7 +47,7 @@ else:
                 self.Name = Name
                 self.Value = Value
 
-from plugin.doc.text_helpers import iter_elements
+from plugin.doc.text_helpers import iter_elements_limited
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 from plugin.framework.errors import is_disposed_exception, reraise_if_disposed
 from plugin.framework.tool import ToolBase as FrameworkToolBase
@@ -215,9 +215,7 @@ def apply_paragraph_style_preserving_direct_char(
             return overrides
 
         _paras = 0
-        for para in iter_elements(para_enum):
-            if _paras >= _CAPTURE_PARA_LIMIT:
-                break
+        for para in iter_elements_limited(para_enum, _CAPTURE_PARA_LIMIT):
             _paras += 1
             if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
                 continue
@@ -251,9 +249,7 @@ def apply_paragraph_style_preserving_direct_char(
                 continue
 
             _portions = 0
-            for portion in iter_elements(portion_enum):
-                if _portions >= _CAPTURE_PORTION_LIMIT:
-                    break
+            for portion in iter_elements_limited(portion_enum, _CAPTURE_PORTION_LIMIT):
                 _portions += 1
 
                 try:

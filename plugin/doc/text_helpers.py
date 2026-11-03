@@ -59,6 +59,22 @@ def iter_elements(enum: Any) -> Generator[Any, None, None]:
         yield enum.nextElement()
 
 
+def iter_elements_limited(enum: Any, limit: int) -> Generator[Any, None, None]:
+    """Yield at most *limit* elements without consuming the next when capped.
+
+    A ``for`` loop over ``iter_elements`` that breaks on a count cap still
+    pulls one past the cap before the body runs, so ``hasMoreElements()`` looks
+    exhausted when ``record_walk_cap`` checks it. Use this for capped walks.
+    """
+    if enum is None or limit <= 0:
+        return
+    seen = 0
+    while enum.hasMoreElements() is True:
+        if seen >= limit:
+            break
+        seen += 1
+        yield enum.nextElement()
+
 
 def normalize_linebreaks(text: str | None) -> str:
     """Ensure all linebreaks use \\n (LF).
