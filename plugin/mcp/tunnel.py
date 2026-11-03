@@ -846,7 +846,9 @@ class TunnelManager:
 
     def start(self, port: int, provider: str = DEFAULT_PROVIDER, provider_token: str = "", max_retries: int = DEFAULT_MAX_RETRIES, start_token: object | None = None) -> bool:
         """Start (or keep) a tunnel to *port*. Returns False if start failed."""
-        if os.environ.get("WRITERAGENT_TESTING"):
+        from plugin.framework.queue_executor import Policy, main
+
+        if main.policy is Policy.test_inline:
             return True
 
         provider = (provider or DEFAULT_PROVIDER).strip().lower()
@@ -997,8 +999,9 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765
     Returns (ok, user_facing_message, public_url).
     """
     from plugin.framework.i18n import _
+    from plugin.framework.queue_executor import Policy, main
 
-    if os.environ.get("WRITERAGENT_TESTING"):
+    if main.policy is Policy.test_inline:
         sim_url = f"https://simulated-{provider}.example.com/mcp"
         return True, _("Tunnel test mode: {0} provider simulated successfully.").format(provider), sim_url
 

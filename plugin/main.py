@@ -412,7 +412,7 @@ def bootstrap(ctx: Any | None = None) -> None:
     _bootstrap_state = BootstrapState.BOOTSTRAPPING
     try:
         # 1. Basic UNO context
-        from plugin.framework.queue_executor import install_from_environ, main
+        from plugin.framework.queue_executor import Policy, install_from_environ, main
 
         if ctx is None:
             ctx = get_ctx()
@@ -448,7 +448,7 @@ def bootstrap(ctx: Any | None = None) -> None:
 
         # Skip terminate listener when running under the eval harness.
         # The eval client already has a remote Desktop; this listener would shut down client subprocesses on office teardown.
-        if os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
+        if main.policy is not Policy.eval_harness:
             _install_terminate_listener(ctx)
 
         # 3. Core Services (Framework)
@@ -514,7 +514,7 @@ def bootstrap(ctx: Any | None = None) -> None:
                 "menu:update", lambda **kw: run_in_background(notify_menu_update)
             )
 
-            if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
+            if main.policy is Policy.production:
                 # Pre-load icons into ImageManager so first menu display has them.
                 # Eval harness is headless with no VCL pump — posting icons to "main"
                 # trips the UNO thread guard and can segfault soffice (issue #402 family).
@@ -522,7 +522,7 @@ def bootstrap(ctx: Any | None = None) -> None:
 
             # Headless eval connects via UNO pipe; menu/context-menu install
             # calls get_desktop() in this process and can segfault soffice.
-            if os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
+            if main.policy is not Policy.eval_harness:
                 register_core_handlers()
         except Exception as exc:
             log.exception("bootstrap failed after the init flag was set")
@@ -703,6 +703,7 @@ def notify_menu_update() -> None:
 
     Called by modules when state changes (e.g. server start/stop).
     """
+    from plugin.framework.queue_executor import Policy, main
     # Snapshot the listeners under the lock, then fire OUTSIDE it. _fire_status_event ->
     # listener.statusChanged is a UNO call to a UI control that marshals to the main thread, so
     # holding _status_lock across it deadlocks: the main thread, while rebinding a toolbar
@@ -741,7 +742,7 @@ def notify_menu_update() -> None:
         # call that is already on the main thread still prunes before return.
         # post, not call: a blocking marshal during startup deadlocks
         # AsyncCallback lazy-init, same as _update_menu_icons.
-        from plugin.framework.queue_executor import main
+        from plugin.framework.queue_executor import Policy, main
 
         if main.is_current():
             _prune_failed_status_listeners(failed)
@@ -754,7 +755,7 @@ def notify_menu_update() -> None:
             except Exception:
                 # UNO boundary: notify_menu_update post to main thread
                 log.exception("notify_menu_update: failed to post listener prune")
-    if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
+    if main.policy is Policy.production:
         # Update icons in a background thread (avoids blocking UI)
         from plugin.framework.worker_pool import run_in_background
 

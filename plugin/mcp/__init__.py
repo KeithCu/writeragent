@@ -82,7 +82,9 @@ def _debug_token_path() -> str | None:
 
 
 def _write_debug_token_file(token: str) -> None:
-    if os.environ.get("WRITERAGENT_TESTING"):
+    from plugin.framework.queue_executor import Policy, main
+
+    if main.policy is Policy.test_inline:
         return
     token_path = _debug_token_path()
     if not token_path:
@@ -224,7 +226,9 @@ class McpModule(ModuleBase):
         msgbox_with_report(ctx, "WriterAgent", message, reportable=self._start_failure_reportable(), report_title="MCP server failed to start", report_extra=detail)
 
     def _start_server(self, services: Any) -> bool:
-        if os.environ.get("WRITERAGENT_TESTING"):
+        from plugin.framework.queue_executor import Policy, main
+
+        if main.policy is Policy.test_inline:
             return True
 
         from plugin.mcp.server import HttpServer

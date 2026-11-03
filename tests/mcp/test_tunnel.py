@@ -227,6 +227,9 @@ def test_provider_label():
 
 
 def test_start_skips_when_testing_env(monkeypatch):
+    from plugin.framework.queue_executor import Policy, main
+
+    main.install(Policy.test_inline)
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     mgr = TunnelManager()
     assert mgr.start(18765, "bore") is True
