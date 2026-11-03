@@ -67,7 +67,6 @@ DESELECTED_K = (
     "test_spec_validation_asserts",
     "test_aggregate_stubs_and_bools",
     "test_materialize_calc_range_shape_assertion",
-    "test_harper_try_lint_reenter_during_wait_asserts",
     # --strip drops log.debug/log.info and grammar_obs calls these checks look for.
     "test_resize_logging_behavior",
     "test_peer_not_chat_mode_logs_probe_failure",
