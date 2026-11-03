@@ -139,17 +139,27 @@ def test_final_done():
     assert msg_effect.role == "assistant"
 
 
-def test_final_done_empty_content_skips_add_message():
+def test_final_done_empty_content_shows_out_of_tool_rounds_message():
+    from plugin.framework.i18n import _
+    from plugin.chatbot.tool_loop_state import UIEffectKind, ToolLoopUIEffect
+
+    expected_msg = _("Reached the maximum number of tool rounds.")
+
     state = create_base_state()
     tr = next_state(state, create_event(EventKind.FINAL_DONE, content=""))
     assert tr.state.status == "Ready"
     assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
-    assert not any(isinstance(e, AddMessageEffect) for e in tr.effects)
+    msg_effect = next(e for e in tr.effects if isinstance(e, AddMessageEffect))
+    assert msg_effect.content == expected_msg
+    assert msg_effect.role == "assistant"
+    ui_effect = next(e for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.APPEND)
+    assert ui_effect.text == expected_msg + "\n"
 
     tr_missing = next_state(state, create_event(EventKind.FINAL_DONE))
     assert tr_missing.state.status == "Ready"
     assert any(isinstance(e, ExitLoopEffect) for e in tr_missing.effects)
-    assert not any(isinstance(e, AddMessageEffect) for e in tr_missing.effects)
+    msg_effect2 = next(e for e in tr_missing.effects if isinstance(e, AddMessageEffect))
+    assert msg_effect2.content == expected_msg
 
 
 def test_stream_done_with_audio_emits_cleanup_audio():

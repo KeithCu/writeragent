@@ -390,25 +390,47 @@ def test_prepare_chat_messages_non_dict_passthrough():
     assert "non-dict-string" in res
     assert any(isinstance(m, dict) and m.get("role") == "user" and "hi" in str(m.get("content")) for m in res)
 
-    # System dict following a non-dict stays system without date line
+    # System dict following a non-dict still gets date line
     messages2 = ["nope", {"role": "system", "content": "prompt"}]
     res2 = prepare_chat_messages(messages2, "openai", prepend_dev_build_system_prefix=False)
     assert "nope" in res2
     sys_m = next(m for m in res2 if isinstance(m, dict) and m.get("role") == "system")
-    assert sys_m["content"] == "prompt"
-    assert "Today's date is" not in sys_m["content"]
+    assert "Today's date is " in sys_m["content"]
 
 
 def test_prepare_chat_messages_null_text_in_system_list():
     messages = [{"role": "system", "content": [{"type": "text", "text": None}]}]
     res = prepare_chat_messages(messages, "openai", prepend_dev_build_system_prefix=False)
     assert isinstance(res[0]["content"], str)
-    assert "Today's date is" not in res[0]["content"]
+    assert "Today's date is " in res[0]["content"]
 
 
-def test_prepare_chat_messages_user_only_no_system_row():
-    messages = [{"role": "user", "content": "hello"}]
+def test_prepare_chat_messages_midstring_date_no_duplicate():
+    messages = [{"role": "system", "content": "Context before. Today's date is Monday. More context."}]
     res = prepare_chat_messages(messages, "openai", prepend_dev_build_system_prefix=False)
-    assert len(res) == 1
-    assert res[0]["role"] == "user"
-    assert not any(isinstance(m, dict) and m.get("role") == "system" for m in res)
+    assert res[0]["content"].count("Today's date is ") == 1
+
+
+def test_prepare_chat_messages_non_chat_call_gets_date():
+    """Non-chat callers (librarian, quick web research, grammar, forms, Extend/Edit,
+    Calc =PROMPT(), image prompts, compaction summarizer, eval harness) pass user-only
+    or system prompt messages without the sidebar request_tail, but must still receive
+    the current date."""
+    # User-only message gets a system message with date prepended
+    messages = [{"role": "user", "content": "Proofread this sentence."}]
+    res = prepare_chat_messages(messages, "openai", prepend_dev_build_system_prefix=False)
+    assert len(res) == 2
+    assert res[0]["role"] == "system"
+    assert "Today's date is " in res[0]["content"]
+    assert res[1]["role"] == "user"
+
+    # Non-chat caller with explicit system instructions has date prepended to that system message
+    messages2 = [
+        {"role": "system", "content": "You are a grammar proofreader."},
+        {"role": "user", "content": "Their going to the store."},
+    ]
+    res2 = prepare_chat_messages(messages2, "openai", prepend_dev_build_system_prefix=False)
+    assert len(res2) == 2
+    assert res2[0]["role"] == "system"
+    assert "Today's date is " in res2[0]["content"]
+    assert "You are a grammar proofreader." in res2[0]["content"]

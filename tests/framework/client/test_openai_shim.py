@@ -221,10 +221,12 @@ def test_openrouter_prompt_caching():
     body3_str = json.dumps(data3)
     assert "cache_control" not in body3_str
 
-    # 4. User send: anthropic/* folds the tail and marks the block before it
+    # 4. User send: folded messages to anthropic/* mark the block before the tail
     user_send_messages = [
-        {"role": "user", "content": "hello"},
-        {"role": "user", "content": snap},
+        {"role": "user", "content": [
+            {"type": "text", "text": "hello"},
+            {"type": "text", "text": snap},
+        ]},
     ]
     _m, _url, body_u1, _h = shim.build_chat_request(
         user_send_messages, 100, None, None, False, "anthropic/claude-sonnet-4.5", None
@@ -238,15 +240,18 @@ def test_openrouter_prompt_caching():
         {"type": "text", "text": snap},
     ]
 
-    # 5. User send: openai/gpt-oss-120b and Cerebras keep two string user messages without fold
+    # 5. User send: openai/gpt-oss-120b and Cerebras keep the single folded user message without cache_control
     _m, _url, body_u2, _h = shim.build_chat_request(
         user_send_messages, 100, None, None, False, "openai/gpt-oss-120b", None
     )
     data_u2 = json.loads(body_u2)
     msgs_u2 = data_u2["messages"]
-    assert len(msgs_u2) == 2
-    assert msgs_u2[0] == {"role": "user", "content": "hello"}
-    assert msgs_u2[1] == {"role": "user", "content": snap}
+    assert len(msgs_u2) == 1
+    assert msgs_u2[0]["role"] == "user"
+    assert msgs_u2[0]["content"] == [
+        {"type": "text", "text": "hello"},
+        {"type": "text", "text": snap},
+    ]
     assert "cache_control" not in json.dumps(data_u2)
 
     _m, _url, body_u3, _h = cerebras_shim.build_chat_request(
@@ -254,9 +259,12 @@ def test_openrouter_prompt_caching():
     )
     data_u3 = json.loads(body_u3)
     msgs_u3 = data_u3["messages"]
-    assert len(msgs_u3) == 2
-    assert msgs_u3[0] == {"role": "user", "content": "hello"}
-    assert msgs_u3[1] == {"role": "user", "content": snap}
+    assert len(msgs_u3) == 1
+    assert msgs_u3[0]["role"] == "user"
+    assert msgs_u3[0]["content"] == [
+        {"type": "text", "text": "hello"},
+        {"type": "text", "text": snap},
+    ]
     assert "cache_control" not in json.dumps(data_u3)
 
 

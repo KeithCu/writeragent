@@ -840,6 +840,11 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
         if peer_block:
             base += "\n\n" + peer_block
 
+        # Bugfix: memory block (USER.md) was moved to per-request dynamic tail in #3085.
+        # But USER.md changes only on upsert_memory, so sending it in the tail incurred
+        # full input cost on every turn and tool round, working against caching. Restoring
+        # memory block to system prompt ensures it stays cached until memory is updated.
+        base += _call_system_prompt_block("memory")
         base += _call_system_prompt_block("humanizer")
 
     # After custom instructions so those stay intact and the reminder is last.

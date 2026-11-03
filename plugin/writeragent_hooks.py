@@ -53,6 +53,7 @@ def register_writeragent_prompt_hooks() -> None:
         format_units_helper_hint,
     )
 
+    from plugin.chatbot.memory import format_user_memory_prompt_block
     from plugin.chatbot.skills import format_humanizer_guidance_prompt_block
     from plugin.doc import specialized_catalog
     from plugin.doc.peer_prompt import get_peer_inner_choice_block, get_peer_messaging_prompt_block
@@ -66,6 +67,7 @@ def register_writeragent_prompt_hooks() -> None:
     set_system_prompt_block("peer_outer", get_peer_messaging_prompt_block)
     set_system_prompt_block("peer_inner", get_peer_inner_choice_block)
     set_system_prompt_block("vision", get_vision_core_directive)
+    set_system_prompt_block("memory", lambda: format_user_memory_prompt_block())
     set_system_prompt_block("humanizer", lambda: format_humanizer_guidance_prompt_block())
 
 

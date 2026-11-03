@@ -833,10 +833,12 @@ def test_make_chat_request_mixed_structured_blocks():
 
     decoded = json.loads(body.decode("utf-8"))
 
-    # The mixed image request stays one user message. No synthetic system row.
-    assert len(decoded["messages"]) == 1
-    assert decoded["messages"][0]["role"] == "user"
-    assert decoded["messages"][0]["content"] == mixed_user_content
+    # We expect length 2: the auto-injected system message for the date,
+    # and the user message containing our mixed block list.
+    assert len(decoded["messages"]) == 2
+    assert decoded["messages"][0]["role"] == "system"
+    assert decoded["messages"][1]["role"] == "user"
+    assert decoded["messages"][1]["content"] == mixed_user_content
 
 
 def test_make_chat_request_includes_dev_build_prefix_when_enabled():
@@ -850,7 +852,7 @@ def test_make_chat_request_includes_dev_build_prefix_when_enabled():
     data = json.loads(body.decode("utf-8"))
     system = data["messages"][0]["content"]
     assert LLM_DEV_BUILD_SYSTEM_PREFIX in system
-    assert "Today's date is" not in system
+    assert "Today's date is" in system
 
 
 def test_make_chat_request_skips_dev_build_prefix_when_disabled():
@@ -1105,7 +1107,7 @@ def test_make_chat_request_coalesces_system_messages(client):
         system_content = request_body.get("system")
         assert "Base instructions." in system_content
         assert "Document context." in system_content
-        assert "Today's date is" not in system_content
+        assert "Today's date is" in system_content
             
     # And check Google as well
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
@@ -1119,7 +1121,7 @@ def test_make_chat_request_coalesces_system_messages(client):
         combined_text = api_messages[0]["content"]
         assert "Base instructions." in combined_text
         assert "Document context." in combined_text
-        assert "Today's date is" not in combined_text
+        assert "Today's date is" in combined_text
 
     # And check OpenAI-compatible path
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
@@ -1133,7 +1135,7 @@ def test_make_chat_request_coalesces_system_messages(client):
         combined_text = api_messages[0]["content"]
         assert "Base instructions." in combined_text
         assert "Document context." in combined_text
-        assert "Today's date is" not in combined_text
+        assert "Today's date is" in combined_text
         assert len(api_messages) == 2  # The merged system message + the user message
         assert api_messages[1]["role"] == "user"
 
@@ -1772,7 +1774,7 @@ def test_make_chat_request_coalesces_mixed_system_messages(client):
         all_text = sys_msg["content"]
         assert "Base instructions." in all_text
         assert "Document context." in all_text
-        assert "Today's date is" not in all_text
+        assert "Today's date is" in all_text
 
 
 def test_prepend_dev_build_prefix_supports_list_content():
@@ -1808,7 +1810,7 @@ def test_make_chat_request_flattens_system_message(client):
         assert isinstance(sys_msg["content"], str)
         assert "Part 1" in sys_msg["content"]
         assert "Part 2" in sys_msg["content"]
-        assert "Today's date is" not in sys_msg["content"]
+        assert "Today's date is" in sys_msg["content"]
 
 
 def test_chat_request_omits_top_p(client):

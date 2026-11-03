@@ -259,70 +259,78 @@ def test_messages_for_request_user_send_stable_prefix():
     req2 = session.messages_for_request()
 
     assert req1[0] == req2[0]  # Base system unchanged
-    assert req1[1] == req2[1]  # Earlier user message equals req1's user message with ==
-    assert isinstance(req1[1]["content"], str)
-    assert isinstance(req2[1]["content"], str)
-    assert req1[1]["content"] == "Hello AI"
+    assert req2[1] == session.messages[1]  # Earlier user message in req2 is the committed history turn
     assert req2[1]["content"] == "Hello AI"
-    assert isinstance(req1[-1]["content"], str)
-    assert isinstance(req2[-1]["content"], str)
+    # Trailing user message in req1 has tail folded in
+    assert req1[-1]["role"] == "user"
+    assert req1[-1]["content"][0]["text"] == "Hello AI"
+    assert snapshot_text("Doc state 1") in req1[-1]["content"][1]["text"]
+    # Trailing user message in req2 has second tail folded in
+    assert req2[-1]["role"] == "user"
+    assert req2[-1]["content"][0]["text"] == "Second user prompt"
+    assert snapshot_text("Doc state 2 (selected text changed)") in req2[-1]["content"][1]["text"]
 
     # Stored user message content is still the original string
     assert session.messages[1]["content"] == "Hello AI"
 
 
-def test_messages_for_request_date_changes_tail_only(monkeypatch):
-    import datetime
-
+def test_messages_for_request_tail_is_snapshot_only():
+    """Date and memory live in the system prompt; request_tail is document snapshot only."""
     session = ChatSession(system_prompt="Base system")
     session.add_user_message("Hello")
+    session.document_context = "Active document text"
 
-    real_date = datetime.date
-
-    class FakeDate1(real_date):
-        @classmethod
-        def today(cls):
-            return real_date(2026, 11, 2)
-
-    class FakeDate2(real_date):
-        @classmethod
-        def today(cls):
-            return real_date(2026, 11, 3)
-
-    monkeypatch.setattr(datetime, "date", FakeDate1)
-    req1 = session.messages_for_request()
-
-    monkeypatch.setattr(datetime, "date", FakeDate2)
-    req2 = session.messages_for_request()
-
-    # System text is identical
-    assert req1[0]["content"] == req2[0]["content"]
-    assert "Today's date is" not in req1[0]["content"]
-    # The tail date line changes
-    assert "Today's date is Monday, 2026-11-02." in req1[-1]["content"]
-    assert "Today's date is Tuesday, 2026-11-03." in req2[-1]["content"]
-    # Messages before the tail are identical
-    assert req1[:-1] == req2[:-1]
+    req = session.messages_for_request()
+    # Trailing folded block contains only document snapshot
+    content_blocks = req[-1]["content"]
+    assert isinstance(content_blocks, list)
+    assert len(content_blocks) == 2
+    assert content_blocks[0] == {"type": "text", "text": "Hello"}
+    assert snapshot_text("Active document text") == content_blocks[1]["text"]
+    assert "Today's date is" not in content_blocks[1]["text"]
+    assert "[USER PROFILE / MEMORY]" not in content_blocks[1]["text"]
 
 
-def test_messages_for_request_memory_in_tail_only():
-    session = ChatSession(system_prompt="Base system")
-    session.add_user_message("Hello")
+def test_messages_for_request_never_has_adjacent_user_messages():
+    """Strict alternating-role templates (Gemma, Mistral on LM Studio, llama.cpp, vLLM)
+    fail if two user messages are adjacent. Folding guarantees no adjacent user messages."""
+    def assert_no_adjacent_user(msgs):
+        for idx in range(len(msgs) - 1):
+            assert not (msgs[idx].get("role") == "user" and msgs[idx + 1].get("role") == "user"), (
+                f"Adjacent user messages at index {idx} and {idx + 1}: {msgs[idx]} and {msgs[idx + 1]}"
+            )
 
-    with patch("plugin.chatbot.memory.MemoryStore") as store_cls:
-        store_cls.return_value.read.return_value = "User prefers concise answers."
-        req_mem_on = session.messages_for_request()
+    # 1. Single user send with document context
+    s1 = ChatSession(system_prompt="System")
+    s1.add_user_message("Query 1")
+    s1.document_context = "Doc A"
+    req1 = s1.messages_for_request()
+    assert_no_adjacent_user(req1)
+    assert [m["role"] for m in req1] == ["system", "user"]
 
-    assert "[USER PROFILE / MEMORY]" not in req_mem_on[0]["content"]
-    assert "[USER PROFILE / MEMORY]" in req_mem_on[-1]["content"]
-    assert "User prefers concise answers." in req_mem_on[-1]["content"]
+    # 2. Multi-turn conversation with document context
+    s1.add_assistant_message("Answer 1")
+    s1.add_user_message("Query 2")
+    s1.document_context = "Doc B"
+    req2 = s1.messages_for_request()
+    assert_no_adjacent_user(req2)
+    assert [m["role"] for m in req2] == ["system", "user", "assistant", "user"]
 
-    with patch("plugin.chatbot.memory.MemoryStore") as store_cls:
-        store_cls.return_value.read.return_value = ""
-        req_mem_off = session.messages_for_request()
+    # 3. Mid tool loop (user, assistant tool_calls, tool result) with document context
+    s1.add_assistant_message(tool_calls=[{"id": "c1", "function": {"name": "lookup"}}])
+    s1.add_tool_result("c1", "found result")
+    s1.document_context = "Doc C"
+    req3 = s1.messages_for_request()
+    assert_no_adjacent_user(req3)
+    assert [m["role"] for m in req3] == ["system", "user", "assistant", "user", "assistant", "tool", "user"]
 
-    assert "[USER PROFILE / MEMORY]" not in req_mem_off[0]["content"]
-    assert "[USER PROFILE / MEMORY]" not in req_mem_off[-1]["content"]
+    # 4. Without document context
+    s2 = ChatSession(system_prompt="System")
+    s2.add_user_message("No doc query")
+    s2.document_context = ""
+    req4 = s2.messages_for_request()
+    assert_no_adjacent_user(req4)
+    assert [m["role"] for m in req4] == ["system", "user"]
 
 
 def test_messages_for_request_tool_loop_stable_prefix():
@@ -392,9 +400,11 @@ def test_messages_for_request_multimodal_user_list_unchanged():
     session.document_context = "Doc 1"
 
     req1 = session.messages_for_request()
-    assert req1[1]["content"] == multimodal_content
-    assert req1[-1]["role"] == "user"
-    assert isinstance(req1[-1]["content"], str)
+    assert req1[1]["role"] == "user"
+    assert len(req1[1]["content"]) == 3
+    assert req1[1]["content"][0] == multimodal_content[0]
+    assert req1[1]["content"][1] == multimodal_content[1]
+    assert snapshot_text("Doc 1") in req1[1]["content"][2]["text"]
 
     session.add_assistant_message("This is a chart.")
     session.add_user_message("Second question")
@@ -403,9 +413,9 @@ def test_messages_for_request_multimodal_user_list_unchanged():
     # The stored multimodal user list is unchanged on the next request
     assert req2[1]["content"] == multimodal_content
     assert session.messages[1]["content"] == multimodal_content
-    # Tail is still a following string message
+    # Second turn has its own folded tail
     assert req2[-1]["role"] == "user"
-    assert isinstance(req2[-1]["content"], str)
+    assert req2[-1]["content"][0]["text"] == "Second question"
 
 
 def test_history_load_strips_legacy_document_suffix_with_inner_end_doc():

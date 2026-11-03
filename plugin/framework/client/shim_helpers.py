@@ -42,8 +42,13 @@ def extract_snapshot_from_messages(messages: list[Any]) -> str | None:
 
 
 def fold_trailing_user_message(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """If the last two messages are role 'user', fold the last message's text
-    onto the previous one as one more {"type": "text"} block and drop the extra message."""
+    """Fold a trailing user message into the preceding user turn as a content block.
+
+    Models using strict alternating-role templates (e.g. Gemma, Mistral on
+    LM Studio, llama.cpp, vLLM) reject requests with two adjacent user
+    messages. Folding also allows Anthropic ephemeral cache markers to be
+    placed on the block immediately preceding the dynamic tail text.
+    """
     if len(messages) < 2:
         return messages
     if not isinstance(messages[-1], dict) or messages[-1].get("role") != "user":
@@ -86,7 +91,7 @@ def fold_trailing_user_message(messages: list[dict[str, Any]]) -> list[dict[str,
 
 
 def _is_tail_text(txt: Any) -> bool:
-    return isinstance(txt, str) and (txt.startswith("Today's date is ") or txt.startswith(SNAPSHOT_HEADER))
+    return isinstance(txt, str) and txt.startswith(SNAPSHOT_HEADER)
 
 
 def _is_tail_block(block: Any) -> bool:

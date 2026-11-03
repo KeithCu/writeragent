@@ -7,7 +7,7 @@ from plugin.chatbot.history_db import get_chat_history
 
 log = logging.getLogger(__name__)
 
-from plugin.framework.client.shim_helpers import snapshot_text
+from plugin.framework.client.shim_helpers import fold_trailing_user_message, snapshot_text
 
 
 def strip_legacy_document_suffix(content: str) -> str:
@@ -23,24 +23,17 @@ def strip_legacy_document_suffix(content: str) -> str:
 
 
 def request_tail(session: Any) -> str:
-    """Return the dynamic request tail (date, memory, document snapshot)."""
-    import datetime
-    from plugin.chatbot.memory import format_user_memory_prompt_block
+    """Return dynamic per-request context (such as the document snapshot).
 
-    today = datetime.date.today().strftime("%A, %Y-%m-%d")
-    parts = [f"Today's date is {today}."]
-
-    memory = format_user_memory_prompt_block()
-    if memory:
-        parts.append(memory.lstrip("\n"))
-
+    Everything that changes per request lives after the cache breakpoint so
+    earlier history and system prompts stay cacheable across turns.
+    """
     doc_text = getattr(session, "document_context", "") or ""
     if doc_text:
         snap = snapshot_text(doc_text)
         if snap:
-            parts.append(snap)
-
-    return "\n\n".join(parts)
+            return snap
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -153,9 +146,11 @@ class ChatSession:
     def messages_for_request(self) -> list[dict[str, Any]]:
         """Return the messages to send to the LLM for a request.
 
-        Starts with messages_for_llm(self), then appends one trailing message
-        with request_tail(self) when that view is non-empty. Does not mutate
-        self.messages or self.compaction.
+        Starts with messages_for_llm(self), then appends request_tail(self).
+        When the conversation ends with a user turn, the tail is merged into that
+        trailing user message so strict alternating-role templates (Gemma, Mistral,
+        llama.cpp, vLLM) never see two adjacent user messages.
+        Does not mutate self.messages or self.compaction.
         """
         from plugin.chatbot.compaction import messages_for_llm
 
@@ -165,7 +160,13 @@ class ChatSession:
 
         tail = request_tail(self)
         if tail:
+            # Bugfix: in #3085, appending the tail as a separate user message resulted
+            # in two consecutive user messages for all OpenAI-format providers. Jinja
+            # templates enforcing role alternation (Gemma, Mistral on LM Studio, llama.cpp,
+            # vLLM) reject adjacent user messages with HTTP 400/500. Merging here ensures
+            # one unified place for all providers without duplicate adjacent user messages.
             view.append({"role": "user", "content": tail})
+            view = fold_trailing_user_message(view)
         return view
 
     def add_user_message(self, content: Any) -> None:
