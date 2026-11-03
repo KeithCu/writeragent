@@ -1,6 +1,6 @@
 import pytest
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.client.llm_client import LlmClient

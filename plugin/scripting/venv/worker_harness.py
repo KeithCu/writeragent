@@ -231,6 +231,7 @@ def main() -> None:
     # Idempotent. The script entry already claimed before later imports. This
     # call is the one in-process tests replace.
     stdout = claim_ipc_channel()
+    write_pickle_frame(stdout, {"status": "ready", "pid": os.getpid()})
 
     while True:
         # Read and handle are separate. IpcFrameError subclasses ValueError,

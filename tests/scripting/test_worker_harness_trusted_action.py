@@ -200,6 +200,8 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
     worker_harness.main()
 
     stdout.seek(0)
+    ready = read_pickle_frame(stdout, require_dict=True)
+    assert ready is not None and ready.get("status") == "ready"
     started = read_pickle_frame(stdout, require_dict=True)
     assert started is not None
     assert started["type"] == EXEC_STARTED
