@@ -35,15 +35,6 @@ from plugin.chatbot.send_state import (
     _send_ui_invariants,
     next_state as send_next_state,
 )
-from plugin.chatbot.state_machine import (
-    CompleteJobEffect,
-    ErrorEvent,
-    SendHandlerState,
-    SpawnAgentWorkerEffect,
-    StopRequestedEvent,
-    next_state as send_handler_next_state,
-    stop_effects_exclude_spawns,
-)
 from plugin.chatbot.tool_loop_state import (
     EventKind,
     ExitLoopEffect,
@@ -59,8 +50,6 @@ from tests.chatbot.fsm_hyp_support import (
     fsm_hypothesis_max_examples,
     send_button_states,
     send_events,
-    send_handler_events,
-    send_handler_states,
     tool_loop_events,
     tool_loop_states,
 )
@@ -158,17 +147,6 @@ def test_tool_loop_formatting_helpers() -> None:
     assert del_line.endswith("\n")
 
 
-def test_send_handler_stop_does_not_spawn_workers() -> None:
-    state = SendHandlerState(
-        handler_type="agent",
-        status="running",
-    )
-    tr = send_handler_next_state(state, StopRequestedEvent())
-    assert tr.state.status == "stopped"
-    assert not any(isinstance(e, SpawnAgentWorkerEffect) for e in tr.effects)
-    assert any(isinstance(e, CompleteJobEffect) for e in tr.effects)
-
-
 def _hyp_n(key: str) -> int:
     return fsm_hypothesis_max_examples()[key]
 
@@ -212,24 +190,6 @@ def test_hypothesis_tool_loop_stop_sequences(state: ToolLoopState, events) -> No
         cur = tr.state
 
 
-@given(state=send_handler_states(), event=send_handler_events())
-@settings(max_examples=_hyp_n("send_handler"), deadline=None)
-def test_hypothesis_send_handler_stop_excludes_spawns(state: SendHandlerState, event) -> None:
-    tr = send_handler_next_state(state, event)
-    if isinstance(event, StopRequestedEvent) and state.status not in ("error", "done", "stopped"):
-        assert stop_effects_exclude_spawns(tr.effects)
-        assert any(isinstance(e, CompleteJobEffect) for e in tr.effects)
-        assert not any(isinstance(e, SpawnAgentWorkerEffect) for e in tr.effects)
-        assert tr.state.status == "stopped"
-    elif isinstance(event, StopRequestedEvent):
-        assert tr.effects == []
-        assert tr.state.status == state.status
-        assert stop_effects_exclude_spawns(tr.effects)
-    elif isinstance(event, ErrorEvent) and state.status in ("done", "stopped", "error"):
-        assert tr.effects == []
-        assert tr.state.status == state.status
-
-
 @given(state=send_button_states(), events=st.lists(send_events(), min_size=1, max_size=5))
 @settings(max_examples=_hyp_n("sequences"), deadline=None)
 def test_hypothesis_send_state_sequences(state: SendButtonState, events) -> None:
@@ -255,12 +215,11 @@ def test_crosshair_send_state_if_available(value) -> None:
 @pytest.mark.parametrize(
     "value, timeout",
     [
-        pytest.param("plugin/chatbot/state_machine.py", 300, id="test_crosshair_state_machine_if_available"),
         pytest.param("plugin/chatbot/tool_loop_state.py", 180, id="test_crosshair_tool_loop_state_if_available"),
     ],
 )
 @pytest.mark.slow
-def test_crosshair_state_machine_if_available(value, timeout) -> None:
+def test_crosshair_tool_loop_state_if_available(value, timeout) -> None:
     # next_state is # crosshair: off; module check covers pure helpers with @deal.
     _run_crosshair(value, timeout=timeout)
 
