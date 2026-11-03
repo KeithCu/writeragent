@@ -22,6 +22,27 @@ from tests.harness.strip_bundle import asserts_stripped, requires_asserts  # noq
 
 
 @pytest.fixture(autouse=True)
+def _reset_main_thread_policy_for_tests():
+    """Ensure MainThread policy and designated thread do not leak across tests."""
+    from plugin.framework.queue_executor import Policy, main
+
+    try:
+        yield
+    finally:
+        main.install(Policy.production, designated=None, poke=None)
+
+
+@pytest.fixture(autouse=True)
+def _install_sandbox_alias_authorizer_for_tests():
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+    from plugin.scripting.sandbox import install_alias_authorizer
+
+    register_writeragent_prompt_hooks()
+    install_alias_authorizer()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _drain_scheduler_override_for_tests():
     from plugin.framework.async_stream import set_drain_scheduler_override
     previous = set_drain_scheduler_override(lambda: None)
@@ -54,7 +75,7 @@ def _isolate_worker_env_vars():
     What was wrong: compute_service/formula_worker.py and vision.py set these
     env vars at import time. Test modules import them during collection, so the
     whole pytest (xdist) process looked like a worker and fail-closed guards
-    such as named_scripts._rpc_named raised in unrelated tests.
+    such as call_host_tool raised in unrelated tests.
     Why this fix: clear before each test (tests that need the markers set them
     explicitly) and clean up afterwards so worker modes never leak to other tests.
     """
@@ -819,7 +840,7 @@ def make_mock_send_button_listener(
     if ctx is None:
         ctx = MagicMock()
 
-    with patch("plugin.framework.config.get_config_str", return_value=""), \
+    with patch("plugin.framework.config.get_config", return_value=""), \
          patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), \
          patch("plugin.chatbot.panel.is_audio_recording_supported", return_value=True), \
          patch.object(PanelEventsController, "_subscribe_mcp_events", lambda self: None):

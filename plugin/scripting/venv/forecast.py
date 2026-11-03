@@ -13,8 +13,8 @@ from typing import Any
 
 from plugin.scripting.calc_functions_common import (
     ANALYSIS_DATA_TABLE_ROWS as DATA_TABLE_ROWS,
-    FORECAST_HELPER_NAMES as HELPER_NAMES,
 )
+from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.coerce import (
     CoerceResult,
     coerce_bool,
@@ -27,10 +27,9 @@ from plugin.scripting.venv.coerce import (
 )
 from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    dispatch_common_kwargs,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
-    run_trusted_spec,
+    run_domain,
 )
 
 log = logging.getLogger(__name__)
@@ -512,6 +511,7 @@ def _forecast_arima(series: Any, *, periods: int, future_dates: Any, freq_label:
     return forecast_df, metrics
 
 
+@helper("forecast")
 def forecast_time_series(
     data: Any,
     *,
@@ -698,6 +698,7 @@ def _append_truncation_flag(flags: list[str], table: dict[str, Any], row_count: 
         flags.append(f"{label} shows the first {DATA_TABLE_ROWS} of {row_count} rows")
 
 
+@helper("forecast")
 def decompose_time_series(
     data: Any,
     *,
@@ -787,6 +788,7 @@ def _robust_z_scores(values: Any) -> Any:
     return np.zeros_like(arr)
 
 
+@helper("forecast")
 def anomaly_detection_time_series(
     data: Any,
     *,
@@ -888,33 +890,10 @@ def anomaly_detection_time_series(
     )
 
 
-def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
-    common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
-
-    if name == "forecast_time_series":
-        f_params: dict[str, Any] = {k: params[k] for k in ("periods", "model", "date_col", "value_col", "seasonal_periods") if k in params}
-        return forecast_time_series(data, **f_params, **common)
-    if name == "decompose_time_series":
-        d_params: dict[str, Any] = {k: params[k] for k in ("date_col", "value_col", "model", "period") if k in params}
-        return decompose_time_series(data, **d_params, **common)
-    if name == "anomaly_detection_time_series":
-        a_params: dict[str, Any] = {k: params[k] for k in ("date_col", "value_col", "period", "method", "threshold", "include_all") if k in params}
-        return anomaly_detection_time_series(data, **a_params, **common)
-    return _error_result("UNKNOWN_HELPER", f"Forecast helper {name!r} not found", helper=name)
-
-
 def run_forecast(
     spec: dict[str, Any] | str,
     data: Any,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC."""
-    return run_trusted_spec(
-        spec,
-        data,
-        context,
-        helper_names=HELPER_NAMES,
-        dispatch_fn=_dispatch_helper,
-        domain="Forecast",
-        error_code="FORECAST_FAILED",
-    )
+    return run_domain("forecast", spec, data, context=context)

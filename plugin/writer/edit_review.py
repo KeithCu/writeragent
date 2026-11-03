@@ -54,7 +54,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generator
 if TYPE_CHECKING:
     from plugin.doc.compound_undo import WriterCompoundUndo
 
-from plugin.doc.text_helpers import go_right
+from plugin.doc.text_helpers import FAILED, go_right, iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.errors import document_is_disposed
 from plugin.framework.i18n import N_, _
@@ -67,8 +67,6 @@ log = logging.getLogger(__name__)
 
 _BOOKMARK_PREFIX = "wa_review_"
 _PREVIEW_MAX_CHARS = 300
-# uno_read default where None is a real UNO result.
-_FAILED: Any = object()
 
 
 def _preview(text: str) -> str:
@@ -141,11 +139,11 @@ def annotate_review_status(result: Any) -> dict[str, Any]:
 
 def edit_review_wait_seconds() -> int:
     """Max seconds ``apply_document_content`` may block waiting for review; 0 = don't wait."""
-    from plugin.framework.config import get_config_int_safe
+    from plugin.framework.config import get_config
 
     if get_agent_edit_review_mode() != "wait":
         return 0
-    return max(0, get_config_int_safe("doc.edit_review_timeout"))
+    return max(0, int(get_config("doc.edit_review_timeout")))
 
 
 def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:
@@ -252,8 +250,8 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
     """
     # The raw string is the fail-closed result when the walk cannot start.
     # A closed document must not come back as "".
-    para_enum = uno_read(lambda: text_range.createEnumeration(), _FAILED)
-    if para_enum is _FAILED:
+    para_enum = uno_read(lambda: text_range.createEnumeration(), FAILED)
+    if para_enum is FAILED:
         return text_range.getString()
 
     parts: list[str] = []
@@ -701,7 +699,7 @@ class EditReviewSession:
 
         Thread placement: poll from a background/HTTP thread so the main thread stays free for
         the user's accept/reject clicks. UNO is not thread-safe, so callers off the main thread
-        pass ``uno_runner`` (e.g. ``execute_on_main_thread``) and every document read/cleanup in
+        pass ``uno_runner`` (e.g. ``main.call``) and every document read/cleanup in
         the loop is marshalled through it; the sleep itself stays on the calling thread.
         """
         run = uno_runner if uno_runner is not None else (lambda fn: fn())
@@ -1043,7 +1041,7 @@ def _portion_type(node: Any) -> str | None:
 
 
 def _open_enum(owner: Any) -> Any:
-    """Return an enumeration, ``None`` when the object has none, or ``_FAILED``.
+    """Return an enumeration, ``None`` when the object has none, or ``FAILED``.
 
     Missing ``createEnumeration`` is a plain test double (no redlines to protect).
     A method that exists and throws is a walk we could not finish.
@@ -1051,7 +1049,7 @@ def _open_enum(owner: Any) -> Any:
     create = getattr(owner, "createEnumeration", None)
     if not callable(create):
         return None
-    return uno_read(create, _FAILED)
+    return uno_read(create, FAILED)
 
 
 def _is_blocking_redline(node: Any) -> bool:
@@ -1063,8 +1061,8 @@ def _is_blocking_redline(node: Any) -> bool:
     """
     if _portion_type(node) != "Redline":
         return False
-    kind = uno_read(lambda: str(node.getPropertyValue("RedlineType")), _FAILED)
-    if kind is _FAILED:
+    kind = uno_read(lambda: str(node.getPropertyValue("RedlineType")), FAILED)
+    if kind is FAILED:
         return True
     return kind in _BLOCKING_REDLINE_TYPES
 
@@ -1081,14 +1079,13 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
     top = _open_enum(text_range)
     if top is None:
         return False
-    if top is _FAILED:
+    if top is FAILED:
         log.warning(
             "range_has_tracked_insert_or_delete: could not enumerate the selection; "
             "refusing so setString cannot accept an unseen redline")
         return True
     try:
-        while top.hasMoreElements() is True:
-            node = top.nextElement()
+        for node in iter_elements(top):
             if _is_blocking_redline(node):
                 return True
             # A portion (text, redline mark, …) does not contain nested redlines.
@@ -1096,15 +1093,15 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
             if _portion_type(node) is not None:
                 continue
             sub = _open_enum(node)
-            if sub is _FAILED:
+            if sub is FAILED:
                 log.warning(
                     "range_has_tracked_insert_or_delete: could not enumerate a selection "
                     "child; refusing so setString cannot accept an unseen redline")
                 return True
             if sub is None:
                 continue
-            while sub.hasMoreElements() is True:
-                if _is_blocking_redline(sub.nextElement()):
+            for sub_elem in iter_elements(sub):
+                if _is_blocking_redline(sub_elem):
                     return True
     except Exception:
         log.warning(

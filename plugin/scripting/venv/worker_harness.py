@@ -27,7 +27,7 @@ if _SCRIPT_DIR in sys.path:
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
     FRAME_HEARTBEAT,
@@ -53,7 +53,10 @@ if __name__ == "__main__":
     claim_ipc_channel()
 
 from plugin.framework.uno_bootstrap import register_alias_importer
+from plugin.scripting.sandbox import install_alias_authorizer
+
 register_alias_importer()
+install_alias_authorizer()
 
 from plugin.scripting.venv.results import error_result
 
@@ -242,6 +245,9 @@ def _die_with_parent() -> None:
 
 
 def main() -> None:
+    from plugin.scripting.host_tool_call import ROLE_WORKER, set_process_role
+
+    set_process_role(ROLE_WORKER)
     _die_with_parent()
     _init_logging()
     log.info("Worker process %d starting up with python %s", os.getpid(), sys.version)

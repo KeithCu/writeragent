@@ -148,7 +148,7 @@ def test_should_emit_silence_progress_throttles_updates():
     ],
 )
 def test_resolve_silence_stop_ms_prefers_chatbot_key(value, expected):
-    with patch("plugin.framework.config.get_config_dict", return_value={"chatbot.audio_silence_stop_ms": value}):
+    with patch("plugin.framework.config.get_config", return_value=value):
         cfg = load_silence_detector_config()
         assert cfg.silence_stop_ms == expected
         assert cfg.enabled is (expected > 0)

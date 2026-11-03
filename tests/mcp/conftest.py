@@ -8,7 +8,7 @@
 
 import socket
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import urllib.request
@@ -24,18 +24,17 @@ def get_free_port():
     return port
 
 
+@pytest.fixture(autouse=True)
+def _isolate_mcp_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reset global _current_module before each test to isolate module lifecycle."""
+    import plugin.mcp as mcp_mod
+
+    monkeypatch.setattr(mcp_mod, "_current_module", None)
+
+
 @pytest.fixture(scope="module")
 def mcp_server():
     """Start the HTTP server using McpModule with mocked services."""
-    import plugin.mcp as http_mod
-
-    def _reset_globals():
-        with http_mod._http_peer_lock:
-            http_mod._primary_http_module = None
-            http_mod._shared_http_server = None
-
-    _reset_globals()
-
     services = MagicMock()
 
     tool_registry = MagicMock()
@@ -60,27 +59,40 @@ def mcp_server():
         kwargs.pop("bound_scope", None)
         return fn(*args, **kwargs)
 
-    main_thread.execute.side_effect = mock_execute
+    main_thread.call.side_effect = mock_execute
     services.main_thread = main_thread
     services.get.side_effect = lambda name: getattr(services, name, None)
+
+    import plugin.framework.config as config_mod
+
+    orig_get_config = config_mod.get_config
+    config_values = {
+        "mcp.mcp_enabled": True,
+        "mcp.host": "127.0.0.1",
+        "mcp.use_ssl": False,
+        "mcp.ssl_cert": "",
+        "mcp.ssl_key": "",
+        "mcp.mcp_remote_access": False,
+        "mcp.tunnel_enabled": False,
+    }
+
+    def mock_get_config(key, *args, **kwargs):
+        if key in config_values:
+            return config_values[key]
+        return orig_get_config(key, *args, **kwargs)
+
+    config_patcher = patch("plugin.framework.config.get_config", side_effect=mock_get_config)
+    mcp_config_patcher = patch("plugin.mcp.get_config", side_effect=mock_get_config)
+    config_patcher.start()
+    mcp_config_patcher.start()
 
     http_module = None
     url = ""
     server_ready = False
 
     for _attempt in range(3):
-        _reset_globals()
         port = get_free_port()
-
-        config_svc = MagicMock()
-        config_svc.proxy_for.return_value = {
-            "enabled": True,
-            "mcp_enabled": True,
-            "mcp_port": port,
-            "host": "127.0.0.1",
-            "use_ssl": False,
-        }
-        services.config = config_svc
+        config_values["mcp.mcp_port"] = port
 
         http_module = McpModule()
         http_module.name = "mcp"
@@ -109,12 +121,14 @@ def mcp_server():
         http_module.shutdown()
 
     if not server_ready or not http_module:
-        _reset_globals()
+        config_patcher.stop()
+        mcp_config_patcher.stop()
         pytest.fail("Server did not start in time after retries")
 
     try:
         yield url
     finally:
         http_module.shutdown()
-        _reset_globals()
+        config_patcher.stop()
+        mcp_config_patcher.stop()
 

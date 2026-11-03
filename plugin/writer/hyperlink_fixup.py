@@ -56,7 +56,7 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any, Iterator
 
-from plugin.doc.text_helpers import go_right
+from plugin.doc.text_helpers import go_right, iter_elements
 from plugin.framework.errors import uno_read
 
 log = logging.getLogger("writeragent.writer.hyperlink")
@@ -227,30 +227,16 @@ def _between(text: Any, start_pos: Any, end_pos: Any) -> str:
     return str(cursor.getString() or "")
 
 
-def _enum_has_more(enum: Any) -> bool:
-    """True only for a real UNO ``True``.
-
-    ``if not enum.hasMoreElements()`` is wrong on ``MagicMock``: the return is
-    another mock, which is truthy, so the loop never stops. PR #823 pull_request
-    CI merges this module onto unit tests that pass MagicMock ranges
-    (``test_edited_context``, ``test_small_fixes_r5``) and hung until GHA
-    SIGTERM. ``is True`` matches UNO bools and the ``_Enum`` fake.
-    """
-    return enum.hasMoreElements() is True
-
-
 def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
     """Portions of the paragraph containing *anchor_pos*."""
     cursor = _paragraph_cursor(text, anchor_pos)
     para_enum = cursor.createEnumeration()
-    while _enum_has_more(para_enum):
-        para = para_enum.nextElement()
+    for para in iter_elements(para_enum):
         if hasattr(para, "supportsService") and not para.supportsService(
                 "com.sun.star.text.Paragraph"):
             continue
         portion_enum = para.createEnumeration()
-        while _enum_has_more(portion_enum):
-            portion = portion_enum.nextElement()
+        for portion in iter_elements(portion_enum):
             # Skip tracked-change redline markers; they do not hold text or link properties.
             if uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), "") == "Redline":
                 continue

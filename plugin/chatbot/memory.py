@@ -7,14 +7,7 @@ from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from plugin.framework.config import atomic_write_text, user_config_dir
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_SOURCE,
-    DEAL_MAX_TOKEN,
-    _profile,
-    str_bounded,
-    deal,
-)
+from plugin.framework.deal_shim import deal
 from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.tool import ToolBase
 
@@ -136,25 +129,43 @@ def user_profile_exists() -> bool:
     return not user_memory_is_blank(val)
 
 
+_PROFILE_DATA_OPEN = "<<<profile>>>"
+_PROFILE_DATA_CLOSE = "<<<</profile>>>"
+
+
+def _cap_injected_prompt_blob(text: str) -> str:
+    body = text.strip()
+    if len(body) <= CHAT_DOCUMENT_CONTEXT_MAX_CHARS:
+        return body
+    return body[:CHAT_DOCUMENT_CONTEXT_MAX_CHARS].rstrip() + "\n" + "[truncated]"
+
+
+def _profile_data_block(heading: str, body: str) -> str:
+    safe = body.replace(_PROFILE_DATA_CLOSE, "<<< </profile>>>").replace(_PROFILE_DATA_OPEN, "<<< profile>>>")
+    return f"\n\n{heading}\n{_PROFILE_DATA_OPEN}\n{safe}\n{_PROFILE_DATA_CLOSE}\n"
+
+
+def format_user_memory_prompt_block() -> str:
+    """Read MemoryStore and return a fenced, capped user profile block, or empty string."""
+    import logging
+
+    try:
+        store = MemoryStore()
+        user_mem = store.read()
+        if user_memory_is_blank(user_mem):
+            return ""
+        return _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to read user memory for prompt")
+    return ""
+
+
 # Chat preview when upsert_memory runs (sidebar / librarian); value truncated for huge strings.
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
-def _deal_memory_args_ok_crosshair(arguments: object) -> bool:
-    return (isinstance(arguments, str) and str_bounded(arguments, DEAL_MAX_SOURCE)) or (
-        isinstance(arguments, dict)
-        and len(arguments) <= DEAL_MAX_CMD_ARGS
-        and (not isinstance(arguments.get("key"), str) or str_bounded(arguments.get("key"), DEAL_MAX_TOKEN))
-        and (not isinstance(arguments.get("content"), str) or str_bounded(arguments.get("content"), DEAL_MAX_SOURCE))
-    )
-
-
-# Pytest stays total on this LLM/ingest boundary: smolagents can hand
-# the tool a non-dict, and isinstance(arguments, (str, dict)) raises
-# PreContractError on a list. The body already returns None unless the
-# value is a dict or a JSON object string. CrossHair keeps the short
-# domain.
-_deal_memory_args_ok = _profile(_deal_memory_args_ok_crosshair)
+def _deal_memory_args_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 @deal.pre(lambda arguments, *_unused, **__: _deal_memory_args_ok(arguments))
@@ -172,20 +183,8 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     return None
 
 
-def _deal_memory_chat_line_ok_crosshair(arguments: object) -> bool:
-    if isinstance(arguments, str):
-        return str_bounded(arguments, DEAL_MAX_SOURCE)
-    get = getattr(arguments, "get", None)
-    if not callable(get):
-        return False
-    key = get("key")
-    content = get("content")
-    return (not isinstance(key, str) or str_bounded(key, DEAL_MAX_TOKEN)) and (
-        not isinstance(content, str) or str_bounded(content, DEAL_MAX_SOURCE)
-    )
-
-
-_deal_memory_chat_line_ok = _profile(_deal_memory_chat_line_ok_crosshair)
+def _deal_memory_chat_line_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 @deal.pre(lambda arguments: _deal_memory_chat_line_ok(arguments))

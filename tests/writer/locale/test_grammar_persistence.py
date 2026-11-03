@@ -74,7 +74,7 @@ class TestGrammarPersistence:
         )
         gp.grammar_registry.doc_persistence_instances.clear()
         try:
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = DocumentPersistence("2", model=model)
                 hit = dp.get("fp_cached", "")
@@ -95,7 +95,7 @@ class TestGrammarPersistence:
         )
         gp.grammar_registry.doc_persistence_instances.clear()
         try:
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = gp.DocumentPersistence("2")
                 gp.grammar_registry.doc_persistence_instances["2"] = dp
@@ -246,7 +246,7 @@ class TestGrammarPersistence:
         )
         gp.grammar_registry.clear_all()
         try:
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = gp.DocumentPersistence("doc-entries-test", model=model)
 
@@ -329,7 +329,7 @@ class TestGrammarPersistence:
         cached["ignored_rules"] = ["old-harper-rule"]
         gp.grammar_registry.clear_all()
         try:
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = gp.DocumentPersistence("doc-mismatch", model=model)
             assert (len(dp._entries)) == (0)
@@ -347,7 +347,7 @@ class TestGrammarPersistence:
         )
         gp.grammar_registry.clear_all()
         try:
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = gp.DocumentPersistence("doc-legacy-locale", model=model)
             # A non-adopting probe must not bind the blind row to a locale.
@@ -367,12 +367,12 @@ class TestGrammarPersistence:
         model = MagicMock()
         gp.grammar_registry.clear_all()
         try:
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=None):
                 dp = gp.DocumentPersistence("doc-v4", model=model)
             dp.put("fp_same", "en-US", [{"n_error_start": 0, "n_error_length": 1, "rule_identifier": "en"}])
             dp.put("fp_same", "fr-FR", [])
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.set_document_property") as mock_set:
                 dp._persist_to_udprops()
             raw = str(mock_set.call_args[0][2])
@@ -380,7 +380,7 @@ class TestGrammarPersistence:
             assert (written["version"]) == (GRAMMAR_CACHE_VERSION)
             assert ("fp_same") in (written["locales"]["en-US"]["bad"])
             assert ("fp_same") in (written["locales"]["fr-FR"]["good"])
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=raw):
                 dp2 = gp.DocumentPersistence("doc-v4-load", model=model)
             en_hit = dp2.get("fp_same", "en-US")
@@ -400,7 +400,7 @@ class TestGrammarPersistence:
         matched["ignored_rules"] = ["old-rule"]
         gp.grammar_registry.clear_all()
         try:
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(matched)):
                 dp = gp.DocumentPersistence("doc-ignore-switch", model=model)
             assert ("old-rule") in (dp._ignored_rules)
@@ -409,7 +409,7 @@ class TestGrammarPersistence:
             dp.ensure_identity("harper")
             assert (dp._ignored_rules) == (set())
             assert (dp._entries) == ({})
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="harper"), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="harper"), \
                  patch("plugin.doc.udprops.set_document_property") as mock_set:
                 dp._persist_to_udprops()
             written = json.loads(str(mock_set.call_args[0][2]))
@@ -646,12 +646,12 @@ class TestGrammarPersistence:
         non_string_model["ignored_rules"] = ["bad-model-rule"]
         gp.grammar_registry.clear_all()
         try:
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(future)):
                 dp = gp.DocumentPersistence("doc-future", model=model)
             assert (dp._entries) == ({})
             assert (dp._ignored_rules) == (set())
-            with patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value=_TEST_IDENT), \
+            with patch("plugin.writer.locale.grammar_settings.checker_identity", return_value=_TEST_IDENT), \
                  patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(non_string_model)):
                 dp_bad = gp.DocumentPersistence("doc-bad-model", model=model)
             assert (dp_bad._entries) == ({})
@@ -741,7 +741,7 @@ class TestGrammarPersistence:
                 "locales": {"en-US": {"good": ["fp_blob"], "bad": {}}},
             }
             with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(blob)), \
-                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                 patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="test-checker"):
                 dp._bind_model(model)
 
             assert dp.get("fp_live", "en-US") == []
@@ -762,7 +762,7 @@ class TestGrammarPersistence:
 
             with patch("plugin.writer.locale.grammar_persistence.compress_error", side_effect=lambda e: dict(e)) as mock_compress, \
                  patch("plugin.doc.udprops.set_document_property") as mock_set, \
-                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                 patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="test-checker"):
                 dp._persist_to_udprops()
 
             assert mock_set.called
@@ -815,7 +815,7 @@ class TestGrammarPersistence:
                 "ignored_rules": [{}],
             }
             with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(malformed_blob)), \
-                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                 patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="test-checker"):
                 dp = gp.DocumentPersistence("doc-malformed", model=model)
 
             assert len(dp._entries) == 0
@@ -833,7 +833,7 @@ class TestGrammarPersistence:
                 "ignored_rules": ["valid_rule"],
             }
             with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(valid_blob)), \
-                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                 patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="test-checker"):
                 dp._load_from_udprops()
 
             assert "fp_valid" in dp._entries
@@ -858,14 +858,14 @@ class TestGrammarPersistence:
 
             with patch("plugin.doc.udprops.set_document_property") as mock_set, \
                  patch("json.dumps", return_value="x" * GRAMMAR_CACHE_MAX_CHARS), \
-                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test"):
+                 patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="test"):
                 dp.put("fp1", "en-US", [])
                 dp._persist_to_udprops()
                 assert mock_set.called
 
             with patch("plugin.doc.udprops.set_document_property") as mock_set, \
                  patch("json.dumps", return_value="x" * (GRAMMAR_CACHE_MAX_CHARS + 1)), \
-                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test"):
+                 patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="test"):
                 dp._persist_to_udprops()
                 mock_set.assert_not_called()
         finally:
@@ -885,11 +885,11 @@ class TestGrammarPersistence:
                 "bad": {},
             }
             with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(v3_blob)), \
-                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                 patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="test-checker"):
                 dp = gp.DocumentPersistence("doc-v3", model=model)
 
             with patch("plugin.doc.udprops.set_document_property") as mock_set, \
-                 patch("plugin.writer.locale.grammar_persistence.grammar_checker_identity", return_value="test-checker"):
+                 patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="test-checker"):
                 dp._persist_to_udprops()
 
             assert mock_set.called

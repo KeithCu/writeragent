@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.draw.bridge import DrawBridge
+from plugin.draw.layouts import layout_id
 from plugin.draw.transform_schema import (
     EDIT_TEXT_RE,
     MOVE_SLIDE_RE,
@@ -22,7 +23,6 @@ from plugin.draw.transform_schema import (
     get_slide_commands,
     is_deferred_command_key,
     parse_slide_index_token,
-    resolve_layout_id,
     split_uno_command,
     validate_slide_commands,
     validate_top_level_uno,
@@ -520,7 +520,7 @@ class SlideCommandEngine:
             self.applied.append("RenameSlide:%s" % value)
             return None
         if key in ("ChangeLayout", "ChangeLayoutByName"):
-            return self._set_layout(resolve_layout_id(value), key)
+            return self._set_layout(layout_id(value), key)
         if key == "UnoCommand":
             err = self._dispatch_uno_string(value)
             if err is not None:

@@ -12,7 +12,7 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import plugin.doc.document_research as dr
-from plugin.doc.doc_type import DocumentType
+from plugin.framework.doc_type import DocumentType
 from plugin.doc.document_research import (
     NEARBY_IMAGE_EXTENSIONS,
     _collect_open_file_urls,
@@ -669,6 +669,9 @@ def test_get_open_documents_off_thread_is_not_an_empty_list():
     tg.GUARD_ON = True
     previous_testing = os.environ.get("WRITERAGENT_TESTING")
     os.environ["WRITERAGENT_TESTING"] = "1"
+    from plugin.framework.queue_executor import Policy, main
+
+    main.install(Policy.test_inline)
     holder: dict[str, BaseException] = {}
 
     def _call() -> None:
@@ -695,6 +698,7 @@ def test_get_open_documents_off_thread_is_not_an_empty_list():
             os.environ.pop("WRITERAGENT_TESTING", None)
         else:
             os.environ["WRITERAGENT_TESTING"] = previous_testing
+        main.install(Policy.production)
 
 
 def test_get_open_documents_runtime_error_is_not_disposal_or_empty():

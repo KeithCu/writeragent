@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from plugin.chatbot.chat_session import message_text
+from plugin.framework.client.shim_helpers import snapshot_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -62,7 +63,6 @@ IMAGE_BLOCK_TOKENS = 2000  # OpenClaw compaction.ts:278 (Hermes default is 1500)
 # https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L661
 PRUNE_MIN_CHARS = 200
 MAX_TOOL_CALL_ARGS_CHARS = 4000  # _summary_lines / _format_tool_calls assistant tool_calls cap
-DOCUMENT_MARKERS = ("[DOCUMENT CONTENT]", "[END DOCUMENT]")
 _SUMMARY_TRUNCATION_MARKER = "\n\n[Compaction summary truncated to fit budget]"
 _SUMMARIZER_TURN_TRUNCATION_MARKER = "\n[turn truncated to fit summarizer]"
 
@@ -278,9 +278,16 @@ def should_compact(tokens: int, window: int | None) -> bool:
     return tokens >= int(window * compaction_ratio(window))
 
 
-def keep_recent_tokens(window: int, system_tokens: int, tool_tokens: int, force: bool = False) -> int | None:
+def keep_recent_tokens(
+    window: int,
+    system_tokens: int,
+    tool_tokens: int,
+    force: bool = False,
+    *,
+    snapshot_tokens: int = 0,
+) -> int | None:
     reserve = gen_reserve(window)
-    remainder = window - system_tokens - tool_tokens - _summary_budget(window) - reserve
+    remainder = window - system_tokens - snapshot_tokens - tool_tokens - _summary_budget(window) - reserve
     if remainder < MIN_TAIL_TOKENS:
         return None  # document+system+tools already fill the window
     # Floor of KEEP_RECENT_FRACTION (0.30). int(window * 0.30) matches
@@ -301,7 +308,7 @@ def find_cut_index(messages: list[dict[str, Any]], keep_tokens: int, start_index
     (``context_compressor.py:2589-2608``); Hermes has a ``min_tail``
     message-count floor, WA is a pure token ceiling.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L2589-L2608
-    start_index is 1 (skip DOCUMENT CONTENT) or the previous
+    start_index is 1 (skip base system prompt) or the previous
     first_kept_index. None if nothing to compact or if even the last
     user turn cannot fit in keep_tokens.
     """
@@ -467,16 +474,6 @@ def _format_tool_calls(msg: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def _strip_document_span(text: str) -> str:
-    if DOCUMENT_MARKERS[0] not in text:
-        return text
-    start = text.find(DOCUMENT_MARKERS[0])
-    end = text.find(DOCUMENT_MARKERS[1])
-    if end >= 0:
-        return (text[:start] + text[end + len(DOCUMENT_MARKERS[1]):]).strip()
-    return text[:start].strip()
-
-
 def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
     """ROLE: text lines. Stub role=tool bodies > PRUNE_MIN_CHARS. Session unchanged.
 
@@ -489,7 +486,6 @@ def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
     for i, msg in enumerate(messages):
         role = msg.get("role") or ""
         text, n_img, n_aud = flatten_content(msg.get("content"))
-        text = _strip_document_span(text)
         if role == "assistant":
             calls = _format_tool_calls(msg)
             if calls:
@@ -771,7 +767,7 @@ def _summarize_bounded(
     window: int,
     max_out: int,
     previous_summary: str,
-    stop_checker: Callable[[], bool] | None,
+    cancel: Any,
     stale: Callable[[], bool],
 ) -> tuple[str | None, str]:
     lines = _summary_lines(slice_messages)
@@ -782,7 +778,7 @@ def _summarize_bounded(
     idx = 0
 
     while idx < len(lines):
-        if (stop_checker and stop_checker()) or stale():
+        if (cancel is not None and cancel.is_cancelled()) or stale():
             return None, "aborted"
 
         next_chunk = _next_summary_chunk(
@@ -807,14 +803,14 @@ def _summarize_bounded(
                 max_tokens=max_out,
                 tools=None,
                 stream=False,
-                stop_checker=stop_checker,
+                cancel=cancel,
                 prepend_dev_build_system_prefix=False,
             )
         except Exception:
             log.exception("Compaction failed")
             return None, "failed"
 
-        if stop_checker and stop_checker():
+        if cancel is not None and cancel.is_cancelled():
             return None, "aborted"
 
         content = (result or {}).get("content") or ""
@@ -834,7 +830,7 @@ def compact_session(
     window: int | None,
     tools: Any = None,
     max_tokens: int | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: Any = None,
     force: bool = False,
     status_callback: Callable[[str], None] | None = None,
 ) -> CompactResult:
@@ -853,7 +849,14 @@ def compact_session(
     state = getattr(session, "compaction", None)
     # Hermes estimate_request_tokens_rough (model_metadata.py:2155-2167):
     # count the request, not just the transcript.
-    before = estimate_tokens(view) + tool_tokens
+    gate_tokens = estimate_tokens(view) + tool_tokens
+    snap_text = snapshot_text(getattr(session, "document_context", "") or "")
+    snapshot_tokens = (
+        estimate_message_tokens({"role": "user", "content": snap_text})
+        if snap_text
+        else 0
+    )
+    before = gate_tokens + snapshot_tokens
     if window is None or window <= 0:
         # No denominator → no remaining-budget clamp. Skip proactive *and* force.
         return CompactResult(False, "no_window", before, before)
@@ -862,7 +865,7 @@ def compact_session(
         return CompactResult(False, "below_threshold", before, before)
 
     system_tokens = estimate_message_tokens(messages[0])
-    keep = keep_recent_tokens(window, system_tokens, tool_tokens, force=force)
+    keep = keep_recent_tokens(window, system_tokens, tool_tokens, force=force, snapshot_tokens=snapshot_tokens)
     if keep is None:
         return CompactResult(False, "nothing_to_compact", before, before)
 
@@ -892,7 +895,7 @@ def compact_session(
         window=window,
         max_out=max_out,
         previous_summary=previous,
-        stop_checker=stop_checker,
+        cancel=cancel,
         stale=lambda: session.messages is not messages,
     )
     if summary is None:
@@ -910,7 +913,7 @@ def compact_session(
         stubbed_tool_call_ids=stubbed_ids,
         kept_message_id=id(messages[new_cut]),
     )
-    after = estimate_tokens(messages_for_llm(session)) + tool_tokens
+    after = estimate_tokens(messages_for_llm(session)) + tool_tokens + snapshot_tokens
     reserve = gen_reserve(window)
     if after > window - reserve:
         session.compaction = state  # revert; do not ship a too-large view

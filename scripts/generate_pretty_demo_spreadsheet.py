@@ -21,7 +21,7 @@ row). RESULTS cells are a **short** ``=PY()`` that takes the data range as
 newlines). Editing the SQL cells dirties RESULTS through Calc's DAG. Do not
 embed SQL inside the formula string — long quoted SQL is how Calc hits Err:508
 / comma→semicolon bugs. Sheet-only RESULTS use injected ``session_duckdb()``.
-The sales⨝ZIP-income join is a live ``=PY()`` via injected ``run_sql`` plus
+The sales⨝ZIP-income join is a live ``=PY()`` via injected ``query_folder_df`` plus
 the document folder (``scoped_dir``) so the sibling CSV is not a Calc arg.
 The sheet teaches stable catalog identity (``{sheet}``, ``{named_range}``,
 sibling ``file#Sheet``) — not only frozen A1. Named ranges ``SalesData`` /
@@ -310,7 +310,7 @@ ACS_INCOME_NOTE = (
     "workbook. RESULTS: =PY(short code, data_range, sql_range) — data[0] is "
     "the sheet (named range SalesData / MarketingData), data[1] is the SQL "
     "cells above (joined with newlines). Sheet-only uses session_duckdb(); "
-    "the ZIP join is live run_sql(..., files={zip_income: zip_income.csv}, "
+    "the ZIP join is live query_folder_df(..., files={zip_income: zip_income.csv}, "
     "scoped_dir). Prefer catalog identity {sheet: \"Sales_Analytics\"} "
     "(used range), {named_range: \"SalesData\"}, or sibling "
     "file#Sheet (budget.xlsx#Actuals) — not frozen A1. Regenerate: "
@@ -354,7 +354,7 @@ def duckdb_sql_from_cell_code(table: str) -> str:
 
 
 def duckdb_join_from_cell_code(table: str, csv_name: str) -> str:
-    """Short =PY() payload: live sheet ``data[0]`` ⨝ sibling *csv_name* via ``run_sql``.
+    """Short =PY() payload: live sheet ``data[0]`` ⨝ sibling *csv_name* via ``query_folder_df``.
 
     SQL still lives in ``data[1]``. *csv_name* is a sibling basename under
     injected ``scoped_dir`` (not a Calc argument).
@@ -362,7 +362,7 @@ def duckdb_join_from_cell_code(table: str, csv_name: str) -> str:
     stem = csv_name.rsplit(".", 1)[0]
     return (
         "sql=chr(10).join(str(c) for r in data[1] for c in r if c); "
-        f"result=run_sql(sql,{{{table!r}:data[0]}},{{{stem!r}:{csv_name!r}}},scoped_dir)"
+        f"result=query_folder_df(sql,files={{{stem!r}:{csv_name!r}}},scoped_dir=scoped_dir,preloaded={{{table!r}:data[0]}})"
     )
 
 
@@ -459,7 +459,7 @@ def sql_demo_scenarios() -> list[dict[str, str]]:
             "title": "3. Live join: sales {sheet} ⨝ sibling zip_income.csv",
             "blurb": (
                 "Live =PY() joins {sheet: \"Sales_Analytics\"} (SalesData) to sibling "
-                f"{ZIP_INCOME_CSV_NAME} via run_sql + scoped_dir. Same catalog as "
+                f"{ZIP_INCOME_CSV_NAME} via query_folder_df + scoped_dir. Same catalog as "
                 "query_folder_sql tables={{sales: {{sheet: \"Sales_Analytics\"}}}} "
                 f"files={{zip_income: {ZIP_INCOME_CSV_NAME}}}. Sibling office sheets "
                 "use file#Sheet (budget.xlsx#Actuals)."
@@ -530,7 +530,7 @@ def _a1_col_range(start_row: int, end_row: int) -> str:
 def _scenario_result_formula(kind: str, sql_range: str, *, ods: bool) -> str | None:
     """Live =PY()+DuckDB. SQL is a cell/range arg, not a string.
 
-    Sheet-only uses ``session_duckdb()``. Join uses ``run_sql`` + sibling CSV
+    Sheet-only uses ``session_duckdb()``. Join uses ``query_folder_df`` + sibling CSV
     under ``scoped_dir`` (not a Calc argument). Data args are named ranges
     (``{named_range}``) so they grow with the name, not frozen A1.
     """

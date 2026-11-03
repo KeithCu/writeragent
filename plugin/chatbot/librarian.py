@@ -159,10 +159,8 @@ TOOLS FOR COMPLETION:
 
 """
 
-    from plugin.framework.prompts import (
-        format_user_memory_prompt_block,
-        get_chat_response_format_instructions,
-    )
+    from plugin.chatbot.memory import format_user_memory_prompt_block
+    from plugin.framework.prompts import get_chat_response_format_instructions
 
     instructions += (
         "\n\n"

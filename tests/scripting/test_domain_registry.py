@@ -28,7 +28,9 @@ def test_registry_module_attr_targets_resolve():
 
     targets: list[str] = []
     for w in WIRING_TABLE:
-        targets.extend([w.insert_ref, w.is_result_ref])
+        targets.append(w.insert_ref)
+        if w.is_result_ref is not None:
+            targets.append(w.is_result_ref)
         if w.insert_kwargs_from_code is not None:
             targets.append(w.insert_kwargs_from_code)
     for p in PICKER_WIRING:
@@ -42,6 +44,14 @@ def test_registry_module_attr_targets_resolve():
         assert attr_name.isidentifier(), target
         fn = _resolve_module_attr(target)
         assert callable(fn), target
+
+
+def test_helper_rows_have_registered_names():
+    from plugin.scripting.helper_registry import names
+
+    for w in WIRING_TABLE:
+        if w.helper_domain is not None:
+            assert len(names(w.helper_domain)) > 0, f"Expected non-empty names for {w.id} (helper_domain={w.helper_domain})"
 
 
 def test_rps_domain_order():
@@ -257,9 +267,9 @@ def test_picker_supports_matches_post_venv_calc_only():
     for row in PICKER_WIRING:
         assert row.origin in by_id
         if by_id[row.origin].post_venv_calc_only:
-            assert row.supports_ref == "plugin.doc.doc_type:is_calc"
+            assert row.supports_ref == "plugin.framework.doc_type:is_calc"
         else:
-            assert row.supports_ref != "plugin.doc.doc_type:is_calc"
+            assert row.supports_ref != "plugin.framework.doc_type:is_calc"
             assert row.supports_ref.count(":") == 1
     assert set(by_id) - {row.origin for row in PICKER_WIRING} == {"text"}
 
@@ -268,7 +278,7 @@ def test_quant_picker_is_calc_only():
     quant_spec = next(d for d in PICKER_WIRING if d.origin == "quant")
     calc_doc = object()
     writer_doc = object()
-    with patch("plugin.doc.doc_type.is_calc", side_effect=lambda doc: doc is calc_doc):
+    with patch("plugin.framework.doc_type.is_calc", side_effect=lambda doc: doc is calc_doc):
         assert quant_spec.supports(calc_doc) is True
         assert quant_spec.supports(writer_doc) is False
         assert quant_spec.supports(None) is False

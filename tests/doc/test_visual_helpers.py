@@ -9,7 +9,7 @@ import pytest
 from types import SimpleNamespace
 
 from plugin.doc import visual_helpers
-from plugin.doc.doc_type import (
+from plugin.framework.doc_type import (
     CALC_DOCUMENT_SERVICE,
     DRAW_DOCUMENT_SERVICE,
     IMPRESS_DOCUMENT_SERVICE,

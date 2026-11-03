@@ -41,7 +41,7 @@ def calc_mcp_setup():
 
     # Mock main thread executor
     main_thread = MagicMock()
-    main_thread.execute.side_effect = lambda fn, *a, **kw: fn(*a, **{k: v for k, v in kw.items() if k not in ("timeout", "bound_scope")})
+    main_thread.call.side_effect = lambda fn, *a, **kw: fn(*a, **{k: v for k, v in kw.items() if k not in ("timeout", "bound_scope")})
     services.register("main_thread", main_thread)
 
     config_svc = MagicMock()
@@ -59,6 +59,7 @@ def calc_mcp_setup():
     services, tool_reg = get_calc_tool_registry(services)
 
     handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: config_dict.get("mcp.tool_exposure_mode", config_dict.get("tool_exposure_mode", "delegate"))
     return {
         "services": services,
         "tools": tool_reg,

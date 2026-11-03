@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable, cast
 
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.client.model_fetcher import get_text_model
 from plugin.framework.errors import best_effort, suppress_disposed
 from plugin.framework.uno_context import get_active_document
@@ -52,11 +52,11 @@ class EvalDashboard:
     def _populate(self) -> None:
         assert self._dlg is not None
         endpoint_ctrl = self._dlg.getControl("endpoint")
-        set_control_text(endpoint_ctrl, get_config_str("endpoint"))
+        set_control_text(endpoint_ctrl, get_config("endpoint"))
 
         model_ctrl = self._dlg.getControl("models")
         current_model = str(get_text_model())
-        current_endpoint = get_config_str("endpoint").strip()
+        current_endpoint = str(get_config("endpoint") or "").strip()
         # Same freeze as Settings: fetch_available_models before execute()
         # blocked the UI on a dead endpoint. LRU now; the worker fills the list.
         populate_combobox_with_lru(
@@ -88,7 +88,7 @@ class EvalDashboard:
             endpoint_url_suitable_for_v1_models_fetch,
             fetch_available_models,
         )
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
         from plugin.framework.worker_pool import run_in_background
 
         if not endpoint or not endpoint_url_suitable_for_v1_models_fetch(endpoint):
@@ -107,7 +107,7 @@ class EvalDashboard:
             def _apply() -> None:
                 self._apply_model_list(endpoint, current_model, models)
 
-            post_to_main_thread(_apply)
+            main.post(_apply)
 
         run_in_background(_fetch_eval_models, name="eval-models")
 
@@ -154,7 +154,7 @@ class EvalRunListener(BaseActionListener):
                 self.dialog.getControl("status").setText("Unavailable")
                 self.is_running = False
                 return
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
         from plugin.framework.uno_context import process_events_to_idle
         from plugin.framework.worker_pool import run_in_background
 
@@ -182,16 +182,16 @@ class EvalRunListener(BaseActionListener):
             try:
                 summary = run_benchmark_suite(self.ctx, doc, model_name, categories, on_test_finished=self._after_test)
             except Exception as exc:
-                post_to_main_thread(self._show_failure, exc)
+                main.post(self._show_failure, exc)
                 return
-            post_to_main_thread(self._show_summary, model_name, summary)
+            main.post(self._show_summary, model_name, summary)
 
         # dedicated: a full suite holds the worker for minutes and must not take a pool slot.
         return run_in_background(_job, name="eval-benchmark", dedicated=True)
 
     def _after_test(self, result: dict[str, Any]) -> None:
         """Posted once per test so the dialog paints without waiting for the suite."""
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
         def _paint() -> None:
             # The suite worker outlives the dialog. Close returns from
@@ -207,7 +207,7 @@ class EvalRunListener(BaseActionListener):
 
                 process_events_to_idle(self.ctx)
 
-        post_to_main_thread(_paint)
+        main.post(_paint)
 
     def _terminal_paint(self, paint_fn: Callable[[], None]) -> None:
         try:

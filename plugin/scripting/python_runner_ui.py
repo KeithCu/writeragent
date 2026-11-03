@@ -71,7 +71,7 @@ def close_modeless_dialog(dlg: Any, *, toolkit_teardown: bool = False, log_label
         log.debug("%s: dispose failed", log_label, exc_info=True)
 
 
-from plugin.framework.config import get_config, get_config_str, set_config
+from plugin.framework.config import get_config, save
 from plugin.framework.errors import is_disposal, resolve_exception_message
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import (
@@ -230,13 +230,13 @@ class NativePythonScriptDialog:
 
         config_key = self._name_config_key
 
-        picked = select_display if select_display and select_display in names else get_config_str(config_key)
+        picked = select_display if select_display and select_display in names else get_config(config_key)
         selected_name = picked if picked and picked in names else (names[0] if names else "")
 
         dlg = self._dlg
         if selected_name:
             _picker_select_name(select_ctrl, selected_name, names)
-            set_config(config_key, selected_name)
+            save({config_key: selected_name})
         if dlg is not None:
             code_ctrl = dlg.getControl("CodeEdit")
             if code_ctrl is not None:
@@ -261,7 +261,7 @@ class NativePythonScriptDialog:
             # How it happened: this call sits in _open's try without its own handler.
             # Why this change: pre-warm is optional, so catch and log scheduling failures.
             try:
-                run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
+                run_in_background(warm_venv_worker, name="warm-venv-worker", dedicated=False)
             except Exception:
                 log.exception("native script dialog: venv warm-up was not scheduled")
 
@@ -398,7 +398,7 @@ class NativePythonScriptDialog:
                 name = _picker_selected_name(select_ctrl)
                 if name:
                     code_ctrl = dlg.getControl("CodeEdit")
-                    set_config(self._name_config_key, name)
+                    save({self._name_config_key: name})
                     t = self._current_scripts.get(name, "")
                     code_ctrl.setText(t)
             except Exception:

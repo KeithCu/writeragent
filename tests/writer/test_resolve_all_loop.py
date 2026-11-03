@@ -14,6 +14,7 @@ from plugin.writer.inline_review import (
     RedlineRow,
     RedlineView,
     ResolveAllResult,
+    ResolvePolicy,
     ResolveResult,
     ResolveStatus,
     _resolve_all_agent_changes,
@@ -37,7 +38,7 @@ def _run_loop(tokens, blocked):
         )
         return RedlineView(reliable=True, total=len(rows), rows=rows)
 
-    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None, *, allow_paragraph_fallback=True):
+    def fake_resolve(model, ctx, token, accept, policy=ResolvePolicy.EXACT_THEN_PARAGRAPH, before=None):
         if token in blocked:
             return ResolveResult(ResolveStatus.REFUSED_FOREIGN), (before or fake_view(model))
         if token in state["tokens"]:
@@ -222,7 +223,7 @@ def test_resolve_all_mixed_foreign_and_predispatch_failure_summary_not_shares_pa
     )
     view = RedlineView(reliable=True, total=2, rows=rows)
 
-    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None, *, allow_paragraph_fallback=True):
+    def fake_resolve(model, ctx, token, accept, policy=ResolvePolicy.EXACT_THEN_PARAGRAPH, before=None):
         if token == "A":
             return ResolveResult(ResolveStatus.REFUSED_FOREIGN), view
         return ResolveResult(ResolveStatus.UNRELIABLE), view
@@ -246,10 +247,10 @@ def test_resolve_all_exact_retry_and_noop_suppression():
     view = RedlineView(reliable=True, total=2, rows=rows)
     calls = []
 
-    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None, *, allow_paragraph_fallback=True):
-        calls.append((token, prefer_exact, allow_paragraph_fallback))
+    def fake_resolve(model, ctx, token, accept, policy=ResolvePolicy.EXACT_THEN_PARAGRAPH, before=None):
+        calls.append((token, policy))
         if token == "A":
-            if not prefer_exact:
+            if policy is ResolvePolicy.PARAGRAPH_ONLY:
                 return ResolveResult(ResolveStatus.REFUSED_FOREIGN), view
             return ResolveResult(ResolveStatus.NO_OP), view
         if token == "B":
@@ -264,9 +265,9 @@ def test_resolve_all_exact_retry_and_noop_suppression():
     assert res.status == ResolveStatus.REFUSED_FOREIGN
     assert res.resolved == 0
     assert calls == [
-        ("A", False, True),
-        ("A", True, False),
-        ("B", False, True),
+        ("A", ResolvePolicy.PARAGRAPH_ONLY),
+        ("A", ResolvePolicy.EXACT_ONLY),
+        ("B", ResolvePolicy.PARAGRAPH_ONLY),
     ]
     with patch("plugin.writer.inline_review._resolve_all_agent_changes", return_value=res):
         n, msg = resolve_all_with_feedback(MagicMock(), MagicMock(), True)
@@ -282,8 +283,8 @@ def test_resolve_all_exact_retry_removes_strict_sibling_included_in_bulk_count()
     view_before = RedlineView(reliable=True, total=2, rows=rows_before)
     view_after = RedlineView(reliable=True, total=0, rows=())
 
-    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None, *, allow_paragraph_fallback=True):
-        if not prefer_exact:
+    def fake_resolve(model, ctx, token, accept, policy=ResolvePolicy.EXACT_THEN_PARAGRAPH, before=None):
+        if policy is not ResolvePolicy.EXACT_ONLY:
             return ResolveResult(ResolveStatus.REFUSED_FOREIGN), view_before
         return ResolveResult(ResolveStatus.RESOLVED, 2), view_after
 
@@ -304,8 +305,8 @@ def test_resolve_all_exact_retry_removed_outside_set_stays_partial():
     view_before = RedlineView(reliable=True, total=2, rows=rows_before)
     view_after = RedlineView(reliable=True, total=1, rows=(rows_before[1],))
 
-    def fake_resolve(model, ctx, token, accept, refuse_sibling_agent=True, prefer_exact=True, before=None, *, allow_paragraph_fallback=True):
-        if not prefer_exact:
+    def fake_resolve(model, ctx, token, accept, policy=ResolvePolicy.EXACT_THEN_PARAGRAPH, before=None):
+        if policy is not ResolvePolicy.EXACT_ONLY:
             return ResolveResult(ResolveStatus.REFUSED_FOREIGN), view_before
         return ResolveResult(ResolveStatus.PARTIAL), view_after
 

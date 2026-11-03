@@ -33,9 +33,9 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
-from plugin.doc.doc_type import agent_label_for_context
+from plugin.framework.doc_type import agent_label_for_context
 from plugin.framework.errors import user_stopped_payload
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def allowed_specialized_domains(agent_label: str, uno_ctx: Any = None) -> frozen
     ``python`` is omitted: the outer agent already has that toolset, and nesting
     it would expose ``delegate_tool_domains`` again.
     """
-    from plugin.framework.prompts import get_specialized_domain_catalog
+    from plugin.doc.specialized_catalog import get_specialized_domain_catalog
 
     catalog = get_specialized_domain_catalog(agent_label=agent_label, ctx=uno_ctx)
     return frozenset(entry["domain"] for entry in catalog if entry["domain"] != _PYTHON_DOMAIN)
@@ -203,7 +203,7 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
                     finish.append(tool)
         return body + venv + finish
 
-    return run_on_main(_fetch)
+    return main.run(_fetch)
 
 
 def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
@@ -254,7 +254,10 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
     if "shapes" in domains:
         from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 
-        canvas = run_on_main(lambda: format_shapes_canvas_context(getattr(parent_ctx, "doc", None)))
+        def _get_canvas() -> str:
+            return format_shapes_canvas_context(getattr(parent_ctx, "doc", None))
+
+        canvas = main.run(_get_canvas)
         if canvas:
             parts.append(canvas if canvas.startswith(" ") else " " + canvas)
     return "".join(parts)

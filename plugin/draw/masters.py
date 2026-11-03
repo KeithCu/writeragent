@@ -17,14 +17,54 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSlideMastersBase
 from plugin.draw.bridge import resolve_shape_page
+from plugin.framework.errors import is_disposal
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 
-def _master_pages(doc: Any) -> list[Any]:
-    masters = doc.getMasterPages()
-    return [masters.getByIndex(i) for i in range(masters.getCount())]
+def iter_masters(doc: Any) -> list[tuple[int, Any, str]]:
+    """Enumerate master pages as (index, master_page, name)."""
+    if doc is None or not hasattr(doc, "getMasterPages"):
+        return []
+    try:
+        masters = doc.getMasterPages()
+    except Exception as exc:
+        if is_disposal(exc):
+            raise
+        return []
+    result: list[tuple[int, Any, str]] = []
+    try:
+        count = int(masters.getCount())
+    except Exception as exc:
+        if is_disposal(exc):
+            raise
+        return []
+    for i in range(count):
+        try:
+            m = masters.getByIndex(i)
+            name = str(getattr(m, "Name", "") or "")
+            result.append((i, m, name))
+        except Exception as exc:
+            if is_disposal(exc):
+                raise
+            break
+    return result
+
+
+def find_master(doc: Any, *, name: str | None = None, index: int | None = None) -> Any | None:
+    """Find a master page by name or index."""
+    if name is not None:
+        for _idx, m, m_name in iter_masters(doc):
+            if m_name == name:
+                return m
+        return None
+    if index is not None:
+        for idx, m, _m_name in iter_masters(doc):
+            if idx == index:
+                return m
+        return None
+    return None
 
 
 class ListMasterSlides(ToolDrawSlideMastersBase):
@@ -35,12 +75,11 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        doc = ctx.doc
         result = []
-        for i, m in enumerate(_master_pages(doc)):
+        for i, m, name in iter_masters(ctx.doc):
             result.append({
                 "index": i,
-                "name": getattr(m, "Name", ""),
+                "name": name,
                 "width_mm": m.Width // 100,
                 "height_mm": m.Height // 100,
             })
@@ -80,11 +119,11 @@ class SetSlideMaster(ToolDrawSlideMastersBase):
             return self._tool_error(err)
         assert page is not None
 
-        masters = _master_pages(ctx.doc)
-        target = next((m for m in masters if getattr(m, "Name", "") == master_name), None)
+        all_masters = iter_masters(ctx.doc)
+        target = next((m for _i, m, name in all_masters if name == master_name), None)
 
         if target is None:
-            available = [getattr(m, "Name", "") for m in masters]
+            available = [name for _i, _m, name in all_masters]
             return self._tool_error("Master '%s' not found." % master_name, available=available)
 
         page.MasterPage = target

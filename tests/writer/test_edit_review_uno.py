@@ -226,7 +226,7 @@ def test_stop_checker_aborts_wait_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_wait_for_review_routes_uno_via_runner_uno(ctx, doc):
-    """Off-main-thread callers (MCP HTTP / chat worker) pass uno_runner=execute_on_main_thread;
+    """Off-main-thread callers (MCP HTTP / chat worker) pass uno_runner=main.call;
     every document touch in the wait loop must flow through it."""
     _body(doc, ctx, "Runner clause here.")
     with EditReviewSession(doc, ctx, enabled=True) as session:

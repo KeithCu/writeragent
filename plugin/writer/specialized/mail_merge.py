@@ -28,6 +28,7 @@ from urllib.parse import unquote, urlparse
 
 from ..specialized_base import ToolWriterMailMergeBase, enum_param, target_params
 from ..target_resolver import resolve_target_cursor
+from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.uno_context import get_service_manager, resolve_uno_context
@@ -429,8 +430,7 @@ class ListFields(ToolWriterMailMergeBase):
         merge_fields = []
         field_idx = 0
 
-        while enum.hasMoreElements() is True:
-            field = enum.nextElement()
+        for field in iter_elements(enum):
             field_idx += 1
 
             # Check if this is a Database text field

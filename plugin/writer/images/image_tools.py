@@ -259,6 +259,29 @@ def insert_image(
         add_image_to_gallery(ctx, img_path)
 
 
+def insert_embedded_image(
+    doc: Any,
+    img_path: str,
+    *,
+    width_units: int,
+    height_units: int,
+    title: str = "",
+    description: str = "",
+    ctx: Any | None = None,
+) -> Any:
+    """Create an AS_CHARACTER embedded graphic from a local file path."""
+    graphic = _create_embedded_graphic(doc, "writer", _file_url_for_path(img_path), ctx=ctx)
+    _apply_graphic_properties(
+        graphic,
+        width=width_units,
+        height=height_units,
+        title=title,
+        description=description,
+        anchor_type=AS_CHARACTER,
+    )
+    return graphic
+
+
 def insert_image_at_locator(ctx: Any, model: Any, img_path: str, width_mm: int | float = 80, height_mm: int | float = 80, title: str = "", description: str = "", text_cursor: Any = None, page_index: int | None = None, x_mm: int | float | None = None, y_mm: int | float | None = None) -> Any:
     """Insert at an optional Writer text cursor, or current view cursor / draw page.
 

@@ -26,11 +26,6 @@ from urllib.parse import urlparse
 log = logging.getLogger("writeragent.mcp.cors")
 
 from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_ORIGIN,
-    UNDER_CROSSHAIR,
-    _profile,
-    ascii_bounded,
     deal,
     inverse_ensure,
 )
@@ -62,16 +57,11 @@ def _deal_origin_ok_pytest(origin: object) -> bool:
     # Browser Origin headers are not limited to DEAL_MAX_ORIGIN or the
     # URL-safe alphabet. A junk or huge Origin used to raise
     # PreContractError out of send_cors_headers (HTTP 500). The body
-    # returns False / None. CrossHair keeps the closed alphabet.
+    # returns False / None.
     return isinstance(origin, str)
 
 
-def _deal_origin_ok_crosshair(origin: object) -> bool:
-    """Closed Origin domain: URL-safe alphabet, DEAL_MAX_ORIGIN length."""
-    return isinstance(origin, str) and len(origin) <= DEAL_MAX_ORIGIN and all(c in _ORIGIN_CHARS for c in origin)
-
-
-_deal_origin_ok = _deal_origin_ok_crosshair if UNDER_CROSSHAIR else _deal_origin_ok_pytest
+_deal_origin_ok = _deal_origin_ok_pytest
 
 
 def _deal_allow_headers_ok_pytest(value: object) -> bool:
@@ -80,34 +70,11 @@ def _deal_allow_headers_ok_pytest(value: object) -> bool:
     return isinstance(value, str)
 
 
-def _deal_allow_headers_ok_crosshair(value: object) -> bool:
-    """Preflight header-list domain: ascii tokens, few commas (not 32-char junk)."""
-    if not isinstance(value, str) or not ascii_bounded(value, DEAL_MAX_ORIGIN):
-        return False
-    if value.count(",") > DEAL_MAX_CMD_ARGS:
-        return False
-    return all(c in _HEADER_LIST_CHARS for c in value)
-
-
-_deal_allow_headers_ok = (
-    _deal_allow_headers_ok_crosshair if UNDER_CROSSHAIR else _deal_allow_headers_ok_pytest
-)
-
-
-def _deal_origins_config_ok_crosshair(value: object) -> bool:
-    return (
-        value is None
-        or (isinstance(value, str) and _deal_origin_ok(value))
-        or (
-            isinstance(value, list)
-            and len(value) <= DEAL_MAX_CMD_ARGS
-            and all(_deal_origin_ok(item) for item in value)
-        )
-    )
-
+_deal_allow_headers_ok = _deal_allow_headers_ok_pytest
 
 # Raw user config: accept anything; the body drops what it cannot use.
-_deal_origins_config_ok = _profile(_deal_origins_config_ok_crosshair)
+def _deal_origins_config_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 @deal.pre(lambda value: value is None or _deal_origin_ok(value))
@@ -216,15 +183,13 @@ def is_extra_allowed_origin(origin: str) -> bool:
     return normalized is not None and normalized in _extra_allowed_origins
 
 
-def reload_cors_policy_from_config(services: Any) -> None:
+def reload_cors_policy_from_config(services: Any = None) -> None:
     """Refresh CORS caches from mcp config (explicit list + private-origin JSON setting)."""
     # crosshair: off
-    # ConfigService.get returns the caller default on ConfigError. A raise
-    # here is a broken config service. The old except cleared the explicit
-    # origin list and forced allow-private off, so the bug never surfaced.
-    cfg = services.config.proxy_for("mcp")
-    raw = cfg.get("cors_allowed_origins")
-    allow_private = cfg.get("cors_allow_private_origins")
+    from plugin.framework.config import get_config
+
+    raw = get_config("mcp.cors_allowed_origins")
+    allow_private = get_config("mcp.cors_allow_private_origins")
     origins = normalize_origins_list(raw)
     set_extra_allowed_origins(origins)
     set_allow_private_origins(allow_private if allow_private is not None else True)
@@ -303,9 +268,8 @@ def reject_forbidden_origin(handler: Any) -> bool:
 
     Bug: CORS only omitted Access-Control-Allow-Origin for unsafe browser
     Origins; OPTIONS still returned 204 and POST still ran JSON-RPC. A
-    non-preflighted or CORS-ignoring client could mutate. Nelson ca7c2d32
-    (0.13.0) 403s any present-and-unsafe Origin with no CORS headers so
-    the request never reaches a route. WriterAgent keeps loopback +
+    non-preflighted or CORS-ignoring client could mutate. Unsafe Origins get 403
+    with no CORS headers so the request never reaches a route. WriterAgent keeps loopback +
     private/LAN defaults; only the already-unsafe set is refused.
     """
     if not origin_is_forbidden(handler):
@@ -321,11 +285,10 @@ def reject_forbidden_origin(handler: Any) -> bool:
 
 def get_configured_tunnel_host() -> str | None:
     """Hostname of the running MCP tunnel's public URL, if any."""
-    # _shared_tunnel is a module global. public_url is a plain attribute.
-    # A failed lookup must not look like "no tunnel".
-    from plugin.mcp import _shared_tunnel
+    from plugin.mcp import current_tunnel
 
-    pub_url = _shared_tunnel.public_url if _shared_tunnel is not None else None
+    tunnel = current_tunnel()
+    pub_url = tunnel.public_url if tunnel is not None else None
     if not pub_url:
         return None
     return urlparse(pub_url if "://" in pub_url else f"https://{pub_url}").hostname

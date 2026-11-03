@@ -252,7 +252,7 @@ The worker starts from `on_drain_started` after the drain is armed; `get_toolkit
 
 This avoids adding the heavy `openai` dependency to the LibreOffice extension while ensuring 100% compatibility with OpenAI-style streaming deltas.
 
-Non-streaming JSON (images, speech, and the sync half of `request_with_tools`) shares one retry loop, `_exchange_json` in `plugin/framework/client/llm_client.py`. Stop during a 429/503 wait aborts that call. A body that `read()` already returned is not posted again. The stream loop stays separate because it must not retry after tokens have reached the UI.
+Non-streaming JSON (images, speech, and the sync half of `request_with_tools`) goes through `LlmHttpTransport.exchange`, which holds one `RetryBudget` per call (up to three sends, shared 429/503 waits and connection retries). Reasoning **effort** HTTP 400 fallbacks on that path retry inside the same budget instead of opening a second retry loop. Stop during a 429/503 wait aborts that call. A body that `read()` already returned is not posted again. The stream loop stays separate because it must not retry after tokens have reached the UI.
 
 A retry before any visible token still drops that attempt's snapshot. `on_delta` can record `role`, `usage`, and a buffered `<think` prefix while `emitted_any` is still false (a usage-only chunk and a partial tag never call `on_content`). `accumulate_delta` adds integers and concatenates strings, so the next attempt would double `prompt_tokens` / `completion_tokens` and glue the prefix on twice. `_run_streaming_loop` calls `reset_unemitted_attempt` only in that case. After a token, a thinking delta, or a tool-call byte has been shown, the loop does not retry and does not clear the snapshot.
 
@@ -270,9 +270,9 @@ LibreOffice’s UI (VCL) is single-threaded. To keep the UI responsive during lo
 
 2. **Main Thread (Consumer):**
    - When `AsyncCallback` can be armed, [`run_stream_drain_loop`](../../plugin/framework/async_stream.py) takes one ready batch (`get_nowait` only) and **returns to the VCL main loop**. The next slice is `addCallback` if more items are already queued, or a ~100 ms idle re-arm if the queue is empty. Each re-arm queues its own slice; a late idle callback cannot replace a slice already queued. If `addCallback` raises, `_enqueue` removes that slice before the exception propagates, so the idle retry does not append a second copy. That event-driven slice does **not** call [`pump_ui_idle`](../../plugin/framework/queue_executor.py) / `processEventsToIdle`. That callback is not a send-scoped work item: Stop's `cancel_pending_work` must not drop it.
-   - Do not loop on `q.get(timeout=0.1)` inside that callback, and do not call `processEventsToIdle` from the slice. The callback already holds SolarMutex (`VCLXToolkit::processEventsToIdle` takes another guard for the whole call). The idle `get` used to sit in Python with the mutex still held, so a worker GC freeing a PyUNO proxy blocked in the destructor until the callback returned. Returning to the top-level loop drops the mutex. Marshaled UNO still runs: `QueueExecutor`'s own `AsyncCallback` fires once this slice has returned.
+   - Do not loop on `q.get(timeout=0.1)` inside that callback, and do not call `processEventsToIdle` from the slice. The callback already holds SolarMutex (`VCLXToolkit::processEventsToIdle` takes another guard for the whole call). The idle `get` used to sit in Python with the mutex still held, so a worker GC freeing a PyUNO proxy blocked in the destructor until the callback returned. Returning to the top-level loop drops the mutex. Marshaled UNO still runs: `MainThread`'s own `AsyncCallback` fires once this slice has returned.
    - Without `AsyncCallback` (headless pytest via `set_drain_scheduler_override(lambda: None)`, eval harness, force-marshal) the drain keeps the blocking loop: `q.get(timeout=0.1)`, then [`pump_ui_idle`](../../plugin/framework/queue_executor.py) (one marshal item, then `processEventsToIdle`).
-   - **Marshal invariants:** [`QueueExecutor.execute`](../../plugin/framework/queue_executor.py) inlines UNO only on Python `MainThread` without a `worker_pool` background tag (`bg_task`); it never relies on `on_main_thread()` alone. During an active agent session (`agent_session()`), missing AsyncCallback raises instead of the legacy off-thread fallback. Tool and marshal callbacks must not call `processEventsToIdle()`. `WRITERAGENT_TESTING` inlines `QueueExecutor.post`; the drain does not re-arm through `post`, or the slice would run on the same stack. Callers that used to run after `run_stream_drain_loop` returns (`abort_turn`, `SEND_COMPLETED`) use `defer_until_drain_done` so they still wait for the terminal slice.
+   - **Marshal invariants:** [`MainThread.call`](../../plugin/framework/queue_executor.py) inlines UNO only on Python `MainThread` without a `worker_pool` background tag (`bg_task`); it never relies on `main.is_current()` alone. During an active agent session (`agent_session()`), missing AsyncCallback raises instead of the legacy off-thread fallback. Tool and marshal callbacks must not call `processEventsToIdle()`. Under `Policy.test_inline`, `main.post` inlines; the drain does not re-arm through `post`, or the slice would run on the same stack. Callers that used to run after `run_stream_drain_loop` returns (`abort_turn`, `SEND_COMPLETED`) use `defer_until_drain_done` so they still wait for the terminal slice.
    - If an item is received, it dispatches based on the message type (e.g., appending text, updating status, executing tools).
 
 This flat architecture avoids nested callbacks and makes state transitions explicit.
@@ -308,7 +308,7 @@ To handle both sync and async tools without freezing the UI, WriterAgent uses an
 1. **Queueing:** When `"stream_done"` is received with `tool_calls`, the calls are added to a `pending_tools` list, and a `("next_tool",)` message is pushed onto the queue.
 2. **Dispatching:** The main loop picks up `"next_tool"` and keeps pumping through items already pulled. A true callback return does not drop that tail; it is applied only after the batch. A false return leaves the drain running. It pops the first tool from `pending_tools`:
    - **Async Tools (`ASYNC_TOOLS` set):** Spawned on a dedicated thread. The main loop immediately returns to pumping UI events. When the thread finishes, it pushes a `("tool_done", ...)` message to the queue.
-   - **Sync Tools (UNO operations):** Also started on a dedicated thread, so the drain can keep pumping Stop. The worker checks the spawn-time stop checker before the call. UNO still runs on the main thread: ``ToolRegistry.execute`` marshals sync tools with ``execute_on_main_thread``, and the drain's ``pump_ui_idle`` runs that work. The worker then pushes `("tool_done", ...)`.
+   - **Sync Tools (UNO operations):** Also started on a dedicated thread, so the drain can keep pumping Stop. The worker checks the spawn-time stop checker before the call. UNO still runs on the main thread: ``ToolRegistry.execute`` marshals sync tools with ``main.call``, and the drain's ``pump_ui_idle`` runs that work. The worker then pushes `("tool_done", ...)`.
 3. **Completion:** When `"tool_done"` is received, the result is saved to the session history, and another `("next_tool",)` message is pushed.
 4. **Next Round:** When `"next_tool"` finds an empty `pending_tools` list and the loop is not stopped, all tools are finished. The loop increments the round counter and spawns a new LLM worker to send the results back to the model. If the loop is already stopped, it exits instead of spawning that worker or the final stream.
 
@@ -329,12 +329,12 @@ Smolagents (`ToolCallingAgent.process_tool_calls`) uses the same rule: multiple 
 
 - Sets a **thread-safe** cancelled flag (`scope.is_cancelled()`).
 - Calls `stop()` on every **`LlmClient`** registered for that send (closes the persistent HTTP socket so blocking reads fail fast).
-- Cancels pending main-thread queue work on every **bound** [`QueueExecutor`](../../plugin/framework/queue_executor.py) (`bind_executor` / `agent_session` binds `default_executor`; the sidebar also binds its panel `queue_executor`). A scope with no binds only latches the flag. Scoped cancel re-inserts other sends' items under `_order_lock` before any new enqueue can pass them, then pokes. Stop before `_run_send_drain` is that window: the panel queue is not bound yet, and wiping `default_executor` would cancel unrelated MCP, grammar, and peer items. Runs registered agent-backend `stop()` hooks.
+- Cancels pending main-thread queue work on every **bound** [`MainThread`](../../plugin/framework/queue_executor.py) (`scope.bind_executor` / `agent_session` binds `main`; the sidebar also binds its panel `queue_executor`). A scope with no binds only latches the flag. Scoped cancel re-inserts other sends' items under `_order_lock` before any new enqueue can pass them, then pokes. Stop before `_run_send_drain` is that window: the panel queue is not bound yet, and wiping `main` would cancel unrelated MCP, grammar, and peer items. Runs registered agent-backend `stop()` hooks.
 
 #### When `agent_session` cancels (abort vs success)
 
 - **Stop / dispose:** `StopSendEffect` or `disposing()` call `scope.cancel()` while `_do_send` is still inside `agent_session`. The drain exits; `_do_send` returns normally. **`agent_session` must not cancel again** on success (would close finished HTTP and `cancel_pending_work()` unrelated grammar/MCP items).
-- **Crash / abort:** An exception propagates out of the `with agent_session()` body. `agent_session` calls `scope.cancel()` once if not already cancelled (closes HTTP, wakes blocked `execute_on_main_thread` waiters).
+- **Crash / abort:** An exception propagates out of the `with agent_session()` body. `agent_session` calls `scope.cancel()` once if not already cancelled (closes HTTP, wakes blocked `main.call` waiters).
 - **Success:** Normal return (including handled errors that only set `_terminal_status` without raising). **No cancel.**
 
 #### Why the first implementation looked fixed but was not
@@ -372,7 +372,7 @@ Two separate bugs caused that:
 | Deep-research pool | On Stop, cancel futures that have not started, then join the pool. Workers return when the stop checker captured with the send is true. A worker stuck in HTTP is joined only up to `_STOP_POOL_JOIN_SEC`. Do not use `with ThreadPoolExecutor` (that joins before Stop can cancel). |
 | New `LlmClient` on a worker | `LlmClient(config, ctx, cancellation_scope=ctx.send_cancellation)` (or register manually on the scope). |
 | Long-running smol sub-agent | Use [`SmolAgentExecutor`](../../plugin/chatbot/smol_agent.py); do not hand-roll `agent.run` without the same stop/interrupt behavior. |
-| UNO + HTTP (document research) | Open/close document on main thread only; run inner smol agent on the **async worker**—never wrap the whole agent in `execute_on_main_thread`. |
+| UNO + HTTP (document research) | Open/close document on main thread only; run inner smol agent on the **async worker**—never wrap the whole agent in `main.call`. |
 
 Tests: [`tests/framework/test_send_cancellation.py`](../../tests/framework/test_send_cancellation.py) (stable checker after scope cleared, executor abort before next step, abort vs success, bound executors).
 
@@ -577,7 +577,7 @@ Inside [panel.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/chat_pa
        pump_ui_idle(toolkit)
    ```
 
-Because we are doing `q.get(timeout=0.1)` followed by `pump_ui_idle(toolkit)`, the loop yields control back to the UI ~10 times a second **and** runs `execute_on_main_thread` callbacks posted by tool workers (e.g. web research locale detection, or a sync tool marshaled off the drain). **The UI stays smooth and responsive.** The UNO body of a sync tool still runs on the main thread for that marshal; Stop is processed on the drain before the next model round.
+Because we are doing `q.get(timeout=0.1)` followed by `pump_ui_idle(toolkit)`, the loop yields control back to the UI ~10 times a second **and** runs `main.call` / `main.post` callbacks posted by tool workers (e.g. web research locale detection, or a sync tool marshaled off the drain). **The UI stays smooth and responsive.** The UNO body of a sync tool still runs on the main thread for that marshal; Stop is processed on the drain before the next model round.
 
 ### The `next_tool` Queuing System
 The final piece of the puzzle handles slow external tools (like Web Research or Image Generation).

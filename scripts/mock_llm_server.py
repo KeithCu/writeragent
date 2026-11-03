@@ -41,6 +41,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Iterator
 from urllib.parse import urlparse
 
+from plugin.framework.client.shim_helpers import SNAPSHOT_HEADER, extract_snapshot_from_messages
+
 DEFAULT_HOST = "127.0.0.1"
 # Not 8765 (historical MCP) or 18765 (current MCP).
 DEFAULT_PORT = 18766
@@ -343,19 +345,29 @@ _CURRENT_QUERY_MARK = "### CURRENT QUERY:"
 
 
 def document_content_len(messages: list[Any]) -> int:
-    """Characters between ``[DOCUMENT CONTENT]`` and ``[END DOCUMENT]`` (0 if absent)."""
-    for msg in messages:
-        if not isinstance(msg, dict) or msg.get("role") != "system":
-            continue
-        text = _as_text(msg.get("content"))
+    """Characters between snapshot header and ``[END DOCUMENT]`` (0 if absent)."""
+    text = extract_snapshot_from_messages(messages)
+    if not text:
+        for msg in reversed(messages):
+            if isinstance(msg, dict):
+                raw = _as_text(msg.get("content"))
+                if "[DOCUMENT CONTENT]" in raw:
+                    text = raw
+                    break
+    if not text:
+        return 0
+    start = text.find(SNAPSHOT_HEADER)
+    if start >= 0:
+        start += len(SNAPSHOT_HEADER)
+    else:
         start = text.find("[DOCUMENT CONTENT]")
-        if start < 0:
-            continue
-        start += len("[DOCUMENT CONTENT]")
-        end = text.find("[END DOCUMENT]", start)
-        blob = text[start:end] if end >= 0 else text[start:]
-        return len(blob.strip())
-    return 0
+        if start >= 0:
+            start += len("[DOCUMENT CONTENT]")
+        else:
+            return 0
+    end = text.find("[END DOCUMENT]", start)
+    blob = text[start:end] if end >= 0 else text[start:]
+    return len(blob.strip())
 
 
 def summarize_chat_payload(
@@ -858,22 +870,30 @@ def _looks_like_comment(text: str) -> bool:
 
 
 def _extract_document_words(messages: list[Any]) -> list[str]:
-    """Extract plain words from the [DOCUMENT CONTENT] block in conversation messages."""
-    for msg in messages:
-        if not isinstance(msg, dict):
-            continue
-        content = _as_text(msg.get("content"))
-        if "[DOCUMENT CONTENT]" in content:
-            doc_section = content.split("[DOCUMENT CONTENT]", 1)[1]
-            if "[END DOCUMENT]" in doc_section:
-                doc_section = doc_section.split("[END DOCUMENT]", 1)[0]
-            cleaned = re.sub(r"\[DOCUMENT (?:START|END)\]", " ", doc_section)
-            cleaned = re.sub(r"\[\.\.\..*?\.\.\.\]", " ", cleaned)
-            cleaned = re.sub(r"\[Document (?:content unavailable|text reading failed[^\]]*)\]", " ", cleaned)
-            cleaned = re.sub(r"^Document length:\s*\d+\s*characters\.", " ", cleaned, flags=re.MULTILINE)
-            words = re.findall(r"\b[A-Za-z0-9_-]+\b", cleaned)
-            return words
-    return []
+    """Extract plain words from the document snapshot in conversation messages."""
+    content = extract_snapshot_from_messages(messages)
+    if not content:
+        for msg in reversed(messages):
+            if isinstance(msg, dict):
+                raw = _as_text(msg.get("content"))
+                if "[DOCUMENT CONTENT]" in raw:
+                    content = raw
+                    break
+    if not content:
+        return []
+    if SNAPSHOT_HEADER in content:
+        doc_section = content.split(SNAPSHOT_HEADER, 1)[1]
+    elif "[DOCUMENT CONTENT]" in content:
+        doc_section = content.split("[DOCUMENT CONTENT]", 1)[1]
+    else:
+        return []
+    if "[END DOCUMENT]" in doc_section:
+        doc_section = doc_section.split("[END DOCUMENT]", 1)[0]
+    cleaned = re.sub(r"\[DOCUMENT (?:START|END)\]", " ", doc_section)
+    cleaned = re.sub(r"\[\.\.\..*?\.\.\.\]", " ", cleaned)
+    cleaned = re.sub(r"\[Document (?:content unavailable|text reading failed[^\]]*)\]", " ", cleaned)
+    cleaned = re.sub(r"^Document length:\s*\d+\s*characters\.", " ", cleaned, flags=re.MULTILINE)
+    return re.findall(r"\b[A-Za-z0-9_-]+\b", cleaned)
 
 
 def _first_url(text: str) -> str:

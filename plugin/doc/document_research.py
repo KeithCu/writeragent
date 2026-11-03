@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, Callable
 
 import uno
 
-from plugin.doc.doc_type import doc_type_family_label, get_document_type
+from plugin.framework.doc_type import doc_type_family_label, get_document_type
 from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.errors import best_effort, uno_read, user_stopped_payload
@@ -414,11 +414,11 @@ def list_nearby_files(
 
         return res_exclude, res_open, res_root
 
-    from plugin.framework.queue_executor import run_on_main
+    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancelled
 
     try:
-        exclude_path, open_paths, listing_root = run_on_main(_fetch_uno_state)
+        exclude_path, open_paths, listing_root = main.run(_fetch_uno_state)
     except SendCancelled:
         return user_stopped_payload()
 
@@ -569,7 +569,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     # this function returns.
     model: Any = None
     try:
-        from plugin.writer.format import create_property_value
+        from plugin.framework.uno_context import create_property_value
         desktop = get_desktop(ctx)
         load_props = (
             create_property_value("Hidden", True),

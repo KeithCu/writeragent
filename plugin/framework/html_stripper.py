@@ -23,11 +23,11 @@ from typing import NamedTuple
 
 from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK, deal, str_bounded
 
-# Wider than DEAL_MAX_SOURCE (16 under CrossHair): _feed_chunk() must still
-# reach the 256-char tag flush under pytest. Pytest binds DEAL_MAX_HTML_CHUNK=4096;
-# CrossHair uses 16. Public feed() / strip_html_tags have no whole-string
-# @deal.pre — they slice to DEAL_MAX_HTML_CHUNK so long _append_response
-# assistant/tool-result HTML cannot PreContract in debug OXTs.
+# Wider than DEAL_MAX_SOURCE: _feed_chunk() must still reach the 256-char
+# tag flush under pytest. DEAL_MAX_HTML_CHUNK=4096 here; 16 is in the runner.
+# Public feed() / strip_html_tags have no whole-string @deal.pre — they slice
+# to DEAL_MAX_HTML_CHUNK so long _append_response assistant/tool-result HTML
+# cannot PreContract in debug OXTs.
 
 # Drop the body until the matching close tag, not only the tag bytes.
 _DISCARD_ELEMENTS = frozenset({"script", "style"})

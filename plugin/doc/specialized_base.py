@@ -26,21 +26,23 @@ from typing import Any, cast, Type, ClassVar
 from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
 from plugin.framework.prompts import (
-    _catalog_entries_from_base,
     attach_sheets_create_completion_instruction,
     DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
     images_specialized_sub_agent_hint,
     python_specialized_sub_agent_hint,
-    looks_like_peer_work_envelope,
     get_document_research_workflow_hint,
+)
+from plugin.doc.peer_prompt import (
     annotate_outer_peer_delivery_pending,
     annotate_outer_peer_wait,
+    looks_like_peer_work_envelope,
 )
+from plugin.doc.specialized_catalog import _catalog_entries_from_base
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
-from plugin.framework import queue_executor
+from plugin.framework.queue_executor import main
 
 log = logging.getLogger("writeragent.specialized")
 
@@ -81,7 +83,7 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
         return last_user is not None and looks_like_peer_work_envelope(last_user.get("content"))
 
     try:
-        return bool(queue_executor.execute_on_main_thread(_probe))
+        return bool(main.call(_probe))
     except Exception as e:
         # CancelledError stringifies to ""; %r keeps the class in the warning.
         log.warning("peer-work turn probe failed: %r", e)
@@ -98,7 +100,7 @@ def _main_thread_or_warn(fn: Any, what: str) -> Any:
     context.
     """
     try:
-        return queue_executor.execute_on_main_thread(fn)
+        return main.call(fn)
     except Exception as e:
         if is_disposal(e):
             raise
@@ -215,7 +217,7 @@ class DelegateToSpecializedBase(ToolBase):
                 from plugin.embeddings.embeddings_indexer import enqueue_folder_index
 
                 # Sub-agent runs on a worker thread; resolve_index_context reads the active doc path via UNO.
-                queue_executor.execute_on_main_thread(lambda: enqueue_folder_index(ctx.ctx, ctx.services, ctx.doc))
+                main.call(lambda: enqueue_folder_index(ctx.ctx, ctx.services, ctx.doc))
             except Exception:
                 log.debug("embeddings index wakeup failed", exc_info=True)
 
@@ -258,7 +260,7 @@ class DelegateToSpecializedBase(ToolBase):
             return tools, peer_catalog, document_research_hint
 
         # get_tools(doc=...) calls doc.supportsService — must not run on the sub-agent worker.
-        domain_tools, peer_catalog, document_research_hint = queue_executor.execute_on_main_thread(
+        domain_tools, peer_catalog, document_research_hint = main.call(
             _fetch_domain_tools
         )
 

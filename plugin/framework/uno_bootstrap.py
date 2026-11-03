@@ -13,6 +13,8 @@ This module centralizes the path-walking logic to find extension root and
 site-packages directories.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import sys
@@ -20,8 +22,10 @@ import types
 import importlib
 import importlib.util
 import importlib.machinery
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 import importlib.abc
 
@@ -142,6 +146,27 @@ def _writeragent_namespace_spec(fullname: str = "writeragent") -> Any:
         return None
 
 
+_alias_authorizer: Callable[[str, tuple[str, ...]], bool] | None = None
+_alias_has_child: Callable[[str], bool] | None = None
+
+
+def set_alias_authorizer(
+    authorized: Callable[[str, tuple[str, ...]], bool],
+    has_child: Callable[[str], bool],
+) -> None:
+    """Register sandbox import checks for AliasImporter (LibrePy must import sandbox first)."""
+    global _alias_authorizer, _alias_has_child
+    _alias_authorizer = authorized
+    _alias_has_child = has_child
+
+
+def get_alias_authorizer() -> tuple[
+    Callable[[str, tuple[str, ...]], bool] | None,
+    Callable[[str], bool] | None,
+]:
+    return _alias_authorizer, _alias_has_child
+
+
 class AliasImporter:
     """Import hook to dynamically map 'writeragent' and 'writeragent.*' imports to 'plugin' equivalents."""
 
@@ -151,13 +176,20 @@ class AliasImporter:
         # The sandbox import gate is default-allow, but AliasImporter remains an alias gate:
         # writeragent.* may only resolve to public API modules or explicit extras.
         # Calling import_authorized(fullname, ()) delegates extras to SANDBOX_EXTRA_MODULES.
-        from plugin.scripting.sandbox import alias_has_authorized_child, import_authorized
+        from plugin.framework.uno_bootstrap import get_alias_authorizer
 
-        if not import_authorized(fullname, ()):
+        authorized, has_child = get_alias_authorizer()
+        if authorized is None or has_child is None:
+            logging.getLogger(__name__).error(
+                "AliasImporter: alias authorizer is not registered (writeragent import %s)",
+                fullname,
+            )
+            return None
+        if not authorized(fullname, ()):
             # Import walks parent packages before submodules ('writeragent.scripting'
             # before 'writeragent.scripting.analysis'). If an authorized child exists,
             # allow the walk through the parent to succeed.
-            if not alias_has_authorized_child(fullname):
+            if not has_child(fullname):
                 return None
         if fullname == "writeragent":
             real_name = _WRITERAGENT_API

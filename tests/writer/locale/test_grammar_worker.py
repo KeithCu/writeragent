@@ -205,7 +205,7 @@ def test_grammar_check_equivalent_tags_no_locale_change() -> None:
     )
     chunk = [(item, item.text)]
     gq.inflight_superseded.return_value = False
-    with patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="ai"), \
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value="ai"), \
          patch("plugin.writer.locale.grammar_worker.call_grammar_llm", return_value=([[]], 50)), \
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()), \
@@ -249,7 +249,7 @@ def test_run_grammar_check_single_sentence_provider_dispatch() -> None:
 
     for provider_name in ("languagetool", "vale", "harper"):
         spec = _SINGLE_SENTENCE_PROVIDERS[provider_name]
-        with patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value=provider_name), \
+        with patch("plugin.writer.locale.grammar_settings.provider", return_value=provider_name), \
              patch("plugin.framework.config.user_config_dir", return_value="/tmp/test"), \
              patch("plugin.writer.locale.grammar_worker.run_single_sentence_provider") as mock_run:
             run_grammar_check([(item, item.text)], "en-US", "en-US", ec)
@@ -348,8 +348,8 @@ def test_run_llm_and_cache_batch_success() -> None:
     """Verify that multiple items are batched and results are stored in cache."""
     ctx = MagicMock()
     # Mock config to enable checker
-    with patch("plugin.framework.config.get_config_int_safe", return_value=4), \
-         patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value=4), \
+         patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True), \
          patch("plugin.framework.client.model_fetcher.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
@@ -401,8 +401,8 @@ def test_run_llm_and_cache_batch_size_1() -> None:
     """Verify that multiple items are processed individually when batch_size is 1."""
     ctx = MagicMock()
     # Mock batch_size to 1 (the default)
-    with patch("plugin.framework.config.get_config_int_safe", return_value=1), \
-         patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True), \
+    with patch("plugin.framework.config.get_config", return_value=1), \
+         patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True), \
          patch("plugin.framework.client.model_fetcher.get_grammar_model", return_value="test-model"), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.framework.llm_lanes.grammar_llm_request_gate"), \
@@ -442,9 +442,9 @@ def test_locale_mismatch_proceeds_and_double_caches(
 ) -> None:
     """Verify that locale mismatch detected during individual check triggers update and double-caches."""
     ctx = MagicMock()
-    with patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=1), \
-         patch("plugin.writer.locale.grammar_worker.get_grammar_detect_language_mode", return_value="llm"), \
+    with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True), \
+         patch("plugin.framework.config.get_config", return_value=1), \
+         patch("plugin.writer.locale.grammar_settings.detect_language_mode", return_value="llm"), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put, \
          patch("plugin.writer.locale.grammar_worker.apply_language_change", return_value=False) as mock_apply, \
@@ -609,7 +609,7 @@ def test_grammar_empty_single_response_caches_clean() -> None:
     )
     chunk = [(item, item.text)]
     gq.inflight_superseded.return_value = False
-    with patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="ai"), \
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value="ai"), \
          patch("plugin.writer.locale.grammar_worker.call_grammar_llm", return_value=([[]], 50)), \
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status") as mock_status, \
          patch("plugin.writer.locale.grammar_worker.requeue_individual_item") as mock_requeue, \
@@ -747,7 +747,7 @@ def test_grammar_check_routes_to_languagetool() -> None:
     )
     chunk = [(a, a.text)]
 
-    with patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="languagetool"), \
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value="languagetool"), \
          patch("plugin.scripting.client.run_languagetool_check") as mock_lt_check, \
          patch("plugin.writer.locale.grammar_worker.process_grammar_results") as mock_process:
         mock_lt_check.return_value = {
@@ -774,7 +774,7 @@ def test_grammar_check_routes_to_vale() -> None:
     )
     chunk = [(a, a.text)]
 
-    with patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="vale"), \
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value="vale"), \
          patch("plugin.scripting.client.run_vale_check") as mock_vale_check, \
          patch("plugin.framework.config.user_config_dir", return_value="/tmp"), \
          patch("plugin.writer.locale.grammar_worker.process_grammar_results") as mock_process:
@@ -802,7 +802,7 @@ def test_grammar_check_routes_to_harper() -> None:
     )
     chunk = [(a, a.text)]
 
-    with patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="harper"), \
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value="harper"), \
          patch("plugin.writer.locale.harper.run_harper_check") as mock_harper_check, \
          patch("plugin.framework.config.user_config_dir", return_value="/tmp"), \
          patch("plugin.writer.locale.grammar_worker.process_grammar_results") as mock_process:
@@ -822,7 +822,7 @@ def test_thread_llm_client_cached_across_batches() -> None:
     api_cfg = {"endpoint": "https://api.example.com", "api_key": "k1", "request_timeout": 30}
     with patch("plugin.framework.client.llm_client.LlmClient") as mock_cls:
         mock_instance = MagicMock()
-        mock_instance._stopped = False
+        mock_instance.stopped.return_value = False
         mock_cls.return_value = mock_instance
 
         c1 = _get_or_create_thread_llm_client(api_cfg, ctx)
@@ -841,9 +841,9 @@ def test_thread_llm_client_rebuilds_on_endpoint_change() -> None:
     cfg2 = {"endpoint": "https://api2.example.com", "api_key": "k1", "request_timeout": 30}
     with patch("plugin.framework.client.llm_client.LlmClient") as mock_cls:
         inst1 = MagicMock()
-        inst1._stopped = False
+        inst1.stopped.return_value = False
         inst2 = MagicMock()
-        inst2._stopped = False
+        inst2.stopped.return_value = False
         mock_cls.side_effect = [inst1, inst2]
 
         c1 = _get_or_create_thread_llm_client(cfg1, ctx)
@@ -863,7 +863,7 @@ def test_thread_llm_client_separate_per_thread() -> None:
     api_cfg = {"endpoint": "https://api.example.com", "api_key": "k1", "request_timeout": 30}
     results: list[Any] = []
 
-    with patch("plugin.framework.client.llm_client.LlmClient", side_effect=lambda *args, **kwargs: MagicMock(_stopped=False)):
+    with patch("plugin.framework.client.llm_client.LlmClient", side_effect=lambda *args, **kwargs: MagicMock(stopped=MagicMock(return_value=False))):
         def worker():
             results.append(_get_or_create_thread_llm_client(api_cfg, ctx))
 
@@ -885,15 +885,16 @@ def test_thread_llm_client_not_reused_when_stopped() -> None:
     api_cfg = {"endpoint": "https://api.example.com", "api_key": "k1", "request_timeout": 30}
     with patch("plugin.framework.client.llm_client.LlmClient") as mock_cls:
         inst1 = MagicMock()
-        inst1._stopped = False
+        inst1.stopped.return_value = False
         inst2 = MagicMock()
-        inst2._stopped = False
+        inst2.stopped.return_value = False
         mock_cls.side_effect = [inst1, inst2]
 
         c1 = _get_or_create_thread_llm_client(api_cfg, ctx)
         assert c1 is inst1
 
         inst1._stopped = True
+        inst1.stopped.return_value = True
 
         c2 = _get_or_create_thread_llm_client(api_cfg, ctx)
         assert c2 is inst2
@@ -917,7 +918,9 @@ def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status()
         rule_identifier="wa_g_rule||agr",
     )
 
+    mock_status = MagicMock()
     with (
+        patch("plugin.writer.locale.grammar_worker.get_grammar_status", return_value=mock_status),
         patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[norm_err]),
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"agr"}),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put,
@@ -934,8 +937,8 @@ def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status()
         assert payload2[0]["rule_identifier"] == "wa_g_rule||agr"
 
         # Status text summary excludes the ignored rule (0 issues)
-        ec.gq.record_done_status.assert_called_once()
-        assert "0 issues" in ec.gq.record_done_status.call_args[1]["result"]
+        mock_status.record_done_status.assert_called_once()
+        assert "0 issues" in mock_status.record_done_status.call_args[1]["result"]
 def test_call_grammar_llm_and_cache_cap_prefix() -> None:
     """Keeper 1: LLM boundaries prompt and cache checked prefix while apply_language_change gets full text."""
     from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
@@ -956,10 +959,10 @@ def test_call_grammar_llm_and_cache_cap_prefix() -> None:
     item = replace(item, ctx=ctx)
 
     with (
-        patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True),
-        patch("plugin.framework.config.get_config_int_safe", return_value=1),
+        patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config", return_value=1),
         patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_chars", return_value=20),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_detect_language_mode", return_value="off"),
+        patch("plugin.writer.locale.grammar_settings.detect_language_mode", return_value="off"),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put,
         patch("plugin.writer.locale.grammar_worker.apply_language_change", return_value=True) as mock_apply,
@@ -996,9 +999,9 @@ def test_worker_runs_model_from_checker_identity() -> None:
     item = replace(item, ctx=ctx)
 
     with (
-        patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True),
-        patch("plugin.framework.config.get_config_int_safe", return_value=1),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_detect_language_mode", return_value="off"),
+        patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config", return_value=1),
+        patch("plugin.writer.locale.grammar_settings.detect_language_mode", return_value="off"),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_cache_put,
         patch("plugin.writer.locale.grammar_worker.emit_grammar_status"),
@@ -1026,7 +1029,7 @@ def test_worker_batch_gates_provider_rules() -> None:
     item_lt = _item("Hello.", provider="languagetool")
     item_empty = _item("Hello.", provider="")
 
-    with patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=False):
+    with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False):
         assert _worker_batch_gates([item_lt]) is True
         assert _worker_batch_gates([item_empty]) is False
 
@@ -1045,9 +1048,9 @@ def test_worker_detection_superseded_drops_item() -> None:
         return ["en-US"]
 
     with (
-        patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True),
-        patch("plugin.framework.config.get_config_int_safe", return_value=1),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_detect_language_mode", return_value="llm"),
+        patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config", return_value=1),
+        patch("plugin.writer.locale.grammar_settings.detect_language_mode", return_value="llm"),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
         patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", side_effect=_detect_side_effect),
         patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_run_grammar,
@@ -1074,9 +1077,9 @@ def test_worker_detection_cache_hit_applies_locale_without_grammar_call() -> Non
         return None
 
     with (
-        patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True),
-        patch("plugin.framework.config.get_config_int_safe", return_value=1),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_detect_language_mode", return_value="llm"),
+        patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config", return_value=1),
+        patch("plugin.writer.locale.grammar_settings.detect_language_mode", return_value="llm"),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", side_effect=_cache_get),
         patch("plugin.writer.locale.grammar_worker.apply_language_change", return_value=True) as mock_apply,
         patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", return_value=["fr-FR"]),
@@ -1113,9 +1116,9 @@ def test_detect_once_per_group_eight_items_batch_1() -> None:
         grammar_call_count += 1
 
     with (
-        patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True),
-        patch("plugin.framework.config.get_config_int_safe", return_value=1),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_detect_language_mode", return_value="llm"),
+        patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config", return_value=1),
+        patch("plugin.writer.locale.grammar_settings.detect_language_mode", return_value="llm"),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
         patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", side_effect=_mock_detect),
         patch("plugin.writer.locale.grammar_worker.run_grammar_check", side_effect=_mock_grammar_check),
@@ -1149,9 +1152,9 @@ def test_detect_batch_parse_failure_affects_only_that_chunk() -> None:
         grammar_locales.append((len(chunk), current_bcp47))
 
     with (
-        patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True),
-        patch("plugin.framework.config.get_config_int_safe", return_value=1),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_detect_language_mode", return_value="llm"),
+        patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.get_config", return_value=1),
+        patch("plugin.writer.locale.grammar_settings.detect_language_mode", return_value="llm"),
         patch("plugin.writer.locale.grammar_proofread_cache.cache_get_sentence", return_value=None),
         patch("plugin.writer.locale.grammar_worker.detect_languages_for_chunk", side_effect=_mock_detect),
         patch("plugin.writer.locale.grammar_worker.run_grammar_check", side_effect=_mock_grammar_check),

@@ -37,7 +37,7 @@ The chosen binary must be on `PATH`. `start()` stores a different `last_error` w
 
 **Start failures:** If the HTTP listener cannot bind (usually port already in use), Toggle / Settings / Status show `host:port`, the exception line, and guidance to free the port or change `mcp.mcp_port` — not only “check the debug log”. Port conflicts do not offer Report bug. Full traceback remains in `writeragent_debug.log`. Formatter: `format_bind_failure(...)` in [`plugin/framework/http_server.py`](../plugin/framework/http_server.py).
 
-**Stale public URL:** Settings caches a tested or connected public URL per provider (`_tested_provider_tunnel_urls` in [`plugin/mcp/mcp_ui.py`](../plugin/mcp/mcp_ui.py)). When the tunnel stops, fails, or drops that URL (including reconnect), that provider's entry is retired. The client snippet and its copy button then use the local URL or the provider template, and MCP Server Status already reads `TunnelManager.mcp_public_url()` (cleared with the tunnel state). A later successful Test or a new connection stores a fresh URL.
+**Stale public URL:** Settings caches a tested or connected public URL per provider on the active `TunnelManager` (`tested_provider_tunnel_urls`; see [`plugin/mcp/tunnel.py`](../plugin/mcp/tunnel.py) and [`plugin/mcp/mcp_ui.py`](../plugin/mcp/mcp_ui.py)). When the tunnel stops, fails, or drops that URL (including reconnect), that provider's entry is retired. The client snippet and its copy button then use the local URL or the provider template, and MCP Server Status already reads `TunnelManager.mcp_public_url()` (cleared with the tunnel state). A later successful Test or a new connection stores a fresh URL.
 
 **Route registry:** [`HttpRouteRegistry`](../plugin/mcp/routes.py) locks route reads together with `add` / `remove`. MCP toggle registers and unregisters while HTTP workers serve `GET /`, which copies the route keys. The lock — held for the whole register or unregister batch — keeps that copy from raising `RuntimeError` and returns one consistent route set.
 
@@ -442,7 +442,7 @@ The direct modes **add** direct access; they don't remove delegation. The `deleg
 The MCP server is **implemented and opt-in** (default off). Live summary (paths under `plugin/`):
 
 - **HTTP + JSON-RPC:** [`plugin/mcp/server.py`](../plugin/mcp/server.py), [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py), [`plugin/mcp/cors.py`](../plugin/mcp/cors.py), package wiring in [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py). Endpoints: `/mcp`, `/health`, `/`, optional localhost `POST /debug` (see [Current HTTP MCP (2026)](#current-http-mcp-2026)).
-- **Main-thread marshalling:** [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) (`execute_on_main_thread`, queue drain via `com.sun.star.awt.AsyncCallback`). Chat streaming uses [`plugin/framework/async_stream.py`](../plugin/framework/async_stream.py) separately — MCP does **not** piggyback on the chat drain loop.
+- **Main-thread marshalling:** [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) (`main.call`, `main.post`, queue drain via `com.sun.star.awt.AsyncCallback`). Chat streaming uses [`plugin/framework/async_stream.py`](../plugin/framework/async_stream.py) separately — MCP does **not** piggyback on the chat drain loop.
 - **Document targeting** (two supported paths):
   - **Preferred:** `document_url` in `tools/call` arguments (popped before tool dispatch). Best for multi-document clients (Cursor, Hermes, custom agents).
   - **Fallback:** `X-Document-URL` HTTP header.
@@ -668,7 +668,7 @@ would never be serviced if we only drained there.
 
 ### Reference: `core/mcp_server.py` (archive — live is `plugin/mcp/`)
 
-Early REST sketch: thin HTTP server reusing `execute_tool()` / Calc / Draw helpers, `GET /tools`, `POST /tools/{name}`, header-based `_resolve_document`. **Shipped surface is JSON-RPC on `/mcp`** in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) + [`plugin/mcp/server.py`](../plugin/mcp/server.py), with `document_url` args and `X-Document-URL` fallback, all UNO work via `execute_on_main_thread`.
+Early REST sketch: thin HTTP server reusing `execute_tool()` / Calc / Draw helpers, `GET /tools`, `POST /tools/{name}`, header-based `_resolve_document`. **Shipped surface is JSON-RPC on `/mcp`** in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) + [`plugin/mcp/server.py`](../plugin/mcp/server.py), with `document_url` args and `X-Document-URL` fallback, all UNO work via `main.call`.
 
 ---
 

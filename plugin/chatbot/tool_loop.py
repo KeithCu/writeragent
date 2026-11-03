@@ -27,8 +27,7 @@ from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, StreamQueue, defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_payload, resolve_exception_message, suppress_disposed, UnoObjectError
-from plugin.framework.tool import is_tool_document_disposed
+from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_payload, is_disposal, resolve_exception_message, suppress_disposed, UnoObjectError
 from plugin.framework.client.errors import (
     is_local_model_server_crash,
     local_model_overflow_message,
@@ -36,8 +35,6 @@ from plugin.framework.client.errors import (
 from plugin.framework.config import (
     get_api_config,
     get_config,
-    get_config_bool_safe,
-    get_config_int,
     validate_api_config,
 )
 from plugin.framework.client import model_fetcher
@@ -59,6 +56,7 @@ from plugin.chatbot.tool_loop_actions import (
     ToolLoopEffectInterpreter,
     TurnController,
     abort_turn,
+    assign_send_outcome,
     build_tool_execute_fn,
     current_turn,
     finalize_sidebar_assistant_response,
@@ -66,6 +64,7 @@ from plugin.chatbot.tool_loop_actions import (
     persist_assistant_on_turn,
     put_for_turn,
     running_turn,
+    send_outcome_is_stopped,
     session_for_turn,
     spawn_queue,
     take_stop_partial,
@@ -82,7 +81,6 @@ from plugin.chatbot.tool_loop_state import (
 from plugin.chatbot.compaction import (
     compact_session,
     is_context_overflow_error,
-    messages_for_llm,
     should_retry_overflow,
 )
 
@@ -174,7 +172,7 @@ def _compact_bound_session(
     *,
     tools: Any,
     max_tokens: int | None,
-    stop_checker: Callable[[], bool] | None,
+    cancel: Any,
     force: bool,
     status_cb: Callable[[str], None],
 ) -> bool:
@@ -182,7 +180,7 @@ def _compact_bound_session(
 
     Disabled compaction returns True without writing the turn fields.
     """
-    if not get_config_bool_safe("chat_compaction_enabled"):
+    if not get_config("chat_compaction_enabled"):
         return True
     result = compact_session(
         session,
@@ -190,7 +188,7 @@ def _compact_bound_session(
         window=resolve_context_window(client),
         tools=tools,
         max_tokens=max_tokens,
-        stop_checker=stop_checker,
+        cancel=cancel,
         force=force,
         status_callback=status_cb,
     )
@@ -254,7 +252,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
         host._append_response("\n[Model does not support audio. Falling back to STT...]\n")
         try:
             transcript = host._voice._transcribe_audio(host.audio_wav_path, stt_model)
-            if getattr(host, "_terminal_status", None) == "Stopped":
+            if send_outcome_is_stopped(host):
                 # Stop during fallback STT. None ends the drain. Do not show
                 # "No speech detected" or spawn another chat worker.
                 return None
@@ -285,7 +283,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 # left the sidebar on Stop. None means this turn is finished
                 # and a second API error should not be shown.
                 host._append_response("\n" + _("[No speech detected.]") + "\n")
-                host._terminal_status = ""
+                assign_send_outcome(host, "")
                 return None
             combined = (turn.active_query_text + "\n" + transcript).strip() if turn.active_query_text else transcript
             if turn_session.messages and turn_session.messages[-1].get("role") == "user":
@@ -301,6 +299,88 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
             log.exception("STT fallback after native-audio error failed")
         return None
     return False
+
+
+def _ensure_llm_client(panel: Any, api_config: dict[str, Any]) -> LlmClient:
+    # contextvars (SendCancellation) do not propagate to worker threads — LlmClient
+    # picks up resolve_stop_checker() via get_current_send_cancellation when created on
+    # the UI thread; spawned workers pass stop_checker= explicitly (_spawn_llm_worker).
+    if not panel.client:
+        panel.client = LlmClient(api_config, panel.ctx)
+    else:
+        panel.client.config = api_config
+        # New send: clear Stop latch from a prior turn (UI thread only).
+        panel.client.clear_stop()
+    client = panel.client
+    # A duplicate hook does not stop again. clear_stop() just cleared the
+    # latch, so a scope that is already cancelled must stop here.
+    scope = get_current_send_cancellation()
+    if scope is not None:
+        scope.register_client(client)
+        if scope.is_cancelled():
+            client.stop()
+    return client
+
+
+def _append_user_message_for_send(
+    turn_session: Any,
+    query_text: str,
+    b64_image: str | None,
+    panel: Any,
+) -> None:
+    if b64_image or panel.audio_wav_path:
+        content_list: list[dict[str, Any]] = []
+        if query_text:
+            content_list.append({"type": "text", "text": query_text})
+
+        attachments = []
+        if b64_image:
+            content_list.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{b64_image}"}
+            })
+            attachments.append("Image")
+
+        audio_content: list[dict[str, Any]] | None = None
+        if panel.audio_wav_path:
+            from plugin.scripting.audio_recorder_service import append_wav_as_input_audio
+
+            audio_content = []
+            if append_wav_as_input_audio(audio_content, panel.audio_wav_path):
+                attachments.append("Audio")
+            else:
+                panel.audio_wav_path = None
+
+        # Add only text (and images) to DB to avoid 404s when reading history
+        if not content_list and attachments == ["Audio"]:
+            from plugin.framework.i18n import _
+
+            turn_session.add_user_message(_("[Voice message]"))
+        else:
+            turn_session.add_user_message(content_list)
+
+        if audio_content and turn_session.messages:
+            # Append audio to the in-memory message so it's sent this turn
+            last_msg = turn_session.messages[-1]
+            if isinstance(last_msg.get("content"), list):
+                last_msg["content"].extend(audio_content)
+            else:
+                existing_text = last_msg.get("content", "")
+                new_content = []
+                if existing_text:
+                    new_content.append({"type": "text", "text": existing_text})
+                new_content.extend(audio_content)
+                last_msg["content"] = new_content
+
+        attach_str = " & ".join(attachments)
+        if attach_str:
+            display_text = f"{query_text} [{attach_str} Attached]" if query_text else f"[{attach_str} Message]"
+        else:
+            display_text = query_text
+        panel._append_response(display_text, role="user")
+    else:
+        turn_session.add_user_message(query_text)
+        panel._append_response(query_text, role="user")
 
 
 class _PanelDescriptor:
@@ -333,7 +413,6 @@ class ToolCallingMixin:
     client: LlmClient | None = None
     audio_wav_path: str | None = None
     sidebar_state: Any = None
-    _terminal_status: str = "Ready"
     _turn: Any = None
 
     @property
@@ -361,7 +440,7 @@ class ToolCallingMixin:
         except Exception as e:
             log.exception("_do_send: core modules import FAILED")
             self._panel._append_response("\n[Import error - core: %s]\n" % e)
-            self._panel._terminal_status = "Error"
+            assign_send_outcome(self._panel, "Error")
             return
 
         # Callback for updating active domain in the session
@@ -401,7 +480,7 @@ class ToolCallingMixin:
         except Exception as e:
             log.exception("_do_send: tool import FAILED")
             self._panel._append_response("\n[Import error - tools: %s]\n" % e)
-            self._panel._terminal_status = "Error"
+            assign_send_outcome(self._panel, "Error")
             return
 
         synced_model = sync_sidebar_text_model(self._panel.model_selector)
@@ -415,34 +494,18 @@ class ToolCallingMixin:
                 set_image_model(selected_image_model)
                 log.debug("_do_send: image model updated to %s" % selected_image_model)
 
-        max_tokens = get_config_int("chat_max_tokens")
+        max_tokens = get_config("chat_max_tokens")
         log.debug("_do_send: config loaded: max_tokens=%d, max_context=%d" % (max_tokens, CHAT_DOCUMENT_CONTEXT_MAX_CHARS))
 
         api_config = get_api_config()
         ok, err_msg = validate_api_config(api_config)
         if not ok:
             self._panel._append_response("\n[%s]\n" % err_msg)
-            self._panel._terminal_status = "Error"
+            assign_send_outcome(self._panel, "Error")
             self._panel._set_status("Error")
             return
 
-        # contextvars (SendCancellation) do not propagate to worker threads — LlmClient
-        # picks up resolve_stop_checker() via get_current_send_cancellation when created on
-        # the UI thread; spawned workers pass stop_checker= explicitly (_spawn_llm_worker).
-        if not self._panel.client:
-            self._panel.client = LlmClient(api_config, self._panel.ctx)
-        else:
-            self._panel.client.config = api_config
-            # New send: clear Stop latch from a prior turn (UI thread only).
-            self._panel.client.clear_stop()
-        client = self._panel.client
-        # A duplicate hook does not stop again. clear_stop() just cleared the
-        # latch, so a scope that is already cancelled must stop here.
-        scope = get_current_send_cancellation()
-        if scope is not None:
-            scope.register_client(client)
-            if scope.is_cancelled() and not client._stopped:
-                client.stop()
+        client = _ensure_llm_client(self._panel, api_config)
 
         self._panel._set_status("Reading document...")
         started = running_turn(self._panel)
@@ -467,18 +530,18 @@ class ToolCallingMixin:
         except UnoObjectError:
             log.exception("Document unavailable")
             self._panel._append_response("\n[Document closed or unavailable.]\n")
-            self._panel._terminal_status = "Error"
+            assign_send_outcome(self._panel, "Error")
             self._panel._set_status("Error")
             return
         except Exception as e:
-            if is_tool_document_disposed(e):
+            if is_disposal(e):
                 log.debug("Document likely disposed while reading context: %s", e)
                 self._panel._append_response("\n[Document closed or unavailable.]\n")
             else:
                 log.exception("Unexpected document error")
                 err_msg = resolve_exception_message(e)
                 self._panel._append_response("\n[Error reading document: %s]\n" % err_msg)
-            self._panel._terminal_status = "Error"
+            assign_send_outcome(self._panel, "Error")
             self._panel._set_status("Error")
             return
 
@@ -508,58 +571,7 @@ class ToolCallingMixin:
                     except Exception:
                         log.exception("Failed to get selected image base64")
 
-            if b64_image or self._panel.audio_wav_path:
-                content_list: list[dict[str, Any]] = []
-                if query_text:
-                    content_list.append({"type": "text", "text": query_text})
-
-                attachments = []
-                if b64_image:
-                    content_list.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{b64_image}"}
-                    })
-                    attachments.append("Image")
-
-                audio_content: list[dict[str, Any]] | None = None
-                if self._panel.audio_wav_path:
-                    from plugin.scripting.audio_recorder_service import append_wav_as_input_audio
-
-                    audio_content = []
-                    if append_wav_as_input_audio(audio_content, self._panel.audio_wav_path):
-                        attachments.append("Audio")
-                    else:
-                        self._panel.audio_wav_path = None
-
-                # Add only text (and images) to DB to avoid 404s when reading history
-                if not content_list and attachments == ["Audio"]:
-                    from plugin.framework.i18n import _
-                    turn_session.add_user_message(_("[Voice message]"))
-                else:
-                    turn_session.add_user_message(content_list)
-
-                if audio_content and turn_session.messages:
-                    # Append audio to the in-memory message so it's sent this turn
-                    last_msg = turn_session.messages[-1]
-                    if isinstance(last_msg.get("content"), list):
-                        last_msg["content"].extend(audio_content)
-                    else:
-                        existing_text = last_msg.get("content", "")
-                        new_content = []
-                        if existing_text:
-                            new_content.append({"type": "text", "text": existing_text})
-                        new_content.extend(audio_content)
-                        last_msg["content"] = new_content
-
-                attach_str = " & ".join(attachments)
-                if attach_str:
-                    display_text = f"{query_text} [{attach_str} Attached]" if query_text else f"[{attach_str} Message]"
-                else:
-                    display_text = query_text
-                self._panel._append_response(display_text, role="user")
-            else:
-                turn_session.add_user_message(query_text)
-                self._panel._append_response(query_text, role="user")
+            _append_user_message_for_send(turn_session, query_text, b64_image, self._panel)
 
         self._panel._append_response("\n[Using chat model.]\n")
         log.info("_do_send: using chat model")
@@ -603,25 +615,25 @@ class ToolCallingMixin:
 
     def _bind_spawn(
         self, client: LlmClient
-    ) -> tuple[TurnController | None, Any, Callable[[], bool], Callable[[Any], None], Callable[[], bool]]:
+    ) -> tuple[TurnController | None, Any, Any, Callable[[Any], None], Callable[[], bool]]:
         turn = current_turn(self._panel)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if turn is not None else None
         # Spawn-time scope. The body must not call resolve_stop_checker or
         # read _send_cancellation: Stop clears the field and the next send replaces it.
-        bound_scope, stop_checker = capture_send_stop(self._panel)
+        bound_scope, _unused_checker = capture_send_stop(self._panel)
 
         def emit(item: Any) -> None:
             put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
-            return send_stopped(bound_scope, stop_checker, client)
+            return send_stopped(bound_scope, client)
 
-        return turn, bound_session, stop_checker, emit, stopped_for_this_send
+        return turn, bound_session, bound_scope, emit, stopped_for_this_send
 
     def _run_stream_worker(
         self,
-        bound_spawn: tuple[TurnController | None, Any, Callable[[], bool], Callable[[Any], None], Callable[[], bool]],
+        bound_spawn: tuple[TurnController | None, Any, Any, Callable[[Any], None], Callable[[], bool]],
         *,
         batched: BatchingStreamQueue,
         client: LlmClient,
@@ -629,13 +641,13 @@ class ToolCallingMixin:
         tools: list[dict[str, Any]] | None = None,
         force: bool = False,
         resume_status: str,
-        stream_call: Callable[[Any, Callable[[str], None], Callable[[str], None], Callable[[str], None], Callable[[], bool]], Any],
+        stream_call: Callable[[Any, Callable[[str], None], Callable[[str], None], Callable[[str], None], Any], Any],
         done_kind: StreamQueueKind,
         on_success: Callable[[], None] | None = None,
         error_log_msg: str,
         strip_round_0_image: bool = False,
     ) -> None:
-        turn, session, stop_checker, emit, stopped_for_this_send = bound_spawn
+        turn, session, bound_scope, emit, stopped_for_this_send = bound_spawn
         if turn is None or not turn.alive or session is None:
             emit((StreamQueueKind.STOPPED,))
             return
@@ -668,13 +680,13 @@ class ToolCallingMixin:
                     turn,
                     tools=tools,
                     max_tokens=max_tokens,
-                    stop_checker=stop_checker,
+                    cancel=bound_scope,
                     force=force,
                     status_cb=status_cb,
                 ):
                     emit((StreamQueueKind.STOPPED,))
                     return
-                response = stream_call(session, content_cb, thinking_cb, status_cb, stop_checker)
+                response = stream_call(session, content_cb, thinking_cb, status_cb, bound_scope)
             # Stop during pre-send host-gap wait returns finish_reason "stop"
             # without raising. The captured scope stays cancelled after the
             # next send clears the panel field and calls clear_stop() on
@@ -705,13 +717,13 @@ class ToolCallingMixin:
 
         bound_spawn = self._bind_spawn(client)
 
-        def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, stop_chk: Any) -> Any:
-            payload = messages_for_llm(sess)
+        def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, scope: Any) -> Any:
+            payload = sess.messages_for_request()
             return client.stream_request_with_tools(
                 payload, max_tokens, tools=tools,
                 append_callback=content_cb,
                 append_thinking_callback=thinking_cb,
-                stop_checker=stop_chk,
+                cancel=scope,
                 status_callback=status_cb,
             )
 
@@ -741,7 +753,7 @@ class ToolCallingMixin:
 
         bound_spawn = self._bind_spawn(client)
 
-        def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, stop_chk: Any) -> Any:
+        def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, scope: Any) -> Any:
             last_streamed: list[str] = []
 
             def append_c(c: str) -> None:
@@ -749,8 +761,8 @@ class ToolCallingMixin:
                 last_streamed.append(c)
 
             client.stream_chat_response(
-                messages_for_llm(sess), max_tokens, append_c, thinking_cb,
-                stop_checker=stop_chk,
+                sess.messages_for_request(), max_tokens, append_c, thinking_cb,
+                cancel=scope,
                 status_callback=status_cb,
             )
             return "".join(last_streamed)
@@ -902,7 +914,7 @@ class ToolCallingMixin:
         # compact_session on this drain / UI thread (UNO + lane). Process death
         # is not overflow — compact-and-retry on a dead llama-server is worse
         # than today's sentence. Kill switch offs this path too.
-        if get_config_bool_safe("chat_compaction_enabled"):
+        if get_config("chat_compaction_enabled"):
             stop_checker = self._panel.resolve_stop_checker()
             stopped = bool(self._panel.stop_requested or stop_checker())
             live_turn = running_turn(self._panel)
@@ -951,7 +963,7 @@ class ToolCallingMixin:
         # a retry append a second user row with a hole where the assistant was.
         # Overflow respawn and audio fallback return before this write.
         persist_assistant_on_turn(self._panel, content=banner.strip())
-        self._panel._terminal_status = "Error"
+        assign_send_outcome(self._panel, "Error")
         self._panel._set_status("Error")
         clear_pending_audio_wav(self._panel)
         return None

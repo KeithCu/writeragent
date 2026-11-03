@@ -33,7 +33,7 @@ class _DownloadVecPackListener(BaseActionListener):
         self._dlg = dlg
 
     def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import main
         from plugin.scripting.native_binaries import ensure_native_binaries_on_path, run_vec_pack_download
         from plugin.scripting.payload_codec import invalidate_host_cython_accelerator
 
@@ -48,14 +48,14 @@ class _DownloadVecPackListener(BaseActionListener):
         def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:
             # The download stays on the probe worker. Appending audio_binaries
             # to sys.path and clearing the Cython accelerator must run on the
-            # main thread via execute_on_main_thread. VenvProbeProgressDialog
-            # runs probe_fn with run_in_background while execute() pumps VCL;
+            # main thread via main.call. VenvProbeProgressDialog
+            # runs probe_fn with run_in_background while call() pumps VCL;
             # that nested loop already dispatches AsyncCallback for the
             # progress lines, so the bind does not wait on a thread blocked
             # outside the message loop.
             ok = run_vec_pack_download(on_display, on_status)
             if ok:
-                execute_on_main_thread(bind_downloaded_vec_on_main)
+                main.call(bind_downloaded_vec_on_main)
             return ok, ""
 
         VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(

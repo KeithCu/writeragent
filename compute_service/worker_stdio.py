@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from compute_service import error_codes as ec
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, AllowlistUnpickler, IpcFrameError, _PICKLE_LOAD_ERRORS, claim_ipc_channel, read_pickle_frame, write_pickle_frame
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, AllowlistUnpickler, IpcFrameError, _PICKLE_LOAD_ERRORS, claim_ipc_channel, read_pickle_frame, write_pickle_frame
 
 log = logging.getLogger("compute_service.worker")
 

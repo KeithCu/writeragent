@@ -35,7 +35,7 @@ WELCOME_BODY = "Welcome to WriterAgent."
 
 def _ensure_writer_doc(ctx) -> None:
     from plugin.chatbot.sidebar_test_hooks import current_component, desktop_from_ctx
-    from plugin.doc.doc_type import is_writer
+    from plugin.framework.doc_type import is_writer
 
     doc = current_component(ctx)
     if doc is not None and is_writer(doc):
@@ -56,7 +56,7 @@ def _setup_mock(ctx):
     init_config(ctx)
     from plugin.chatbot.chat_sidebar_mode import mark_librarian_invoked
     from plugin.chatbot.memory import MemoryStore
-    from plugin.framework.config import get_config_bool, set_config
+    from plugin.framework.config import get_config, save
 
     # Ensure clean CI profile starts directly in Chat mode (creates USER.md and sets flag).
     mark_librarian_invoked()
@@ -66,8 +66,8 @@ def _setup_mock(ctx):
         pass
 
     # Packet E1–E8 must not block on HITL Accept. E9 turns this on locally.
-    _saved_prompt_research = get_config_bool("chatbot.prompt_for_web_research")
-    set_config("chatbot.prompt_for_web_research", False)
+    _saved_prompt_research = get_config("chatbot.prompt_for_web_research")
+    save({"chatbot.prompt_for_web_research": False})
     # Import hooks before later panel creates; factory WeakSet also sees panels
     # that were wired before this module loaded (debug-only).
     import plugin.chatbot.sidebar_test_hooks  # noqa: F401
@@ -153,9 +153,9 @@ def _teardown_mock():
         pass
     if _saved_prompt_research is not None:
         try:
-            from plugin.framework.config import set_config
+            from plugin.framework.config import save
 
-            set_config("chatbot.prompt_for_web_research", _saved_prompt_research)
+            save({"chatbot.prompt_for_web_research": _saved_prompt_research})
         except Exception:
             pass
 
@@ -616,7 +616,7 @@ def _rebind_mock(**flags: Any) -> None:
     import threading
     from http.server import ThreadingHTTPServer
 
-    from plugin.framework.config import set_api_key_for_endpoint, set_config
+    from plugin.framework.config import set_api_key_for_endpoint, save
     from scripts.mock_llm_server import make_handler_class
 
     assert _session is not None
@@ -635,7 +635,7 @@ def _rebind_mock(**flags: Any) -> None:
     _session.httpd = httpd
     _session.thread = thread
     _session.base_url = base_url
-    set_config("endpoint", base_url)
+    save({"endpoint": base_url})
     set_api_key_for_endpoint(base_url, "mock-key")
     if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
         time.sleep(2.1)
@@ -823,13 +823,13 @@ def test_f15_500_then_429_then_hello(ctx):
 @native_test
 def test_f16_timeout_then_hello(ctx):
     """Client request_timeout shorter than mock inter-chunk delay → ERROR then hello."""
-    from plugin.framework.config import get_config_int, set_config
+    from plugin.framework.config import get_config, save
 
     assert _session is not None
     _reset_mock_runtime()
-    saved_timeout = get_config_int("request_timeout")
+    saved_timeout = get_config("request_timeout")
     try:
-        set_config("request_timeout", 3)
+        save({"request_timeout": 3})
         # New port + hang with slow chunks: fresh socket uses timeout=3.
         _rebind_mock(fail="hang", fail_after_chunks=50, delay_ms=8000)
         _send_and_wait("hello", timeout=25.0)
@@ -840,7 +840,7 @@ def test_f16_timeout_then_hello(ctx):
             _press_stop()
         except Exception:
             pass
-        set_config("request_timeout", saved_timeout)
+        save({"request_timeout": saved_timeout})
         _rebind_mock(fail="none", fail_after_chunks=4, delay_ms=20)
     _hello_ok()
 
@@ -1565,11 +1565,11 @@ def test_e8b_stop_mouse_skipped(ctx):
 def test_e9a_hitl_accept(ctx):
     if getattr(_session, "config", None) and getattr(_session.config, "offline", False):
         raise unittest.SkipTest("E9 HITL requires web_search tool calls (--offline mock emits final_answer only)")
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
-    set_config("chatbot.prompt_for_web_research", True)
+    save({"chatbot.prompt_for_web_research": True})
     time.sleep(2.1)
     controls = getattr(_session, "controls", None)
     try:
@@ -1586,7 +1586,7 @@ def test_e9a_hitl_accept(ctx):
             "E9a did not finish after Accept: %r" % _transcript()[-400:]
         )
     finally:
-        set_config("chatbot.prompt_for_web_research", False)
+        save({"chatbot.prompt_for_web_research": False})
         time.sleep(2.1)
     _hello_ok()
 
@@ -1595,11 +1595,11 @@ def test_e9a_hitl_accept(ctx):
 def test_e9b_hitl_reject(ctx):
     if getattr(_session, "config", None) and getattr(_session.config, "offline", False):
         raise unittest.SkipTest("E9 HITL requires web_search tool calls (--offline mock emits final_answer only)")
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
-    set_config("chatbot.prompt_for_web_research", True)
+    save({"chatbot.prompt_for_web_research": True})
     time.sleep(2.1)
     controls = getattr(_session, "controls", None)
     try:
@@ -1620,7 +1620,7 @@ def test_e9b_hitl_reject(ctx):
             "E9b did not go idle after Reject: %r" % _transcript()[-400:]
         )
     finally:
-        set_config("chatbot.prompt_for_web_research", False)
+        save({"chatbot.prompt_for_web_research": False})
         time.sleep(2.1)
     _hello_ok()
 
@@ -1629,14 +1629,14 @@ def test_e9b_hitl_reject(ctx):
 def test_e9c_hitl_change(ctx):
     if getattr(_session, "config", None) and getattr(_session.config, "offline", False):
         raise unittest.SkipTest("E9 HITL requires web_search tool calls (--offline mock emits final_answer only)")
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
     sl = getattr(_session, "listener", None)
     if sl is None:
         raise unittest.SkipTest("E9c Change hook needs in-process SendButtonListener")
-    set_config("chatbot.prompt_for_web_research", True)
+    save({"chatbot.prompt_for_web_research": True})
     time.sleep(2.1)
     try:
         from plugin.chatbot.sidebar_test_hooks import press_change, press_send, set_query_text, wait_idle
@@ -1649,7 +1649,7 @@ def test_e9c_hitl_change(ctx):
         assert wait_idle(listener=sl, timeout=90.0)
         assert "[Stopped by user]" not in _transcript(), "E9c must not cancel the stream as Stop"
     finally:
-        set_config("chatbot.prompt_for_web_research", False)
+        save({"chatbot.prompt_for_web_research": False})
         time.sleep(2.1)
     _hello_ok()
 
@@ -1663,11 +1663,11 @@ def test_e9d_stop_mouse_during_approval_skipped(ctx):
 def test_e9e_stop_action_during_approval(ctx):
     if getattr(_session, "config", None) and getattr(_session.config, "offline", False):
         raise unittest.SkipTest("E9 HITL requires web_search tool calls (--offline mock emits final_answer only)")
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
-    set_config("chatbot.prompt_for_web_research", True)
+    save({"chatbot.prompt_for_web_research": True})
     time.sleep(2.1)
     controls = getattr(_session, "controls", None)
     try:
@@ -1689,7 +1689,7 @@ def test_e9e_stop_action_during_approval(ctx):
             suffix = suffix[len(before) :]
         assert "[Stopped by user]" not in suffix, "E9e Stop during approval must not be StopSendEffect"
     finally:
-        set_config("chatbot.prompt_for_web_research", False)
+        save({"chatbot.prompt_for_web_research": False})
         time.sleep(2.1)
     _hello_ok()
 
@@ -2006,15 +2006,15 @@ def test_e21_mixed_parallel_tools(ctx):
 
 @native_test
 def test_e22_nested_max_steps(ctx):
-    from plugin.framework.config import get_config_int, set_config
+    from plugin.framework.config import get_config, save
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
     assert _session is not None
-    saved_rounds = get_config_int("chatbot.max_tool_rounds")
+    saved_rounds = get_config("chatbot.max_tool_rounds")
     _session.config.nested_never_finish = True
     try:
-        set_config("chatbot.max_tool_rounds", 3)
+        save({"chatbot.max_tool_rounds": 3})
         time.sleep(2.1)
         _send_and_wait("endless nested outline", timeout=120.0)
         body = _transcript().lower()
@@ -2033,7 +2033,7 @@ def test_e22_nested_max_steps(ctx):
         assert not (set(decided) & finish_names), "E22 inner must not finish: %r" % decided
     finally:
         _session.config.nested_never_finish = False
-        set_config("chatbot.max_tool_rounds", saved_rounds)
+        save({"chatbot.max_tool_rounds": saved_rounds})
         time.sleep(2.1)
     _hello_ok()
 
@@ -2299,7 +2299,7 @@ def test_g4_silence_auto_stop(ctx):
 @native_test
 def test_g5_stt_fallback_whisper(ctx):
     from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
-    from plugin.framework.config import get_config, get_current_endpoint, set_config
+    from plugin.framework.config import get_config, get_current_endpoint, save
     from scripts.mock_llm_server import MOCK_STT_MODEL_ID
 
     sl = _g_prep()
@@ -2308,7 +2308,7 @@ def test_g5_stt_fallback_whisper(ctx):
     saved_stt = get_config("stt_model")
     try:
         set_native_audio_support(model, endpoint, False)
-        set_config("stt_model", MOCK_STT_MODEL_ID)
+        save({"stt_model": MOCK_STT_MODEL_ID})
         time.sleep(2.1)
         _g_record_and_stop(sl, _WAV_1S)
         snaps = _captures()
@@ -2321,7 +2321,7 @@ def test_g5_stt_fallback_whisper(ctx):
         )
     finally:
         set_native_audio_support(model, endpoint, True)
-        set_config("stt_model", saved_stt)
+        save({"stt_model": saved_stt})
         time.sleep(2.1)
     _hello_ok()
 
@@ -2538,10 +2538,10 @@ def test_g18_hitl_blocks_record(ctx):
         uno_click,
         wait_idle,
     )
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     sl = _g_prep()
-    set_config("chatbot.prompt_for_web_research", True)
+    save({"chatbot.prompt_for_web_research": True})
     time.sleep(2.1)
     try:
         if sl is not None:
@@ -2562,7 +2562,7 @@ def test_g18_hitl_blocks_record(ctx):
             press_reject(listener=sl)
         wait_idle(listener=sl, timeout=30.0)
     finally:
-        set_config("chatbot.prompt_for_web_research", False)
+        save({"chatbot.prompt_for_web_research": False})
         time.sleep(2.1)
     _hello_ok()
 
@@ -2592,7 +2592,7 @@ def test_g21_hang_ready_init_timeout(ctx):
 def test_g27_stt_empty_no_chat_send(ctx):
     from plugin.chatbot.sidebar_test_hooks import audio_status, send_state
     from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
-    from plugin.framework.config import get_config, get_current_endpoint, set_config
+    from plugin.framework.config import get_config, get_current_endpoint, save
     from scripts.mock_llm_server import MOCK_STT_MODEL_ID
 
     sl = _g_prep()
@@ -2603,7 +2603,7 @@ def test_g27_stt_empty_no_chat_send(ctx):
     saved_transcript = _session.config.transcript
     try:
         set_native_audio_support(model, endpoint, False)
-        set_config("stt_model", MOCK_STT_MODEL_ID)
+        save({"stt_model": MOCK_STT_MODEL_ID})
         _session.config.transcript = ""
         # If the audio_support_map poll misses, native POST 400s and STT still returns "".
         _session.config.fail_native_audio = True
@@ -2628,7 +2628,7 @@ def test_g27_stt_empty_no_chat_send(ctx):
         _session.config.transcript = saved_transcript
         _session.config.fail_native_audio = False
         set_native_audio_support(model, endpoint, True)
-        set_config("stt_model", saved_stt)
+        save({"stt_model": saved_stt})
         time.sleep(2.1)
     _hello_ok()
 
@@ -2637,7 +2637,7 @@ def test_g27_stt_empty_no_chat_send(ctx):
 def test_g28_stt_error_json(ctx):
     from plugin.chatbot.sidebar_test_hooks import audio_status, send_state
     from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
-    from plugin.framework.config import get_config, get_current_endpoint, set_config
+    from plugin.framework.config import get_config, get_current_endpoint, save
     from scripts.mock_llm_server import MOCK_STT_MODEL_ID
 
     sl = _g_prep()
@@ -2651,7 +2651,7 @@ def test_g28_stt_error_json(ctx):
     _session.config.fail_native_audio = True
     try:
         set_native_audio_support(model, endpoint, False)
-        set_config("stt_model", MOCK_STT_MODEL_ID)
+        save({"stt_model": MOCK_STT_MODEL_ID})
         time.sleep(2.1)
         before = _transcript()
         _g_record_and_stop(sl, _WAV_1S)
@@ -2668,7 +2668,7 @@ def test_g28_stt_error_json(ctx):
         _session.config.fail_stt = False
         _session.config.fail_native_audio = False
         set_native_audio_support(model, endpoint, True)
-        set_config("stt_model", saved_stt)
+        save({"stt_model": saved_stt})
         time.sleep(2.1)
     _hello_ok()
 
@@ -2677,7 +2677,7 @@ def test_g28_stt_error_json(ctx):
 def test_g29_native_400_then_stt_same_drain(ctx):
     from plugin.chatbot.sidebar_test_hooks import audio_status
     from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
-    from plugin.framework.config import get_config, get_current_endpoint, set_config
+    from plugin.framework.config import get_config, get_current_endpoint, save
     from scripts.mock_llm_server import MOCK_STT_MODEL_ID
 
     sl = _g_prep()
@@ -2689,7 +2689,7 @@ def test_g29_native_400_then_stt_same_drain(ctx):
     _session.config.fail_native_audio = True
     try:
         set_native_audio_support(model, endpoint, True)
-        set_config("stt_model", MOCK_STT_MODEL_ID)
+        save({"stt_model": MOCK_STT_MODEL_ID})
         time.sleep(2.1)
         _g_record_and_stop(sl, _WAV_1S, timeout=90.0)
         body = _transcript()
@@ -2710,7 +2710,7 @@ def test_g29_native_400_then_stt_same_drain(ctx):
     finally:
         _session.config.fail_native_audio = False
         set_native_audio_support(model, endpoint, True)
-        set_config("stt_model", saved_stt)
+        save({"stt_model": saved_stt})
         time.sleep(2.1)
     _hello_ok()
 
@@ -2750,13 +2750,13 @@ def _slash_prep():
         uno_click,
     )
     from plugin.chatbot.slash_commands import enable_mock_slash_commands
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     slash_popup.ENABLE_SLASH = True
     enable_mock_slash_commands()  # [mock] rows exist only in this harness
     adopt_runtime_send_listeners()
     sl = getattr(_session, "listener", None) or send_listener()
-    set_config("slash_command_lru", [])
+    save({"slash_command_lru": []})
     controls = getattr(_session, "controls", None) or {}
     clear = controls.get("clear")
     if clear is not None:
@@ -2836,11 +2836,11 @@ def _clear_chat() -> None:
 
 def _ensure_compaction_enabled(enabled: bool) -> None:
     """Toggle ``chat_compaction_enabled`` and wait for the OXT config cache."""
-    from plugin.framework.config import get_config_bool, set_config
+    from plugin.framework.config import get_config, save
 
-    if bool(get_config_bool("chat_compaction_enabled")) == bool(enabled):
+    if bool(get_config("chat_compaction_enabled")) == bool(enabled):
         return
-    set_config("chat_compaction_enabled", enabled)
+    save({"chat_compaction_enabled": enabled})
     if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
         time.sleep(2.1)
 
@@ -4430,7 +4430,7 @@ _S_SAVED: dict[str, Any] = {}
 def _s_install(mode: str, *, native_audio: bool = False) -> None:
     from plugin.chatbot.sidebar_test_hooks import install_fake_stt, set_audio_supported
     from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
-    from plugin.framework.config import get_config, get_current_endpoint, set_config
+    from plugin.framework.config import get_config, get_current_endpoint, save
     from scripts.mock_llm_server import MOCK_STT_MODEL_ID
 
     assert _session is not None
@@ -4445,7 +4445,7 @@ def _s_install(mode: str, *, native_audio: bool = False) -> None:
     _S_SAVED.clear()
     _S_SAVED.update(model=model, endpoint=endpoint, stt_model=get_config("stt_model"), transcript=_session.config.transcript)
     set_native_audio_support(model, endpoint, native_audio)
-    set_config("stt_model", MOCK_STT_MODEL_ID)
+    save({"stt_model": MOCK_STT_MODEL_ID})
     # Silence: STT hears nothing. Otherwise the mock transcribes the take.
     _session.config.transcript = "" if mode == "silence" else "Fake STT transcript."
     time.sleep(2.1)
@@ -4454,12 +4454,12 @@ def _s_install(mode: str, *, native_audio: bool = False) -> None:
 def _s_clear() -> None:
     from plugin.chatbot.sidebar_test_hooks import clear_fake_stt
     from plugin.framework.client.model_fetcher import set_native_audio_support
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     clear_fake_stt()
     if _S_SAVED:
         set_native_audio_support(_S_SAVED["model"], _S_SAVED["endpoint"], True)
-        set_config("stt_model", _S_SAVED["stt_model"])
+        save({"stt_model": _S_SAVED["stt_model"]})
         if _session is not None:
             _session.config.transcript = _S_SAVED["transcript"]
         _S_SAVED.clear()

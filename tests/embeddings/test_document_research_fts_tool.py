@@ -31,8 +31,8 @@ def test_search_nearby_files_disabled():
 def test_search_nearby_files_indexing_status():
     tool = SearchNearbyFiles()
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
-            with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
+            with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
                 with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
                     with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
                         with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
@@ -52,17 +52,17 @@ def test_search_nearby_files_indexing_status():
 def test_search_nearby_files_does_not_block_main_thread_for_rpc():
     tool = SearchNearbyFiles()
 
-    # We want to ensure execute_on_main_thread is NOT called for hybrid_search
+    # We want to ensure call is NOT called for hybrid_search
     # It SHOULD be called for _resolve_uno_context and _wakeup
     execute_calls = []
 
-    def fake_execute_on_main_thread(fn):
+    def fake_call(fn):
         execute_calls.append(fn.__name__)
         return fn()
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_execute_on_main_thread):
-            with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=fake_call):
+            with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
                 with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
                     with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
                         with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
@@ -81,7 +81,7 @@ def test_search_nearby_files_does_not_block_main_thread_for_rpc():
     rpc_mock.assert_called_once()
     wakeup_mock.assert_called_once()
 
-    # The RPC call should NOT be wrapped in execute_on_main_thread
+    # The RPC call should NOT be wrapped in call
     assert "_resolve_uno_context" in execute_calls
     assert "_wakeup" in execute_calls
     assert len([c for c in execute_calls if c in ("_resolve_uno_context", "_wakeup")]) == 2
@@ -105,7 +105,7 @@ def test_search_nearby_files_model_change_does_not_query(tmp_path):
     )
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+        with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
             with patch("plugin.framework.config.get_config", return_value="hybrid"):
                 with patch("plugin.doc.document_research.resolve_listing_directory", return_value=str(tmp_path)):
                     with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
@@ -134,8 +134,8 @@ def test_search_nearby_files_backend_error_surfaced():
     ctx.services = MagicMock()
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
-            with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
+            with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
                 with patch(
                     "plugin.embeddings.embeddings_cache.resolve_index_context",
                     return_value=("key", "db_path", MagicMock(), "/tmp/folder"),
@@ -157,8 +157,8 @@ def test_search_nearby_files_passes_stop_checker():
     ctx.send_cancellation = object()
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
-            with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
+            with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
                 with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
                     with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
                         with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):

@@ -47,10 +47,12 @@ import shutil
 import tempfile
 from typing import Any, NamedTuple
 
+from plugin.framework.doc_type import is_impress
 from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_directory_path, _should_skip_filename
+from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.design_look import derive_otp_look
+from plugin.draw.masters import find_master, iter_masters
 from plugin.draw.otp_zip import extract_member, read_member
-from plugin.draw.pages import _DRAW_UNO, _is_impress_doc
 from plugin.draw.shape_clone import clone_shape, copy_prop, fill_style_kind
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.errors import is_disposal
@@ -288,23 +290,9 @@ def resolve_design(ctx: Any, design: str) -> dict[str, str] | None:
 
 def _master_entries(doc: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    try:
-        masters = doc.getMasterPages()
-    except Exception as exc:
-        # Bugfix: a closed document raises DisposedException from getMasterPages(),
-        # and this except turned that into a missing page / not-found result.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing missing-page path.
-        if is_disposal(exc):
-            raise
-        return out
-    for i in range(masters.getCount()):
-        m = masters.getByIndex(i)
-        name = m.Name if hasattr(m, "Name") else ""
-        # MasterPage.getCount() does not fail on a live page. The old except
-        # left shape_count at 0 and swallowed a closed document.
+    for i, m, name in iter_masters(doc):
         shapes = int(m.getCount())
-        out.append({"index": i, "name": name or "", "shape_count": shapes})
+        out.append({"index": i, "name": name, "shape_count": shapes})
     return out
 
 
@@ -351,8 +339,7 @@ def _load_design_model(
     hidden: bool,
     as_template: bool,
 ) -> Any:
-    from plugin.framework.uno_context import get_desktop
-    from plugin.writer.format import create_property_value
+    from plugin.framework.uno_context import create_property_value, get_desktop
 
     desktop = get_desktop(uno_ctx)
     if desktop is None:
@@ -509,10 +496,9 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
             if (not dw or not dh) and hasattr(p0, "MasterPage") and p0.MasterPage:
                 dw = getattr(p0.MasterPage, "Width", 0) or 0
                 dh = getattr(p0.MasterPage, "Height", 0) or 0
-        if (not dw or not dh) and hasattr(dest_doc, "getMasterPages"):
-            masters = dest_doc.getMasterPages()
-            if masters.getCount() > 0:
-                m0 = masters.getByIndex(0)
+        if not dw or not dh:
+            m0 = find_master(dest_doc, index=0)
+            if m0 is not None:
                 dw = getattr(m0, "Width", 0) or 0
                 dh = getattr(m0, "Height", 0) or 0
         if dw and dh and float(dh) > 0:
@@ -765,20 +751,16 @@ def _cleanup_previous_same_named_masters(dest_doc: Any, new_master: Any, design_
     target_lower = design_name.strip().lower()
     if target_lower == "default":
         return
-    dest_masters = dest_doc.getMasterPages()
-    count = int(dest_masters.getCount())
     to_remove: list[Any] = []
-    for i in range(count):
-        m = dest_masters.getByIndex(i)
+    for _i, m, name in iter_masters(dest_doc):
         if uno_same(m, new_master):
             continue
-        m_name = str(getattr(m, "Name", "") or "").strip()
-        if m_name.lower() == target_lower:
+        if name.strip().lower() == target_lower:
             if not _is_master_referenced(dest_doc, m):
                 to_remove.append(m)
     for m in to_remove:
         try:
-            dest_masters.remove(m)
+            dest_doc.getMasterPages().remove(m)
         except Exception as exc:
             if is_disposal(exc):
                 raise
@@ -966,7 +948,7 @@ class ListDesigns(ToolBase):
         "install prefix."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
     is_mutation: bool | None = False
 
@@ -999,14 +981,14 @@ class ApplyDesign(ToolBase):
         "Call list_designs first. Draw documents return a not-Impress error."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from list_designs (e.g. Metropolis)."}}, "required": ["design"]}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Draw and every other non-Impress doc share this error.
         # _is_draw_only_doc returned the same payload.
-        if not _is_impress_doc(ctx.doc):
+        if not is_impress(ctx.doc):
             return self._tool_error(
                 "apply_design requires an Impress presentation, not a Draw document.",
                 code="UNSUPPORTED_DOC_TYPE",

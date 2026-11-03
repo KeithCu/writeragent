@@ -19,13 +19,11 @@ from __future__ import annotations
 from typing import Any, IO, Mapping
 
 from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
     DEAL_MAX_TOKEN,
-    _profile,
     ascii_bounded,
     deal,
 )
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     _write_all,
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcPayloadSizeError,
@@ -129,18 +127,7 @@ def _deal_ipc_dict_ok_pytest(msg: object) -> bool:
     return isinstance(msg, Mapping)
 
 
-def _deal_ipc_dict_ok_crosshair(msg: object, allow_nested: bool = True) -> bool:
-    return type(msg) is dict and len(msg) <= DEAL_MAX_CMD_ARGS and all(
-        type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) and (
-            v is None
-            or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN))
-            or (allow_nested and isinstance(v, dict) and _deal_ipc_dict_ok_crosshair(v, allow_nested=False))
-        )
-        for k, v in msg.items()
-    )
-
-
-_deal_ipc_dict_ok = _profile(_deal_ipc_dict_ok_crosshair, _deal_ipc_dict_ok_pytest)
+_deal_ipc_dict_ok = _deal_ipc_dict_ok_pytest
 
 
 @deal.pre(lambda target: target is None or _deal_ipc_dict_ok(target))

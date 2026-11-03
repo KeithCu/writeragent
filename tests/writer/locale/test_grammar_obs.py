@@ -21,9 +21,9 @@ from plugin.writer.locale.grammar_work_queue import (
 
 @pytest.fixture(autouse=True)
 def _reset_status_indicator():
-    go._last_status_indicator = None
+    go.set_grammar_status(None)
     yield
-    go._last_status_indicator = None
+    go.set_grammar_status(None)
 
 
 def _item(*, doc_id: str = "d1", key: str = "k1", seq: int = 1, text: str = "Hello.") -> GrammarWorkItem:
@@ -110,7 +110,7 @@ def test_emit_grammar_status_swallows_event_bus_failure() -> None:
 def test_emit_harper_worker_status_emits_request_payload() -> None:
     mock_bus = MagicMock()
     with patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus):
-        go.emit_harper_worker_status("They is here.", "Downloading harper-ls v2.7.0…")
+        go.get_grammar_status().request("They is here.", result="Downloading harper-ls v2.7.0…", preview_source="They is here.")
     mock_bus.emit.assert_called_once_with(
         "grammar:status",
         phase="request",
@@ -124,8 +124,8 @@ def test_emit_harper_worker_status_emits_request_payload() -> None:
 def test_emit_grammar_status_routes_to_libreoffice_status_bar_when_libreharper() -> None:
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         go.emit_grammar_status("complete", "Hello world.", result="clean")
     mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "complete", "clean")
@@ -135,9 +135,9 @@ def test_emit_grammar_status_always_posts_to_main_thread() -> None:
     """Linguistic workers can look like VCL; never paint XStatusIndicator inline."""
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         go.emit_grammar_status("start", "Hello world.", result="Starting Harper…")
     mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "start", "Starting Harper…")
@@ -162,7 +162,7 @@ def test_emit_grammar_status_skips_routine_libreharper_paints() -> None:
         with (
             patch("plugin.framework.uno_context.is_libreharper", return_value=True),
             patch("plugin.writer.locale.grammar_obs.update_libreoffice_status_bar") as mock_bar,
-            patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+            patch("plugin.framework.queue_executor.main.post") as mock_post,
         ):
             go.emit_grammar_status("start", "Hello world.", result=result)
         mock_bar.assert_not_called()
@@ -171,7 +171,7 @@ def test_emit_grammar_status_skips_routine_libreharper_paints() -> None:
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
         patch("plugin.writer.locale.grammar_obs.update_libreoffice_status_bar") as mock_bar,
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         go.emit_grammar_status("done", "Hello world.", result="0 issues")
     mock_bar.assert_not_called()
@@ -179,11 +179,10 @@ def test_emit_grammar_status_skips_routine_libreharper_paints() -> None:
 
 
 def test_emit_grammar_status_posts_routine_done_when_indicator_active() -> None:
-    with (
-        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-        patch.object(go, "_last_status_indicator", MagicMock()),
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
-    ):
+    sink = go.StatusBarGrammarStatus()
+    sink._indicator = MagicMock()
+    go.set_grammar_status(sink)
+    with patch("plugin.framework.queue_executor.main.post") as mock_post:
         go.emit_grammar_status("done", "Hello world.", result="0 issues")
     mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "done", "0 issues")
 
@@ -197,8 +196,8 @@ def test_emit_grammar_status_paints_progress_and_failure_when_libreharper() -> N
     for phase, result in cases:
         with (
             patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-            patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+            patch("plugin.framework.queue_executor.main.post") as mock_post,
         ):
             go.emit_grammar_status(phase, "Hello world.", result=result)
         mock_post.assert_called_once_with(go.update_libreoffice_status_bar, phase, result)
@@ -246,7 +245,7 @@ def test_emit_grammar_status_skips_post_on_no_vcl_helper() -> None:
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
         patch.object(go, "desktop_create_is_unsafe", return_value=True),
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         go.emit_grammar_status("request", "Hello world.", result="Starting Harper…")
     mock_post.assert_not_called()
@@ -327,6 +326,8 @@ def test_resolve_status_bar_frame_uses_existing_desktop_singleton() -> None:
 
 
 def test_update_libreoffice_status_bar_skips_paint_when_frame_missing() -> None:
+    sink = go.StatusBarGrammarStatus()
+    go.set_grammar_status(sink)
     with (
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=None),
@@ -336,10 +337,12 @@ def test_update_libreoffice_status_bar_skips_paint_when_frame_missing() -> None:
         go.update_libreoffice_status_bar("request", "Downloading harper-ls v2.7.0…")
         mock_desktop.assert_not_called()
         mock_doc.assert_not_called()
-        assert go._last_status_indicator is None
+        assert sink._indicator is None
 
 
 def test_update_libreoffice_status_bar_ends_indicator_on_routine_done() -> None:
+    sink = go.StatusBarGrammarStatus()
+    go.set_grammar_status(sink)
     mock_indicator = MagicMock()
     mock_frame = MagicMock()
     mock_frame.createStatusIndicator.return_value = mock_indicator
@@ -349,13 +352,13 @@ def test_update_libreoffice_status_bar_ends_indicator_on_routine_done() -> None:
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
         go.update_libreoffice_status_bar("start", "Downloading harper-ls v2.7.0…")
-        assert go._last_status_indicator is mock_indicator
+        assert sink._indicator is mock_indicator
         mock_indicator.setText.reset_mock()
 
         go.update_libreoffice_status_bar("done", "2 issues")
         mock_indicator.end.assert_called_once()
         mock_indicator.setText.assert_not_called()
-        assert go._last_status_indicator is None
+        assert sink._indicator is None
 
 
 def test_update_libreoffice_status_bar_routine_done_without_indicator_does_nothing() -> None:
@@ -367,6 +370,8 @@ def test_update_libreoffice_status_bar_routine_done_without_indicator_does_nothi
 
 
 def test_update_libreoffice_status_bar_shows_failure_without_indicator() -> None:
+    sink = go.StatusBarGrammarStatus()
+    go.set_grammar_status(sink)
     mock_indicator = MagicMock()
     mock_frame = MagicMock()
     mock_frame.createStatusIndicator.return_value = mock_indicator
@@ -377,11 +382,13 @@ def test_update_libreoffice_status_bar_shows_failure_without_indicator() -> None
     ):
         go.update_libreoffice_status_bar("failed", "timed out")
         mock_indicator.start.assert_called_once_with("LibreHarper: Failed (timed out)", 100)
-        assert go._last_status_indicator is mock_indicator
+        assert sink._indicator is mock_indicator
         mock_indicator.end.assert_not_called()
 
 
 def test_update_libreoffice_status_bar_failure_with_empty_result_has_text() -> None:
+    sink = go.StatusBarGrammarStatus()
+    go.set_grammar_status(sink)
     mock_indicator = MagicMock()
     mock_frame = MagicMock()
     mock_frame.createStatusIndicator.return_value = mock_indicator
@@ -392,13 +399,15 @@ def test_update_libreoffice_status_bar_failure_with_empty_result_has_text() -> N
     ):
         go.update_libreoffice_status_bar("failed", "")
         mock_indicator.start.assert_called_once_with("LibreHarper: Grammar check failed", 100)
-        assert go._last_status_indicator is mock_indicator
+        assert sink._indicator is mock_indicator
         mock_indicator.end.assert_not_called()
 
 
 def test_update_libreoffice_status_bar_failure_updates_active_indicator_without_ending() -> None:
+    sink = go.StatusBarGrammarStatus()
     mock_indicator = MagicMock()
-    go._last_status_indicator = mock_indicator
+    sink._indicator = mock_indicator
+    go.set_grammar_status(sink)
     mock_frame = MagicMock()
 
     with (
@@ -412,6 +421,8 @@ def test_update_libreoffice_status_bar_failure_updates_active_indicator_without_
 
 
 def test_update_libreoffice_status_bar_lifecycle() -> None:
+    sink = go.StatusBarGrammarStatus()
+    go.set_grammar_status(sink)
     mock_indicator = MagicMock()
     mock_frame = MagicMock()
     mock_frame.createStatusIndicator.return_value = mock_indicator
@@ -434,26 +445,28 @@ def test_update_libreoffice_status_bar_lifecycle() -> None:
         go.update_libreoffice_status_bar("complete", "done")
         mock_indicator.setText.assert_called_with("LibreHarper: Grammar check complete")
         mock_indicator.end.assert_called_once()
-        assert go._last_status_indicator is None
+        assert sink._indicator is None
 
 
 def test_update_libreoffice_status_bar_drops_dead_indicator() -> None:
     """A disposed indicator must not stick across later progress paints."""
+    sink = go.StatusBarGrammarStatus()
     dead = MagicMock()
     dead.setText.side_effect = RuntimeError("disposed")
     fresh = MagicMock()
     frame = MagicMock()
     frame.createStatusIndicator.return_value = fresh
+    sink._indicator = dead
+    go.set_grammar_status(sink)
     with (
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch.object(go, "resolve_status_bar_frame", return_value=frame),
     ):
-        go._last_status_indicator = dead
         go.update_libreoffice_status_bar("request", "Starting harper-ls…")
-        assert go._last_status_indicator is None
+        assert sink._indicator is None
         go.update_libreoffice_status_bar("start", "Downloading harper-ls v2.7.0…")
         frame.createStatusIndicator.assert_called_once()
-        assert go._last_status_indicator is fresh
+        assert sink._indicator is fresh
 
 
 def test_routine_libreharper_status_does_not_call_slice_preview_debug() -> None:

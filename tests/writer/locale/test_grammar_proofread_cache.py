@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
 from plugin.writer.locale import grammar_proofread_cache as gc
+from plugin.writer.locale import grammar_settings
 from plugin.writer.locale.grammar_proofread_cache import _normalize_for_sentence_cache
 
 @pytest.fixture(autouse=True)
@@ -211,7 +212,7 @@ def test_sentence_cache_locale_isolation() -> None:
     assert gc.cache_get_sentence("fr-FR", "Bonjour") is not None
 
 def test_sentence_cache_key_prefix_and_identity_fp() -> None:
-    ident = gc.resolve_checker_identity().replace("|", "/")
+    ident = grammar_settings.checker_identity().replace("|", "/")
     assert gc.sentence_cache_key_prefix("en-US") == f"sent|en-US|{ident}|"
     fp = gc.sentence_identity_fp("Hello.")
     assert gc._sentence_l1_key("en-US", None, fp) == f"{gc.sentence_cache_key_prefix('en-US')}{fp}"
@@ -428,5 +429,25 @@ def test_cache_get_sentence_hashes_once() -> None:
     with patch("plugin.writer.locale.grammar_proofread_cache.fingerprint_for_text", wraps=real) as fp_mock:
         assert gc.cache_get_sentence("en-US", "Hello.") is None
     assert fp_mock.call_count == 1
+
+
+def test_store_sentence_result_normalizes_caches_and_filters() -> None:
+    ctx = MagicMock()
+    raw = [
+        {"wrong": "is", "correct": "are", "n_error_start": 5, "n_error_length": 2, "rule_identifier": "harper||Grammar", "suggestions": ["are"]},
+        {"wrong": "they", "correct": "They", "n_error_start": 0, "n_error_length": 4, "rule_identifier": "harper||Ignored", "suggestions": ["They"]},
+    ]
+    with (
+        patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"Ignored"}),
+        patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()),
+    ):
+        active = gc.store_sentence_result(ctx, "d1", "en-US", "they is here.", raw, "harper")
+    assert len(active) == 1
+    assert active[0]["rule_identifier"] == "harper||Grammar"
+    # Cached payload contains all normalized errors
+    cached = gc.cache_get_sentence("en-US", "they is here.", ctx=ctx, doc_id="d1", checker_identity="harper")
+    assert cached is not None
+    assert len(cached) == 2
+
 
 

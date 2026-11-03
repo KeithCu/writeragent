@@ -62,14 +62,14 @@ def _defer_to_next_turn(fn: Any, *args: Any) -> None:
     ``accept_selected`` → ``run_slash_command`` → ``hide()`` (and Esc →
     ``hide()``) ``dispose()`` the toolkit window from inside its own
     ``XKeyHandler`` / ``XMouseListener`` while VCL is still in that callback.
-    ``post_to_main_thread`` enqueues once AsyncCallback exists (the headed
+    ``main.post`` enqueues once AsyncCallback exists (the headed
     sidebar). The listener returns before dispose. An inline fallback is
     the same deadlock, so a failed post is only logged.
     """
     try:
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(fn, *args)
+        main.post(fn, *args)
     except Exception:
         log.warning("slash popup: could not defer main-thread turn", exc_info=True)
 
@@ -462,7 +462,7 @@ class SlashPopupController:
         _ovlog("on_query_text prefix=%r text=%r", prefix, snippet)
         if prefix is None:
             _ovlog("on_query_text hide (not a slash prefix)")
-            # Bugfix: post_to_main_thread raises TimeoutError when the pending
+            # Bugfix: main.post raises TimeoutError when the pending
             # list is full before AsyncCallback exists (queue_executor.post).
             # hide() / _show_matches() on this Ask textChanged stack deadlock
             # VCL. _defer_to_next_turn logs the failure and does not run them.

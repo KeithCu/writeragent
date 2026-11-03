@@ -7,8 +7,8 @@
 
 Constructs a function-level call graph across the codebase to identify call
 paths starting from synchronous host dispatches (Calc add-in calculation) that
-attempt blocking waits on the main thread (execute_on_main_thread).
-Note: execute_on_main_thread is the only blocking wait modeled (there is no
+attempt blocking waits on the main thread (main.call).
+Note: main.call is the only blocking wait modeled (there is no
 lock model).
 
 Usage:
@@ -36,24 +36,39 @@ from typing import NamedTuple
 # Sandbox venvs, third-party and test trees are not host dispatch code
 EXCLUDED_DIR_NAMES = {"contrib", "site-packages", "tests", "venv"}
 
-# Functions executed synchronously while holding a host/bridge dispatch context (Yellow context)
-SYNC_HOST_ENTRYPOINTS = {
-    # Add-in and Scripting Calculation Roots (wrapped with sync_host_dispatch)
-    "execute_python_addin",
-    "_execute_python_addin_impl",
-    "execute_prompt_addin",
-    "_execute_prompt_addin_impl",
-    "py",
-    "python",
-    "prompt",
-    "session_key",
-    "_notify_thread_violation",
-}
+try:
+    from scripts.thread_safety_roots import SYNC_HOST_ENTRYPOINTS
+except ImportError:
+    from thread_safety_roots import SYNC_HOST_ENTRYPOINTS  # type: ignore
 
 # Operations that block the calling thread waiting for the UI/main thread or other locks
 BLOCKING_OPERATIONS = {
-    "execute_on_main_thread",
+    "main.call",
 }
+
+
+def _dotted_name(node: ast.AST) -> str:
+    parts: list[str] = []
+    curr: ast.AST = node
+    while isinstance(curr, ast.Attribute):
+        parts.append(curr.attr)
+        curr = curr.value
+    if isinstance(curr, ast.Name):
+        parts.append(curr.id)
+    return ".".join(reversed(parts))
+
+
+MARSHAL_RECEIVERS = {"main", "queue_executor", "qe"}
+
+
+def is_blocking_marshal_call(node: ast.Call) -> bool:
+    dotted = _dotted_name(node.func)
+    if not dotted:
+        return False
+    parts = dotted.split(".")
+    if len(parts) >= 2 and parts[-1] in {"call", "run"}:
+        return parts[-2] in MARSHAL_RECEIVERS
+    return False
 
 
 # Generic standard method names that should not be used as cross-module function edges
@@ -177,16 +192,19 @@ class CallGraphBuilder(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         if self.current_function and node.lineno not in self.suppressed_lines:
-            callee = ""
-            if isinstance(node.func, ast.Name):
-                callee = node.func.id
-            elif isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name) and node.func.value.id == "self" and self.class_stack:
-                    callee = f"{self.class_stack[-1]}.{node.func.attr}"
-                else:
-                    callee = node.func.attr
-            if callee and callee not in GENERIC_METHOD_NAMES:
-                self.call_edges.append((self.current_function, callee, node.lineno))
+            if is_blocking_marshal_call(node):
+                self.call_edges.append((self.current_function, "main.call", node.lineno))
+            else:
+                callee = ""
+                if isinstance(node.func, ast.Name):
+                    callee = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    if isinstance(node.func.value, ast.Name) and node.func.value.id == "self" and self.class_stack:
+                        callee = f"{self.class_stack[-1]}.{node.func.attr}"
+                    else:
+                        callee = node.func.attr
+                if callee and callee not in GENERIC_METHOD_NAMES:
+                    self.call_edges.append((self.current_function, callee, node.lineno))
         self.generic_visit(node)
 
 

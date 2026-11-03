@@ -194,13 +194,14 @@ def test_variable_returned_stripped():
     assert res_sol["variable"] == "x"
 
 def test_is_symbolic_result():
-    from plugin.scripting.symbolic import is_symbolic_result
+    from plugin.scripting.domain_registry import get_domain_wiring
 
-    assert is_symbolic_result({"status": "ok", "helper": "differentiate"}) is True
-    assert is_symbolic_result({"status": "error", "code": "SYMBOLIC_ERROR"}) is True
-    assert is_symbolic_result({"status": "ok", "helper": "unknown_helper"}) is False
-    assert is_symbolic_result({"status": "ok", "latex": "x^2"}) is False
-    assert is_symbolic_result({"status": "error", "code": "OTHER_ERROR"}) is False
+    is_res = get_domain_wiring("math").is_result
+    assert is_res({"status": "ok", "helper": "differentiate"}) is True
+    assert is_res({"status": "error", "code": "SYMBOLIC_ERROR"}) is True
+    assert is_res({"status": "ok", "helper": "unknown_helper"}) is False
+    assert is_res({"status": "ok", "latex": "x^2"}) is False
+    assert is_res({"status": "error", "code": "OTHER_ERROR"}) is False
 
 
 def test_differentiate_euler_e():
@@ -268,10 +269,10 @@ def test_sympy_valueerror_is_symbolic_error():
 
 
 def test_helpers_match_helper_names():
-    from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES
-    from plugin.scripting.venv.symbolic import _HELPERS
+    from plugin.scripting.helper_registry import bound, names
+    import plugin.scripting.venv.symbolic  # noqa: F401
 
-    assert set(_HELPERS) == set(SYMBOLIC_HELPER_NAMES)
+    assert all(callable(bound("symbolic", name)) for name in names("symbolic"))
 
 
 def test_factorial_equation_needs_a_space_before_equals():

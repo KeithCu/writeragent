@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
@@ -15,6 +16,7 @@ if str(_PO) not in sys.path:
 
 import pytest
 
+import eval_catalog
 from eval_catalog import (
     TOOL_PRESETS,
     apply_schema_density,
@@ -51,6 +53,88 @@ def test_eval_catalog_matches_registry_get_schemas() -> None:
             if _schema_name(s)
         }
         assert _names(kind) == live
+
+
+def _delegate_domain_enum(schemas: list[dict], tool_name: str) -> list[str] | None:
+    for row in schemas:
+        fn = row.get("function") if isinstance(row.get("function"), dict) else row
+        if fn.get("name") != tool_name:
+            continue
+        props = (fn.get("parameters") or {}).get("properties") or {}
+        domain = props.get("domain") or {}
+        enum = domain.get("enum")
+        return list(enum) if isinstance(enum, list) else None
+    return None
+
+
+def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Eval headless registry uses the same hooks/filters as plugin.main bootstrap."""
+    import plugin.main as main
+    from plugin.main import BootstrapState
+    from unittest.mock import MagicMock
+    import tempfile
+
+    eval_catalog._registry = None
+    monkeypatch.setenv("WRITERAGENT_EVAL_HARNESS", "1")
+    monkeypatch.setattr("plugin.framework.thread_guard.on_python_main_thread", lambda: True)
+    monkeypatch.setattr(main, "register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
+
+    def _eval_like_modules(services: Any) -> list[Any]:
+        from plugin.calc import CalcModule
+        from plugin.chatbot import ChatbotModule
+        from plugin.draw import DrawModule
+        from plugin.writer import WriterModule
+
+        WriterModule().initialize(services)
+        CalcModule().initialize(services)
+        DrawModule().initialize(services)
+        ChatbotModule().initialize(services)
+        services.get("tools").auto_discover_package("plugin.doc")
+        return []
+
+    monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", _eval_like_modules)
+
+    prev_state = main._bootstrap_state
+    prev_services = main._services
+    prev_tools = main._tools
+    prev_modules = list(main._modules)
+    try:
+        main._bootstrap_state = BootstrapState.UNINITIALIZED
+        main._services = None
+        main._tools = None
+        main._modules = []
+        ctx = MagicMock()
+        path_settings = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
+        path_settings.UserConfig = tempfile.mkdtemp(prefix="wa-eval-sidebar-")
+        main.bootstrap(ctx)
+        sidebar = main.get_tools()
+        assert sidebar is not None
+        eval_reg = _headless_registry()
+        for kind in ("writer", "calc", "draw"):
+            kwargs: dict = {"doc_type": kind, "filter_doc_type": True}
+            sidebar_rows = sidebar.get_schemas("openai", **kwargs)
+            eval_rows = eval_reg.get_schemas("openai", **kwargs)
+            assert sidebar_rows == eval_rows
+            delegate_name = f"delegate_to_specialized_{kind}_toolset"
+            assert _delegate_domain_enum(sidebar_rows, delegate_name) == _delegate_domain_enum(
+                eval_rows, delegate_name
+            )
+            assert _delegate_domain_enum(eval_rows, delegate_name) is not None
+    finally:
+        eval_catalog._registry = None
+        main._bootstrap_state = prev_state
+        main._services = prev_services
+        main._tools = prev_tools
+        main._modules = prev_modules
+
+
+def test_eval_prompts_build_without_libreoffice() -> None:
+    from scripts.prompt_optimization.eval_prompts import get_writer_eval_chat_system_prompt
+
+    prompt = get_writer_eval_chat_system_prompt()
+    assert "delegate_to_specialized_writer_toolset" in prompt
+    assert "[Eval harness]" in prompt
 
 
 def test_writer_catalog_has_production_names() -> None:

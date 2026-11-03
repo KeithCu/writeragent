@@ -15,7 +15,7 @@ from typing import Any, ClassVar
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.doc.document_research import close_document_research_document, open_document_for_read, resolve_path_or_name
 
 log = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
 
     from plugin.framework.send_cancellation import SendCancelled
     try:
-        tools = run_on_main(_fetch_inner_tools)
+        tools = main.run(_fetch_inner_tools)
     except SendCancelled:
         return user_stopped_payload()
 
@@ -146,7 +146,7 @@ class DelegateReadDocument(ToolBase):
             if path is None:
                 return self._tool_error(url_or_err or "Could not resolve file", path_or_name=path_or_name)
             target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
-            model, doc_type, err, opened_for_document_research = run_on_main(
+            model, doc_type, err, opened_for_document_research = main.run(
                 open_document_for_read, ctx.ctx, target
             )
         except SendCancelled:
@@ -163,13 +163,12 @@ class DelegateReadDocument(ToolBase):
                 close_document_research_document(model, opened_for_document_research=opened_for_document_research)
 
             try:
-                run_on_main(_do_close)
+                main.run(_do_close)
             except (SendCancelled, TimeoutError, RuntimeError):
-                from plugin.framework.queue_executor import post_to_main_thread
                 # Post unscoped (bound_scope=None) so the cancelled turn scope does not drop
                 # this close during queue processing or cancel_pending_work.
                 try:
-                    post_to_main_thread(_do_close, bound_scope=None)
+                    main.post(_do_close, bound_scope=None)
                 except Exception:
                     # post raises TimeoutError when AsyncCallback is missing and the
                     # pending list is full; an exception from finally would replace

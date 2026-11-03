@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Eval system prompt is the production chat builder plus the eval note."""
 
+import pytest
+
 from plugin.framework.prompts import (
     TOOL_USAGE_PATTERNS,
     WRITER_REVIEW_MODES_RULES,
@@ -22,6 +24,13 @@ from scripts.prompt_optimization.eval_prompts import (
     get_writer_eval_chat_system_prompt,
     replace_prompt_slice,
 )
+
+
+@pytest.fixture(autouse=True)
+def _register_prompt_hooks_for_eval_prompt_tests():
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
 
 
 def test_writer_eval_prompt_equals_production_plus_note() -> None:
@@ -166,6 +175,7 @@ def test_flag_prompt_safe_off_designated_thread_with_guard_on(monkeypatch) -> No
     """GUARD on + LoLane-like thread must not raise on get_eval_system_prompt."""
     import threading
 
+    from plugin.framework.queue_executor import main
     import plugin.framework.thread_guard as tg
 
     monkeypatch.setattr(tg, "GUARD_ON", True)
@@ -176,7 +186,7 @@ def test_flag_prompt_safe_off_designated_thread_with_guard_on(monkeypatch) -> No
     result: list[object] = []
 
     def uno_home() -> None:
-        tg.set_designated_main_thread(threading.current_thread())
+        main.designated = threading.current_thread()
         holder.append(threading.current_thread())
         ready.set()
         done.wait(timeout=30)
@@ -197,7 +207,7 @@ def test_flag_prompt_safe_off_designated_thread_with_guard_on(monkeypatch) -> No
     worker.join(timeout=30)
     done.set()
     home.join(timeout=30)
-    tg.set_designated_main_thread(None)
+    main.designated = None
     assert worker.is_alive() is False
     assert result and isinstance(result[0], str)
     assert FLAG_HARNESS_NOTE in result[0]

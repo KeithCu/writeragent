@@ -159,9 +159,9 @@ def diagnostics_workbook_key(doc: Any | None = None) -> str:
     Uses the calling document only, and only reads an existing session id
     (``existing_calc_session_id`` does not mint a UDProp).
     """
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if doc is None or not on_main_thread():
+    if doc is None or not main.is_current():
         return "unknown"
     from plugin.scripting.session_manager import existing_calc_session_id
 

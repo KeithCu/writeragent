@@ -22,8 +22,8 @@ def calc_ctx():
     return ctx
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.viz.run_trusted_viz")
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.calc.viz.run_domain")
 def test_plot_data_happy_path(mock_run, mock_main_thread, calc_ctx):
     mock_run.return_value = {
         "status": "ok",
@@ -41,8 +41,8 @@ def test_plot_data_happy_path(mock_run, mock_main_thread, calc_ctx):
     mock_run.assert_called_once()
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.calc.viz.run_trusted_viz")
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.calc.viz.run_domain")
 def test_plot_data_insert_failure_is_not_success(mock_run, mock_main_thread, calc_ctx):
     mock_run.return_value = {
         "status": "ok",

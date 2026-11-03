@@ -29,7 +29,7 @@ from typing import IO, Any, Callable, cast
 from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
-from plugin.framework.queue_executor import QueueExecutor, default_executor
+from plugin.framework.queue_executor import MainThread, main
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
 from plugin.scripting.editor_errors import (
     exception_traceback,
@@ -46,8 +46,9 @@ from plugin.scripting.editor_ipc import (
     write_message,
 )
 from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handle_editor_script_message
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame
-from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame
+from plugin.framework.subprocess_env import scrub_subprocess_env
+from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 from plugin.scripting.venv_worker import (
     warm_venv_worker,
 )
@@ -90,15 +91,15 @@ EDITOR_BACKENDS = ("monaco", "codemirror")
 
 def selected_editor_backend() -> str:
     """Return the configured web editor (scripting.python_editor): "monaco" or "codemirror"."""
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
 
-    value = get_config_str("scripting.python_editor").strip().lower()
+    value = str(get_config("scripting.python_editor") or "").strip().lower()
     return value if value in EDITOR_BACKENDS else "monaco"
 
 
 def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
     """Environment for editor subprocess (venv python + GUI session variables)."""
-    env = scrub_subprocess_env(dict(os.environ))
+    env = scrub_subprocess_env(dict(os.environ), keep=("LD_LIBRARY_PATH",))
     env["WRITERAGENT_EDITOR_ASSETS"] = assets_dir or _ASSETS_DIR
     env["WRITERAGENT_EDITOR_BACKEND"] = selected_editor_backend()
     for key in (
@@ -107,7 +108,6 @@ def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
         "WAYLAND_DISPLAY",
         "XDG_RUNTIME_DIR",
         "DBUS_SESSION_BUS_ADDRESS",
-        "LD_LIBRARY_PATH",
     ):
         if key in os.environ and key not in env:
             env[key] = os.environ[key]
@@ -116,9 +116,9 @@ def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
 
 def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
     """Return (venv python executable, error message). Monaco requires a user venv."""
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
 
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return (
             None,
@@ -206,7 +206,7 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
     """Start editor_main.py through ManagedSubprocess.start and return that Popen; the host stderr thread is the drain; terminate owns shutdown."""
     # base_env is the full child environment from build_editor_child_env.
     # env= would overlay that onto os.environ and put scrubbed secrets back.
-    # scrub_env=True would drop LD_LIBRARY_PATH, which that builder restores.
+    # scrub_env=True is not used: build_editor_child_env already scrubbed the environment while keeping LD_LIBRARY_PATH.
     # drain_stderr stays false: _stderr_drain_loop is already the stderr reader.
     # register stays false: shutdown_all must not kill_tree this child.
     # log_start_failure stays false: launch_monaco_editor catches the original OSError.
@@ -330,7 +330,7 @@ class PersistentEditor:
 
         self.sessions: dict[str, EditorSessionState] = {}
         self.focused_id: str | None = None
-        self.executor: QueueExecutor = default_executor
+        self.executor: MainThread = main
         self.ctx: Any = None
         self.run_script_doc: Any = None
         self.run_script_doc_url: str | None = None
@@ -638,7 +638,7 @@ class PersistentEditor:
     def _run_on_main(self, fn: Callable[[], None], label: str) -> Exception | None:
         """Queue *fn* on the UI thread. Return the marshal failure, else None."""
         try:
-            self.executor.execute(fn, timeout=self._marshal_timeout(), bound_scope=None)
+            self.executor.call(fn, timeout=self._marshal_timeout(), bound_scope=None)
         except Exception as exc:
             log.exception("%s timed out" if isinstance(exc, TimeoutError) else "%s marshal failed", label)
             return exc
@@ -1334,7 +1334,7 @@ def launch_monaco_editor(
         # Finite pre-warm, same as the native script dialog; the shared daemon pool
         # is for this; dedicated=True is for servers, pipe drains, and jobs another
         # thread joins.
-        run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
+        run_in_background(warm_venv_worker, name="warm-venv-worker", dedicated=False)
 
     if not session.is_running:
         detail = _PERSISTENT_EDITOR.read_stderr_tail()

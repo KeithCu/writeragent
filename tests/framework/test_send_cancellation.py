@@ -10,7 +10,7 @@ import pytest
 from plugin.chatbot.smol_agent import WriterAgentSmolModel
 from plugin.doc.document_research_specialized import DelegateReadDocument
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.queue_executor import QueueExecutor, default_executor
+from plugin.framework.queue_executor import MainThread, main
 from plugin.framework.send_cancellation import SendCancellation, SendCancelled, agent_session, is_agent_active, send_stopped, wait_for_approval
 
 
@@ -132,23 +132,23 @@ def test_llm_client_not_registered_outside_agent_session():
         mock_outside.assert_not_called()
 
 
-def test_writer_agent_smol_model_passes_stop_checker():
+def test_writer_agent_smol_model_passes_cancel():
     api = MagicMock()
-    checker = MagicMock(return_value=False)
-    model = WriterAgentSmolModel(api, stop_checker=checker)
+    scope = SendCancellation()
+    model = WriterAgentSmolModel(api, cancel=scope)
     model.generate([{"role": "user", "content": "hi"}])
     _, kwargs = api.request_with_tools.call_args
-    assert kwargs.get("stop_checker") is checker
+    assert kwargs.get("cancel") is scope
 
 
-def test_unbound_cancel_leaves_default_executor_queue():
-    """Stop before bind must not wipe MCP/grammar/peer work on default_executor."""
+def test_unbound_cancel_leaves_main_queue():
+    """Stop before bind must not wipe MCP/grammar/peer work on main."""
     import queue as queue_mod
 
     from plugin.framework.queue_executor import _WorkItem
 
     item = _WorkItem(lambda: None, (), {}, blocking=True)
-    default_executor._work_queue.put(item)
+    main._work_queue.put(item)
     try:
         scope = SendCancellation()
         scope.cancel()
@@ -159,12 +159,12 @@ def test_unbound_cancel_leaves_default_executor_queue():
         leftover = []
         while True:
             try:
-                leftover.append(default_executor._work_queue.get_nowait())
+                leftover.append(main._work_queue.get_nowait())
             except queue_mod.Empty:
                 break
         for other in leftover:
             if other is not item:
-                default_executor._work_queue.put(other)
+                main._work_queue.put(other)
 
 
 def test_bound_cancel_wakes_only_that_scope():
@@ -173,12 +173,12 @@ def test_bound_cancel_wakes_only_that_scope():
 
     from plugin.framework.send_cancellation import _current_send_cancellation
 
-    with patch.object(default_executor, "_poke_main_thread"):
+    with patch.object(main, "_poke_main_thread"):
         with agent_session() as scope:
-            mine = default_executor._enqueue_work(lambda: None, (), {})
+            mine = main._enqueue_work(lambda: None, (), {})
             token = _current_send_cancellation.set(None)
             try:
-                other = default_executor._enqueue_work(lambda: None, (), {})
+                other = main._enqueue_work(lambda: None, (), {})
             finally:
                 _current_send_cancellation.reset(token)
             scope.cancel()
@@ -188,7 +188,7 @@ def test_bound_cancel_wakes_only_that_scope():
             assert other.event is not None and not other.event.is_set()
     while True:
         try:
-            default_executor._work_queue.get_nowait()
+            main._work_queue.get_nowait()
         except queue_mod.Empty:
             break
 
@@ -197,15 +197,15 @@ def test_cancel_pending_work_wakes_blocking_waiter():
     from plugin.framework.queue_executor import _WorkItem
 
     item = _WorkItem(lambda: None, (), {}, blocking=True)
-    default_executor._work_queue.put(item)
-    default_executor.cancel_pending_work()
+    main._work_queue.put(item)
+    main.cancel_pending_work()
     assert item.cancelled
     assert item.event is not None
     assert item.event.wait(timeout=1.0)
     assert item.exception is not None
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
@@ -259,7 +259,7 @@ def test_agent_session_success_does_not_cancel():
 
     client = MagicMock()
     item = _WorkItem(lambda: None, (), {}, blocking=True)
-    default_executor._work_queue.put(item)
+    main._work_queue.put(item)
     try:
         with agent_session() as scope:
             scope.register_client(client)
@@ -274,12 +274,12 @@ def test_agent_session_success_does_not_cancel():
         leftover: list[object] = []
         while True:
             try:
-                leftover.append(default_executor._work_queue.get_nowait())
+                leftover.append(main._work_queue.get_nowait())
             except queue_mod.Empty:
                 break
         for other in leftover:
             if other is not item:
-                default_executor._work_queue.put(other)
+                main._work_queue.put(other)
 
 
 def test_agent_session_stop_then_success_does_not_double_cancel():
@@ -297,13 +297,13 @@ def test_agent_session_abort_cancels_pending_main_thread_work():
     from plugin.framework.queue_executor import _WorkItem
 
     earlier = _WorkItem(lambda: None, (), {}, blocking=True)
-    default_executor._work_queue.put(earlier)
+    main._work_queue.put(earlier)
     mine = None
     try:
         with pytest.raises(RuntimeError):
             with agent_session():
-                with patch.object(default_executor, "_poke_main_thread"):
-                    mine = default_executor._enqueue_work(lambda: None, (), {})
+                with patch.object(main, "_poke_main_thread"):
+                    mine = main._enqueue_work(lambda: None, (), {})
                 raise RuntimeError("crash")
         assert mine is not None and mine.cancelled
         assert mine.event is not None
@@ -313,7 +313,7 @@ def test_agent_session_abort_cancels_pending_main_thread_work():
     finally:
         while True:
             try:
-                default_executor._work_queue.get_nowait()
+                main._work_queue.get_nowait()
             except queue_mod.Empty:
                 break
 
@@ -321,8 +321,8 @@ def test_agent_session_abort_cancels_pending_main_thread_work():
 def test_cancel_clears_bound_executor_not_unrelated():
     from plugin.framework.queue_executor import _WorkItem
 
-    bound = QueueExecutor()
-    other = QueueExecutor()
+    bound = MainThread()
+    other = MainThread()
 
     scope = SendCancellation()
     bound_item = _WorkItem(lambda: None, (), {}, blocking=True, scope=scope)
@@ -509,26 +509,19 @@ class TestSendCancellationHooksLocking:
 
 
 def test_send_stopped_predicates():
-    """send_stopped checks scope cancellation, stop_checker, and client stopped flag."""
+    """send_stopped checks scope cancellation and client stopped latch."""
     scope = SendCancellation()
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
 
-    # Initially not stopped
-    assert send_stopped(scope, lambda: False, client) is False
+    assert send_stopped(scope, client) is False
 
-    # Cancelled scope latches True
     scope.cancel()
-    assert send_stopped(scope, lambda: False, client) is True
+    assert send_stopped(scope, client) is True
 
-    # Active stop_checker returns True even if scope is uncancelled or None
     fresh_scope = SendCancellation()
-    assert send_stopped(fresh_scope, lambda: True, client) is True
-    assert send_stopped(None, lambda: True, client) is True
-
-    # Client _stopped flag latches True
-    client._stopped = True
-    assert send_stopped(fresh_scope, lambda: False, client) is True
+    client.stopped.return_value = True
+    assert send_stopped(fresh_scope, client) is True
 
 
 def test_send_cancellation_imports_before_queue_executor():

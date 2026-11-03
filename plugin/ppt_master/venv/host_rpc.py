@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     """Run LlmClient.request_with_tools for a venv ppt-master turn (keys stay on host)."""
     from plugin.framework.client.llm_client import LlmClient
-    from plugin.framework.config import get_api_config, get_config_int
+    from plugin.framework.config import get_api_config, get_config
     from plugin.framework.uno_context import get_ctx
 
     messages = payload.get("messages")
@@ -32,7 +32,8 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         stop_checker = None
 
     from plugin.framework.errors import ToolExecutionError
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import main
+    from plugin.framework.send_cancellation import send_stopped
 
     # Build the client on the send cancellation scope so sidebar Stop closes
     # this call too. The scope registers the live client and must not be
@@ -41,32 +42,28 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     cancellation_scope = payload.get("_cancellation_scope")
     try:
         # get_ctx() is @main_thread_only, so a background worker marshals it
-        # with execute_on_main_thread. Keep that call inside the try: a raise
+        # with main.call. Keep that call inside the try: a raise
         # must go back to the child as an RPC error, or the child waits until
         # timeout with no reply.
-        ctx = execute_on_main_thread(get_ctx)
+        ctx = main.call(get_ctx)
         if max_tokens is None:
-            max_tokens = get_config_int("chat_max_tokens")
+            max_tokens = get_config("chat_max_tokens")
 
-        client = LlmClient(get_api_config(), ctx, cancellation_scope=cancellation_scope)
+        client = LlmClient(get_api_config(), ctx, cancel=cancellation_scope)
         result = client.request_with_tools(
             messages,
             max_tokens=int(max_tokens),
             tools=tools if tools else None,
             model=model,
             prepend_dev_build_system_prefix=False,
-            stop_checker=stop_checker,
+            cancel=cancellation_scope,
         )
         if not isinstance(result, dict):
             raise TypeError("LLM response is not a dictionary")
 
-        is_stopped = client._stopped
-        if not is_stopped and stop_checker is not None:
-            try:
-                is_stopped = stop_checker()
-            except Exception:
-                log.exception("stop_checker raised in ppt_master handle_llm_request")
-                return {"status": "error", "message": "stop_checker raised exception"}
+        is_stopped = send_stopped(cancellation_scope, client)
+        if stop_checker is not None and stop_checker():
+            is_stopped = True
 
         if is_stopped:
             return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}

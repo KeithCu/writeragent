@@ -37,7 +37,7 @@ name. ``_violation_ui_lock`` guards ``_violation_dialog_open`` so only
 one process-wide violation dialog can be open at a time; further
 violations are logged until the dialog returns. This module
 **detects** wrong-thread UNO access; it does not move work to the UI
-thread — use ``QueueExecutor`` / ``execute_on_main_thread`` for that.
+thread — use ``MainThread`` / ``main.call`` for that.
 Untagged ``_DummyThread`` is LO dispatch; a background-task tag overrides it.
 """
 
@@ -48,7 +48,10 @@ import os
 import threading
 import logging
 from contextlib import contextmanager
-from typing import Any, Generator, Iterator
+from typing import TYPE_CHECKING, Any, Generator, Iterator
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 log = logging.getLogger("writeragent.threadguard")
 
@@ -62,7 +65,7 @@ THREAD_VIOLATION_MARK = "UNO thread violation"
 _bg = threading.local()
 
 # Thread-local storage for synchronous host/bridge dispatch context (Yellow context).
-# When active on a non-main thread, execute_on_main_thread must refuse immediately
+# When active on a non-main thread, main.call must refuse immediately
 # to prevent lock inversion deadlocks against the waiting main thread (#402).
 _sync_host = threading.local()
 
@@ -72,7 +75,7 @@ def sync_host_dispatch() -> Generator[None, None, None]:
     """Mark the calling thread as executing within a synchronous host/bridge dispatch (Yellow context).
 
     While in this context off the main thread, blocking operations that wait on the
-    LibreOffice main thread (such as execute_on_main_thread) will immediately raise
+    LibreOffice main thread (such as main.call) will immediately raise
     RuntimeError rather than deadlocking for 30s.
     """
     prev = getattr(_sync_host, "active", False)
@@ -88,51 +91,39 @@ def in_sync_host_dispatch() -> bool:
     return getattr(_sync_host, "active", False)
 
 
-# Layer B pytest: when set, on_main_thread() treats this thread as the UNO main thread
-# (typically the synthetic pump thread started by tests/framework/thread_safety.py).
-_designated_main_thread: threading.Thread | None = None
-
-
-def set_designated_main_thread(thread: threading.Thread | None) -> None:
-    """Test hook: designate which thread may touch UNO (see docs/framework/uno-thread-safety.md Layer B)."""
-    global _designated_main_thread
-    _designated_main_thread = thread
-
-
-def get_designated_main_thread() -> threading.Thread | None:
-    return _designated_main_thread
+# In dev builds untagged Dummy-N is current so LO status/dispatch upcalls run inline.
+UNTAGGED_DUMMY_IS_CURRENT = True
+# Dev marker present only in development checkouts; stripped release stub lacks this.
+DEV_GUARD = True
 
 
 def on_python_main_thread() -> bool:
     """True only for the Python main thread or the designated test pump.
 
     A PyUNO ``_DummyThread`` is not this. Bootstrap must use this, not
-    ``on_main_thread()``: a status-listener upcall must not enter bootstrap.
+    ``main.is_current()``: a status-listener upcall must not enter bootstrap.
     """
+    from plugin.framework.queue_executor import MainThread
+
     current = threading.current_thread()
-    if _designated_main_thread is not None:
-        return current is _designated_main_thread
+    if MainThread.designated is not None:
+        return current is MainThread.designated
     return current is threading.main_thread()
-
-
-def on_main_thread() -> bool:
-    """True on the VCL thread, or on an untagged LibreOffice upcall.
-
-    An untagged ``_DummyThread`` is LibreOffice dispatch holding SolarMutex.
-    """
-    if on_python_main_thread():
-        return True
-    if _designated_main_thread is not None:
-        return False
-    if get_background_task_name():
-        return False
-    return isinstance(threading.current_thread(), threading._DummyThread)
 
 
 # In-flight violation dialog flag. Only one process-wide violation dialog may be
 # open at a time; further violations are logged until that dialog returns.
 _violation_dialog_open: bool = False
 _violation_ui_lock = threading.Lock()
+_thread_violation_ui: Callable[[Any, str, str], None] | None = None
+
+
+def set_thread_violation_ui(fn: Callable[[Any, str, str], None] | None) -> None:
+    """Register UI callback for thread violations; ``None`` clears."""
+    global _thread_violation_ui
+    _thread_violation_ui = fn
+
+
 
 
 def set_background_task(name: str | None) -> None:
@@ -150,7 +141,7 @@ def get_background_task_name() -> str | None:
 
 @contextmanager
 def background_if_dummy_thread(name: str) -> Generator[None, None, None]:
-    """Tag a PyUNO Dummy carrier so ``on_main_thread()`` stays false.
+    """Tag a PyUNO Dummy carrier so ``main.is_current()`` stays false.
 
     A ``threading.Thread``, the Python main thread, and the designated
     pump thread are unchanged. Call this at LO entry points whose body
@@ -169,23 +160,23 @@ def background_if_dummy_thread(name: str) -> Generator[None, None, None]:
 
 
 def _notify_thread_violation(msg: str) -> None:
-    """Log always; post one dialog except under WRITERAGENT_TESTING; the post is unscoped so Stop cannot drop it."""
+    """Log always; post one dialog except under test_inline; the post is unscoped so Stop cannot drop it."""
     log.error(msg, stack_info=True)
-    if os.environ.get("WRITERAGENT_TESTING") == "1":
+    from plugin.framework.queue_executor import Policy, main
+
+    if main.policy is Policy.test_inline:
         return
     # Capture full stack trace for display
     import traceback
 
     stack_trace = "".join(traceback.format_stack())
     full_msg = f"{msg}\n\nStack trace:\n{stack_trace}"
-    # Marshal bootstrap (_get_async_callback) holds QueueExecutor._init_lock.
-    # A blocking execute() from here deadlocks if the UI thread is waiting or if
+    # Marshal bootstrap (_get_async_callback) holds MainThread._init_lock.
+    # A blocking call() from here deadlocks if the UI thread is waiting or if
     # the calling thread was dispatched synchronously from an external UNO call (#402).
     # Only post asynchronously when AsyncCallback is available; never block the worker.
     try:
-        from plugin.framework.queue_executor import default_executor
-
-        if not default_executor.is_marshal_ready():
+        if not main.is_marshal_ready():
             return
     except Exception:
         return
@@ -200,11 +191,14 @@ def _notify_thread_violation(msg: str) -> None:
     def _show_popup() -> None:
         try:
             from plugin.framework.uno_context import get_ctx
-            from plugin.chatbot.dialogs import msgbox_with_report
             from plugin.framework.i18n import _
 
+            ui = _thread_violation_ui
+            if ui is None:
+                log.error("thread-violation UI is not registered")
+                return
             # nosemgrep: uno-off-main-thread
-            msgbox_with_report(get_ctx(), _("UNO Thread Violation"), full_msg, reportable=True, report_title="UNO thread violation", report_extra=full_msg)
+            ui(get_ctx(), _("UNO Thread Violation"), full_msg)
         except Exception:
             log.exception("Failed to show thread violation message box")
         finally:
@@ -213,10 +207,8 @@ def _notify_thread_violation(msg: str) -> None:
                 _violation_dialog_open = False
 
     try:
-        from plugin.framework.queue_executor import post_to_main_thread
-
         # Post with bound_scope=None so cancellation does not drop the dialog and leave the flag stuck.
-        post_to_main_thread(_show_popup, bound_scope=None)
+        main.post(_show_popup, bound_scope=None)
     except Exception:
         log.exception("Failed to post thread violation message box on main thread")
         with _violation_ui_lock:
@@ -225,10 +217,12 @@ def _notify_thread_violation(msg: str) -> None:
 
 def assert_main_thread(what: str) -> None:
     """Raise (if guard on) or log warning+stack (if guard off) when off the main thread."""
-    if on_main_thread():
+    from plugin.framework.queue_executor import main
+
+    if main.is_current():
         return
     task = get_background_task_name() or threading.current_thread().name
-    msg = "%s: %r touched UNO from background task %r; marshal via execute_on_main_thread()." % (THREAD_VIOLATION_MARK, what, task)
+    msg = "%s: %r touched UNO from background task %r; marshal via main.call()." % (THREAD_VIOLATION_MARK, what, task)
     if GUARD_ON:
         _notify_thread_violation(msg)
         raise RuntimeError(msg)
@@ -255,7 +249,9 @@ def background(fn: Any) -> Any:
 
     @functools.wraps(fn)
     def wrapper(*a: Any, **k: Any) -> Any:
-        if on_main_thread():
+        from plugin.framework.queue_executor import main
+
+        if main.is_current():
             log.warning("@background fn %r ran on the main thread", getattr(fn, "__qualname__", str(fn)))
         return fn(*a, **k)
 
@@ -523,10 +519,8 @@ __all__ = [
     "in_sync_host_dispatch",
     "set_background_task",
     "get_background_task_name",
-    "set_designated_main_thread",
-    "get_designated_main_thread",
-    "on_main_thread",
     "on_python_main_thread",
+    "UNTAGGED_DUMMY_IS_CURRENT",
     "_wrap_uno",
     "_unwrap_uno",
     "GUARD_ON",

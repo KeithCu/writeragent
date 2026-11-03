@@ -26,7 +26,11 @@ def test_delegate_read_document_closes_when_stopped(
             raise SendCancelled("Stopped")
         return fn(*args, **kwargs)
 
-    with patch("plugin.doc.document_research_specialized.run_on_main", side_effect=mock_run_on_main), patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=mock_run_on_main),
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
+    ):
         # Bind a dummy scope so _current_send_cancellation.get() is not None initially
         token = _current_send_cancellation.set(MagicMock())
         try:
@@ -67,7 +71,10 @@ def test_grep_nearby_files_stop_before_file_hop_returns_user_stopped(
         None,
     )
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=SendCancelled("Stopped")):
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=SendCancelled("Stopped")),
+    ):
         res = grep_nearby_files(MagicMock(), opened_model, {}, "pattern")
         assert res == {"status": "error", "code": "USER_STOPPED", "message": "Document read stopped by user."}
 
@@ -76,13 +83,13 @@ def test_grep_nearby_files_stop_before_file_hop_returns_user_stopped(
 
 
 def test_unscoped_post_executes_when_scope_is_cancelled() -> None:
-    from plugin.framework.queue_executor import QueueExecutor
+    from plugin.framework.queue_executor import MainThread
     from plugin.framework.send_cancellation import (
         SendCancellation,
         _current_send_cancellation,
     )
 
-    executor = QueueExecutor()
+    executor = MainThread()
     scope = SendCancellation()
     scope.cancel()
 
@@ -130,7 +137,10 @@ def test_grep_nearby_files_polls_stop_checker(
     def mock_execute_on_main(fn, *args, **kwargs):
         return fn(*args, **kwargs)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute_on_main):
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=mock_execute_on_main),
+    ):
         ctx = MagicMock()
         ctx.doc = MagicMock()
         ctx.ctx = MagicMock()

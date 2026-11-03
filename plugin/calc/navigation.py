@@ -16,7 +16,7 @@ from plugin.calc.calc_utils import query_interface as _query_interface, resolve_
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseMouseListener
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 _XACCESSIBLE_TEXT = "com.sun.star.accessibility.XAccessibleText"
 

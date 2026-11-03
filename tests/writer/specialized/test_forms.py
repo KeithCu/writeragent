@@ -16,6 +16,7 @@ import pytest
 
 from plugin.framework.errors import ToolExecutionError
 
+
 from plugin.writer.specialized.forms import (
     FormCreate,
     FormCreateControl,
@@ -231,7 +232,7 @@ def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
     tool = FormGenerate()
     assert tool.is_async() is True
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
 
     ctx = MagicMock()
 
@@ -456,17 +457,17 @@ def test_form_generate_passes_stop_checker_and_handles_user_stopped(monkeypatch)
     from plugin.framework.errors import WriterAgentException
 
     tool = FormGenerate()
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     mock_client = MagicMock()
-    stop_checker = MagicMock()
+    scope = MagicMock()
     status_callback = MagicMock()
 
     stopped_exc = WriterAgentException("User cancelled", code="USER_STOPPED")
     mock_client.chat_completion_sync.side_effect = stopped_exc
 
     ctx = MagicMock()
-    ctx.stop_checker = stop_checker
+    ctx.send_cancellation = scope
     ctx.status_callback = status_callback
 
     with patch("plugin.framework.config.get_api_config"), \
@@ -478,7 +479,7 @@ def test_form_generate_passes_stop_checker_and_handles_user_stopped(monkeypatch)
         assert res["message"] == "User cancelled"
         mock_client.chat_completion_sync.assert_called_once()
         _, kwargs = mock_client.chat_completion_sync.call_args
-        assert kwargs.get("stop_checker") is stop_checker
+        assert kwargs.get("cancel") is scope
         assert kwargs.get("status_callback") is status_callback
 
 

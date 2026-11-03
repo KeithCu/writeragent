@@ -6,7 +6,7 @@
 
 Runs in-process on LibreOffice's grammar drain thread (not the warm venv worker / trusted
 RPC path used by LanguageTool and Vale). Status UI refresh during progress is best-effort
-(``post_to_main_thread``); a busy main thread must not abort the check.
+(``main.post``); a busy main thread must not abort the check.
 """
 
 from __future__ import annotations
@@ -504,21 +504,21 @@ def _broadcast_proofread_again() -> None:
 
 def _schedule_proofread_again() -> None:
     try:
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(_broadcast_proofread_again)
+        main.post(_broadcast_proofread_again)
     except Exception as e:
         log.debug("[harper] Could not schedule PROOFREAD_AGAIN: %s", e)
 
 
 def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
     try:
-        from plugin.writer.locale.grammar_obs import emit_harper_worker_status
+        from plugin.writer.locale.grammar_obs import get_grammar_status
 
         def _on_progress(payload: dict[str, str]) -> None:
             message = str(payload.get("message") or "").strip()
             if message:
-                emit_harper_worker_status("Harper", message)
+                get_grammar_status().request("Harper", result=message)
 
         harper_bin = _get_harper_binary(user_config_dir, heartbeat_fn=_on_progress)
         with _HARPER_LOCK:
@@ -536,7 +536,7 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
             if not client.is_alive():
                 raise RuntimeError("harper-ls process not running after start")
             _set_state(HarperRuntimeState.READY)
-        emit_harper_worker_status("Harper", "Harper ready")
+        get_grammar_status().request("Harper", result="Harper ready")
         _schedule_proofread_again()
     except Exception:
         log.exception("[harper] Background ensure failed")
@@ -586,12 +586,10 @@ def maybe_start_harper_async(
     LibreHarper from HarperProofreader after init_config (no Jobs.xcu). Returns True if submitted.
     """
     from plugin.framework.config import user_config_dir as get_ucd
-    from plugin.writer.locale.grammar_worker import get_grammar_provider, is_grammar_enabled
-    from plugin.framework.uno_context import is_libreharper
+    from plugin.writer.locale import grammar_settings
 
-    if not is_libreharper():
-        if not is_grammar_enabled() or get_grammar_provider() != "harper":
-            return False
+    if grammar_settings.provider() != "harper":
+        return False
 
     ucd = user_config_dir
     if not ucd:
@@ -629,9 +627,9 @@ def _acquire_harper_lock_pumping(ctx: Any, *, timeout: float = _LINT_BUDGET_SEC)
     if ctx is None:
         return _HARPER_LOCK.acquire(timeout=timeout)
     from plugin.framework.vcl_pumping import pump_secondary_idle_tick
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    pump_on_caller = on_main_thread()
+    pump_on_caller = main.is_current()
     deadline = time.monotonic() + timeout
     while True:
         pump_secondary_idle_tick(ctx, on_caller=pump_on_caller)
@@ -945,10 +943,10 @@ def _pump_grammar_status_ui(ctx: Any) -> None:
     """Best-effort drain of grammar status UI on the LO main thread.
 
     Must never block or fail the Harper check: a busy VCL / delayed AsyncCallback
-    used to raise TimeoutError from execute_on_main_thread(timeout=2.0) and abort
+    used to raise TimeoutError from main.call(timeout=2.0) and abort
     linting even though status painting is optional.
     """
-    from plugin.framework.queue_executor import post_to_main_thread, pump_main_thread_work_queue
+    from plugin.framework.queue_executor import main, pump_main_thread_work_queue
     from plugin.framework.uno_context import process_events_to_idle
 
     def _pump() -> None:
@@ -957,22 +955,22 @@ def _pump_grammar_status_ui(ctx: Any) -> None:
         process_events_to_idle(ctx)
 
     try:
-        post_to_main_thread(_pump)
+        main.post(_pump)
     except Exception as e:
         log.warning("[grammar] Harper status UI pump skipped: %s", e)
 
 
 def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
     """Grammar-queue entry: status UI + in-process harper-ls lint (no venv worker)."""
-    from plugin.writer.locale.grammar_obs import emit_harper_worker_status
+    from plugin.writer.locale.grammar_obs import get_grammar_status
 
-    emit_harper_worker_status(text, "Starting Harper…")
+    get_grammar_status().request(text, result="Starting Harper…")
     _pump_grammar_status_ui(ctx)
 
     def _on_progress(payload: dict[str, Any]) -> None:
         message = str(payload.get("message") or "").strip()
         if message:
-            emit_harper_worker_status(text, message)
+            get_grammar_status().request(text, result=message)
             _pump_grammar_status_ui(ctx)
 
     return run_harper_lint(text, config_dir, bcp47=bcp47, heartbeat_fn=_on_progress)

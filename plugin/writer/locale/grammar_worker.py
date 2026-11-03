@@ -20,11 +20,12 @@ import logging
 import threading
 import time
 from collections import defaultdict
-from dataclasses import asdict, dataclass, replace
-from typing import Any, Literal
+from dataclasses import dataclass, replace
+from typing import Any
 
-from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence, grammar_proofread_text
-from .grammar_obs import emit_grammar_status, grammar_obs
+from plugin.writer.locale import grammar_settings
+from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence
+from .grammar_obs import emit_grammar_status, get_grammar_status, grammar_obs
 from plugin.framework.grammar_rule_ids import (
     bcp47_to_uno_lang_country,
     grammar_bcp47_tags_match,
@@ -50,47 +51,6 @@ _GRAMMAR_CHAT_EXTRA = {"reasoning": {"effort": "minimal"}}
 _grammar_worker_tls = threading.local()
 
 
-def is_grammar_enabled() -> bool:
-    """True if the grammar checker is enabled on the Doc tab (LLM, LanguageTool, Vale, or Harper)."""
-    return get_grammar_provider() != "off"
-
-
-def get_grammar_provider() -> str:
-    """Return the active grammar provider name ('off', 'llm', 'languagetool', 'vale', or 'harper')."""
-    from plugin.framework.uno_context import is_libreharper
-
-    if is_libreharper():
-        return "harper"
-
-    val = config.get_config("doc.grammar_proofreader_enabled")
-    if isinstance(val, bool):
-        return "llm" if val else "off"
-    val_str = str(val).strip().lower()
-    if val_str == "true":
-        return "llm"
-    if val_str in ("llm", "languagetool", "vale", "harper"):
-        return val_str
-
-    return "off"
-
-
-GrammarDetectLanguageMode = Literal["off", "llm", "langdetect"]
-
-
-def get_grammar_detect_language_mode() -> GrammarDetectLanguageMode:
-    """Read ``doc.grammar_proofreader_detect_language`` (off / llm / langdetect; legacy bool → llm/off)."""
-    raw = config.get_config("doc.grammar_proofreader_detect_language")
-    if isinstance(raw, bool):
-        return "llm" if raw else "off"
-    if isinstance(raw, str):
-        v = raw.strip().lower()
-        if v in ("off", "llm", "langdetect"):
-            return v  # type: ignore[return-value]
-        if v in ("1", "true", "yes", "on"):
-            return "llm"
-    return "off"
-
-
 def reset_grammar_llm_client_cache() -> None:
     """Clear thread-local cached LlmClient instance (for tests and cleanup)."""
     cached = getattr(_grammar_worker_tls, "client", None)
@@ -113,7 +73,7 @@ def _get_or_create_thread_llm_client(api_cfg: dict[str, Any], ctx: Any) -> Any:
     if (
         cached_client is not None
         and cached_key == cache_key
-        and not getattr(cached_client, "_stopped", False)
+        and not send_cancellation.is_client_stopped(cached_client)
     ):
         return cached_client
 
@@ -157,7 +117,7 @@ def _item_cache_identity(item: GrammarWorkItem) -> str | None:
     """Resolve cache checker_identity for a work item without persisting bare 'llm'."""
     if item.checker_identity:
         return item.checker_identity
-    if item.provider in _SINGLE_SENTENCE_PROVIDERS:
+    if grammar_settings.is_local(item.provider):
         return item.provider
     return None
 
@@ -186,37 +146,32 @@ def process_grammar_results(
     ec: Any,
 ) -> None:
     """Normalize errors, write sentence cache, emit done status."""
-    from .grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
+    from .grammar_ignore_rules import IgnoreSet
 
     summary = _BatchResultSummary()
     doc_id = chunk[0][0].doc_id
-    ignored = doc_ignored_rules(ec.ctx, doc_id) if doc_id else set()
-    global_ignored = grammar_proofread_cache.ignored_rules_snapshot()
+    ignore_set = IgnoreSet.for_document(ec.ctx, doc_id) if doc_id else None
     for (item, text), errors in zip(chunk, results):
         if ec.gq.inflight_superseded(item.inflight_key, item.enqueue_seq):
             continue
-        norm_errors = grammar_proofread_text.normalize_errors_for_text(text, errors, ec.ctx, bcp47)
-
-        active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
-        payload = [asdict(e) for e in norm_errors]
-
         checker_ident = _item_cache_identity(item)
-        grammar_proofread_cache.cache_put_sentence(
-            bcp47, text, payload, ctx=ec.ctx, doc_id=item.doc_id, checker_identity=checker_ident
+        active_errors = grammar_proofread_cache.store_sentence_result(
+            ec.ctx,
+            item.doc_id,
+            bcp47,
+            text,
+            errors,
+            checker_ident,
+            alt_locale=original_bcp47,
+            ignore_set=ignore_set,
         )
-        if original_bcp47 and not grammar_bcp47_tags_match(original_bcp47, bcp47):
-            log.debug("[grammar] Double caching for %s (detected %s)", original_bcp47, bcp47)
-            grammar_proofread_cache.cache_put_sentence(
-                original_bcp47, text, payload, ctx=ec.ctx, doc_id=item.doc_id, checker_identity=checker_ident
-            )
-
         summary.record(text, len(active_errors))
 
     if summary.n_written:
         preview_src = summary.preview_source()
         iw = "issue" if summary.total_issues == 1 else "issues"
         sw = "sentence" if summary.n_written == 1 else "sentences"
-        ec.gq.record_done_status(
+        get_grammar_status().record_done_status(
             preview_src,
             result=f"{summary.total_issues} {iw}, {summary.n_written} {sw}",
             elapsed_ms=elapsed_ms,
@@ -224,7 +179,7 @@ def process_grammar_results(
             length_hint=summary.chars_checked,
         )
     else:
-        ec.gq.record_done_status("batch", result="skipped (superseded)", elapsed_ms=elapsed_ms)
+        get_grammar_status().record_done_status("batch", result="skipped (superseded)", elapsed_ms=elapsed_ms)
 
 
 def run_single_sentence_provider(
@@ -380,13 +335,12 @@ def apply_language_change(
         return False
 
     try:
-        from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework import queue_executor
+        from plugin.framework.queue_executor import main
 
-        if on_main_thread():
+        if main.is_current():
             return bool(_do_update())
         else:
-            return bool(queue_executor.execute_on_main_thread(_do_update))
+            return bool(main.call(_do_update))
     except Exception as e:
         log.warning("Failed to update language property: %s", e)
         return False
@@ -418,7 +372,8 @@ def run_grammar_check(
         # Always use the job's explicit provider if present, even if it is not
         # the current default config, so that background retry and cache
         # identity don't desync with the UI check that enqueued it.
-        provider = chunk[0][0].provider if chunk and chunk[0][0].provider else get_grammar_provider()
+        item_prov = chunk[0][0].provider if chunk and chunk[0][0].provider else ""
+        provider = item_prov or grammar_settings.provider()
         spec = _SINGLE_SENTENCE_PROVIDERS.get(provider)
         if spec is not None:
             cfg_dir = config.user_config_dir() or ""
@@ -797,14 +752,14 @@ def requeue_individual_item(
 def _worker_batch_gates(items: list[GrammarWorkItem]) -> bool:
     """Return False when the batch should not run (grammar off or agent pause)."""
     item_provider = items[0].provider or ""
-    if not item_provider and not is_grammar_enabled():
+    if not item_provider and not grammar_settings.is_grammar_enabled():
         grammar_obs("worker_batch_skip", reason="grammar_disabled", item_count=len(items))
         return False
-    pause_during_agent = config.get_config_bool_safe("doc.grammar_proofreader_pause_during_agent")
+    pause_during_agent = bool(config.get_config("doc.grammar_proofreader_pause_during_agent"))
     if pause_during_agent and send_cancellation.is_agent_active():
         # Local engines do not share the LLM request lane; only pause the LLM provider.
-        active_prov = item_provider or get_grammar_provider()
-        if active_prov not in _SINGLE_SENTENCE_PROVIDERS:
+        active_prov = item_provider or grammar_settings.provider()
+        if not grammar_settings.is_local(active_prov):
             grammar_obs("worker_batch_skip", reason="pause_during_agent", item_count=len(items))
             return False
     return True
@@ -911,12 +866,12 @@ def run_llm_and_cache_batch(
             grammar_obs("worker_batch_skip", reason="all_cached_or_superseded", item_count=len(items))
             return
 
-        grammar_queue_instance.begin_status_cycle()
+        get_grammar_status().begin_status_cycle()
         status_cycle_started = True
 
-        provider = item0.provider or get_grammar_provider()
+        provider = item0.provider or grammar_settings.provider()
         # Local engines never need LlmClient / model_fetcher (and must not import framework.client package).
-        local_provider = provider in _SINGLE_SENTENCE_PROVIDERS
+        local_provider = grammar_settings.is_local(provider)
 
         max_tok = grammar_proofread_locale.grammar_max_tokens()
         model = ""
@@ -933,7 +888,7 @@ def run_llm_and_cache_batch(
             client = _get_or_create_thread_llm_client(config.get_api_config(), ctx)
 
         batch_size = 1 if local_provider else grammar_proofread_locale.grammar_batch_sentences()
-        detect_lang_mode = "off" if local_provider else get_grammar_detect_language_mode()
+        detect_lang_mode = "off" if local_provider else grammar_settings.detect_language_mode()
         detect_lang_enabled = detect_lang_mode != "off"
 
         ec = GrammarWorkerContext(
@@ -993,6 +948,6 @@ def run_llm_and_cache_batch(
         emit_grammar_status("failed", "Batch processing", result=type(e).__name__)
     finally:
         if status_cycle_started:
-            grammar_queue_instance.end_status_cycle()
+            get_grammar_status().end_status_cycle()
 
 

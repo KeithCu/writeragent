@@ -452,7 +452,7 @@ def test_watchdog_clears_hung_status_when_activity_resumes():
         update_activity_state("chat", round_num=2, tool_name="edit")
         with shared["activity_lock"]:
             shared["activity"]["last_activity"] = 0.0
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=immediate):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=immediate):
             logging_mod._watchdog_check(ctrl)
             assert ctrl.text.startswith("Hung:")
             update_activity_state("chat", round_num=2)
@@ -985,9 +985,9 @@ def test_watchdog_hung_goes_to_sender_control():
 
         logging_mod._watchdog_check(default_ctrl)
 
-        from plugin.framework.queue_executor import default_executor
-        while default_executor.pending_work_count() > 0:
-            default_executor.process_queue()
+        from plugin.framework.queue_executor import main
+        while main.pending_work_count() > 0:
+            main.process_queue()
 
         assert "Hung" in sender_ctrl.text
         assert default_ctrl.text == ""
@@ -1013,9 +1013,9 @@ def test_watchdog_ending_turn_clears_hung():
 
     logging_mod.update_activity_state("")
 
-    from plugin.framework.queue_executor import default_executor
-    while default_executor.pending_work_count() > 0:
-        default_executor.process_queue()
+    from plugin.framework.queue_executor import main
+    while main.pending_work_count() > 0:
+        main.process_queue()
 
     assert sender_ctrl.text == ""
 
@@ -1056,7 +1056,7 @@ def test_update_activity_state_clears_omitted_tool_name():
         with shared["activity_lock"]:
             act["last_activity"] = 0.0
 
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=immediate):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=immediate):
             logging_mod._watchdog_check(ctrl)
 
         assert ctrl.text == "Hung: tool_loop round 2"

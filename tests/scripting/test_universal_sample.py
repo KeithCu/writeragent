@@ -7,7 +7,7 @@ register_alias_importer()
 import writeragent as wa
 
 def test_get_active_document_type_writer():
-    with patch("writeragent._rpc_call") as mock_rpc:
+    with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": [
                 {"is_active": False, "doc_type": "calc"},
@@ -19,7 +19,7 @@ def test_get_active_document_type_writer():
         mock_rpc.assert_called_once_with("list_open_documents")
 
 def test_get_active_document_type_calc():
-    with patch("writeragent._rpc_call") as mock_rpc:
+    with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": [
                 {"is_active": True, "doc_type": "calc"},
@@ -30,7 +30,7 @@ def test_get_active_document_type_calc():
         assert doc_type == "calc"
 
 def test_get_active_document_type_unknown():
-    with patch("writeragent._rpc_call") as mock_rpc:
+    with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": []
         }
@@ -38,7 +38,7 @@ def test_get_active_document_type_unknown():
         assert doc_type == "unknown"
 
 def test_get_active_document_type_propagates_rpc_error():
-    with patch("writeragent._rpc_call", side_effect=RuntimeError("pipe closed")):
+    with patch("writeragent.call_host_tool", side_effect=RuntimeError("pipe closed")):
         try:
             wa.get_active_document_type()
         except RuntimeError as exc:
@@ -105,15 +105,12 @@ def test_universal_sample_calc():
 
 
 def test_config_injects_universal_sample():
-    from plugin.framework.config_schema import WriterAgentConfig
+    from plugin.framework.config_schema import validate
     
     # Test that a config without "Universal Sample" gets it injected during validation
-    config = WriterAgentConfig.from_dict({"saved_python_scripts": {"Hello WriterAgent": "result = 1"}})
-    assert "Universal Sample" not in config.saved_python_scripts
-    
-    config.validate()
-    assert "Universal Sample" in config.saved_python_scripts
-    sample = config.saved_python_scripts["Universal Sample"]
+    config = validate({"saved_python_scripts": {"Hello WriterAgent": "result = 1"}})
+    assert "Universal Sample" in config["saved_python_scripts"]
+    sample = config["saved_python_scripts"]["Universal Sample"]
     assert "import writeragent as wa" in sample
     assert any(
         "apply_document_content(" in line and "target=" in line
@@ -130,33 +127,30 @@ def test_config_injects_universal_sample():
 
 
 def test_config_migrates_old_universal_sample():
-    from plugin.framework.config_schema import WriterAgentConfig, _DEFAULT_PYTHON_SCRIPTS
+    from plugin.framework.config_schema import validate, _DEFAULT_PYTHON_SCRIPTS
 
     old_code = 'wa.calc.insert_cell_html(cell_address="A1", html="hi")\nwa.shape.upsert_shape(action="create")'
-    config = WriterAgentConfig.from_dict({"saved_python_scripts": {"Universal Sample": old_code}})
-    config.validate()
-    migrated = config.saved_python_scripts["Universal Sample"]
+    config = validate({"saved_python_scripts": {"Universal Sample": old_code}})
+    migrated = config["saved_python_scripts"]["Universal Sample"]
     assert migrated == _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
     assert "Hello from Python SDK" not in migrated
     assert "cell_address=" not in migrated
 
 
 def test_config_migrates_function_wrapped_universal_sample():
-    from plugin.framework.config_schema import WriterAgentConfig, _DEFAULT_PYTHON_SCRIPTS
+    from plugin.framework.config_schema import validate, _DEFAULT_PYTHON_SCRIPTS
 
     old_wrapped = 'import writeragent as wa\n\ndef run():\n    print("x")\n\nif __name__ == "__main__":\n    run()'
-    config = WriterAgentConfig.from_dict({"saved_python_scripts": {"Universal Sample": old_wrapped}})
-    config.validate()
-    assert config.saved_python_scripts["Universal Sample"] == _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
-    assert "def run()" not in config.saved_python_scripts["Universal Sample"]
+    config = validate({"saved_python_scripts": {"Universal Sample": old_wrapped}})
+    assert config["saved_python_scripts"]["Universal Sample"] == _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
+    assert "def run()" not in config["saved_python_scripts"]["Universal Sample"]
 
 
 def test_config_keeps_user_edited_universal_sample():
-    from plugin.framework.config_schema import WriterAgentConfig
+    from plugin.framework.config_schema import validate
 
     custom = 'print("my own script")\nwa.shape.upsert(action="create")'
-    config = WriterAgentConfig.from_dict({"saved_python_scripts": {"Universal Sample": custom}})
-    config.validate()
-    assert config.saved_python_scripts["Universal Sample"] == custom
+    config = validate({"saved_python_scripts": {"Universal Sample": custom}})
+    assert config["saved_python_scripts"]["Universal Sample"] == custom
 
 

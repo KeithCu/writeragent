@@ -68,14 +68,14 @@ def test_reap_kills_the_group_before_dropping_stderr(monkeypatch):
 
 def test_is_audio_recording_configured_true():
     with (
-        patch("plugin.scripting.audio_recorder_service.get_config_str", return_value="/venv"),
+        patch("plugin.scripting.audio_recorder_service.get_config", return_value="/venv"),
         patch("plugin.scripting.audio_recorder_service.resolve_venv_python", return_value="/venv/bin/python"),
     ):
         assert is_audio_recording_configured() is True
 
 
 def test_is_audio_recording_configured_false_when_empty():
-    with patch("plugin.scripting.audio_recorder_service.get_config_str", return_value=""):
+    with patch("plugin.scripting.audio_recorder_service.get_config", return_value=""):
         assert is_audio_recording_configured() is False
 
 
@@ -169,7 +169,7 @@ def test_wait_for_recording_ready_eof_raises_runtime_error():
 
 
 def test_resolve_recording_python_requires_venv():
-    with patch("plugin.scripting.audio_recorder_service.get_config_str", return_value=""):
+    with patch("plugin.scripting.audio_recorder_service.get_config", return_value=""):
         exe, err = resolve_recording_python()
         assert exe is None
         assert "Settings" in err
@@ -332,7 +332,8 @@ def test_append_wav_missing_file_returns_false():
 
 def test_spawn_recording_process_uses_managed_text_pipes(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
-    from plugin.scripting.sandbox import scrub_subprocess_env, wrap_command_for_sandbox
+    from plugin.framework.subprocess_env import scrub_subprocess_env
+    from plugin.scripting.sandbox import wrap_command_for_sandbox
     from plugin.scripting.audio_recorder_service import (
         _AUDIO_RECORD_MAIN,
         spawn_recording_process,

@@ -33,6 +33,22 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+def _research_config_side_effect(cfg_int, *, cache_enabled=True, cache_max_mb=50):
+    def side_effect(key: str):
+        if key == "chatbot.web_research_cache_enabled":
+            return cache_enabled
+        if key == "chatbot.web_cache_max_mb":
+            return cache_max_mb
+        if key == "chatbot.web_research_browser":
+            return "off"
+        if key == "chatbot.prompt_for_web_research":
+            return False
+        if key == "chat_max_tokens":
+            return 2048
+        return cfg_int(key)
+    return side_effect
+
+
 pytest.importorskip("requests")
 import requests
 
@@ -230,10 +246,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     model = OpenRouterSmolModel(api_key=api_key, model_id=args.model, max_tokens=args.max_tokens)
-    from plugin.framework.config import get_config_int
+    from plugin.framework.config import get_config
     from plugin.tests.testing_utils import MockContext
 
-    cache_max_age_days = get_config_int(MockContext(), "web_cache_validity_days")
+    cache_max_age_days = get_config(MockContext(), "web_cache_validity_days")
     tools = [DuckDuckGoSearchTool(cache_max_age_days=cache_max_age_days), VisitWebpageTool(cache_max_age_days=cache_max_age_days)]
     agent = ToolCallingAgent(tools=tools, model=model, stream_outputs=False)
 
@@ -337,18 +353,18 @@ def test_cache_hit_does_not_stream_chat_append_callback():
         _web_cache_set(db_file, "research", "caching unique", "Cached Answer Content", 50 * 1024 * 1024)
 
         def _cfg_int(key):
-            if key == "web_cache_validity_days":
+            if key == "chatbot.web_cache_validity_days":
                 return 30
-            if key == "web_research_cache_jaccard_percent":
+            if key == "chatbot.web_research_cache_jaccard_percent":
                 return 40
-            if key == "web_research_cache_min_overlap":
+            if key == "chatbot.web_research_cache_min_overlap":
                 return 8
             return 50
 
-        with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+        with patch("plugin.framework.config.get_config", return_value=True), \
              patch("plugin.framework.config.user_config_dir", return_value=td), \
-             patch("plugin.framework.config.get_config_int_safe", return_value=50), \
-             patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+             patch("plugin.framework.config.get_config", return_value=50), \
+             patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
              patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
              patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")):
             tool = WebResearchTool()
@@ -903,13 +919,13 @@ def test_web_research_agent_instructions_include_response_format():
             mock_exec.return_value.execute_safe.return_value = "answer"
             with patch("plugin.framework.config.get_config", return_value="false"):
                 def _cfg_int(key):
-                    if key == "web_cache_max_mb":
+                    if key == "chatbot.web_cache_max_mb":
                         return 0
                     if key == "chat_max_tokens":
                         return 2048
                     return 10
 
-                with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int):
+                with patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)):
                     with patch("plugin.framework.config.get_api_config", return_value={}):
                         with patch("plugin.framework.config.user_config_dir", return_value="/tmp"):
                             WebResearchTool().execute(ctx, query="test query")
@@ -969,19 +985,21 @@ def test_web_research_agent_instructions_include_minimal_tool_use_advice():
     with patch("plugin.chatbot.web_research.WebResearchToolCallingAgent", _CaptureAgent):
         with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
             mock_exec.return_value.execute_safe.return_value = "answer"
-            with patch("plugin.framework.config.get_config", return_value="false"):
-                def _cfg_int(key):
-                    if key == "web_cache_max_mb":
-                        return 0
-                    if key == "chat_max_tokens":
-                        return 2048
-                    return 25  # chatbot.max_tool_rounds
 
-                with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int):
-                    with patch("plugin.framework.config.get_api_config", return_value={}):
-                        with patch("plugin.framework.config.user_config_dir", return_value="/tmp"):
-                            with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
-                                WebResearchTool().execute(ctx, query="test query")
+            def _cfg_int(key):
+                if key == "chatbot.web_cache_max_mb":
+                    return 0
+                if key == "chatbot.max_tool_rounds":
+                    return 25
+                return 0
+
+            with patch(
+                "plugin.framework.config.get_config",
+                side_effect=_research_config_side_effect(_cfg_int, cache_enabled=False, cache_max_mb=0),
+            ), patch("plugin.framework.config.get_api_config", return_value={}), patch(
+                "plugin.framework.config.user_config_dir", return_value="/tmp"
+            ):
+                WebResearchTool().execute(ctx, query="test query")
 
     assert "IMPORTANT: If the user's query is a simple question that does not require deep or extensive research" in captured["instructions"]
     assert "at most half of your step budget (i.e., 12 steps or fewer)" in captured["instructions"]
@@ -992,19 +1010,21 @@ def test_web_research_agent_instructions_include_minimal_tool_use_advice():
     with patch("plugin.chatbot.web_research.WebResearchToolCallingAgent", _CaptureAgent):
         with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
             mock_exec.return_value.execute_safe.return_value = "answer"
-            with patch("plugin.framework.config.get_config", return_value="false"):
-                def _cfg_int_low(key):
-                    if key == "web_cache_max_mb":
-                        return 0
-                    if key == "chat_max_tokens":
-                        return 2048
-                    return 10  # chatbot.max_tool_rounds
 
-                with patch("plugin.framework.config.get_config_int", side_effect=_cfg_int_low):
-                    with patch("plugin.framework.config.get_api_config", return_value={}):
-                        with patch("plugin.framework.config.user_config_dir", return_value="/tmp"):
-                            with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
-                                WebResearchTool().execute(ctx, query="test query")
+            def _cfg_int_low(key):
+                if key == "chatbot.web_cache_max_mb":
+                    return 0
+                if key == "chatbot.max_tool_rounds":
+                    return 10
+                return 0
+
+            with patch(
+                "plugin.framework.config.get_config",
+                side_effect=_research_config_side_effect(_cfg_int_low, cache_enabled=False, cache_max_mb=0),
+            ), patch("plugin.framework.config.get_api_config", return_value={}), patch(
+                "plugin.framework.config.user_config_dir", return_value="/tmp"
+            ):
+                WebResearchTool().execute(ctx, query="test query")
 
     assert "IMPORTANT: If the user's query is a simple question that does not require deep or extensive research" not in captured["instructions"]
     assert "Avoid visiting Yelp (yelp.com) links" in captured["instructions"]
@@ -1035,20 +1055,17 @@ def test_web_research_caching_logic(tmp_path):
 
     # Set up config patches
     def _cfg_int(key):
-        if key == "web_cache_validity_days":
+        if key == "chatbot.web_cache_validity_days":
             return 30
-        if key == "web_research_cache_jaccard_percent":
+        if key == "chatbot.web_research_cache_jaccard_percent":
             return 40
-        if key == "web_research_cache_min_overlap":
+        if key == "chatbot.web_research_cache_min_overlap":
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
-         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")):
 
@@ -1082,13 +1099,13 @@ def test_web_research_cache_lookup_uses_embedding_threshold(tmp_path):
     captured: dict[str, object] = {}
 
     def _cfg_int(key):
-        if key == "web_cache_validity_days":
+        if key == "chatbot.web_cache_validity_days":
             return 30
-        if key == "web_research_cache_jaccard_percent":
+        if key == "chatbot.web_research_cache_jaccard_percent":
             return 60
-        if key == "web_research_cache_embedding_percent":
+        if key == "chatbot.web_research_cache_embedding_percent":
             return 75
-        if key == "web_research_cache_min_overlap":
+        if key == "chatbot.web_research_cache_min_overlap":
             return 8
         return 50
 
@@ -1097,12 +1114,9 @@ def test_web_research_cache_lookup_uses_embedding_threshold(tmp_path):
         captured["kwargs"] = kwargs
         return ("hit_embedding", "english|cached similar", 0.78, "Cached Answer Content")
 
-    with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
-         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache.enqueue_research_cache_embedding_backfill"), \
@@ -1132,20 +1146,17 @@ def test_web_research_caching_write(tmp_path):
     _web_cache_set(db_file, "research", "dummy", "val", 1024 * 1024)
 
     def _cfg_int(key):
-        if key == "web_cache_validity_days":
+        if key == "chatbot.web_cache_validity_days":
             return 30
-        if key == "web_research_cache_jaccard_percent":
+        if key == "chatbot.web_research_cache_jaccard_percent":
             return 40
-        if key == "web_research_cache_min_overlap":
+        if key == "chatbot.web_research_cache_min_overlap":
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
-         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
@@ -1180,20 +1191,17 @@ def test_web_research_empty_agent_result_is_an_error(tmp_path, agent_result):
     setattr(ctx.ctx, "getServiceManager", MagicMock())
 
     def _cfg_int(key):
-        if key == "web_cache_validity_days":
+        if key == "chatbot.web_cache_validity_days":
             return 30
-        if key == "web_research_cache_jaccard_percent":
+        if key == "chatbot.web_research_cache_jaccard_percent":
             return 40
-        if key == "web_research_cache_min_overlap":
+        if key == "chatbot.web_research_cache_min_overlap":
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
-         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research._write_research_cache") as mock_write_cache, \
@@ -1225,28 +1233,23 @@ def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     deep_key = "deep|english|execute"
 
     def _cfg_int(key):
-        if key == "web_cache_validity_days":
+        if key == "chatbot.web_cache_validity_days":
             return 30
-        if key == "web_research_cache_jaccard_percent":
+        if key == "chatbot.web_research_cache_jaccard_percent":
             return 40
         # Overlap 1 would fuzzy-match the same word across modes if mode were ignored.
-        if key == "web_research_cache_min_overlap":
+        if key == "chatbot.web_research_cache_min_overlap":
             return 1
-        if key == "web_research_cache_embedding_percent":
+        if key == "chatbot.web_research_cache_embedding_percent":
             return 75
         return 50
 
     _web_cache_set(db_file, "research", word_key, "BARE SHALLOW", 50 * 1024 * 1024)
     _web_cache_set(db_file, "research", shallow_key, "PREFIXED SHALLOW", 50 * 1024 * 1024)
 
-    with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
-         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
-         patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
          patch("plugin.chatbot.web_research._run_deep_web_research", return_value=("DEEP REPORT", query)) as mock_deep:
@@ -1259,14 +1262,9 @@ def test_deep_and_shallow_execute_do_not_share_cache_rows(tmp_path):
     assert _web_cache_get(db_file, "research", word_key, max_age_days=30) == "BARE SHALLOW"
     assert _web_cache_get(db_file, "research", shallow_key, max_age_days=30) == "PREFIXED SHALLOW"
 
-    with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
-         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
-         patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config", return_value="off"), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
          patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
@@ -1309,19 +1307,16 @@ def test_web_research_caching_disabled_bypasses_cache(tmp_path):
     _web_cache_set(db_file, "research", "caching unique", "Cached Answer Content", 50 * 1024 * 1024)
 
     def _cfg_int(key):
-        if key == "web_cache_validity_days":
+        if key == "chatbot.web_cache_validity_days":
             return 30
-        if key == "web_research_cache_jaccard_percent":
+        if key == "chatbot.web_research_cache_jaccard_percent":
             return 40
-        if key == "web_research_cache_min_overlap":
+        if key == "chatbot.web_research_cache_min_overlap":
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config_bool_safe", return_value=False), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
-         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int, cache_enabled=False)), \
          patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
@@ -1349,24 +1344,19 @@ def test_web_research_cache_max_zero_does_not_serve_a_stale_report(tmp_path):
     _web_cache_set(db_file, "research", "caching unique", "Cached Answer Content", 50 * 1024 * 1024)
 
     def _cfg_int(key):
-        if key == "web_cache_max_mb":
+        if key == "chatbot.web_cache_max_mb":
             return 0
-        if key == "web_cache_validity_days":
+        if key == "chatbot.web_cache_validity_days":
             return 30
-        if key == "web_research_cache_jaccard_percent":
+        if key == "chatbot.web_research_cache_jaccard_percent":
             return 40
-        if key == "web_research_cache_min_overlap":
+        if key == "chatbot.web_research_cache_min_overlap":
             return 8
         return 50
 
-    with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=0), \
-         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
-         patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int, cache_max_mb=0)), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache.lookup_research_cache") as lookup, \
          patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
@@ -1643,11 +1633,11 @@ def test_web_research_tool_includes_instruction_in_result(tmp_path):
     ctx.doc_type = "calc"
 
     with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.get_config", return_value=True), \
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
-         patch("plugin.framework.config.get_config_int", return_value=30), \
+         patch("plugin.framework.config.get_config", return_value=50), \
+         patch("plugin.framework.config.get_config", return_value=30), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research._run_web_agent", return_value="Live research result text"):
 
@@ -1683,14 +1673,14 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path, status):
     ctx.stop_checker = None
     ctx.send_cancellation = None
 
-    with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+    def _cfg_int(key):
+        if key == "chatbot.web_cache_validity_days":
+            return 30
+        return 50
+
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
-         patch("plugin.framework.config.get_config_int", return_value=30), \
-         patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_api_config", return_value={}), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.framework.client.llm_client.LlmClient", return_value=MagicMock()), \
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
@@ -1717,7 +1707,17 @@ def test_chromium_cdp_enabled():
     def mock_get_config(key):
         if key == "chatbot.web_research_browser":
             return "chromium"
-        return "off"
+        if key == "chatbot.max_tool_rounds":
+            return 1
+        if key == "chat_max_tokens":
+            return 2048
+        if key == "chatbot.web_research_cache_enabled":
+            return False
+        if key == "chatbot.web_cache_max_mb":
+            return 0
+        if key == "chatbot.prompt_for_web_research":
+            return False
+        return 0
 
     import plugin.chatbot.web_research as wr
 
@@ -1726,7 +1726,6 @@ def test_chromium_cdp_enabled():
          patch.object(wr._cdp_refcount, "finish") as mock_finish, \
          patch("plugin.chatbot.web_research._run_web_agent", return_value={"status": "ok", "result": "done"}) as mock_run, \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int", return_value=1), \
          patch("plugin.framework.client.llm_client.LlmClient"):
 
          WebResearchTool().execute(ctx, query="test query")
@@ -1751,7 +1750,17 @@ def test_cdp_connection_leak_early_exception():
     def mock_get_config(key):
         if key == "chatbot.web_research_browser":
             return "chrome"
-        return "off"
+        if key == "chatbot.max_tool_rounds":
+            return 1
+        if key == "chat_max_tokens":
+            return 2048
+        if key == "chatbot.web_research_cache_enabled":
+            return False
+        if key == "chatbot.web_cache_max_mb":
+            return 0
+        if key == "chatbot.prompt_for_web_research":
+            return False
+        return 0
 
     class FakeException(Exception):
         pass
@@ -1762,7 +1771,6 @@ def test_cdp_connection_leak_early_exception():
          patch("plugin.chatbot.web_research._begin_shared_cdp", return_value="ws://mock") as mock_begin, \
          patch.object(wr._cdp_refcount, "finish") as mock_finish, \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config_int", return_value=1), \
          patch("plugin.chatbot.web_research._run_web_agent", side_effect=FakeException("Early crash")), \
          patch("plugin.framework.client.llm_client.LlmClient"):
 

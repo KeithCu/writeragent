@@ -83,7 +83,7 @@ Rules that apply in many places. Breaking them causes wrong-document bugs, froze
 
 - **Stream on a worker; drain on the UI thread.** Background work pushes tuples onto a `queue.Queue`. The first element must be a `StreamQueueKind` **enum member**, not a bare string. When `AsyncCallback` exists, `run_stream_drain_loop` handles the items already queued and **returns to the VCL loop**, then re-arms with `addCallback` or a ~100 ms idle delay. Do not put the `while` / `Queue.get` loop back inside that callback: it holds SolarMutex across the idle wait. The blocking loop remains only when no callback can be armed (unit tests, eval harness). Do not use UNO `XTimerListener` for sidebar streaming. `run_blocking_in_thread(..., pump_idle=False)` stays a non-pumping wait. More: [docs/framework/streaming-and-threading.md](docs/framework/streaming-and-threading.md).
 
-- **Refresh document context each chat send.** Each user send replaces the `[DOCUMENT CONTENT]` system message so the model sees the current document, not a stale snapshot.
+- **Refresh document context each chat send.** Each request ends with a fresh `[DOCUMENT CONTENT]` snapshot; the stored history never contains it and is never rewritten. Why: providers cache an exact prefix, and rewriting `messages[0]` on every send misses that cache.
 
 - **Register tools so schemas and execution agree.** Matching uses `uno_services` first, then `doc_types`. Anything advertised by `get_schemas` must be runnable via `execute`. Default main-chat tools are `tier="core"`; nested specialized sets use `specialized` / `specialized_control` and are omitted from default lists. Gateway tools must list **every** UNO service they support (e.g. Draw **and** Impress). Writer `charts` / `shapes` share tool **names** with Calc/Draw—the Writer class must declare the **union** of those services or execution rejects the document.
 
@@ -93,13 +93,13 @@ Rules that apply in many places. Breaking them causes wrong-document bugs, froze
 
 - **Two products, one OXT at a time.** WriterAgent (`make deploy`, `plugin/main.py`) vs LibrePy (`make build-core` / `deploy-core`, `plugin/main_core.py`, `extension-core/`). `deploy-core` removes WriterAgent; `register-built-oxt` / `make release` removes LibrePy. Dual-install overlay is **not shipped**. File list: [`scripts/librepy_bundle_paths.py`](scripts/librepy_bundle_paths.py). Packaging: [docs/scripting/librepy-split.md](docs/scripting/librepy-split.md).
 
-- **LibrePy-safe document helpers.** Linebreaks, tracked-deletion reads, heading trees, path, selection text, Writer text slices, and selection range / char count: `plugin/doc/text_helpers.py`. Type guards: `doc_type.py`. Document properties: `udprops.py`. Do **not** import `document_helpers` from LibrePy paths (WriterAgent chat context / `DocumentService`). Do **not** re-export the light helpers from `document_helpers`.
+- **LibrePy-safe document helpers.** Linebreaks, tracked-deletion reads, heading trees, path, selection text, Writer text slices, and selection range / char count: `plugin/doc/text_helpers.py`. Type guards: `plugin/framework/doc_type.py`. Document properties: `udprops.py`. Do **not** import `document_helpers` from LibrePy paths (WriterAgent chat context / `DocumentService`). Do **not** re-export the light helpers from `document_helpers`.
 
 - **`plugin.framework.client` package init is lazy.** HTTP / errors / provider detection load immediately; `LlmClient` and analysis (`run_trusted_analysis`) load on attribute access. Embeddings are `plugin.embeddings`, not this package. LibrePy may import `requests` / `provider_detection`. Do not import `llm_client` or `plugin.embeddings` from LibrePy paths.
 
 - **Stop / cancellation policy:** When Stop is clicked, abort waiting on network/HTTP/IPC packets immediately (e.g. streaming LLM, image generation API, subprocess waits). However, do **not** abort document mutations (inserting pictures, appending in-flight text chunks, writing analysis/plots to sheets). Once data is generated and in hand, let it land in the document cleanly rather than implementing complicated defensive abort code or throwing away work. For voice/speech: clicking Stop while recording ends the take and transcribes it into the query box—do **not** abort transcription, throw away the audio, or auto-submit the transcript to the model.
 
-UNO helpers are intentionally split (`uno_context`, `text_helpers` / `doc_type` / `udprops`, `document_helpers` for chat context / `DocumentService`, `dialogs`)—there is no monolithic `uno_helpers.py`.
+UNO helpers are intentionally split (`uno_context`, `text_helpers`, `plugin/framework/doc_type.py`, `udprops`, `document_helpers` for chat context / `DocumentService`, `dialogs`)—there is no monolithic `uno_helpers.py`.
 
 ---
 

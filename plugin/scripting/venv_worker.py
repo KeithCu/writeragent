@@ -22,8 +22,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, IO, Generator, Literal
 
-from plugin.framework.config import get_config_bool, get_config_str
-from plugin.framework.thread_guard import background, on_main_thread
+from plugin.framework.config import get_config
+from plugin.framework.queue_executor import main
+from plugin.framework.thread_guard import background
 from plugin.framework.constants import (
     EMBEDDINGS_HEARTBEAT_GRACE_S,
     HEARTBEAT_ABSOLUTE_CAP_SEC,
@@ -44,7 +45,7 @@ from plugin.scripting.config_limits import (
     python_exec_timeout_default,
     resolve_python_exec_timeout,
 )
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     _stop_requested,
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
@@ -55,12 +56,13 @@ from plugin.scripting.ipc import (
     unpack_pickle_frame,
     write_packed_frame_with_timeout,
 )
+from plugin.scripting.session_key import SessionKey
 from plugin.scripting.payload_codec import _HOST_UNPACK_ERRORS, host_unpack_data
+from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.sandbox import (
     detect_sandbox,
     resolve_libreoffice_python,
     resolve_venv_python,
-    scrub_subprocess_env,
     wrap_command_for_sandbox,
 )
 
@@ -353,10 +355,10 @@ class _ExecRequest:
     data: Any = None
     bindings: dict[str, Any] | None = None
     timeout_sec: int | None = None
-    session_id: str | None = None
+    session: SessionKey | None = None
     action: str | None = None
     init_script: str | None = None
-    init_session_id: str | None = None
+    init_session: SessionKey | None = None
     init_script_hash: str | None = None
     allow_heartbeat: bool = False
     on_heartbeat: Callable[[dict[str, Any]], None] | None = None
@@ -365,7 +367,7 @@ class _ExecRequest:
     cancellation_scope: Any | None = None
     python_tool_domain: str | None = None
     caller: str = "script"
-    script_session_id: str | None = None
+    pin: str | None = None
     sandbox_policy: dict[str, Any] | None = None
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -375,8 +377,8 @@ class _ExecRequest:
         request: dict[str, Any] = {"id": self.request_id}
         if self.timeout_sec is not None:
             request["timeout_sec"] = self.timeout_sec
-        if self.session_id:
-            request["session_id"] = self.session_id
+        if self.session is not None:
+            request["session_id"] = self.session.wire()
         if self.data is not None:
             request["data"] = self.data
         # allow_heartbeat belongs on every long job, not only the code branch.
@@ -392,8 +394,8 @@ class _ExecRequest:
                 request["bindings"] = self.bindings
             if self.init_script:
                 request["init_script"] = self.init_script
-            if self.init_session_id:
-                request["init_session_id"] = self.init_session_id
+            if self.init_session is not None:
+                request["init_session_id"] = self.init_session.wire()
             if self.init_script_hash:
                 request["init_script_hash"] = self.init_script_hash
             if self.sandbox_policy is not None:
@@ -561,7 +563,7 @@ class PythonWorkerManager:
             return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
         if self._serving_tool_call:
             return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
-        if on_main_thread() and self._io_lock.locked():
+        if main.is_current() and self._io_lock.locked():
             return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         return None
 
@@ -574,7 +576,7 @@ class PythonWorkerManager:
         # The locked() check above can pass, then another thread takes the
         # pipe and blocks on the UI thread. A non-blocking acquire closes
         # that race. Other threads wait, but leave if a tool RPC starts.
-        if on_main_thread():
+        if main.is_current():
             if not self._io_lock.acquire(timeout=0):
                 return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
             self._io_owner = threading.get_ident()
@@ -755,7 +757,7 @@ class PythonWorkerManager:
             # Pin wins over the kernel session id. Chat passes doc:… and
             # leaves request session_id unset. RPS / =PY() / PPT-Master
             # omit the pin and keep the request id.
-            resolved_script_session_id = host_script_session_id(wire.get("session_id"), req.script_session_id)
+            resolved_script_session_id = host_script_session_id(wire.get("session_id"), req.pin)
         except Exception as exc:
             log.warning("Python worker request preparation failed: %s", exc)
             return self._err("WORKER_IPC_ERROR", f"Failed to prepare request: {exc}")
@@ -937,15 +939,15 @@ class PythonWorkerManager:
                     data=data,
                     bindings=bindings,
                     timeout_sec=timeout_sec,
-                    session_id=session_id,
+                    session=SessionKey.from_host(session_id),
                     action=action,
                     init_script=init_script,
-                    init_session_id=init_session_id,
+                    init_session=SessionKey.from_host(init_session_id),
                     init_script_hash=init_script_hash,
                     allow_heartbeat=allow_heartbeat,
                     on_heartbeat=on_heartbeat,
                     python_tool_domain=python_tool_domain,
-                    script_session_id=script_session_id,
+                    pin=script_session_id,
                     stop_checker=stop_checker,
                     cancellation_scope=cancellation_scope,
                     sandbox_policy=sandbox_policy,
@@ -987,7 +989,7 @@ class PythonWorkerManager:
                     data=payload,
                     timeout_sec=timeout_sec,
                     action="ppt_master_turn",
-                    session_id=session_id or None,
+                    session=SessionKey.from_host(session_id),
                     on_worker_event=on_worker_event,
                     stop_checker=stop_checker,
                     cancellation_scope=cancellation_scope,
@@ -1256,7 +1258,7 @@ class PythonWorkerManager:
         stop_checker: Callable[[], bool] | None = None,
         absolute_cap_sec: float | None = None,
     ) -> dict[str, Any] | None | FailedAfterStart:
-        from plugin.scripting.ipc import FRAME_HEARTBEAT, FRAME_RESULT
+        from plugin.framework.ipc import FRAME_HEARTBEAT, FRAME_RESULT
 
         # Each heartbeat used to set the deadline to now+grace with no end.
         # Trusted actions do not use the sandbox alarm, so a loop that kept
@@ -1395,10 +1397,10 @@ def _resolve_worker_python(
 ) -> tuple[str | None, dict[str, Any] | None]:
     """Return (exe, error_response) for the configured venv / LO interpreter.
 
-    Config is process-global (``get_config_str``). Callers that still have a
+    Config is process-global (``get_config``). Callers that still have a
     UNO context pass it to ``run_code_in_user_venv``, not here.
     """
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     embeddings = pool == WORKER_POOL_EMBEDDINGS
     # Embeddings cannot fall through to LibreOffice's Python. An empty path
     # is its own error; a configured path shares the venv lookup below.
@@ -1446,7 +1448,6 @@ def _get_worker_manager(
 
 
 def run_code_in_user_venv(
-    uno_ctx: Any,
     code: str | None = None,
     *,
     data: Any = None,
@@ -1467,9 +1468,6 @@ def run_code_in_user_venv(
     sandbox_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute *code* or handle *action* via :class:`PythonWorkerManager` (warm process).
-
-    *uno_ctx* is unused. Config is process-global; the argument stays so
-    existing callers can keep passing a context.
 
     Without *session_id*, each call uses an isolated namespace in the child. With
     *session_id*, the child reuses one namespace per workbook (shared kernel).
@@ -1496,10 +1494,10 @@ def run_code_in_user_venv(
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
     if sandbox_policy is None and not action:
-        allow_network = get_config_bool("scripting.python_allow_network")
-        allow_files = get_config_bool("scripting.python_allow_files")
-        allow_os = get_config_bool("scripting.python_allow_os")
-        extra_modules = get_config_str("scripting.python_extra_modules")
+        allow_network = bool(get_config("scripting.python_allow_network"))
+        allow_files = bool(get_config("scripting.python_allow_files"))
+        allow_os = bool(get_config("scripting.python_allow_os"))
+        extra_modules = get_config("scripting.python_extra_modules")
         sandbox_policy = {
             "network": allow_network,
             "files": allow_files or allow_os,
@@ -1527,12 +1525,10 @@ def run_code_in_user_venv(
     )
 
 
-def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | None = None) -> dict[str, Any]:
+def reset_python_session(session_id: str, *, timeout_sec: int | None = None) -> dict[str, Any]:
     """Drop the shared-kernel executor for *session_id* in the warm worker.
 
     A missing or exited child returns {"status": "ok"} and does not spawn.
-    *uno_ctx* is unused. Config is process-global; the argument stays so
-    existing callers can keep passing a context.
     """
     if not (session_id or "").strip():
         return _worker_error("WORKER_IPC_ERROR", "No session_id provided.")
@@ -1570,12 +1566,8 @@ def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | No
 
 
 @background
-def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
-    """Pre-warm a specific venv subprocess pool (spawn + trigger auto-imports + load embedding model if embeddings pool). Safe to call from a background thread.
-
-    *uno_ctx* is unused. Config is process-global; the argument stays so
-    existing callers can keep passing a context.
-    """
+def warm_venv_worker(pool: str = WORKER_POOL_DEFAULT) -> None:
+    """Pre-warm a specific venv subprocess pool (spawn + trigger auto-imports + load embedding model if embeddings pool). Safe to call from a background thread."""
     manager, err = _get_worker_manager(pool=pool)
     if manager is None:
         log.warning("warm_venv_worker skipped for pool %s: %s", pool, (err or {}).get("message"))

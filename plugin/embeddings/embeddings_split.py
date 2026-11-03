@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework import grammar_rule_ids
 
 CHUNK_SIZE = 512
@@ -15,24 +15,18 @@ CHUNK_OVERLAP = 64
 MIN_CHUNK = 120
 DEFAULT_SENTENCE_LOCALE = "en@ss=standard"
 
-# Regex splitter already off; floor spans/passage (33211730747 still ~35m at 4).
-_DEAL_SENT_LIST_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SHAPE_DIM
-_DEAL_SENT_SPAN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-_DEAL_SENT_TEXT_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-_DEAL_PASSAGE_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+_DEAL_SENT_LIST_LEN = DEAL_MAX_SHAPE_DIM
+_DEAL_SENT_SPAN = DEAL_MAX_SOURCE
+_DEAL_SENT_TEXT_LEN = DEAL_MAX_SOURCE
+_DEAL_PASSAGE_LEN = DEAL_MAX_SOURCE
 
 
 # ascii_bounded(locale) admits control chars (e.g. \x01) that ICU SentenceBreaker rejects.
-# CrossHair: default locale only. Pytest: keep prior DEFAULT-or-ascii_bounded bound.
 def _deal_sentence_locale_ok_pytest(locale: object) -> bool:
     return locale == DEFAULT_SENTENCE_LOCALE or ascii_bounded(locale, DEAL_MAX_TOKEN)
 
 
-def _deal_sentence_locale_ok_crosshair(locale: object) -> bool:
-    # Identity, not ==: CrossHair synthesizes a new 'en@ss=standard' that
-    # compares equal but is not a real str/Locale, so icu4py SentenceBreaker
-    # TypeErrors. The default arg is this module constant.
-    return locale is DEFAULT_SENTENCE_LOCALE
+_deal_sentence_locale_ok = _deal_sentence_locale_ok_pytest
 
 
 def _deal_chunk_base_meta_ok_pytest(base_meta: object) -> bool:
@@ -45,108 +39,52 @@ def _deal_chunk_base_meta_ok_pytest(base_meta: object) -> bool:
     return type(base_meta) is dict and all(type(k) is str for k in base_meta)
 
 
-def _deal_chunk_base_meta_ok_crosshair(base_meta: object) -> bool:
-    """Tiny ascii keys/values for CrossHair check-all."""
-    return (
-        type(base_meta) is dict
-        and len(base_meta) <= _DEAL_SENT_LIST_LEN
-        and all(
-            type(k) is str
-            and ascii_bounded(k, DEAL_MAX_TOKEN)
-            and (
-                v is None
-                or type(v) in (int, float, bool)
-                or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN))
-            )
-            for k, v in base_meta.items()
-        )
-    )
-
-
-_deal_chunk_base_meta_ok = (
-    _deal_chunk_base_meta_ok_crosshair if UNDER_CROSSHAIR else _deal_chunk_base_meta_ok_pytest
-)
+_deal_chunk_base_meta_ok = _deal_chunk_base_meta_ok_pytest
 
 
 def _deal_run_locale_ok_pytest(locale: object) -> bool:
     return locale is None or ascii_bounded(locale, DEAL_MAX_TOKEN)
 
 
-def _deal_run_locale_ok_crosshair(locale: object) -> bool:
-    # None keeps _split_prose_passage_to_spans on the default-locale call
-    # (split_passage_to_sentences(passage)). A BCP-47 string is rewritten to a
-    # new ICU tag that fails the CrossHair `is DEFAULT_SENTENCE_LOCALE` pre.
-    return locale is None
-
-
-_deal_run_locale_ok = _deal_run_locale_ok_crosshair if UNDER_CROSSHAIR else _deal_run_locale_ok_pytest
+_deal_run_locale_ok = _deal_run_locale_ok_pytest
 
 
 def _deal_locale_run_ok(run: object) -> bool:
     return _deal_run_locale_ok(getattr(run, "locale_bcp47", None))
 
 
-_deal_sentence_locale_ok = (
-    _deal_sentence_locale_ok_crosshair if UNDER_CROSSHAIR else _deal_sentence_locale_ok_pytest
-)
-
-
 # NUL/controls are isascii() but ICU SentenceBreaker TypeErrors on them
 # (split_passage_to_sentences('\x00', locale=DEFAULT)).
 def _deal_passage_text_ok_pytest(text: object) -> bool:
     # Documents are longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before the sentence splitter ran. CrossHair keeps
-    # the one-character printable domain.
+    # PreContractError before the sentence splitter ran.
     return isinstance(text, str)
 
 
-def _deal_passage_text_ok_crosshair(text: object) -> bool:
-    return (
-        isinstance(text, str)
-        and len(text) <= _DEAL_PASSAGE_LEN
-        and text.isascii()
-        and all(c.isprintable() or c in "\n\t\r" for c in text)
-    )
-
-
-_deal_passage_text_ok = (
-    _deal_passage_text_ok_crosshair if UNDER_CROSSHAIR else _deal_passage_text_ok_pytest
-)
+_deal_passage_text_ok = _deal_passage_text_ok_pytest
 
 
 def _deal_passage_str_ok_pytest(passage: object) -> bool:
     return isinstance(passage, str)
 
 
-def _deal_passage_str_ok_crosshair(passage: object) -> bool:
-    return str_bounded(passage, _DEAL_PASSAGE_LEN)
-
-
-_deal_passage_str_ok = _deal_passage_str_ok_crosshair if UNDER_CROSSHAIR else _deal_passage_str_ok_pytest
+_deal_passage_str_ok = _deal_passage_str_ok_pytest
 
 
 def _deal_ws_passage_ok_pytest(passage: object) -> bool:
     # Unicode prose is valid. ascii_bounded raised PreContractError on the
-    # whitespace splitter. CrossHair keeps the short ASCII passage.
+    # whitespace splitter.
     return isinstance(passage, str)
 
 
-def _deal_ws_passage_ok_crosshair(passage: object) -> bool:
-    return ascii_bounded(passage, _DEAL_PASSAGE_LEN)
-
-
-_deal_ws_passage_ok = _deal_ws_passage_ok_crosshair if UNDER_CROSSHAIR else _deal_ws_passage_ok_pytest
+_deal_ws_passage_ok = _deal_ws_passage_ok_pytest
 
 
 def _deal_span_list_ok_pytest(spans: object) -> bool:
     return isinstance(spans, list)
 
 
-def _deal_span_list_ok_crosshair(spans: object) -> bool:
-    return isinstance(spans, list) and len(spans) <= _DEAL_SENT_LIST_LEN
-
-
-_deal_span_list_ok = _deal_span_list_ok_crosshair if UNDER_CROSSHAIR else _deal_span_list_ok_pytest
+_deal_span_list_ok = _deal_span_list_ok_pytest
 
 
 def _embeddings_pip_install_hint() -> str:
@@ -232,27 +170,7 @@ def _deal_sentences_spans_pre_pytest(sentences: object) -> bool:
     return True
 
 
-def _deal_sentences_spans_pre_crosshair(sentences: object) -> bool:
-    return (
-        type(sentences) is list
-        and len(sentences) <= _DEAL_SENT_LIST_LEN
-        and all(
-            type(s) is tuple
-            and len(s) == 3
-            and type(s[0]) is int
-            and type(s[1]) is int
-            and 0 <= s[0] <= _DEAL_SENT_SPAN
-            and 0 <= s[1] <= _DEAL_SENT_SPAN
-            and type(s[2]) is str
-            and ascii_bounded(s[2], _DEAL_SENT_TEXT_LEN)
-            for s in sentences
-        )
-    )
-
-
-_deal_sentences_spans_pre = (
-    _deal_sentences_spans_pre_crosshair if UNDER_CROSSHAIR else _deal_sentences_spans_pre_pytest
-)
+_deal_sentences_spans_pre = _deal_sentences_spans_pre_pytest
 
 
 def _sentences_spans_shape_ok_pytest(sentences: object) -> bool:
@@ -261,13 +179,7 @@ def _sentences_spans_shape_ok_pytest(sentences: object) -> bool:
     return isinstance(sentences, list)
 
 
-def _sentences_spans_shape_ok_crosshair(sentences: object) -> bool:
-    return isinstance(sentences, list) and len(sentences) <= _DEAL_SENT_LIST_LEN
-
-
-_sentences_spans_shape_ok = (
-    _sentences_spans_shape_ok_crosshair if UNDER_CROSSHAIR else _sentences_spans_shape_ok_pytest
-)
+_sentences_spans_shape_ok = _sentences_spans_shape_ok_pytest
 
 
 @deal.pre(lambda sentences: _deal_sentences_spans_pre(sentences))

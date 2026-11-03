@@ -21,7 +21,7 @@ import tempfile
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc import visual_helpers
-from plugin.doc.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
+from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase

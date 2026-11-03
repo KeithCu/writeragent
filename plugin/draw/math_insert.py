@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any, ClassVar
 
-from plugin.draw.base import ToolDrawSpecialBase
+from plugin.draw.base import DRAW_AND_IMPRESS, ToolDrawSpecialBase
 from plugin.framework.errors import best_effort, is_disposal
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_latex_to_starmath, convert_mathml_to_starmath
 
@@ -128,7 +128,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
         },
         "required": ["formula_type", "formula", "page", "x", "y"],
     }
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     is_mutation: bool | None = True
     specialized_domain: ClassVar[str | None] = "math"
 

@@ -17,11 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
-from plugin.draw.bridge import DrawBridge, find_notes_shape
+from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
 from plugin.framework.errors import best_effort, is_disposal
 from plugin.framework.uno_context import get_desktop
 from plugin.ppt_master.adapter.uno_shape_postprocess import copy_shapes_to_page
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 
 log = logging.getLogger(__name__)
 
@@ -87,27 +87,11 @@ def _drop_page(pages: Any, page: Any) -> None:
 
 
 def _copy_page_notes(source_page: Any, target_page: Any) -> None:
-    """Copy the source NotesShape onto the target NotesShape, including "".
-
-    find_notes_shape is the NotesShape lookup the notes tools use. Header,
-    footer, and date fields also implement getString/setString and can
-    precede the NotesShape. clear_page_shapes only removes slide shapes, so
-    write the notes shape even when the text is empty; otherwise a re-import
-    of empty notes leaves the previous text (or writes chrome into the first
-    setString shape).
-    """
+    """Copy the source NotesShape onto the target NotesShape, including ""."""
     try:
-        src_shape = find_notes_shape(source_page.getNotesPage())
-        # No NotesShape means the source has no speaker-notes body. hasattr
-        # is the wrong probe: a PyUNO method can be callable and still fail
-        # hasattr, and that false miss would look like empty notes.
-        notes_text = ""
-        if src_shape is not None:
-            notes_text = str(src_shape.getString() or "").strip()
-        tgt_shape = find_notes_shape(target_page.getNotesPage())
-        if tgt_shape is None:
-            return
-        tgt_shape.setString(notes_text)
+        raw = notes_text(source_page)
+        notes_str = "" if raw is None else raw.strip()
+        set_notes_text(target_page, notes_str)
     except Exception as exc:
         if is_disposal(exc):
             raise
@@ -151,23 +135,23 @@ def _import_slides_from_source(
         # trims what it appended, or drops a slide this call just created,
         # and leaves an existing slide's shapes in place.
         replace = clear_existing or out_index > 0
-        existed = execute_on_main_thread(lambda: out_index < int(pages.getCount()))
-        target_page = execute_on_main_thread(lambda: _ensure_target_page(bridge, out_index))
-        previous_count = execute_on_main_thread(lambda: int(target_page.getCount()))
-        copied = execute_on_main_thread(lambda: copy_shapes_to_page(source_page, target_doc, target_page, uno_ctx=ctx))
+        existed = main.call(lambda: out_index < int(pages.getCount()))
+        target_page = main.call(lambda: _ensure_target_page(bridge, out_index))
+        previous_count = main.call(lambda: int(target_page.getCount()))
+        copied = main.call(lambda: copy_shapes_to_page(source_page, target_doc, target_page, uno_ctx=ctx))
         if copied < 1:
             if not existed:
-                execute_on_main_thread(lambda: _drop_page(pages, target_page))
+                main.call(lambda: _drop_page(pages, target_page))
             else:
                 trim_count = previous_count
-                execute_on_main_thread(lambda: _trim_appended_shapes(target_page, trim_count))
+                main.call(lambda: _trim_appended_shapes(target_page, trim_count))
             return {"status": "error", "message": f"No shapes copied from PPTX slide {src_index + 1}"}
         if replace:
             drop_count = previous_count
-            execute_on_main_thread(lambda: _drop_front_shapes(target_page, drop_count))
-        execute_on_main_thread(lambda: _apply_target_page_size(target_page))
-        execute_on_main_thread(lambda: bridge.set_current_page_index(out_index))
-        execute_on_main_thread(lambda: _copy_page_notes(source_page, target_page))
+            main.call(lambda: _drop_front_shapes(target_page, drop_count))
+        main.call(lambda: _apply_target_page_size(target_page))
+        main.call(lambda: bridge.set_current_page_index(out_index))
+        main.call(lambda: _copy_page_notes(source_page, target_page))
         results.append({"slide_index": out_index, "source_slide_index": src_index, "shapes_copied": copied})
 
     return {"status": "ok", "slides": len(results), "route": "pptx_to_odp", "results": results}

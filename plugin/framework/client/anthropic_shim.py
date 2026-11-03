@@ -12,7 +12,7 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from .shim_helpers import _dict_parts, _normalize_usage, _system_text
+from .shim_helpers import _dict_parts, _normalize_usage, _system_text, annotate_anthropic_cache
 from .base_provider_shim import (
     BaseProviderShim,
     coerce_raw_b64,
@@ -321,6 +321,7 @@ class AnthropicShim(BaseProviderShim):
         if not model:
             raise NetworkError(_("Anthropic model is not set. Choose a model in Settings."), code="BAD_REQUEST")
         system_msg, converted = _convert_messages(messages)
+        converted = annotate_anthropic_cache(converted)
         data: dict[str, Any] = {"model": model, "messages": converted, "max_tokens": max_tokens, "stream": stream}
         if temperature is not None:
             data["temperature"] = max(0.0, min(1.0, temperature))

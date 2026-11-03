@@ -30,7 +30,7 @@ from plugin.chatbot.panel import (
 )
 from plugin.chatbot.record_gesture import RecordGesture, hands_free_status_text
 from plugin.chatbot.send_state import ButtonAction, SendButtonState, SendEvent, SendEventKind, SendMode
-from plugin.framework.queue_executor import QueueExecutor
+from plugin.framework.queue_executor import MainThread
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.errors import DocumentDisposedError
@@ -73,7 +73,7 @@ def _live_bus_callbacks(bus: Any, event: str) -> list[Any]:
 
 
 def _make_send_listener() -> SendButtonListener:
-    with patch("plugin.framework.config.get_config_str", return_value=""):
+    with patch("plugin.framework.config.get_config", return_value=""):
         with patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False):
             with patch("plugin.chatbot.panel.is_audio_recording_supported", return_value=True):
                 session = MagicMock()
@@ -91,10 +91,10 @@ def _make_send_listener() -> SendButtonListener:
                     session,
                 )
     # Own queue: another test's leftover thread (e.g. the 1 s settings
-    # debounce Timer) can post_to_main_thread into default_executor mid-test,
+    # debounce Timer) can post into main mid-test,
     # adding to ``posted`` or taking process_queue()'s one turn. A mock ctx
-    # gives a mock AsyncCallback, so posts queue as they did on default_executor.
-    listener.queue_executor = QueueExecutor(MagicMock())
+    # gives a mock AsyncCallback, so posts queue as they did on main.
+    listener.queue_executor = MainThread(MagicMock())
     return listener
 
 
@@ -113,24 +113,24 @@ class TestGrammarStatusDocType:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_default_executor():
-    from plugin.framework.queue_executor import default_executor
+def _isolate_main():
+    from plugin.framework.queue_executor import main
 
-    orig_post = default_executor.post
+    orig_post = main.post
     try:
         yield
     finally:
-        default_executor.post = orig_post
-        while not default_executor._work_queue.empty():
+        main.post = orig_post
+        while not main._work_queue.empty():
             try:
-                default_executor._work_queue.get_nowait()
+                main._work_queue.get_nowait()
             except Exception:
                 break
 
 
 @pytest.fixture(autouse=False)
 def _run_posts_inline():
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a)):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a)):
         yield
 
 
@@ -298,7 +298,7 @@ class TestSendDispose:
         with (
             patch("plugin.audio.tts_service.speak_text_async") as speak,
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
         ):
             listener._run_send_drain()
         speak.assert_not_called()
@@ -391,7 +391,7 @@ class TestSendDispose:
         with (
             patch("plugin.main.get_tools", get_tools),
             patch.object(PanelEventsController, "_mcp_subscribe_must_defer", return_value=True),
-            patch.object(PanelEventsController, "_post_to_main_thread", side_effect=posted.append),
+            patch.object(PanelEventsController, "_post_to_main", side_effect=posted.append),
             patch("plugin.framework.event_bus.get_event_bus", return_value=grammar_bus),
         ):
             listener = _make_send_listener()
@@ -435,7 +435,7 @@ class TestSendDispose:
         with (
             patch("plugin.main.get_tools", get_tools),
             patch.object(PanelEventsController, "_mcp_subscribe_must_defer", return_value=True),
-            patch.object(PanelEventsController, "_post_to_main_thread", side_effect=posted.append),
+            patch.object(PanelEventsController, "_post_to_main", side_effect=posted.append),
         ):
             listener = _make_send_listener()
             listener.disposing(None)
@@ -457,7 +457,7 @@ class TestSendDispose:
         listener = _make_send_listener()
         listener._panel_teardown = True
         listener._append_response = MagicMock()
-        with patch("plugin.framework.queue_executor.post_to_main_thread") as post:
+        with patch("plugin.framework.queue_executor.main.post") as post:
             listener._events._on_mcp_result(tool="echo", result_snippet="hi")
         post.assert_not_called()
         listener._append_response.assert_not_called()
@@ -485,9 +485,9 @@ class TestSendDispose:
 
         with (
             patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=mock_turn),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value="mcp"),
-            patch("plugin.framework.queue_executor.default_executor.post", side_effect=_capture),
+            patch("plugin.framework.queue_executor.main.post", side_effect=_capture),
         ):
             listener._events._on_mcp_result(tool="echo", result_snippet="hi")
         assert len(posted) == 1
@@ -507,7 +507,7 @@ class TestSendDispose:
 
         with (
             patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=mock_turn),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             listener._events._on_mcp_result(tool="echo", result_snippet="hi")
@@ -550,7 +550,7 @@ class TestSendDispose:
 
         # Test that `_pump_completion` finally block runs drop_turn even when TTS is empty and enabled.
         with patch("plugin.chatbot.panel.update_activity_state"):
-            with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
+            with patch("plugin.framework.config.get_config", return_value=True):
                 with patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=session):
                     with patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop:
                         with patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick:
@@ -592,7 +592,7 @@ class TestSendDispose:
         with (
             patch("plugin.audio.tts_service.speak_text_async"),
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+            patch("plugin.framework.config.get_config", return_value=False),
             patch("plugin.chatbot.dialogs.get_control_text", return_value=""),
         ):
             listener._run_send_drain()
@@ -610,7 +610,7 @@ class TestSendDispose:
         with (
             patch("plugin.audio.tts_service.speak_text_async"),
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+            patch("plugin.framework.config.get_config", return_value=False),
             patch("plugin.chatbot.dialogs.get_control_text", return_value="still typing"),
         ):
             listener._run_send_drain()
@@ -714,7 +714,7 @@ class TestSendDispose:
 
         listener = _make_send_listener()
         listener._do_send = MagicMock()
-        qe.set_force_marshal_mode(True)
+        qe.main.install(qe.Policy.test_marshal)
         try:
             with patch.object(listener.queue_executor, "_poke_main_thread", lambda: None):
                 listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
@@ -727,7 +727,7 @@ class TestSendDispose:
             listener._do_send.assert_not_called()
             assert not (listener.sidebar_state.send.is_busy)
         finally:
-            qe.set_force_marshal_mode(False)
+            qe.main.install(qe.Policy.production)
             while not listener.queue_executor._work_queue.empty():
                 listener.queue_executor.process_queue()
 
@@ -992,7 +992,7 @@ class TestSlashOverlayParked:
         listener = QueryKeyListener(send_listener)
         event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), \
-             patch("plugin.framework.config.get_config_bool", return_value=True), \
+             patch("plugin.framework.config.get_config", return_value=True), \
              caplog.at_level(logging.DEBUG):
             listener.on_key_pressed(event)
         send_listener.slash_popup.handle_key.assert_called_once_with(1280, 0)
@@ -1010,7 +1010,7 @@ class TestQueryKeyListenerDispose:
         send_listener.send_control.getModel.return_value = send_model
         listener = QueryKeyListener(send_listener)
         event = _ConsumeEvent()
-        with patch("plugin.framework.config.get_config_bool", return_value=True):
+        with patch("plugin.framework.config.get_config", return_value=True):
             listener.on_key_pressed(event)
         send_listener.on_action_performed.assert_called_once_with(event)
 
@@ -1038,7 +1038,7 @@ class TestTtsStopInteraction:
         with (
             patch("plugin.audio.tts_service.speak_text_async") as speak,
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
         ):
             # simulate send completed event handling inside drain
             listener._terminal_status = "Ready"
@@ -1069,7 +1069,7 @@ class TestTtsStopInteraction:
         with (
             patch("plugin.audio.tts_service.speak_text_async") as speak,
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
             patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop_turn,
             patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick,
             patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.sidebar_state.tool_loop),
@@ -1457,7 +1457,7 @@ class TestHandsFreeRecord:
             captured.update(kwargs)
 
         with (
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async", side_effect=_speak),
             patch("plugin.audio.tts_service.is_speaking", return_value=True),
             patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=spoken),
@@ -1497,7 +1497,7 @@ class TestHandsFreeRecord:
             captured.update(kwargs)
 
         with (
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async", side_effect=_speak),
             patch("plugin.audio.tts_service.is_speaking", return_value=True),
             patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=spoken),
@@ -1662,7 +1662,7 @@ class TestStoppedTTS:
 
         with (
             patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak
         ):
             mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this."}]
@@ -1729,7 +1729,7 @@ class TestStoppedTTS:
 
         with (
             patch("plugin.chatbot.tool_loop_actions.session_for_turn") as mock_session,
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak
         ):
             mock_session.return_value.messages = [{"role": "assistant", "content": "I shouldn't say this either."}]
@@ -1757,7 +1757,7 @@ class TestStoppedTTS:
         with (
             patch.object(listener, "_do_send", side_effect=_simulate_do_send),
             patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=fake_session),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
         ):
@@ -1943,7 +1943,7 @@ class TestPanelR3Fixes:
         listener._stop_requested_fallback = True
 
         with (
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
             patch.object(listener, "_do_send") as mock_do_send,
         ):
@@ -1972,7 +1972,7 @@ class TestPanelR3Fixes:
         with (
             patch("plugin.chatbot.dialogs.get_control_text", return_value="   \t\n  "),
             patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
         ):
             listener._run_send_drain()
@@ -1989,7 +1989,7 @@ class TestPanelR3Fixes:
         event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
 
         with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), \
-             patch("plugin.framework.config.get_config_bool", return_value=True):
+             patch("plugin.framework.config.get_config", return_value=True):
             for action in (ButtonAction.RECORD, ButtonAction.STOP_REC, ButtonAction.ACCEPT, ButtonAction.CHANGE, ButtonAction.REJECT):
                 send_listener._button_action = action
                 listener.on_key_pressed(event)
@@ -2114,9 +2114,9 @@ def test_mcp_turn_mutations_hold_the_lock() -> None:
 
     listener._last_mcp_turn = _Guarded({"a": turn})
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.thread_guard.get_background_task_name", return_value="mcp"),
-        patch("plugin.framework.queue_executor.default_executor.post", lambda *args, **kwargs: None),
+        patch("plugin.framework.queue_executor.main.post", lambda *args, **kwargs: None),
     ):
         listener._events._on_mcp_result(tool="echo", result_snippet="x", req_id="a")
     assert "a" not in listener._last_mcp_turn
@@ -2378,7 +2378,7 @@ class TestPanelR14Fixes:
         with (
             patch.object(listener, "_do_send", side_effect=_fake_do_send),
             patch.object(listener, "_project_closing_line", side_effect=_fake_project_closing_line),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+            patch("plugin.framework.config.get_config", return_value=False),
         ):
             listener._run_send_drain()
 
@@ -2401,7 +2401,7 @@ class TestPanelR14Fixes:
 
         with (
             patch.object(listener, "_do_send", side_effect=_fake_do_send),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.framework.config.get_config", return_value=True),
             patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
         ):

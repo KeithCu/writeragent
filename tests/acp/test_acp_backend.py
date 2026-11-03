@@ -1932,6 +1932,10 @@ class TestSessionId:
         assert ("MANUAL") not in (second)
         assert any("doc-v1" in text for text in first)
         assert any("doc-v2" in text for text in second)
+        assert "doc-v1" in first[-1]
+        assert "one" in first[:-1]
+        assert "doc-v2" in second[-1]
+        assert "two" in second[:-1]
         conn.stop.assert_not_called()
         assert (backend._session_id) == ("sess-1")
 

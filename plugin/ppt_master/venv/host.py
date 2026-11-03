@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.framework.config import get_config_int
+from plugin.framework.config import get_config
 from plugin.ppt_master.paths import apply_data_root_env
 from plugin.scripting.config_limits import configured_python_exec_timeout, resolve_python_exec_timeout
 from plugin.scripting.venv_worker import _get_worker_manager
@@ -49,8 +49,8 @@ def run_ppt_master_venv_turn(
         "topic": topic,
         "model": model,
         "session_id": session_id,
-        "max_steps": get_config_int("chatbot.max_tool_rounds"),
-        "max_tokens": get_config_int("chat_max_tokens"),
+        "max_steps": get_config("chatbot.max_tool_rounds"),
+        "max_tokens": get_config("chat_max_tokens"),
     }
 
     # cancellation_scope is a host object (it registers the live LlmClient).

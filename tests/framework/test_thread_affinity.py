@@ -11,7 +11,8 @@ from unittest.mock import MagicMock
 
 
 from plugin.framework import thread_guard as tg
-from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
+from plugin.framework.queue_executor import main
+from plugin.framework.queue_executor import Policy
 from plugin.framework.worker_pool import run_in_background
 from tests.framework.thread_safety import make_thread_affine_mock, start_uno_thread_safety_session
 
@@ -19,15 +20,15 @@ from tests.framework.thread_safety import make_thread_affine_mock, start_uno_thr
 def test_designated_main_thread_hook(monkeypatch):
     fake_main = MagicMock()
     fake_main.name = "fake-main"
-    monkeypatch.setattr(tg, "_designated_main_thread", fake_main)
+    main.install(Policy.production, designated=fake_main)
     monkeypatch.setattr(threading, "current_thread", lambda: fake_main)
-    assert tg.on_main_thread() is True
+    assert main.is_current() is True
 
     other = MagicMock()
     other.name = "other"
     monkeypatch.setattr(threading, "current_thread", lambda: other)
-    assert tg.on_main_thread() is False
-    monkeypatch.setattr(tg, "_designated_main_thread", None)
+    assert main.is_current() is False
+    main.install(Policy.production, designated=None)
 
 
 def test_thread_affine_mock_allows_designated_main_thread():
@@ -36,7 +37,7 @@ def test_thread_affine_mock_allows_designated_main_thread():
         raw = MagicMock()
         raw.value = 7
         mock = session.make_mock(raw, name="doc")
-        assert execute_on_main_thread(lambda: mock.value) == 7
+        assert main.call(lambda: mock.value) == 7
     finally:
         session.close()
 
@@ -59,12 +60,12 @@ def test_thread_affine_mock_rejects_background_access():
         t.join()
         assert err is not None
         assert "background task" in str(err)
-        assert "execute_on_main_thread" in str(err)
+        assert "main.call" in str(err)
     finally:
         session.close()
 
 
-def test_marshal_via_execute_on_main_thread_allows_affine_access(uno_thread_safety):
+def test_marshal_via_call_allows_affine_access(uno_thread_safety):
     raw = MagicMock()
     raw.getText.return_value = "hello"
     doc = uno_thread_safety.make_mock(raw, name="doc")
@@ -74,7 +75,7 @@ def test_marshal_via_execute_on_main_thread_allows_affine_access(uno_thread_safe
     def worker():
         nonlocal err
         try:
-            out = execute_on_main_thread(lambda: doc.getText())
+            out = main.call(lambda: doc.getText())
             result.append(out)
         except BaseException as e:
             err = e
@@ -85,7 +86,7 @@ def test_marshal_via_execute_on_main_thread_allows_affine_access(uno_thread_safe
     assert result == ["hello"]
 
 
-def test_post_to_main_thread_allows_affine_access(uno_thread_safety):
+def test_post_allows_affine_access(uno_thread_safety):
     raw = MagicMock()
     doc = uno_thread_safety.make_mock(raw, name="doc")
     done = threading.Event()
@@ -98,7 +99,7 @@ def test_post_to_main_thread_allows_affine_access(uno_thread_safety):
                 _ = doc.getText()
                 done.set()
 
-            post_to_main_thread(touch)
+            main.post(touch)
         except BaseException as e:
             err = e
             done.set()
@@ -128,11 +129,11 @@ def test_direct_affine_access_from_run_in_background_fails(uno_thread_safety):
 
 def test_guarded_getter_from_background_fails_with_marshal_fixture(uno_thread_safety, monkeypatch):
     """doc_type entrypoints call assert_main_thread even on mocks."""
-    from plugin.doc import doc_type
+    from plugin.framework import doc_type
     from plugin.framework.errors import UnoObjectError
 
     # What was wrong (GHA 34423268523, Windows xdist gw2): the worker did
-    # ``from plugin.doc import doc_type`` after ``run_in_background`` started.
+    # ``from plugin.framework import doc_type`` after ``run_in_background`` started.
     # ``join(timeout=3)`` returned with ``err`` still None; captured log had
     # only worker_pool "Starting task" — no completion, no violation. How:
     # first import of ``plugin.doc`` (package ``__init__`` → CommonModule) ran
@@ -150,8 +151,8 @@ def test_guarded_getter_from_background_fails_with_marshal_fixture(uno_thread_sa
         nonlocal err
         try:
             notes["guard_on"] = tg.GUARD_ON
-            notes["on_main_thread"] = tg.on_main_thread()
-            designated = tg.get_designated_main_thread()
+            notes["is_current"] = main.is_current()
+            designated = main.designated
             notes["designated_name"] = None if designated is None else designated.name
             notes["current_name"] = threading.current_thread().name
             notes["task_name"] = tg.get_background_task_name()
@@ -168,7 +169,7 @@ def test_guarded_getter_from_background_fails_with_marshal_fixture(uno_thread_sa
     t.join(timeout=1.0)
     state = (
         f"finished={finished} alive={t.is_alive()} notes={notes!r} "
-        f"GUARD_ON={tg.GUARD_ON} designated={tg.get_designated_main_thread()!r}"
+        f"GUARD_ON={tg.GUARD_ON} designated={main.designated!r}"
     )
     assert finished, f"worker did not finish; {state}"
     assert err is not None, f"guard did not raise; {state}"
@@ -210,8 +211,8 @@ def test_make_thread_affine_mock_standalone():
     assert wrapped.foo._target is raw.foo
 
 
-def test_yellow_context_refuses_execute_on_main_thread(uno_thread_safety):
-    """Calling execute_on_main_thread from a worker in sync_host_dispatch must fail immediately (#402)."""
+def test_yellow_context_refuses_call(uno_thread_safety):
+    """Calling main.call from a worker in sync_host_dispatch must fail immediately (#402)."""
     err: BaseException | None = None
 
     def worker():
@@ -219,7 +220,7 @@ def test_yellow_context_refuses_execute_on_main_thread(uno_thread_safety):
         try:
             with tg.sync_host_dispatch():
                 assert tg.in_sync_host_dispatch() is True
-                execute_on_main_thread(lambda: 42)
+                main.call(lambda: 42)
         except BaseException as e:
             err = e
 
@@ -230,11 +231,11 @@ def test_yellow_context_refuses_execute_on_main_thread(uno_thread_safety):
     assert "deadlock hazard #402" in str(err) or "synchronous host dispatch" in str(err)
 
 
-def test_yellow_context_allows_inline_when_on_main_thread():
+def test_yellow_context_allows_inline_when_is_current():
     """On main thread, sync_host_dispatch allows inline execution without error."""
     with tg.sync_host_dispatch():
         assert tg.in_sync_host_dispatch() is True
-        result = execute_on_main_thread(lambda: 42)
+        result = main.call(lambda: 42)
         assert result == 42
     assert tg.in_sync_host_dispatch() is False
 
@@ -259,7 +260,7 @@ def test_sync_host_dispatch_nesting_and_cleanup():
 
 
 def test_notify_thread_violation_never_blocks(monkeypatch):
-    """_notify_thread_violation must post asynchronously and never execute_on_main_thread (#402)."""
+    """_notify_thread_violation must post asynchronously and never main.call (#402)."""
     from plugin.framework import queue_executor
 
     execute_called = False
@@ -274,10 +275,10 @@ def test_notify_thread_violation_never_blocks(monkeypatch):
         nonlocal post_called
         post_called = True
 
-    monkeypatch.setattr(queue_executor.default_executor, "_initialized", True)
-    monkeypatch.setattr(queue_executor.default_executor, "_async_callback_service", MagicMock())
-    monkeypatch.setattr(queue_executor, "execute_on_main_thread", fake_execute)
-    monkeypatch.setattr(queue_executor, "post_to_main_thread", fake_post)
+    monkeypatch.setattr(queue_executor.main, "_initialized", True)
+    monkeypatch.setattr(queue_executor.main, "_async_callback_service", MagicMock())
+    monkeypatch.setattr(queue_executor.main, "call", fake_execute)
+    monkeypatch.setattr(queue_executor.main, "post", fake_post)
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     # One process-wide dialog. An earlier test on this xdist worker (for
     # example get_runtime_uid off the designated main thread) may have left

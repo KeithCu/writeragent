@@ -396,7 +396,7 @@ def init_logging(ctx: Any | None = None) -> None:
             # Eval uses MagicMock ctx; skip file logging unless the dir is real.
             if udir and os.path.isdir(udir):
                 shared["debug_log_path"] = os.path.join(udir, DEBUG_LOG_FILENAME)
-                shared["enable_agent_log"] = config.get_config_bool("enable_agent_log")
+                shared["enable_agent_log"] = config.get_config("enable_agent_log")
             else:
                 if not had_path:
                     shared["debug_log_path"] = None
@@ -409,7 +409,7 @@ def init_logging(ctx: Any | None = None) -> None:
 
         level_str = "WARN"
         try:
-            level_str = config.get_config_str("log_level") or "WARN"
+            level_str = config.get_config("core.log_level") or "WARN"
             numeric_level = resolve_log_level(level_str)
 
             logger = log
@@ -612,9 +612,9 @@ def note_activity() -> None:
 
 def _post_main(fn: Any, *args: Any, fail_msg: str) -> bool:
     try:
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(fn, *args)
+        main.post(fn, *args)
     except Exception:
         log.debug(fail_msg, exc_info=True)
         return False

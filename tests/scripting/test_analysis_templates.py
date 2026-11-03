@@ -7,15 +7,15 @@
 from __future__ import annotations
 
 from plugin.scripting.analysis import (
-    HELPER_NAMES,
     get_analysis_script_templates,
     parse_analysis_script_header,
 )
+from plugin.scripting.helper_registry import names
 
 
 def test_templates_cover_all_helpers():
     templates = get_analysis_script_templates()
-    assert set(templates.keys()) == set(HELPER_NAMES)
+    assert set(templates.keys()) == names("analysis")
 
 
 def test_template_body_round_trip():
@@ -42,8 +42,10 @@ def test_parse_header_rejects_unknown_helper():
 
 
 def test_defaults_and_descriptions_cover_all_helpers():
-    from plugin.scripting.analysis import _DEFAULT_PARAMS, _HELPER_DESCRIPTIONS
+    from plugin.scripting.helper_registry import names, specs
 
-    assert set(_DEFAULT_PARAMS) == set(HELPER_NAMES)
-    assert set(_HELPER_DESCRIPTIONS) == set(HELPER_NAMES)
+    analysis_specs = specs("analysis")
+    assert {s.name for s in analysis_specs} == names("analysis")
+    assert {s.name for s in analysis_specs if s.description} == names("analysis")
+    assert {s.name for s in analysis_specs if s.default_params is not None} == names("analysis")
 

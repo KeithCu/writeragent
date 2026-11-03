@@ -55,7 +55,7 @@ def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
     """
     import io
 
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame
+    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame
     from compute_service.vision import main
 
     blob = b"v" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)

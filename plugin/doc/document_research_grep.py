@@ -404,7 +404,7 @@ def grep_nearby_files(
 
     subset_norm = str(file_subset).strip() if file_subset else None
 
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancelled
 
     try:
@@ -445,7 +445,7 @@ def grep_nearby_files(
 
         files_scanned += 1
         try:
-            matches, doc_type, partial, file_err = execute_on_main_thread(
+            matches, doc_type, partial, file_err = main.call(
                 _search_one_file,
                 ctx,
                 target,

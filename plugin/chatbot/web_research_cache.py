@@ -99,11 +99,11 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
 
 def _run_on_main_or_none(fn: Callable[[], Any], what: str, *, reraise_disposed: bool = False) -> Any | None:
     from plugin.framework.errors import is_disposal
-    from plugin.framework.queue_executor import run_on_main
+    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancelled
 
     try:
-        return run_on_main(fn)
+        return main.run(fn)
     except SendCancelled:
         log.debug("research cache: %s cancelled", what)
     except TimeoutError:
@@ -268,12 +268,12 @@ def research_cache_similarity(query_stems: set[str], stored_stems: set[str]) -> 
 def _research_cache_embedding_configured() -> bool:
     """True when the local embeddings venv is configured enough to try worker RPC."""
     try:
-        from plugin.framework.config import get_config, get_config_str
+        from plugin.framework.config import get_config
 
         provider = str(get_config("embedding_provider") or "local").strip().lower() or "local"
         if provider != "local":
             return False
-        return bool(get_config_str("scripting.python_venv_path").strip())
+        return bool(str(get_config("scripting.python_venv_path") or "").strip())
     except Exception:
         return False
 

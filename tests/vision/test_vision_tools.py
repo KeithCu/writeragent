@@ -47,9 +47,12 @@ def tool_ctx():
 
 
 def _registry_with_vision_tool() -> ToolRegistry:
+    from tests.tool_registry_filters import append_production_tool_registry_filters
+
     services = ServiceRegistry()
     registry = ToolRegistry(services)
     registry.register(ExtractStructureFromImage())
+    append_production_tool_registry_filters(registry)
     return registry
 
 
@@ -124,12 +127,12 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
 
 
 @patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/venv/bin/python")
-@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config", return_value="/home/user/venv")
 def test_vision_venv_configured_true_when_python_resolves(_cfg, _exe):
     assert vision_venv_configured(MagicMock()) is True
 
 
-@patch("plugin.vision.vision_availability.get_config_str", return_value="")
+@patch("plugin.vision.vision_availability.get_config", return_value="")
 def test_vision_venv_configured_false_without_venv_path(_cfg):
     assert vision_venv_configured(MagicMock()) is False
 
@@ -144,7 +147,7 @@ def test_filter_vision_specialized_tools_removes_tool():
     assert other in filtered
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_happy_path_inserts(
     mock_run,
@@ -177,7 +180,7 @@ def test_extract_structure_happy_path_inserts(
     assert mock_run.call_args.kwargs["insert_into_document"] is True
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_return_only_skips_insert(
     mock_run,
@@ -216,7 +219,7 @@ def test_extract_structure_rejects_unsupported_doc(tool_ctx):
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
-    from plugin.framework.prompts import get_vision_core_directive
+    from plugin.vision.vision_availability import get_vision_core_directive
 
     assert get_vision_core_directive(MagicMock(), MagicMock()) == ""
 
@@ -267,7 +270,7 @@ def test_delegate_vision_requires_document_lock_when_sub_agent():
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 def test_get_vision_core_directive_when_available(_mock_avail, writer_doc):
-    from plugin.framework.prompts import get_vision_core_directive
+    from plugin.vision.vision_availability import get_vision_core_directive
 
     text = get_vision_core_directive(writer_doc, MagicMock())
     assert "domain=\"vision\"" in text
@@ -289,7 +292,7 @@ def test_images_guidance_names_structure_tool():
     assert "text and structure" in WRITER_IMAGES_RULES.lower()
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, tool_ctx):
     mock_run.return_value = {

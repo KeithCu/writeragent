@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
+    iter_elements,
     with_view_cursor_left_body_locked as _with_left_body_locked,
 )
 from plugin.doc.visual_helpers import safe_get_property
@@ -299,8 +300,7 @@ class SectionRead(ToolWriterStructuralBase):
         # Extract paragraphs within the section
         enum = anchor.createEnumeration()
         paragraphs = []
-        while enum.hasMoreElements() is True:
-            para = enum.nextElement()
+        for para in iter_elements(enum):
             if para.supportsService("com.sun.star.text.Paragraph"):
                 paragraphs.append(get_string_without_tracked_deletions(para))
             elif para.supportsService("com.sun.star.text.TextTable") is True:

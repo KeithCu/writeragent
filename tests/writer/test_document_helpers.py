@@ -176,11 +176,29 @@ def test_writer_streamed_rewrite_session_abort_empty_does_not_undo_previous_edit
     # the top undo title is the user's previous action, not the session title.
     doc.undo.discard_empty_context = True
     doc.undo.titles = ["Typing: hello"]
+    session.append_chunk("Partial")
     session.abort_and_restore()
 
     assert doc.undo.undone is False
     assert doc.undo.titles == ["Typing: hello"]
+    assert text_range.getString() == "Original"
     assert doc.getPropertyValue("RecordChanges") is True
+
+
+def test_writer_streamed_rewrite_session_abort_does_not_undo_prior_same_title_on_stack():
+    """Top title matching our session title is not enough; the stack must have changed."""
+    doc = _MockDoc(recording=True)
+    text_range = _MutableTextRange()
+    doc.undo.discard_empty_context = True
+    doc.undo.titles = ["WriterAgent: Edit selection"]
+
+    session = WriterStreamedRewriteSession(doc, text_range, "Original")
+    session.append_chunk("Partial")
+    session.abort_and_restore()
+
+    assert doc.undo.undone is False
+    assert doc.undo.titles == ["WriterAgent: Edit selection"]
+    assert text_range.getString() == "Original"
 
 
 def test_writer_streamed_rewrite_session_fallback_keeps_generated_text():
@@ -833,10 +851,10 @@ def test_do_extend_selection_clean_range_still_streams(monkeypatch):
     messages = []
     streams = []
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
-    monkeypatch.setattr(editselection, "get_config_str", lambda key: "")
+    monkeypatch.setattr(editselection, "get_config", lambda key: "")
     monkeypatch.setattr(editselection, "get_current_endpoint", lambda: "ep")
     monkeypatch.setattr(editselection, "update_lru_history", lambda *args, **kwargs: None)
-    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "get_config", lambda key: 20)
     monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
@@ -860,7 +878,7 @@ def test_do_edit_selection_clean_range_still_clears_and_streams(monkeypatch):
     streams = []
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
     monkeypatch.setattr(editselection, "prompt_for_edit_instructions", lambda *args, **kwargs: ("shorter", ""))
-    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "get_config", lambda key: 20)
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
     monkeypatch.setattr(editselection, "stream_completion", lambda *args, **kwargs: streams.append(args))
@@ -882,10 +900,10 @@ def test_do_extend_selection_observes_stop_checker(monkeypatch):
     messages = []
     streams = []
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
-    monkeypatch.setattr(editselection, "get_config_str", lambda key: "")
+    monkeypatch.setattr(editselection, "get_config", lambda key: "")
     monkeypatch.setattr(editselection, "get_current_endpoint", lambda: "ep")
     monkeypatch.setattr(editselection, "update_lru_history", lambda *args, **kwargs: None)
-    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "get_config", lambda key: 20)
     monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
@@ -919,7 +937,7 @@ def test_do_edit_selection_observes_stop_checker(monkeypatch):
     streams = []
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
     monkeypatch.setattr(editselection, "prompt_for_edit_instructions", lambda *args, **kwargs: ("shorter", ""))
-    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "get_config", lambda key: 20)
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
 
@@ -972,10 +990,10 @@ def test_do_extend_selection_failure_visible(monkeypatch):
     messages = []
 
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
-    monkeypatch.setattr(editselection, "get_config_str", lambda key: "")
+    monkeypatch.setattr(editselection, "get_config", lambda key: "")
     monkeypatch.setattr(editselection, "get_current_endpoint", lambda: "ep")
     monkeypatch.setattr(editselection, "update_lru_history", lambda *args, **kwargs: None)
-    monkeypatch.setattr(editselection, "get_config_int", lambda key: 20)
+    monkeypatch.setattr(editselection, "get_config", lambda key: 20)
     monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)

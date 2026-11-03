@@ -12,43 +12,29 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
-from plugin.scripting.helper_domain import DomainFacadeConfig
+from plugin.scripting.helper_registry import names
 
-_DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    # Runner templates embed params in a Python literal, so "data" was the ticker symbol
-    # "data". The sheet variable is the second argument to run_quant, and fetch_historical_data
-    # does not read it. AAPL is a real symbol in the default date window.
-    "fetch_historical_data": {"tickers": "AAPL", "start_date": "2023-01-01", "end_date": "2024-01-01", "interval": "1d"},
-    "technical_analysis": {"indicators": ["macd", "rsi", "bbands"]},
-    "portfolio_tearsheet": {},
-    "efficient_frontier": {},
-}
-
-_HELPER_DESCRIPTIONS: dict[str, str] = {
-    "fetch_historical_data": "Fetch historical prices via yfinance",
-    "technical_analysis": "Calculate MACD, RSI, and Bollinger Bands",
-    "portfolio_tearsheet": "Generate performance metrics from a returns sheet via quantstats",
-    "efficient_frontier": "Optimize weights from a returns sheet via PyPortfolioOpt",
-}
-
-_QUANT_VENV_EXPORTS = HELPER_NAMES | {"run_quant"}
+_QUANT_VENV_EXPORTS = names("quant") | {"run_quant"}
 
 install_lazy_exports(globals(), "quant", _QUANT_VENV_EXPORTS)
 
 
 # --- Templates ---
 
-_API = DomainFacadeConfig(
-    tag="quant",
-    helper_names=HELPER_NAMES,
-    default_params=_DEFAULT_PARAMS,
-    descriptions=_HELPER_DESCRIPTIONS,
-    import_module="writeragent.scripting.quant",
-    run_name="run_quant",
-    invoke="runner",
-)
 
-parse_quant_script_header = _API.parse_header
-get_quant_script_templates = _API.get_templates
-get_quant_template = _API.template_for
+def parse_quant_script_header(code: str) -> Any:
+    from plugin.scripting.domain_registry import get_domain_wiring
+
+    return get_domain_wiring("quant").parse_header(code)
+
+
+def get_quant_script_templates() -> dict[str, str]:
+    from plugin.scripting.domain_registry import get_domain_wiring
+
+    return get_domain_wiring("quant").templates()
+
+
+def get_quant_template(helper: str) -> str | None:
+    from plugin.scripting.domain_registry import get_domain_wiring
+
+    return get_domain_wiring("quant").template_for(helper)

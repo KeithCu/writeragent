@@ -17,7 +17,7 @@ import logging
 from dataclasses import dataclass
 from typing import Literal, Mapping
 
-from plugin.calc.address_utils import format_address, parse_address, parse_range_string, split_sheet_prefix
+from plugin.calc.address_utils import format_address, local_a1, parse_address, parse_local, parse_range_string, split_sheet_prefix
 from plugin.calc.python.formula_edit import (
     PyFormula,
     assemble_python_formula,
@@ -70,22 +70,6 @@ class EvalIndexKey:
     workbook_key: str
     resolved_code: str
     n_args: int
-
-
-def local_a1(address: str) -> str:
-    """``Sheet1.A1`` / ``$A$1`` / ``A1`` → ``A1`` (no ``$``)."""
-    _sheet, rest = split_sheet_prefix(address or "")
-    return rest.replace("$", "").strip().upper()
-
-
-def _parse_local(address: str) -> tuple[int, int] | None:
-    local = local_a1(address)
-    if not local:
-        return None
-    try:
-        return parse_address(local)
-    except (TypeError, ValueError):
-        return None
 
 
 def same_cell_ref(left: str, right: str) -> bool:
@@ -219,8 +203,8 @@ def _plan_cell(
 
 def _rule2_candidate_score(old: str, rec: GeometricRecord, live: str, desired: str) -> tuple[int, int] | None:
     """``pred + (live − old)`` equals *desired* — the cell moved with its formula."""
-    parsed_old = _parse_local(old)
-    parsed_live = _parse_local(live)
+    parsed_old = parse_local(old)
+    parsed_live = parse_local(live)
     if parsed_old is None or parsed_live is None:
         return None
     ocol, orow = parsed_old
@@ -228,7 +212,7 @@ def _rule2_candidate_score(old: str, rec: GeometricRecord, live: str, desired: s
     dcol, drow = lcol - ocol, lrow - orow
     if not (dcol or drow):
         return None
-    parsed_pred = _parse_local(rec.predecessor)
+    parsed_pred = parse_local(rec.predecessor)
     if parsed_pred is None:
         return None
     pcol, prow = parsed_pred

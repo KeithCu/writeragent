@@ -10,24 +10,15 @@ import re
 import traceback
 from typing import Any
 
-from plugin.framework.deal_shim import (
-    DEAL_MAX_SOURCE,
-    _profile,
-    deal,
-    str_bounded,
-)
+from plugin.framework.deal_shim import deal
 
 
-_deal_text_ok = _profile(
-    lambda value: str_bounded(value, DEAL_MAX_SOURCE),
-    lambda value: isinstance(value, str),
-)
+def _deal_text_ok(value: Any) -> bool:
+    return isinstance(value, str)
 
 
-_deal_optional_exc_ok = _profile(
-    lambda exc: exc is None,
-    lambda exc: exc is None or isinstance(exc, BaseException),
-)
+def _deal_optional_exc_ok(exc: Any) -> bool:
+    return exc is None or isinstance(exc, BaseException)
 
 
 @deal.pre(lambda exc: isinstance(exc, BaseException))

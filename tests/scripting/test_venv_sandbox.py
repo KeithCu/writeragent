@@ -15,7 +15,7 @@ from typing import Any, cast
 
 import pytest
 
-from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+from plugin.framework.ipc import read_pickle_frame, write_pickle_frame
 from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.venv.venv_sandbox import (
     clear_all_sandbox_sessions,
@@ -100,7 +100,7 @@ def test_zero_dim_temporal_ndarray_matches_scalar():
 
 def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
     """Stop during a wa.* call must not be a RuntimeError the script can swallow."""
-    from plugin.scripting.ipc import UserStopped
+    from plugin.framework.ipc import UserStopped
 
     def boom() -> None:
         raise UserStopped("Stopped by user.")
@@ -226,17 +226,17 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
     """A shared executor must not treat a previous cell's scoped_dir as the host folder."""
     seen: list[str | None] = []
 
-    def _fake_run_sql(sql, con=None, files=None, scoped_dir=None, **kwargs):
-        del sql, con, files, kwargs
+    def _fake_query_folder_df(sql, files=None, scoped_dir=None, **kwargs):
+        del sql, files, kwargs
         seen.append(scoped_dir)
         return 1
 
-    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.run_sql", _fake_run_sql)
+    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.query_folder_df", _fake_query_folder_df)
     sid = "calc:scoped-dir-leak"
     host = str(tmp_path)
     try:
         first = run_sandboxed_code(
-            "scoped_dir = '/tmp/not-the-host'\nresult = run_sql('select 1', files=['a.csv'])",
+            "scoped_dir = '/tmp/not-the-host'\nresult = query_folder_df('select 1', files=['a.csv'])",
             bindings={"scoped_dir": host},
             session_id=sid,
             timeout_sec=10,
@@ -245,7 +245,7 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
         assert seen == [host]
 
         second = run_sandboxed_code(
-            "result = run_sql('select 1', files=['a.csv'])",
+            "result = query_folder_df('select 1', files=['a.csv'])",
             session_id=sid,
             timeout_sec=10,
         )
@@ -257,7 +257,7 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
 
         other = str(tmp_path / "other")
         rebound = run_sandboxed_code(
-            "scoped_dir = '/tmp/still-not-host'\nresult = run_sql('select 1', files=['a.csv'])",
+            "scoped_dir = '/tmp/still-not-host'\nresult = query_folder_df('select 1', files=['a.csv'])",
             bindings={"scoped_dir": other},
             session_id=sid,
             timeout_sec=10,
@@ -738,7 +738,7 @@ def test_isolated_init_lru_pops_non_isolated_id() -> None:
 def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     import io
     import plugin.contrib.smolagents.local_python_executor as lpe
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
 
     exit_calls: list[int] = []
@@ -777,7 +777,7 @@ def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
 def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     import io
     import plugin.contrib.smolagents.local_python_executor as lpe
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     # compute_service/ is not in the OXT bundle that release_verify tests.
     ws = pytest.importorskip("compute_service.worker_stdio")
 

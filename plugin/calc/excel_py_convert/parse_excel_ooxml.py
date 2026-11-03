@@ -13,6 +13,17 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts; not network XML (Bandit B314)
 
+from plugin.calc.address_utils import (
+    MAX_COL,
+    MAX_ROW,
+    canonical,
+    column_to_index,
+    index_to_column,
+    is_cell_token,
+    parse_address,
+    parse_range_string,
+    split_sheet_prefix,
+)
 from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel, SheetInfo
 from plugin.calc.excel_py_convert.ooxml_util import (
     find_all,
@@ -23,51 +34,26 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     workbook_sheets,
 )
 
-_RE_COORD = re.compile(r"^(\$?)([A-Za-z]+)(\$?)(\d+)$")
 _RE_XLWS_PY = re.compile(r"(?:_xlfn\.)?_xlws\.PY\s*\(\s*(\d+)\s*,\s*(\d+)(.*)\)$", re.IGNORECASE | re.DOTALL)
 
 
-def letters_to_col_index(col: str) -> int:
-    """1-based. ``A`` → 1. Empty → 0."""
-    n = 0
-    for ch in (col or "").upper():
-        n = n * 26 + (ord(ch) - 64)
-    return n
-
-
-def col_index_to_letters(col: int) -> str:
-    """1-based. ``1`` → ``A``. Zero or negative → ``""``."""
-    s = ""
-    while col > 0:
-        col, rem = divmod(col - 1, 26)
-        s = chr(65 + rem) + s
-    return s
-
-
 def _col_row(a1: str) -> tuple[int, int]:
-    m = _RE_COORD.match(a1.replace("$", "").strip())
-    if not m:
+    """1-based (row, col) coordinate for OOXML callers, or (0, 0) on error."""
+    try:
+        col, row = parse_address(a1)
+        return row + 1, col + 1
+    except (ValueError, TypeError):
         return 0, 0
-    return int(m.group(4)), letters_to_col_index(m.group(2))
 
 
 def a1_span_bounds(ref: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
     """Return ((min_col, min_row), (max_col, max_row)) for *ref* (1-based), or None."""
-    raw = (ref or "").replace("$", "").strip()
-    if "!" in raw:
-        raw = raw.split("!", 1)[1].strip()
-    if not raw:
+    try:
+        _sheet, local = split_sheet_prefix(ref or "")
+        (c0, r0), (c1, r1) = parse_range_string(local)
+        return ((min(c0, c1) + 1, min(r0, r1) + 1), (max(c0, c1) + 1, max(r0, r1) + 1))
+    except (ValueError, TypeError):
         return None
-    left, sep, right = raw.partition(":")
-    r1, c1 = _col_row(left.strip())
-    if c1 == 0:
-        return None
-    if not sep:
-        return ((c1, r1), (c1, r1))
-    r2, c2 = _col_row(right.strip())
-    if c2 == 0:
-        return None
-    return ((min(c1, c2), min(r1, r2)), (max(c1, c2), max(r1, r2)))
 
 
 def split_top_level_args(tail: str) -> list[str]:
@@ -145,24 +131,32 @@ _RE_DEFINED_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
 def _shift_single_coord(coord: str, delta_row: int, delta_col: int) -> str | None:
     part = coord.strip()
-    m = _RE_COORD.match(part)
-    if m:
-        col_locked, row_locked = bool(m.group(1)), bool(m.group(3))
-        new_c = letters_to_col_index(m.group(2)) + (0 if col_locked else delta_col)
-        new_r = int(m.group(4)) + (0 if row_locked else delta_row)
-        if new_c < 1 or new_r < 1 or new_c > 16384 or new_r > 1048576:
+    try:
+        col, row = parse_address(part)
+        col_locked = part.startswith("$")
+        rest = part[1:] if col_locked else part
+        row_locked = "$" in rest
+        new_c = col + (0 if col_locked else delta_col)
+        new_r = row + (0 if row_locked else delta_row)
+        if new_c < 0 or new_r < 0 or new_c > MAX_COL or new_r > MAX_ROW:
             return None
-        return f"{'$' if col_locked else ''}{col_index_to_letters(new_c)}{'$' if row_locked else ''}{new_r}"
+        return f"{'$' if col_locked else ''}{index_to_column(new_c)}{'$' if row_locked else ''}{new_r + 1}"
+    except (ValueError, TypeError):
+        pass
     bare = part.replace("$", "")
     locked = part.startswith("$")
-    if bare.isalpha():
-        new_c = letters_to_col_index(bare) + (0 if locked else delta_col)
-        if new_c < 1 or new_c > 16384:
+    if bare.isalpha() and bare.isascii():
+        try:
+            c = column_to_index(bare)
+        except Exception:
             return None
-        return ("$" if locked else "") + col_index_to_letters(new_c)
+        new_c = c + (0 if locked else delta_col)
+        if new_c < 0 or new_c > MAX_COL:
+            return None
+        return ("$" if locked else "") + index_to_column(new_c)
     if bare.isdigit():
         new_r = int(bare) + (0 if locked else delta_row)
-        if new_r < 1 or new_r > 1048576:
+        if new_r < 1 or new_r > MAX_ROW + 1:
             return None
         return ("$" if locked else "") + str(new_r)
     return None
@@ -175,7 +169,7 @@ def _shift_cell_or_range_ref(ref: str, delta_row: int, delta_col: int) -> str | 
         sheet_part, sep, target = target.rpartition("!")
         sheet_prefix = f"{sheet_part}{sep}"
 
-    if _RE_DEFINED_NAME.match(target) and not _RE_COORD.match(target.replace("$", "")):
+    if _RE_DEFINED_NAME.match(target) and not is_cell_token(target):
         return ref.strip()
 
     if ":" in target:
@@ -299,14 +293,14 @@ def _parse_python_scripts(zf: zipfile.ZipFile, issues: list[str]) -> list[str]:
 
 def _qualify_sheet_ref(sheet_title: str, ref: str) -> str:
     """Return Sheet!A1:B2 with quoting when the sheet name needs it."""
-    ref = ref.replace("$", "")
-    if "!" in ref:
-        return ref
+    clean_ref = canonical(ref)
+    if "!" in clean_ref:
+        return clean_ref
     if re.search(r"[^\w]", sheet_title) or sheet_title[:1].isdigit():
         q = "'" + sheet_title.replace("'", "''") + "'"
     else:
         q = sheet_title
-    return f"{q}!{ref}"
+    return f"{q}!{clean_ref}"
 
 
 def _parse_table_ref(zf: zipfile.ZipFile, table_part: str, sheet_title: str, issues: list[str]) -> tuple[str, str] | None:

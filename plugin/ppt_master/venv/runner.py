@@ -17,6 +17,7 @@ from plugin.ppt_master.venv.ipc import UserStopped, emit_worker_event, rpc_tool
 from plugin.ppt_master.venv.model import HostRpcModel
 from plugin.ppt_master.venv.path_ops import resolve_project_file, resolve_under_root, run_script
 from plugin.ppt_master.venv.skill_context import load_skill_context, resolve_data_root_from_env
+from plugin.scripting.session_key import SessionKey, SessionKind
 
 log = logging.getLogger(__name__)
 
@@ -261,7 +262,7 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     history_text = payload.get("history_text")
     topic = payload.get("topic")
     model = payload.get("model")
-    session_id = str(payload.get("session_id") or "ppt_master:default")
+    session_id = str(payload.get("session_id") or SessionKey.of(SessionKind.PPT_MASTER, "default").wire())
     max_steps = int(payload.get("max_steps") or 12)
     max_tokens = int(payload.get("max_tokens") or 16384)
 

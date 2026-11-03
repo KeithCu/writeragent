@@ -17,7 +17,6 @@ from dataclasses import replace
 import json
 import logging
 import threading
-import uuid
 from typing import Any, Mapping, final
 
 from plugin.calc.address_utils import split_sheet_prefix
@@ -26,6 +25,7 @@ from plugin.calc.python.cell_discovery import (
     discover_python_cells_on_sheet,
 )
 from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.address_utils import local_a1, parse_local
 from plugin.calc.python.geometric_recalc_core import (
     CONFIG_KEY,
     FEATURE_TITLE,
@@ -34,10 +34,8 @@ from plugin.calc.python.geometric_recalc_core import (
     GeometricCell,
     GeometricPatch,
     GeometricRecord,
-    _parse_local,
     compute_eval_index,
     compute_sheet_repair,
-    local_a1,
 )
 from plugin.framework.errors import best_effort, is_disposal, uno_read
 from plugin.framework.i18n import _
@@ -85,23 +83,24 @@ def reset_geometric_runtime_for_tests() -> None:
 
 def geometric_flag_enabled() -> bool:
     """Settings flag. Default false; missing schema is off, not an exception."""
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    return get_config_bool_safe(CONFIG_KEY)
+    return bool(get_config(CONFIG_KEY))
 
 
 def geometric_workbook_key(doc: Any) -> str:
-    """``calc:`` + ``_workbook_session_key`` — never empty (unsaved uses a persisted id)."""
-    from plugin.scripting.session_manager import _workbook_session_key
+    """``calc:`` + ``mint_document_key`` — never empty (unsaved uses a persisted id)."""
+    from plugin.scripting.session_key import SessionKey, SessionKind, new_unsaved_document_key
+    from plugin.scripting.session_manager import mint_document_key
 
-    key = (_workbook_session_key(doc) or "").strip()
+    key = (mint_document_key(doc) or "").strip()
     if not key:
         cached = getattr(doc, "_geometric_unsaved_key", None)
         if not cached:
-            cached = f"unsaved:{uuid.uuid4()}"
+            cached = new_unsaved_document_key()
             best_effort(lambda: setattr(doc, "_geometric_unsaved_key", cached), "set unsaved key")
         key = cached
-    return f"calc:{key}"
+    return SessionKey.of(SessionKind.CALC, key).wire()
 
 
 def replace_geometric_strip_safe(workbook_key: str, safe: frozenset[EvalIndexKey]) -> None:
@@ -205,9 +204,9 @@ def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, workbook_key: str = "
     ) % {"sheet": sheet_name, "cap": _MAX_PYTHON_CELLS_FOUND}
     log.error("Geometric Recalc Order: %s", message)
 
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         # Off-main still logs. Do not persist — a later UI-thread call
         # must still be able to show the first box.
         return False
@@ -230,9 +229,9 @@ def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any], *, doc:
     """
     if not args:
         return args
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if doc is None or not on_main_thread():
+    if doc is None or not main.is_current():
         return args
     workbook_key = geometric_workbook_key(doc)
     key = EvalIndexKey(workbook_key, resolved_code, len(args))
@@ -323,7 +322,7 @@ def _sheet_of_cell(cell: Any, doc: Any) -> Any | None:
 
 
 def _cell_on_sheet(sheet: Any, address: str) -> Any | None:
-    parsed = _parse_local(address)
+    parsed = parse_local(address)
     if parsed is None:
         return None
     col, row = parsed
@@ -469,10 +468,10 @@ def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
     if not geometric_flag_enabled() or doc is None:
         return
     if ctx is None:
-        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import main
         from plugin.framework.uno_context import get_ctx
 
-        if on_main_thread():
+        if main.is_current():
             ctx = uno_read(get_ctx, None)
     sheet = _sheet_of_cell(cell, doc)
     if sheet is None:
@@ -495,9 +494,9 @@ def ensure_geometric_strip_index_for_eval(doc: Any, ctx: Any = None) -> None:
     """UI-thread only: rebuild ``_STRIP_SAFE`` from UDProp before packing ``data``."""
     if doc is None:
         return
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return
     workbook_key = geometric_workbook_key(doc)
     if geometric_flag_enabled() and any(key.workbook_key == workbook_key for key in _RUNTIME.strip_safe):

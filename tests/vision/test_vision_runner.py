@@ -389,7 +389,7 @@ def test_stop_checker_reaches_run_vision(_mock_pairs, _mock_bytes, mock_run_visi
     """The tool's stop flag must reach the venv RPC; the UNO ctx carries none."""
     ctx = MagicMock(spec=[])  # a UNO component context has no stop_checker attribute
     stop = MagicMock(return_value=False)
-    with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn(*a)), \
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn(*a)), \
             patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()), \
             patch("plugin.vision.vision_runner._resolve_locale_language", return_value="en"), \
             patch("plugin.vision.vision_egress.insert_vision_result"):
@@ -519,7 +519,7 @@ def test_ocr_rpc_runs_outside_main_thread_marshal():
     def fake_insert(*args, **kwargs):
         seen["insert"] = depth["n"]
 
-    with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=fake_exec), patch(
+    with patch("plugin.framework.queue_executor.main.call", side_effect=fake_exec), patch(
         "plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision
     ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes", side_effect=fake_export), patch(
         "plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})
@@ -544,7 +544,7 @@ def test_vision_insert_marshaled_with_unscoped_scope():
         return fn(*args, **kwargs)
 
     with (
-        patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=fake_exec),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_exec),
         patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "full_text": "text"}),
         patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
         patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
@@ -600,7 +600,7 @@ def test_send_cancelled_escapes_discovery_as_user_stopped():
     # Why this change: verify SendCancelled raises USER_STOPPED directly.
     from plugin.framework.send_cancellation import SendCancelled
 
-    with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=SendCancelled("cancel")):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=SendCancelled("cancel")):
         result = run_and_insert_vision_for_selection(MagicMock(), MagicMock(), helper="extract_text")
 
     assert result["status"] == "error"
@@ -623,7 +623,7 @@ def test_run_and_insert_vision_multi_image_partial_failure_attaches_results():
         return {"status": "error", "message": "OCR model crashed"}
 
     with (
-        patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock()), ("Img2", MagicMock())]),
         patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=fake_run_trusted),
     ):

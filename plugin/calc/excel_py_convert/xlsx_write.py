@@ -32,11 +32,11 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     workbook_sheets,
     xml_namespace_lock,
 )
+from plugin.calc.address_utils import canonical, index_to_column
 from plugin.calc.excel_py_convert.parse_excel_ooxml import (
     _col_row,
     _shared_formula_map,
     a1_span_bounds,
-    col_index_to_letters,
     shift_xlws_py_formula,
 )
 from plugin.calc.formula_fill import adjust_a1_formula
@@ -74,10 +74,6 @@ def _defined_name_pairs(wb_root: ET.Element) -> list[tuple[str, str]]:
     return [((dn.attrib.get("name") or ""), "".join(dn.itertext()).strip()) for dn in find_all(wb_root, "definedName")]
 
 
-def _norm_a1(a1: str) -> str:
-    return a1.replace("$", "").upper()
-
-
 def _unshare_groups_touching(ws_root: ET.Element, sheet_title: str, write_addrs: set[str]) -> None:
     """Expand shared formula groups touched by write_addrs so unwritten cells preserve shifted formulas."""
     shared_groups: dict[str, list[tuple[str, ET.Element, ET.Element]]] = {}
@@ -95,11 +91,11 @@ def _unshare_groups_touching(ws_root: ET.Element, sheet_title: str, write_addrs:
             shared_groups.setdefault(si, []).append((a1, c, f))
 
     for si, members in shared_groups.items():
-        if not any(_norm_a1(a1) in write_addrs for a1, _, _ in members):
+        if not any(canonical(a1) in write_addrs for a1, _, _ in members):
             continue
         master_info: tuple[str, str] | None = None
         for a1, _cell, formula_el in members:
-            if _norm_a1(a1) not in write_addrs:
+            if canonical(a1) not in write_addrs:
                 if master_info is None:
                     master_info = shared_masters.get(si)
                     if master_info is None:
@@ -312,7 +308,7 @@ class _WorksheetCellIndex:
         if target_col in row_cells:
             return row_cells[target_col]
 
-        col_str = col_index_to_letters(target_col)
+        col_str = index_to_column(target_col - 1)
         a1_canonical = f"{col_str}{target_row}"
 
         cell = ET.Element(_xml_tag(row_el, SSML_NS, "c"), attrib={"r": a1_canonical})
@@ -546,7 +542,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
             if not part:
                 errors.append(f"unmapped sheet {cell.sheet!r}")
                 continue
-            norm_a1 = _norm_a1(cell.cell)
+            norm_a1 = canonical(cell.cell)
             if (part, norm_a1) in seen_part_cells:
                 raise ValueError(f"duplicate cell {norm_a1} for part {part!r} ({cell.sheet!r})")
             seen_part_cells.add((part, norm_a1))
@@ -581,7 +577,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
                     if si in shared_masters:
                         body = shared_masters[si][0]
                 if "_xlws.py" in body.lower():
-                    coord = _norm_a1(a1)
+                    coord = canonical(a1)
                     if (sh.title.lower(), coord) not in report_write_set:
                         unwritten_cells.append(f"{sh.title}!{a1}")
         if unwritten_cells:
@@ -620,7 +616,7 @@ def write_excel_python_xlsx(source_xlsx: str | Path, report: ConversionReport, o
                 continue
 
             ws_index = _WorksheetCellIndex(root)
-            sheet_write_set = {_norm_a1(cell.cell) for cell in cells}
+            sheet_write_set = {canonical(cell.cell) for cell in cells}
             sheet_title = cells[0].sheet
 
             _unshare_groups_touching(root, sheet_title, sheet_write_set)
@@ -745,7 +741,7 @@ def write_dag_formulas_xlsx(
                 continue
             ws_index = _WorksheetCellIndex(root)
             sheet_title = cells[0].sheet
-            sheet_write_set = {_norm_a1(c.cell) for c in cells}
+            sheet_write_set = {canonical(c.cell) for c in cells}
 
             try:
                 _unshare_groups_touching(root, sheet_title, sheet_write_set)

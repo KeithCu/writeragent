@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 from weakref import WeakKeyDictionary
 
-from plugin.doc.doc_type import (
+from plugin.framework.doc_type import (
     DOCUMENT_SERVICES,
     DocumentType,
     doc_type_label_for_enum,
@@ -463,8 +463,8 @@ def _on_drain_idle() -> None:
     """Schedule a kick after the current stack unwinds.
 
     Starting the peer drain inside ``drain_owner_scope``'s ``finally`` would
-    run it before the caller’s ``SEND_COMPLETED`` (Ready). ``QueueExecutor.post``
-    is inline under ``WRITERAGENT_TESTING=1``, so we never start here — only
+    run it before the caller’s ``SEND_COMPLETED`` (Ready). ``MainThread.post``
+    is inline under ``Policy.test_inline``, so we never start here — only
     mark that a kick is due. Production posts to the next VCL tick. Mock-sidebar
     Packet P dispatches ``KICK_PEERS`` after Writer Ready (do not force-marshal
     from this callback: that starts Calc during Writer wrapup and sticks Stop).
@@ -474,10 +474,10 @@ def _on_drain_idle() -> None:
     if not _global_fifo:
         return
     try:
-        from plugin.framework.queue_executor import default_executor
+        from plugin.framework.queue_executor import Policy, main
 
-        if not default_executor.should_run_inline():
-            default_executor.post(kick_pending_peer_starts)
+        if main.policy is not Policy.test_inline:
+            main.post(kick_pending_peer_starts)
     except Exception:
         log.debug("peer drain-idle schedule failed", exc_info=True)
 

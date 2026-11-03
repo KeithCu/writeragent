@@ -73,7 +73,7 @@ from dataclasses import dataclass
 import difflib
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, str_bounded, deal
+from plugin.framework.deal_shim import deal
 
 _MAX_DIFF_WORDS = 4000
 _DEFAULT_THRESHOLD = 0.6
@@ -275,17 +275,6 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
     # --- surgical path ---------------------------------------------------------
     sub_edits = _build_surgical_edits(old, new, old_words, new_words, opcodes)
     return SplitResult("surgical", fraction, sub_edits)
-
-
-# Selection text in pytest and production is longer than DEAL_MAX_SOURCE,
-# and that profile must not raise PreContractError. CrossHair bounds inputs.
-if UNDER_CROSSHAIR:
-    split_change = deal.pre(
-        lambda old, new, threshold=_DEFAULT_THRESHOLD: (
-            not isinstance(old, str) or str_bounded(old, DEAL_MAX_SOURCE)
-        )
-        and (not isinstance(new, str) or str_bounded(new, DEAL_MAX_SOURCE))
-    )(split_change)
 
 
 def _build_surgical_edits(old: str, new: str, old_words: list[Token], new_words: list[Token], opcodes: list[Any]) -> list[SubEdit]:

@@ -112,7 +112,7 @@ ifneq ($(wildcard $(PROJECT_ROOT)/.venv/bin/python),)
 endif
 OPENGREP_DIR := tests/semgrep
 OPENGREP_CONFIGS := \
-	$(OPENGREP_DIR)/uno_thread_safety.yml \
+	build/uno_thread_safety.yml \
 	$(OPENGREP_DIR)/writeragent_security.yml \
 	$(OPENGREP_DIR)/third_party/semgrep-rules \
 	$(OPENGREP_DIR)/third_party/trailofbits
@@ -779,7 +779,10 @@ lo-test-threadguard:
 lo-test-threadguard-visible: _check-lo-python
 	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_UNO_THREAD_GUARD=1 -- -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
-opengrep-lint:
+build/uno_thread_safety.yml: tests/semgrep/uno_thread_safety.yml scripts/thread_safety_roots.py
+	$(PYTHON) -c "from pathlib import Path; from scripts.thread_safety_roots import write_opengrep_rules; write_opengrep_rules(Path('tests/semgrep/uno_thread_safety.yml'), Path('build/uno_thread_safety.yml'))"
+
+opengrep-lint: build/uno_thread_safety.yml
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
 	@test -f $(OPENGREP_DIR)/third_party/SOURCES.json || (echo "vendored Opengrep rules missing — run: make opengrep-rules-sync" && exit 1)
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py opengrep env SEMGREP_SEND_METRICS=off "$(OPENGREP)" scan $(OPENGREP_SCAN_FLAGS) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)) plugin
@@ -790,7 +793,7 @@ thread-safety-lint:
 
 uno-thread-lint: opengrep-lint thread-safety-lint
 
-opengrep-lint-advisory:
+opengrep-lint-advisory: build/uno_thread_safety.yml
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
 	@test -f $(OPENGREP_DIR)/third_party/SOURCES.json || (echo "vendored Opengrep rules missing — run: make opengrep-rules-sync" && exit 1)
 	$(OPENGREP_ENV) "$(OPENGREP)" scan --severity WARNING --taint-intrafile $(OPENGREP_EXCLUDES) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)) plugin

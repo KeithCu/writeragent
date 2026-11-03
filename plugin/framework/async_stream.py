@@ -58,7 +58,7 @@ from plugin.framework.stream_batch import (
     StreamQueueKind,
     split_stream_item,
 )
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
 from plugin.framework.async_drain_guard import (
     NestedDrainOwnerError,
@@ -70,7 +70,7 @@ from plugin.framework.async_drain_guard import (
 from plugin.framework.queue_executor import (
     _marshal_thread_tag,
     async_callback_for_drain_rearm,
-    default_executor,
+    main,
     pump_ui_idle,
 )
 
@@ -85,9 +85,7 @@ def _format_agent_tool_stream_line(prefix: str, data: Any) -> str:
     # data: Any (json.dumps / str) is an unbounded payload; prefix is already capped.
     # crosshair: off
     try:
-        if UNDER_CROSSHAIR:
-            body = str(data)
-        elif isinstance(data, (dict, list)):
+        if isinstance(data, (dict, list)):
             body = json.dumps(data, ensure_ascii=False)
         else:
             body = str(data) if data is not None else ""
@@ -515,7 +513,7 @@ def _new_xcallback(fn: Callable[[], None]) -> Any:
 class _AsyncCallbackRearm:
     """Re-arm a drain slice via ``AsyncCallback.addCallback``.
 
-    ``post`` must not run *fn* on the caller. ``QueueExecutor.post`` does that
+    ``post`` must not run *fn* on the caller. ``MainThread.post`` does that
     under ``WRITERAGENT_TESTING``, which would put the loop back on this stack.
     ``addCallback`` queues a user event and returns (LibreOffice
     ``AsyncCallback``). The idle path sleeps on a dedicated thread, then
@@ -1006,11 +1004,11 @@ def _run_stream_drain_blocking(
                 items = _drain_batch(q, 0.1)
 
                 if not items:
-                    marshal_depth = default_executor.pending_work_count()
+                    marshal_depth = main.pending_work_count()
                     if toolkit:
                         pump_ui_idle(toolkit)
                     if marshal_depth > 0:
-                        remaining = default_executor.pending_work_count()
+                        remaining = main.pending_work_count()
                         # pump_ui_idle drains one item. A healthy backlog of 2+
                         # still has remaining > 0; that is not a blocked worker.
                         if remaining >= marshal_depth:
@@ -1290,7 +1288,7 @@ def run_stream_completion_async(
     on_done_fn: Callable[..., None] | None,
     on_error_fn: Callable[[Any], None] | None,
     on_status_fn: Callable[[str], None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: Any = None,
 ) -> None:
     """High-level helper for simple non-tool streams (always chat completions)."""
     # crosshair: off
@@ -1303,12 +1301,13 @@ def run_stream_completion_async(
             "append_callback": lambda t: q.put((StreamQueueKind.CHUNK, t)),
             "append_thinking_callback": lambda t: q.put((StreamQueueKind.THINKING, t)),
             "status_callback": lambda t: q.put((StreamQueueKind.STATUS, t)),
-            "stop_checker": stop_checker,
+            "cancel": cancel,
         }
         client.stream_completion(prompt, system_prompt, max_tokens, **kwargs)
-        if stop_checker and stop_checker():
+        if cancel is not None and cancel.is_cancelled():
             q.put((StreamQueueKind.STOPPED, None))
 
+    stop_checker = cancel.is_cancelled if cancel is not None and hasattr(cancel, "is_cancelled") else None
     run_async_worker_with_drain(
         ctx,
         worker,

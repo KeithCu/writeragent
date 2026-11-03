@@ -80,7 +80,6 @@ def run_trusted_worker_action(
     }
 
     response = run_code_in_user_venv(
-        ctx,
         code=None,
         data=payload,
         timeout_sec=timeout_sec,

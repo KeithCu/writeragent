@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.errors import ConfigError
 from plugin.scripting.sandbox import resolve_venv_python
 
@@ -45,7 +45,7 @@ def vision_venv_configured(ctx: Any = None) -> bool:
     # Config read failures are ConfigError: log them and return False.
     # get_config takes no ctx, so a missing ctx is not a reason to skip Settings.
     try:
-        venv_dir = get_config_str("scripting.python_venv_path").strip()
+        venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
         if not venv_dir:
             return False
         return resolve_venv_python(venv_dir) is not None
@@ -85,3 +85,21 @@ def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = Non
         new_domain = {**domain_prop, "enum": [d for d in domain_prop["enum"] if d != _VISION_DOMAIN]}
         out.append({**schema, "function": {**fn, "parameters": {**params, "properties": {**props, "domain": new_domain}}}})
     return out
+
+
+def get_vision_core_directive(model: Any, ctx: Any) -> str:
+    """OCR delegation hint when local vision stack is configured (Writer/Calc only)."""
+    if ctx is None:
+        return ""
+    from plugin.framework import doc_type as _doc_type
+
+    if not vision_venv_configured(ctx):
+        return ""
+    if not (_doc_type.is_writer(model) or _doc_type.is_calc(model)):
+        return ""
+    delegate = "delegate_to_specialized_calc_toolset" if _doc_type.is_calc(model) else "delegate_to_specialized_writer_toolset"
+    return (
+        f'When the user wants OCR or content from an embedded image, {delegate}(domain="vision", task=""). '
+        "That extracts text and structure from the selected graphic and inserts a high-quality representation "
+        "into the document (no sub-agent; task is ignored). You must use this call to perform OCR."
+    )

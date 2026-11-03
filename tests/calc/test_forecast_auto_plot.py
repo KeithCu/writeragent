@@ -86,8 +86,8 @@ def test_merge_forecast_plot_data_unpacks_calc_range_envelope():
 
 @patch("plugin.scripting.viz.insert_viz_result_into_doc")
 @patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.forecast.run_trusted_forecast")
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_data_auto_plot_inserts_chart(
     mock_run_trusted,
     mock_main_thread,
@@ -126,8 +126,8 @@ def test_forecast_data_auto_plot_inserts_chart(
 
 @patch("plugin.scripting.viz.insert_viz_result_into_doc")
 @patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.forecast.run_trusted_forecast")
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_data_auto_plot_marshals_viz_read(
     mock_run_trusted,
     mock_main_thread,
@@ -153,7 +153,7 @@ def test_forecast_data_auto_plot_marshals_viz_read(
     }
 
     def _auto_plot_side_effect(*_args, **_kwargs):
-        assert not inside_marshal["flag"], "viz IPC must stay off execute_on_main_thread"
+        assert not inside_marshal["flag"], "viz IPC must stay off main.call"
         return {
             "status": "ok",
             "helper": "time_series_plot",
@@ -218,10 +218,10 @@ def test_auto_plot_reads_sheet_on_main_and_passes_doc():
         return {"status": "ok", "helper": "time_series_plot"}
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=exec_main),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=exec_main),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(envelope, None)) as mock_resolve,
-        patch("plugin.scripting.viz.run_trusted_viz", side_effect=viz) as mock_viz,
+        patch("plugin.scripting.helper_domain.run_domain", side_effect=viz) as mock_viz,
     ):
         result = run_auto_plot_after_forecast(
             MagicMock(),
@@ -252,7 +252,7 @@ def test_auto_plot_viz_failure_is_non_fatal():
     }
     with (
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(envelope, None)),
-        patch("plugin.scripting.viz.run_trusted_viz", side_effect=RuntimeError("viz ipc down")),
+        patch("plugin.scripting.helper_domain.run_domain", side_effect=RuntimeError("viz ipc down")),
     ):
         result = run_auto_plot_after_forecast(
             MagicMock(),
@@ -316,8 +316,8 @@ def test_auto_plot_merge_failure_returns_reason():
 )
 @patch("plugin.scripting.viz.insert_viz_result_into_doc")
 @patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.forecast.run_trusted_forecast")
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_data_auto_plot_gating_negatives(
     mock_run_trusted,
     mock_main_thread,
@@ -349,8 +349,8 @@ def test_forecast_data_auto_plot_gating_negatives(
 
 @patch("plugin.scripting.viz.insert_viz_result_into_doc")
 @patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.scripting.forecast.run_trusted_forecast")
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_data_auto_plot_task_hint_alone_triggers(
     mock_run_trusted, mock_main_thread, mock_auto_plot, mock_insert, calc_ctx
 ):

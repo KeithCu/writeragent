@@ -10,22 +10,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSpeakerNotesBase
-from plugin.draw.bridge import DrawBridge, find_notes_shape, resolve_page_and_bridge
+from plugin.draw.bridge import DrawBridge, notes_text, resolve_page_and_bridge, set_notes_text
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.framework.errors import uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-
-
-def _write_notes(shape: Any, text: str, append: bool) -> None:
-    """Replace or append the notes body; one paragraph break between old and new text."""
-    text = normalize_linebreaks(text)
-    if append:
-        existing = str(shape.getString() or "")
-        if existing.strip():
-            text = existing + ("" if existing.endswith("\n") else "\n") + text
-    shape.setString(text)
 
 
 class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
@@ -38,11 +28,8 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
         page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
-        notes_shape = find_notes_shape(uno_read(lambda: page.getNotesPage(), None))
-        notes_text = ""
-        if notes_shape is not None:
-            notes_text = notes_shape.getString() or ""
-        return {"status": "ok", "page": actual_idx, "notes": notes_text}
+        notes = notes_text(page)
+        return {"status": "ok", "page": actual_idx, "notes": "" if notes is None else notes}
 
 
 class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
@@ -63,15 +50,28 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
 
         _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
         page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
-        notes_page = uno_read(lambda: page.getNotesPage(), None)
-        notes_shape = find_notes_shape(notes_page) if notes_page is not None else None
-        if notes_shape is None:
-            detail = "no notes page" if notes_page is None else "a notes page but no notes body (no NotesShape)"
-            return self._tool_error(
-                "Slide %d has %s." % (actual_idx, detail),
-                code="NOTES_UNAVAILABLE",
-                page=actual_idx,
-            )
-        _write_notes(notes_shape, text, append)
+        text = normalize_linebreaks(text)
+        if append:
+            existing = notes_text(page)
+            if existing is None:
+                notes_page = uno_read(lambda: page.getNotesPage(), None)
+                detail = "no notes page" if notes_page is None else "a notes page but no notes body (no NotesShape)"
+                return self._tool_error(
+                    "Slide %d has %s." % (actual_idx, detail),
+                    code="NOTES_UNAVAILABLE",
+                    page=actual_idx,
+                )
+            if existing.strip():
+                text = existing + ("" if existing.endswith("\n") else "\n") + text
+            set_notes_text(page, text)
+        else:
+            if not set_notes_text(page, text):
+                notes_page = uno_read(lambda: page.getNotesPage(), None)
+                detail = "no notes page" if notes_page is None else "a notes page but no notes body (no NotesShape)"
+                return self._tool_error(
+                    "Slide %d has %s." % (actual_idx, detail),
+                    code="NOTES_UNAVAILABLE",
+                    page=actual_idx,
+                )
 
         return {"status": "ok", "page": actual_idx, "message": "Speaker notes updated."}

@@ -427,7 +427,7 @@ def test_clear_cell_output_uses_set_string_not_delete_contents():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -471,7 +471,7 @@ def test_clear_cell_output_stops_at_markdown_blockquote(value, value_2):
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -512,7 +512,7 @@ def test_clear_cell_output_collapsed_cursor_stops_at_markdown():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -548,7 +548,7 @@ def test_clear_cell_output_skips_empty_control_paragraph():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -590,7 +590,7 @@ def test_clear_cell_output_skips_control_row_then_clears_stdout():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -683,7 +683,7 @@ def test_apply_run_result_replaces_via_clear_then_insert():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=cursor),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", side_effect=lambda _doc, name: name),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", side_effect=lambda _doc, name: name),
     ):
         apply_run_result(doc, cell, {"status": "ok", "stdout": "first\n", "result": None})
         apply_run_result(doc, cell, {"status": "ok", "stdout": "second\n", "result": None})
@@ -1036,7 +1036,7 @@ def test_clear_cell_output_preserves_spacer_before_next_heading():
         patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=None),
         patch("plugin.notebook.notebook_runner._is_output_bookmark_home", return_value=False),
         patch("plugin.notebook.notebook_runner._paragraph_has_frame", return_value=False),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 

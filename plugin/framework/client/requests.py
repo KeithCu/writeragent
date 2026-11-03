@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.framework.send_cancellation import SendCancellation
+
 from .http_security import origin_and_path
 from .http_transport import LlmHttpTransport
 
@@ -25,7 +27,7 @@ def sync_request(
     parse_json: bool = True,
     *,
     timeout: float,
-    stop_checker: Any = None,
+    cancel: SendCancellation | None = None,
     status_callback: Any = None,
     include_meta: bool = False,
     max_bytes: int | None = None,
@@ -56,7 +58,7 @@ def sync_request(
             path,
             data,
             headers,
-            stop_checker=stop_checker,
+            cancel=cancel,
             status_callback=status_callback,
             parse_json=parse_json,
             max_bytes=max_bytes,

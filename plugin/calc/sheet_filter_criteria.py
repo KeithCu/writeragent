@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 from typing import Any, NamedTuple
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, _profile, ascii_bounded, deal
+from plugin.framework.deal_shim import deal
 from plugin.framework.errors import UnoObjectError
 
 # Stable table of FilterOperator2 labels (for tool JSON schemas); the IDL code is the index.
@@ -58,15 +58,10 @@ class FilterCriterion(NamedTuple):
 def _deal_filter_op_name_ok_pytest(name: object) -> bool:
     # An unknown or non-ASCII operator from the model must raise
     # UnoObjectError, not PreContractError. The body does that.
-    # CrossHair stays on the closed FilterOperator2 labels.
     return isinstance(name, str)
 
 
-def _deal_filter_op_name_ok_crosshair(name: object) -> bool:
-    return isinstance(name, str) and name in FILTER_OPERATOR2_LABELS
-
-
-_deal_filter_op_name_ok = _profile(_deal_filter_op_name_ok_crosshair, _deal_filter_op_name_ok_pytest)
+_deal_filter_op_name_ok = _deal_filter_op_name_ok_pytest
 
 
 def _deal_filter_connection_ok_pytest(name: object) -> bool:
@@ -74,11 +69,7 @@ def _deal_filter_connection_ok_pytest(name: object) -> bool:
     return name is None or isinstance(name, str)
 
 
-def _deal_filter_connection_ok_crosshair(name: object) -> bool:
-    return name is None or name in ("AND", "OR", "and", "or", "")
-
-
-_deal_filter_connection_ok = _profile(_deal_filter_connection_ok_crosshair, _deal_filter_connection_ok_pytest)
+_deal_filter_connection_ok = _deal_filter_connection_ok_pytest
 
 
 def _normalize_operator_name(name: str) -> str:
@@ -115,16 +106,8 @@ def resolve_filter_operator_code(operator: str) -> int:
     return code
 
 
-def _deal_filter_criterion_ok_crosshair(raw: object) -> bool:
-    return (
-        isinstance(raw, dict)
-        and len(raw) <= DEAL_MAX_CMD_ARGS
-        and (not isinstance(raw.get("operator"), str) or ascii_bounded(raw.get("operator"), DEAL_MAX_TOKEN))
-        and (not isinstance(raw.get("connection"), str) or ascii_bounded(raw.get("connection"), DEAL_MAX_TOKEN))
-    )
-
-
-_deal_filter_criterion_ok = _profile(_deal_filter_criterion_ok_crosshair)
+def _deal_filter_criterion_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 @deal.pre(lambda raw, is_first: _deal_filter_criterion_ok(raw))

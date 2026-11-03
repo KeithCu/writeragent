@@ -358,9 +358,9 @@ def librarian_default_mode() -> str:
     USER.md is not the ongoing gate. If a profile already exists (pre-flag installs),
     treat Librarian as already offered so upgrades do not re-open onboarding.
     """
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    if get_config_bool_safe("chatbot.librarian_invoked"):
+    if get_config("chatbot.librarian_invoked"):
         return CHAT_MODE_CHAT
     from plugin.chatbot.memory import user_profile_exists
 
@@ -371,10 +371,10 @@ def librarian_default_mode() -> str:
 
 def mark_librarian_invoked() -> None:
     """Record that Librarian was shown or used so it is not the default next time."""
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
     from plugin.framework.errors import best_effort
 
-    best_effort(lambda: set_config("chatbot.librarian_invoked", True), "mark_librarian_invoked: persist flag")
+    best_effort(lambda: save({"chatbot.librarian_invoked": True}), "mark_librarian_invoked: persist flag")
 
 
 class SidebarModeController:

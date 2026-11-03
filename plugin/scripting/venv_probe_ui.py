@@ -19,8 +19,7 @@ from plugin.chatbot.dialogs import (
 )
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.i18n import N_, _
-from plugin.framework.queue_executor import post_to_main_thread
-from plugin.framework.thread_guard import on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_desktop, get_toolkit, process_events_to_idle
 from plugin.framework.worker_pool import run_in_background
 
@@ -86,10 +85,10 @@ class VenvProbeProgressDialog:
             assert dlg is not None
 
             def on_display(text: str) -> None:
-                post_to_main_thread(lambda body=text: self.set_display(body))
+                main.post(lambda body=text: self.set_display(body))
 
             def on_status(text: str) -> None:
-                post_to_main_thread(lambda status=text: self.set_status(status))
+                main.post(lambda status=text: self.set_status(status))
 
             def post_finish(success: bool, body: str | None) -> None:
                 def ui() -> None:
@@ -99,7 +98,7 @@ class VenvProbeProgressDialog:
                             self.set_display(body)
                     self.finish(success_title if success else failure_title, success)
 
-                post_to_main_thread(ui)
+                main.post(ui)
 
             def work() -> None:
                 try:
@@ -113,7 +112,7 @@ class VenvProbeProgressDialog:
                         self.set_display(err_msg)
                         self.finish(failure_title, False)
 
-                    post_to_main_thread(fail_ui)
+                    main.post(fail_ui)
                     if not isinstance(exc, Exception):
                         raise
 
@@ -176,12 +175,12 @@ class VenvProbeProgressDialog:
             log.debug("venv probe progress createPeer failed", exc_info=True)
 
     def _pump_dialog(self) -> None:
-        # finish() is posted from the probe worker via post_to_main_thread.
+        # finish() is posted from the probe worker via main.post.
         # Opengrep intrafile taint still treats process_events_to_idle in
         # finish() as a worker sink (uno-off-main-thread). A bare
-        # if on_main_thread() is the documented sanitizer; pumping VCL
+        # if main.is_current() is the documented sanitizer; pumping VCL
         # off-main is never correct.
-        if not on_main_thread():
+        if not main.is_current():
             return
         # Bugfix: processEventsToIdle from inside process_queue dispatches the
         # next AsyncCallback. Download on_status fires every 64 KB, so the nested

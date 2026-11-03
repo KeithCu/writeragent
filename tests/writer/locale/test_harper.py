@@ -583,63 +583,6 @@ def test_get_harper_binary_skips_download_when_up_to_date(
     assert path == str(binary_path)
 
 
-# TEMP(2026-08): Remove with _cleanup_harper_install_leftovers after ~2026-11.
-@patch("plugin.writer.locale.harper_binary._download_harper_binary")
-@patch("plugin.writer.locale.harper_binary._fetch_latest_release_asset")
-def test_get_harper_binary_removes_untar_leftover(
-    mock_fetch: MagicMock,
-    mock_download: MagicMock,
-    tmp_path: Path,
-) -> None:
-    mock_fetch.return_value = _sample_release("2.6.0")
-    harper_dir = tmp_path / "harper"
-    harper_dir.mkdir()
-    binary_path = harper_dir / _harper_binary_name()
-    binary_path.write_bytes(b"current")
-    (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
-    leftover = harper_dir / "harper-ls-x86_64-unknown-linux-gnu.tar.gz.untar" / "harper-ls"
-    leftover.parent.mkdir(parents=True)
-    leftover.write_bytes(b"duplicate-50mb")
-
-    with patch("plugin.writer.locale.harper_binary.shutil.which", return_value=None):
-        path = harper_binary_module._get_harper_binary(str(tmp_path))
-
-    mock_download.assert_not_called()
-    assert path == str(binary_path)
-    assert binary_path.read_bytes() == b"current"
-    assert not leftover.exists()
-    assert not leftover.parent.exists()
-
-
-# TEMP(2026-08): Remove with _cleanup_harper_install_leftovers after ~2026-11.
-@patch("plugin.writer.locale.harper_binary._download_harper_binary")
-@patch("plugin.writer.locale.harper_binary._fetch_latest_release_asset")
-def test_get_harper_binary_removes_windows_unzip_leftover(
-    mock_fetch: MagicMock,
-    mock_download: MagicMock,
-    tmp_path: Path,
-) -> None:
-    # Cleanup is OS-agnostic; exercise the .zip.unzip leftover shape without
-    # patching os.name (that would force WindowsPath on non-Windows hosts).
-    mock_fetch.return_value = _sample_release("2.6.0")
-    harper_dir = tmp_path / "harper"
-    harper_dir.mkdir()
-    binary_path = harper_dir / _harper_binary_name()
-    binary_path.write_bytes(b"current")
-    (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
-    leftover = harper_dir / "harper-ls-x86_64-pc-windows-msvc.zip.unzip" / "harper-ls.exe"
-    leftover.parent.mkdir(parents=True)
-    leftover.write_bytes(b"duplicate-50mb")
-
-    with patch("plugin.writer.locale.harper_binary.shutil.which", return_value=None):
-        path = harper_binary_module._get_harper_binary(str(tmp_path))
-
-    mock_download.assert_not_called()
-    assert path == str(binary_path)
-    assert binary_path.read_bytes() == b"current"
-    assert not leftover.exists()
-    assert not leftover.parent.exists()
-
 
 @patch("plugin.writer.locale.harper_binary.retrieve")
 def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_path: Path) -> None:
@@ -970,8 +913,8 @@ def test_harper_lsp_initialize_logs_exception_on_failure(
 def test_pump_grammar_status_ui_posts_not_blocking_execute() -> None:
     ctx = MagicMock()
     with (
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_execute,
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
+        patch("plugin.framework.queue_executor.main.call") as mock_execute,
     ):
         _pump_grammar_status_ui(ctx)
 
@@ -981,7 +924,7 @@ def test_pump_grammar_status_ui_posts_not_blocking_execute() -> None:
 
 def test_pump_grammar_status_ui_swallows_post_errors() -> None:
     ctx = MagicMock()
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=RuntimeError("no AsyncCallback")):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=RuntimeError("no AsyncCallback")):
         _pump_grammar_status_ui(ctx)  # must not raise
 
 
@@ -995,9 +938,9 @@ def test_run_harper_check_continues_when_pump_post_times_out() -> None:
         return {"errors": [{"n_error_start": 0, "n_error_length": 4}]}
 
     with (
-        patch("plugin.writer.locale.grammar_obs.emit_harper_worker_status"),
+        patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
         patch(
-            "plugin.framework.queue_executor.post_to_main_thread",
+            "plugin.framework.queue_executor.main.post",
             side_effect=TimeoutError("Main-thread execution of _pump timed out after 2.0s"),
         ),
         patch("plugin.writer.locale.harper.run_harper_lint", side_effect=_fake_lint) as mock_lint,
@@ -1020,8 +963,9 @@ def test_run_harper_check_pumps_ui_after_start_and_heartbeat() -> None:
             heartbeat_fn({"message": "Downloading harper-ls v2.7.0…"})
         return {"errors": []}
 
+    mock_status = MagicMock()
     with (
-        patch("plugin.writer.locale.grammar_obs.emit_harper_worker_status") as mock_emit,
+        patch("plugin.writer.locale.grammar_obs.get_grammar_status", return_value=mock_status),
         patch("plugin.writer.locale.harper._pump_grammar_status_ui", side_effect=_record_pump),
         patch("plugin.writer.locale.harper.run_harper_lint", side_effect=_fake_lint) as mock_lint,
     ):
@@ -1029,8 +973,8 @@ def test_run_harper_check_pumps_ui_after_start_and_heartbeat() -> None:
 
     assert result == {"errors": []}
     mock_lint.assert_called_once()
-    assert mock_emit.call_args_list[0].args == ("They is here.", "Starting Harper…")
-    assert mock_emit.call_args_list[1].args == ("They is here.", "Downloading harper-ls v2.7.0…")
+    assert mock_status.request.call_args_list[0] == (("They is here.",), {"result": "Starting Harper…"})
+    assert mock_status.request.call_args_list[1] == (("They is here.",), {"result": "Downloading harper-ls v2.7.0…"})
     assert pump_calls == [ctx, ctx]
 
 
@@ -1042,15 +986,16 @@ def test_run_harper_check_heartbeat_skips_empty_message() -> None:
             heartbeat_fn({"message": "   "})
         return {"errors": []}
 
+    mock_status = MagicMock()
     with (
-        patch("plugin.writer.locale.grammar_obs.emit_harper_worker_status") as mock_emit,
+        patch("plugin.writer.locale.grammar_obs.get_grammar_status", return_value=mock_status),
         patch("plugin.writer.locale.harper._pump_grammar_status_ui") as mock_pump,
         patch("plugin.writer.locale.harper.run_harper_lint", side_effect=_fake_lint),
     ):
         run_harper_check(ctx, "Hi.", "/tmp/cfg")
 
-    assert mock_emit.call_count == 1
-    mock_emit.assert_called_once_with("Hi.", "Starting Harper…")
+    assert mock_status.request.call_count == 1
+    mock_status.request.assert_called_once_with("Hi.", result="Starting Harper…")
     # Start pump once; empty heartbeat must not emit or pump again
     assert mock_pump.call_count == 1
 
@@ -1059,7 +1004,7 @@ def test_run_harper_check_does_not_pass_ctx_to_lint() -> None:
     """Grammar-queue lint stays on the drain thread; PE2I wait is doProofreading only."""
     ctx = MagicMock()
     with (
-        patch("plugin.writer.locale.grammar_obs.emit_harper_worker_status"),
+        patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
         patch("plugin.writer.locale.harper._pump_grammar_status_ui"),
         patch("plugin.writer.locale.harper.run_harper_lint", return_value={"errors": []}) as mock_lint,
         patch("plugin.framework.uno_context.wait_while_pumping") as mock_wait,
@@ -1278,9 +1223,7 @@ def test_maybe_start_harper_async_libreharper_submits_job(mock_bg: MagicMock) ->
 
 @patch("plugin.framework.worker_pool.run_in_background")
 def test_maybe_start_harper_async_writeragent_harper_submits_job(mock_bg: MagicMock) -> None:
-    with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
-         patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=True), \
-         patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="harper"):
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value="harper"):
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
         assert submitted is True
         assert mock_bg.call_count == 1
@@ -1288,17 +1231,15 @@ def test_maybe_start_harper_async_writeragent_harper_submits_job(mock_bg: MagicM
 
 
 @pytest.mark.parametrize(
-    "return_value, return_value_2",
+    "provider",
     [
-        pytest.param(False, "off", id="test_maybe_start_harper_async_writeragent_off_skips"),
-        pytest.param(True, "llm", id="test_maybe_start_harper_async_writeragent_llm_skips"),
+        pytest.param("off", id="test_maybe_start_harper_async_writeragent_off_skips"),
+        pytest.param("llm", id="test_maybe_start_harper_async_writeragent_llm_skips"),
     ],
 )
 @patch("plugin.framework.worker_pool.run_in_background")
-def test_maybe_start_harper_async_writeragent_off_skips(mock_bg: MagicMock, return_value, return_value_2) -> None:
-    with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
-         patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=return_value), \
-         patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value=return_value_2):
+def test_maybe_start_harper_async_writeragent_off_skips(mock_bg: MagicMock, provider: str) -> None:
+    with patch("plugin.writer.locale.grammar_settings.provider", return_value=provider):
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
         assert submitted is False
         mock_bg.assert_not_called()
@@ -1396,7 +1337,9 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
         patch("plugin.writer.locale.grammar_persistence.grammar_registry.register_live_proofreader"),
     ):
         pr = WriterAgentAiGrammarProofreader(ctx)
-    pr._provider = "harper"
+    from plugin.writer.locale.grammar_settings import GrammarProfile
+
+    pr._profile = GrammarProfile("harper", "harper", False)
     from plugin.writer.locale.grammar_persistence import grammar_registry
 
     grammar_registry.register_live_proofreader(pr)
@@ -1407,8 +1350,8 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
         with (
             patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
             patch("plugin.writer.locale.harper._get_or_create_client", return_value=mock_client),
-            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)),
-            patch("plugin.writer.locale.grammar_obs.emit_harper_worker_status"),
+            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
+            patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
         ):
             harper_module._harper_ensure_ready_body("/tmp", "en-US")
             assert pr._pending_proofread_again is True
@@ -1487,15 +1430,15 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
     The linguistic wait must still post. Draining first would hide the miss
     (stub times out at 2s, ``posts["n"]`` stays 0, lint returns empty errors).
     """
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
 
     saved: list[object] = []
     while True:
         try:
-            saved.append(default_executor._work_queue.get_nowait())
+            saved.append(main._work_queue.get_nowait())
         except queue.Empty:
             break
-    default_executor._work_queue.put(object())
+    main._work_queue.put(object())
     try:
         lint_started = threading.Event()
         release_lint = threading.Event()
@@ -1524,7 +1467,7 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
         def _run() -> None:
             with (
                 patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i),
-                patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
+                patch("plugin.framework.queue_executor.main.post", side_effect=_post),
             ):
                 box["res"] = harper_try_lint("Hello.", "/tmp", ctx=MagicMock())
 
@@ -1538,11 +1481,11 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
     finally:
         while True:
             try:
-                default_executor._work_queue.get_nowait()
+                main._work_queue.get_nowait()
             except queue.Empty:
                 break
         for item in saved:
-            default_executor._work_queue.put(item)
+            main._work_queue.put(item)
 
 
 def test_harper_try_lint_reenter_during_wait_asserts() -> None:

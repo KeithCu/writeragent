@@ -117,6 +117,10 @@ def test_find_spec_logs_error_and_returns_none(monkeypatch) -> None:
     from unittest.mock import patch
 
     monkeypatch.setattr("plugin.scripting.sandbox.import_authorized", lambda *args, **kwargs: True)
+    uno_bootstrap.set_alias_authorizer(
+        lambda *args, **kwargs: True,
+        lambda fullname: True,
+    )
 
     def fail_find(name: str):
         if name == "plugin.missing":

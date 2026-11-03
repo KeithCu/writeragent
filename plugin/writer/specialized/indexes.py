@@ -28,6 +28,7 @@ refresh does not rewrite it.
 import logging
 from typing import Any, Callable, cast
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import create_property_value
 
@@ -320,16 +321,6 @@ def _entry_before(found: Any, content: str) -> tuple[str, str]:
     return entry[:160], after[:160]
 
 
-def _enum_has_more(enum: Any) -> bool:
-    """True only when ``hasMoreElements()`` is True.
-
-    ``if not enum.hasMoreElements()`` never stops on pytest MagicMock (the
-    return is another mock). Same rule as ``hyperlink_fixup._enum_has_more``.
-    """
-    # Probes degrade; a disposed document must not read as an empty result.
-    return uno_read(lambda: enum.hasMoreElements() is True, False)
-
-
 def _resolve_toc_target(
     tool: Any, doc: Any, index: Any
 ) -> tuple[Any, Any, int | None, dict[str, Any] | None]:
@@ -523,8 +514,7 @@ def _paragraphs_in_anchor(anchor: Any) -> list[Any]:
     # compareRegionStarts(a, b) is 1 when a starts before b and -1 when after.
     end = anchor.getEnd()
     rows: list[Any] = []
-    while _enum_has_more(enum):
-        para = enum.nextElement()
+    for para in iter_elements(enum):
         if _contained(text, anchor, para):
             rows.append(para)
         elif uno_read(lambda: int(text.compareRegionStarts(para.getStart(), end)) < 0, False):
@@ -540,8 +530,7 @@ def _paragraph_element(found: Any) -> Any | None:
     """
     enum = found.createEnumeration()
     text = found.getText()
-    while _enum_has_more(enum):
-        para = enum.nextElement()
+    for para in iter_elements(enum):
         if _contained(text, para, found):
             return para
     return None
@@ -566,8 +555,7 @@ def _paragraph_hyperlink(para: Any) -> str:
     other = ""
     portions = uno_read(lambda: para.createEnumeration(), None)
     if portions is not None:
-        while _enum_has_more(portions):
-            portion = portions.nextElement()
+        for portion in iter_elements(portions):
             # Some portion types have no HyperLinkURL. Disposal is not that case.
             url = uno_read(lambda: portion.getPropertyValue("HyperLinkURL") or "", "")
             if not isinstance(url, str) or not url:
@@ -649,10 +637,8 @@ def _char_props(para: Any) -> dict[str, Any]:
     match a customized TOC.
     """
     props: dict[str, Any] = {}
-    # A failed enumeration reads as None, which _enum_has_more treats as empty.
     portions: Any = uno_read(lambda: para.createEnumeration(), None)
-    while _enum_has_more(portions):
-        portion = portions.nextElement()
+    for portion in iter_elements(portions):
         # A non-Text portion and an unreadable one both read as "" and are skipped.
         chunk = uno_read(lambda: (portion.getString() or "") if portion.getPropertyValue("TextPortionType") == "Text" else "", "")
         if not isinstance(chunk, str) or not chunk:
@@ -1266,8 +1252,7 @@ class IndexesListCites(ToolWriterIndexBase):
         cites: list[Any] = []
         labeler = LocationLabeler(doc)
         scanned = 0
-        while _enum_has_more(enum):
-            field = enum.nextElement()
+        for field in iter_elements(enum):
             scanned += 1
             if not is_bibliography_text_field(field):
                 continue

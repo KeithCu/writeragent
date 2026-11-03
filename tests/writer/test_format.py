@@ -8,43 +8,16 @@
 """Unit tests for plugin.writer.format helpers (no UNO)."""
 
 import base64
-import os
-import sys
-import tempfile as tempfile_mod
 
 import pytest
 
 from plugin.writer.format import (
     _content_has_block_markup,
-    _resolve_temp_dir,
-    _with_temp_buffer,
 )
 from plugin.writer.html_export import (
     _apply_image_export_options,
     strip_embedded_image_data,
 )
-
-
-def test_with_temp_buffer_yields_three_slash_file_url():
-    with _with_temp_buffer(content="x", ext=".html") as (_path, url):
-        assert url.startswith("file:///")
-
-
-def test_resolve_temp_dir_avoids_gettempdir_under_crosshair(monkeypatch):
-    """CrossHair FQN cover must not call gettempdir (auditwall SideEffectDetected)."""
-    monkeypatch.setitem(sys.modules, "crosshair", object())
-    monkeypatch.delenv("TMPDIR", raising=False)
-    monkeypatch.delenv("TEMP", raising=False)
-    monkeypatch.delenv("TMP", raising=False)
-    monkeypatch.setattr(tempfile_mod, "tempdir", None)
-
-    def boom() -> str:
-        raise AssertionError("gettempdir must not be called under CrossHair")
-
-    monkeypatch.setattr(tempfile_mod, "gettempdir", boom)
-    assert _resolve_temp_dir() == os.curdir
-    monkeypatch.setenv("TMPDIR", "/custom/tmp")
-    assert _resolve_temp_dir() == "/custom/tmp"
 
 
 def test_strip_embedded_image_data_removes_base64_keeps_external_url():
@@ -1139,20 +1112,20 @@ class _SingleStateCursor:
 
 
 def test_clear_direct_paragraph_properties_uses_multi_variant():
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    cleared = fmt._reset_properties_to_default(cursor, fmt.CLEARABLE_PARA_PROPERTIES)
+    cleared = st._reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
 
-    assert cursor.cleared == fmt.CLEARABLE_PARA_PROPERTIES
-    assert cleared == list(fmt.CLEARABLE_PARA_PROPERTIES)
+    assert cursor.cleared == st.CLEARABLE_PARA_PROPERTIES
+    assert cleared == list(st.CLEARABLE_PARA_PROPERTIES)
 
 
 def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     cursor = _SingleStateCursor(unsupported={"ParaSplit"})
-    cleared = fmt._reset_properties_to_default(cursor, fmt.CLEARABLE_PARA_PROPERTIES)
+    cleared = st._reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
 
     assert "ParaLeftMargin" in cleared and "ParaFirstLineIndent" in cleared
     assert "ParaSplit" not in cleared  # reported honestly as not cleared
@@ -1161,24 +1134,23 @@ def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
 def test_clear_direct_never_touches_non_paragraph_properties():
     """Deliberately narrower than setAllPropertiesToDefault: numbering, borders and language are
     not the caller's to lose."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
-    assert all(name.startswith("Para") for name in fmt.CLEARABLE_PARA_PROPERTIES)
+    assert all(name.startswith("Para") for name in st.CLEARABLE_PARA_PROPERTIES)
     for unwanted in ("NumberingRules", "ParaStyleName", "CharLocale"):
-        assert unwanted not in fmt.CLEARABLE_PARA_PROPERTIES
+        assert unwanted not in st.CLEARABLE_PARA_PROPERTIES
 
 
 def test_clearable_para_properties_are_the_single_source_for_styles_schema():
-    """styles.py used to duplicate the name list (stale 'cycle' comment). format owns it."""
-    from plugin.writer import format as fmt
+    """styles.py owns the name list."""
     from plugin.writer import styles as st
 
-    assert tuple(st._KNOWN_PARAGRAPH_PROPERTIES) == fmt.CLEARABLE_PARA_PROPERTIES
-    assert set(st._PARA_PROPERTY_SCHEMA) == set(fmt.CLEARABLE_PARA_PROPERTIES)
+    assert tuple(st._KNOWN_PARAGRAPH_PROPERTIES) == st.CLEARABLE_PARA_PROPERTIES
+    assert set(st._PARA_PROPERTY_SCHEMA) == set(st.CLEARABLE_PARA_PROPERTIES)
 
 
 def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     posture = type("FontSlant", (), {"__module__": "uno", "value": "ITALIC"})()
 
@@ -1186,7 +1158,7 @@ def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
         (object(), {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharLocale": object(), "CharPosture": posture}),
         (object(), {"CharFontName": "Courier"}),
     ]
-    summary = fmt._summarize_char_overrides(overrides)
+    summary = st._summarize_char_overrides(overrides)
 
     assert summary == {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharPosture": 2}
     assert "CharLocale" not in summary  # UNO struct -> not serialisable, left out
@@ -1194,7 +1166,7 @@ def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
 
 def test_summarize_char_overrides_reports_asian_complex():
     """style_props clears Asian/Complex font slots; the report must say so (honest, not silent)."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     overrides = [(object(), {
         "CharFontName": "Times New Roman",
@@ -1204,7 +1176,7 @@ def test_summarize_char_overrides_reports_asian_complex():
         "CharHeightAsian": 10.5,
         "CharHeightComplex": 11.0,
     })]
-    summary = fmt._summarize_char_overrides(overrides)
+    summary = st._summarize_char_overrides(overrides)
 
     assert summary["CharFontNameAsian"] == "SimSun"
     assert summary["CharFontNameComplex"] == "Tahoma"
@@ -1214,10 +1186,10 @@ def test_summarize_char_overrides_reports_asian_complex():
 
 def test_reported_char_properties_cover_style_governed():
     """Keep the clear-set and the report-set aligned: every slot style_props wipes is echoed."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
-    for name in fmt.STYLE_GOVERNED_CHAR_PROPERTIES:
-        assert name in fmt.REPORTED_CHAR_PROPERTIES
+    for name in st.STYLE_GOVERNED_CHAR_PROPERTIES:
+        assert name in st.REPORTED_CHAR_PROPERTIES
 
 
 def test_enum_hit_walk_cap_and_warning_are_honest():
@@ -1243,29 +1215,29 @@ def test_apply_style_origin_limitation_still_value_compare() -> None:
     """GHA 34683742049 canary FAIL was leftover reuse, not a product fix."""
     from pathlib import Path
 
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
-    src = Path(fmt.__file__).read_text(encoding="utf-8")
+    src = Path(st.__file__).read_text(encoding="utf-8")
     assert "KNOWN LIMITATION: a direct override whose value equals the old style default" in src
     assert "differs from the paragraph's current style default" in src
 
 
 def test_style_governed_char_properties_spare_bold_and_italic():
     """style_props drops the font the style owns; hand-set emphasis is the user's, not the style's."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
-    assert "CharFontName" in fmt.STYLE_GOVERNED_CHAR_PROPERTIES
-    assert "CharHeight" in fmt.STYLE_GOVERNED_CHAR_PROPERTIES
-    assert "CharWeight" not in fmt.STYLE_GOVERNED_CHAR_PROPERTIES   # bold survives
-    assert "CharPosture" not in fmt.STYLE_GOVERNED_CHAR_PROPERTIES  # italic survives
+    assert "CharFontName" in st.STYLE_GOVERNED_CHAR_PROPERTIES
+    assert "CharHeight" in st.STYLE_GOVERNED_CHAR_PROPERTIES
+    assert "CharWeight" not in st.STYLE_GOVERNED_CHAR_PROPERTIES   # bold survives
+    assert "CharPosture" not in st.STYLE_GOVERNED_CHAR_PROPERTIES  # italic survives
 
 
 def test_report_lists_only_the_overrides_actually_removed():
     """Under style_props, bold/italic are restored — listing them as removed would be wrong."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     found = {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharWeight": 150.0}
-    skip = set(fmt.STYLE_GOVERNED_CHAR_PROPERTIES)
+    skip = set(st.STYLE_GOVERNED_CHAR_PROPERTIES)
     removed = {k: v for k, v in found.items() if k in skip}
 
     assert removed == {"CharFontName": "Times New Roman", "CharHeight": 12.0}
@@ -1273,21 +1245,21 @@ def test_report_lists_only_the_overrides_actually_removed():
 
 
 def test_reset_properties_to_default_is_a_noop_on_empty_names():
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    assert fmt._reset_properties_to_default(cursor, ()) == []
+    assert st._reset_properties_to_default(cursor, ()) == []
     assert cursor.cleared is None  # never call UNO with an empty set
 
 
 def test_reset_properties_to_default_takes_the_caller_s_names():
     """The clear is scoped by the caller — style_props clears the font, all clears what was found."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    fmt._reset_properties_to_default(cursor, fmt.STYLE_GOVERNED_CHAR_PROPERTIES)
+    st._reset_properties_to_default(cursor, st.STYLE_GOVERNED_CHAR_PROPERTIES)
 
-    assert cursor.cleared == fmt.STYLE_GOVERNED_CHAR_PROPERTIES
+    assert cursor.cleared == st.STYLE_GOVERNED_CHAR_PROPERTIES
 
 
 # --- range copy: carrying direct formatting into the temp document -------------------------
@@ -1509,7 +1481,7 @@ def test_heading_is_block():
 
 def test_apply_paragraph_style_preserving_direct_char_caches_style_and_props():
     from unittest.mock import MagicMock
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as fmt
 
     doc = MagicMock()
     para_styles = MagicMock()
@@ -1587,7 +1559,7 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
     from unittest.mock import MagicMock
     import pytest
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as fmt
 
     doc = MagicMock()
     para_styles = MagicMock()
@@ -1665,7 +1637,7 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
 
 def test_apply_paragraph_style_restore_failure_is_not_capture_incomplete():
     from unittest.mock import MagicMock
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as fmt
 
     doc = MagicMock()
     para_styles = MagicMock()
@@ -1712,7 +1684,7 @@ def test_apply_paragraph_style_restore_failure_is_not_capture_incomplete():
 
 def test_apply_paragraph_style_negative_caches_failed_property_set_info():
     from unittest.mock import MagicMock
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as fmt
 
     doc = MagicMock()
     para_styles = MagicMock()

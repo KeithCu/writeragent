@@ -74,9 +74,9 @@ def uno_services_for_doc_type_label(doc_type: str | None) -> frozenset[str]:
 
 def uno_services_for_document(model: Any, doc_type: str | None) -> frozenset[str]:
     """Return UNO services for tool filtering: main-thread probe when possible, else doc_type map."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if model is not None and on_main_thread():
+    if model is not None and main.is_current():
         services = get_document_uno_services(model)
         if services:
             return services
@@ -201,6 +201,13 @@ def is_draw(model: Any) -> bool:
     """Return True if model is a Draw/Impress document."""
     doc_type = get_document_type(model)
     return doc_type in (DocumentType.DRAW, DocumentType.IMPRESS)
+
+
+def is_impress(model: Any) -> bool:
+    """Return True if model is an Impress document."""
+    if model is None or not hasattr(model, "supportsService"):
+        return False
+    return bool(model.supportsService(IMPRESS_DOCUMENT_SERVICE))
 
 
 def doc_type_of(doc: Any) -> str | None:

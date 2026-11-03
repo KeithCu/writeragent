@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.queue_executor import main as main_thread
+
 
 def _ensure_main_import_stubs() -> None:
     task = sys.modules.get("com.sun.star.task")
@@ -57,7 +59,7 @@ _patch_unohelper_implementation_helper()
 
 import plugin.main as main
 from plugin.main import BootstrapState
-from plugin.doc.doc_type import DocumentType
+from plugin.framework.doc_type import DocumentType
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.event_bus import EventBus
 from plugin.framework.main_shared import (
@@ -98,7 +100,7 @@ def _isolate_main_state():
 
 def test_bootstrap_same_thread_reentry_returns(monkeypatch):
     """Re-entrant bootstrap() call on the same thread returns without deadlocking."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     fake_ctx = MagicMock()
     monkeypatch.setattr(main, "get_ctx", lambda: fake_ctx)
 
@@ -113,7 +115,7 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
 
     monkeypatch.setattr("plugin.framework.config.init_config", mock_init_config)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
@@ -128,11 +130,11 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
 
 def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
     """When load_modules raises, _bootstrap_state resets to UNINITIALIZED so bootstrap can be retried."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
@@ -163,12 +165,12 @@ def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
 
 def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
     """When start_background raises after modules are loaded, _bootstrap_state stays INITIALIZED."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     core_handlers_mock = MagicMock()
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", core_handlers_mock)
+    monkeypatch.setattr("plugin.main.register_core_handlers", core_handlers_mock)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
@@ -198,7 +200,7 @@ def test_bootstrap_start_background_failure_isolates_modules(monkeypatch):
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     core_handlers_mock = MagicMock()
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", core_handlers_mock)
+    monkeypatch.setattr("plugin.main.register_core_handlers", core_handlers_mock)
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
 
     first_mod = MagicMock()
@@ -228,12 +230,12 @@ def test_bootstrap_start_background_failure_isolates_modules(monkeypatch):
 
 def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
     """When WRITERAGENT_EVAL_HARNESS=1, bootstrap skips _install_terminate_listener."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     fake_ctx = MagicMock()
     monkeypatch.setattr(main, "get_ctx", lambda: fake_ctx)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
@@ -335,7 +337,7 @@ def test_get_tools_off_main_thread_when_initialized():
 
 def test_get_tools_and_get_services_raise_bootstrap_failed_when_registry_none(monkeypatch):
     """get_tools and get_services raise BOOTSTRAP_FAILED if bootstrap leaves them None."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._tools = None
     main._services = None
@@ -355,13 +357,13 @@ def test_get_tools_and_get_services_raise_bootstrap_failed_when_registry_none(mo
 
 
 def test_menu_update_subscriber_runs_in_background(monkeypatch):
-    """menu:update subscriber must use run_in_background, not QueueExecutor.execute."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    """menu:update subscriber must use run_in_background, not main.call."""
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
 
     bus = EventBus()
@@ -371,7 +373,7 @@ def test_menu_update_subscriber_runs_in_background(monkeypatch):
     main_calls: list[Any] = []
 
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn, *a, **kw: bg_calls.append(fn))
-    monkeypatch.setattr("plugin.framework.queue_executor.QueueExecutor.execute", lambda fn, *a, **kw: main_calls.append(fn))
+    monkeypatch.setattr(main_thread, "call", lambda fn, *a, **kw: main_calls.append(fn))
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._bootstrap_error = None
@@ -609,7 +611,7 @@ def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
         def mock_post(fn: Any, *args: Any, **kwargs: Any) -> None:
             posted.append((fn, args, kwargs))
 
-        monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", mock_post)
+        monkeypatch.setattr(main_thread, "post", mock_post)
 
         uno_same_threads: list[threading.Thread] = []
         real_uno_same = main.uno_same
@@ -692,7 +694,7 @@ def test_update_menu_icons_posts_unscoped(monkeypatch):
     def mock_post(fn: Any, *args: Any, **kwargs: Any) -> None:
         posted.append((fn, args, kwargs))
 
-    monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", mock_post)
+    monkeypatch.setattr(main_thread, "post", mock_post)
     main._update_menu_icons()
 
     assert len(posted) == 1
@@ -894,7 +896,7 @@ def test_trigger_extend_selection_bootstraps():
 
     with (
         patch("plugin.main.get_active_document", return_value=fake_doc),
-        patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         patch("plugin.main.bootstrap") as mock_boot,
         patch("plugin.chatbot.selection.do_selection_action_for_document") as mock_do,
     ):
@@ -1008,8 +1010,8 @@ def test_register_core_handlers_continues_after_optional_import_failure(
         )
         monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: MagicMock())
 
-        caplog.set_level(logging.DEBUG, logger="plugin.framework.main_shared")
-        from plugin.framework.main_shared import register_core_handlers
+        caplog.set_level(logging.DEBUG, logger="plugin.main")
+        from plugin.main import register_core_handlers
 
         register_core_handlers()
 
@@ -1039,11 +1041,11 @@ def test_bootstrap_state_enum(monkeypatch):
     assert BootstrapState.BOOTSTRAPPING.value == "bootstrapping"
     assert BootstrapState.INITIALIZED.value == "initialized"
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 

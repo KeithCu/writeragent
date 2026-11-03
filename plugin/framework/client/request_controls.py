@@ -26,10 +26,17 @@ import json
 import logging
 import math
 import random
+import re
 import threading
 import time
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable
 
+if TYPE_CHECKING:
+    from .http_transport import HttpResult, LlmHttpTransport
+
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+
+from .errors import stream_error_message
 from .ssl_helpers import is_certificate_verify_error
 from .provider_detection import is_local_host
 
@@ -48,6 +55,22 @@ RETRY_MIN_DELAY_SEC = 0.3
 RETRY_MAX_DELAY_SEC = 30.0
 RETRY_WAIT_CHUNK_SEC = 0.05
 RETRY_MAX_ATTEMPTS = 3
+# 529 is Anthropic "overloaded". A 200 SSE body that says overload is
+# already retried; the HTTP status was not, so that path never ran.
+RETRYABLE_HTTP_STATUS = frozenset({429, 503, 529})
+
+# We match structured codes first and only narrow phrases here, not bare
+# "too many" / "unavailable", because those also match fatal errors such as
+# "too many tokens" (context overflow) or "model unavailable", which a retry
+# cannot fix. The full HTTP reason phrases for 429 and 503 stay.
+_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many requests", "service unavailable")
+
+# Explicit HTTP status indicator (e.g. "HTTP 429", "status 503", "HTTP status 429", "error code 503").
+# Bare 429 or 503 (such as "limit is 503 tokens" or "4290 tokens") must never match.
+_HTTP_STATUS_OVERLOAD_RE = re.compile(
+    r"\b(?:https?|status(?:\s+code)?|http\s+error|error\s+code)\s*(?:is\s*|:\s*)?(?:429|503)\b",
+    re.IGNORECASE,
+)
 
 
 def _shown_seconds(delay_sec: float) -> int | float:
@@ -138,22 +161,99 @@ def backoff_delay_sec(*, attempt: int = 1, retry_after_sec: float | None = None)
     return min(max(delay_ms / 1000.0, RETRY_MIN_DELAY_SEC), RETRY_MAX_DELAY_SEC)
 
 
-def wait_abortable(delay_sec: float, stop_checker: Callable[[], bool] | None = None, *, sleep: Callable[[float], None] | None = None, monotonic: Callable[[], float] | None = None, chunk_sec: float = RETRY_WAIT_CHUNK_SEC) -> bool:
+def wait_abortable(
+    delay_sec: float,
+    cancel: SendCancellation | None = None,
+    *,
+    sleep: Callable[[float], None] | None = None,
+    monotonic: Callable[[], float] | None = None,
+    chunk_sec: float = RETRY_WAIT_CHUNK_SEC,
+) -> bool:
     """Sleep ``delay_sec`` in small chunks so Stop aborts the wait. False if stopped."""
     sleeper = sleep or time.sleep
     now = monotonic or time.monotonic
-    if stop_checker and stop_checker():
+    if is_cancelled(cancel):
         return False
     if not math.isfinite(delay_sec) or delay_sec <= 0:
-        return not (stop_checker and stop_checker())
+        return not is_cancelled(cancel)
     deadline = now() + delay_sec
     while True:
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             return False
         remaining = deadline - now()
         if remaining <= 0:
-            return not (stop_checker and stop_checker())
+            return not is_cancelled(cancel)
         sleeper(min(chunk_sec, remaining))
+
+
+def _error_code_is_overload(value: Any) -> bool:
+    """True when a structured provider code is itself an overload signal."""
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value in RETRYABLE_HTTP_STATUS
+    text = str(value).strip().lower()
+    if text in {"429", "503", "529"}:
+        return True
+    return any(marker in text for marker in _OVERLOAD_TEXT_MARKERS)
+
+
+def _structured_error_is_overload(chunk: dict[str, Any]) -> bool:
+    """Prefer error.code / type / status over scanning the message text."""
+    if any(_error_code_is_overload(chunk.get(key)) for key in ("code", "status")):
+        return True
+    err = chunk.get("error")
+    if isinstance(err, dict):
+        if any(_error_code_is_overload(err.get(key)) for key in ("code", "type", "status")):
+            return True
+        metadata = err.get("metadata")
+        if isinstance(metadata, dict) and any(_error_code_is_overload(metadata.get(key)) for key in ("code", "status", "http_status")):
+            return True
+    elif _error_code_is_overload(err):
+        return True
+    return False
+
+
+def _text_is_overload(message: Any) -> bool:
+    """Check if an error indicates an overload/rate-limit condition.
+
+    Checks HTTP status / structured error code (including OpenRouter error.code
+    in the body) first; the text fallback matches only phrases like 'overloaded' /
+    'rate limit', no bare 429/503.
+    """
+    if not message or not isinstance(message, str):
+        return False
+
+    # Check for embedded JSON with structured error code (e.g. OpenRouter error payload)
+    if "{" in message and "}" in message:
+        try:
+            start = message.find("{")
+            end = message.rfind("}")
+            parsed = json.loads(message[start : end + 1])
+            if isinstance(parsed, dict) and _structured_error_is_overload(parsed):
+                return True
+        except (ValueError, TypeError):
+            pass
+
+    # Check for explicit HTTP status indicator in text (e.g. "HTTP 429", "status 503")
+    if _HTTP_STATUS_OVERLOAD_RE.search(message):
+        return True
+
+    # Text fallback: matches only phrases like 'overloaded'/'rate limit', no bare 429/503
+    low = message.lower()
+    return any(marker in low for marker in _OVERLOAD_TEXT_MARKERS)
+
+
+def stream_error_is_overload(chunk: dict[str, Any]) -> bool:
+    """True when a mid-stream error is worth one retry before any UI text.
+
+    A structured code (429, 503, rate_limit_exceeded, overloaded_error) wins.
+    Otherwise explicit HTTP status or phrases match; bare numbers like 503 tokens do not.
+    """
+    if _structured_error_is_overload(chunk):
+        return True
+    message = stream_error_message(chunk) or ""
+    return _text_is_overload(message)
 
 
 # Process-wide spacing after a retry: keyed by host so chat, grammar, and
@@ -268,7 +368,13 @@ def _rollback_host_reservation(host: str, reserved_at: float, previous_last: flo
                 _host_last_sent[host] = previous_last
 
 
-def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, *, monotonic: Callable[[], float] | None = None) -> bool:
+def wait_host_gap(
+    host: str,
+    cancel: SendCancellation | None = None,
+    status_callback: Callable[[str], None] | None = None,
+    *,
+    monotonic: Callable[[], float] | None = None,
+) -> bool:
     """Wait out a learned per-host gap. False if Stop fired."""
     remaining, reserved_at, previous_last = _reserve_host_send_slot(host, monotonic=monotonic)
     if remaining <= 0:
@@ -283,12 +389,345 @@ def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, sta
             status_callback(_("Spacing free-model requests, next send in {0}s…").format(_shown_seconds(remaining)))
         else:
             emit_retry_status(status_callback, remaining)
-    ok = wait_abortable(remaining, stop_checker, monotonic=monotonic)
+    ok = wait_abortable(remaining, cancel, monotonic=monotonic)
     if not ok:
         # Roll back host reservation on abort so subsequent callers do not wait extra gap.
         _rollback_host_reservation(host, reserved_at, previous_last)
         return False
     return True
+
+
+class StreamOverload(Exception):
+    """Mid-stream overload before any token; the retry budget waits and resends."""
+
+
+class RetryBudget:
+    """One retry budget per HTTP request (stream or exchange)."""
+
+    _transport: LlmHttpTransport
+    _cancel: SendCancellation | None
+    _status_callback: Callable[[str], None] | None
+    _on_bad_request: Callable[[bytes], bytes | None] | None
+    sends_left: int
+    wait_index: int
+    emitted_any: bool
+    body_in_hand: bool
+
+    def __init__(
+        self,
+        transport: LlmHttpTransport,
+        *,
+        cancel: SendCancellation | None,
+        status_callback: Callable[[str], None] | None,
+        on_bad_request: Callable[[bytes], bytes | None] | None = None,
+    ) -> None:
+        self._transport = transport
+        self._cancel = cancel
+        self._status_callback = status_callback
+        self._on_bad_request = on_bad_request
+        self.sends_left = RETRY_MAX_ATTEMPTS
+        self.wait_index = 0
+        self.emitted_any = False
+        self.body_in_hand = False
+
+    def stopped(self) -> bool:
+        return is_cancelled(self._cancel)
+
+    def note_emitted(self) -> None:
+        self.emitted_any = True
+
+    def run_exchange(
+        self,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str] | None,
+        **exchange_kwargs: Any,
+    ) -> HttpResult:
+        from plugin.framework.errors import NetworkError
+
+        from . import http_security
+        from .http_transport import (
+            CONNECTION_ERRORS,
+            HttpResult,
+            HttpObserve,
+            HttpSender,
+            _MAX_REDIRECTS,
+            _stopped_error,
+            parse_strict_json,
+        )
+
+        parse_json = exchange_kwargs.pop("parse_json", False)
+        sender: HttpSender | None = exchange_kwargs.pop("sender", None)
+        secrets = exchange_kwargs.pop("secrets", None)
+        on_retry = exchange_kwargs.pop("on_retry", None)
+        after_read = exchange_kwargs.pop("after_read", None)
+        observe_http_error: HttpObserve | None = exchange_kwargs.pop("observe_http_error", None)
+        retry_log_message: str = exchange_kwargs.pop("retry_log_message", "Retrying HTTP request on a fresh connection")
+        max_bytes: int | None = exchange_kwargs.pop("max_bytes", None)
+        if exchange_kwargs:
+            raise TypeError(f"unexpected run_exchange kwargs: {sorted(exchange_kwargs)}")
+
+        transport = self._transport
+        cancel = self._cancel
+        wire_headers = dict(headers or {})
+        transport._redirect_origin = None
+        redirects_followed = 0
+        model = request_model_from_body(body)
+        try:
+            while True:
+                wire_secrets = http_security.collect_secrets(
+                    secrets,
+                    http_security.secrets_from_headers(wire_headers),
+                    http_security.secrets_from_target(path),
+                )
+                self.body_in_hand = False
+                # True once this iteration has already spent one attempt on a non-200.
+                attempt_charged = False
+                try:
+                    transport._raise_if_stopped(cancel)
+                    # A custom sender is bound to the caller's connection. After a
+                    # cross-origin redirect, send() on this transport uses the new host.
+                    if sender is not None and transport._redirect_origin is None:
+                        response = sender(method, path, body, wire_headers, cancel=cancel, status_callback=self._status_callback)
+                    else:
+                        response = transport.send(
+                            method,
+                            path,
+                            body,
+                            wire_headers,
+                            cancel=cancel,
+                            status_callback=self._status_callback,
+                        )
+                    status = int(getattr(response, "status", 0) or 0)
+                    if status in http_security._REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
+                        # A CDN 301/302/307 is not a failure. Image URLs, TTS audio,
+                        # catalogs, and update checks follow Location. One hop
+                        # rewrites method/body, then loops. The retry budget is
+                        # for 429/503, not for a redirect the server asked for.
+                        current_url = transport._absolute_url(path)
+                        hop = http_security._apply_redirect(
+                            method,
+                            body,
+                            wire_headers,
+                            current_url,
+                            status,
+                            (response.getheader("Location") or ""),
+                        )
+                        if hop is not None:
+                            response.read()
+                            new_method, new_body, new_headers, new_origin, new_path, cross_origin = hop
+                            if cross_origin:
+                                transport._redirect_origin = new_origin
+                                transport.close()
+                            log.debug("Following HTTP %s to %s", status, http_security.public_target(new_origin + new_path))
+                            method = new_method
+                            body = new_body
+                            wire_headers = new_headers
+                            path = new_path
+                            redirects_followed += 1
+                            continue
+                    if status != 200:
+                        self.sends_left -= 1
+                        attempt_charged = True
+                        action = transport.handle_http_status(
+                            response,
+                            request_body=body,
+                            path=path,
+                            retries_left=self.sends_left,
+                            emitted_any=False,
+                            cancel=cancel,
+                            status_callback=self._status_callback,
+                            attempt=RETRY_MAX_ATTEMPTS - self.sends_left,
+                            secrets=wire_secrets,
+                            observe_http_error=observe_http_error,
+                        )
+                        if action == "stop":
+                            raise _stopped_error()
+                        if on_retry is not None:
+                            on_retry()
+                        continue
+                    if self.sends_left == RETRY_MAX_ATTEMPTS:
+                        clear_host_gap(transport.pacing_key_for_model(model))
+                    if max_bytes is not None:
+                        raw = transport._read_bounded_response(response, max_bytes=max_bytes, cancel=cancel)
+                    else:
+                        raw = response.read()
+                    self.body_in_hand = True
+                    if after_read is not None:
+                        after_read(response)
+                    parsed = parse_strict_json(raw) if parse_json else None
+                    return HttpResult(
+                        status=status,
+                        body=raw,
+                        content_type=response.getheader("Content-Type") or "",
+                        parsed=parsed,
+                    )
+                except NetworkError as exc:
+                    if (
+                        self._on_bad_request is not None
+                        and not self.emitted_any
+                        and not self.stopped()
+                        and getattr(exc, "code", None) == "HTTP_ERROR"
+                        and isinstance(getattr(exc, "details", None), dict)
+                        and exc.details.get("status") == 400
+                        and "effort" in str(exc).lower()
+                    ):
+                        next_body = self._on_bad_request(
+                            bytes(body) if isinstance(body, (bytes, bytearray)) else bytes(str(body), "utf-8")
+                        )
+                        if next_body is not None:
+                            body = next_body
+                            continue
+                    raise
+                except CONNECTION_ERRORS as exc:
+                    if self.body_in_hand:
+                        from plugin.framework.errors import format_error_message
+
+                        raise NetworkError(
+                            http_security.redact_secrets(format_error_message(exc), wire_secrets),
+                            code="CONNECTION_LOST",
+                            details={"url": http_security.public_target(path)},
+                        ) from exc
+                    # handle_http_status reads the error body, and that read can
+                    # raise IncompleteRead, a reset, or a timeout. The non-200
+                    # branch above already decremented sends_left. Charging
+                    # again would consume two of the three attempts for one
+                    # failed read, and the last try would never run.
+                    if not attempt_charged:
+                        self.sends_left -= 1
+                    action = transport.handle_connection_error(
+                        exc,
+                        path=http_security.public_target(path),
+                        retries_left=self.sends_left,
+                        retry_log_message=retry_log_message,
+                        cancel=cancel,
+                        status_callback=self._status_callback,
+                        attempt=RETRY_MAX_ATTEMPTS - self.sends_left,
+                        model=model,
+                        secrets=wire_secrets,
+                    )
+                    if action == "stop":
+                        raise _stopped_error()
+                    continue
+        finally:
+            if transport._redirect_origin is not None:
+                transport._redirect_origin = None
+                transport.close()
+
+    def run_stream(
+        self,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str],
+        consume: Callable[[Any], str | None],
+        *,
+        wire_secrets: list[str] | None = None,
+    ) -> str | None:
+        from plugin.framework.errors import NetworkError, format_error_message
+
+        from .http_transport import CONNECTION_ERRORS
+
+        transport = self._transport
+        cancel = self._cancel
+        while True:
+            if self.stopped():
+                transport.close()
+                return "stop"
+            try:
+                response = transport.send(
+                    method,
+                    path,
+                    body,
+                    headers,
+                    cancel=cancel,
+                    status_callback=self._status_callback,
+                )
+                if response.status != 200:
+                    self.sends_left -= 1
+                    self.wait_index += 1
+                    action = transport.handle_http_status(
+                        response,
+                        request_body=body,
+                        path=path,
+                        retries_left=self.sends_left,
+                        emitted_any=self.emitted_any,
+                        cancel=cancel,
+                        status_callback=self._status_callback,
+                        attempt=self.wait_index,
+                        secrets=wire_secrets,
+                        observe_http_error=None,
+                    )
+                    if action == "stop":
+                        return "stop"
+                    continue
+                if self.wait_index == 0:
+                    clear_host_gap(transport.pacing_key_for_model(request_model_from_body(body)))
+                try:
+                    return consume(response)
+                except StreamOverload:
+                    if self.emitted_any or self.sends_left <= 0:
+                        raise
+                    self.sends_left -= 1
+                    self.wait_index += 1
+                    delay = backoff_delay_sec(attempt=self.wait_index)
+                    remember_host_gap(
+                        transport.pacing_key_for_model(request_model_from_body(body)),
+                        delay,
+                    )
+                    emit_retry_status(self._status_callback, delay)
+                    if not wait_abortable(delay, cancel):
+                        return "stop"
+                    continue
+            except CONNECTION_ERRORS as exc:
+                # stop() closes the socket, so the blocked read raises here.
+                # Looking only at emitted_any reported Stop after the first
+                # token as CONNECTION_LOST. A latched Stop (or cancel scope)
+                # is a user cancel, same as the pre-token path. A real drop
+                # still refuses retry once any token reached the UI.
+                if self.stopped():
+                    transport.close()
+                    return "stop"
+                # A retry after tokens already reached the UI would duplicate text.
+                if self.emitted_any:
+                    transport.close()
+                    raise NetworkError(format_error_message(exc), code="CONNECTION_LOST", details={"url": path}) from exc
+                self.sends_left -= 1
+                self.wait_index += 1
+                action = transport.handle_connection_error(
+                    exc,
+                    path=path,
+                    retries_left=self.sends_left,
+                    retry_log_message="Retrying streaming request on fresh connection",
+                    cancel=cancel,
+                    status_callback=self._status_callback,
+                    attempt=self.wait_index,
+                    model=request_model_from_body(body),
+                    secrets=None,
+                )
+                if action == "stop":
+                    return "stop"
+                continue
+            except NetworkError as exc:
+                if getattr(exc, "code", None) == "STOPPED":
+                    return "stop"
+                if (
+                    self._on_bad_request is not None
+                    and not self.emitted_any
+                    and not self.stopped()
+                    and getattr(exc, "code", None) == "HTTP_ERROR"
+                    and isinstance(getattr(exc, "details", None), dict)
+                    and exc.details.get("status") == 400
+                    and "effort" in str(exc).lower()
+                ):
+                    next_body = self._on_bad_request(
+                        bytes(body) if isinstance(body, (bytes, bytearray)) else bytes(str(body), "utf-8")
+                    )
+                    if next_body is not None:
+                        body = next_body
+                        continue
+                raise
 
 
 class RequestPacer:

@@ -26,17 +26,16 @@ from plugin.scripting.venv.coerce import (
     table_from_df as _table_from_df,
     _dedupe_column_names,
 )
+from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    dispatch_common_kwargs,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
-    run_trusted_spec,
+    run_domain,
 )
 from plugin.scripting.venv.map_range import map_over_range
 
 from plugin.scripting.calc_functions_common import (
-    ANALYSIS_HELPER_NAMES as HELPER_NAMES,
     ANALYSIS_MAX_TABLE_ROWS as MAX_TABLE_ROWS,
     ANALYSIS_DATA_TABLE_ROWS as DATA_TABLE_ROWS,
     ANALYSIS_MAX_COLS as MAX_COLS,
@@ -114,6 +113,7 @@ def _format_single_currency(value: Any, symbol: str = "$", decimals: int = 2) ->
     return f"{symbol}{num:,.{decimals}f}"
 
 
+@helper("analysis")
 def format_currency(values: Any, *, symbol: str = "$", decimals: int = 2) -> Any:
     """Format numeric values as currency strings (Excel init-script helper)."""
     return map_over_range(
@@ -134,6 +134,7 @@ def _format_single_percent(value: Any, decimals: int = 1) -> str:
     return f"{num * 100:.{decimals}f}%"
 
 
+@helper("analysis")
 def format_percent(values: Any, *, decimals: int = 1) -> Any:
     """Format numeric values as percentage strings."""
     return map_over_range(
@@ -158,7 +159,7 @@ def _formatted_cells(formatted: Any) -> list[str]:
     return [str(formatted)]
 
 
-def _format_cells_result(name: str, formatted: Any) -> dict[str, Any]:
+def _format_cells_result(name: str, formatted: Any) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
     cells = _formatted_cells(formatted)
     return _ok_result(
         name,
@@ -207,6 +208,7 @@ def _describe_columns_from_profile(
     return column_summaries, flags
 
 
+@helper("analysis")
 def describe_data(
     data: Any,
     *,
@@ -253,23 +255,7 @@ def describe_data(
     except ImportError:
         return _missing_package_error("describe_data", "fg-data-profiling")
 
-    # What was wrong: minimal config sets pool_size to 0, and
-    # pandas_get_series_descriptions treats 0 as multiprocessing.cpu_count().
-    # It submits every column to a ThreadPoolExecutor and blocks in
-    # future.result(). Those threads call pandas/NumPy at once, and the
-    # library also wraps the futures in an inner tqdm that stays enabled
-    # when progress_bar=False. On an xdist worker that already initialized
-    # OpenBLAS on the main thread, that pool deadlocks.
-    # How it happened: CI `make pytest` uses --timeout=300 --timeout-method=thread.
-    # The timer thread calls os._exit(1). execnet then closes with EOF and no
-    # remote error, so xdist reports "Not properly terminated" and
-    # "worker 'gw3' crashed" (GHA 38782180627,
-    # test_run_analysis_dispatches_helper). The thread method never raises,
-    # so there is no Failed: Timeout line. The same call returns in about 2s
-    # when the race does not trip.
-    # Why this fixes it: pool_size=1 is the library knob that describes each
-    # column on one worker thread, so NumPy is not entered from several
-    # Python threads.
+    # pool_size=1 avoids OpenBLAS deadlocks from multi-threaded NumPy calls in minimal profiling.
     profile = ProfileReport(limited, minimal=True, progress_bar=False, pool_size=1)
     report_json = json.loads(profile.to_json())
     variables = report_json.get("variables", {})
@@ -317,6 +303,7 @@ def _safe_float(value: Any) -> float | None:
     return round(number, 6)
 
 
+@helper("analysis")
 def kpi_summary(
     data: Any,
     metrics: Any,
@@ -373,6 +360,7 @@ def _choice(value: Any, allowed: tuple[str, ...], msg: str, helper: str) -> str 
     return _error_result("INVALID_PARAM", msg, helper=helper)
 
 
+@helper("analysis")
 def detect_outliers(
     data: Any,
     *,
@@ -539,6 +527,7 @@ class QuickStats:
         )
 
 
+@helper("analysis")
 def quick_stats(
     data: Any,
     *,
@@ -557,6 +546,7 @@ def quick_stats(
     ).tooltip()
 
 
+@helper("analysis")
 def clean_and_prepare(
     data: Any,
     *,
@@ -727,6 +717,7 @@ def _flatten_result_columns(df: Any) -> Any:
     return res
 
 
+@helper("analysis")
 def pivot_aggregate(
     data: Any,
     *,
@@ -787,6 +778,7 @@ def pivot_aggregate(
     )
 
 
+@helper("analysis")
 def group_summary(
     data: Any,
     *,
@@ -835,6 +827,7 @@ def group_summary(
     )
 
 
+@helper("analysis")
 def compare_periods(
     data: Any,
     *,
@@ -913,6 +906,7 @@ def compare_periods(
     )
 
 
+@helper("analysis")
 def correlation_matrix(
     data: Any,
     *,
@@ -973,6 +967,7 @@ def correlation_matrix(
     )
 
 
+@helper("analysis")
 def run_regression(
     data: Any,
     *,
@@ -1086,6 +1081,7 @@ def run_regression(
     )
 
 
+@helper("analysis")
 def cluster_numeric(
     data: Any,
     *,
@@ -1200,6 +1196,7 @@ def cluster_numeric(
     )
 
 
+@helper("analysis")
 def monte_carlo(
     data: Any,
     *,
@@ -1279,85 +1276,10 @@ def monte_carlo(
     )
 
 
-_DISPATCH_KEYS: dict[str, tuple[str, ...]] = {
-    "describe_data": ("include_outliers", "max_cols"),
-    "kpi_summary": ("metrics", "agg"),
-    "detect_outliers": ("columns", "method", "threshold"),
-    "quick_stats": ("numeric_columns",),
-    "clean_and_prepare": ("drop_duplicates", "fill_numeric", "fill_categorical"),
-    "pivot_aggregate": ("index", "columns", "values", "aggfunc"),
-    "group_summary": ("by", "metrics", "aggfunc"),
-    "compare_periods": ("date_col", "value_col", "period", "calc", "agg"),
-    "correlation_matrix": ("method", "min_abs"),
-    "run_regression": ("target", "features", "add_constant"),
-    "cluster_numeric": ("columns", "n_clusters", "method", "scale"),
-    "monte_carlo": ("sims", "bust", "goal"),
-}
-
-
-def _decimals(params: dict[str, Any], default: int, helper: str) -> int | dict[str, Any]:
-    try:
-        decimals = coerce_int(params.get("decimals", default), name="decimals")
-    except ValueError as exc:
-        return _error_result("INVALID_PARAM", str(exc), helper=helper)
-    if decimals < 0:
-        return _error_result("INVALID_PARAM", f"decimals must be an integer >= 0, got {decimals!r}", helper=helper)
-    return decimals
-
-
-def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
-    common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
-
-    if name == "kpi_summary":
-        if not params.get("metrics"):
-            return _error_result("MISSING_PARAM", "kpi_summary requires params.metrics", helper=name)
-    elif name == "pivot_aggregate":
-        if not params.get("index") or not params.get("values"):
-            return _error_result("MISSING_PARAM", "pivot_aggregate requires params.index and params.values", helper=name)
-    elif name == "group_summary":
-        if not params.get("by") or not params.get("metrics"):
-            return _error_result("MISSING_PARAM", "group_summary requires params.by and params.metrics", helper=name)
-    elif name == "compare_periods":
-        if not params.get("date_col") or not params.get("value_col"):
-            return _error_result("MISSING_PARAM", "compare_periods requires params.date_col and params.value_col", helper=name)
-    elif name == "run_regression":
-        if not params.get("target"):
-            return _error_result("MISSING_PARAM", "run_regression requires params.target", helper=name)
-    elif name == "format_currency":
-        symbol = params.get("symbol", "$")
-        if not isinstance(symbol, str):
-            return _error_result("INVALID_PARAM", f"symbol must be a string, got {symbol!r}", helper=name)
-        decimals = _decimals(params, 2, name)
-        if isinstance(decimals, dict):
-            return decimals
-        values = params.get("values", data)
-        return _format_cells_result(name, format_currency(values, symbol=symbol, decimals=decimals))
-    elif name == "format_percent":
-        decimals = _decimals(params, 1, name)
-        if isinstance(decimals, dict):
-            return decimals
-        values = params.get("values", data)
-        return _format_cells_result(name, format_percent(values, decimals=decimals))
-    elif name not in _DISPATCH_KEYS:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
-
-    fn = globals()[name]
-    picked = {key: params[key] for key in _DISPATCH_KEYS[name] if key in params}
-    return cast("dict[str, Any]", fn(data, **picked, **common))
-
-
 def run_analysis(
     spec: dict[str, Any] | str,
     data: Any,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC and future tools."""
-    return run_trusted_spec(
-        spec,
-        data,
-        context,
-        helper_names=HELPER_NAMES,
-        dispatch_fn=_dispatch_helper,
-        domain="Analysis",
-        error_code="ANALYSIS_FAILED",
-    )
+    return run_domain("analysis", spec, data, context=context)

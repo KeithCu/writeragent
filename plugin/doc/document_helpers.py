@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-from plugin.doc import doc_type as _doc_type
+from plugin.framework import doc_type as _doc_type
 from plugin.doc import text_helpers as _text_helpers
 from plugin.doc.paragraph_search import (
     paragraph_index_for_anchor as _paragraph_index_for_anchor,

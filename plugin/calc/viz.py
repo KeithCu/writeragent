@@ -10,13 +10,15 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.queue_executor import execute_on_main_thread
-from plugin.scripting.viz import HELPER_NAMES, insert_viz_result_into_doc, run_trusted_viz
+from plugin.framework.queue_executor import main
+from plugin.scripting.helper_domain import run_domain
+from plugin.scripting.helper_registry import names
+from plugin.scripting.viz import insert_viz_result_into_doc
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-_VIZ_HELPERS = ", ".join(sorted(HELPER_NAMES))
+_VIZ_HELPERS = ", ".join(sorted(names("viz")))
 
 
 class PlotDataTool(ToolBaseDummy):
@@ -46,7 +48,7 @@ class PlotDataTool(ToolBaseDummy):
         helper, dr, data, params, headers, task_hint, _output_range = extract_calc_data_tool_args(kwargs)
         if not helper:
             return self._tool_error("helper is required")
-        if helper not in HELPER_NAMES:
+        if helper not in names("viz"):
             return self._tool_error(f"Unknown helper {helper!r}")
         if not dr and data is None:
             return self._tool_error("Provide data_range")
@@ -56,7 +58,7 @@ class PlotDataTool(ToolBaseDummy):
         from plugin.scripting.payload_codec import extract_image_payload, write_image_payload_to_temp
 
         try:
-            result = run_trusted_viz(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
+            result = run_domain("viz", ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "VIZ_ERROR"))
         except Exception as exc:
@@ -72,7 +74,7 @@ class PlotDataTool(ToolBaseDummy):
                 insert_viz_result_into_doc(ctx.ctx, ctx.doc, result)
 
             try:
-                execute_on_main_thread(_insert)
+                main.call(_insert)
             except Exception as exc:
                 # Keep an egress failure as an error. image_egress raises
                 # when the sheet or draw page is missing. Swallowing that

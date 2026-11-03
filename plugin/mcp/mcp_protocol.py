@@ -22,6 +22,7 @@ Route handlers are registered with the HTTP route registry by MCPModule.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import hmac
 import json
@@ -32,22 +33,26 @@ import select
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import unquote
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
 from plugin.chatbot.agent_manual import writer_topic_list_text
+from plugin.framework.doc_type import uno_services_for_document
+from plugin.framework import uno_context
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
-from plugin.framework.queue_executor import QueueExecutor
+from plugin.framework.queue_executor import MainThread
 from plugin.framework.errors import resolve_exception_message, format_error_payload, make_tool_error
 import plugin.mcp.document_mutation_gate as document_mutation_gate
 import plugin.mcp.mcp_session as mcp_session
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
 from plugin.mcp.server import (
-    forget_sse_keepalive,
+    SseRegistry,
     read_json_body,
-    try_reserve_sse,
     write_http_empty,
     write_http_json,
 )
@@ -136,10 +141,11 @@ class _PreparedMcpCall:
     doc_key: str
     needs_gate: bool
     echo: dict[str, Any] | None
+    is_async: bool = False
 
 
 
-# Pointer to the on-demand manual (T4 / G2 consolidation). The full how-to — editing, editing-html,
+# On-demand manual index (editing, editing-html, …). Full how-to lives in docs/chat/.
 # review-modes, search, navigation, images, concurrency — is served per topic by get_guidance(topic), so the model
 # pulls one section when needed instead of front-loading a manual here (Claude Desktop doesn't read
 # `instructions`; Claude Code truncates it). The topic texts are the shared prompt pieces in
@@ -198,7 +204,7 @@ def _validate_http_protocol_version(handler: Any) -> tuple[int, dict[str, Any]] 
     return (400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Unsupported MCP-Protocol-Version: %s" % requested))
 
 
-# Backpressure — one fast MCP tool body at a time (_execute_with_backpressure).
+# Backpressure — one fast MCP tool body at a time (_run_tool).
 # The semaphore covers prepare and, for a read-only tool, the body. A mutating
 # fast call releases it before the per-document gate and takes it again only
 # for the body, so a wait on one document does not 429 other documents.
@@ -208,6 +214,29 @@ _tool_semaphore = threading.Semaphore(1)
 _WAIT_TIMEOUT = 5.0
 _BUSY_MESSAGE = "LibreOffice is busy processing another tool call. Please wait a moment and retry."
 _PROCESS_TIMEOUT = 60.0
+
+
+@contextlib.contextmanager
+def _permit() -> Generator[None, None, None]:
+    if not _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT):
+        raise document_mutation_gate.BusyError(_BUSY_MESSAGE)
+    try:
+        yield
+    finally:
+        _tool_semaphore.release()
+
+
+def _exclude_tiers(mode: str, *, listing: bool) -> frozenset[str]:
+    """Tiers to exclude for tools/list or tools/call in the given exposure mode.
+
+    direct_discovery advertises specialized tools via find_tools, so invoking
+    them must work (using MCP_DIRECT_FLAT_EXCLUDE_TIERS for calling). When
+    listing, only direct_flat advertises specialized tools directly; all other
+    listing modes keep core-only.
+    """
+    if mode == "direct_flat" or (not listing and mode == "direct_discovery"):
+        return MCP_DIRECT_FLAT_EXCLUDE_TIERS
+    return MCP_DELEGATE_EXCLUDE_TIERS
 
 _ACTIVE_DOCUMENT_SENTINEL = "__active_document__"
 
@@ -296,16 +325,6 @@ def _mcp_unknown_tool_result(message: str) -> dict[str, Any]:
     return wire_types.call_tool_result(json.dumps(payload, ensure_ascii=False), is_error=True)
 
 
-class _DebugHandlerAdapter:
-    """Adapter presenting a handler-like interface from GET /debug arguments."""
-
-    def __init__(self, body: Any, headers: Any):
-        self.body: Any = body
-        self.headers: Any = headers or {}
-        addr = getattr(headers, "_client_address", None) or getattr(headers, "client_address", None)
-        self.client_address: Any = addr if addr is not None else ("127.0.0.1", 0)
-
-
 class MCPProtocolHandler:
     """MCP JSON-RPC protocol — route handlers for the HTTP server."""
 
@@ -318,7 +337,7 @@ class MCPProtocolHandler:
 
     def __init__(self, services: Any, debug_token: str | None = None) -> None:
         self.services = services
-        self.queue_executor = services.get("main_thread") or QueueExecutor(ctx=services.get("uno") if services else None)
+        self.queue_executor = services.get("main_thread") or MainThread(ctx=services.get("uno") if services else None)
         self.tool_registry = services.tools
         self.event_bus = getattr(services, "events", None)
         self._cancelled_requests: set[tuple[Any, str | int]] = set()
@@ -366,7 +385,7 @@ class MCPProtocolHandler:
         document_url = handler.headers.get("X-Document-URL") or None
 
         # POST threads are short-lived daemons. Registering them via
-        # try_reserve_sse makes HttpServer.stop() join them. A POST waiting
+        # SseRegistry makes HttpServer.stop() join them. A POST waiting
         # on the main-thread queue while stop() runs on the main thread can
         # stall or deadlock. Only long-lived SSE streams need keepalive
         # tracking and shutdown.
@@ -393,7 +412,8 @@ class MCPProtocolHandler:
                 return
         tcp_server = getattr(handler, "server", None)
         sock = getattr(handler, "connection", None)
-        stop_event = try_reserve_sse(tcp_server, sock)
+        sse: SseRegistry | None = getattr(tcp_server, "sse_registry", None)
+        stop_event = sse.reserve(sock) if sse is not None else None
         if stop_event is None:
             _send_405(handler, "POST, DELETE, OPTIONS")
             return
@@ -414,8 +434,8 @@ class MCPProtocolHandler:
             if disconnect_log:
                 log.info("[SSE] GET stream disconnected")
         finally:
-            if reserved:
-                forget_sse_keepalive(tcp_server, sock)
+            if reserved and sse is not None:
+                sse.release(sock)
 
     def handle_mcp_sse(self, handler: Any) -> None:
         """GET /mcp — SSE notification stream (keepalive)."""
@@ -423,7 +443,7 @@ class MCPProtocolHandler:
 
     def handle_mcp_delete(self, handler: Any) -> None:
         """DELETE /mcp — not supported: one process-wide session must stay alive."""
-        # Nelson a3d69e68 / GitHub #38. Streamable HTTP lets a client DELETE
+        # Streamable HTTP: clients may DELETE /mcp to drop a session; stale ids get 404.
         # the session URL to end it. WriterAgent has one session id for the
         # whole soffice process, shared by every client. Returning 200 claimed
         # the session ended when it did not; clearing the id would cut every
@@ -453,8 +473,9 @@ class MCPProtocolHandler:
         """
         sock = handler.connection
         tcp_server = getattr(handler, "server", None)
-        if stop_event is None and sock is not None:
-            stop_event = try_reserve_sse(tcp_server, sock)
+        sse: SseRegistry | None = getattr(tcp_server, "sse_registry", None)
+        if stop_event is None and sock is not None and sse is not None:
+            stop_event = sse.reserve(sock)
         if stop_event is None or sock is None:
             log.info("[SSE] GET stream closed")
             return
@@ -511,7 +532,8 @@ class MCPProtocolHandler:
             # client stream; debug text hid the traceback.
             log.exception("SSE keepalive loop exception")
         finally:
-            forget_sse_keepalive(tcp_server, sock)
+            if sse is not None:
+                sse.release(sock)
             log.info("[SSE] GET stream closed")
 
     def handle_sse_post(self, handler: Any) -> None:
@@ -520,14 +542,17 @@ class MCPProtocolHandler:
         # The transport label keeps /sse and /messages distinct in [MCP-HTTP] logs.
         self.handle_mcp_post(handler, transport="sse")
 
-    def _debug_forbidden(self, handler: Any) -> str | None:
+    def _debug_forbidden(self, headers: Any, *, client_address: Any = None) -> str | None:
         """Refuse unless peer is loopback, debug token matches, and Origin is absent."""
-        addr = getattr(handler, "client_address", None)
-        client_ip = addr[0] if (isinstance(addr, (list, tuple)) and len(addr) > 0) else getattr(handler, "client_ip", "127.0.0.1")
+        addr = client_address
+        if addr is None and isinstance(headers, dict):
+            addr = headers.get("_client_address")
+        if addr is None:
+            addr = getattr(headers, "_client_address", None)
+        client_ip = addr[0] if (isinstance(addr, (list, tuple)) and len(addr) > 0) else "127.0.0.1"
         if client_ip not in ("127.0.0.1", "::1", "localhost"):
             return "Forbidden: Debug actions restricted to localhost"
 
-        headers = getattr(handler, "headers", None)
         if headers is None:
             headers = {}
         # Reject Origin to block any cross-origin requests on /debug.
@@ -543,18 +568,10 @@ class MCPProtocolHandler:
 
     # ── Simple handlers (body, headers, query) -> (status, dict) ─────
 
-    def handle_debug_info(self, body_or_handler: Any, headers: Any = None, query: Any = None) -> tuple[int, dict[str, Any]]:
+    def handle_debug_info(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
         """GET /debug — show available debug actions."""
-        # What was wrong: GET /debug was registered as raw=True, sending protocol headers
-        # and writing JSON itself rather than using the server's non-raw JSON handler.
-        # How it happened: MCP_ROUTE_TABLE table consolidation mistakenly marked it raw=True.
-        # Why this change: return (status, dict) so HttpServer formats and sends the response.
-        if headers is None and hasattr(body_or_handler, "headers"):
-            handler = body_or_handler
-        else:
-            handler = _DebugHandlerAdapter(body_or_handler, headers)
-
-        forbidden = self._debug_forbidden(handler)
+        del body, query
+        forbidden = self._debug_forbidden(headers)
         if forbidden:
             return (403, {"error": forbidden})
 
@@ -576,7 +593,7 @@ class MCPProtocolHandler:
 
     def handle_debug_post(self, handler: Any) -> None:
         """POST /debug — execute debug actions."""
-        forbidden = self._debug_forbidden(handler)
+        forbidden = self._debug_forbidden(handler.headers, client_address=getattr(handler, "client_address", None))
         if forbidden:
             log.warning("Blocked /debug access: %s", forbidden)
             self._send_json(handler, 403, {"error": forbidden})
@@ -688,96 +705,58 @@ class MCPProtocolHandler:
 
     def _tool_exposure_mode(self) -> str:
         """Read mcp.tool_exposure_mode (delegate | direct_flat | direct_discovery)."""
-        # ConfigService.get already returns the caller default on ConfigError.
-        # The except turned any other failure into the delegate catalog.
-        return self.services.config.get("mcp.tool_exposure_mode", "delegate") or "delegate"
+        from plugin.framework.config import get_config
+
+        return get_config("mcp.tool_exposure_mode")
+
+    def _resolve_target(self, document_url: str | None) -> tuple[Any, str | None]:
+        doc_svc = self.services.document
+        if document_url:
+            doc, _unused = doc_svc.resolve_document_by_url(document_url)
+        else:
+            doc = _real_active_document(doc_svc)
+        doc_type = doc_svc.detect_doc_type(doc) if doc is not None else None
+        return doc, doc_type
+
+    def _schemas_for(self, doc: Any, doc_type: str | None, exclude_tiers: Any, *, broaden: bool = False, document_url: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        doc_filter = {"filter_doc_type": False} if broaden else {}
+        uno_services = uno_services_for_document(doc, doc_type) if doc is not None else frozenset()
+        schemas = self.tool_registry.get_schemas("mcp", doc_type=doc_type, uno_services_supported=uno_services, exclude_tiers=exclude_tiers, **doc_filter)
+
+        broadened: dict[str, Any] = {}
+        if doc is not None and not document_url:
+            schemas, broadened = self._add_other_open_doc_schemas(schemas, doc_type, exclude_tiers)
+        docs_by_type = {doc_type: doc, **broadened} if doc is not None and doc_type else broadened
+
+        uno_ctx = uno_context.get_ctx()
+        schemas = drop_unavailable_domains(schemas, self.tool_registry, uno_ctx)
+        return schemas, docs_by_type
+
+    def _hide_sidebar_only(self, schemas: list[dict[str, Any]], docs_by_type: dict[str, Any]) -> list[dict[str, Any]]:
+        from plugin.doc.find_tools_tool import sidebar_only_tool_names
+
+        targets = docs_by_type.items() if docs_by_type else [(None, None)]
+        sidebar_only: set[str] = set()
+        for dtype, d in targets:
+            uno_services = uno_services_for_document(d, dtype) if d is not None else frozenset()
+            sidebar_only |= sidebar_only_tool_names(self.tool_registry, d, doc_type=dtype, uno_services_supported=uno_services)
+        if sidebar_only:
+            return [s for s in schemas if s.get("name") not in sidebar_only]
+        return schemas
 
     def _mcp_tools_list(self, params: Any, document_url: str | None = None) -> Any:
         mode = self._tool_exposure_mode()
-        # Direct modes (direct_flat / direct_discovery) intentionally skip the delegate
-        # sub-agent so MCP hosts work without a WriterAgent LLM endpoint configured.
-        # The host model orchestrates specialized tools itself. Future enhancement:
-        # optional live context injection (Calc snapshot, shapes canvas, open-docs list)
-        # like specialized_base.py does for delegated runs.
-        # direct_flat advertises the specialized tools directly (control tools stay hidden --
-        # they only make sense inside an active delegated domain). Every other mode keeps
-        # today's core-only list (specialized tools are still callable by name -- via the
-        # delegate gateway, or the find_tools discovery tool in direct_discovery).
-        if mode == "direct_flat":
-            exclude_tiers = MCP_DIRECT_FLAT_EXCLUDE_TIERS
-        else:
-            exclude_tiers = MCP_DELEGATE_EXCLUDE_TIERS
+        exclude_tiers = _exclude_tiers(mode, listing=True)
 
-        def _resolve_and_filter() -> list[dict[str, Any]]:
-            # Runs on the main (VCL) thread. Resolving the document AND filtering tools by
-            # doc type both touch UNO -- get_schemas() -> supports_doc() calls
-            # doc.supportsService() -- so the WHOLE block must be marshaled, not just the
-            # doc lookup. Doing the doc-type filtering on the MCP request thread trips the
-            # UNO thread guard and fails tools/list with a 500.
-            doc_svc = self.services.document
-            if document_url:
-                doc, _unused = doc_svc.resolve_document_by_url(document_url)
-            else:
-                doc = _real_active_document(doc_svc)
-
-            # In direct_flat with no target at all (no active doc AND no document_url), don't
-            # filter by doc type, or app-specific tools would be dropped with no find_tools
-            # fallback. An unresolvable document_url is a DOCUMENT_NOT_FOUND case, not a
-            # no-target broaden, so it keeps normal filtering -- as do delegate (byte-for-byte
-            # unchanged) and direct_discovery (find_tools has its own no-doc catalog).
+        def _collect() -> list[dict[str, Any]]:
+            doc, doc_type = self._resolve_target(document_url)
             broaden = mode == "direct_flat" and doc is None and not document_url
-            doc_filter = {"filter_doc_type": False} if broaden else {}
-            doc_type = None
-            uno_services: frozenset[str] = frozenset()
-            if doc is not None:
-                doc_type = self.services.document.detect_doc_type(doc)
-                from plugin.doc.doc_type import uno_services_for_document
-
-                uno_services = uno_services_for_document(doc, doc_type)
-            schemas = self.tool_registry.get_schemas("mcp", doc_type=doc_type, uno_services_supported=uno_services, exclude_tiers=exclude_tiers, **doc_filter)
-
-            # Filtering by the ACTIVE document alone made the Writer tools vanish
-            # whenever a spreadsheet happened to have focus, with a Writer document
-            # open right beside it -- the most reported WriterAgent failure by far
-            # ("no editing tools in this session"), and indistinguishable from the
-            # extension being down. Every tool takes document_url, so the catalog
-            # covers all OPEN document types; the active one still comes first, and
-            # a call with no document_url still targets it.
-            broadened: dict[str, Any] = {}
-            if doc is not None and not document_url:
-                schemas, broadened = self._add_other_open_doc_schemas(schemas, doc_type, exclude_tiers)
-
-            # A domain whose backend is not configured is hidden from the discovery catalog; the
-            # flat list has to agree, or the same install advertises a capability in one exposure
-            # mode and not the other. This block already runs on the main thread, which get_ctx
-            # requires.
-            from plugin.framework.uno_context import get_ctx
-
-            # This block runs on the main thread. get_ctx returns None when
-            # there is no context; an exception is a thread-guard violation
-            # and must not be turned into "advertise every domain".
-            uno_ctx = get_ctx()
-            schemas = drop_unavailable_domains(schemas, self.tool_registry, uno_ctx)
-
+            schemas, docs_by_type = self._schemas_for(doc, doc_type, exclude_tiers, broaden=broaden, document_url=document_url)
             if mode == "direct_flat":
-                # Keep Writer sidebar-only flows (brainstorming, writing_plan) out of the flat
-                # list -- they need bespoke session orchestration the direct modes don't give.
-                from plugin.doc.find_tools_tool import sidebar_only_tool_names
-
-                sidebar_only = sidebar_only_tool_names(self.tool_registry, doc, doc_type=doc_type, uno_services_supported=uno_services)
-                # The sidebar-only set is per document type, so it has to cover the
-                # types the catalog was broadened to as well -- otherwise broadening
-                # past an active Calc document smuggled Writer's sidebar-only flows
-                # (brainstorming, writing_plan) into the flat list.
-                for other_type, other_doc in broadened.items():
-                    from plugin.doc.doc_type import uno_services_for_document
-
-                    sidebar_only = sidebar_only | sidebar_only_tool_names(self.tool_registry, other_doc, doc_type=other_type, uno_services_supported=uno_services_for_document(other_doc, other_type))
-                if sidebar_only:
-                    schemas = [s for s in schemas if s.get("name") not in sidebar_only]
+                schemas = self._hide_sidebar_only(schemas, docs_by_type)
             return schemas
 
-        schemas = self.queue_executor.execute(_resolve_and_filter, timeout=10.0)
+        schemas = self.queue_executor.call(_collect, timeout=10.0)
 
         # find_tools is the discovery search tool, useful only in direct_discovery mode
         # (small core list + on-demand search). delegate advertises the gateway and
@@ -785,6 +764,8 @@ class MCPProtocolHandler:
         # Pure name filtering -- no UNO -- so it stays off the main thread.
         if mode != "direct_discovery":
             schemas = [s for s in schemas if s.get("name") != "find_tools"]
+
+        return {"tools": schemas}
 
         return {"tools": schemas}
 
@@ -820,23 +801,9 @@ class MCPProtocolHandler:
 
         if tool:
             tier = getattr(tool, "tier", "core")
-            # direct_discovery advertises specialized tools via find_tools, so
-            # invoking them must work. MCP_DELEGATE_EXCLUDE_TIERS excludes
-            # "specialized". Both direct modes use MCP_DIRECT_FLAT_EXCLUDE_TIERS
-            # (specialized_control and chat only).
-            if mode in ("direct_flat", "direct_discovery"):
-                exclude_tiers = MCP_DIRECT_FLAT_EXCLUDE_TIERS
-            else:
-                exclude_tiers = MCP_DELEGATE_EXCLUDE_TIERS
-
+            exclude_tiers = _exclude_tiers(mode, listing=False)
             if tier in exclude_tiers:
                 return _mcp_unknown_tool_result(f"Tool '{tool_name}' is not available in the current exposure mode.")
-
-        # One off-thread path: a long-running tool is is_async() exactly True
-        # (positive timeout checked in _prepare_mcp_execution) and runs through
-        # execute_safe. The long_running attribute alone must not select a second
-        # path. MagicMock is_async() is not exactly True, so it stays on backpressure.
-        is_long_running = _is_long_running(tool)
 
         log.debug("*** tools/call: %s, event_bus=%s ***", tool_name, self.event_bus)
         event_bus = self.event_bus
@@ -844,17 +811,11 @@ class MCPProtocolHandler:
             event_bus.emit("mcp:request", tool=tool_name, args=arguments, method="tools/call", req_id=req_id)
 
         try:
-            exec_kwargs: dict[str, Any] = {"document_url": document_url, "req_id": req_id}
-            if session is not None:
-                exec_kwargs["session"] = session
-            if is_long_running is True:
-                res = self._execute_long_running(tool_name, arguments, **exec_kwargs)
-            else:
-                res = self._execute_with_backpressure(tool_name, arguments, **exec_kwargs)
+            res = self._run_tool(tool_name, arguments, document_url=document_url, req_id=req_id, session=session)
         except document_mutation_gate.BusyError:
             raise
         except TimeoutError:
-            # We map TimeoutError to 504, not a tool error, because only QueueExecutor/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
+            # We map TimeoutError to 504, not a tool error, because only MainThread/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
             raise
         except Exception as e:
             # Tool failures must be MCP tool results (isError), not JSON-RPC
@@ -965,57 +926,51 @@ class MCPProtocolHandler:
             log.exception("MCP %s error", method)
             return (500, wire_types.jsonrpc_failure(req_id, wire_types.INTERNAL_ERROR, str(e), data=format_error_payload(e)))
 
-    # ── Backpressure execution ───────────────────────────────────────
+    # ── Tool execution ───────────────────────────────────────────────
 
-    def _execute_with_backpressure(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
-        """Execute a fast tool with backpressure.
-
-        Document resolve and the tool body are marshalled to the VCL main thread.
-        UNO still runs only on that thread. The per-document gate is acquired on
-        this HTTP worker.
-
-        What was wrong: the semaphore was held across the gate wait (up to 30s).
-        A long-running mutator on document A made every other fast tools/call,
-        including one for document B, time out as BusyError.
-        How: prepare still runs under the semaphore. A mutating call releases it
-        before the gate and acquires it again only for the body. Read-only calls
-        never take the gate, so they keep the semaphore straight through.
-        Why: long-running tools take only the gate, so releasing before the wait
-        cannot deadlock, and one slow edit no longer 429s unrelated fast calls.
-        """
-        acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
-        if not acquired:
-            raise document_mutation_gate.BusyError(_BUSY_MESSAGE)
-        holding = True
-        try:
+    def _run_tool(
+        self,
+        tool_name: str,
+        arguments: Any,
+        *,
+        document_url: str | None = None,
+        req_id: Any = None,
+        session: Any = None,
+    ) -> Any:
+        with _permit():
             from plugin.framework.send_cancellation import get_current_send_cancellation
 
             send_cancellation = get_current_send_cancellation()
-            prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation, session=session)
-            if not isinstance(prepared, _PreparedMcpCall):
-                return prepared
-            if not prepared.needs_gate:
-                return self.queue_executor.execute(self._invoke_prepared_mcp_tool, prepared, tool_name, arguments, timeout=_PROCESS_TIMEOUT)
-            # Gate key is known only after prepare. Drop the process-wide permit
-            # before waiting so other documents can take it.
-            _tool_semaphore.release()
-            holding = False
-            with document_mutation_gate._document_mutation_gate(prepared.doc_key):
-                acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
-                if not acquired:
-                    raise document_mutation_gate.BusyError(_BUSY_MESSAGE)
-                holding = True
-                try:
-                    return self.queue_executor.execute(self._invoke_prepared_mcp_tool, prepared, tool_name, arguments, timeout=_PROCESS_TIMEOUT)
-                finally:
-                    # TimeoutError means the body never started. A body that did
-                    # start is not timed out, so this release is not under a live
-                    # main-thread tool.
-                    _tool_semaphore.release()
-                    holding = False
-        finally:
-            if holding:
-                _tool_semaphore.release()
+            prepared = self.queue_executor.call(
+                self._prepare_mcp_execution,
+                tool_name,
+                arguments,
+                document_url,
+                req_id,
+                timeout=10.0,
+                bound_scope=send_cancellation,
+                send_cancellation=send_cancellation,
+                session=session,
+            )
+        if not isinstance(prepared, _PreparedMcpCall):
+            return prepared
+
+        gate = (
+            document_mutation_gate._document_mutation_gate(prepared.doc_key)
+            if prepared.needs_gate
+            else contextlib.nullcontext()
+        )
+        with gate:
+            if prepared.is_async:
+                return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
+            with _permit():
+                return self.queue_executor.call(
+                    self._invoke_prepared_mcp_tool,
+                    prepared,
+                    tool_name,
+                    arguments,
+                    timeout=_PROCESS_TIMEOUT,
+                )
 
     def _add_other_open_doc_schemas(self, schemas: list[dict[str, Any]], active_doc_type: str | None, exclude_tiers: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Append tools for the other open document types, active type first.
@@ -1033,7 +988,6 @@ class MCPProtocolHandler:
         others = {k: v for k, v in by_type.items() if k != active_doc_type}
         if not others:
             return schemas, {}
-        from plugin.doc.doc_type import uno_services_for_document
 
         seen = {sch.get("name") for sch in schemas}
         for other_type, other_doc in others.items():
@@ -1104,10 +1058,7 @@ class MCPProtocolHandler:
             else:
                 return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": ("No document open in LibreOffice. Ask the user to open or create a document; list_open_documents works in this state to check what is open.")}
 
-        from plugin.doc.doc_type import uno_services_for_document
-        from plugin.framework.uno_context import get_ctx
-
-        ctx = get_ctx()
+        ctx = uno_context.get_ctx()
         uno_services = uno_services_for_document(doc, doc_type)
         active_page_idx = None
         if doc_type in ("draw", "impress"):
@@ -1137,7 +1088,7 @@ class MCPProtocolHandler:
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
 
         context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=send_cancellation, stop_checker=stop_checker)
-        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=tool.requires_document_lock(arguments), echo=_document_echo_payload(doc))
+        return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=tool.requires_document_lock(arguments), echo=_document_echo_payload(doc), is_async=_is_async)
 
     def _invoke_prepared_mcp_tool(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
         """Registry execute + elapsed/echo. Caller holds the mutation gate when the tool needs it.
@@ -1167,26 +1118,6 @@ class MCPProtocolHandler:
                 result["document"] = prepared.echo
         return result
 
-    def _execute_long_running(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
-        """Execute a long-running tool on the current background HTTP thread.
-
-        Context resolution runs on the main thread. Mutating tools hold the same
-        per-document gate as backpressure, acquired here on the worker;
-        read-only tools skip it. is_async tools (the long-running path) run
-        here through execute_safe; the registry marshals sync tools back to
-        the main thread. Client arguments cannot set bypass_thread_guard, and
-        this method does not pass that keyword.
-        """
-        from plugin.framework.send_cancellation import get_current_send_cancellation
-        send_cancellation = get_current_send_cancellation()
-        prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation, session=session)
-        if not isinstance(prepared, _PreparedMcpCall):
-            return prepared
-        if not prepared.needs_gate:
-            return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
-        with document_mutation_gate._document_mutation_gate(prepared.doc_key):
-            return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
-
     # ── Debug helpers ────────────────────────────────────────────────
 
     def _debug_call_tool(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
@@ -1200,7 +1131,7 @@ class MCPProtocolHandler:
         if document_url is None:
             document_url = args_copy.pop("document_url", None)
 
-        result = self._execute_with_backpressure(tool_name, args_copy, document_url=document_url)
+        result = self._run_tool(tool_name, args_copy, document_url=document_url)
         return result
 
     def _debug_trigger(self, command: str) -> Any:
@@ -1212,12 +1143,9 @@ class MCPProtocolHandler:
             registry = get_services()
             if registry is None:
                 return {"error": "Services not initialized"}
-            if registry.get("config") is None:
-                return {"error": "No config service"}
-            from plugin.framework.uno_context import get_ctx
 
-            ctx = get_ctx()
-            self.queue_executor.execute(settings_box, ctx, timeout=120.0)
+            ctx = uno_context.get_ctx()
+            self.queue_executor.call(settings_box, ctx, timeout=120.0)
             return "Settings dialog shown"
         return {"triggered": command, "note": "Use menu for UI commands"}
 
@@ -1227,16 +1155,13 @@ class MCPProtocolHandler:
         return list(self.services._services.keys())
 
     def _debug_config(self, key: Any, value: Any) -> Any:
-        if not self.services:
-            return {"error": "No service registry"}
-        config_svc = self.services.config
-        if not config_svc:
-            return {"error": "No config service"}
+        from plugin.framework.config import get_config, get_config_dict, save
+
         if key is None:
-            return config_svc.get_dict()
+            return get_config_dict()
         if value == "__NOSET__":
-            return {key: config_svc.get(key)}
-        config_svc.set(key, value)
+            return {key: get_config(key)}
+        save({key: value})
         return {key: value, "persisted": True}
 
     # ── Helpers ───────────────────────────────────────────────────────

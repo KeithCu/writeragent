@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.python_runner import execute_and_insert_result
+from tests.scripting.python_runner_test_support import execute_and_insert_result
 from plugin.scripting.symbolic import get_math_script_templates
 
 
 @patch("plugin.scripting.symbolic.insert_symbolic_result_into_doc")
-@patch("plugin.scripting.symbolic.run_trusted_symbolic")
+@patch("plugin.scripting.helper_domain.run_domain")
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
 def test_execute_and_insert_math_skips_fast_path(mock_venv, mock_run, mock_insert):
     ctx = MagicMock()

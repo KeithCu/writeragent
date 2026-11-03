@@ -10,6 +10,15 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+from plugin.framework.send_cancellation import SendCancellation
+
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
+
 
 from plugin.framework.stream_batch import BatchingStreamQueue, DeadlineThread, StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, StreamQueue, run_stream_drain_loop
@@ -487,14 +496,14 @@ def test_stop_applies_flushed_batcher_text():
         on_stream_done=lambda _i: True,
         on_stopped=lambda: None,
         on_error=lambda _e: None,
-        stop_checker=lambda: True,
+        stop_checker=lambda: _cancelled_scope().is_cancelled(),
         flush_pending=flush_pending,
     )
     assert outcome.done is True
     assert applied == ["kept"]
 
 
-def test_pump_ui_idle_unblocks_execute_on_main_thread_when_poke_noop():
+def test_pump_ui_idle_unblocks_call_when_poke_noop():
     """Regression: async tools marshal UNO while drain loop runs; poke alone must not deadlock."""
     from plugin.framework import queue_executor as qe
 
@@ -504,25 +513,26 @@ def test_pump_ui_idle_unblocks_execute_on_main_thread_when_poke_noop():
 
     def worker():
         try:
-            result_holder.append(qe.execute_on_main_thread(lambda: "marshaled"))
+            result_holder.append(qe.main.call(lambda: "marshaled"))
         finally:
             done.set()
 
-    with patch.object(qe.default_executor, "_get_async_callback", return_value=MagicMock()):
-        with patch.object(qe.default_executor, "_poke_main_thread", lambda: None):
-            qe.set_force_marshal_mode(True)
+    with patch.object(qe.main, "_get_async_callback", return_value=MagicMock()):
+        with patch.object(qe.main, "_poke_main_thread", lambda: None):
+            saved_policy = qe.main.policy
+            qe.main.install(qe.Policy.test_marshal)
             try:
                 t = run_in_background(worker, name="marshal-worker", daemon=False)
                 deadline = time.time() + 3.0
                 while not done.is_set() and time.time() < deadline:
                     qe.pump_ui_idle(toolkit, max_queue_items=4)
                 t.join(timeout=1.0)
-                assert done.is_set(), "worker blocked on execute_on_main_thread without pump_ui_idle"
+                assert done.is_set(), "worker blocked on main.call without pump_ui_idle"
                 assert result_holder == ["marshaled"]
             finally:
-                qe.set_force_marshal_mode(False)
-                while not qe.default_executor._work_queue.empty():
-                    qe.default_executor.process_queue()
+                qe.main.install(saved_policy)
+                while not qe.main._work_queue.empty():
+                    qe.main.process_queue()
 
 
 def test_drain_owner_scope_rejects_nesting():
@@ -560,7 +570,7 @@ def test_pump_ui_idle_skips_vcl_when_drain_depth_gt_1_but_drains_queue():
     reset_sentry_state()
     toolkit = DummyToolkit()
     ran: list[str] = []
-    ex = qe.QueueExecutor()
+    ex = qe.MainThread()
     ex._enqueue_work(lambda: ran.append("q"), (), {}, blocking=False)
     with drain_owner_scope("stream"):
         assert get_drain_depth() == 1
@@ -738,12 +748,13 @@ def test_run_stream_drain_loop_idle_unblocks_marshaled_worker():
     marshal_done = threading.Event()
 
     def worker():
-        qe.execute_on_main_thread(lambda: marshal_done.set())
+        qe.main.call(lambda: marshal_done.set())
         stream_q.put((StreamQueueKind.STREAM_DONE, None))
 
-    with patch.object(qe.default_executor, "_get_async_callback", return_value=MagicMock()):
-        with patch.object(qe.default_executor, "_poke_main_thread", lambda: None):
-            qe.set_force_marshal_mode(True)
+    with patch.object(qe.main, "_get_async_callback", return_value=MagicMock()):
+        with patch.object(qe.main, "_poke_main_thread", lambda: None):
+            saved_policy = qe.main.policy
+            qe.main.install(qe.Policy.test_marshal)
             try:
                 run_in_background(worker, name="tool-async-marshal", daemon=False)
                 outcome = DrainOutcome()
@@ -764,9 +775,9 @@ def test_run_stream_drain_loop_idle_unblocks_marshaled_worker():
                 assert marshal_done.is_set()
                 assert outcome.done
             finally:
-                qe.set_force_marshal_mode(False)
-                while not qe.default_executor._work_queue.empty():
-                    qe.default_executor.process_queue()
+                qe.main.install(saved_policy)
+                while not qe.main._work_queue.empty():
+                    qe.main.process_queue()
 
 
 def test_deadline_thread_arm_fires_after_delay() -> None:

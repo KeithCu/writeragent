@@ -11,7 +11,7 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from .anthropic_shim import AnthropicShim
-from .shim_helpers import _openai_model_leaf
+from .shim_helpers import _openai_model_leaf, annotate_anthropic_cache
 from .base_provider_shim import (
     BaseProviderShim,
     canonical_aspect_ratio,
@@ -217,6 +217,15 @@ class OllamaShim(BaseProviderShim):
 
 class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
+
+    def build_chat_request(
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+    ) -> tuple[str, str, bytes, dict[str, str]]:
+        if isinstance(model_name, str) and model_name.startswith("anthropic/"):
+            messages = annotate_anthropic_cache(messages)
+        return super().build_chat_request(
+            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra
+        )
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. OpenRouter /images has no steps field.

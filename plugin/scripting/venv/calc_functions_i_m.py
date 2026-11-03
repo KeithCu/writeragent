@@ -315,10 +315,7 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
     # yf == 0 would be ZeroDivisionError (#DIV/0!). Excel INTRATE is #NUM!.
     if yf == 0:
         return float("nan")
-    # What was wrong: INTRATE with an infinite redemption returned inf.
-    # How it happened: the quotient is outside the conversion, and float
-    # division does not raise. getIntrate returns finiteOrThrow.
-    # Why this change fixes it: a non-finite quotient is NaN.
+    # Non-finite quotient is NaN (Excel/Calc INTRATE returns #NUM!).
     res = (red - inv) / inv / yf
     return res if math.isfinite(res) else float("nan")
 
@@ -424,11 +421,7 @@ def iseven(val: Any) -> bool:
 
 
 def islogical(val: Any) -> bool:
-    # What was wrong: islogical(np.bool_(True)) was False.
-    # How it happened: np.bool_ is not a subclass of bool, and this was the
-    # only logical check that tested bool alone. is_number excludes both,
-    # and n() maps both to 1.0 / 0.0.
-    # Why this change fixes it: a NumPy logical is logical, matching ISLOGICAL.
+    # np.bool_ is not a subclass of bool; both are logical in Calc.
     return isinstance(val, (bool, np.bool_))
 
 
@@ -855,19 +848,7 @@ def multinomial(*args: Any) -> float:
             vals.append(int(float(value)))
     if any(value < 0 for value in vals):
         return float("nan")
-    # What was wrong: multinomial(1e9, 1e9) did not return. It burned CPU
-    # and memory until the script timeout.
-    # How it happened: math.comb(sum, k) builds a Python int. comb(2e9, 1e9)
-    # is hundreds of millions of bits. The switch off math.factorial(sum)
-    # only made each factor smaller; it did not bound the factor.
-    # getMultinomial (analysis.cxx) multiplies BinomialCoefficient in
-    # double and returns finiteOrThrow. A non-finite result is #NUM!,
-    # which this module reports as NaN.
-    # Why this change fixes it: log-gamma rejects a coefficient that
-    # cannot fit in a float before math.comb runs, and the running
-    # product stops at the same float limit. k < 2 skips log-gamma:
-    # lgamma(1e308) raises OverflowError even when C(n, n) is 1 and
-    # C(n, 1) is n.
+    # getMultinomial (analysis.cxx): reject coefficients exceeding float capacity via log-gamma before math.comb.
     acc = 1
     rest = sum(vals)
     limit = math.log(sys.float_info.max)

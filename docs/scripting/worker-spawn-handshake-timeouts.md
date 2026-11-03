@@ -96,7 +96,7 @@ Look for `spawn handshake timed out` on stderr, not only the pytest summary.
 ```bash
 .venv/bin/python -c "
 import subprocess, sys, time
-from plugin.scripting.ipc import read_pickle_frame
+from plugin.framework.ipc import read_pickle_frame
 p = subprocess.Popen([sys.executable, 'compute_service/formula_worker.py'],
                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
 t0 = time.monotonic()

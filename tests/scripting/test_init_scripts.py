@@ -317,7 +317,7 @@ def test_build_python_eval_init_kwargs():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     set_calc_init_script(doc, "import pandas as pd")
-    with patch("plugin.scripting.session_manager._workbook_session_key", return_value="doc-1"):
+    with patch("plugin.scripting.session_manager.mint_document_key", return_value="doc-1"):
         kw = build_python_eval_init_kwargs(doc)
     assert kw["init_script"] == "import pandas as pd"
     assert kw["init_session_id"] == "calc:doc-1:init"
@@ -327,18 +327,17 @@ def test_build_python_eval_init_kwargs():
 def test_run_code_forwards_init_kwargs():
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     set_calc_init_script(doc, "x = 1")
     with (
         patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr,
-        patch("plugin.scripting.session_manager._workbook_session_key", return_value="k"),
+        patch("plugin.scripting.session_manager.mint_document_key", return_value="k"),
     ):
         manager = MagicMock()
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
-        run_code_in_user_venv(ctx, "result = 1", init_script="x = 1", init_session_id="calc:k:init", init_script_hash="abc")
+        run_code_in_user_venv("result = 1", init_script="x = 1", init_session_id="calc:k:init", init_script_hash="abc")
         assert manager.execute.call_args.kwargs.get("init_script") == "x = 1"
 
 
@@ -346,7 +345,7 @@ def test_workbook_session_id_recursion_off_main_thread(monkeypatch: pytest.Monke
     from plugin.scripting.session_manager import workbook_session_id
 
     # No caller doc: None without a desktop lookup or deadlock (#402)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda: "shared")
 
     doc = MagicMock()

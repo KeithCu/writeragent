@@ -23,7 +23,7 @@ def test_session_manager_module_avoids_document_helpers_and_dialogs() -> None:
     assert "plugin.calc.analyzer" not in mods
     assert "plugin.chatbot.dialogs" not in mods
     assert "plugin.scripting.venv_worker" not in mods
-    assert "plugin.doc.doc_type" in mods
+    assert "plugin.framework.doc_type" in mods
     assert "plugin.doc.udprops" in mods
 
 
@@ -81,7 +81,7 @@ def test_workbook_session_key_unsaved_uses_uuid_not_id() -> None:
         patch("plugin.scripting.session_manager.get_document_property", return_value=""),
         patch("plugin.scripting.session_manager.set_document_property", side_effect=RuntimeError("no props")),
     ):
-        key = session_manager._workbook_session_key(mock_doc)
+        key = session_manager.mint_document_key(mock_doc)
     assert key.startswith("unsaved:")
     rest = key[len("unsaved:") :]
     uuid_mod.UUID(rest)
@@ -99,7 +99,7 @@ def test_workbook_session_id_with_explicit_doc() -> None:
     with (
         patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
         patch("plugin.scripting.session_manager.is_calc", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
     ):
         sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
         assert sid == "calc:file:///custom_sheet.ods"
@@ -341,8 +341,8 @@ def test_reset_reports_init_reseed_failure() -> None:
     msgbox.assert_called_once()
     assert "init boom" in msgbox.call_args[0][1]
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:file:///wb.ods"),
-        call(ctx, "calc:file:///wb.ods:init"),
+        call("calc:file:///wb.ods"),
+        call("calc:file:///wb.ods:init"),
     ]
 
 
@@ -369,8 +369,8 @@ def test_reset_calc_reports_init_session_failure() -> None:
     assert "init session busy" in msgbox.call_args[0][1]
     mock_run_code.assert_not_called()
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:file:///wb.ods"),
-        call(ctx, "calc:file:///wb.ods:init"),
+        call("calc:file:///wb.ods"),
+        call("calc:file:///wb.ods:init"),
     ]
 
 
@@ -430,7 +430,7 @@ def test_workbook_session_key_unsaved_when_property_does_not_stick() -> None:
         patch("plugin.scripting.session_manager.get_document_property", return_value=""),
         patch("plugin.scripting.session_manager.set_document_property", return_value=None),
     ):
-        key = session_manager._workbook_session_key(mock_doc)
+        key = session_manager.mint_document_key(mock_doc)
     assert key.startswith("unsaved:")
 
 
@@ -452,7 +452,7 @@ def test_workbook_session_key_returns_id_when_property_sticks() -> None:
         patch("plugin.scripting.session_manager.get_document_property", side_effect=_get),
         patch("plugin.scripting.session_manager.set_document_property", side_effect=_set),
     ):
-        key = session_manager._workbook_session_key(mock_doc)
+        key = session_manager.mint_document_key(mock_doc)
     uuid_mod.UUID(key.replace("unsaved:", ""))
     assert stored[session_manager.PYTHON_WORKBOOK_SESSION_PROP] == key
 
@@ -633,13 +633,13 @@ def test_document_for_script_session_stops_at_enum_cap(caplog) -> None:
 
 def test_unsaved_session_id_starts_with_unsaved():
     from unittest.mock import MagicMock, patch
-    from plugin.scripting.session_manager import _workbook_session_key
+    from plugin.scripting.session_manager import mint_document_key
     doc = MagicMock()
     doc.getURL = lambda: ""
     doc.getPropertyValue.side_effect = Exception("No props")
     with patch("plugin.scripting.session_manager.get_document_property", return_value=None):
         with patch("plugin.scripting.session_manager.set_document_property"):
-            key = _workbook_session_key(doc)
+            key = mint_document_key(doc)
             assert key.startswith("unsaved:")
 
 def test_ppt_master_unsaved_decks_unique_session_id() -> None:
@@ -737,17 +737,17 @@ def test_save_as_url_resets_orphaned_unsaved_session():
         patch("plugin.scripting.venv_worker.reset_python_session") as mock_reset,
         patch("plugin.framework.uno_context.get_ctx", return_value=ctx),
     ):
-        from plugin.scripting.session_manager import _workbook_session_key
+        from plugin.scripting.session_manager import mint_document_key
 
-        key = _workbook_session_key(doc)
+        key = mint_document_key(doc)
 
     assert key == "file:///saved_doc.ods"
     mock_remove.assert_called_once()
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:unsaved:1234-uuid"),
-        call(ctx, "rps:unsaved:1234-uuid"),
-        call(ctx, "notebook:unsaved:1234-uuid"),
-        call(ctx, "ppt_master:unsaved:1234-uuid"),
+        call("calc:unsaved:1234-uuid"),
+        call("rps:unsaved:1234-uuid"),
+        call("notebook:unsaved:1234-uuid"),
+        call("ppt_master:unsaved:1234-uuid"),
     ]
 
 
@@ -762,10 +762,10 @@ def test_save_as_skips_orphan_reset_when_property_remains() -> None:
         patch("plugin.doc.udprops.remove_document_property") as mock_remove,
         patch("plugin.scripting.venv_worker.reset_python_session") as mock_reset,
     ):
-        from plugin.scripting.session_manager import _workbook_session_key
+        from plugin.scripting.session_manager import mint_document_key
 
-        key1 = _workbook_session_key(doc)
-        key2 = _workbook_session_key(doc)
+        key1 = mint_document_key(doc)
+        key2 = mint_document_key(doc)
 
     assert key1 == "file:///saved_doc.ods"
     assert key2 == "file:///saved_doc.ods"
@@ -778,8 +778,8 @@ def test_reset_off_main_marshals_body_once() -> None:
 
     ctx = MagicMock()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False) as mock_main,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_exec,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False) as mock_main,
+        patch("plugin.framework.queue_executor.main.call") as mock_exec,
     ):
         session_manager.reset_workbook_python_session(ctx)
     mock_main.assert_called_once()
@@ -796,8 +796,8 @@ def test_reset_off_main_runs_body_when_hop_lands_on_main() -> None:
     desktop.getCurrentComponent.return_value = non_target_doc
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", side_effect=[False, True]),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)) as mock_exec,
+        patch("plugin.framework.queue_executor.main.is_current", side_effect=[False, True]),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)) as mock_exec,
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_writer", return_value=False),
         patch("plugin.scripting.session_manager.is_draw", return_value=False),
@@ -820,7 +820,7 @@ def test_existing_workbook_session_key_does_not_retire_orphan() -> None:
         patch("plugin.doc.udprops.remove_document_property") as mock_remove_prop,
         patch("plugin.scripting.venv_worker.reset_python_session") as mock_reset,
     ):
-        key = session_manager._existing_workbook_session_key(doc)
+        key = session_manager.document_key(doc)
     assert key == "file:///saved.ods"
     mock_get_prop.assert_not_called()
     mock_remove_prop.assert_not_called()
@@ -848,12 +848,12 @@ def test_reset_calc_retires_unsaved_orphan_then_resets_url() -> None:
 
     mock_remove.assert_called_once()
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:unsaved:abc"),
-        call(ctx, "rps:unsaved:abc"),
-        call(ctx, "notebook:unsaved:abc"),
-        call(ctx, "ppt_master:unsaved:abc"),
-        call(ctx, "calc:file:///saved.ods"),
-        call(ctx, "calc:file:///saved.ods:init"),
+        call("calc:unsaved:abc"),
+        call("rps:unsaved:abc"),
+        call("notebook:unsaved:abc"),
+        call("ppt_master:unsaved:abc"),
+        call("calc:file:///saved.ods"),
+        call("calc:file:///saved.ods:init"),
     ]
 
 
@@ -878,8 +878,8 @@ def test_reset_calc_skips_orphan_ipc_when_property_remains() -> None:
 
     mock_remove.assert_called_once()
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:file:///saved.ods"),
-        call(ctx, "calc:file:///saved.ods:init"),
+        call("calc:file:///saved.ods"),
+        call("calc:file:///saved.ods:init"),
     ]
 
 
@@ -903,8 +903,8 @@ def test_reset_calc_unsaved_doc_does_not_quadruple_reset() -> None:
 
     mock_remove.assert_not_called()
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:unsaved:abc"),
-        call(ctx, "calc:unsaved:abc:init"),
+        call("calc:unsaved:abc"),
+        call("calc:unsaved:abc:init"),
     ]
 
 

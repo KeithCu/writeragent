@@ -53,10 +53,15 @@ class TestInputBoxExtraTokens:
         dlg, _edit_ctrl, extend_tokens_ctrl, extra_tokens_ctrl, optional_side_effect = self._mock_dialog(execute_ok=False)
         mock_load.return_value = dlg
 
-        def config_int_side_effect(key):
-            return {"extend_selection_max_tokens": 1200, "edit_selection_max_new_tokens": 750}[key]
+        def config_side_effect(key):
+            if key == "additional_instructions":
+                return ""
+            return {
+                "chatbot.extend_selection_max_tokens": 1200,
+                "chatbot.edit_selection_max_new_tokens": 750,
+            }[key]
 
-        with patch("plugin.chatbot.dialog_views.get_config_int", side_effect=config_int_side_effect), \
+        with patch("plugin.chatbot.dialog_views.get_config", side_effect=config_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_text") as mock_set_text, \
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
             result = input_box(ctx, "msg", "title", "")
@@ -87,14 +92,14 @@ class TestInputBoxExtraTokens:
             return "rewrite this"
 
         with patch("plugin.chatbot.dialog_views.get_control_text", side_effect=control_text_side_effect), \
-             patch("plugin.chatbot.dialog_views.set_configs") as mock_set_configs, \
+             patch("plugin.chatbot.dialog_views.save") as mock_save, \
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
             text, prompt = input_box(ctx, "msg", "title", "")
 
         assert (text) == ("rewrite this")
-        mock_set_configs.assert_called_once_with({
-            "extend_selection_max_tokens": "1500",
-            "edit_selection_max_new_tokens": "250",
+        mock_save.assert_called_once_with({
+            "chatbot.extend_selection_max_tokens": "1500",
+            "chatbot.edit_selection_max_new_tokens": "250",
         })
 
     @patch("plugin.chatbot.dialog_views.populate_combobox_with_lru")
@@ -118,13 +123,13 @@ class TestInputBoxExtraTokens:
             return "go"
 
         with patch("plugin.chatbot.dialog_views.get_control_text", side_effect=control_text_side_effect), \
-             patch("plugin.chatbot.dialog_views.set_configs") as mock_set_configs, \
+             patch("plugin.chatbot.dialog_views.save") as mock_save, \
              patch("plugin.chatbot.dialog_views.get_optional", side_effect=optional_side_effect):
             input_box(ctx, "msg", "title", "")
 
-        mock_set_configs.assert_called_once_with({
-            "extend_selection_max_tokens": "1",
-            "edit_selection_max_new_tokens": "99999",
+        mock_save.assert_called_once_with({
+            "chatbot.extend_selection_max_tokens": "1",
+            "chatbot.edit_selection_max_new_tokens": "99999",
         })
 
     @patch("plugin.chatbot.dialog_views.init_logging")
@@ -299,7 +304,7 @@ class TestEndpointCombinedListener:
         combo.getText.return_value = 'http://localhost:1a'
         listener = EndpointCombinedListener(dialog, ctx, combo)
         with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
-             patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: fn()), \
+             patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
              patch("plugin.chatbot.dialog_views.settings_catalog_is_warm", return_value=False):
             listener._schedule_debounced_models_fetch()
             try:
@@ -334,7 +339,7 @@ class TestEndpointCombinedListener:
 
         speech_ids = ['mistralai/voxtral-mini-transcribe', 'openai/whisper-large-v3']
         with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect), \
-             patch('plugin.framework.config.get_config_str', return_value='endpoint'), \
+             patch('plugin.framework.config.get_config', return_value='endpoint'), \
              patch('plugin.framework.config.get_config', return_value=''), \
              patch('plugin.framework.config.get_current_endpoint', return_value='http://localhost:11434'), \
              patch('plugin.chatbot.dialog_views.cached_stt_models', side_effect=lambda endpoint, api_key_override=None: list(speech_ids)), \
@@ -509,7 +514,7 @@ class TestSettingsEnhancements:
         dlg.getControl.side_effect = get_control_side_effect
 
         with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, **kwargs: fn()), \
-             patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: fn()), \
+             patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
              patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText.return_value):
             ep_listener = MagicMock()
             ep_listener._api_key_override.return_value = "sk-test-key"
@@ -548,7 +553,7 @@ class TestSettingsEnhancements:
         api_key_ctrl.setFocus.assert_called_once()
         mock_open_url.assert_called_once_with(ctx, "https://api.together.ai/settings/api-keys")
 
-    @patch("plugin.mcp.mcp_ui.get_config_int_safe", return_value=18765)
+    @patch("plugin.mcp.mcp_ui.get_config", return_value=18765)
     def test_build_mcp_config_snippet_default(self, mock_port):
         import json
         from plugin.mcp.mcp_ui import build_mcp_config_snippet
@@ -624,7 +629,7 @@ def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
 
     from plugin.mcp import mcp_ui
 
-    mcp_ui._tested_provider_tunnel_urls.clear()
+    mcp_ui._standalone_tunnel.tested_provider_tunnel_urls.clear()
 
     snippet = MagicMock()
     port = MagicMock()
@@ -649,7 +654,7 @@ def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
     tunnel.mcp_public_url.return_value = ""
 
     try:
-        with patch("plugin.mcp._shared_tunnel", tunnel), \
+        with patch("plugin.mcp.current_tunnel", return_value=tunnel), \
              patch("time.sleep") as mock_sleep, \
              patch("plugin.framework.worker_pool.run_in_background") as background:
             mcp_ui.sync_mcp_config_snippet(dlg)
@@ -659,7 +664,7 @@ def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
         written = json.loads(snippet.setText.call_args[0][0])
         assert written["mcpServers"]["libreoffice"]["url"] == "https://<subdomain>.trycloudflare.com/mcp"
     finally:
-        mcp_ui._tested_provider_tunnel_urls.clear()
+        mcp_ui._standalone_tunnel.tested_provider_tunnel_urls.clear()
 
 
 class TestProviderButtonIcons:
@@ -810,7 +815,7 @@ def test_download_audio_listener_appends_and_keeps_title() -> None:
     with (
         patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.native_binaries.run_audio_download", side_effect=fake_download),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_hop),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_hop),
         patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=fake_ensure),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=fake_invalidate),
     ):
@@ -848,7 +853,7 @@ def test_download_audio_listener_skips_bind_when_download_returns_false() -> Non
     with (
         patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.native_binaries.run_audio_download", side_effect=fake_download),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=boom),
+        patch("plugin.framework.queue_executor.main.call", side_effect=boom),
         patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=boom),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=boom),
     ):
@@ -882,7 +887,7 @@ def test_download_audio_listener_skips_bind_when_download_raises() -> None:
     with (
         patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.native_binaries.run_audio_download", side_effect=boom_download),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=boom_bind),
+        patch("plugin.framework.queue_executor.main.call", side_effect=boom_bind),
         patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=boom_bind),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=boom_bind),
     ):
@@ -996,7 +1001,7 @@ def test_sync_api_key_keeps_typed_key_when_url_changes() -> None:
             listener.textChanged(MagicMock())
         finally:
             # textChanged starts the real 1 s debounce Timer; left running, it
-            # posts into default_executor during a later test on this worker.
+            # posts into main during a later test on this worker.
             listener.close()
     mock_set.assert_not_called()
     assert api.getText.return_value == "sk-pasted"
@@ -1097,7 +1102,7 @@ def test_apply_dropdowns_updates_tts_combobox() -> None:
 
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect):
         speech_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
-        with patch("plugin.framework.config.get_config_str", return_value="endpoint"), \
+        with patch("plugin.framework.config.get_config", return_value="endpoint"), \
              patch("plugin.framework.config.get_config", return_value=""), \
              patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api"), \
              patch("plugin.chatbot.dialog_views.cached_tts_models", side_effect=lambda endpoint, api_key_override=None: list(speech_ids)), \
@@ -1263,7 +1268,7 @@ def test_bg_fetch_together_warms_voices() -> None:
          patch("plugin.chatbot.dialog_views.fetch_available_image_models", return_value=[]), \
          patch("plugin.chatbot.dialog_views.fetch_available_tts_models", return_value=None), \
          patch("plugin.chatbot.dialog_views.fetch_available_stt_models", return_value=None), \
-         patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None), \
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None), \
          patch("plugin.chatbot.dialog_views.get_optional", return_value=None), \
          patch("plugin.framework.client.model_fetcher.fetch_together_tts_voices") as mock_voices:
         listener._bg_fetch(1, "https://api.together.xyz")
@@ -1338,7 +1343,7 @@ def test_warm_openrouter_catalog_does_not_http_until_test_connection() -> None:
 
             with patch("plugin.chatbot.quick_setup.check_endpoint_connection", return_value=(True, "ok", [])), \
                  patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
-                 patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None):
+                 patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None):
                 TestConnectionListener(MagicMock(), MagicMock(), listener).on_action_performed(MagicMock())
 
             assert rechecked == [True]
@@ -1362,7 +1367,7 @@ def test_close_cancels_catalog_fetch_that_has_not_started() -> None:
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
     with patch("plugin.chatbot.dialog_views.settings_catalog_is_warm", return_value=False), \
          patch("plugin.chatbot.dialog_views.fetch_available_models") as mock_fetch, \
-         patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: fn()):
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()):
         listener._schedule_debounced_models_fetch()
         timer = listener._timer
         try:
@@ -1463,7 +1468,7 @@ def test_tts_settings_listener_together_voices_replace_alloy() -> None:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
              patch("plugin.framework.client.requests.sync_request") as mock_sync, \
-             patch("plugin.framework.config.set_config", side_effect=lambda k, v, **kwargs: stored.__setitem__(k, v)), \
+             patch("plugin.framework.config.save", side_effect=lambda k, v, **kwargs: stored.__setitem__(k, v)), \
              patch("plugin.chatbot.dialog_views.get_config", return_value=""):
             sync_tts_ui(dlg)
             mock_sync.assert_not_called()
@@ -1592,7 +1597,7 @@ def test_tts_settings_listener_uses_cached_openrouter_voices():
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
              patch("plugin.chatbot.dialog_views.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
-             patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
+             patch("plugin.framework.config.save", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
             sync_tts_ui(dlg)
         assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
         assert voice_ctrl.setText.call_args[0][0] == "Kore"
@@ -1640,7 +1645,7 @@ def test_tts_settings_listener_prefers_aoede_for_gemini():
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
              patch("plugin.chatbot.dialog_views.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
-             patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
+             patch("plugin.framework.config.save", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
             sync_tts_ui(dlg)
         if voice_ctrl.setText.called:
             shown = voice_ctrl.setText.call_args[0][0]
@@ -1721,7 +1726,7 @@ def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
              patch("plugin.chatbot.dialog_views.set_control_enabled"), \
              patch("plugin.chatbot.dialog_views.get_config", side_effect=lambda key, default=None: stored.get(key, default)), \
-             patch("plugin.framework.config.set_config", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
+             patch("plugin.framework.config.save", side_effect=lambda key, val, **kwargs: stored.__setitem__(key, val)):
             sync_tts_ui(dlg)
         assert list(voice_model.StringItemList) == ["Kore", "Puck", "Zephyr"]
         voice_ctrl.setText.assert_not_called()
@@ -1739,7 +1744,7 @@ def test_tts_test_voice_progress_uses_modeless_box_not_msgbox():
     box = MagicMock()
     box._closed = False
 
-    with patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)), \
+    with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)), \
          patch.object(listener, "_show_progress") as show, \
          patch.object(listener, "_close_progress") as close, \
          patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
@@ -1768,7 +1773,7 @@ def test_tts_test_voice_status_shows_http_body():
          patch("plugin.chatbot.dialog_views.get_checkbox_state", return_value=1), \
          patch("plugin.audio.tts_voices.tts_test_sample", return_value="Hello"), \
          patch("plugin.audio.tts_service.speak_text_async", side_effect=_speak), \
-         patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)), \
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)), \
          patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
         listener.on_action_performed(None)
 
@@ -1903,7 +1908,7 @@ def test_voice_combo_change_does_not_write_config_until_ok():
 
     stored: dict[str, str] = {}
     with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
-         patch("plugin.framework.config.set_config", side_effect=lambda k, v, **kwargs: stored.__setitem__(k, v)):
+         patch("plugin.framework.config.save", side_effect=lambda k, v, **kwargs: stored.__setitem__(k, v)):
         sync_tts_ui(dlg)
     assert "audio.tts_voice" not in stored
     assert "audio.tts_voice_piper" not in stored
@@ -1917,9 +1922,9 @@ def test_voice_combo_change_does_not_write_config_until_ok():
     ]
     saved: dict[str, str] = {}
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: saved.update(values)) as batch, \
+         patch("plugin.chatbot.settings_dialog.save", side_effect=lambda values: saved.update(values)) as batch, \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.framework.config.set_config") as tts_set:
+         patch("plugin.framework.config.save") as tts_set:
         apply_settings_result(MagicMock(), {
             "audio__tts_provider": "Piper (Local Fast Neural, CPU)",
             "audio__tts_voice": "US English Female - Amy",
@@ -2048,8 +2053,8 @@ def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
                  patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
                  patch("plugin.chatbot.dialog_views.set_control_text") as mock_set, \
                  patch("plugin.chatbot.dialog_views.get_control_text", return_value=key), \
-                 patch("plugin.framework.config.set_config") as set_config, \
-                 patch("plugin.framework.config.set_configs") as set_configs, \
+                 patch("plugin.framework.config.save") as set_config, \
+                 patch("plugin.framework.config.save") as save, \
                  patch("plugin.framework.config.set_api_key_for_endpoint") as set_api:
                 listener._schedule_debounced_models_fetch()
                 ApiKeyTextListener(listener).textChanged(MagicMock())
@@ -2057,12 +2062,12 @@ def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
                 assert fetches == []
                 mock_sync.assert_not_called()
                 set_config.assert_not_called()
-                set_configs.assert_not_called()
+                save.assert_not_called()
                 set_api.assert_not_called()
                 mock_set.assert_not_called()
 
                 with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
-                     patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None):
+                     patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None):
                     listener.force_catalog_refresh()
                 assert fetches
                 mock_sync.assert_not_called()

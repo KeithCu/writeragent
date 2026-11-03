@@ -1371,7 +1371,7 @@ def test_test_tunnel_connectivity_live_probe_success():
         patch.dict("os.environ", {}, clear=True),
         patch("subprocess.run", return_value=mock_res),
         patch("urllib.request.urlopen", return_value=mock_probe),
-        patch("plugin.mcp._shared_tunnel", mock_tunnel),
+        patch("plugin.mcp.current_tunnel", return_value=mock_tunnel),
     ):
         ok, msg, pub_url = test_tunnel_connectivity("cloudflare", port=18765)
         assert ok is True
@@ -1402,10 +1402,10 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
         sync_mcp_config_snippet,
         McpTunnelEnabledListener,
         McpPortTextListener,
-        _tested_provider_tunnel_urls,
+        _standalone_tunnel,
     )
 
-    _tested_provider_tunnel_urls.clear()
+    _standalone_tunnel.tested_provider_tunnel_urls.clear()
 
     mock_dlg = MagicMock()
     mock_snippet = MagicMock()
@@ -1564,25 +1564,25 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     from plugin.mcp.tunnel_state import TunnelStatus
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    monkeypatch.setattr(mcp_mod, "_shared_tunnel", None)
-    monkeypatch.setattr(mcp_mod, "_shared_http_server", None)
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
     mod.name = "mcp"
     services = MagicMock()
-    services.config.proxy_for.return_value = {
-        "mcp_enabled": True,
-        "tunnel_enabled": True,
-        "mcp_port": 18765,
-        "tunnel_provider": "cloudflare",
-        "tunnel_provider_token": "",
+    cfg_data = {
+        "mcp.mcp_enabled": True,
+        "mcp.tunnel_enabled": True,
+        "mcp.mcp_port": 18765,
+        "mcp.tunnel_provider": "cloudflare",
+        "mcp.tunnel_provider_token": "",
     }
+    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
     mod._services = services
     bound = MagicMock()
     bound.is_running.return_value = True
     bound.port = 18765
-    monkeypatch.setattr(mcp_mod, "_shared_http_server", bound)
+    mod.server = bound
     tunnel = TunnelManager()
-    monkeypatch.setattr(mcp_mod, "_shared_tunnel", tunnel)
+    mod.tunnel = tunnel
+    monkeypatch.setattr(mcp_mod, "_current_module", mod)
 
     caller = threading.current_thread()
     probed = threading.Event()
@@ -1597,7 +1597,7 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
         return "cloudflared binary not found on PATH"
 
     monkeypatch.setattr("plugin.mcp.tunnel.binary_available", _slow)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     try:
         mod._sync_tunnel()
         assert probed.wait(2)
@@ -1811,16 +1811,18 @@ def _sync_tunnel_module(monkeypatch, port, bound_port=18765):
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
     mod.name = "mcp"
     services = MagicMock()
-    services.config.proxy_for.return_value = {"mcp_enabled": True, "tunnel_enabled": True, "mcp_port": port, "tunnel_provider": "cloudflare", "tunnel_provider_token": ""}
+    cfg_data = {"mcp.mcp_enabled": True, "mcp.tunnel_enabled": True, "mcp.mcp_port": port, "mcp.tunnel_provider": "cloudflare", "mcp.tunnel_provider_token": ""}
+    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
     mod._services = services
     bound = MagicMock()
     bound.is_running.return_value = True
     bound.port = bound_port
-    monkeypatch.setattr(mcp_mod, "_shared_http_server", bound)
+    mod.server = bound
     tunnel = MagicMock()
     tunnel.last_error = None
-    monkeypatch.setattr(mcp_mod, "_shared_tunnel", tunnel)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    mod.tunnel = tunnel
+    monkeypatch.setattr(mcp_mod, "_current_module", mod)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     return mod, tunnel
 
 

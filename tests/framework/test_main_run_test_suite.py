@@ -1,4 +1,4 @@
-"""Tests for in-LO menu test suite dispatch (``plugin.framework.main_shared._run_test_suite``)."""
+"""Tests for in-LO menu test suite dispatch (``plugin.main._run_test_suite``)."""
 
 import sys
 import threading
@@ -46,11 +46,10 @@ def _patch_unohelper_implementation_helper() -> None:
 _ensure_main_import_stubs()
 _patch_unohelper_implementation_helper()
 
-import plugin.framework.main_shared as shared_mod
 import plugin.main as main_mod
 
 
-def test_run_test_suite_invokes_run_module_suite_on_main_thread() -> None:
+def test_run_test_suite_invokes_run_module_suite_on_main() -> None:
     """``run_module_suite`` must run on the UI thread so UNO tools pass ``execute_safe``."""
     threads_seen: list[threading.Thread] = []
     sentinel_module = object()
@@ -63,13 +62,13 @@ def test_run_test_suite_invokes_run_module_suite_on_main_thread() -> None:
 
     fake_ctx = MagicMock()
     with (
-        patch("plugin.framework.main_shared.tests_bundled", return_value=True),
+        patch("plugin.main.tests_bundled", return_value=True),
         patch("plugin.framework.uno_context.get_ctx", return_value=fake_ctx),
         patch("plugin.chatbot.dialogs.msgbox"),
         patch("plugin.testing_runner.run_module_suite", side_effect=fake_run_module_suite),
         patch("importlib.import_module", return_value=sentinel_module) as mock_import,
     ):
-        shared_mod._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
+        main_mod._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
 
     assert len(threads_seen) == 1
     assert threads_seen[0] is threading.main_thread()
@@ -102,11 +101,11 @@ def test_run_test_suite_unavailable_does_not_print() -> None:
     """When tests are not bundled, _run_test_suite must not emit debug prints."""
     printed: list[str] = []
     with (
-        patch("plugin.framework.main_shared.tests_bundled", return_value=False),
+        patch("plugin.main.tests_bundled", return_value=False),
         patch("builtins.print", side_effect=lambda *args, **kw: printed.append(" ".join(map(str, args)))),
-        patch("plugin.framework.main_shared._show_tests_unavailable"),
+        patch("plugin.main._show_tests_unavailable"),
     ):
-        shared_mod._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
+        main_mod._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
 
     assert printed == []
 
@@ -114,11 +113,11 @@ def test_run_test_suite_unavailable_does_not_print() -> None:
 def test_run_test_suite_unavailable_does_not_import() -> None:
     """When tests are not bundled, _run_test_suite must not import the test module."""
     with (
-        patch("plugin.framework.main_shared.tests_bundled", return_value=False),
-        patch("plugin.framework.main_shared._show_tests_unavailable") as mock_unavailable,
+        patch("plugin.main.tests_bundled", return_value=False),
+        patch("plugin.main._show_tests_unavailable") as mock_unavailable,
         patch("importlib.import_module", side_effect=ModuleNotFoundError("unbundled")) as mock_import,
     ):
-        shared_mod._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
+        main_mod._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
 
     mock_unavailable.assert_called_once_with("writer.format_tests")
     mock_import.assert_not_called()
@@ -129,14 +128,14 @@ def test_run_test_suite_logs_failure() -> None:
     fake_ctx = MagicMock()
     sentinel_module = object()
     with (
-        patch("plugin.framework.main_shared.tests_bundled", return_value=True),
+        patch("plugin.main.tests_bundled", return_value=True),
         patch("plugin.framework.uno_context.get_ctx", return_value=fake_ctx),
         patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
         patch("plugin.testing_runner.run_module_suite", side_effect=RuntimeError("suite crash")),
-        patch.object(shared_mod.log, "exception") as mock_log_exc,
+        patch.object(main_mod.log, "exception") as mock_log_exc,
         patch("importlib.import_module", return_value=sentinel_module),
     ):
-        shared_mod._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
+        main_mod._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
         mock_msgbox.assert_called_once()
         assert any("_run_test_suite failed" in str(call) for call in mock_log_exc.call_args_list)
 
@@ -148,7 +147,7 @@ def test_show_tests_unavailable_invokes_msgbox() -> None:
         patch("plugin.framework.uno_context.get_ctx", return_value=fake_ctx),
         patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
     ):
-        shared_mod._show_tests_unavailable("writer.format_tests")
+        main_mod._show_tests_unavailable("writer.format_tests")
         mock_msgbox.assert_called_once_with(
             fake_ctx, "writer.format_tests", "This WriterAgent build was packaged without the optional `plugin.tests` test modules."
         )

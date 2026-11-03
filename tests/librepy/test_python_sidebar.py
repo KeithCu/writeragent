@@ -63,7 +63,7 @@ def test_format_runtime_status_isolated_embedded():
     ctx = MagicMock()
     with (
         patch("plugin.librepy.python_sidebar.python_session_mode", return_value="isolated"),
-        patch("plugin.librepy.python_sidebar.get_config_str", return_value=""),
+        patch("plugin.librepy.python_sidebar.get_config", return_value=""),
     ):
         text = format_runtime_status(ctx)
     assert "Isolated" in text
@@ -74,7 +74,7 @@ def test_format_runtime_status_shared_with_venv():
     ctx = MagicMock()
     with (
         patch("plugin.librepy.python_sidebar.python_session_mode", return_value="shared"),
-        patch("plugin.librepy.python_sidebar.get_config_str", return_value="/tmp/myvenv"),
+        patch("plugin.librepy.python_sidebar.get_config", return_value="/tmp/myvenv"),
         patch("plugin.librepy.python_sidebar.resolve_venv_python", return_value="/tmp/myvenv/bin/python"),
     ):
         text = format_runtime_status(ctx)
@@ -576,7 +576,7 @@ def test_schedule_refresh_coalesces_until_posted_run():
     ctrl.refresh = mock_refresh
 
     posted = []
-    with patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=posted.append):
         ctrl._schedule_refresh(full=True)
         ctrl._schedule_refresh(full=True)
         assert len(posted) == 1
@@ -612,7 +612,7 @@ def test_scheduled_refresh_skipped_after_dispose():
     ctrl.resize_listener = None
 
     posted = []
-    with patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=posted.append):
         ctrl._schedule_refresh()
         assert len(posted) == 1
 
@@ -781,7 +781,7 @@ def test_diag_event_matching_key_does_not_scan_cells():
 
     posted = []
     with (
-        patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append),
+        patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
         patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"),
         patch("plugin.librepy.python_sidebar.list_python_cells_in_doc") as mock_scan,
     ):
@@ -802,7 +802,7 @@ def test_activation_event_scans_cells():
     ctrl.refresh = MagicMock()
 
     posted = []
-    with patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=posted.append):
         ctrl._schedule_refresh(full=True)
         assert len(posted) == 1
         posted[0]()
@@ -825,7 +825,7 @@ def test_diag_event_foreign_key_drops_early():
 
     posted = []
     with (
-        patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append),
+        patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
         patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:current"),
     ):
         ctrl._on_diag(entry)
@@ -849,7 +849,7 @@ def test_schedule_refresh_diag_then_full_coalesces_to_full():
 
     posted = []
     with (
-        patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append),
+        patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
         patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"),
     ):
         ctrl._schedule_refresh(entry, full=False)

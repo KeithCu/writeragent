@@ -62,10 +62,10 @@ def test_eval_populate_does_not_fetch_models_on_the_caller() -> None:
         posted.append(fn)
 
     with patch("plugin.chatbot.eval_dashboard_ui.populate_combobox_with_lru") as mock_pop, \
-         patch("plugin.chatbot.eval_dashboard_ui.get_config_str", return_value="http://localhost:11434"), \
+         patch("plugin.chatbot.eval_dashboard_ui.get_config", return_value="http://localhost:11434"), \
          patch("plugin.chatbot.eval_dashboard_ui.get_text_model", return_value="llama3"), \
          patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_worker), \
-         patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_capture_post), \
+         patch("plugin.framework.queue_executor.main.post", side_effect=_capture_post), \
          patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=["llama3"]) as mock_fetch:
         dash._populate()
         mock_fetch.assert_not_called()
@@ -97,7 +97,7 @@ def test_opening_eval_does_not_fetch_a_catalog_already_in_memory() -> None:
         dialog = MagicMock()
         dash._dlg = dialog
         with patch("plugin.chatbot.eval_dashboard_ui.populate_combobox_with_lru") as mock_pop, \
-             patch("plugin.chatbot.eval_dashboard_ui.get_config_str", return_value=endpoint), \
+             patch("plugin.chatbot.eval_dashboard_ui.get_config", return_value=endpoint), \
              patch("plugin.chatbot.eval_dashboard_ui.get_text_model", return_value="llama3"), \
              patch("plugin.framework.client.model_fetcher.fetch_available_models") as mock_fetch, \
              patch("plugin.framework.client.requests.sync_request") as mock_sync:
@@ -120,7 +120,9 @@ def test_importing_eval_dashboard_ui_does_not_load_eval_runner() -> None:
 
 def test_run_suite_imports_eval_runner_at_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     # Posted status runs inline so the worker can finish the dialog update.
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    from plugin.framework.queue_executor import Policy, main
+
+    main.install(Policy.test_inline)
     sys.modules.pop("tests.eval_runner", None)
     fake_mod = MagicMock()
     fake_mod.run_benchmark_suite.return_value = {
@@ -185,7 +187,6 @@ def test_run_suite_reports_when_eval_runner_is_missing() -> None:
 
 
 def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     sys.modules.pop("tests.eval_runner", None)
     release = threading.Event()
     entered = threading.Event()
@@ -209,7 +210,7 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
     # when AsyncCallback is missing.
     from plugin.framework import queue_executor as qe
 
-    qe.set_force_marshal_mode(True)
+    qe.main.install(qe.Policy.test_marshal)
     try:
         with patch("plugin.framework.uno_context.process_events_to_idle"), patch(
             "plugin.chatbot.eval_dashboard_ui.get_active_document", return_value=MagicMock()
@@ -227,14 +228,13 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
             _drain_posted_main_thread()
     finally:
         release.set()
-        qe.set_force_marshal_mode(False)
+        qe.main.install(qe.Policy.production)
         _drain_posted_main_thread()
         sys.modules.pop("tests.eval_runner", None)
     assert controls["status"].text == "Finished"
 
 
 def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     sys.modules.pop("tests.eval_runner", None)
 
     def _boom(*_args: object, **_kwargs: object) -> dict[str, object]:
@@ -249,7 +249,7 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
     listener = EvalRunListener(dash)
     from plugin.framework import queue_executor as qe
 
-    qe.set_force_marshal_mode(True)
+    qe.main.install(qe.Policy.test_marshal)
     try:
         with patch("plugin.framework.uno_context.process_events_to_idle"), patch(
             "plugin.chatbot.eval_dashboard_ui.get_active_document", return_value=MagicMock()
@@ -262,7 +262,7 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
             assert controls["status"].text == "Running..."
             _drain_posted_main_thread()
     finally:
-        qe.set_force_marshal_mode(False)
+        qe.main.install(qe.Policy.production)
         _drain_posted_main_thread()
         sys.modules.pop("tests.eval_runner", None)
     assert controls["status"].text == "Finished"
@@ -276,7 +276,7 @@ def test_tool_execution_hops_to_the_main_thread_from_the_suite_worker() -> None:
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
-    from tests.eval_runner import _on_main_thread
+    from tests.eval_runner import _call_on_main
 
     ran: list[str] = []
 
@@ -288,16 +288,16 @@ def test_tool_execution_hops_to_the_main_thread_from_the_suite_worker() -> None:
         assert timeout == 120
         return fn(*a, **k)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=_hop) as hop:
-        with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
-            assert _on_main_thread(_marker) == "ok"
+    with patch("plugin.framework.queue_executor.main.call", side_effect=_hop) as hop:
+        with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
+            assert _call_on_main(_marker) == "ok"
         hop.assert_not_called()
 
         seen: list[bool] = []
 
         def _from_worker() -> None:
-            with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
-                seen.append(_on_main_thread(_marker) == "ok")
+            with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
+                seen.append(_call_on_main(_marker) == "ok")
 
         worker = threading.Thread(target=_from_worker)
         worker.start()
@@ -327,7 +327,9 @@ def test_closed_dialog_skips_late_paint_and_clears_running(monkeypatch: pytest.M
     """Close disposes the dialog while the suite can still post. Ignore that window."""
     from plugin.chatbot.eval_dashboard_ui import EvalDashboard
 
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    from plugin.framework.queue_executor import Policy, main
+
+    main.install(Policy.test_inline)
     dialog, controls = _dialog()
     dash = EvalDashboard(MagicMock())
     dash._dlg = dialog
@@ -384,12 +386,12 @@ def test_disposed_dialog_summary_and_failure_clear_running() -> None:
 
 def _drain_posted_main_thread() -> None:
     """Run callbacks the eval worker posted for the main thread."""
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
 
     for _unused in range(8):
-        if default_executor._work_queue.empty():
+        if main._work_queue.empty():
             return
-        default_executor.process_queue()
+        main.process_queue()
 
 
 class _Ctrl:

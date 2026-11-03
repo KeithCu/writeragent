@@ -30,7 +30,7 @@ from plugin.framework.worker_pool import (
     start_stderr_drain,
     run_in_background,
 )
-from plugin.scripting.sandbox import scrub_subprocess_env
+from plugin.framework.subprocess_env import scrub_subprocess_env
 
 log = logging.getLogger(__name__)
 

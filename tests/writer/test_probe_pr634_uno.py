@@ -153,7 +153,7 @@ def test_probe_apply_same_style_para_wide_font(ctx, doc):
     cursor.gotoEndOfParagraph(True)
     cursor.setPropertyValue("CharWeight", 150.0)  # paragraph-wide direct bold
 
-    from plugin.writer.format import apply_paragraph_style_preserving_direct_char
+    from plugin.writer.styles import apply_paragraph_style_preserving_direct_char
 
     report = apply_paragraph_style_preserving_direct_char(doc, cursor, "Standard", clear_direct="none")
     print(f"DEBUG: report={report}")

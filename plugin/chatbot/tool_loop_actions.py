@@ -12,7 +12,20 @@ import logging
 import os
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Protocol
+
+SendOutcome = Literal["ready", "error", "stopped"]
+
+_OUTCOME_TO_TERMINAL: dict[SendOutcome, str] = {
+    "ready": "Ready",
+    "error": "Error",
+    "stopped": "Stopped",
+}
+_TERMINAL_TO_OUTCOME: dict[str, SendOutcome] = {
+    "Ready": "ready",
+    "Error": "error",
+    "Stopped": "stopped",
+}
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
@@ -38,18 +51,19 @@ from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.client.model_fetcher import has_native_vision, set_native_audio_support
 from plugin.framework.html_stripper import StreamingHTMLStripper
 from plugin.framework.json_utils import safe_json_loads
-from plugin.framework.config import get_config_bool
+from plugin.framework.config import get_config
 from plugin.framework.errors import (
     DocumentDisposedError,
     ToolExecutionError,
     best_effort,
     format_error_payload,
+    is_disposal,
     resolve_exception_message,
 )
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import capture_send_stop
-from plugin.framework.tool import ToolContext, is_tool_document_disposed
+from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
@@ -261,6 +275,7 @@ class TurnController:
     active_execute_tool_fn: Callable[..., Any] | None
     active_query_text: str | None
     active_supports_status: bool
+    outcome: SendOutcome | None
 
     def __init__(
         self,
@@ -291,6 +306,7 @@ class TurnController:
         self.active_execute_tool_fn = None
         self.active_query_text = None
         self.active_supports_status = False
+        self.outcome = None
 
     def same_messages(self) -> bool:
         """Clear replaces the list. A write against the old list must not land."""
@@ -484,7 +500,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     # drop that tail. A successful rerender already replaced it from the
     # session.
     replaced = False
-    if getattr(listener, "_terminal_status", None) != "Error" and allow_rerender:
+    if not send_outcome_is_error(listener) and allow_rerender:
         rerender = getattr(listener, "rerender_rich_text_session", None)
         if callable(rerender):
             replaced = rerender() is True
@@ -501,7 +517,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     # close_stopped only persisted the line on session.messages, so the
     # control never drew [Stopped by user].
     stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
-    if stop_requested and getattr(listener, "_terminal_status", None) != "Error":
+    if stop_requested and not send_outcome_is_error(listener):
         if turn is not None:
             if turn._stop_banner_appended:
                 return
@@ -522,6 +538,45 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
                 set_control_text(control, cur + _STOP_LINE)
 
 
+def assign_send_outcome(host: Any, terminal: str) -> None:
+    """Record how this send ended. Empty terminal means an earlier path already explained itself."""
+    if terminal == "":
+        outcome: SendOutcome | None = None
+    else:
+        outcome = _TERMINAL_TO_OUTCOME.get(terminal, "ready")
+    turn = current_turn(host)
+    if turn is not None:
+        turn.outcome = outcome
+    else:
+        host._orphan_send_outcome = outcome
+
+
+def send_outcome_terminal_display(host: Any) -> str:
+    """Map the turn outcome to the status-line literals ``_close_turn_ui`` expects."""
+    turn = current_turn(host)
+    if turn is not None:
+        oc = turn.outcome
+    else:
+        oc = getattr(host, "_orphan_send_outcome", None)
+    if oc is None:
+        return ""
+    return _OUTCOME_TO_TERMINAL[oc]
+
+
+def send_outcome_is_error(host: Any) -> bool:
+    turn = current_turn(host)
+    if turn is not None:
+        return turn.outcome == "error"
+    return getattr(host, "_orphan_send_outcome", None) == "error"
+
+
+def send_outcome_is_stopped(host: Any) -> bool:
+    turn = current_turn(host)
+    if turn is not None:
+        return turn.outcome == "stopped"
+    return getattr(host, "_orphan_send_outcome", None) == "stopped"
+
+
 def abort_turn(host: Any) -> None:
     """Stop, a mode change, or dispose. The host still names this turn until ``drop_turn``."""
     turn = current_turn(host)
@@ -534,6 +589,8 @@ def drop_turn(host: Any) -> None:
     turn = current_turn(host)
     if turn is None:
         return
+    if turn.outcome is not None:
+        host._orphan_send_outcome = turn.outcome
     turn.abort()
     host._turn = None
 
@@ -549,6 +606,10 @@ def begin_send_turn(host: Any) -> TurnController:
         previous.abort()
     session = getattr(host, "session", None)
     turn = TurnController(session)
+    orphan = getattr(host, "_orphan_send_outcome", None)
+    if orphan is not None:
+        turn.outcome = orphan
+        host._orphan_send_outcome = None
     host._turn = turn
     return turn
 
@@ -664,18 +725,17 @@ def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: B
 
     A closed document is not a normal tool error. Turning every exception
     into a JSON payload and queuing ``TOOL_DONE`` lets the loop continue.
-    ``is_tool_document_disposed`` is the tool-boundary check;
-    ``is_disposal`` also matches a bare ``RuntimeException``
-    from a live document.
+    ``is_disposal`` is the tool-boundary check; a bare ``RuntimeException``
+    from a live document is not disposal.
 
     Classify against ``model``, the document closed over at spawn. Reading
     ``host._active_model`` when the worker finishes scores the failure
     against a later send's live document, so a bare ``RuntimeException``
-    fails ``is_tool_document_disposed`` and is queued as ``TOOL_DONE``.
+    fails ``is_disposal`` and is queued as ``TOOL_DONE``.
     The same capture keeps the tool from running on the new send.
     """
     formatted = format_error_payload(exc)
-    if is_tool_document_disposed(exc):
+    if is_disposal(exc):
         put_for_turn(turn, (StreamQueueKind.ERROR, formatted))
         return
     put_for_turn(turn, (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(formatted, default=str)))
@@ -730,7 +790,6 @@ class ToolLoopActionHost(Protocol):
     session: Any
     image_model_selector: Any
     audio_wav_path: str | None
-    _terminal_status: str
     _tool_calling: Any
     _tool_loop_interpreter: Any
     rich_text_widget: Any
@@ -787,7 +846,7 @@ def build_tool_execute_fn(
         prompt_for_web = False
         if needs_web_research_ui:
             try:
-                prompt_for_web = get_config_bool("chatbot.prompt_for_web_research")
+                prompt_for_web = bool(get_config("chatbot.prompt_for_web_research"))
             except Exception as ex:
                 # Fail closed. Leaving approval_cb as None after a config
                 # error skips Accept/Change/Reject: web_research prompts only
@@ -827,7 +886,7 @@ def build_tool_execute_fn(
             # Async gateways (delegate_to_specialized_draw_toolset) run
             # execute_fn on the worker; hasattr(doc, "getDrawPages") is UNO.
             active_page_idx = best_effort(
-                lambda: execute_on_main_thread(lambda: DrawBridge(doc).get_active_page_index()),
+                lambda: main.call(lambda: DrawBridge(doc).get_active_page_index()),
                 f"execute_fn: failed to get active page index for {doc_type_str}",
             )
 
@@ -942,7 +1001,7 @@ class ToolLoopEffectInterpreter:
 
         def _fail(message: str) -> bool:
             host._append_response(message)
-            host._terminal_status = "Error"
+            assign_send_outcome(host, "Error")
             host._set_status("Error")
             return True
 
@@ -959,7 +1018,7 @@ class ToolLoopEffectInterpreter:
             turn.session.refresh_document_context(doc, host.ctx)
             return False
         except Exception as exc:
-            if is_tool_document_disposed(exc):
+            if is_disposal(exc):
                 log.debug("Tool loop: document disposed during context refresh", exc_info=True)
                 return _fail("\n[Document closed or unavailable.]\n")
             log.exception("Tool loop: failed to refresh document context after mutating tool")
@@ -972,7 +1031,7 @@ class ToolLoopEffectInterpreter:
         elif effect.kind == UIEffectKind.STATUS:
             host._set_status(effect.text)
             if effect.text in ("Stopped", "Ready", "Error"):
-                host._terminal_status = effect.text
+                assign_send_outcome(host, effect.text)
         elif effect.kind == UIEffectKind.TOOL_RUNNING:
             status_text, run_line = format_tool_running_ui(effect.func_name, effect.func_args or {})
             host._set_status(status_text)
@@ -1063,13 +1122,13 @@ class ToolLoopEffectInterpreter:
         bound_scope, bound_stop = capture_send_stop(host)
 
         # Bugfix: getText ran for every tool whenever the sidebar combobox
-        # existed, and execute_on_main_thread re-raises, so a disposed or
+        # existed, and main.call re-raises, so a disposed or
         # unwired control left _spawn_tool_worker and the drain treated it as
         # a stream error. Only image_generate uses the override; a widget
         # failure leaves that call's arguments unchanged.
         if effect.func_name == "image_generate" and isinstance(func_args, dict) and host.image_model_selector:
             image_model_override = best_effort(
-                lambda: execute_on_main_thread(lambda: host.image_model_selector.getText()),
+                lambda: main.call(lambda: host.image_model_selector.getText()),
                 "image model selector unusable; image_generate keeps its arguments",
             )
             if image_model_override:

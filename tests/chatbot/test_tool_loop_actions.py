@@ -57,7 +57,7 @@ class FakeHost:
         self.session = FakeSession()
         self.image_model_selector = None
         self.audio_wav_path = None
-        self._terminal_status = "Ready"
+        self._orphan_send_outcome = None
         self.appended = []
         self.statuses = []
         self.refreshed_tools = 0
@@ -165,6 +165,18 @@ class FakeHost:
         turn = current_turn(self)
         if turn is not None:
             turn.active_supports_status = value
+
+    @property
+    def _terminal_status(self) -> str:
+        from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
+
+        return send_outcome_terminal_display(self)
+
+    @_terminal_status.setter
+    def _terminal_status(self, value: str) -> None:
+        from plugin.chatbot.tool_loop_actions import assign_send_outcome
+
+        assign_send_outcome(self, "" if value is None else value)
 
     @property
     def _active_q(self):
@@ -327,7 +339,7 @@ def test_web_research_approval_setup_failure_does_not_run_search():
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     registry, old_main = _install_fake_main_registry()
     try:
-        with patch("plugin.chatbot.tool_loop_actions.get_config_bool", side_effect=RuntimeError("config")):
+        with patch("plugin.chatbot.tool_loop_actions.get_config", side_effect=RuntimeError("config")):
             out = execute_fn("web_research", {"query": "paris"}, MagicMock(), MagicMock())
     finally:
         _restore_main(old_main)
@@ -341,7 +353,7 @@ def test_web_research_approval_missing_queue_does_not_run_search():
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     registry, old_main = _install_fake_main_registry()
     try:
-        with patch("plugin.chatbot.tool_loop_actions.get_config_bool", return_value=True):
+        with patch("plugin.chatbot.tool_loop_actions.get_config", return_value=True):
             execute_fn("web_research", {"query": "paris"}, MagicMock(), MagicMock())
             called_ctx = registry.execute.call_args[0][1]
             approval_result = called_ctx.approval_callback("query", "web_research", {})
@@ -583,7 +595,7 @@ def test_execute_fn_marshals_draw_active_page_index(doc_type_str):
     try:
         with (
             patch("plugin.draw.bridge.DrawBridge") as mock_bridge_cls,
-            patch("plugin.chatbot.tool_loop_actions.execute_on_main_thread") as mock_marshal,
+            patch("plugin.framework.queue_executor.main.call") as mock_marshal,
         ):
             mock_bridge_cls.return_value.get_active_page_index.return_value = 2
             mock_marshal.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -605,7 +617,7 @@ def test_execute_fn_skips_draw_bridge_for_writer():
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     registry, old_main = _install_fake_main_registry()
     try:
-        with patch("plugin.chatbot.tool_loop_actions.execute_on_main_thread") as mock_marshal:
+        with patch("plugin.framework.queue_executor.main.call") as mock_marshal:
             execute_fn("web_search", {"query": "x"}, MagicMock(), host.ctx)
         mock_marshal.assert_not_called()
         tctx = registry.execute.call_args[0][1]
@@ -686,7 +698,7 @@ def test_execute_fn_json_bypass_thread_guard_cannot_skip_marshal(bypass):
         box["out"] = execute_fn("sync_probe", args, None, MagicMock())
 
     try:
-        with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=fake_marshal):
             thread = threading.Thread(target=worker, name="tool-sync-probe")
             thread.start()
             thread.join()
@@ -1145,7 +1157,7 @@ def test_subagent_append_and_approval_use_the_captured_queue():
     try:
         with (
             patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)),
-            patch("plugin.chatbot.tool_loop_actions.get_config_bool", return_value=True),
+            patch("plugin.chatbot.tool_loop_actions.get_config", return_value=True),
             patch("plugin.framework.send_cancellation.wait_for_approval", side_effect=fake_wait),
         ):
             interpreter.execute(
@@ -1892,4 +1904,37 @@ def test_update_activity_state_effect_calls_update_activity_state():
     with patch("plugin.chatbot.tool_loop_actions.update_activity_state") as mock_update:
         interpreter.execute(UpdateActivityStateEffect(round_num=3, tool_name="test_tool"))
         mock_update.assert_called_once_with("tool_execute", round_num=3, tool_name="test_tool")
+
+
+def test_assign_send_outcome_on_turn_and_orphan():
+    from plugin.chatbot.tool_loop_actions import (
+        TurnController,
+        assign_send_outcome,
+        begin_send_turn,
+        send_outcome_is_error,
+        send_outcome_is_stopped,
+        send_outcome_terminal_display,
+    )
+
+    host = FakeHost()
+    assign_send_outcome(host, "Error")
+    assert send_outcome_terminal_display(host) == "Error"
+    assert send_outcome_is_error(host)
+
+    host2 = type("H", (), {"_turn": None, "_orphan_send_outcome": None})()
+    assign_send_outcome(host2, "Stopped")
+    assert send_outcome_terminal_display(host2) == "Stopped"
+    assert send_outcome_is_stopped(host2)
+
+    assign_send_outcome(host2, "")
+    assert send_outcome_terminal_display(host2) == ""
+
+    turn = TurnController(None)
+    turn.outcome = "ready"
+    assert send_outcome_terminal_display(type("H2", (), {"_turn": turn, "_orphan_send_outcome": None})()) == "Ready"
+
+    host3 = FakeHost()
+    host3._orphan_send_outcome = "ready"
+    turn3 = begin_send_turn(host3)
+    assert turn3.outcome == "ready"
 

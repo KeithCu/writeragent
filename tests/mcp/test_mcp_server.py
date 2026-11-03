@@ -342,6 +342,7 @@ def _bare_generic_handler(headers, body=b""):
     handler.client_address = ("127.0.0.1", 9)
     handler.requestline = "POST /mcp HTTP/1.0"
     handler.request_version = "HTTP/1.0"
+    handler.close_connection = False
     return handler
 
 
@@ -522,7 +523,7 @@ def test_dispatch_does_not_write_second_response_after_start():
     handler = _bare_generic_handler({})
     handler.path = "/boom"
     handler.command = "GET"
-    route = MagicMock(raw=True)
+    route = MagicMock()
 
     def _half_written(h):
         h._response_started = True
@@ -678,7 +679,7 @@ def test_handle_mcp_tools_call_is_async_routing():
     mcp_protocol.tool_registry = MagicMock()
     mcp_protocol.tool_registry.get.return_value = tool_mock
 
-    with patch.object(mcp_protocol, "_execute_long_running") as mock_execute_lr:
+    with patch.object(mcp_protocol, "_run_tool") as mock_execute_lr:
         params = {
             "name": "dummy_async_tool",
             "arguments": {"arg": "val"}
@@ -702,7 +703,7 @@ def test_handle_mcp_tools_call_parameter():
     mcp_protocol.tool_registry.get.return_value = tool_mock
 
     # Patch execution to see what document_url it receives
-    with patch.object(mcp_protocol, "_execute_with_backpressure") as mock_execute:
+    with patch.object(mcp_protocol, "_run_tool") as mock_execute:
         params = {
             "name": "dummy_tool",
             "arguments": {
@@ -724,24 +725,20 @@ def test_handle_mcp_tools_call_parameter():
 
 
 def test_try_reserve_sse_capped_at_eight():
-    from types import SimpleNamespace
+    from plugin.mcp.server import SSE_MAX_STREAMS, SseRegistry
 
-    from plugin.mcp.server import SSE_MAX_STREAMS, try_reserve_sse
-
-    server = SimpleNamespace()
+    reg = SseRegistry()
     for _ in range(SSE_MAX_STREAMS):
-        assert try_reserve_sse(server) is not None
-    assert try_reserve_sse(server) is None
+        assert reg.reserve() is not None
+    assert reg.reserve() is None
 
 
 def test_try_reserve_sse_after_stop_returns_none():
-    from types import SimpleNamespace
+    from plugin.mcp.server import SseRegistry
 
-    from plugin.mcp.server import stop_sse_keepalives, try_reserve_sse
-
-    server = SimpleNamespace()
-    stop_sse_keepalives(server)
-    assert try_reserve_sse(server) is None
+    reg = SseRegistry()
+    reg.stop_all()
+    assert reg.reserve() is None
 
 
 def test_http_server_stop_joins_threads_within_deadline():
@@ -749,11 +746,11 @@ def test_http_server_stop_joins_threads_within_deadline():
     import time
     from types import SimpleNamespace
 
-    from plugin.mcp.server import HttpServer, _sse_state
+    from plugin.mcp.server import HttpServer, SseRegistry
 
     srv = HttpServer(MagicMock(), port=0, host="127.0.0.1", use_ssl=False)
     srv._running = True
-    server_ns = SimpleNamespace(shutdown=MagicMock(), server_close=MagicMock())
+    server_ns = SimpleNamespace(shutdown=MagicMock(), server_close=MagicMock(), sse_registry=SseRegistry())
     srv._server = server_ns
 
     blocker = threading.Event()
@@ -762,10 +759,9 @@ def test_http_server_stop_joins_threads_within_deadline():
     t1.start()
     t2.start()
 
-    _, _, threads, lock = _sse_state(server_ns)
-    with lock:
-        threads.add(t1)
-        threads.add(t2)
+    with server_ns.sse_registry.lock:
+        server_ns.sse_registry.threads.add(t1)
+        server_ns.sse_registry.threads.add(t2)
 
     start = time.monotonic()
     try:
@@ -780,7 +776,7 @@ def test_http_server_stop_joins_threads_within_deadline():
 
 def test_dispatch_resets_response_started_for_subsequent_requests():
     from http.client import HTTPMessage
-    from plugin.mcp.routes import HttpRouteRegistry
+    from plugin.mcp.routes import HttpRouteRegistry, json_route
     from plugin.mcp.server import GenericRequestHandler
 
     registry = HttpRouteRegistry()
@@ -793,7 +789,7 @@ def test_dispatch_resets_response_started_for_subsequent_requests():
             return 200, {"status": "first"}
         raise RuntimeError("second request failure")
 
-    registry.add("POST", "/test", _handler)
+    registry.add("POST", "/test", json_route(_handler))
     server = MagicMock()
     server.route_registry = registry
 
@@ -843,7 +839,7 @@ def test_dispatch_client_disconnect_is_not_a_500():
     handler.headers.add_header("Content-Length", "2")
     handler.path = "/mcp"
     handler.command = "POST"
-    route = MagicMock(raw=False)
+    route = MagicMock()
     route.handler.side_effect = ConnectionResetError(104, "Connection reset by peer")
     handler.server = MagicMock()
     handler.server.route_registry.match.return_value = route
@@ -872,9 +868,15 @@ def test_dispatch_body_read_reset_does_not_write_a_500():
         del n
         raise ConnectionResetError(104, "Connection reset by peer")
 
+    from plugin.mcp.routes import Route
+
+    def _reset_on_read(handler: Any) -> None:
+        del handler
+        raise ConnectionResetError(104, "Connection reset by peer")
+
     handler.rfile.read = _reset
     handler.server = MagicMock()
-    handler.server.route_registry.match.return_value = MagicMock(raw=False)
+    handler.server.route_registry.match.return_value = Route(handler=_reset_on_read)
 
     with patch("plugin.mcp.server.log") as mock_log:
         handler._dispatch("POST")

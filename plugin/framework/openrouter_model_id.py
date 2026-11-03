@@ -14,20 +14,15 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, _profile, deal, str_bounded
+from plugin.framework.deal_shim import deal
 
 
-# Pytest keeps _profile's default always-true predicate. The bounds are
-# CrossHair-only: live ids exceed DEAL_MAX_TOKEN and the live catalog exceeds
-# DEAL_MAX_SHAPE_DIM.
-_deal_model_id_ok = _profile(lambda model_id: str_bounded(model_id, DEAL_MAX_TOKEN))
-_deal_catalog_ids_ok = _profile(
-    lambda catalog_ids: catalog_ids is None
-    or (
-        isinstance(catalog_ids, (list, tuple, set, frozenset))
-        and len(catalog_ids) <= DEAL_MAX_SHAPE_DIM
-    )
-)
+def _deal_model_id_ok(*args: object, **kwargs: object) -> bool:
+    return True
+
+
+def _deal_catalog_ids_ok(*args: object, **kwargs: object) -> bool:
+    return True
 
 # Dynamic: routing/behavior shortcuts (any model; strip for catalog lookup).
 OPENROUTER_DYNAMIC_SUFFIXES = frozenset({"nitro", "floor", "exacto", "online"})

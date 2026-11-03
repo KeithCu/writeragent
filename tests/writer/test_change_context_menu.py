@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.framework.uno_listeners import ListenerBoundary
-from plugin.writer import change_context_menu
+from plugin.writer import change_context_menu, review_view_attachment as rva
 from plugin.writer.change_context_menu import _install_doc_event_listener
 
 
@@ -30,17 +30,15 @@ class RuntimeException(Exception):
 
 @pytest.fixture(autouse=True)
 def _reset_context_menu_state():
-    orig_listener = change_context_menu._doc_listener
-    orig_registered = list(change_context_menu._registered)
+    orig_listener = rva._doc_listener
     orig_interceptor_cls = change_context_menu._interceptor_cls
-    change_context_menu._doc_listener = None
-    change_context_menu._registered.clear()
+    rva.reset_all()
     change_context_menu._interceptor_cls = None
     try:
         yield
     finally:
-        change_context_menu._doc_listener = orig_listener
-        change_context_menu._registered[:] = orig_registered
+        rva.reset_all()
+        rva._doc_listener = orig_listener
         change_context_menu._interceptor_cls = orig_interceptor_cls
 
 
@@ -129,6 +127,12 @@ class _StubController:
     def releaseContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
         self.removed.append(interceptor)
 
+    def addMouseClickHandler(self, handler: Any) -> None:  # noqa: N802 -- UNO API
+        pass
+
+    def removeMouseClickHandler(self, handler: Any) -> None:  # noqa: N802 -- UNO API
+        pass
+
 
 def test_register_controller_dedups_by_uno_identity(monkeypatch):
     monkeypatch.setattr(
@@ -145,6 +149,10 @@ def test_register_controller_dedups_by_uno_identity(monkeypatch):
         change_context_menu,
         "_make_interceptor",
         lambda m: SimpleNamespace(_model=m),
+    )
+    monkeypatch.setattr(
+        "plugin.writer.review_click_popup._make_handler",
+        lambda m: MagicMock(),
     )
 
     change_context_menu._register_controller(ctrl1)
@@ -166,7 +174,8 @@ def test_unload_removes_interceptor_and_pair():
     interceptor1 = SimpleNamespace(_model=model1)
     interceptor2 = SimpleNamespace(_model=model2)
 
-    change_context_menu._registered = [(ctrl1, interceptor1), (ctrl2, interceptor2)]
+    rva.seed_controller_hooks(ctrl1, interceptor1)
+    rva.seed_controller_hooks(ctrl2, interceptor2)
 
     change_context_menu._unregister_model(model1)
     assert ctrl1.removed == [interceptor1]
@@ -183,18 +192,19 @@ def test_unload_swallows_removal_disposal():
         raise RuntimeError("gone")
 
     ctrl.releaseContextMenuInterceptor = _raise_gone
-    change_context_menu._registered = [(ctrl, interceptor)]
+    rva.seed_controller_hooks(ctrl, interceptor)
 
     change_context_menu._unregister_model(model)
     assert change_context_menu._registered == []
 
 
 def test_on_unload_event_removes_registered_interceptor():
-    model = SimpleNamespace(ident="m")
+    model = MagicMock()
+    model.supportsService.return_value = True
     ctrl = _StubController("c", model)
     interceptor = SimpleNamespace(_model=model)
 
-    change_context_menu._registered = [(ctrl, interceptor)]
+    rva.seed_controller_hooks(ctrl, interceptor)
     listener = _build_listener()
 
     event = SimpleNamespace(EventName="OnUnload", ViewController=None, Source=model)

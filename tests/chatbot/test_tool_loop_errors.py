@@ -20,7 +20,10 @@ class MockSession:
 
     def set_system_context(self, base_prompt, doc_text=""):
         self.document_context = doc_text
-        self.messages[0]["content"] = f"{base_prompt}\n\n[DOCUMENT CONTENT]\n{doc_text}\n[END DOCUMENT]"
+        self.messages[0]["content"] = base_prompt
+
+    def messages_for_request(self):
+        return list(self.messages)
 
     def refresh_document_context(self, model, ctx):
         self.set_system_context("base", "doc text")
@@ -48,7 +51,19 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self._get_document_model = MagicMock(return_value=None)
         self.responses = []
         self.statuses = []
-        self._terminal_status = None
+        self._orphan_send_outcome = None
+
+    @property
+    def _terminal_status(self) -> str:
+        from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
+
+        return send_outcome_terminal_display(self)
+
+    @_terminal_status.setter
+    def _terminal_status(self, value: str) -> None:
+        from plugin.chatbot.tool_loop_actions import assign_send_outcome
+
+        assign_send_outcome(self, "" if value is None else value)
 
     def resolve_stop_checker(self):
         return lambda: self.stop_requested
@@ -81,7 +96,7 @@ def test_instance():
          patch("plugin.chatbot.tool_loop.get_api_config") as mock_get_api_config, \
          patch("plugin.chatbot.tool_loop.validate_api_config") as mock_validate_api_config:
 
-        mock_get_config.side_effect = lambda key: "10" if "tokens" in key or "context" in key else "test"
+        mock_get_config.side_effect = lambda key: 10 if "tokens" in key or "context" in key else "test"
         mock_get_api_config.return_value = {"chat_max_tool_rounds": 1}
         mock_validate_api_config.return_value = (True, "")
 
@@ -321,7 +336,7 @@ def test_reused_llm_client_registers_on_current_send_scope(test_instance, mock_g
 
     with (
         patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
-        patch("plugin.chatbot.tool_loop.get_config_int", return_value=128),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=128),
         patch("plugin.chatbot.tool_loop.get_toolkit", return_value=None),
         patch("plugin.chatbot.tool_loop.LlmClient") as mock_llm_cls,
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
@@ -423,7 +438,7 @@ def _overflow_payload(message="prompt is too long"):
 
 
 def _handle_stream_error(instance, payload, compaction_enabled=True):
-    with patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=compaction_enabled):
+    with patch("plugin.chatbot.tool_loop.get_config", return_value=compaction_enabled):
         return instance._handle_stream_error(payload)
 
 
@@ -443,7 +458,7 @@ def test_overflow_respawns_worker_with_force_compact(test_instance):
     assert current_turn(test_instance)._overflow_compact_attempts == 1
     assert "Compacting conversation..." in test_instance.statuses
     assert not any(str(s).startswith("Thinking") for s in test_instance.statuses)
-    assert test_instance._terminal_status is None
+    assert test_instance._terminal_status == ""
     joined = "".join(test_instance.responses)
     assert "[API error:" not in joined
     from plugin.framework.client.errors import local_model_overflow_message
@@ -562,13 +577,14 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     client.stream_request_with_tools.return_value = {"content": "ok"}
     view = [{"role": "system", "content": "view"}]
     q = MagicMock()
     from plugin.chatbot.tool_loop_actions import current_turn
 
     current_turn(test_instance).queue = q
+    current_turn(test_instance).session.messages_for_request = MagicMock(return_value=view)
     compact_inside_lane = {"value": False}
 
     class _Lane:
@@ -591,10 +607,9 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane", side_effect=_Lane),
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=True),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=True),
         patch("plugin.chatbot.tool_loop.compact_session", side_effect=fake_compact) as mock_compact,
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         test_instance._spawn_llm_worker(q, client, 128, [{"name": "t"}], 0)
         # Host Thinking is expected on the caller; the background run must not UNO.
@@ -622,23 +637,23 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
-    # MagicMock._stopped is truthy. The worker treats that as Stop and
-    # returns before compact, so the aborted-compact path never runs.
-    client._stopped = False
+    # MagicMock attributes are truthy. Use stopped.return_value so send_stopped
+    # does not treat an idle client as Stop before compact runs.
+    client.stopped.return_value = False
     q = MagicMock()
     from plugin.chatbot.tool_loop_actions import current_turn
 
     current_turn(test_instance).queue = q
+    current_turn(test_instance).session.messages_for_request = MagicMock(return_value=[])
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=True),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=True),
         patch(
             "plugin.chatbot.tool_loop.compact_session",
             return_value=CompactResult(False, "aborted", 10, 10),
         ) as mock_compact,
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=[]),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
@@ -660,15 +675,17 @@ def test_llm_worker_skips_compact_when_flag_false(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     client.stream_request_with_tools.return_value = {}
     view = [{"role": "user", "content": "hi"}]
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    current_turn(test_instance).session.messages_for_request = MagicMock(return_value=view)
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
         patch("plugin.chatbot.tool_loop.compact_session") as mock_compact,
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
@@ -688,18 +705,20 @@ def test_final_stream_compacts_then_sends_view(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     view = [{"role": "system", "content": "final-view"}]
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    current_turn(test_instance).session.messages_for_request = MagicMock(return_value=view)
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=True),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=True),
         patch(
             "plugin.chatbot.tool_loop.compact_session",
             return_value=CompactResult(False, "below_threshold", 4, 4),
         ) as mock_compact,
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
@@ -722,10 +741,10 @@ def test_final_stream_done_and_stop_partial(test_instance):
         captured["fn"] = fn
 
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     view = [{"role": "system", "content": "final-view"}]
 
-    def fake_stream(messages, max_tokens, append_c, append_t, stop_checker=None, status_callback=None):
+    def fake_stream(messages, max_tokens, append_c, append_t, cancel=None, status_callback=None):
         append_c("ab")
         append_c("c")
 
@@ -733,6 +752,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
 
     turn = current_turn(test_instance)
     assert turn is not None
+    turn.session.messages_for_request = MagicMock(return_value=view)
     q1: queue.Queue[Any] = queue.Queue()
     b1 = BatchingStreamQueue(q1, batch_interval=10)
     turn.queue = q1
@@ -741,8 +761,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
@@ -772,19 +791,18 @@ def test_final_stream_done_and_stop_partial(test_instance):
     b2 = BatchingStreamQueue(q2, batch_interval=10)
     turn.queue = q2
     turn.batcher = b2
-    client._stopped = False
+    client.stopped.return_value = False
 
-    def fake_stream_abort(messages, max_tokens, append_c, append_t, stop_checker=None, status_callback=None):
+    def fake_stream_abort(messages, max_tokens, append_c, append_t, cancel=None, status_callback=None):
         append_c("ab")
-        client._stopped = True
+        client.stopped.return_value = True
 
     client.stream_chat_response.side_effect = fake_stream_abort
 
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
         mock_lane.return_value.__exit__ = MagicMock(return_value=False)
@@ -806,14 +824,13 @@ def test_final_stream_done_and_stop_partial(test_instance):
     b3 = BatchingStreamQueue(q3, batch_interval=10)
     turn.queue = q3
     turn.batcher = b3
-    client._stopped = True
+    client.stopped.return_value = True
     client.stream_chat_response.reset_mock()
 
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
-        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
     ):
         test_instance._spawn_final_stream(b3, client, 256)
         captured["fn"]()
@@ -833,8 +850,10 @@ def test_start_tool_calling_resets_overflow_attempts(test_instance):
         return "{}"
 
     with (
-        patch("plugin.chatbot.tool_loop.get_config_int", return_value=8),
-        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
+        patch(
+            "plugin.chatbot.tool_loop.get_config",
+            side_effect=lambda key: False if key == "chat_compaction_enabled" else 8,
+        ),
         patch("plugin.chatbot.tool_loop.get_toolkit", return_value=MagicMock()),
         patch("plugin.chatbot.tool_loop.run_stream_drain_loop"),
         patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response"),
@@ -987,7 +1006,7 @@ def test_ui_thread_send_never_calls_fetch_for_cold_model(test_instance, mock_get
         "chat_max_tool_rounds": 1,
     }
     with (
-        patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
         patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
         patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
@@ -1036,7 +1055,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
 
     client = MagicMock()
     client.stream_request_with_tools.return_value = {"content": "ok"}
-    client._stopped = False
+    client.stopped.return_value = False
     client.config = {"api_key": ""}
     with (
         patch("plugin.framework.client.model_fetcher.get_config", return_value={}),
@@ -1045,7 +1064,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
     ):
         # UI thread: cold model, no HTTP, the selection is captured.
         with (
-            patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.client.model_fetcher.run_in_background"),
             patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
             patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
@@ -1061,7 +1080,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
 
         # Send worker, round 0: resolves the cold model before building the request.
         with (
-            patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
             patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
             patch("plugin.chatbot.tool_loop.llm_request_lane", side_effect=_Lane),
             patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),
@@ -1083,7 +1102,7 @@ def test_first_send_cold_model_worker_resolves_true_keeps_image(test_instance):
     q = MagicMock()
     client = MagicMock()
     client.stream_request_with_tools.return_value = {"content": "ok"}
-    client._stopped = False
+    client.stopped.return_value = False
     client.config = {"api_key": "test-key"}
 
     test_instance.session.messages = [{
@@ -1135,7 +1154,7 @@ def test_first_send_cold_model_worker_resolves_false_or_none_strips_image(test_i
         q = MagicMock()
         client = MagicMock()
         client.stream_request_with_tools.return_value = {"content": "ok"}
-        client._stopped = False
+        client.stopped.return_value = False
         client.config = {"api_key": "test-key"}
 
         test_instance.session.messages = [{
@@ -1225,24 +1244,26 @@ def test_native_audio_stt_fallback_replaces_db_row():
 def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
     """Stop during fallback STT ends the drain without a no-speech banner."""
     from plugin.chatbot.tool_loop import try_native_audio_stt_fallback
+    from plugin.chatbot.tool_loop_actions import TurnController, assign_send_outcome
 
     host = MagicMock()
     host.audio_wav_path = "/fake/a.wav"
-    host._terminal_status = "Ready"
-    host._turn.alive = True
-    host._turn.session = host.session
-    host._turn.same_messages.return_value = True
-    host._turn.batcher = None
-    host._turn.queue = MagicMock()
-    host._turn.text_model = "chat-model"
-    host._turn.endpoint = "https://example"
-    host._turn.active_query_text = "hello"
-    host._turn.active_client = MagicMock()
-    host._turn.active_max_tokens = 100
-    host._turn.active_tools = []
+    turn = TurnController(host.session)
+    turn.alive = True
+    turn.session = host.session
+    turn.same_messages = MagicMock(return_value=True)
+    turn.batcher = None
+    turn.queue = MagicMock()
+    turn.text_model = "chat-model"
+    turn.endpoint = "https://example"
+    turn.active_query_text = "hello"
+    turn.active_client = MagicMock()
+    turn.active_max_tokens = 100
+    turn.active_tools = []
+    host._turn = turn
 
     def _stopped(_path, _model):
-        host._terminal_status = "Stopped"
+        assign_send_outcome(host, "Stopped")
         return ""
 
     host._voice._transcribe_audio.side_effect = _stopped

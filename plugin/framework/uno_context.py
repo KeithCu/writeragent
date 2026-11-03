@@ -30,7 +30,7 @@ gave the extension at load, stored in ``_fallback_ctx``. Calling
 can return a **different** context with no UI, which then segfaults or
 fails to find dialogs. This module does **not** make the Writer/Calc
 document model safe from any thread — wrap document access with
-``guard_uno`` and marshal UI work through ``QueueExecutor``.
+``guard_uno`` and marshal UI work through ``MainThread``.
 """
 
 from __future__ import annotations
@@ -54,7 +54,8 @@ from plugin.framework.errors import (
     suppress_disposed,
     uno_call,
 )
-from plugin.framework.thread_guard import main_thread_only, on_main_thread
+from plugin.framework.queue_executor import main
+from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.vcl_pumping import (
     focus_preserved as focus_preserved,
     process_events_to_idle as process_events_to_idle,
@@ -203,7 +204,7 @@ def resolve_package_extension_id(ctx: Any | None = None) -> str:
     if _package_extension_id:
         return _package_extension_id
 
-    if not on_main_thread():
+    if not main.is_current():
         return EXTENSION_ID_WRITERAGENT
 
     pip = get_package_info(ctx)
@@ -252,7 +253,7 @@ def _stable_component_context(ctx: Any) -> Any:
     ``get_ctx() is get_ctx()`` would be False. The release stub returns the
     raw object, so identity holds. The bootstrap context is one long-lived
     PyUNO object. Mocks and guard-off returns stay the raw object, which
-    is already stable. QueueExecutor still unwraps before it stores a
+    is already stable. MainThread still unwraps before it stores a
     context; that compare is on the raw target.
     """
     from plugin.framework.thread_guard import _UnoThreadGuardProxy
@@ -626,7 +627,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
     """
     if not url or not str(url).strip():
         return (None, None)
-    from plugin.doc import doc_type as _doc_type
+    from plugin.framework import doc_type as _doc_type
 
     target = _doc_identity_url(url)
     try:
@@ -679,7 +680,7 @@ def document_id_for_frame(frame: Any) -> str:
     """
     if frame is None:
         return ""
-    if not on_main_thread():
+    if not main.is_current():
         return ""
     model = get_document_from_frame(frame)
     if model is None:

@@ -185,9 +185,9 @@ def _voice_checkboxes() -> list[Any]:
 
 def _tts_snapshot_fields() -> dict[str, Any]:
     """Sidebar Voice checkbox vs config (Settings → Speech audio.tts_enabled)."""
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    enabled = bool(get_config_bool_safe("audio.tts_enabled"))
+    enabled = bool(get_config("audio.tts_enabled"))
     chk_state: int | None = None
     panels = _all_live_panels()
     for chk in _voice_checkboxes():
@@ -499,10 +499,10 @@ def set_late_transcript_delay(delay: float) -> None:
 
 
 def _restore_saved_config(saved: dict[str, Any]) -> None:
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
-    for key, value in saved.items():
-        set_config(key, value)
+    if saved:
+        save(saved)
 
 
 def _clear_fake_stt_in_process() -> None:
@@ -626,7 +626,7 @@ def _apply_fake_stt(mode: str) -> None:
             }
 
         # Keep existing config for STT provider to allow testing both local and endpoint.
-        # set_config("audio.stt_provider", "local")
+        # save("audio.stt_provider", "local")
 
         _FAKE_STT_MODE = mode
         _FAKE_STT_STATE = _fresh_or_update_fake_state(_FAKE_STT_STATE, mode, _FAKE_STT_SAVED)
@@ -874,7 +874,7 @@ def _apply_fake_tts(mode: str) -> None:
         _clear_fake_tts_in_process()
         return
 
-    from plugin.framework.config import get_config, set_config
+    from plugin.framework.config import get_config, save
     import plugin.audio.tts_service as tts_service
 
     global _FAKE_TTS_MODE, _FAKE_TTS_SAVED, _FAKE_TTS_ORIG, _FAKE_TTS_STATE
@@ -887,9 +887,11 @@ def _apply_fake_tts(mode: str) -> None:
                 "audio.tts_sentence_mode": get_config("audio.tts_sentence_mode"),
             }
 
-        set_config("audio.tts_enabled", True)
-        set_config("audio.tts_provider", "system")
-        set_config("audio.tts_sentence_mode", False)
+        save({
+            "audio.tts_enabled": True,
+            "audio.tts_provider": "system",
+            "audio.tts_sentence_mode": False,
+        })
 
         _FAKE_TTS_MODE = mode
         _FAKE_TTS_STATE = _fresh_or_update_fake_state(
@@ -961,27 +963,27 @@ def _apply_fake_tts(mode: str) -> None:
 
             setattr(fake_popen, "_writeragent_fake_tts", True)
 
-            def fake_end_utterance(generation: int) -> bool:
-                # Paired with fake_stop_speech: the check must not run until the rewind is published.
+            def fake_end_utterance(cancel: Any) -> bool:
+                # Paired with fake_stop_speech: the check must not run until the scope restore is published.
                 with _FAKE_TTS_LOCK:
-                    return orig_end_utterance(generation)
+                    return orig_end_utterance(cancel)
 
             setattr(fake_end_utterance, "_writeragent_fake_tts", True)
 
             def fake_stop_speech(*args: Any, **kwargs: Any) -> None:
                 # What was wrong: on_complete was skipped after a fake hold/stop even though the child was reaped.
-                # How it happened: stop_speech bumps _speech_generation and SIGKILLs before it returns.
-                # The tts-speak thread wakes from communicate/wait, _end_utterance sees the bump, returns
-                # False, and never calls on_complete. The rewind below that call ran too late. A slow
+                # How it happened: stop_speech cancels _speech_cancel and SIGKILLs before it returns.
+                # The tts-speak thread wakes from communicate/wait, _end_utterance sees the cancelled scope,
+                # returns False, and never calls on_complete. The restore below that call ran too late. A slow
                 # tts-cleanup thread start (CI xdist) makes the window likely. The 2s wait cannot help.
-                # Why this fixes it: the rewind is published before this lock is released, and
-                # fake_end_utterance takes the same lock, so the worker observes the restored generation.
+                # Why this fixes it: the scope restore is published before this lock is released, and
+                # fake_end_utterance takes the same lock, so the worker observes the restored scope.
                 with _FAKE_TTS_LOCK:
                     try:
-                        cur_gen = getattr(tts_service, "_speech_generation", None)
+                        cur_cancel = getattr(tts_service, "_speech_cancel", None)
                         orig_stop_speech(*args, **kwargs)
-                        if cur_gen is not None:
-                            tts_service._speech_generation = cur_gen
+                        if cur_cancel is not None:
+                            tts_service._speech_cancel = cur_cancel
                     finally:
                         for p in _FAKE_TTS_PROCS.values():
                             if p.poll() is None:
@@ -1120,7 +1122,7 @@ def handle_debug_sidebar_command(command: str) -> None:
     """Run inside soffice (protocol handler). Packet G URP FSM ops + OPEN_CALC.
 
     ``DispatchHandler`` runs on the URP thread. ``WRITERAGENT_TESTING=1`` makes
-    ``QueueExecutor.post`` inline, so Stop Rec used to start ``_do_send`` off
+    ``MainThread.post`` inline, so Stop Rec used to start ``_do_send`` off
     the VCL thread and freeze on ``Getting document...``. Marshal FSM work onto
     the listener's executor (VCL) before StartSendEffect posts the drain.
     ``OPEN_CALC`` uses the same post-to-VCL rule: factory ``scalc`` over URP
@@ -1185,18 +1187,18 @@ def handle_debug_sidebar_command(command: str) -> None:
         _post_to_soffice_vcl(kick_pending_peer_starts, sl=sl)
         _write_debug_snapshot(sl)
         return
-    # Packet I5: a short request_timeout read by the soffice sidebar (URP set_config is
+    # Packet I5: a short request_timeout read by the soffice sidebar (URP save is
     # not seen there); RESTORE puts back the value SHORT replaced.
     if op in ("REQUEST_TIMEOUT_SHORT", "REQUEST_TIMEOUT_RESTORE"):
         global _SAVED_REQUEST_TIMEOUT
-        from plugin.framework.config import get_config, set_config
+        from plugin.framework.config import get_config, save
 
         if op == "REQUEST_TIMEOUT_SHORT":
             if _SAVED_REQUEST_TIMEOUT is None:
                 _SAVED_REQUEST_TIMEOUT = get_config("request_timeout")
-            set_config("request_timeout", 5)
+            save({"request_timeout": 5})
         elif _SAVED_REQUEST_TIMEOUT is not None:
-            set_config("request_timeout", _SAVED_REQUEST_TIMEOUT)
+            save({"request_timeout": _SAVED_REQUEST_TIMEOUT})
             _SAVED_REQUEST_TIMEOUT = None
         _write_debug_snapshot(sl)
         return
@@ -1209,15 +1211,15 @@ def handle_debug_sidebar_command(command: str) -> None:
         "SET_TTS_OFF": ("audio.tts_enabled", False),
     }
     if op in config_ops:
-        from plugin.framework.config import set_config
+        from plugin.framework.config import save
 
         key, val = config_ops[op]
-        set_config(key, val)
+        save({key: val})
         _write_debug_snapshot(sl)
         return
     if op == "TOGGLE_SIDEBAR_TTS":
         # Drive the sidebar Voice checkbox (reverse of Settings→sidebar).
-        from plugin.framework.config import set_config
+        from plugin.framework.config import save
 
         for chk in _voice_checkboxes():
             if not hasattr(chk, "getState") or not hasattr(chk, "setState"):
@@ -1227,7 +1229,7 @@ def handle_debug_sidebar_command(command: str) -> None:
                 want = 0 if cur else 1
                 chk.setState(want)
                 # Ensure config matches even if ItemEvent.Selected was missing.
-                set_config("audio.tts_enabled", bool(want))
+                save({"audio.tts_enabled": bool(want)})
             except Exception:
                 log.exception("TOGGLE_SIDEBAR_TTS setState failed")
             break
@@ -1524,9 +1526,9 @@ def _frames_match(left: Any, right: Any) -> bool:
         return False
     if left is right:
         return True
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return False
     from plugin.framework.uno_context import uno_same
 
@@ -1716,16 +1718,16 @@ def _load_visible_calc_factory() -> None:
 def _post_to_soffice_vcl(fn: Callable[[], None], *, sl: Any = None) -> None:
     """Enqueue *fn* on soffice VCL. Do not run it inline on the URP Dummy thread.
 
-    ``WRITERAGENT_TESTING=1`` makes ``QueueExecutor.post`` inline. Force-marshal
+    ``WRITERAGENT_TESTING=1`` makes ``MainThread.post`` inline. Force-marshal
     so AsyncCallback runs the work on VCL. ``execute()`` from URP dispatch
     deadlocks (office idle, tests wait forever) — same as Packet G FSM ops.
     """
     qe = getattr(sl, "queue_executor", None) if sl is not None else None
     if qe is None:
-        from plugin.framework.queue_executor import default_executor
+        from plugin.framework.queue_executor import main
 
-        qe = default_executor
-    # force_marshal skips _get_async_callback inside post(); without a prior
+        qe = main
+    # force marshal skips _get_async_callback inside post(); without a prior
     # init, _poke_main_thread is a no-op and the factory load never runs
     # (E12 2026-09-08: "poke skipped (no AsyncCallback)" after OPEN_CALC).
     init_cb = getattr(qe, "_get_async_callback", None)
@@ -1734,13 +1736,7 @@ def _post_to_soffice_vcl(fn: Callable[[], None], *, sl: Any = None) -> None:
             init_cb()
         except Exception:
             log.exception("debug_sidebar: AsyncCallback init failed")
-    from plugin.framework.queue_executor import set_force_marshal_mode
-
-    set_force_marshal_mode(True)
-    try:
-        qe.post(fn)
-    finally:
-        set_force_marshal_mode(False)
+    qe.post(fn, force_queue=True)
 
 
 def open_calc_document(ctx: Any, *, timeout: float = 30.0) -> Any:
@@ -2121,9 +2117,9 @@ def send_listener_for_uid(uid: str) -> Any:
     sl = _panel_send_listener(sidebar_panel(uid=token))
     if sl is not None:
         return sl
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return None
     from plugin.framework.uno_context import get_runtime_uid
 

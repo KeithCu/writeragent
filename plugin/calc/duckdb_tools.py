@@ -16,7 +16,7 @@ from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
 from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposal, uno_read
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import (
     FLAT_FILE_EXTS,
@@ -123,7 +123,6 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
 
         task_hint = str(kwargs.get("task_hint") or "") or None
 
-        from plugin.framework.thread_guard import on_main_thread
         from plugin.scripting.client import run_folder_sql
 
         def _load_sql_inputs() -> dict[str, Any]:
@@ -195,15 +194,15 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         # Hop only the UNO preload when the caller is a worker; the IPC
         # stays on this thread. One function that both reads the sheets and
         # calls run_folder_sql pushes the SQL and the venv IPC onto the UI
-        # thread via execute_on_main_thread and freezes Calc. Callers that
+        # thread via main.call and freezes Calc. Callers that
         # are already on main (tests, sync entry) run the preload inline so
         # they do not deadlock the UI thread.
         try:
-            if on_main_thread():
+            if main.is_current():
                 prepared = _load_sql_inputs()
             else:
-                # execute_on_main_thread is typed Any; _load_sql_inputs returns this dict.
-                prepared = cast("dict[str, Any]", execute_on_main_thread(_load_sql_inputs))
+                # main.call is typed Any; _load_sql_inputs returns this dict.
+                prepared = cast("dict[str, Any]", main.call(_load_sql_inputs))
         except ToolExecutionError as exc:
             return format_error_payload(exc)
 
@@ -400,7 +399,7 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
     """Save As ODS to *dest* (atomic replace via a ``.partial`` sibling)."""
     import uno
 
-    from plugin.writer.format import create_property_value
+    from plugin.framework.uno_context import create_property_value
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Unique per writer: a fixed ".partial" name let two cache writes unlink
@@ -427,9 +426,9 @@ def _resolve_sibling_open_path(ctx: Any, full_path: str) -> tuple[str, bool, Ods
     Cache only ``.xlsx``/``.xls`` that are not already open. Native ``.ods``
     and the live workbook always open the source path.
     """
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    if not is_cacheable_office_source(full_path) or not get_config_bool_safe("calc.ods_cache_enabled"):
+    if not is_cacheable_office_source(full_path) or not get_config("calc.ods_cache_enabled"):
         return full_path, False, None
     if _source_is_open_workbook(ctx, full_path):
         return full_path, False, None

@@ -29,9 +29,10 @@ from typing import Any
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, canonical_resolution
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.requests import sync_request
-from plugin.framework.config import get_config_int
+from plugin.framework.config import get_config
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.framework.errors import NetworkError, ToolExecutionError, resolve_exception_message
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 log = logging.getLogger(__name__)
 
@@ -99,9 +100,11 @@ def _unlink_temp_paths(paths: list[str]) -> None:
             pass
 
 
-def _abandon_image_paths(paths: list[str], stop_checker: Any, exc: Exception, log_message: str) -> tuple[list[str], str]:
+def _abandon_image_paths(
+    paths: list[str], cancel: SendCancellation | None, exc: Exception, log_message: str
+) -> tuple[list[str], str]:
     _unlink_temp_paths(paths)
-    if (isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED") or (stop_checker is not None and stop_checker()):
+    if (isinstance(exc, NetworkError) and getattr(exc, "code", None) == "STOPPED") or is_cancelled(cancel):
         log.debug("Image generation cancelled by Stop: %s", exc)
         raise ToolExecutionError("Image generation stopped by user.", code="USER_STOPPED") from exc
     message = resolve_exception_message(exc)
@@ -134,14 +137,14 @@ class EndpointImageProvider:
             raise RuntimeError("image download exceeded %s bytes" % IMAGE_DOWNLOAD_MAX_BYTES)
         return _write_temp_image(base64.b64decode(b64_data))
 
-    def _save_url(self, url: str, *, stop_checker: Any = None, status_callback: Any = None) -> str:
+    def _save_url(self, url: str, *, cancel: SendCancellation | None = None, status_callback: Any = None) -> str:
         resp = sync_request(
             url,
             parse_json=False,
             include_meta=True,
-            timeout=get_config_int("request_timeout"),
+            timeout=get_config("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
-            stop_checker=stop_checker,
+            cancel=cancel,
             status_callback=status_callback,
         )
         body = getattr(resp, "body", resp)
@@ -154,7 +157,7 @@ class EndpointImageProvider:
         self,
         ref: str,
         *,
-        stop_checker: Any,
+        cancel: SendCancellation | None,
         status_callback: Any,
         http_text: str,
         fetch_http_if_data_failed: bool,
@@ -166,7 +169,7 @@ class EndpointImageProvider:
             if not fetch_http_if_data_failed:
                 return None
         if http_text.startswith("http"):
-            return self._save_url(http_text, stop_checker=stop_checker, status_callback=status_callback)
+            return self._save_url(http_text, cancel=cancel, status_callback=status_callback)
         return None
 
     def _run_image_completion(
@@ -177,7 +180,7 @@ class EndpointImageProvider:
         height: int,
         steps: int | None,
         source_image: str | None,
-        stop_checker: Any,
+        cancel: SendCancellation | None,
         status_callback: Any,
         log_message: str,
     ) -> tuple[list[str], str]:
@@ -190,7 +193,7 @@ class EndpointImageProvider:
                 height=height,
                 steps=steps,
                 source_image=source_image,
-                stop_checker=stop_checker,
+                cancel=cancel,
                 status_callback=status_callback,
             )
             for b64 in b64_list:
@@ -199,7 +202,7 @@ class EndpointImageProvider:
                 return paths, ""
             return [], "No image data returned from provider"
         except Exception as e:
-            return _abandon_image_paths(paths, stop_checker, e, log_message)
+            return _abandon_image_paths(paths, cancel, e, log_message)
 
     def generate(
         self,
@@ -208,7 +211,7 @@ class EndpointImageProvider:
         height: int = DEFAULT_IMAGE_BASE_SIZE,
         steps: int | None = None,
         status_callback: Any = None,
-        stop_checker: Any = None,
+        cancel: SendCancellation | None = None,
         image_model: str | None = None,
         source_image: str | None = None,
         aspect_ratio: str | None = None,
@@ -230,7 +233,7 @@ class EndpointImageProvider:
                     completion_log = "OpenRouter dedicated image generation failed"
             if completion_log:
                 return self._run_image_completion(
-                    prompt, model, width, height, steps, source_image, stop_checker, status_callback,
+                    prompt, model, width, height, steps, source_image, cancel, status_callback,
                     completion_log,
                 )
 
@@ -271,7 +274,7 @@ class EndpointImageProvider:
                     messages,
                     body_override=json.dumps(body_dict),
                     model=model,
-                    stop_checker=stop_checker,
+                    cancel=cancel,
                     status_callback=status_callback,
                 )
                 raw_content = chat_resp.get("content")
@@ -290,7 +293,7 @@ class EndpointImageProvider:
 
                     path = self._save_image_ref(
                         url,
-                        stop_checker=stop_checker,
+                        cancel=cancel,
                         status_callback=status_callback,
                         http_text=url,
                         fetch_http_if_data_failed=False,
@@ -306,7 +309,7 @@ class EndpointImageProvider:
                     log_message = "Image fallback content processing failed"
                     path = self._save_image_ref(
                         raw_content,
-                        stop_checker=stop_checker,
+                        cancel=cancel,
                         status_callback=status_callback,
                         http_text=raw_content.strip(),
                         fetch_http_if_data_failed=True,
@@ -315,7 +318,7 @@ class EndpointImageProvider:
                         paths.append(path)
                         return paths, ""
             except Exception as e:
-                return _abandon_image_paths(paths, stop_checker, e, log_message)
+                return _abandon_image_paths(paths, cancel, e, log_message)
 
             return [], "No image data returned from provider"
         finally:
@@ -328,17 +331,19 @@ class ImageService:
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
 
-    def generate_image(self, prompt: str, status_callback: Any = None, stop_checker: Any = None, **kwargs: Any) -> tuple[list[str], str]:
+    def generate_image(
+        self, prompt: str, status_callback: Any = None, cancel: SendCancellation | None = None, **kwargs: Any
+    ) -> tuple[list[str], str]:
         from plugin.framework.config import get_api_config
         from plugin.framework.client.model_fetcher import get_image_model
 
         api_config = get_api_config().copy()
         api_config["model"] = get_image_model()
         provider = EndpointImageProvider(api_config, self.ctx)
-        base_size = get_config_int("image_base_size")
+        base_size = get_config("image_base_size")
         for key in ("width", "height"):
             if kwargs.get(key) is None:
                 kwargs[key] = base_size
-        kwargs.setdefault("steps", get_config_int("image_steps"))
+        kwargs.setdefault("steps", get_config("image_steps"))
 
-        return provider.generate(prompt, status_callback=status_callback, stop_checker=stop_checker, **kwargs)
+        return provider.generate(prompt, status_callback=status_callback, cancel=cancel, **kwargs)

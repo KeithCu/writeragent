@@ -233,3 +233,20 @@ def test_disposed_notes_page_propagates():
             GetSpeakerNotes().execute(ctx, page=0)
         with pytest.raises(DocumentDisposedError):
             SetSpeakerNotes().execute(ctx, text="hi", page=0)
+
+
+def test_notes_text_and_set_notes_text_functions():
+    from plugin.draw.bridge import notes_text, set_notes_text
+
+    assert notes_text(None) is None
+    assert set_notes_text(None, "hello") is False
+
+    slide_no_notes = _Slide(_NotesPage(_ChromeShape()))
+    assert notes_text(slide_no_notes) is None
+    assert set_notes_text(slide_no_notes, "hello") is False
+
+    shape = _NotesShape("initial")
+    slide_with_notes = _Slide(_NotesPage(_ChromeShape(), shape))
+    assert notes_text(slide_with_notes) == "initial"
+    assert set_notes_text(slide_with_notes, "updated") is True
+    assert notes_text(slide_with_notes) == "updated"

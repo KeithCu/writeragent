@@ -117,7 +117,7 @@ def test_insert_latex_math_dialog_monaco_success(ctx: Any, doc: Any) -> None:
     with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(mock_exe, True)), \
          patch("plugin.writer.math.latex_dialog.launch_monaco_editor") as mock_launch, \
-         patch("plugin.writer.math.latex_dialog.set_config") as mock_set_config:
+         patch("plugin.writer.math.latex_dialog.save") as mock_set_config:
 
         insert_latex_math_dialog(ctx)
 
@@ -141,9 +141,8 @@ def test_insert_latex_math_dialog_monaco_success(ctx: Any, doc: Any) -> None:
         assert res["ok"] is True
         assert res["status_ok_text"] == "Formula inserted."
 
-        # Verify the on_save closure attempted to persist via set_config
-        mock_set_config.assert_any_call("last_latex_input", latex_input)
-        mock_set_config.assert_any_call("last_latex_display_block", True)
+        # Verify the on_save closure attempted to persist via save
+        mock_set_config.assert_any_call({"last_latex_input": latex_input, "last_latex_display_block": True})
 
 
 @native_test
@@ -213,7 +212,7 @@ def test_prefill_failed_export_cancels_without_corrupting_formula(ctx: Any, doc:
     _skip_windows_leftover_hidden_mathml()
     from plugin.writer.math.math_mml_convert import insert_writer_math_formula
     from plugin.writer.math.math_mml_export import MathExportResult
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     text = doc.getText()
     cur = text.createTextCursor()
@@ -223,8 +222,8 @@ def test_prefill_failed_export_cancels_without_corrupting_formula(ctx: Any, doc:
     name = str(eo.getElementNames()[0])
     embed = eo.getByName(name)
 
-    set_config("last_latex_input", "previous_session_latex")
-    set_config("last_latex_display_block", False)  # earlier tests can leave True
+    save({"last_latex_input": "previous_session_latex"})
+    save({"last_latex_display_block": False})  # earlier tests can leave True
     with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
          patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[embed]), \
@@ -243,7 +242,7 @@ def test_prefill_failed_export_cancels_without_corrupting_formula(ctx: Any, doc:
 def test_update_formula_with_display_block_leaves_config_unchanged(ctx: Any, doc: Any) -> None:
     _skip_windows_leftover_hidden_mathml()
     from plugin.writer.math.math_mml_convert import insert_writer_math_formula
-    from plugin.framework.config import get_config, set_config
+    from plugin.framework.config import get_config, save
 
     text = doc.getText()
     cur = text.createTextCursor()
@@ -253,7 +252,7 @@ def test_update_formula_with_display_block_leaves_config_unchanged(ctx: Any, doc
     name = str(eo.getElementNames()[0])
     embed = eo.getByName(name)
 
-    set_config("last_latex_display_block", False)
+    save({"last_latex_display_block": False})
     with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
          patch("plugin.writer.math.math_mml_export.selected_math_embeds", return_value=[embed]), \

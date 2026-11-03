@@ -1,3 +1,4 @@
+from plugin.framework.queue_executor import main
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2024 John Balis
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
@@ -21,6 +22,7 @@ import pytest
 import threading
 import time
 import types
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
@@ -662,7 +664,7 @@ class TestManageChartsSpecializedTier:
         assert "manage_charts" not in tool_names
 
     def test_skinny_chart_tools_not_discovered(self):
-        """list/info/upsert/delete are ToolBaseDummy-only; only manage_charts registers."""
+        """list/info/upsert/delete are functions; only manage_charts registers."""
         import plugin.calc.charts as calc_charts
         import plugin.draw.charts as draw_charts
         import plugin.writer.specialized.charts as writer_charts
@@ -816,13 +818,12 @@ class TestManageChartsSpecializedTier:
 
         ctx = TestingFactory.create_context(doc_type="calc")
         tool = ManageCharts()
-        with patch("plugin.calc.charts.ListCharts") as list_cls:
-            list_cls.return_value.execute.return_value = {"status": "ok", "charts": [], "count": 0}
+        with patch("plugin.calc.charts.list_charts") as mock_list:
+            mock_list.return_value = {"status": "ok", "charts": [], "count": 0}
             res = tool.execute(ctx, action="list")
         assert res["status"] == "ok"
         assert res["count"] == 0
-        list_cls.assert_called_once_with()
-        list_cls.return_value.execute.assert_called_once()
+        mock_list.assert_called_once_with(tool, ctx, action="list")
 
 
 class TestLibrarianToolVisibility:
@@ -871,7 +872,7 @@ class TestSchemas:
         reg = _make_registry(FakeTool())
         ctx = MagicMock()
         with (
-            patch("plugin.vision.vision_availability.get_config_str", return_value="/venv"),
+            patch("plugin.vision.vision_availability.get_config", return_value="/venv"),
             patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/venv/bin/python"),
         ):
             reg.get_schemas("openai", doc=TestingFactory.create_doc(doc_type="writer"), ctx=ctx)
@@ -1723,7 +1724,7 @@ def test_execute_unguarded_skips_guard() -> None:
         return fn()
 
     params = {"note": "keep"}
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
         # Same shape as tools_lo: keyword, then **params. A dict literal
         # spread is a different bytecode path and is not this contract.
         out = reg.execute_unguarded("dummy_sync", ctx, **params)
@@ -1754,7 +1755,7 @@ def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object) -> None:
     def bg():
         box["out"] = reg.execute("dummy_sync", ctx, **args)
 
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
         worker = threading.Thread(target=bg, name="tool-sync-probe")
         worker.start()
         worker.join()
@@ -1774,7 +1775,7 @@ def test_execute_dict_literal_bypass_cannot_skip_thread_guard() -> None:
         marshalled.append("marshal")
         return fn()
 
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
         out = reg.execute("dummy_sync", ctx, **{"bypass_thread_guard": True, "note": "keep"})
 
     assert marshalled == ["marshal"]
@@ -1804,7 +1805,7 @@ def test_tool_get_parameters_value_error_returns_registry_error() -> None:
 
 def test_execute_spread_colliding_names_handled() -> None:
     reg, ctx, calls, seen = _guard_probe_registry()
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+    with patch("plugin.framework.tool.main.call", side_effect=lambda fn: fn()):
         out = reg.execute(
             "dummy_sync",
             ctx,
@@ -1840,7 +1841,7 @@ def test_execute_tool_with_timeout_tool_name_run_threaded_in_schema() -> None:
     reg = ToolRegistry(MagicMock())
     reg.register(AdvancedParamsTool())
     ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+    with patch("plugin.framework.tool.main.call", side_effect=lambda fn: fn()):
         out = reg.execute("advanced_params", ctx, timeout=5, tool_name="my_name", run_threaded=True)
 
     assert out.get("status") == "ok"
@@ -1869,28 +1870,28 @@ def test_sync_tool_timeout_none_returns_ok() -> None:
     reg = ToolRegistry(MagicMock())
     reg.register(NoneTimeoutTool())
     ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+    with patch("plugin.framework.tool.main.call", side_effect=lambda fn: fn()):
         out = reg.execute("none_timeout_tool", ctx)
     assert out.get("status") == "ok"
     assert out.get("result") == 42
 
 
-def test_doc_type_probe_on_main_thread_only() -> None:
+def test_doc_type_probe_on_main_only() -> None:
     reg = ToolRegistry(MagicMock())
     doc = MagicMock()
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
+    with patch.object(main, "is_current", return_value=True), \
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_schemas(doc=doc)
         assert mock_probe.call_count == 1
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
+    with patch.object(main, "is_current", return_value=True), \
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_schemas(doc=doc, doc_type="writer")
         mock_probe.assert_not_called()
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=False), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
+    with patch.object(main, "is_current", return_value=False), \
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_tools(doc=doc)
         mock_probe.assert_not_called()
         reg.get_schemas(doc=doc)
@@ -1901,8 +1902,8 @@ def test_get_schemas_unknown_protocol_does_not_probe() -> None:
     reg = ToolRegistry(MagicMock())
     doc = MagicMock()
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe, \
+    with patch.object(main, "is_current", return_value=True), \
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe, \
          patch("plugin.framework.tool.ToolRegistry.get_tools") as mock_get_tools:
         with pytest.raises(ValueError, match="Unknown protocol: xml"):
             reg.get_schemas("xml", doc=doc)
@@ -1957,12 +1958,20 @@ def test_specialized_domain_flag() -> None:
 
 
 def test_get_tools_signature_and_ctx() -> None:
+    from tests.tool_registry_filters import append_production_tool_registry_filters
+
     reg = ToolRegistry(MagicMock())
     with pytest.raises(TypeError):
         reg.get_tools(doc_typo="writer")  # type: ignore[call-arg]
 
+    append_production_tool_registry_filters(reg)
     sentinel_ctx = object()
-    with patch("plugin.vision.vision_availability.filter_vision_specialized_tools", side_effect=lambda tools, ctx: tools) as mock_filter:
-        reg.get_tools(ctx=sentinel_ctx)
-        mock_filter.assert_called_once()
-        assert mock_filter.call_args[0][1] is sentinel_ctx
+    seen: list[Any] = []
+
+    def _track(tools: list[Any], ctx: Any = None) -> list[Any]:
+        seen.append(ctx)
+        return tools
+
+    reg.tool_filters = [_track]
+    reg.get_tools(ctx=sentinel_ctx)
+    assert seen == [sentinel_ctx]

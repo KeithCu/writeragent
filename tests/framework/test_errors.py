@@ -534,11 +534,11 @@ class TestSecurityFix:
 
 class TestSuppressDisposed:
 
-    def test_is_tool_document_disposed_live_doc_bare_runtime(self):
+    def test_is_disposal_bare_runtime_not_disposal(self):
         from plugin.framework.errors import (
             DocumentDisposedError,
+            is_disposal,
         )
-        from plugin.framework.tool import is_tool_document_disposed
 
         class CustomDisposedException(Exception):
             pass
@@ -547,19 +547,16 @@ class TestSuppressDisposed:
             pass
 
         # Bare RuntimeException is a real UNO error, not dispose.
-        assert not is_tool_document_disposed(CustomRuntimeException(""))
-        assert is_tool_document_disposed(CustomDisposedException("Disposed"))
-        assert is_tool_document_disposed(DocumentDisposedError("gone"))
-        assert not is_tool_document_disposed(ValueError("Bad value"))
+        assert not is_disposal(CustomRuntimeException(""))
+        assert is_disposal(CustomDisposedException("Disposed"))
+        assert is_disposal(DocumentDisposedError("gone"))
+        assert not is_disposal(ValueError("Bad value"))
 
     def test_disposal_predicates_truth_table(self):
         from plugin.framework.errors import (
             DocumentDisposedError,
-            is_disposal,
-        )
-        from plugin.framework.tool import (
             document_is_disposed,
-            is_tool_document_disposed,
+            is_disposal,
         )
 
         class CustomDisposedException(Exception):
@@ -613,7 +610,6 @@ class TestSuppressDisposed:
 
         for exc_name, exc, exp_disposal in exceptions:
             assert is_disposal(exc) is exp_disposal, f"{exc_name} is_disposal mismatch"
-            assert is_tool_document_disposed(exc) is exp_disposal, f"{exc_name} is_tool_document_disposed mismatch"
 
     def test_suppress_disposed_with_disposed_error(self):
         from plugin.framework.errors import (

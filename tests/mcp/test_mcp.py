@@ -194,18 +194,19 @@ def test_mcp_action_server_status_dialog_controls():
     mock_server.is_running.return_value = True
     mock_server.get_status.return_value = {"running": True, "mcp_url": "http://localhost:18765/mcp", "routes": 5}
 
-    mock_cfg = MagicMock()
-    mock_cfg.get.side_effect = lambda k, default=None: {
-        "tunnel_enabled": True,
-        "tunnel_provider": "cloudflare",
-    }.get(k, default)
-
-    mock_services = MagicMock()
-    mock_services.config.proxy_for.return_value = mock_cfg
-    mod._services = mock_services
+    def fake_get(k):
+        return {
+            "mcp.tunnel_enabled": True,
+            "mcp.tunnel_provider": "cloudflare",
+        }.get(k)
 
     mock_tunnel = MagicMock()
     mock_tunnel.mcp_public_url.return_value = "https://test.trycloudflare.com/mcp"
+
+    mod.server = mock_server
+    mod.tunnel = mock_tunnel
+    mock_services = MagicMock()
+    mod._services = mock_services
 
     mock_dlg = MagicMock()
     mock_controls = {}
@@ -217,8 +218,7 @@ def test_mcp_action_server_status_dialog_controls():
     mock_dlg.getControl.side_effect = lambda name: mock_controls.get(name)
 
     with (
-        patch("plugin.mcp._shared_http_server", mock_server),
-        patch("plugin.mcp._shared_tunnel", mock_tunnel),
+        patch("plugin.mcp.get_config", side_effect=fake_get),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=mock_dlg),
     ):
@@ -241,16 +241,12 @@ def test_mcp_action_toggle_server_start_does_not_popup_modal_msgbox():
     mock_server = MagicMock()
     mock_server.is_running.return_value = True
 
-    mock_cfg = MagicMock()
-    mock_cfg.get.side_effect = lambda k, default=None: {
-        "mcp_enabled": True,
-    }.get(k, default)
-
     mock_services = MagicMock()
-    mock_services.config.proxy_for.return_value = mock_cfg
     mod._services = mock_services
 
     with (
+        patch("plugin.mcp.get_config", return_value=True),
+        patch("plugin.mcp.save"),
         patch("plugin.mcp.is_mcp_server_running", side_effect=[False, True]),
         patch.object(mod, "_start_server") as mock_start,
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
@@ -293,16 +289,13 @@ def test_mcp_action_toggle_server_failure_shows_failure_dialog():
 
     mod = McpModule()
     mod._registry = MagicMock()
-    mock_cfg = MagicMock()
-    mock_cfg.get.side_effect = lambda k, default=None: {
-        "mcp_enabled": True,
-    }.get(k, default)
 
     mock_services = MagicMock()
-    mock_services.config.proxy_for.return_value = mock_cfg
     mod._services = mock_services
 
     with (
+        patch("plugin.mcp.get_config", return_value=True),
+        patch("plugin.mcp.save"),
         patch("plugin.mcp.is_mcp_server_running", return_value=False),
         patch.object(mod, "_start_server"),
         patch.object(mod, "_show_start_failure_dialog") as mock_fail_dlg,

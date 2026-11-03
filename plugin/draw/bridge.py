@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 from plugin.doc import text_helpers as _text_helpers
+from plugin.framework.doc_type import is_impress
 from plugin.framework.constants import truncate_chat_context
 from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, is_disposal, uno_call, uno_read
 from plugin.framework.thread_guard import main_thread_only
@@ -331,19 +332,9 @@ class DrawBridge:
             self.set_current_page_index(1)
 
     def _resolve_master(self, master_index: int | None = None, master_name: str | None = None) -> Any | None:
-        if not hasattr(self.doc, "getMasterPages"):
-            return None
-        masters = self.doc.getMasterPages()
-        if master_name is not None:
-            for i in range(masters.getCount()):
-                m = masters.getByIndex(i)
-                if hasattr(m, "Name") and m.Name == master_name:
-                    return m
-            return None
-        if master_index is not None:
-            if 0 <= master_index < masters.getCount():
-                return masters.getByIndex(master_index)
-        return None
+        from plugin.draw.masters import find_master
+
+        return find_master(self.doc, name=master_name, index=master_index)
 
     def move_slide(self, from_index: int, to_index: int) -> bool:
         """Move the page at from_index so it occupies to_index.
@@ -734,8 +725,8 @@ class DrawBridge:
         # are not shapes, so shape rollback never moved them. Raising before any write lets
         # _swap_page_meta undo name and props and lets _exchange_page_contents restore shapes.
         # Empty text is not content to lose, so empty against None returns safely.
-        text_first = self._notes_text(first)
-        text_second = self._notes_text(second)
+        text_first = notes_text(first)
+        text_second = notes_text(second)
         if text_first == text_second:
             return
         if text_first is None or text_second is None:
@@ -745,29 +736,19 @@ class DrawBridge:
             raise RuntimeError(
                 "move_slide cannot move speaker notes: the neighboring slide has no notes shape"
             )
-        self._set_notes_text(first, text_second)
+        if not set_notes_text(first, text_second):
+            raise RuntimeError("move_slide notes shape missing")
         try:
-            self._set_notes_text(second, text_first)
+            if not set_notes_text(second, text_first):
+                raise RuntimeError("move_slide notes shape missing")
         except Exception:
             try:
-                self._set_notes_text(first, text_first)
+                set_notes_text(first, text_first)
             except Exception as restore_exc:
                 if is_disposal(restore_exc):
                     raise
                 log.debug("move_slide restore notes failed", exc_info=True)
             raise
-
-    def _notes_text(self, page: Any) -> str | None:
-        shape = find_notes_shape(uno_read(lambda: page.getNotesPage(), None))
-        if shape is None:
-            return None
-        return uno_read(lambda: str(shape.getString() or ""), None)
-
-    def _set_notes_text(self, page: Any, text: str) -> None:
-        shape = find_notes_shape(page.getNotesPage())
-        if shape is None:
-            raise RuntimeError("move_slide notes shape missing")
-        shape.setString(text)
 
     def _remove_page_quietly(self, pages: Any, page: Any) -> None:
         try:
@@ -949,6 +930,33 @@ def find_notes_shape(notes_page: Any) -> Any | None:
     return None
 
 
+def notes_text(page: Any) -> str | None:
+    """Read the speaker notes string from a slide page, or None if no NotesShape."""
+    if page is None:
+        return None
+    notes_page = uno_read(lambda: page.getNotesPage(), None)
+    if notes_page is None:
+        return None
+    shape = find_notes_shape(notes_page)
+    if shape is None:
+        return None
+    return uno_read(lambda: str(shape.getString() or ""), None)
+
+
+def set_notes_text(page: Any, text: str) -> bool:
+    """Set the speaker notes string on a slide page. Return True on success, False if no NotesShape."""
+    if page is None:
+        return False
+    notes_page = uno_read(lambda: page.getNotesPage(), None)
+    if notes_page is None:
+        return False
+    shape = find_notes_shape(notes_page)
+    if shape is None:
+        return False
+    shape.setString(text)
+    return True
+
+
 def _shape_summary_line(index: int | str, shape: Any) -> str:
     """One chat-context shape line; an unreadable field is omitted, not the whole page."""
     type_name = uno_read(lambda: str(shape.getShapeType()).split(".")[-1], "Shape")
@@ -978,11 +986,11 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         pages = bridge.get_pages()
         active_page = bridge.get_active_page()
 
-        is_impress = uno_call(lambda: model.supportsService("com.sun.star.presentation.PresentationDocument"), "Check supportsService")
-        doc_type = "Impress Presentation" if is_impress else "Draw Document"
+        is_impress_doc = is_impress(model)
+        doc_type = "Impress Presentation" if is_impress_doc else "Draw Document"
 
-        ctx_str = "%s: %s\n" % (doc_type, uno_call(model.getURL, "Get document URL") or "Untitled")
-        ctx_str += "Total %s: %d\n" % ("Slides" if is_impress else "Pages", uno_call(pages.getCount, "Get page count"))
+        ctx_str = "%s: %s\n" % (doc_type, uno_call(lambda: model.getURL(), "Get document URL") or "Untitled")
+        ctx_str += "Total %s: %d\n" % ("Slides" if is_impress_doc else "Pages", uno_call(lambda: pages.getCount(), "Get page count"))
 
         # Active Slide Index is -1 when getCurrentPage() and getByIndex()
         # return different Python wrappers for one page and the loop uses
@@ -991,20 +999,21 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         # then ==, then uno.isSame). Use that same identity ladder so the
         # chat index matches the controller's current page.
         active_page_idx = -1
-        for i in range(uno_call(pages.getCount, "Get page count")):
+        page_count = uno_call(lambda: pages.getCount(), "Get page count")
+        for i in range(page_count):
             candidate = uno_call(lambda: pages.getByIndex(i), "Get page by index")
             if uno_same(candidate, active_page):
                 active_page_idx = i
                 break
 
-        ctx_str += "Active %s Index: %d\n" % ("Slide" if is_impress else "Page", active_page_idx)
+        ctx_str += "Active %s Index: %d\n" % ("Slide" if is_impress_doc else "Page", active_page_idx)
 
         # Tip: page size lets the model keep shapes on the slide.
         page_w = getattr(active_page, "Width", None)
         page_h = getattr(active_page, "Height", None)
         if isinstance(page_w, int) and isinstance(page_h, int):
             ctx_str += "%s Size: width=%d, height=%d (1/100 mm)\n" % (
-                "Slide" if is_impress else "Page", page_w, page_h)
+                "Slide" if is_impress_doc else "Page", page_w, page_h)
 
         # Summarize shapes on the active page.
         # A blank slide still has speaker notes. An empty XDrawPage is
@@ -1015,20 +1024,16 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         # is still a page, so notes on add_slide blank/none are included.
         if active_page is not None:
             # Impress-specific: Speaker Notes
-            if is_impress and hasattr(active_page, "getNotesPage"):
+            if is_impress_doc and hasattr(active_page, "getNotesPage"):
                 try:
-                    notes_page = uno_call(active_page.getNotesPage, "Get notes page")
-                    notes_shape = find_notes_shape(notes_page)
-                    notes_text = ""
-                    if notes_shape is not None:
-                        notes_text = uno_call(notes_shape.getString, "Get notes shape string")
-                    if notes_text.strip():
-                        ctx_str += "\nSpeaker Notes:\n%s\n" % notes_text.strip()
+                    sn = notes_text(active_page)
+                    if sn and sn.strip():
+                        ctx_str += "\nSpeaker Notes:\n%s\n" % sn.strip()
                 except UnoObjectError:
                     pass
 
             shapes = bridge.get_shapes(active_page)
-            ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress else "Page", active_page_idx)
+            ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress_doc else "Page", active_page_idx)
             for address, s in shapes:
                 ctx_str += _shape_summary_line(address, s) + "\n"
 

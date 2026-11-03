@@ -34,6 +34,10 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+# Same one-second lift as ``plugin.framework.process_worker.Deadline.run_for``;
+# LibrePy does not ship ``process_worker`` (compute-only IPC stack).
+_EXECUTOR_ALARM_MIN_SEC = 1.0
+
 from plugin.contrib.smolagents.local_python_executor import (
     ExecutionTimeoutError,
     InterpreterError,
@@ -41,6 +45,11 @@ from plugin.contrib.smolagents.local_python_executor import (
     SANDBOX_POLICY_CONTEXT,
     get_file_os_proxy,
     print_outputs_from_state,
+)
+from plugin.scripting.session_key import (
+    INIT_SUFFIX,
+    SessionKey,
+    SessionKind,
 )
 from plugin.scripting.payload_codec import (
     ForceBinary,
@@ -50,19 +59,22 @@ from plugin.scripting.payload_codec import (
 )
 from plugin.scripting.venv.to_wire import _figure_to_image_payload, to_wire
 from plugin.scripting.config_limits import python_exec_timeout_default
-from plugin.scripting.ipc import UserStopped
-from plugin.framework.constants import AUTO_IMPORTS
+from plugin.framework.ipc import UserStopped
+from plugin.framework.constants import auto_imports
 from plugin.scripting.venv.results import error_result
 from plugin.scripting.sandbox import (
     SANDBOX_BLOCKED_MODULES,
     SANDBOX_EXTRA_MODULES,
     SandboxPolicy,
     build_sandbox_policy,
+    install_alias_authorizer,
     parse_extra_modules,
     policy_allowlist,
     policy_blocked_imports,
     policy_relaxed_roots,
 )
+
+install_alias_authorizer()
 
 # Shared-kernel executors keyed by workbook session_id (calc:…). Cleared on reset_session,
 # document OnUnload (workbook_lifecycle), or worker process exit.
@@ -170,6 +182,7 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     try:
         from plugin.scripting.venv.duckdb_sql import (
             invalidate_session_tables,
+            query_folder_df,
             run_sql,
             session_duckdb,
         )
@@ -189,23 +202,38 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     def run_sql_bound(
         sql: str,
         con: Any | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        return run_sql(sql, con, **kwargs)
+
+    def query_folder_df_bound(
+        sql: str,
         files: list[str] | dict[str, str] | None = None,
         scoped_dir: str | None = None,
+        *,
+        preloaded: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Any:
         del scoped_dir
-        return run_sql(sql, con, files, scoped_dir=host_scoped_dir, **kwargs)
+        return query_folder_df(
+            sql,
+            files=files,
+            scoped_dir=host_scoped_dir,
+            preloaded=preloaded,
+            **kwargs,
+        )
 
     helpers = {
         "session_duckdb": session_duckdb,
         "invalidate_session_tables": invalidate_session_tables,
         "run_sql": run_sql_bound,
+        "query_folder_df": query_folder_df_bound,
     }
     executor.send_variables(helpers)
     executor.custom_tools.update(helpers)
 
 
-_DUCKDB_HELPER_NAMES = ("session_duckdb", "invalidate_session_tables", "run_sql")
+_DUCKDB_HELPER_NAMES = ("session_duckdb", "invalidate_session_tables", "run_sql", "query_folder_df")
 _CELL_OWNED_NAMES = (
     "result",
     "data",
@@ -307,7 +335,7 @@ def apply_auto_imports(code: str) -> tuple[str, int]:
     scanned = _scan_user_code(code)
     bound: set[str] = scanned[0] if scanned is not None else set()
     prepended_lines: list[str] = []
-    for module_name, import_stmt in AUTO_IMPORTS.items():
+    for module_name, import_stmt in auto_imports().items():
         if _auto_import_alias(module_name, import_stmt) in bound:
             continue
         imported_already = (
@@ -384,7 +412,7 @@ def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
     bound_names: set[str] = scanned[0] if scanned is not None else set()
     imported: set[str] | None = None if scanned is None else scanned[1]
     bindings: dict[str, Any] = {}
-    for module_name, import_stmt in AUTO_IMPORTS.items():
+    for module_name, import_stmt in auto_imports().items():
         alias = _auto_import_alias(module_name, import_stmt)
         if alias in bound_names or alias in executor.state:
             continue
@@ -514,10 +542,11 @@ def _get_or_create_session_executor(
 
 
 def _clear_init_session_unlocked(init_session_id: str) -> None:
-    cell_sid = init_session_id[:-len(":init")] if init_session_id.endswith(":init") else None
+    key = SessionKey.parse(init_session_id)
+    cell_sid = init_session_id[: -len(INIT_SUFFIX)] if key.endswith_init() else None
     _SESSION_EXECUTORS.pop(init_session_id, None)
     _INIT_SCRIPT_HASH.pop(init_session_id, None)
-    if init_session_id.startswith("isolated:"):
+    if key.kind is SessionKind.ISOLATED:
         _ISOLATED_INIT_LRU.pop(init_session_id, None)
     _reset_session_duckdb(init_session_id)
     if cell_sid:
@@ -530,12 +559,13 @@ def _clear_init_session_unlocked(init_session_id: str) -> None:
 def _drop_session_unlocked(session_id: str) -> None:
     # Desktop workbooks use calc:… and compute uses the raw Online session id;
     # both store the init executor at {id}:init. Reset drops both.
-    if session_id.endswith(":init"):
+    key = SessionKey.parse(session_id)
+    if key.endswith_init():
         _clear_init_session_unlocked(session_id)
     else:
         _SESSION_EXECUTORS.pop(session_id, None)
         _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
-        _clear_init_session_unlocked(f"{session_id}:init")
+        _clear_init_session_unlocked(key.with_init_suffix().wire())
 
 
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
@@ -684,17 +714,18 @@ def _seed_shared_executor_once(
 
 
 
-def _seconds_left(deadline: float) -> int | None:
-    """Whole seconds still inside *deadline*, or None when the budget is spent.
+def _executor_alarm_seconds(timeout_sec: int, deadline_end: float) -> int | None:
+    """Whole seconds for the child executor alarm, or None when the budget is spent.
 
-    ``signal.alarm`` is one-second granularity and ``alarm(0)`` cancels, so a
-    leftover fraction of a second still uses 1. The host read adds
-    ``HOST_IPC_READ_GRACE_SEC`` and still wins if the child never returns.
+    Matches ``Deadline.from_absolute(timeout_sec, deadline_end).run_for()`` (at least
+    one second; ``alarm(0)`` cancels). *timeout_sec* is the request budget;
+    *deadline_end* is when it ends.
     """
-    left = deadline - time.monotonic()
+    del timeout_sec  # budget is stored on Deadline; alarm uses end time only
+    left = deadline_end - time.monotonic()
     if left <= 0:
         return None
-    return max(1, math.ceil(left))
+    return math.ceil(max(left, _EXECUTOR_ALARM_MIN_SEC))
 
 
 def _budget_timeout_error(timeout_sec: int) -> dict[str, Any]:
@@ -734,7 +765,7 @@ def _ensure_init_executed(
         ):
             _clear_init_session_unlocked(init_session_id)
         elif prior == script_digest and init_session_id in _SESSION_EXECUTORS:
-            if init_session_id.startswith("isolated:"):
+            if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
                 _record_isolated_init_access_unlocked(init_session_id)
             return None
 
@@ -744,7 +775,7 @@ def _ensure_init_executed(
     # Init and the cell used to each get a fresh alarm for the full budget, so
     # a slow init plus a slow cell outlived the single host read and killed
     # the worker (every other workbook on that process).
-    left = _seconds_left(deadline)
+    left = _executor_alarm_seconds(timeout_sec, deadline)
     if left is None:
         return _budget_timeout_error(timeout_sec)
     init_executor.timeout_seconds = left
@@ -757,7 +788,7 @@ def _ensure_init_executed(
 
     with _SESSION_LOCK:
         _INIT_SCRIPT_HASH[init_session_id] = script_digest
-        if init_session_id.startswith("isolated:"):
+        if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
             _record_isolated_init_access_unlocked(init_session_id)
     return None
 
@@ -1207,7 +1238,7 @@ def run_sandboxed_code(
             if init_sid:
                 ns.seed(init_sid, copy=True)
 
-        left = _seconds_left(deadline)
+        left = _executor_alarm_seconds(timeout_sec, deadline)
         if left is None:
             err = _budget_timeout_error(timeout_sec)
             if session_id:

@@ -11,7 +11,7 @@ import logging
 import math
 from typing import Any
 
-from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
+from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.coerce import (
     date_column,
     flat_label,
@@ -23,7 +23,7 @@ from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
-    parse_trusted_spec as _parse_trusted_spec,
+    run_domain,
 )
 
 log = logging.getLogger(__name__)
@@ -71,32 +71,14 @@ def _order_by_date(df: Any) -> Any:
     col = date_column(df)
     if col is None:
         return df
-    # What was wrong: pd.to_datetime on a mixed object column interpreted numeric
-    # serials as nanoseconds since 1970 (e.g. 45293 -> 1970-01-01 00:00:00.000045293),
-    # which sorted 1970 before calendar strings like 2024-01-01.
-    # How it happened: a pure serial column sorts the same either way because nanoseconds
-    # are monotonic, but mixed object columns (e.g. serial 45293, string 2024-01-01,
-    # and not-a-date) sorted out of calendar order. resolve_df leaves that column as
-    # object because not-a-date blocks all-datetime promotion.
-    # Why this change fixes it: parse_date_column resolves Calc serials with epoch
-    # 1899-12-30 and handles strings/invalid cells, sorting string 2024-01-01, then
-    # serial 45293, then invalid cells.
+    # parse_date_column resolves Calc serials (epoch 1899-12-30) and mixed dates for sorting.
     parsed = parse_date_column(df[col])
     order = parsed.reset_index(drop=True).sort_values(kind="mergesort", na_position="last").index
     return df.iloc[order]
 
 
 def _stringify_datetimes(df: Any) -> None:
-    """Turn datetime columns into text before ``tolist()``.
-
-    What was wrong: only columns named Date or Datetime were stringified, and
-    ``select_dtypes(datetime64)`` misses timezone-aware columns. ``tolist()``
-    then yielded ``pandas.Timestamp``.
-    How it happened: the host unpickler allows builtins and a few NumPy
-    reconstructors, not pandas, so the frame failed before egress.
-    Why this change: every datetime64 and datetimetz column becomes text,
-    including an unnamed yfinance index that ``reset_index`` calls ``index``.
-    """
+    """Turn datetime64 and datetimetz columns into text before tolist() for pickle egress."""
     for col in df.select_dtypes(include=["datetime64", "datetimetz"]).columns:
         df[col] = df[col].astype(str)
 
@@ -108,23 +90,11 @@ def _returns_frame_from_df(df: Any) -> tuple[Any, Any]:
     date_col = date_column(df)
     dates = None
     if date_col is not None:
-        # What was wrong: pd.to_datetime interpreted Calc serial numbers (e.g. 45292)
-        # and year integers as nanoseconds since 1970 instead of calendar dates.
-        # How it happened: pd.to_datetime treats numeric values without unit as nanoseconds;
-        # because the resulting 1970 timestamps were not NaT, portfolio_tearsheet annualized
-        # a one-day span and never warned about missing dates.
-        # Why this change fixes it: parse_date_column resolves Calc serials (epoch 1899-12-30)
-        # and 1900-2200 year values into proper calendar dates.
+        # parse_date_column resolves Calc serials and years into calendar dates.
         dates = parse_date_column(df[date_col])
         df = df.drop(columns=[date_col])
 
-    # What was wrong: pd.to_numeric turns datetime64, timezone-aware datetimes, and
-    # timedeltas into int64 nanoseconds (pandas 2.3.3: 2024-01-01 becomes 1704067200000000000).
-    # How it happened: resolve_df promotes every all-date object column regardless of name
-    # (Period, Unnamed: 0), and a DataFrame argument is copied with its dtypes kept, so
-    # that column was averaged into the tearsheet and into mean_historical_return / Ledoit-Wolf.
-    # Why this change fixes it: dropping those dtypes after the named date column is removed
-    # keeps the date index and leaves real return columns, including a numeric Year.
+    # Drop datetime/timedelta columns before pd.to_numeric to prevent conversion to int64 nanoseconds.
     extra_time = list(
         df.select_dtypes(include=["datetime64", "datetimetz", "timedelta64"]).columns
     )
@@ -136,6 +106,7 @@ def _returns_frame_from_df(df: Any) -> tuple[Any, Any]:
     return numeric_df, dates
 
 
+@helper("quant")
 def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
     try:
         import yfinance as yf  # type: ignore
@@ -196,6 +167,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
         return _error_result("EXECUTION_ERROR", str(e), helper="fetch_historical_data")
 
 
+@helper("quant")
 def technical_analysis(
     params: dict[str, Any],
     data: Any,
@@ -270,6 +242,7 @@ def technical_analysis(
         return _error_result("EXECUTION_ERROR", str(e), helper="technical_analysis")
 
 
+@helper("quant")
 def portfolio_tearsheet(
     params: dict[str, Any],
     data: Any,
@@ -339,11 +312,7 @@ def portfolio_tearsheet(
             )
 
         metrics = qs.reports.metrics(returns, display=False)
-        # What was wrong: a Series has .iloc but shape is (n,), so shape[1] raised
-        # IndexError and the outer handler returned EXECUTION_ERROR instead of to_dict().
-        # How it happened: the guard was written for quantstats' one-column DataFrame.
-        # Why this change fixes it: isinstance(..., pd.DataFrame) keeps that path and
-        # lets a Series hit the existing else.
+        # Handle both DataFrame (multi-col) and Series (1D) metrics returns.
         if isinstance(metrics, pd.DataFrame) and metrics.shape[1] >= 1:
             metrics_dict = {str(k): v for k, v in metrics.iloc[:, 0].to_dict().items()}
         elif isinstance(metrics, dict):
@@ -361,6 +330,7 @@ def portfolio_tearsheet(
         return _error_result("EXECUTION_ERROR", str(e), helper="portfolio_tearsheet")
 
 
+@helper("quant")
 def efficient_frontier(
     params: dict[str, Any],
     data: Any,
@@ -383,14 +353,7 @@ def efficient_frontier(
         # Case-insensitive date column, shared with portfolio_tearsheet
         # (Date, datetime, timestamp, and the same names in other cases).
         numeric_df = _returns_frame_from_df(df)[0]
-        # What was wrong: a hole in one asset still came back status ok.
-        # How it happened: CovarianceShrinkage.ledoit_wolf does np.nan_to_num
-        # (pypfopt/risk_models.py), so NaN becomes 0 and ±inf becomes ~1e308.
-        # mean_historical_return skips NaN via prod() and count()
-        # (pypfopt/expected_returns.py). Mean and covariance then disagree.
-        # Why this change: drop a blank column first, then any row that is
-        # not fully finite, so both calls see the same days. An empty column
-        # dropped with how="any" would have thrown away every row.
+        # Drop fully empty columns then non-finite rows so mean and covariance see identical rows.
         numeric_df = numeric_df.replace([math.inf, -math.inf], float("nan"))
         n_cols_before = int(numeric_df.shape[1])
         numeric_df = numeric_df.dropna(axis=1, how="all")
@@ -464,24 +427,4 @@ def run_quant(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC and Run Python Script."""
-    parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
-    if isinstance(parsed, dict):
-        return parsed
-    helper, params, headers, header_row, ctx = parsed
-
-    # Every data helper needs headers and header_row. Dropping them makes
-    # tearsheet and frontier treat a header row as a price.
-    if helper == "fetch_historical_data":
-        result = fetch_historical_data(params)
-    elif helper == "technical_analysis":
-        result = technical_analysis(params, data, headers=headers, header_row=header_row)
-    elif helper == "portfolio_tearsheet":
-        result = portfolio_tearsheet(params, data, headers=headers, header_row=header_row)
-    elif helper == "efficient_frontier":
-        result = efficient_frontier(params, data, headers=headers, header_row=header_row)
-    else:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
-
-    if result.get("status") == "ok" and ctx:
-        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
-    return result
+    return run_domain("quant", spec, data, context=context)

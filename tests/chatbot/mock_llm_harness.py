@@ -59,8 +59,8 @@ def start_mock_sidebar_session(*, delay_ms: int = 20, offline: bool = True, **fl
     from plugin.framework.config import (
         get_api_key_for_endpoint,
         get_current_endpoint,
+        save,
         set_api_key_for_endpoint,
-        set_config,
     )
 
     if make_handler_class is None or MockLLMConfig is Any:
@@ -88,9 +88,9 @@ def start_mock_sidebar_session(*, delay_ms: int = 20, offline: bool = True, **fl
         "api_key": get_api_key_for_endpoint(base_url),
         "stt_provider": saved_stt_provider,
     }
-    set_config("endpoint", base_url)
+    save({"endpoint": base_url})
     set_text_model(MOCK_MODEL_ID, update_lru=False)
-    set_config("audio.stt_provider", "endpoint")
+    save({"audio.stt_provider": "endpoint"})
     if not get_api_key_for_endpoint(base_url):
         set_api_key_for_endpoint(base_url, "mock-key")
     # Live sidebar is the OXT process. get_config caches mtime checks for 2s.
@@ -103,7 +103,7 @@ def stop_mock_sidebar_session(session: MockSidebarSession | None) -> None:
     if session is None:
         return
     from plugin.framework.client.model_fetcher import set_text_model
-    from plugin.framework.config import remove_config, set_api_key_for_endpoint, set_config
+    from plugin.framework.config import save, set_api_key_for_endpoint
 
     try:
         session.httpd.shutdown()
@@ -112,14 +112,14 @@ def stop_mock_sidebar_session(session: MockSidebarSession | None) -> None:
         pass
     saved = session.saved
     if saved.get("endpoint") is not None:
-        set_config("endpoint", saved["endpoint"])
+        save({"endpoint": saved["endpoint"]})
     if saved.get("text_model"):
         set_text_model(saved["text_model"], update_lru=False)
     if saved.get("stt_provider") is not None:
-        set_config("audio.stt_provider", saved["stt_provider"])
+        save({"audio.stt_provider": saved["stt_provider"]})
     elif "stt_provider" in saved:
         try:
-            remove_config("audio.stt_provider")
+            save({"audio.stt_provider": "local_whisper"})
         except Exception:
             pass
     set_api_key_for_endpoint(session.base_url, saved.get("api_key") or "")
@@ -218,7 +218,7 @@ def _iter_office_docs(ctx: Any) -> list[Any]:
 
 
 def find_open_calc(ctx: Any) -> Any:
-    from plugin.doc.doc_type import is_calc
+    from plugin.framework.doc_type import is_calc
 
     for doc in _iter_office_docs(ctx):
         try:
@@ -230,7 +230,7 @@ def find_open_calc(ctx: Any) -> Any:
 
 
 def find_open_writer(ctx: Any) -> Any:
-    from plugin.doc.doc_type import is_writer
+    from plugin.framework.doc_type import is_writer
 
     for doc in _iter_office_docs(ctx):
         try:
@@ -246,7 +246,7 @@ def open_calc_for_dual_sidebar(ctx: Any, *, timeout: float = 15.0) -> Any:
 
     Do not ``loadComponentFromURL('private:factory/scalc')`` from the URP client
     after a WriterAgent deck is visible. Show the Writer deck first so
-    ``OPEN_CALC`` can post onto that listener's ``QueueExecutor``.
+    ``OPEN_CALC`` can post onto that listener's ``MainThread``.
     """
     from plugin.chatbot.sidebar_test_hooks import open_calc_document
 

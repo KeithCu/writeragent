@@ -26,7 +26,7 @@ from plugin.framework.errors import (
     is_disposal,
     suppress_disposed,
 )
-from plugin.framework.config import get_config, get_config_int_safe
+from plugin.framework.config import get_config
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
@@ -704,6 +704,6 @@ class SendHandlersMixin:
             return None
         from plugin.mcp.server import mcp_endpoint_url
 
-        port = get_config_int_safe("mcp.mcp_port")
+        port = get_config("mcp.mcp_port")
         # MCP binds localhost only (mcp/module.yaml); host/ssl are not user settings.
         return mcp_endpoint_url("localhost", port, False)

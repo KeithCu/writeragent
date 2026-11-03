@@ -6,26 +6,20 @@
 
 from __future__ import annotations
 
-import os
 
 from plugin.calc.python.formula_edit import normalize_formula_string
-from plugin.framework.deal_shim import CROSSHAIR_ENV, DEAL_MAX_SOURCE, str_bounded, deal, inverse_ensure
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal, inverse_ensure
 
 # Quote-machine / typical formula alphabet. Pytest keeps Unicode (curly quotes);
 # CrossHair uses this closed set.
 _LO_FORMULA_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789=();,\"'<>:+-*/^&%$.!_[]{}# \t\n")
-_PREPROCESS_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
 
 
 def _deal_lo_formula_ok_pytest(formula: object) -> bool:
     return str_bounded(formula, DEAL_MAX_SOURCE)
 
 
-def _deal_lo_formula_ok_crosshair(formula: object) -> bool:
-    return isinstance(formula, str) and len(formula) <= DEAL_MAX_SOURCE and all(c in _LO_FORMULA_CHARS for c in formula)
-
-
-_deal_lo_formula_ok = _deal_lo_formula_ok_crosshair if _PREPROCESS_CROSSHAIR else _deal_lo_formula_ok_pytest
+_deal_lo_formula_ok = _deal_lo_formula_ok_pytest
 
 
 # What was wrong: only "..." was tracked, so a ';' in a quoted sheet name

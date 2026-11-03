@@ -443,7 +443,7 @@ def test_date_cols_zero_is_first_column():
 
 def test_grid_to_dataframe_copies_a_dataframe():
     import pandas as pd
-    from plugin.scripting.venv.coerce import coerce_to_dataframe, grid_to_dataframe
+    from plugin.scripting.venv.coerce import grid_to_dataframe, resolve_df
 
     orig = pd.DataFrame({"a": [1, 2]})
     res = grid_to_dataframe(orig, header_row=5, parse_strings=False)
@@ -453,9 +453,9 @@ def test_grid_to_dataframe_copies_a_dataframe():
     res.df.iloc[0, 0] = 9
     assert orig.iloc[0, 0] == 1
 
-    res_coerce = coerce_to_dataframe(orig)
-    assert list(res_coerce.df.columns) == ["a"]
-    assert res_coerce.df.values.tolist() == [[1], [2]]
+    res_resolve = resolve_df(orig)
+    assert list(res_resolve.df.columns) == ["a"]
+    assert res_resolve.df.values.tolist() == [[1], [2]]
 
 
 def test_resolve_df_duplicate_columns_have_dtypes():

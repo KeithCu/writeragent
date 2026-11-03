@@ -29,11 +29,11 @@ from plugin.calc.python.function import (
     perform_deferred_spill,
 )
 from plugin.calc.python.workbook_lifecycle import _lifecycle_key
-from plugin.doc.doc_type import is_calc
+from plugin.framework.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
 from plugin.tests.testing_utils import with_native_doc
-from plugin.writer.format import create_property_value
+from plugin.framework.uno_context import create_property_value
 
 _FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures"
 _XLSX = _FIXTURE_DIR / "python_showcase_demo.xlsx"

@@ -186,7 +186,7 @@ def test_query_folder_sql_requires_sql():
     assert res["status"] == "error"
 
 
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.read_table_source_grid")
 @patch("plugin.calc.duckdb_tools.configured_python_max_data_cells", return_value=8)
@@ -211,7 +211,7 @@ def test_query_folder_sql_ingress_size_fails_loud(
 
 
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_query_folder_sql_calls_host_with_resolved_dir(mock_resolve, mock_run, mock_exec, _mock_isfile):
@@ -233,7 +233,7 @@ def test_query_folder_sql_calls_host_with_resolved_dir(mock_resolve, mock_run, m
 
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
 @patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid")
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_query_folder_sql_handles_office_files_and_sheet_hint(
@@ -280,7 +280,7 @@ def test_query_folder_sql_handles_office_files_and_sheet_hint(
 
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
 @patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid")
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_query_folder_sql_office_read_error_does_not_skip(
@@ -304,7 +304,7 @@ def test_query_folder_sql_office_read_error_does_not_skip(
 
 
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_query_folder_sql_routes_parquet_and_json_to_flat_files(
@@ -338,7 +338,7 @@ def test_query_folder_sql_routes_parquet_and_json_to_flat_files(
 
 
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_query_folder_sql_rejects_unsupported_flat_type(
@@ -356,7 +356,7 @@ def test_query_folder_sql_rejects_unsupported_flat_type(
 
 
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=False)
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_query_folder_sql_rejects_missing_flat_file(
@@ -468,7 +468,7 @@ def test_read_sibling_empty_used_range_errors(mock_open, mock_read, _mock_close,
 @patch("plugin.calc.inspector.CellInspector.read_range")
 @patch("plugin.calc.duckdb_tools.open_document_for_read")
 @patch("plugin.calc.duckdb_tools.close_document_research_document")
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_preload_path_ships_used_range_grid(
@@ -506,7 +506,7 @@ def test_preload_path_ships_used_range_grid(
 @patch("plugin.calc.inspector.CellInspector.read_range")
 @patch("plugin.calc.duckdb_tools.open_document_for_read")
 @patch("plugin.calc.duckdb_tools.close_document_research_document")
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_preload_path_bad_sheet_hint_errors(
@@ -701,7 +701,7 @@ def test_frozen_range_identity_is_not_used_range():
 
 
 @patch("plugin.calc.inspector.CellInspector.read_range")
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_execute_sheet_identity_preloads_used_range(mock_resolve, mock_run, mock_exec, mock_read):
@@ -727,7 +727,7 @@ def test_execute_sheet_identity_preloads_used_range(mock_resolve, mock_run, mock
 
 
 @patch("plugin.calc.inspector.CellInspector.read_range")
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_execute_named_range_identity(mock_resolve, mock_run, mock_exec, mock_read):
@@ -752,7 +752,7 @@ def test_execute_named_range_identity(mock_resolve, mock_run, mock_exec, mock_re
 
 
 @patch("plugin.calc.inspector.CellInspector.read_range")
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_execute_frozen_range_stays_absolute(mock_resolve, mock_run, mock_exec, mock_read):
@@ -775,7 +775,7 @@ def test_execute_frozen_range_stays_absolute(mock_resolve, mock_run, mock_exec, 
     assert bare == "A1:B2"
 
 
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_execute_missing_named_range_does_not_run_sql(mock_resolve, mock_run, mock_exec):
@@ -796,7 +796,7 @@ def test_execute_missing_named_range_does_not_run_sql(mock_resolve, mock_run, mo
 
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
 @patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid")
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_execute_tables_file_sheet_identity(
@@ -889,7 +889,7 @@ def test_ods_source_skips_cache(mock_open, mock_read, _mock_close, mock_export, 
     assert not (tmp_path / ODS_CACHE_DIRNAME).exists()
 
 
-@patch("plugin.framework.config.get_config_bool_safe", return_value=False)
+@patch("plugin.framework.config.get_config", return_value=False)
 @patch("plugin.calc.duckdb_tools._source_is_open_workbook", return_value=False)
 @patch("plugin.calc.duckdb_tools._export_model_to_cached_ods")
 @patch("plugin.calc.duckdb_tools.close_document_research_document")
@@ -931,7 +931,7 @@ def test_live_workbook_skips_cache(mock_open, mock_read, _mock_close, mock_expor
 @patch("plugin.calc.duckdb_tools.close_document_research_document")
 @patch("plugin.calc.inspector.CellInspector.read_range")
 @patch("plugin.calc.duckdb_tools.open_document_for_read")
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_sql_path_uses_cache_on_second_query(
@@ -984,8 +984,8 @@ class _DisposedException(Exception):
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.read_table_source_grid", return_value=[["h"], [1]])
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory", return_value="/tmp/project")
-@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
-@patch("plugin.framework.thread_guard.on_main_thread", return_value=False)
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.framework.queue_executor.main.is_current", return_value=False)
 def test_query_folder_sql_keeps_ipc_off_main_thread(mock_on_main, mock_exec, mock_resolve, mock_read, mock_run):
     """Sheet reads hop to the UI thread. DuckDB IPC stays on the worker."""
     del mock_on_main, mock_resolve
@@ -1003,7 +1003,7 @@ def test_query_folder_sql_keeps_ipc_off_main_thread(mock_on_main, mock_exec, moc
         return [["Region"], ["North"]]
 
     def run(*_args, **_kwargs):
-        assert not inside["flag"], "DuckDB IPC must not run inside execute_on_main_thread"
+        assert not inside["flag"], "DuckDB IPC must not run inside main.call"
         return {"status": "ok", "total_rows": 1}
 
     mock_exec.side_effect = exec_main

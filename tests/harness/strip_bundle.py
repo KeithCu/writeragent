@@ -93,7 +93,7 @@ def is_release_build() -> bool:
     try:
         from plugin.framework import thread_guard as tg
 
-        if not hasattr(tg, "_designated_main_thread"):
+        if not hasattr(tg, "_violation_ui_lock"):
             return True
     except Exception:
         pass

@@ -187,19 +187,19 @@ def test_release_sticky_session_librarian_clears_active_mode_only():
 
 
 def test_librarian_default_mode_first_then_chat():
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False), patch(
+    with patch("plugin.framework.config.get_config", return_value=False), patch(
         "plugin.chatbot.memory.user_profile_exists", return_value=False
     ):
         assert librarian_default_mode() == CHAT_MODE_LIBRARIAN
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
+    with patch("plugin.framework.config.get_config", return_value=True):
         assert librarian_default_mode() == CHAT_MODE_CHAT
-    with patch("plugin.framework.config.set_config") as mock_set:
+    with patch("plugin.framework.config.save") as mock_set:
         mark_librarian_invoked()
-        mock_set.assert_called_once_with("chatbot.librarian_invoked", True)
+        mock_set.assert_called_once_with({"chatbot.librarian_invoked": True})
 
 
 def test_librarian_default_mode_existing_profile_skips_and_sets_flag():
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False), patch(
+    with patch("plugin.framework.config.get_config", return_value=False), patch(
         "plugin.chatbot.memory.user_profile_exists", return_value=True
     ), patch("plugin.chatbot.chat_sidebar_mode.mark_librarian_invoked") as mock_mark:
         assert librarian_default_mode() == CHAT_MODE_CHAT

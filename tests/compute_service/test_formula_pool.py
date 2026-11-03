@@ -333,9 +333,9 @@ class TestFormulaPoolSupervisor:
         try:
             res = pool.execute(
                 code=(
-                    "from plugin.scripting.writeragent_api import _rpc_call\n"
+                    "from plugin.scripting.host_tool_call import call_host_tool\n"
                     "try:\n"
-                    "    _rpc_call('list_open_documents')\n"
+                    "    call_host_tool('list_open_documents')\n"
                     "    result = 'called'\n"
                     "except Exception as exc:\n"
                     "    result = str(exc)\n"
@@ -464,7 +464,7 @@ class TestFormulaPoolSupervisor:
                 [
                     "import sys, time",
                     f"sys.path.insert(0, {root!r})",
-                    "from plugin.scripting.ipc import write_pickle_frame",
+                    "from plugin.framework.ipc import write_pickle_frame",
                     "write_pickle_frame(sys.stdout.buffer, {'status': 'booting'})",
                     "sys.stdout.buffer.flush()",
                     "time.sleep(30)",

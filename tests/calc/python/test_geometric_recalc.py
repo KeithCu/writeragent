@@ -11,6 +11,7 @@ from unittest.mock import patch
 from plugin.calc.calc_addin_data import split_python_addin_data_args
 from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.address_utils import local_a1
 from plugin.calc.python.geometric_recalc import (
     CONFIG_KEY,
     GEOMETRIC_REGISTRY_PROP,
@@ -24,7 +25,6 @@ from plugin.calc.python.geometric_recalc import (
     ensure_geometric_strip_index_for_eval,
     geometric_workbook_key,
     load_geometric_registry_for_doc,
-    local_a1,
     maybe_geometric_on_document_open,
     maybe_strip_geometric_eval_args,
     notify_geometric_cap_hit,
@@ -782,7 +782,7 @@ def test_two_workbooks_unambiguous_false_no_strip():
     code = "np.mean(data)"
     args = ["range_data", "pred_data"]
     assert maybe_strip_geometric_eval_args(code, args, doc=None) == args
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
         assert maybe_strip_geometric_eval_args(code, args, doc=_wb_doc()) == args
     reset_geometric_runtime_for_tests()
 
@@ -797,7 +797,7 @@ def test_exact_100_without_truncated_is_chained():
 def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
     reset_geometric_runtime_for_tests()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
         assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb_test")
@@ -809,7 +809,7 @@ def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
         assert mock_box.call_args_list[0].kwargs.get("box_type") == 3
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
         shown = notify_geometric_cap_hit("ctx", "Other", workbook_key="wb_test")
@@ -821,13 +821,13 @@ def test_notify_geometric_cap_hit_off_main_does_not_persist():
     """Off-main logs and returns False; it must not swallow the later UI box."""
     reset_geometric_runtime_for_tests()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
         assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb1") is False
         mock_box.assert_not_called()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
         assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb1")
@@ -837,7 +837,7 @@ def test_notify_geometric_cap_hit_off_main_does_not_persist():
 def test_cap_hit_user_message_names_the_sheet(monkeypatch):
     boxes = []
     monkeypatch.setattr("plugin.chatbot.dialogs.msgbox", lambda *args, **kw: boxes.append(args))
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     from plugin.calc.python.geometric_recalc import notify_geometric_cap_hit
 
     assert notify_geometric_cap_hit("ctx", "Pivots", workbook_key="calc:wb") is True
@@ -873,7 +873,7 @@ def test_truncated_sheet_installs_empty_index_for_workbook(monkeypatch):
         patch("plugin.doc.udprops.get_document_property", return_value=None),
         patch("plugin.doc.udprops.set_document_property"),
         patch("plugin.chatbot.dialogs.msgbox"),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
         reconcile("ctx", doc)
 
@@ -894,7 +894,7 @@ def _reset_geo(monkeypatch=None):
 
 
 def test_isolated_workbook_key_never_empty():
-    """Isolated UI load/repair keys on calc:+_workbook_session_key (same string eval reads)."""
+    """Isolated UI load/repair keys on calc:+mint_document_key (same string eval reads)."""
     from plugin.scripting import session_manager as sm
     from plugin.tests.testing_utils import CalcDocStub
 
@@ -917,7 +917,7 @@ def test_unsaved_workbook_key_is_never_empty():
     _reset_geo()
     doc = CalcDocStub(url="")
     with patch(
-        "plugin.scripting.session_manager._workbook_session_key",
+        "plugin.scripting.session_manager.mint_document_key",
         return_value="unsaved-stable-id",
     ):
         sid = geometric_workbook_key(doc)
@@ -1077,7 +1077,7 @@ def test_cap_hit_sheet_skipped_on_reconcile(monkeypatch):
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
         reconcile("ctx", doc)
@@ -1104,7 +1104,7 @@ def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
         reconcile("ctx", doc)
@@ -1118,7 +1118,7 @@ def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch
 
     _reset_geo()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.dialogs.msgbox") as mock_box,
     ):
         reconcile("ctx", doc)
@@ -1243,7 +1243,7 @@ def test_two_workbooks_ui_thread_doc_still_strips():
     sid = geometric_workbook_key(doc)
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(sid, frozenset({_key("np.mean(data)", 2, sid)}))
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
         assert maybe_strip_geometric_eval_args(
             "np.mean(data)", [col, pred], doc=doc
         ) == [col]
@@ -1258,7 +1258,7 @@ def test_two_workbooks_off_main_doc_does_not_strip():
     sid = geometric_workbook_key(doc)
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(sid, frozenset({_key("np.mean(data)", 2, sid)}))
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
         assert maybe_strip_geometric_eval_args(
             "np.mean(data)", [col, pred], doc=doc
         ) == [col, pred]
@@ -1275,7 +1275,7 @@ def test_isolated_caller_doc_strips():
         sid = geometric_workbook_key(doc)
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(sid, frozenset({_key("np.mean(data)", 2, sid)}))
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
         assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred], doc=doc) == [col]
 
 
@@ -1300,7 +1300,7 @@ def test_ensure_strip_index_empty_registry_skips_discovery(monkeypatch):
     )
     with (
         patch("plugin.doc.udprops.get_document_property", lambda _doc, _name, default=None: None),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
 
@@ -1332,7 +1332,7 @@ def test_ensure_strip_index_hydrates_from_udprop():
                 payload if name == GEOMETRIC_REGISTRY_PROP else default
             ),
         ),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
         assert maybe_strip_geometric_eval_args("x", [((41.0,),)], doc=doc) == []
@@ -1372,7 +1372,7 @@ def test_flag_off_rebuilds_nonempty_strip_index_and_keeps_user_data(monkeypatch)
                 payload if name == GEOMETRIC_REGISTRY_PROP else default
             ),
         ),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
         assert _key("np.mean(data)", 2, wk) not in _RUNTIME.strip_safe
@@ -1414,7 +1414,7 @@ def test_flag_off_nonempty_index_still_strips_unanimous_leftover(monkeypatch):
                 payload if name == GEOMETRIC_REGISTRY_PROP else default
             ),
         ),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
         assert EvalIndexKey(wk, "stale", 2) not in _RUNTIME.strip_safe
@@ -1436,7 +1436,7 @@ def test_flag_on_keeps_nonempty_strip_index_until_reconcile(monkeypatch):
     )
     with (
         patch("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
     assert _RUNTIME.strip_safe == seeded
@@ -1447,7 +1447,7 @@ def test_ensure_strip_index_off_main_is_noop():
 
     _reset_geo()
     doc = CalcDocStub(url="file:///hydrate-off.ods")
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
         ensure_geometric_strip_index_for_eval(doc, ctx=None)
     assert _RUNTIME.strip_safe == frozenset()
 
@@ -1575,11 +1575,11 @@ def _install_deferred_timer(monkeypatch):
     _DeferredTimer.instances.clear()
     monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _DeferredTimer)
     monkeypatch.setattr(
-        "plugin.framework.queue_executor.post_to_main_thread",
+        "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
     )
     monkeypatch.setattr(
-        "plugin.framework.thread_guard.on_main_thread", lambda: True
+        "plugin.framework.queue_executor.main.is_current", lambda: True
     )
 
 

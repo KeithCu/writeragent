@@ -49,10 +49,10 @@ class FakeCombo:
 
 
 def _setup():
-    from plugin.framework.config import set_api_key_for_endpoint, set_configs
+    from plugin.framework.config import set_api_key_for_endpoint, save
     from plugin.chatbot.dialog_views import EndpointCombinedListener
 
-    set_configs({
+    save({
         "endpoint": OR,
         "text_model": "openai/gpt-oss-120b:nitro",
         "image_model": "google/gemini-3.1-flash-lite-image",

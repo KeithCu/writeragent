@@ -9,8 +9,7 @@ from plugin.framework.i18n import _, get_lo_locale
 import plugin.framework.i18n as i18n_module
 import sys
 
-from plugin.framework.config import _build_validated_config_export
-from plugin.framework.config_schema import WriterAgentConfig
+from plugin.framework.config_schema import validate
 from plugin.framework.i18n import get_locales_dir
 
 # PO-header junk mistakenly saved into config via gettext/translation bugs (i18n + load path)
@@ -24,13 +23,12 @@ def _patch_manifest(mock_modules):
         config_schema.MODULES,
         config_schema.CONFIG_DEFAULTS,
         config_schema.CONFIG_SCHEMAS,
-        config_schema.DOTTED_FALLBACKS,
     )
     config_schema.set_manifest_modules(mock_modules)
     try:
         yield
     finally:
-        config_schema.MODULES, config_schema.CONFIG_DEFAULTS, config_schema.CONFIG_SCHEMAS, config_schema.DOTTED_FALLBACKS = orig
+        config_schema.MODULES, config_schema.CONFIG_DEFAULTS, config_schema.CONFIG_SCHEMAS = orig
 
 
 class TestI18n:
@@ -140,9 +138,6 @@ class TestI18n:
             },
         }]
 
-        cfg = WriterAgentConfig.from_dict({"endpoint": "http://127.0.0.1:11434"})
-        cfg._extra_config["agent_backend.backend_id"] = "GERMAN_HERMES"
-
         def _fake(msg):
             if msg == "Hermes":
                 return "GERMAN_HERMES"
@@ -150,35 +145,8 @@ class TestI18n:
 
         with _patch_manifest(mock_modules):
             with patch("plugin.framework.config_schema._", side_effect=_fake):
-                cfg.validate()
-        assert (cfg._extra_config["agent_backend.backend_id"]) == ("hermes")
-
-    def test_config_validate_maps_translated_label_flat_module_field(self):
-        """Flat module-backed keys normalize via the same manifest schema options."""
-        mock_modules = [{
-            "name": "agent_backend",
-            "config": {
-                "backend_id": {
-                    "type": "string",
-                    "default": "builtin",
-                    "options": [{"value": "hermes", "label": "Hermes"}],
-                },
-            },
-        }]
-
-        cfg = WriterAgentConfig.from_dict(
-            {"endpoint": "http://127.0.0.1:11434", "backend_id": "GERMAN_HERMES"}
-        )
-
-        def _fake(msg):
-            if msg == "Hermes":
-                return "GERMAN_HERMES"
-            return msg
-
-        with _patch_manifest(mock_modules):
-            with patch("plugin.framework.config_schema._", side_effect=_fake):
-                cfg.validate()
-        assert (cfg._extra_config["backend_id"]) == ("hermes")
+                validated = validate({"endpoint": "http://127.0.0.1:11434", "agent_backend.backend_id": "GERMAN_HERMES"})
+        assert (validated["agent_backend.backend_id"]) == ("hermes")
 
     def test_config_validate_normalization_noop_when_already_canonical(self):
         """When stored value already matches canonical option value, leave unchanged."""
@@ -193,12 +161,9 @@ class TestI18n:
             },
         }]
 
-        cfg = WriterAgentConfig.from_dict(
-            {"endpoint": "http://127.0.0.1:11434", "agent_backend.backend_id": "hermes"}
-        )
         with _patch_manifest(mock_modules):
-            cfg.validate()
-        assert (cfg._extra_config["agent_backend.backend_id"]) == ("hermes")
+            validated = validate({"endpoint": "http://127.0.0.1:11434", "agent_backend.backend_id": "hermes"})
+        assert (validated["agent_backend.backend_id"]) == ("hermes")
 
     def test_po_strip_extra_config_on_validate(self):
         data = {
@@ -206,22 +171,19 @@ class TestI18n:
             "agent_backend.path": PO_JUNK,
             "agent_backend.args": PO_JUNK,
         }
-        cfg = WriterAgentConfig.from_dict(data)
-        cfg.validate()
-        assert (cfg._extra_config.get("agent_backend.path")) == ("")
-        assert (cfg._extra_config.get("agent_backend.args")) == ("")
+        validated = validate(data)
+        assert (validated.get("agent_backend.path")) == ("")
+        assert (validated.get("agent_backend.args")) == ("")
 
     def test_po_strip_seed_to_minus_one(self):
         data = {"endpoint": "http://x", "seed": PO_JUNK}
-        cfg = WriterAgentConfig.from_dict(data)
-        cfg.validate()
-        assert (cfg.seed) == ("-1")
+        validated = validate(data)
+        assert (validated.get("seed")) == ("-1")
 
     def test_po_strip_top_level_string_field(self):
         data = {"endpoint": "http://x", "additional_instructions": PO_JUNK}
-        cfg = WriterAgentConfig.from_dict(data)
-        cfg.validate()
-        assert (cfg.additional_instructions) == ("")
+        validated = validate(data)
+        assert (validated.get("additional_instructions")) == ("")
 
     def test_export_uses_validated_extra_not_raw_json(self):
         """Merged dict for get_config must use cleaned _extra_config, not stale JSON."""
@@ -230,9 +192,7 @@ class TestI18n:
             "chat_max_tokens": 16384,
             "agent_backend.path": PO_JUNK,
         }
-        cfg = WriterAgentConfig.from_dict(data)
-        cfg.validate()
-        out = _build_validated_config_export(data, cfg)
+        out = validate(data)
         assert (out["agent_backend.path"]) == ("")
         assert (out["agent_backend.path"]) != (PO_JUNK)
 
@@ -242,24 +202,18 @@ class TestI18n:
             "chat_max_tokens": 2048,
             "agent_backend.path": "",
         }
-        cfg = WriterAgentConfig.from_dict(data)
-        cfg.validate()
-        out = _build_validated_config_export(data, cfg)
+        out = validate(data)
         assert (out["endpoint"]) == ("http://example.com")
         assert (out["chat_max_tokens"]) == (2048)
 
     def test_config_validate_chatbot_max_tool_rounds(self):
-        cfg = WriterAgentConfig.from_dict({"endpoint": "http://x", "chatbot.max_tool_rounds": 12})
-        cfg.validate()
-        assert (cfg._extra_config["chatbot.max_tool_rounds"]) == (12)
+        validated = validate({"endpoint": "http://x", "chatbot.max_tool_rounds": 12})
+        assert (validated["chatbot.max_tool_rounds"]) == (12)
 
     def test_extra_key_fallback_when_missing_from_extra_config(self):
         """If a key is absent from _extra_config, keep JSON value (edge case)."""
         data = {"endpoint": "http://x", "orphan.key": "keep-me"}
-        cfg = WriterAgentConfig.from_dict(data)
-        cfg.validate()
-        del cfg._extra_config["orphan.key"]
-        out = _build_validated_config_export(data, cfg)
+        out = validate(data)
         assert (out.get("orphan.key")) == ("keep-me")
 
     def test_backend_translation_normalization(self):

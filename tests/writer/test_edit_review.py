@@ -59,7 +59,7 @@ def test_review_recording_enabled(mode, recording):
 )
 def test_edit_review_wait_seconds(mode, timeout, expected):
     with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=timeout):
+         patch("plugin.framework.config.get_config", return_value=timeout):
         assert edit_review_wait_seconds() == expected
 
 

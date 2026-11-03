@@ -45,7 +45,7 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
     if is_calc_range_payload(history_data):
         # Materialize the envelope to its rectangular values first.
         # _resolve_python_data returns a calc_range dict, and
-        # coerce_to_dataframe wraps an unrecognized dict as a 1×1 cell,
+        # grid_to_dataframe wraps an unrecognized dict as a 1×1 cell,
         # so the Date and Value columns disappear and auto-plot drops
         # the history.
         from plugin.scripting.calc_range import materialize_calc_range
@@ -101,10 +101,13 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
             return {"status": "error", "message": f"No plot mapping for forecast helper {forecast_helper!r}"}
 
         from plugin.calc.calc_addin_data import _resolve_python_data
-        from plugin.framework.queue_executor import run_on_main
+        from plugin.framework.queue_executor import main
 
-        # Sheet read is UNO. Viz IPC (run_trusted_viz) stays on the caller.
-        py_data, err = run_on_main(lambda: _resolve_python_data(doc, data_range=data_range, data=None))
+        # Sheet read is UNO. Viz IPC (run_domain) stays on the caller.
+        def _fetch() -> tuple[Any, Any]:
+            return _resolve_python_data(doc, data_range=data_range, data=None)
+
+        py_data, err = main.run(_fetch)
         if err:
             return {"status": "error", "message": f"Could not read forecast history: {err}"}
         if py_data is None:
@@ -121,9 +124,9 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         if "upper" in header:
             viz_params["upper_col"] = "upper"
 
-        from plugin.scripting.viz import run_trusted_viz
+        from plugin.scripting.helper_domain import run_domain
 
-        return run_trusted_viz(uno_ctx, doc, helper="time_series_plot", params=viz_params, data=merged, data_range=None, task_hint=task_hint)
+        return run_domain("viz", uno_ctx, doc, helper="time_series_plot", params=viz_params, data=merged, data_range=None, task_hint=task_hint)
     except Exception as exc:
         reraise_if_disposed(exc, object_type="calc")
         log.exception("Forecast auto-plot failed")

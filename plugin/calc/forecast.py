@@ -9,13 +9,14 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.errors import ToolExecutionError
-from plugin.scripting.forecast import HELPER_NAMES, HELPER_PARAM_HELP
+from plugin.scripting.helper_registry import names, specs
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-_FORECAST_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
-_PARAM_TEXT = " ".join(f"{name}: {HELPER_PARAM_HELP[name]}" for name in sorted(HELPER_PARAM_HELP))
+_FORECAST_SPECS = specs("forecast")
+_FORECAST_DATA_HELPERS = ", ".join(sorted(names("forecast")))
+_PARAM_TEXT = " ".join(f"{s.name}: {s.param_help}" for s in sorted(_FORECAST_SPECS, key=lambda s: s.name) if s.param_help)
 
 
 class ForecastDataTool(ToolBaseDummy):
@@ -50,19 +51,20 @@ class ForecastDataTool(ToolBaseDummy):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.calc.analysis import extract_calc_data_tool_args, write_anchor_result
-        from plugin.scripting.forecast import insert_forecast_result_into_calc, run_trusted_forecast
+        from plugin.scripting.forecast import insert_forecast_result_into_calc
+        from plugin.scripting.helper_domain import run_domain
 
         helper, dr, data, params, headers, task_hint, output_range = extract_calc_data_tool_args(kwargs)
 
         if getattr(ctx, "active_domain", None) in ("analysis", "forecast") and data is not None:
             return self._tool_error("analysis/forecast domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
 
-        # Call run_trusted_forecast on this worker. It both reads the sheet
-        # and blocks in client_run_forecast, so execute_on_main_thread would
+        # Call run_domain on this worker. It both reads the sheet
+        # and blocks in client_run_forecast, so main.call would
         # put that IPC on the UI thread and freeze Calc. The helper marshals
         # only the UNO read; the sheet write below stays on the main thread.
         try:
-            result = run_trusted_forecast(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
+            result = run_domain("forecast", ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "FORECAST_ERROR"))
         except Exception as exc:
@@ -80,7 +82,7 @@ class ForecastDataTool(ToolBaseDummy):
             if helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(task_hint)):
                 # Call run_auto_plot_after_forecast on this worker. It
                 # marshals the sheet read itself. Wrapping it in
-                # execute_on_main_thread runs the matplotlib IPC on the UI
+                # main.call runs the matplotlib IPC on the UI
                 # thread. insert_viz_result_into_doc below stays on main.
                 plot_result = run_auto_plot_after_forecast(ctx.ctx, ctx.doc, forecast_helper=helper, forecast_result=result, forecast_params=params, data_range=dr, task_hint=task_hint)
             result = apply_auto_plot_result(result, plot_result, ctx.ctx, ctx.doc)

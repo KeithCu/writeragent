@@ -30,7 +30,7 @@ def _handler(body, headers, query):
 def test_mcp_routes_match_production_table() -> None:
     from plugin.mcp import MCP_ROUTE_TABLE
 
-    assert tuple((m, p) for m, p, _h, _r in MCP_ROUTE_TABLE) == _MCP_ROUTES
+    assert tuple((m, p) for m, p, _h in MCP_ROUTE_TABLE) == _MCP_ROUTES
 
 
 def test_list_routes_snapshot_ignores_later_adds() -> None:
@@ -119,18 +119,7 @@ def test_mcp_module_toggle_keeps_route_snapshots_consistent(monkeypatch) -> None
     """Register/unregister on McpModule is one locked batch, same as GET / sees."""
     from unittest.mock import MagicMock
 
-    import plugin.mcp as mcp_mod
     from plugin.mcp import McpModule
-
-    saved = (
-        mcp_mod._primary_http_module,
-        mcp_mod._shared_http_server,
-        mcp_mod._shared_tunnel,
-    )
-    with mcp_mod._http_peer_lock:
-        mcp_mod._primary_http_module = None
-        mcp_mod._shared_http_server = None
-        mcp_mod._shared_tunnel = None
 
     services = MagicMock()
     services.config.proxy_for.return_value = {
@@ -184,9 +173,3 @@ def test_mcp_module_toggle_keeps_route_snapshots_consistent(monkeypatch) -> None
             mod.shutdown()
         except Exception:
             pass
-        with mcp_mod._http_peer_lock:
-            (
-                mcp_mod._primary_http_module,
-                mcp_mod._shared_http_server,
-                mcp_mod._shared_tunnel,
-            ) = saved

@@ -27,7 +27,7 @@ from plugin.writer.specialized_base import (
     ToolWriterFootnoteBase,
     ToolWriterShapeBase,
 )
-from tests.chatbot.test_tool_loop import _mock_get_config_int_for_sub_agent
+from tests.chatbot.test_tool_loop import _mock_get_config_for_sub_agent
 
 
 class _ShapeUpsertProbe(ToolWriterShapeBase):
@@ -425,8 +425,8 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     def _call(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
-        "plugin.framework.queue_executor.execute_on_main_thread", side_effect=_call
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), patch(
+        "plugin.framework.queue_executor.main.call", side_effect=_call
     ) as mock_main:
         result = run_inner_domain_tool_agent(parent, ["shapes"], "Place a ring of circles")
 
@@ -576,8 +576,8 @@ def test_gather_domain_tools_marshals_off_main_thread():
     def _call(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
-        "plugin.framework.queue_executor.execute_on_main_thread", side_effect=_call
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), patch(
+        "plugin.framework.queue_executor.main.call", side_effect=_call
     ) as mock_main:
         tools = gather_domain_tools(parent, ["footnotes"])
     assert mock_main.called
@@ -601,8 +601,8 @@ def test_delegate_tool_domains_execute_returns_inner_result(mock_inner):
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -615,7 +615,7 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     registry = ToolRegistry(services={})
     registry.register(DelegateToolDomains())

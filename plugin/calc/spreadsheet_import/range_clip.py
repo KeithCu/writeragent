@@ -10,21 +10,7 @@ references do not materialize full spreadsheet dimensions.
 
 from __future__ import annotations
 
-from plugin.calc.address_utils import index_to_column, split_sheet_prefix
-
-
-def _split_axis(address: str) -> tuple[str, str, str] | None:
-    address = address.replace("$", "")
-    start, has_sep, end = address.partition(":")
-    if not has_sep or not start or not end:
-        return None
-    if not (start.isascii() and end.isascii()):
-        return None
-    if start.isalpha() and end.isalpha():
-        return "col", start.upper(), end.upper()
-    if start.isdigit() and end.isdigit():
-        return "row", start, end
-    return None
+from plugin.calc.address_utils import index_to_column, split_axis, split_sheet_prefix
 
 
 def clip_workbook_data_ranges(ranges: list[str], *, sheet_bounds: dict[str, tuple[int, int]] | None, current_sheet: str | None = None) -> list[str]:
@@ -36,7 +22,7 @@ def clip_workbook_data_ranges(ranges: list[str], *, sheet_bounds: dict[str, tupl
 def _clip_one_range(range_ref: str, sheet_bounds: dict[str, tuple[int, int]], *, current_sheet: str | None = None) -> str:
     text = str(range_ref).strip()
     sheet, address = split_sheet_prefix(text)
-    axis_info = _split_axis(address)
+    axis_info = split_axis(address)
     if axis_info is None:
         return range_ref
 

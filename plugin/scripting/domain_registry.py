@@ -21,11 +21,16 @@ from typing import Any, Literal
 
 from plugin.framework.i18n import N_, _
 from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
+    ScriptFacts,
+    build_helper_script_template,
     format_elapsed_time,
+    is_status_helper_result,
     plot_insert_ok_outcome,
     preview_insert_ok_outcome,
     rps_ok_outcome,
 )
+from plugin.scripting.helper_registry import HelperSpec, names, specs
 
 log = logging.getLogger("writeragent.scripting")
 
@@ -70,16 +75,33 @@ def _vision_html_block_count(html: str) -> int:
 # (is_result scan order), PICKER_WIRING (script-picker UI). Do not collapse them
 # or add a fourth registry. Drift is caught by test_domain_registry: same members
 # for wiring vs post-venv; picker is not 1:1 (text is wiring-only); a
-# post_venv_calc_only domain's picker supports is "plugin.doc.doc_type:is_calc".
+# post_venv_calc_only domain's picker supports is "plugin.framework.doc_type:is_calc".
 @dataclass(frozen=True)
 class DomainWiring:
     id: str
     insert_ref: str  # module.path:attr
-    is_result_ref: str  # module.path:attr
     display_label: str
+    is_result_ref: str | None = None  # module.path:attr
     format_ok_kind: FormatOkKind = "generic"
     post_venv_calc_only: bool = False
     insert_kwargs_from_code: str | None = None
+    helper_domain: str | None = None
+    rpc_domain: str | None = None
+    runner: str | None = None  # "sheet" or "symbolic"
+    error_code: str | None = None
+    empty_data_message: str | None = None
+    require_calc_or_writer: bool = False
+    force_queue: bool = False
+    long_timeout: bool = False
+    result_error_codes: frozenset[str] | None = None
+    import_module: str | None = None
+    run_name: str | None = None
+    data_expr: str = "data"
+    context_expr: str = "{}"
+    leading_data: bool = False
+    invoke: str = "direct"
+    extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
+    header_tag: str | None = None
 
     def insert(self, ctx: Any, doc: Any, result: dict[str, Any], **kwargs: Any) -> Any:
         fn = _resolve_module_attr(self.insert_ref)
@@ -139,6 +161,11 @@ class DomainWiring:
         return rps_ok_outcome(status_ok, result=result, stdout=stdout)
 
     def is_result(self, value: Any) -> bool:
+        if self.result_error_codes is not None:
+            domain_names = names(self.helper_domain) if self.helper_domain else frozenset()
+            return is_status_helper_result(value, domain_names, self.result_error_codes)
+        if not self.is_result_ref:
+            return False
         try:
             fn = _resolve_module_attr(self.is_result_ref)
         except ImportError as exc:
@@ -155,86 +182,190 @@ class DomainWiring:
             return {}
         return _resolve_module_attr(ref)(ctx, code)
 
+    def _template_body(self, spec: HelperSpec) -> str:
+        pos = ("value", "from", "to") if spec.name == "convert_quantity" else ()
+        return build_helper_script_template(
+            helper=spec.name,
+            params=dict(spec.defaults),
+            description=spec.description,
+            import_module=self.import_module or "",
+            run_name=self.run_name,
+            data_expr=self.data_expr,
+            context_expr=self.context_expr,
+            extra_comment_lines=self.extra_comment_lines,
+            positional_args=pos,
+            leading_data=self.leading_data,
+            invoke=self.invoke,
+        )
+
+    def templates(self) -> dict[str, str]:
+        if not self.helper_domain:
+            return {}
+        return {
+            spec.name: self._template_body(spec)
+            for spec in specs(self.helper_domain)
+            if spec.ship
+        }
+
+    def parse_header(self, code: str) -> HelperScriptMeta | None:
+        tag = self.header_tag or self.id
+        h_names = names(self.helper_domain) if self.helper_domain else None
+        return ScriptFacts.from_source(code).header(tag=tag, helper_names=h_names)
+
+    def template_for(self, helper: str) -> str | None:
+        if not self.helper_domain:
+            return None
+        for spec in specs(self.helper_domain):
+            if spec.name == helper:
+                return self._template_body(spec)
+        return None
+
 
 WIRING_TABLE: tuple[DomainWiring, ...] = (
     DomainWiring(
         id="vision",
         insert_ref="plugin.vision.vision_egress:insert_vision_result",
+        display_label="Vision",
         is_result_ref="plugin.vision.vision_egress:is_vision_result",
         format_ok_kind="vision",
-        display_label="Vision",
         insert_kwargs_from_code="plugin.vision.vision_runner:extract_vision_insert_kwargs",
     ),
     DomainWiring(
         id="viz",
         insert_ref="plugin.scripting.viz:insert_viz_result_into_doc",
+        display_label="Viz",
         is_result_ref="plugin.scripting.viz:is_viz_result",
         format_ok_kind="plot",
-        display_label="Viz",
+        helper_domain="viz",
+        rpc_domain="viz",
+        runner="sheet",
+        error_code="VIZ_ERROR",
+        empty_data_message="No data to plot",
+        require_calc_or_writer=True,
+        import_module="writeragent.scripting.viz",
+        run_name="run_viz",
+        leading_data=True,
+        extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     ),
     DomainWiring(
         id="math",
         insert_ref="plugin.scripting.symbolic:insert_symbolic_result_into_doc",
-        is_result_ref="plugin.scripting.symbolic:is_symbolic_result",
-        format_ok_kind="symbolic",
         display_label="Math",
+        format_ok_kind="symbolic",
+        result_error_codes=frozenset({"SYMBOLIC_ERROR"}),
+        helper_domain="symbolic",
+        rpc_domain="symbolic",
+        runner="symbolic",
+        long_timeout=True,
+        import_module="writeragent.scripting.symbolic",
+        run_name="run_symbolic",
+        data_expr="None",
     ),
     DomainWiring(
         id="units",
         insert_ref="plugin.scripting.units:insert_units_result_into_doc",
-        is_result_ref="plugin.scripting.units:is_units_result",
-        format_ok_kind="units",
         display_label="Units",
+        format_ok_kind="units",
         insert_kwargs_from_code="plugin.scripting.units:extract_units_insert_kwargs",
+        result_error_codes=frozenset({"UNITS_ERROR"}),
+        helper_domain="units",
+        import_module="writeragent.scripting.units",
+        run_name="run_units",
     ),
     DomainWiring(
         id="text",
         insert_ref="plugin.scripting.text_analytics:insert_text_analytics_result_into_doc",
+        display_label="Text analytics",
         is_result_ref="plugin.scripting.text_analytics:is_text_analytics_result",
         format_ok_kind="generic",
-        display_label="Text analytics",
+        helper_domain="text",
+        import_module="writeragent.scripting.text_analytics",
+        run_name="run_text_analytics",
+        data_expr="text",
+        context_expr="document_context",
+        invoke="runner",
+        extra_comment_lines=("# Works on Writer documents (document text is injected on Run).",),
     ),
     DomainWiring(
         id="quant",
         insert_ref="plugin.calc.quant_egress:insert_quant_result_into_calc",
-        is_result_ref="plugin.calc.quant_egress:is_quant_result",
+        display_label="Quant",
         format_ok_kind="rows",
         post_venv_calc_only=True,
-        display_label="Quant",
+        result_error_codes=frozenset(),
+        helper_domain="quant",
+        import_module="writeragent.scripting.quant",
+        run_name="run_quant",
+        invoke="runner",
     ),
     DomainWiring(
         id="optimize",
         insert_ref="plugin.scripting.optimize:insert_optimize_result_into_calc",
-        is_result_ref="plugin.scripting.optimize:is_optimize_result",
+        display_label="Optimize",
         format_ok_kind="rows",
         post_venv_calc_only=True,
-        display_label="Optimize",
+        result_error_codes=frozenset({"OPTIMIZE_ERROR"}),
+        helper_domain="optimize",
+        rpc_domain="optimize",
+        runner="sheet",
+        error_code="OPTIMIZE_ERROR",
+        empty_data_message="No data to optimize",
+        import_module="writeragent.scripting.optimize",
+        run_name="run_optimize",
+        leading_data=True,
+        extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     ),
     DomainWiring(
         id="forecast",
         insert_ref="plugin.scripting.forecast:insert_forecast_result_into_calc",
-        is_result_ref="plugin.scripting.forecast:is_forecast_result",
+        display_label="Forecast",
         format_ok_kind="rows",
         post_venv_calc_only=True,
-        display_label="Forecast",
+        result_error_codes=frozenset({"FORECAST_ERROR"}),
+        helper_domain="forecast",
+        rpc_domain="forecast",
+        runner="sheet",
+        error_code="FORECAST_ERROR",
+        empty_data_message="No data to forecast",
+        import_module="writeragent.scripting.forecast",
+        run_name="run_forecast",
+        leading_data=True,
+        extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     ),
     DomainWiring(
         id="analysis",
         insert_ref="plugin.calc.analysis_egress:insert_analysis_result_into_calc",
-        is_result_ref="plugin.calc.analysis_egress:is_analysis_result",
+        display_label="Analysis",
         format_ok_kind="rows",
         post_venv_calc_only=True,
-        display_label="Analysis",
+        result_error_codes=frozenset({"ANALYSIS_ERROR"}),
+        helper_domain="analysis",
+        rpc_domain="analysis",
+        runner="sheet",
+        error_code="ANALYSIS_ERROR",
+        empty_data_message="No data to analyze",
+        force_queue=True,
+        import_module="writeragent.scripting.analysis",
+        run_name="run_analysis",
+        leading_data=True,
     ),
     DomainWiring(
         id="sql",
         insert_ref="plugin.scripting.duckdb_sql:insert_sql_result_into_calc",
+        display_label="SQL",
         is_result_ref="plugin.scripting.duckdb_sql:is_sql_result",
         format_ok_kind="rows",
         post_venv_calc_only=True,
-        display_label="SQL",
     ),
 )
+
+
+def get_domain_wiring(wiring_id: str) -> DomainWiring:
+    """Return DomainWiring entry by id."""
+    for wiring in WIRING_TABLE:
+        if wiring.id == wiring_id:
+            return wiring
+    raise KeyError(f"Unknown wiring id: {wiring_id!r}")
 
 
 # Post-venv is_result order differs slightly (symbolic before units, then plot special case, then vision, then calc domains)
@@ -270,7 +401,7 @@ class PickerWiring:
     origin: str
     display_prefix: str
     title: str
-    supports_ref: str  # "module.path:attr" (e.g. "plugin.doc.doc_type:is_calc")
+    supports_ref: str  # "module.path:attr" (e.g. "plugin.framework.doc_type:is_calc")
     templates_ref: str  # "module.path:attr" returning dict[str, str]
 
     def supports(self, doc: Any) -> bool:
@@ -313,14 +444,14 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         origin=SCRIPT_ORIGIN_ANALYSIS,
         display_prefix=ANALYSIS_SCRIPT_DISPLAY_PREFIX,
         title=N_("Analysis Helpers"),
-        supports_ref="plugin.doc.doc_type:is_calc",
+        supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.analysis:get_analysis_script_templates",
     ),
     PickerWiring(
         origin="sql",
         display_prefix="[SQL] ",
         title=N_("SQL Helpers"),
-        supports_ref="plugin.doc.doc_type:is_calc",
+        supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.duckdb_sql:get_sql_script_templates",
     ),
     PickerWiring(
@@ -340,22 +471,22 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         # stringified the nested table dict.
         # How: the picker copied the symbolic/viz supports alias when the registry
         # was introduced. Egress was never a Writer inserter.
-        # Why: "plugin.doc.doc_type:is_calc" matches analysis, sql, optimize, and forecast.
-        supports_ref="plugin.doc.doc_type:is_calc",
+        # Why: "plugin.framework.doc_type:is_calc" matches analysis, sql, optimize, and forecast.
+        supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.quant:get_quant_script_templates",
     ),
     PickerWiring(
         origin="optimize",
         display_prefix="[Optimize] ",
         title=N_("Optimize Helpers"),
-        supports_ref="plugin.doc.doc_type:is_calc",
+        supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.optimize:get_optimize_script_templates",
     ),
     PickerWiring(
         origin="forecast",
         display_prefix="[Forecast] ",
         title=N_("Forecast Helpers"),
-        supports_ref="plugin.doc.doc_type:is_calc",
+        supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.forecast:get_forecast_script_templates",
     ),
 )

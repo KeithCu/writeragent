@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.doc.doc_type import DocumentType
+from plugin.framework.doc_type import DocumentType
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url
 
@@ -38,7 +38,7 @@ def _resolve(models, target, type_map=None):
 
     desktop.getComponents.return_value.createEnumeration.side_effect = make_enum
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop), \
-         patch("plugin.doc.doc_type.get_document_type",
+         patch("plugin.framework.doc_type.get_document_type",
                side_effect=lambda m: type_map.get(m, DocumentType.WRITER)):
         return resolve_document_by_url(MagicMock(), target)
 

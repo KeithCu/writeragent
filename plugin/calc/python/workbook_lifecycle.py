@@ -132,7 +132,7 @@ def _lifecycle_key(doc: Any) -> str:
     spill's scheduled key never matched the live key and the write returned
     without touching the sheet.
     How it happened: ``_lifecycle_key`` always called
-    ``calc_workbook_base_session_id``, and ``_workbook_session_key`` returns a
+    ``calc_workbook_base_session_id``, and ``mint_document_key`` returns a
     fresh uuid when the session property does not stick.
     Why this change fixes it: a missing RuntimeUID reuses the key already
     stored for this object. A new session id is computed only the first time.
@@ -154,9 +154,9 @@ def _lifecycle_key(doc: Any) -> str:
 
 def off_main_spill_lifecycle_key(doc: Any | None) -> str:
     """Workbook key for an off-main spill timer, without UNO off the UI thread."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if doc is not None and on_main_thread():
+    if doc is not None and main.is_current():
         key = best_effort(lambda: _lifecycle_key(doc), "off-main spill lifecycle key")
         if key:
             return key
@@ -252,7 +252,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 log.debug("python_workbook_lifecycle: %s reopened; dropping reset retry", sid)
                 return
             try:
-                res = reset_python_session(self._ctx, sid)
+                res = reset_python_session(sid)
             except Exception:
                 log.debug("python_workbook_lifecycle: retry reset raised", exc_info=True)
                 break
@@ -262,7 +262,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             log.warning("python_workbook_lifecycle: session %s still WORKER_REENTRY after retry timeout", sid)
 
     def _reset_one(self, sid: str) -> None:
-        res = reset_python_session(self._ctx, sid)
+        res = reset_python_session(sid)
         if _is_reentry(res):
             from plugin.framework.worker_pool import run_in_background
 
@@ -366,7 +366,9 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
     """
     if not session_id or doc is None or not _HAVE_UNO_DOC_EVENTS:
         return
-    if session_id.startswith("calc:"):
+    from plugin.scripting.session_key import SessionKey, SessionKind
+
+    if SessionKey.parse(session_id).kind is SessionKind.CALC:
         ensure_calc_workbook_unload_resets_python(ctx, doc)
         return
     # Writer/Draw key. Must not record a Calc session id. Same RuntimeUID ladder as _lifecycle_key.

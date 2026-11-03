@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.ipc import read_pickle_frame
+from plugin.framework.ipc import read_pickle_frame
 from plugin.scripting.host_rpc import (
     TOOL_RPC_DISABLED,
     execute_tool,
@@ -275,14 +275,14 @@ def test_execute_tool_prefers_script_session_document():
     registry._services = {}
     registry.execute.return_value = {"status": "ok"}
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
         patch("plugin.main.get_tools", return_value=registry),
-        patch("plugin.doc.doc_type.is_draw", return_value=True),
-        patch("plugin.doc.doc_type.is_calc", return_value=False),
-        patch("plugin.doc.doc_type.is_writer", return_value=False),
+        patch("plugin.framework.doc_type.is_draw", return_value=True),
+        patch("plugin.framework.doc_type.is_calc", return_value=False),
+        patch("plugin.framework.doc_type.is_writer", return_value=False),
     ):
         execute_tool(
             "export_presentation_project",
@@ -306,14 +306,14 @@ def test_execute_tool_uses_pinned_document_not_front_window():
     token = pin_script_document(bound)
     try:
         with (
-            patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
             patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
             patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
             patch("plugin.scripting.session_manager.get_desktop") as mock_desktop,
             patch("plugin.main.get_tools", return_value=registry),
-            patch("plugin.doc.doc_type.is_draw", return_value=True),
-            patch("plugin.doc.doc_type.is_calc", return_value=False),
-            patch("plugin.doc.doc_type.is_writer", return_value=False),
+            patch("plugin.framework.doc_type.is_draw", return_value=True),
+            patch("plugin.framework.doc_type.is_calc", return_value=False),
+            patch("plugin.framework.doc_type.is_writer", return_value=False),
         ):
             execute_tool("shape_upsert", {"action": "create"}, script_session_id=token)
         mock_desktop.assert_not_called()
@@ -435,7 +435,7 @@ def test_handle_tool_call_frame_rejects_non_dict_args():
     assert handled is True
     mock_tool.assert_not_called()
     assert len(written) == 1
-    from plugin.scripting.ipc import read_pickle_frame
+    from plugin.framework.ipc import read_pickle_frame
     import io
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -457,7 +457,7 @@ def test_handle_tool_call_frame_unpicklable_result():
         )
     assert handled is True
     assert len(written) == 1
-    from plugin.scripting.ipc import read_pickle_frame
+    from plugin.framework.ipc import read_pickle_frame
     import io
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -469,10 +469,10 @@ def test_handle_tool_call_frame_unpicklable_result():
 def test_rpc_call_drops_none_kwargs():
     import plugin.scripting.writeragent_api as api
 
-    with patch.object(api, "IS_WORKER", True), patch(
-        "plugin.scripting.ipc.exchange_tool_call", return_value={}
+    with patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "1", "WRITERAGENT_COMPUTE_WORKER": "0"}), patch(
+        "plugin.framework.ipc.exchange_tool_call", return_value={}
     ) as mock_exchange:
-        api._rpc_call("apply_document_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
+        api.call_host_tool("apply_document_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
     mock_exchange.assert_called_once_with(
         "apply_document_content",
         {"content": ["<p>Hi</p>"], "target": "end"},
@@ -482,12 +482,11 @@ def test_rpc_call_drops_none_kwargs():
 def test_run_code_in_user_venv_forwards_python_tool_domain():
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
-    ctx = MagicMock()
     with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr:
         manager = MagicMock()
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
-        run_code_in_user_venv(ctx, "result = 1", python_tool_domain="writer")
+        run_code_in_user_venv("result = 1", python_tool_domain="writer")
         assert manager.execute.call_args.kwargs.get("python_tool_domain") == "writer"
 
 
@@ -549,7 +548,7 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
 
     # We simulate ToolRegistry.execute's thread behavior loosely for tests,
     # but more importantly we test that host_rpc does not wrap the final `registry.execute`
-    # in `execute_on_main_thread` directly anymore since we split it.
+    # in `main.call` directly anymore since we split it.
 
     # ToolRegistry.execute is actually what executes. Let's make sure it receives ToolContext properly.
     def mock_registry_execute(tool_name, tctx, **kwargs):
@@ -562,14 +561,14 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
     bound = MagicMock()
 
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()) as mock_exec_main,
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()) as mock_exec_main,
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
         patch("plugin.main.get_tools", return_value=registry),
-        patch("plugin.doc.doc_type.is_draw", return_value=True),
-        patch("plugin.doc.doc_type.is_calc", return_value=False),
-        patch("plugin.doc.doc_type.is_writer", return_value=False),
+        patch("plugin.framework.doc_type.is_draw", return_value=True),
+        patch("plugin.framework.doc_type.is_calc", return_value=False),
+        patch("plugin.framework.doc_type.is_writer", return_value=False),
     ):
         res = execute_tool("async_mock_tool", {}, allowed_tools=frozenset({"async_mock_tool"}), caller="test_caller")
 
@@ -577,7 +576,7 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
     assert res["caller_tctx"] == "test_caller"
     registry.execute.assert_called_once()
 
-    # execute_on_main_thread should only be called once, for `_run`
+    # main.call should only be called once, for `_run`
     mock_exec_main.assert_called_once()
     assert mock_exec_main.call_args[0][0].__name__ == "_run"
 
@@ -679,15 +678,14 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
         code = "USER_STOPPED"
 
     with (
-        patch.object(api, "IS_WORKER", False),
-        patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "0"}),
+        patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "0", "WRITERAGENT_COMPUTE_WORKER": "0"}),
     ):
         with patch(
             "plugin.scripting.host_rpc.execute_tool",
             side_effect=StoppedError("operation stopped"),
         ):
             try:
-                api._rpc_call("test_tool")
+                api.call_host_tool("test_tool")
             except RuntimeError as exc:
                 assert "operation stopped" in str(exc)
                 assert getattr(exc, "code", None) == "USER_STOPPED"
@@ -699,7 +697,7 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
 
         with patch("plugin.scripting.host_rpc.execute_tool", side_effect=CustomError("denied")):
             try:
-                api._rpc_call("test_tool")
+                api.call_host_tool("test_tool")
             except RuntimeError as exc:
                 assert "denied" in str(exc)
                 assert getattr(exc, "code", None) == "PERMISSION_DENIED"
@@ -736,14 +734,14 @@ def test_execute_tool_copies_stop_onto_tool_context():
 
     sentinel = object()
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
         patch("plugin.main.get_tools", return_value=registry),
-        patch("plugin.doc.doc_type.is_draw", return_value=True),
-        patch("plugin.doc.doc_type.is_calc", return_value=False),
-        patch("plugin.doc.doc_type.is_writer", return_value=False),
+        patch("plugin.framework.doc_type.is_draw", return_value=True),
+        patch("plugin.framework.doc_type.is_calc", return_value=False),
+        patch("plugin.framework.doc_type.is_writer", return_value=False),
     ):
         execute_tool(
             "export_presentation_project",
@@ -776,7 +774,7 @@ def test_handle_tool_call_frame_forwards_stop_to_execute_tool():
 
 def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
     import io
-    from plugin.scripting.ipc import IpcPayloadSizeError, pack_pickle_frame as real_pack
+    from plugin.framework.ipc import IpcPayloadSizeError, pack_pickle_frame as real_pack
 
     first = True
 
@@ -805,7 +803,7 @@ def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
 
 def test_handle_tool_call_frame_second_pack_failure_propagates(monkeypatch):
     import pytest
-    from plugin.scripting.ipc import IpcPayloadSizeError
+    from plugin.framework.ipc import IpcPayloadSizeError
 
     def mock_pack(payload, **kwargs):
         raise IpcPayloadSizeError("Pickle frame exceeds maximum payload size: 99")

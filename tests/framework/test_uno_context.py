@@ -1,3 +1,4 @@
+from plugin.framework.queue_executor import main
 
 import builtins
 import sys
@@ -127,7 +128,7 @@ def test_resolve_package_extension_id_off_main_skips_package_info(monkeypatch):
     )
 
     reset_package_extension_id_for_tests()
-    monkeypatch.setattr("plugin.framework.uno_context.on_main_thread", lambda: False)
+    monkeypatch.setattr(main, "is_current", lambda: False)
     with patch("plugin.framework.uno_context.get_package_info") as pip:
         assert resolve_package_extension_id() == EXTENSION_ID_WRITERAGENT
         pip.assert_not_called()
@@ -466,7 +467,7 @@ def test_uno_same_off_thread_raises_on_thread_issame_still_works(monkeypatch):
 
 def test_uno_boundaries_import_guard_uno_at_the_return():
     """Patching thread_guard.guard_uno must see boundary returns (not import-time _wrap_uno)."""
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
     from plugin.framework import uno_context as uc
 
     seen: list[object] = []
@@ -507,7 +508,7 @@ def test_uno_boundaries_import_guard_uno_at_the_return():
             patch("plugin.framework.thread_guard.guard_uno", side_effect=_guard),
             patch.object(sys, "argv", ["soffice"]),
             patch("plugin.framework.uno_context._linux_process_tokens", return_value=("soffice.bin", "soffice.bin", [])),
-            patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
+            patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         ):
             assert uc.get_ctx() is ctx
             assert uc.get_desktop(ctx) is desktop
@@ -814,12 +815,12 @@ def test_document_id_for_frame():
     frame = MagicMock(name="frame")
 
     # Off main thread returns empty string
-    with patch("plugin.framework.uno_context.on_main_thread", return_value=False):
+    with patch.object(main, "is_current", return_value=False):
         assert document_id_for_frame(frame) == ""
 
     # Model is None returns empty string
     with (
-        patch("plugin.framework.uno_context.on_main_thread", return_value=True),
+        patch.object(main, "is_current", return_value=True),
         patch("plugin.framework.uno_context.get_document_from_frame", return_value=None),
     ):
         assert document_id_for_frame(frame) == ""
@@ -827,7 +828,7 @@ def test_document_id_for_frame():
     # Model resolved returns its runtime uid
     model = MagicMock(name="model")
     with (
-        patch("plugin.framework.uno_context.on_main_thread", return_value=True),
+        patch.object(main, "is_current", return_value=True),
         patch("plugin.framework.uno_context.get_document_from_frame", return_value=model),
         patch("plugin.framework.uno_context.get_runtime_uid", return_value="uid-1234"),
     ):

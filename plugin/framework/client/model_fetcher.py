@@ -48,9 +48,9 @@ from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_s
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint, is_openwebui_endpoint
 from plugin.framework.errors import NetworkError, best_effort
 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent, resolve_openrouter_catalog_id
-from plugin.framework.thread_guard import on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.config import get_api_key_for_endpoint, get_config_bool_safe, get_config, get_current_endpoint, set_config, update_config_mapping
+from plugin.framework.config import get_api_key_for_endpoint, get_config, get_current_endpoint, save, update_config_mapping
 from plugin.framework.config_schema import as_bool
 
 log = logging.getLogger(__name__)
@@ -265,7 +265,7 @@ def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], dict[str
 
 def _resolved_openwebui(endpoint: str) -> bool:
     # Resolve Open WebUI by host or explicit setting matching LlmClient._api_path.
-    return is_openwebui_endpoint(endpoint, explicit_is_openwebui=get_config_bool_safe("is_openwebui"))
+    return is_openwebui_endpoint(endpoint, explicit_is_openwebui=as_bool(get_config("is_openwebui")))
 
 
 def _key_slot_base(endpoint: str) -> str:
@@ -1006,20 +1006,10 @@ def get_text_model() -> str:
 
 
 def get_stt_model() -> str:
-    """Return the configured STT model.
-
-    Settings → Speech stores ``audio.stt_model``. Configs saved before that
-    move still have top-level ``stt_model``; prefer the new key when it is
-    non-empty, otherwise the legacy key, otherwise the provider default.
-    """
+    """Return the configured STT model."""
     val = _sanitize_stored_model_value(get_config("audio.stt_model"))
     if val:
         return val
-    # Flat ``stt_model`` wins over the dotted alias inside get_config, so a
-    # leftover legacy value is still visible when the new key is empty.
-    legacy = _sanitize_stored_model_value(get_config("stt_model"))
-    if legacy:
-        return legacy
     return _stored_or_default("audio.stt_model", "stt_model")
 
 
@@ -1040,7 +1030,7 @@ def _set_stored_model(config_key: str, lru_key: str, val: Any, update_lru: bool,
     if val_str == current:
         return
 
-    set_config(config_key, val_str, event_key=event_key)
+    save({config_key: val_str}, event_key=event_key)
     if update_lru:
         from plugin.framework.model_lru import update_lru_history
 
@@ -1160,7 +1150,7 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     4. Warm in-process provider memo (OpenRouter/Together ``input_modalities``,
        Ollama ``/api/show`` capabilities).
     5. Cold memo (OpenRouter, Together, Ollama): on the UI thread
-       (``on_main_thread()``) never fetch; schedule one background lookup and
+       (``main.is_current()``) never fetch; schedule one background lookup and
        fall through. Off the UI thread, fetch inline and re-read the memo.
        Answers live only in those process memos; a failed fetch stores
        nothing, so the next check tries again.
@@ -1190,10 +1180,10 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     # 4. Warm in-process memo. 5. Cold: the UI thread schedules, a worker fetches.
     warm, answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)
     if not warm:
-        if on_main_thread():
+        if main.is_current():
             _schedule_vision_lookup(support_key, model_id_str, raw_ep, api_key_override)
         else:
-            assert not on_main_thread()
+            assert not main.is_current()
             if provider == "ollama":
                 query_ollama_show(raw_ep, model_id_str)
             else:

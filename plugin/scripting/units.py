@@ -11,33 +11,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.doc.doc_type import is_calc, is_writer
+from plugin.framework.doc_type import is_calc, is_writer
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.helper_domain import (
-    DomainFacadeConfig,
-    is_status_helper_result,
-    parse_run_import_call_spec,
-)
+from plugin.scripting.helper_domain import ScriptFacts
+from plugin.scripting.helper_registry import names
 
 from plugin.scripting.calc_range import ensure_rectangular_2d
-from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
 
-_DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    "convert_quantity": {"value": "data", "from": "m/s", "to": "km/h"},
-    "parse_quantity": {"quantity": "data"},
-    "check_dimensionality": {"quantity_a": "10 m/s", "quantity_b": "5 km/h"},
-}
-
-_HELPER_DESCRIPTIONS: dict[str, str] = {
-    "convert_quantity": "Convert a numeric value between units.",
-    "parse_quantity": "Parse a quantity string (e.g. '10 m/s') into magnitude and units.",
-    "format_quantity": "Format a magnitude and unit string for display.",
-    "check_dimensionality": "Check whether two quantities or units are dimensionally compatible.",
-}
-
-_UNITS_VENV_EXPORTS = HELPER_NAMES | {"run_units"}
+_UNITS_VENV_EXPORTS = names("units") | {"run_units"}
 
 install_lazy_exports(globals(), "units", _UNITS_VENV_EXPORTS)
 
@@ -45,42 +28,23 @@ install_lazy_exports(globals(), "units", _UNITS_VENV_EXPORTS)
 # --- Templates ---
 
 
-_API = DomainFacadeConfig(
-    tag="units",
-    helper_names=HELPER_NAMES,
-    default_params=_DEFAULT_PARAMS,
-    descriptions=_HELPER_DESCRIPTIONS,
-    import_module="writeragent.scripting.units",
-    run_name="run_units",
-    shipped_templates=frozenset(_DEFAULT_PARAMS),
-    # convert_quantity takes value, from_unit, to_unit positionally (``from``
-    # is not a keyword argument). parse/check are keyword-only.
-    positional_args={
-        "convert_quantity": ("value", "from", "to"),
-    },
-)
+def get_units_script_templates() -> dict[str, str]:
+    from plugin.scripting.domain_registry import get_domain_wiring
 
-get_units_script_templates = _API.get_templates
+    return get_domain_wiring("units").templates()
 
 
 # --- Egress ---
 
 def extract_units_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     """Extract units insertion kwargs (e.g. output_style) from script code."""
-    spec = parse_run_import_call_spec(code, run_name="run_units")
+    spec = ScriptFacts.from_source(code).first_run_spec("run_units")
     body_params = spec.get("params") if spec else None
     if not isinstance(body_params, dict):
         return {}
     raw = body_params.get("output_style")
     style = "" if raw is None else str(raw).strip()
     return {"output_style": style} if style else {}
-
-
-# Ordinary dicts with formatted and magnitude are not units results:
-# match HELPER_NAMES and UNITS_ERROR through is_status_helper_result.
-def is_units_result(value: Any) -> bool:
-    """True when *value* matches the compact units helper result contract."""
-    return is_status_helper_result(value, HELPER_NAMES, frozenset({"UNITS_ERROR"}))
 
 
 def units_display_text(result: dict[str, Any]) -> str:

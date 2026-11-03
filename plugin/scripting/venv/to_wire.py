@@ -16,7 +16,7 @@ import math
 import sys
 from typing import Any, Literal
 
-from plugin.scripting.ipc import HOST_PICKLE_LEAF_TYPES
+from plugin.framework.ipc import HOST_PICKLE_LEAF_TYPES
 from plugin.scripting.payload_codec import (
     ForceBinary,
     PAYLOAD_DATAFRAME,

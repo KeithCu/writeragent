@@ -6,7 +6,7 @@
 
 The child is a ``ManagedSubprocess`` plus the Pickle 5 handshake in
 ``_KokoroWorker``. The 20 second ready timeout covers process start and
-the import of ``plugin.scripting.ipc`` only. ``run_kokoro_stdio_loop``
+the import of ``plugin.framework.ipc`` only. ``run_kokoro_stdio_loop``
 writes ``{"status": "ready"}`` before ``_get_kokoro`` imports ``kokoro_onnx``;
 the model load is the first job's timeout. ``cancel_inflight`` signals on
 the caller thread and reaps with ``worker.kill`` on a background thread;
@@ -43,13 +43,14 @@ from plugin.framework.errors import best_effort
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.process_worker import Deadline, error_dict
 from plugin.framework.worker_pool import run_in_background
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     IpcPartialFrameTimeout,
     pack_pickle_frame,
     read_pickle_frame,
     write_packed_frame_with_timeout,
 )
-from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env
+from plugin.framework.subprocess_env import scrub_subprocess_env
+from plugin.scripting.sandbox import resolve_venv_python
 
 log = logging.getLogger(__name__)
 
@@ -294,7 +295,7 @@ class KokoroProcessPool:
         """Run one Kokoro job. Spawns the child on first use and after a crash.
 
         The pool lock is not held across spawn or the job, and cancel_check is
-        not called under it (_playback_blocked takes the speech lock).
+        not called under it.
         cancel_check runs before the job is marked in-flight and a true result
         leaves _worker in place. _job_lock is the pipe lock. cancel_inflight
         does not take _job_lock.
@@ -497,9 +498,9 @@ _POOL_CONFIG_VENV: str | None = None
 
 def resolve_kokoro_python() -> str | None:
     """Venv interpreter that has kokoro-onnx, or None when Python is not configured."""
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
 
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return None
     return resolve_venv_python(venv_dir)
@@ -508,9 +509,9 @@ def resolve_kokoro_python() -> str | None:
 def get_kokoro_pool() -> KokoroProcessPool | None:
     """Lazy singleton. None when no venv Python is configured."""
     global _POOL, _POOL_CONFIG_VENV
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
 
-    venv_str = get_config_str("scripting.python_venv_path").strip()
+    venv_str = str(get_config("scripting.python_venv_path") or "").strip()
     with _POOL_LOCK:
         # Same configured path: reuse without re-resolving the interpreter.
         if venv_str and _POOL is not None and _POOL_CONFIG_VENV == venv_str:

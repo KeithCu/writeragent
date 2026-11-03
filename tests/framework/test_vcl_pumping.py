@@ -22,23 +22,23 @@ def _reset_secondary_idle_in_flight():
 
 def _park_default_work_queue() -> list[object]:
     """Take every item off the process-wide marshal queue."""
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
 
     saved: list[object] = []
     while True:
         try:
-            saved.append(default_executor._work_queue.get_nowait())
+            saved.append(main._work_queue.get_nowait())
         except queue_mod.Empty:
             return saved
 
 
 def _restore_default_work_queue(saved: list[object]) -> None:
     """Drop anything this test queued, then put *saved* back in order."""
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
 
     _park_default_work_queue()
     for item in saved:
-        default_executor._work_queue.put(item)
+        main._work_queue.put(item)
 
 
 def test_focus_preserved_restores_focus_window():
@@ -229,13 +229,13 @@ def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
     The marshal queue is process-wide. A leftover item must not skip the post:
     that left the event unset (and harper_try_lint with posts=0 under xdist).
     """
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
     from plugin.framework.vcl_pumping import wait_while_pumping
 
     saved = _park_default_work_queue()
     try:
-        default_executor._work_queue.put(object())
-        assert default_executor.pending_work_count() >= 1
+        main._work_queue.put(object())
+        assert main.pending_work_count() >= 1
         done = threading.Event()
         posts: list[object] = []
         pe2i_threads: list[str] = []
@@ -254,7 +254,7 @@ def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
         def _waiter() -> None:
             with (
                 patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i),
-                patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
+                patch("plugin.framework.queue_executor.main.post", side_effect=_post),
             ):
                 result["ok"] = wait_while_pumping(done, MagicMock(), timeout=1.0, poll_sec=0.01)
 
@@ -269,18 +269,18 @@ def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
 
 
 def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
-    """QueueExecutor.post can run the callback on the waiter; still no PE2I off-main.
+    """MainThread.post can run the callback on the waiter; still no PE2I off-main.
 
     A leftover marshal item must not skip that post. The inlined pump still
     must not call PE2I on Dummy-*.
     """
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
     from plugin.framework.vcl_pumping import wait_while_pumping
 
     saved = _park_default_work_queue()
     try:
-        default_executor._work_queue.put(object())
-        assert default_executor.pending_work_count() >= 1
+        main._work_queue.put(object())
+        assert main.pending_work_count() >= 1
         done = threading.Event()
         pe2i_threads: list[str] = []
         result: dict[str, bool] = {}
@@ -299,7 +299,7 @@ def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
         def _waiter() -> None:
             with (
                 patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i),
-                patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
+                patch("plugin.framework.queue_executor.main.post", side_effect=_post),
             ):
                 result["ok"] = wait_while_pumping(done, MagicMock(), timeout=1.0, poll_sec=0.01)
 
@@ -314,13 +314,13 @@ def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
 
 def test_post_secondary_idle_coalesces_and_passes_none_scope():
     """Two off-main posts coalesce to one post with bound_scope=None; PE2I not called on Dummy-*."""
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
     from plugin.framework.vcl_pumping import _post_secondary_idle
 
     saved = _park_default_work_queue()
     try:
-        default_executor._work_queue.put(object())
-        assert default_executor.pending_work_count() >= 1
+        main._work_queue.put(object())
+        assert main.pending_work_count() >= 1
 
         posts: list[tuple[object, dict[str, object]]] = []
         pe2i_called: list[str] = []
@@ -337,7 +337,7 @@ def test_post_secondary_idle_coalesces_and_passes_none_scope():
         def _worker() -> None:
             with (
                 patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i),
-                patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
+                patch("plugin.framework.queue_executor.main.post", side_effect=_post),
             ):
                 _post_secondary_idle(MagicMock())
                 _post_secondary_idle(MagicMock())
@@ -365,7 +365,7 @@ def test_post_secondary_idle_runs_pump_and_allows_next_post():
         posts.append(fn)
 
     def _worker() -> None:
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=_post):
             _post_secondary_idle(MagicMock())
             assert len(posts) == 1
             # Second call while in-flight does not post
@@ -398,7 +398,7 @@ def test_post_secondary_idle_unrun_callable_leaves_flag_set():
         posts.append(fn)
 
     def _worker() -> None:
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=_post):
             _post_secondary_idle(MagicMock())
             _post_secondary_idle(MagicMock())
             _post_secondary_idle(MagicMock())
@@ -411,7 +411,7 @@ def test_post_secondary_idle_unrun_callable_leaves_flag_set():
 
 
 def test_post_secondary_idle_post_raises_clears_flag():
-    """When post_to_main_thread raises, the flag is cleared and the next call posts."""
+    """When main.post raises, the flag is cleared and the next call posts."""
     from plugin.framework.vcl_pumping import _post_secondary_idle, wait_while_pumping
 
     call_count = 0
@@ -426,7 +426,7 @@ def test_post_secondary_idle_post_raises_clears_flag():
         posts.append(fn)
 
     def _worker() -> None:
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=_post):
             with pytest.raises(RuntimeError, match="queue failed"):
                 _post_secondary_idle(MagicMock())
 
@@ -455,7 +455,7 @@ def test_post_secondary_idle_post_raises_clears_flag():
         done.set()
 
     def _waiter() -> None:
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post_then_set):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=_post_then_set):
             assert wait_while_pumping(done, MagicMock(), timeout=1.0, poll_sec=0.01) is True
 
     t2 = threading.Thread(target=_waiter, name="Dummy-22")
@@ -476,10 +476,12 @@ def test_post_secondary_idle_pump_raises_clears_flag():
         posts.append(fn)
 
     def _worker() -> None:
+        from plugin.framework.queue_executor import main
+
         with (
-            patch("plugin.framework.vcl_pumping.on_main_thread", return_value=True),
+            patch.object(main, "is_current", return_value=True),
             patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=RuntimeError("PE2I error")),
-            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
+            patch.object(main, "post", side_effect=_post),
         ):
             _post_secondary_idle(MagicMock())
             assert len(posts) == 1
