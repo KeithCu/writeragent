@@ -44,7 +44,7 @@ import json
 import logging
 import re
 import urllib.parse
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from .base_provider_shim import BaseProviderShim
@@ -248,6 +248,30 @@ class LlmClient:
             return owned
         return cancel
 
+    def _effort_on_bad_request(self, scope: SendCancellation, slot: dict[str, Any]) -> Callable[[bytes], bytes | None]:
+        """Build bad-request callback for effort 400 retries.
+
+        What was wrong: the 400-effort retry callback was duplicated between
+        _exchange_json and _run_streaming_loop.
+        Fix: single helper closure updating the caller's mutable slot dict.
+        """
+        def on_bad_request(body_bytes: bytes) -> bytes | None:
+            if scope.is_cancelled():
+                return None
+            if slot["pending"] is None:
+                from .base_provider_shim import effort_retry_bodies
+
+                slot["pending"] = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
+            if not slot["pending"]:
+                return None
+            log.warning("HTTP 400 rejected reasoning effort; retrying with another effort")
+            slot["used"] = True
+            next_body = slot["pending"].pop(0)
+            slot["body"] = next_body
+            return next_body
+
+        return on_bad_request
+
     def _get_shim(self) -> BaseProviderShim:
         """Get the provider shim for this client."""
         provider = self._get_provider()
@@ -425,25 +449,9 @@ class LlmClient:
             self._close_connection()
             return "stop", None
         api_key = str(self.config.get("api_key") or "").strip()
-        effort_pending: list[bytes] | None = None
         first_body = body if isinstance(body, (bytes, bytearray)) else body
-        effort_used = False
-
-        def on_bad_request(body_bytes: bytes) -> bytes | None:
-            nonlocal effort_pending, body, first_body, effort_used
-            if is_cancelled(active):
-                return None
-            if effort_pending is None:
-                from .base_provider_shim import effort_retry_bodies
-
-                effort_pending = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
-            if not effort_pending:
-                return None
-            log.warning("HTTP 400 rejected reasoning effort; retrying with another effort")
-            effort_used = True
-            next_body = effort_pending.pop(0)
-            body = next_body
-            return next_body
+        slot: dict[str, Any] = {"pending": None, "body": body, "used": False}
+        on_bad_request = self._effort_on_bad_request(active, slot)
 
         try:
             # Same exchange as catalog and speech. Stop, timeout, retry, and
@@ -474,9 +482,9 @@ class LlmClient:
             err_msg = format_error_message(exc)
             log.exception(failure_log)
             raise NetworkError(err_msg, details={"url": path}) from exc
-        if effort_used and isinstance(first_body, (bytes, bytearray)):
+        if slot["used"] and isinstance(first_body, (bytes, bytearray)):
             fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
-            lb = bytes(body) if isinstance(body, bytearray) else body
+            lb = bytes(slot["body"]) if isinstance(slot["body"], bytearray) else slot["body"]
             remember_accepted_effort(self._endpoint(), fb, lb)
         return "ok", _parse_provider_envelope(result.body, path, api_key=api_key)
 
@@ -648,21 +656,8 @@ class LlmClient:
             return "stop"
 
         first_body = body
-        effort_pending: list[bytes] | None = None
-
-        def on_bad_request(body_bytes: bytes) -> bytes | None:
-            nonlocal effort_pending, body
-            if active.is_cancelled():
-                return None
-            if effort_pending is None:
-                from .base_provider_shim import effort_retry_bodies
-
-                effort_pending = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
-            if not effort_pending:
-                return None
-            log.warning("HTTP 400 rejected reasoning effort; retrying with another effort")
-            body = effort_pending.pop(0)
-            return body
+        slot: dict[str, Any] = {"pending": None, "body": body, "used": False}
+        on_bad_request = self._effort_on_bad_request(active, slot)
 
         budget = RetryBudget(
             self._transport,
@@ -934,8 +929,8 @@ class LlmClient:
                         self._close_connection()
                     except Exception:
                         log.debug("stream close after non-clean finish failed", exc_info=True)
-            if effort_pending is not None:
-                remember_accepted_effort(self._endpoint(), first_body, body)
+            if slot["pending"] is not None:
+                remember_accepted_effort(self._endpoint(), first_body, slot["body"])
             if last_finish_reason is None and self.stopped():
                 last_finish_reason = "stop"
             return last_finish_reason

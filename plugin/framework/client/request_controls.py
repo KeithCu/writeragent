@@ -436,6 +436,18 @@ class RetryBudget:
     def note_emitted(self) -> None:
         self.emitted_any = True
 
+    def rejected_effort(self, exc: BaseException) -> bool:
+        details = getattr(exc, "details", None)
+        return (
+            self._on_bad_request is not None
+            and not self.emitted_any
+            and not self.stopped()
+            and getattr(exc, "code", None) == "HTTP_ERROR"
+            and isinstance(details, dict)
+            and details.get("status") == 400
+            and "effort" in str(exc).lower()
+        )
+
     def run_exchange(
         self,
         method: str,
@@ -564,18 +576,9 @@ class RetryBudget:
                         parsed=parsed,
                     )
                 except NetworkError as exc:
-                    if (
-                        self._on_bad_request is not None
-                        and not self.emitted_any
-                        and not self.stopped()
-                        and getattr(exc, "code", None) == "HTTP_ERROR"
-                        and isinstance(getattr(exc, "details", None), dict)
-                        and exc.details.get("status") == 400
-                        and "effort" in str(exc).lower()
-                    ):
-                        next_body = self._on_bad_request(
-                            bytes(body) if isinstance(body, (bytes, bytearray)) else bytes(str(body), "utf-8")
-                        )
+                    if self.rejected_effort(exc):
+                        raw = bytes(body) if isinstance(body, (bytes, bytearray)) else bytes(str(body), "utf-8")
+                        next_body = self._on_bad_request(raw) if self._on_bad_request is not None else None
                         if next_body is not None:
                             body = next_body
                             continue
@@ -712,18 +715,9 @@ class RetryBudget:
             except NetworkError as exc:
                 if getattr(exc, "code", None) == "STOPPED":
                     return "stop"
-                if (
-                    self._on_bad_request is not None
-                    and not self.emitted_any
-                    and not self.stopped()
-                    and getattr(exc, "code", None) == "HTTP_ERROR"
-                    and isinstance(getattr(exc, "details", None), dict)
-                    and exc.details.get("status") == 400
-                    and "effort" in str(exc).lower()
-                ):
-                    next_body = self._on_bad_request(
-                        bytes(body) if isinstance(body, (bytes, bytearray)) else bytes(str(body), "utf-8")
-                    )
+                if self.rejected_effort(exc):
+                    raw = bytes(body) if isinstance(body, (bytes, bytearray)) else bytes(str(body), "utf-8")
+                    next_body = self._on_bad_request(raw) if self._on_bad_request is not None else None
                     if next_body is not None:
                         body = next_body
                         continue
