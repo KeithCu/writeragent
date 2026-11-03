@@ -3466,7 +3466,7 @@ def test_session_reset_passes_bounded_timeout() -> None:
 
     seen: list[float] = []
 
-    def fake_reset(sid: str, timeout_sec: float = 5.0) -> dict[str, Any]:
+    def fake_reset(sid: str, timeout_sec: float = SESSION_RESET_TIMEOUT_SEC) -> dict[str, Any]:
         del sid
         seen.append(timeout_sec)
         return {"status": "ok"}
