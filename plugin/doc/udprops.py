@@ -64,9 +64,6 @@ def _user_defined_properties(model: Any) -> Any:
     if doc_props is None:
         return None
     props = thread_guard._unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
-    if props is not None:
-        if props is None:
-            raise UnoObjectError("UserDefinedProperties is null", code="UNO_NULL_OBJECT")
     return props
 
 

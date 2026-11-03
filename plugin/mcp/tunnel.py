@@ -34,7 +34,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from plugin.framework.worker_pool import get_subprocess_creationflags
+from plugin.framework.subprocess_env import get_subprocess_creationflags
 from plugin.mcp.tunnel_state import DEFAULT_MAX_RETRIES, CancelRetryTimerEffect, NotifyUrlAcquiredEffect, ScheduleRetryTimerEffect, StartProcessEffect, TerminateProcessEffect, TunnelEvent, TunnelEventKind, TunnelState, TunnelStatus, next_state
 
 if TYPE_CHECKING:

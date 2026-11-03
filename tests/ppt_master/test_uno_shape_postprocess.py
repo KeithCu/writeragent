@@ -19,7 +19,6 @@ from plugin.draw.shape_clone import (
 )
 from plugin.ppt_master.adapter import uno_shape_postprocess as postprocess
 from plugin.ppt_master.adapter.uno_shape_postprocess import (
-    clear_page_shapes,
     copy_shapes_to_page,
 )
 
@@ -291,8 +290,65 @@ def test_copy_shapes_to_page_disposal_raises_while_runtime_exception_skips():
     assert target_page.getCount() == 1
 
 
-def test_clear_page_shapes():
-    page = FakePage([FakeShape("s1"), FakeShape("s2")])
-    assert page.getCount() == 2
-    clear_page_shapes(page)
-    assert page.getCount() == 0
+def test_copy_shapes_to_page_empty_group_removes_clone_and_skips(monkeypatch):
+    doc = MagicMock()
+    clone1 = FakeShape("com.sun.star.drawing.GroupShape")
+    clone2 = FakeShape("com.sun.star.drawing.RectangleShape")
+    target_page = FakePage()
+
+    results = [
+        ClonedShape(
+            shape=clone1,
+            shape_type="com.sun.star.drawing.GroupShape",
+            reimported=None,
+            graphic_shapes=0,
+            graphic_reimports=0,
+            empty_group_message="Empty group",
+        ),
+        ClonedShape(
+            shape=clone2,
+            shape_type="com.sun.star.drawing.RectangleShape",
+            reimported=None,
+            graphic_shapes=0,
+            graphic_reimports=0,
+            empty_group_message=None,
+        ),
+    ]
+
+    def mock_clone(tdoc, tpage, src, **kwargs):
+        res = results.pop(0)
+        tpage.add(res.shape)
+        return res
+
+    monkeypatch.setattr(postprocess, "clone_shape", mock_clone)
+
+    src_page = FakePage([FakeShape("s1"), FakeShape("s2")])
+    copied = copy_shapes_to_page(src_page, doc, target_page)
+    assert copied == 1
+    assert target_page.getCount() == 1
+    assert target_page.getByIndex(0) is clone2
+
+
+def test_copy_shapes_to_page_empty_group_remove_fails_logs_debug(monkeypatch, caplog):
+    import logging
+
+    doc = MagicMock()
+    clone1 = FakeShape("com.sun.star.drawing.GroupShape")
+    target_page = MagicMock()
+    target_page.remove.side_effect = RuntimeError("cannot remove")
+
+    res = ClonedShape(
+        shape=clone1,
+        shape_type="com.sun.star.drawing.GroupShape",
+        reimported=None,
+        graphic_shapes=0,
+        graphic_reimports=0,
+        empty_group_message="Empty group",
+    )
+    monkeypatch.setattr(postprocess, "clone_shape", lambda *a, **kw: res)
+
+    src_page = FakePage([FakeShape("s1")])
+    with caplog.at_level(logging.DEBUG):
+        copied = copy_shapes_to_page(src_page, doc, target_page)
+    assert copied == 0
+    assert "remove empty-group clone failed" in caplog.text

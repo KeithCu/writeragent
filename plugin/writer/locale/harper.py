@@ -31,6 +31,7 @@ from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
+from plugin.writer.locale import grammar_settings
 from plugin.writer.locale.harper_binary import _emit_progress, _get_harper_binary
 from plugin.framework.grammar_rule_ids import HARPER_RULE_PREFIX, make_rule_identifier
 
@@ -586,7 +587,6 @@ def maybe_start_harper_async(
     LibreHarper from HarperProofreader after init_config (no Jobs.xcu). Returns True if submitted.
     """
     from plugin.framework.config import user_config_dir as get_ucd
-    from plugin.writer.locale import grammar_settings
 
     if grammar_settings.provider() != "harper":
         return False
