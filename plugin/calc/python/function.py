@@ -657,10 +657,6 @@ class SpillRecord:
         return [(cell.row, cell.col) for cell in self.cells]
 
 
-_PENDING_SPILL_LOCK = threading.Lock()
-_PENDING_SPILL_TIMERS: dict[threading.Timer, tuple[str, str]] = {}
-
-
 def _proxy_keys_match(k1: str, k2: str) -> bool:
     return k1 == k2 or k1 == f"calc:{k2}" or f"calc:{k1}" == k2
 
@@ -1565,17 +1561,25 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
 
 def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: PreparedSpill) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
-    from plugin.framework.queue_executor import main
-
     state = WorkbookState.for_doc(target_doc)
-    spill_lifecycle = state.key if state is not None else prepared.key
-    token = f"{prepared.sheet_name}:{prepared.formula_row}:{prepared.formula_col}"
-    start_deferred_sheet_timer(
-        0.1,
-        lambda: main.post(lambda: perform_deferred_spill(prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, key=prepared.key)),
-        lifecycle_key=spill_lifecycle,
-        token=token,
-    )
+    if state is None:
+        log.warning("Spill: no workbook state for doc; skipping deferred spill write")
+        return
+    token = f"spill:{prepared.sheet_name}:{prepared.formula_row}:{prepared.formula_col}"
+
+    def _write() -> None:
+        perform_deferred_spill(
+            prepared.sheet_name,
+            prepared.formula_row,
+            prepared.formula_col,
+            grid_to_spill,
+            doc=target_doc,
+            sheet=prepared.sheet,
+            code=code,
+            key=prepared.key,
+        )
+
+    state.debounce.schedule(token, 0.1, _write)
 
 
 def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any) -> None:
@@ -1585,7 +1589,10 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     only passed through to the UI-thread callback. Collision ``#SPILL!`` is too
     late to change the add-in return; the deferred path just skips the write.
     """
-    from plugin.framework.queue_executor import main
+    state = WorkbookState.known(doc)
+    if state is None or not state.key:
+        log.debug("Spill: skipping off-main auto-spill because doc is not known on UI thread")
+        return
 
     log.debug("Spill: scheduling off-main deferred locate code=%r", code)
 
@@ -1598,11 +1605,18 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
         if not isinstance(prepared, PreparedSpill):
             return
 
-        perform_deferred_spill(prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=doc, sheet=prepared.sheet, code=code, key=prepared.key)
+        perform_deferred_spill(
+            prepared.sheet_name,
+            prepared.formula_row,
+            prepared.formula_col,
+            grid_to_spill,
+            doc=doc,
+            sheet=prepared.sheet,
+            code=code,
+            key=prepared.key,
+        )
 
-    state = WorkbookState.known(doc)
-    lkey = state.key if state is not None else ""
-    start_deferred_sheet_timer(0.1, lambda: main.post(_on_main), lifecycle_key=lkey, token=f"code:{code}")
+    state.debounce.schedule(f"code:{code}", 0.1, _on_main)
 
 
 def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any = None, worker_data: Any = None, doc: Any | None = None, data_token: str | None = None) -> float | str | bool | tuple[Any, ...]:
@@ -1773,108 +1787,14 @@ def clear_python_addin_cache() -> None:
             state.matrix.clear()
 
 
-def _spill_timer_finished(timer: Any) -> bool:
-    """True once a ``threading.Timer`` has fired or been cancelled.
-
-    Test doubles omit ``finished``; those stay until fire/cancel drops them
-    by identity.
-    """
-    finished = getattr(timer, "finished", None)
-    is_set = getattr(finished, "is_set", None)
-    if not callable(is_set):
-        return False
-    return bool(is_set())
-
-
-def _prune_finished_spill_timers_locked() -> None:
-    """Drop fired/cancelled timers. Caller holds ``_PENDING_SPILL_LOCK``."""
-    for timer in [t for t in _PENDING_SPILL_TIMERS if _spill_timer_finished(t)]:
-        del _PENDING_SPILL_TIMERS[timer]
-
-
-def _new_spill_timer(delay_sec: float, callback: Any) -> threading.Timer:
-    """Timer that leaves ``_PENDING_SPILL_TIMERS`` as soon as it fires.
-
-    After ``run()`` the Timer, its callback, and everything that callback
-    closed over (ctx, code, grid, UNO document) must drop out of the
-    registry. An append-only list keeps them until process exit.
-    """
-    pending: list[threading.Timer] = []
-
-    def _fire(*args: Any, **kwargs: Any) -> None:
-        from plugin.framework.thread_guard import set_background_task
-
-        set_background_task("spill_timer")
-        try:
-            with _PENDING_SPILL_LOCK:
-                _PENDING_SPILL_TIMERS.pop(pending[0], None)
-                _prune_finished_spill_timers_locked()
-            callback(*args, **kwargs)
-        finally:
-            set_background_task(None)
-
-    timer = threading.Timer(delay_sec, _fire)
-    pending.append(timer)
-    return timer
-
-
-def _register_spill_timer(lifecycle_key: str, timer: threading.Timer, *, token: str = "") -> None:
-    with _PENDING_SPILL_LOCK:
-        _prune_finished_spill_timers_locked()
-        if token:
-            for existing, (key, existing_token) in list(_PENDING_SPILL_TIMERS.items()):
-                if existing is timer:
-                    continue
-                if key == lifecycle_key and existing_token == token:
-                    existing.cancel()
-                    _PENDING_SPILL_TIMERS.pop(existing, None)
-        _PENDING_SPILL_TIMERS[timer] = (lifecycle_key, token)
-
-
-def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key: str = "", token: str = "") -> threading.Timer:
-    """Shared 0.1s Timer for spill writes and geometric sheet-modify repair.
-
-    Lives here so Layer C allows the same ``threading.Timer`` site as
-    ``perform_deferred_spill``. The timer thread only ``main.post``;
-    UNO writes run on the UI thread.
-    """
-    timer = _new_spill_timer(delay_sec, callback)
-    if lifecycle_key:
-        _register_spill_timer(lifecycle_key, timer, token=token)
-    timer.start()
-    return timer
-
-
-def cancel_pending_spill_timers(lifecycle_key: str) -> None:
-    """Cancel deferred spill timers for a workbook that is unloading.
-
-    Also drops timers that already fired or were cancelled under some other
-    key. Those entries kept their closures after the callback returned.
-    """
-    with _PENDING_SPILL_LOCK:
-        _prune_finished_spill_timers_locked()
-        for timer, (key, _token) in list(_PENDING_SPILL_TIMERS.items()):
-            if key == lifecycle_key:
-                timer.cancel()
-                _PENDING_SPILL_TIMERS.pop(timer, None)
-
-
 def clear_in_memory_spill_state(state: WorkbookState | None = None, *, doc_url: str = "", lifecycle_key: str = "") -> None:
     """Drop instance-scoped spill maps. UD property is left for a later open of the same file."""
     if state is not None:
-        cancel_pending_spill_timers(state.key)
-        from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers
-
-        cancel_pending_sheet_timers(state.key)
         state.clear()
         LOADED_DOCUMENTS.discard(state.key)
         LOADED_DOCUMENTS.discard(state.key.removeprefix("calc:"))
     else:
-        cancel_pending_spill_timers(lifecycle_key)
-        from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers
-
         for ident in filter(None, (lifecycle_key, doc_url)):
-            cancel_pending_sheet_timers(ident)
             WorkbookState.forget_key(ident)
             LOADED_DOCUMENTS.discard(ident)
             LOADED_DOCUMENTS.discard(ident.removeprefix("calc:"))

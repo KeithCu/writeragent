@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import logging
-import threading
 from types import SimpleNamespace
 from typing import Any, Generator
 
@@ -34,10 +33,6 @@ from plugin.framework.uno_listeners import BaseModifyListener
 
 log = logging.getLogger(__name__)
 
-# Debounce one pass per sheet. Keyed by (lifecycle id, sheet_name).
-# The file URL is empty for every unsaved workbook and changes on Save-As.
-_PENDING_TIMERS: dict[tuple[str, str], threading.Timer] = {}
-_PENDING_LOCK = threading.Lock()
 # Modify dispatch depth: prevents re-entrant modified() dispatch during pass or spill writes.
 _DISPATCH_DEPTH = 0
 _MODIFY_DELAY_SEC = 0.1
@@ -57,10 +52,10 @@ def sheet_modify_scope() -> Generator[None, None, None]:
 def reset_sheet_modify_runtime_for_tests() -> None:
     """Drop debounce timers and the re-entrancy flag. Tests only."""
     global _DISPATCH_DEPTH
-    with _PENDING_LOCK:
-        for timer in list(_PENDING_TIMERS.values()):
-            timer.cancel()
-        _PENDING_TIMERS.clear()
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    for s in WorkbookState.all_states():
+        s.debounce.cancel_all()
     _DISPATCH_DEPTH = 0
 
 
@@ -96,38 +91,8 @@ def _sheet_name_of(sheet: Any) -> str:
     return str(best_effort(lambda: sheet.getName(), "sheet_modify: getName failed", "") or "")
 
 
-def _cancel_pending(key: tuple[str, str]) -> None:
-    with _PENDING_LOCK:
-        timer = _PENDING_TIMERS.pop(key, None)
-    if timer is not None:
-        timer.cancel()
-
-
-def cancel_pending_sheet_timers(identity: str) -> None:
-    """Cancel and pop all pending sheet debounce timers for a document identity.
-
-    Bugfix: What was wrong: clear_in_memory_spill_state cancels the threading.Timer stored
-    in _PENDING_SPILL_TIMERS, so _fire never runs and never pops _PENDING_TIMERS.
-    How it happened: The cancelled timer's closure kept ctx, doc, and sheet. disposing is
-    not the only unload path.
-    Why this change fixes it: Pop every _PENDING_TIMERS entry matching identity under
-    _PENDING_LOCK and cancel them outside the lock. Cancel is idempotent if the timer
-    was already cancelled.
-    """
-    if not identity:
-        return
-    with _PENDING_LOCK:
-        timers = [_PENDING_TIMERS.pop(k) for k in list(_PENDING_TIMERS) if k[0] == identity]
-    for timer in timers:
-        timer.cancel()
-
-
 def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
-    """Debounce: cancel the sheet's pending timer, start a new 0.1s UI-thread pass.
-
-    Same shape as ``perform_deferred_spill`` (Timer → ``main.post``).
-    Unload cancels via the shared spill-timer registry.
-    """
+    """Debounce: schedule a 0.1s UI-thread pass via WorkbookState.debounce."""
     if sheet is None or doc is None:
         return
     name = sheet_name or _sheet_name_of(sheet)
@@ -139,32 +104,12 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
     state = WorkbookState.for_doc(doc) if main.is_current() else WorkbookState.known(doc)
     if state is None or not state.key:
         return
-    key = (state.key, name)
-    _cancel_pending(key)
 
-    timer_holder: list[Any] = []
+    def _pass(target_key: str = f"sheet:{name}") -> None:
+        effective_name = target_key.removeprefix("sheet:")
+        run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=effective_name)
 
-    def _fire() -> None:
-        sheet_name_to_run = name
-        with _PENDING_LOCK:
-            if timer_holder:
-                this_timer = timer_holder[0]
-                for pkey, val in list(_PENDING_TIMERS.items()):
-                    if val is this_timer:
-                        _PENDING_TIMERS.pop(pkey, None)
-                        sheet_name_to_run = pkey[1]
-                        break
-        from plugin.framework.queue_executor import main
-
-        main.post(lambda: run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=sheet_name_to_run))
-
-    from plugin.calc.python.function import start_deferred_sheet_timer
-
-    # Timer lives in function.py (Layer C allowlist) — same 0.1s spill site.
-    timer = start_deferred_sheet_timer(delay_sec, _fire, lifecycle_key=state.key)
-    timer_holder.append(timer)
-    with _PENDING_LOCK:
-        _PENDING_TIMERS[key] = timer
+    state.debounce.schedule(f"sheet:{name}", delay_sec, _pass)
 
 
 def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
@@ -174,8 +119,8 @@ def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url
     from plugin.framework.queue_executor import main
 
     state = WorkbookState.for_doc(doc) if main.is_current() else WorkbookState.known(doc)
-    if state is not None and state.key:
-        _cancel_pending((state.key, name))
+    if state is not None:
+        state.debounce.cancel(f"sheet:{name}")
     run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=name)
 
 
@@ -186,7 +131,7 @@ def migrate_sheet_rename(
 ) -> None:
     """Migrate in-memory and persistent state when a sheet is renamed.
 
-    Rekeys state.spills, state.listeners, _PENDING_TIMERS,
+    Rekeys state.spills, state.listeners, state.debounce,
     geometric records, and updates dispatcher.sheet_name.
     """
     if not old_sheet_name or not new_sheet_name or old_sheet_name == new_sheet_name:
@@ -225,12 +170,8 @@ def migrate_sheet_rename(
     except Exception:
         log.exception("migrate_sheet_rename: failed to migrate listeners")
 
-    # Rekey _PENDING_TIMERS
-    with _PENDING_LOCK:
-        for pkey in list(_PENDING_TIMERS):
-            if pkey[0] == state.key and pkey[1] == old_sheet_name:
-                timer = _PENDING_TIMERS.pop(pkey)
-                _PENDING_TIMERS[(state.key, new_sheet_name)] = timer
+    # Rekey debounce
+    state.debounce.rekey(f"sheet:{old_sheet_name}", f"sheet:{new_sheet_name}")
 
     # Rekey geometric records and persist
     try:
@@ -391,6 +332,4 @@ class SheetModifyDispatcher(BaseModifyListener):
         if state is not None:
             if state.listeners.get(self.sheet_name) is self:
                 state.listeners.pop(self.sheet_name, None)
-            _cancel_pending((state.key, self.sheet_name))
-        elif self.doc_identity:
-            _cancel_pending((self.doc_identity, self.sheet_name))
+            state.debounce.cancel(f"sheet:{self.sheet_name}")

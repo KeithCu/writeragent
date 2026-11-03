@@ -6,11 +6,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import logging
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 import weakref
 
 from plugin.framework.errors import best_effort
 from plugin.framework.queue_executor import main
+from plugin.framework.stream_batch import DeadlineThread
 from plugin.framework.thread_guard import _unwrap_uno
 from plugin.framework.uno_context import get_runtime_uid
 
@@ -35,6 +36,134 @@ def _doc_objects(doc: Any) -> list[Any]:
     return objects
 
 
+def _invoke_fn(f: Callable[..., None], k: str) -> None:
+    try:
+        f(k)
+    except TypeError:
+        f()
+
+
+@dataclass
+class _DebounceEntry:
+    fn: Callable[..., None]
+    thread: DeadlineThread | None = None
+
+
+class Debounce:
+    """Per-workbook debounce coordinator using DeadlineThreads."""
+
+    _test_sync: bool = False
+
+    def __init__(self) -> None:
+        self._lock: threading.Lock = threading.Lock()
+        self._entries: dict[str, _DebounceEntry] = {}
+        self._local_test_sync: bool = False
+
+    def schedule(self, key: str, delay: float, fn: Callable[..., None]) -> None:
+        """Store *fn* and arm the key's DeadlineThread for *delay*, posting to main on fire."""
+        if self._local_test_sync or Debounce._test_sync:
+            with self._lock:
+                self._entries[key] = _DebounceEntry(fn=fn)
+
+            def _fire_sync() -> None:
+                with self._lock:
+                    ent = self._entries.pop(key, None)
+                if ent is not None and ent.fn is not None:
+                    _invoke_fn(ent.fn, key)
+
+            main.post(_fire_sync)
+            return
+
+        thread: DeadlineThread | None = None
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                entry = _DebounceEntry(fn=fn)
+                self._entries[key] = entry
+
+                def _fire(k: str = key) -> None:
+                    target_fn: Callable[..., None] | None = None
+                    with self._lock:
+                        ent = self._entries.pop(k, None)
+                        if ent is not None:
+                            target_fn = ent.fn
+                    if target_fn is not None:
+                        main.post(lambda f=target_fn, target_k=k: _invoke_fn(f, target_k))
+
+                thread = DeadlineThread(_fire, name=f"calc-debounce-{key}")
+                entry.thread = thread
+            else:
+                entry.fn = fn
+                thread = entry.thread
+        if thread is not None:
+            thread.arm(delay)
+
+    def cancel(self, key: str) -> None:
+        """Cancel and stop the thread for *key*."""
+        with self._lock:
+            entry = self._entries.pop(key, None)
+        if entry is not None and entry.thread is not None:
+            entry.thread.stop()
+
+    def cancel_all(self) -> None:
+        """Cancel and stop all debounce threads."""
+        with self._lock:
+            entries = list(self._entries.values())
+            self._entries.clear()
+        for ent in entries:
+            if ent.thread is not None:
+                ent.thread.stop()
+
+    def flush(self, key: str) -> None:
+        """Cancel the timer and invoke *fn* synchronously on the current thread."""
+        with self._lock:
+            entry = self._entries.pop(key, None)
+        if entry is not None:
+            if entry.thread is not None:
+                entry.thread.stop()
+            if entry.fn is not None:
+                _invoke_fn(entry.fn, key)
+
+    def rekey(self, old_key: str, new_key: str) -> None:
+        """Rekey an existing debounce entry."""
+        with self._lock:
+            entry = self._entries.pop(old_key, None)
+            if entry is None:
+                return
+            old_new = self._entries.pop(new_key, None)
+            if old_new is not None and old_new.thread is not None:
+                old_new.thread.stop()
+            new_entry = _DebounceEntry(fn=entry.fn)
+            self._entries[new_key] = new_entry
+
+            def _fire(k: str = new_key) -> None:
+                target_fn: Callable[..., None] | None = None
+                with self._lock:
+                    ent = self._entries.pop(k, None)
+                    if ent is not None:
+                        target_fn = ent.fn
+                if target_fn is not None:
+                    main.post(lambda f=target_fn, target_k=k: _invoke_fn(f, target_k))
+
+            thread = DeadlineThread(_fire, name=f"calc-debounce-{new_key}")
+            new_entry.thread = thread
+            if entry.thread is not None:
+                entry.thread.stop()
+            thread.arm(0.1)
+
+    def __contains__(self, key: str) -> bool:
+        with self._lock:
+            return key in self._entries
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+    def keys(self) -> list[str]:
+        with self._lock:
+            return list(self._entries.keys())
+
+
 @dataclass
 class WorkbookState:
     key: str
@@ -42,13 +171,14 @@ class WorkbookState:
     loaded: bool = False
     listeners: dict[str, Any] = field(default_factory=dict)  # sheet name -> dispatcher
     matrix: dict[tuple[Any, ...], "WorkerResultSession"] = field(default_factory=dict)
-    # debounce arrives in PR4
+    debounce: Debounce = field(default_factory=Debounce)
 
     def clear(self) -> None:
-        """Drop this workbook's spills, listeners, and matrix."""
+        """Drop this workbook's spills, listeners, matrix, and debounce timers."""
         self.spills.clear()
         self.listeners.clear()
         self.matrix.clear()
+        self.debounce.cancel_all()
         self.loaded = False
 
     @classmethod
@@ -70,12 +200,17 @@ class WorkbookState:
         if not key:
             return
         with _LOCK:
+            to_clear: list[WorkbookState] = []
             for obj, st in list(_STATES.items()):
                 if st.key == key:
                     _STATES.pop(obj, None)
+                    to_clear.append(st)
             for doc_id, entry in list(_STATE_BY_DOC_ID.items()):
                 if entry[0].key == key:
                     _STATE_BY_DOC_ID.pop(doc_id, None)
+                    to_clear.append(entry[0])
+            for st in to_clear:
+                st.clear()
 
     @classmethod
     def all_states(cls) -> list[WorkbookState]:

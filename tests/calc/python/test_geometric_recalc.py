@@ -1546,43 +1546,6 @@ def test_strip_safe_snapshot_is_rebound_not_mutated():
 # ---------------------------------------------------------------------------
 
 
-class _DeferredTimer:
-    """Timer that records the callback and fires only when asked."""
-
-    instances: list["_DeferredTimer"] = []
-
-    def __init__(self, interval, function, args=(), kwargs=None):
-        self.interval = interval
-        self.function = function
-        self.args = args
-        self.kwargs = kwargs or {}
-        self.cancelled = False
-        self.started = False
-        _DeferredTimer.instances.append(self)
-
-    def start(self) -> None:
-        self.started = True
-
-    def cancel(self) -> None:
-        self.cancelled = True
-
-    def fire(self) -> None:
-        if not self.cancelled:
-            self.function(*self.args, **self.kwargs)
-
-
-def _install_deferred_timer(monkeypatch):
-    _DeferredTimer.instances.clear()
-    monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _DeferredTimer)
-    monkeypatch.setattr(
-        "plugin.framework.queue_executor.main.post",
-        lambda fn, *a, **k: fn(*a, **k),
-    )
-    monkeypatch.setattr(
-        "plugin.framework.queue_executor.main.is_current", lambda: True
-    )
-
-
 def test_dispatcher_debounce_coalesces_two_modifies(monkeypatch):
     from types import SimpleNamespace
 
@@ -1590,11 +1553,11 @@ def test_dispatcher_debounce_coalesces_two_modifies(monkeypatch):
         dispatch_sheet_modified,
         reset_sheet_modify_runtime_for_tests,
     )
+    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
     reset_sheet_modify_runtime_for_tests()
-    _install_deferred_timer(monkeypatch)
     doc = CalcDocStub(url="file:///debounce-geo.ods")
     sheet = doc.getSheets().getByName("Sheet1")
     monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
@@ -1607,11 +1570,10 @@ def test_dispatcher_debounce_coalesces_two_modifies(monkeypatch):
     event = SimpleNamespace(Source=sheet)
     dispatch_sheet_modified("ctx", "file:///debounce-geo.ods", "Sheet1", event)
     dispatch_sheet_modified("ctx", "file:///debounce-geo.ods", "Sheet1", event)
-    live = [t for t in _DeferredTimer.instances if t.started and not t.cancelled]
-    assert len(live) == 1
-    assert live[0].interval == 0.1
-    cancelled = [t for t in _DeferredTimer.instances if t.cancelled]
-    assert len(cancelled) == 1
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    assert "sheet:Sheet1" in state.debounce
+    assert len(state.debounce) == 1
 
 
 def test_dispatcher_flag_off_does_not_rewrite(monkeypatch):
@@ -1706,15 +1668,14 @@ def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
 
     from plugin.calc.python import geometric_recalc as geo
     from plugin.calc.python.sheet_modify import (
-        _PENDING_TIMERS,
         dispatch_sheet_modified,
         reset_sheet_modify_runtime_for_tests,
     )
+    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
     reset_sheet_modify_runtime_for_tests()
-    _install_deferred_timer(monkeypatch)
     doc = CalcDocStub(url="file:///reenter-mod.ods")
     sheet = doc.getSheets().getByName("Sheet1")
     monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
@@ -1723,8 +1684,9 @@ def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
         dispatch_sheet_modified(
             "ctx", "file:///reenter-mod.ods", "Sheet1", SimpleNamespace(Source=sheet)
         )
-        assert _PENDING_TIMERS == {}
-        assert _DeferredTimer.instances == []
+        state = WorkbookState.for_doc(doc)
+        assert state is not None
+        assert "sheet:Sheet1" not in state.debounce
     finally:
         geo._RUNTIME.repairing = False
 

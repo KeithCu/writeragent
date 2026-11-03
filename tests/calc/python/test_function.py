@@ -339,15 +339,7 @@ def test_finalize_python_return_triggers_spill(monkeypatch: pytest.MonkeyPatch) 
 
     python_function.SPILL_REGISTRY.clear()
 
-    class DummyTimer:
-        def __init__(self, interval, function, args=(), kwargs={}):
-            self.function = function
-            self.args = args
-            self.kwargs = kwargs
-        def start(self):
-            self.function(*self.args, **self.kwargs)
-
-    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
+    monkeypatch.setattr("plugin.calc.python.workbook_state.Debounce._test_sync", True)
     # Deferred spill posts to the main-thread queue; run immediately in unit tests.
     monkeypatch.setattr(
         "plugin.framework.queue_executor.main.post",
@@ -379,15 +371,7 @@ def test_finalize_python_return_spills_on_secondary_sheet(monkeypatch: pytest.Mo
 
     python_function.SPILL_REGISTRY.clear()
 
-    class DummyTimer:
-        def __init__(self, interval, function, args=(), kwargs={}):
-            self.function = function
-            self.args = args
-            self.kwargs = kwargs
-        def start(self):
-            self.function(*self.args, **self.kwargs)
-
-    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
+    monkeypatch.setattr("plugin.calc.python.workbook_state.Debounce._test_sync", True)
     monkeypatch.setattr(
         "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
@@ -763,15 +747,7 @@ def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatc
 
     python_function.SPILL_REGISTRY.clear()
 
-    class DummyTimer:
-        def __init__(self, interval, function, args=(), kwargs={}):
-            self.function = function
-            self.args = args
-            self.kwargs = kwargs
-        def start(self):
-            self.function(*self.args, **self.kwargs)
-
-    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
+    monkeypatch.setattr("plugin.calc.python.workbook_state.Debounce._test_sync", True)
     monkeypatch.setattr(
         "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
@@ -796,27 +772,15 @@ def _install_immediate_spill_timer(
     *,
     on_main_after_start: dict[str, bool] | None = None,
 ) -> None:
-    """Run the 0.1s spill Timer inline; optionally flip on_main when it fires."""
+    """Run the 0.1s spill debounce inline; optionally flip on_main when it fires."""
+    monkeypatch.setattr("plugin.calc.python.workbook_state.Debounce._test_sync", True)
 
-    class DummyTimer:
-        def __init__(self, interval, function, args=(), kwargs={}):
-            self.function = function
-            self.args = args
-            self.kwargs = kwargs
+    def _post(fn, *a, **k):
+        if on_main_after_start is not None:
+            on_main_after_start["value"] = True
+        fn(*a, **k)
 
-        def start(self):
-            if on_main_after_start is not None:
-                on_main_after_start["value"] = True
-            self.function(*self.args, **self.kwargs)
-
-        def cancel(self):
-            return None
-
-    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
-    monkeypatch.setattr(
-        "plugin.framework.queue_executor.main.post",
-        lambda fn, *a, **k: fn(*a, **k),
-    )
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", _post)
 
 
 def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -842,6 +806,9 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
 
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    WorkbookState.for_doc(doc)
 
     on_main = {"value": False}
     monkeypatch.setattr(
@@ -878,6 +845,9 @@ def test_finalize_python_return_spills_off_main_into_caller_doc(
 
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    WorkbookState.for_doc(doc)
 
     on_main = {"value": False}
     monkeypatch.setattr(
@@ -908,6 +878,9 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(
 
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    WorkbookState.for_doc(doc)
 
     on_main = {"value": False}
     monkeypatch.setattr(
@@ -1091,64 +1064,31 @@ def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeyp
 def _clear_spill_timer_registry() -> None:
     from plugin.calc.python.workbook_state import WorkbookState
 
-    python_function._PENDING_SPILL_TIMERS.clear()
     WorkbookState.reset_for_tests()
 
 
-class _HoldSpillTimer:
-    """Timer double that does not run the callback until asked."""
+def test_spill_timers_prune_on_fire_register_and_cancel() -> None:
+    """Finished debounce timers must not keep callbacks in registry."""
+    from plugin.calc.python.workbook_state import Debounce
 
-    def __init__(self, interval, function, args=(), kwargs=None):
-        self.function = function
-        self.args = args
-        self.kwargs = kwargs or {}
-        self.cancelled = False
-        self.finished = threading.Event()
-
-    def start(self) -> None:
-        return None
-
-    def cancel(self) -> None:
-        self.cancelled = True
-        self.finished.set()
-
-
-class _NowSpillTimer(_HoldSpillTimer):
-    def start(self) -> None:
-        self.function(*self.args, **self.kwargs)
-        self.finished.set()
-
-
-def test_spill_timers_prune_on_fire_register_and_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Finished timers must not keep ctx/grid closures in the registry."""
-    _clear_spill_timer_registry()
-    monkeypatch.setattr(python_function.threading, "Timer", _NowSpillTimer)
+    debounce = Debounce()
     ran = {"n": 0}
-    try:
-        python_function.start_deferred_sheet_timer(0.1, lambda: ran.__setitem__("n", ran["n"] + 1), lifecycle_key="fired")
-        assert ran["n"] == 1
-        assert python_function._PENDING_SPILL_TIMERS == {}
+    debounce.schedule("fired", 0.1, lambda: ran.__setitem__("n", ran["n"] + 1))
+    assert "fired" in debounce
+    debounce.flush("fired")
+    assert ran["n"] == 1
+    assert "fired" not in debounce
 
-        dead = threading.Timer(60, lambda: None)
-        dead.cancel()
-        python_function._PENDING_SPILL_TIMERS[dead] = ("stale", "")
-        live = _HoldSpillTimer(0.1, lambda: None)
-        python_function._register_spill_timer("live", live)
-        assert [key for _t, (key, _tok) in python_function._PENDING_SPILL_TIMERS.items()] == ["live"]
-
-        other = _HoldSpillTimer(0.1, lambda: None)
-        other.finished.set()
-        python_function._PENDING_SPILL_TIMERS[other] = ("other", "")
-        python_function.cancel_pending_spill_timers("live")
-        assert live.cancelled
-        assert python_function._PENDING_SPILL_TIMERS == {}
-    finally:
-        _clear_spill_timer_registry()
+    debounce.schedule("live", 0.1, lambda: None)
+    assert "live" in debounce
+    debounce.cancel("live")
+    assert "live" not in debounce
 
 
 def test_off_main_spill_timer_registers_cached_lifecycle_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unload cancel must see off-main timers; registering them must not call UNO."""
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+    from plugin.calc.python.workbook_state import WorkbookState
 
     _clear_spill_timer_registry()
     doc = CalcDocStub(url="file:///spill-life.ods", props={"RuntimeUID": "uid-spill"})
@@ -1165,19 +1105,17 @@ def test_off_main_spill_timer_registers_cached_lifecycle_key(monkeypatch: pytest
     assert seen >= 1
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
-    monkeypatch.setattr(python_function.threading, "Timer", _HoldSpillTimer)
     try:
         python_function._queue_off_main_auto_spill(MagicMock(), "code", [[1, 2]], doc)
         assert calls["n"] == seen
-        assert [key for _t, (key, _tok) in python_function._PENDING_SPILL_TIMERS.items()] == ["uid-spill"]
-        timer = next(iter(python_function._PENDING_SPILL_TIMERS))
-        python_function.cancel_pending_spill_timers("uid-spill")
-        assert timer.cancelled
-        assert python_function._PENDING_SPILL_TIMERS == {}
+        state = WorkbookState.known(doc)
+        assert state is not None
+        assert "code:code" in state.debounce
+        state.clear()
+        assert "code:code" not in state.debounce
 
         # No document object: do not guess a workbook key.
         python_function._queue_off_main_auto_spill(MagicMock(), "code", [[1]], None)
-        assert [key for _t, (key, _tok) in python_function._PENDING_SPILL_TIMERS.items()] == []
     finally:
         _clear_spill_timer_registry()
 
@@ -1185,6 +1123,7 @@ def test_off_main_spill_timer_registers_cached_lifecycle_key(monkeypatch: pytest
 def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each cached model keeps its own unload key; a missing model stays blank."""
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+    from plugin.calc.python.workbook_state import WorkbookState
 
     _clear_spill_timer_registry()
     doc_a = CalcDocStub(props={"RuntimeUID": "uid-a"})
@@ -1192,14 +1131,17 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
     assert _lifecycle_key(doc_a) == "uid-a"
     assert _lifecycle_key(doc_b) == "uid-b"
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
-    monkeypatch.setattr(python_function.threading, "Timer", _HoldSpillTimer)
     try:
         python_function._queue_off_main_auto_spill(MagicMock(), "a", [[1]], doc_a)
         python_function._queue_off_main_auto_spill(MagicMock(), "b", [[1]], doc_b)
         python_function._queue_off_main_auto_spill(MagicMock(), "none", [[1]], None)
-        assert [key for _t, (key, _tok) in python_function._PENDING_SPILL_TIMERS.items()] == ["uid-a", "uid-b"]
-        python_function.cancel_pending_spill_timers("uid-a")
-        assert [key for _t, (key, _tok) in python_function._PENDING_SPILL_TIMERS.items()] == ["uid-b"]
+        state_a = WorkbookState.known(doc_a)
+        state_b = WorkbookState.known(doc_b)
+        assert state_a is not None and "code:a" in state_a.debounce
+        assert state_b is not None and "code:b" in state_b.debounce
+        state_a.clear()
+        assert "code:a" not in state_a.debounce
+        assert "code:b" in state_b.debounce
     finally:
         _clear_spill_timer_registry()
 
@@ -1494,26 +1436,11 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
 
 
 
-def test_off_main_spill_timer_does_not_register_empty_lkey(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_off_main_spill_timer_does_not_register_empty_lkey(caplog: pytest.LogCaptureFixture) -> None:
     doc = None
-    t_start_called = [False]
-    class MockTimer:
-        def __init__(self, *args, **kwargs):
-            pass
-        def start(self):
-            t_start_called[0] = True
-
-    monkeypatch.setattr(python_function, "_new_spill_timer", MockTimer)
-
-    reg_called = [False]
-    def mock_register(*args, **kwargs):
-        reg_called[0] = True
-    monkeypatch.setattr(python_function, "_register_spill_timer", mock_register)
-
-    python_function._queue_off_main_auto_spill(None, "code", [[1, 2]], doc)
-
-    assert t_start_called[0], "Timer should still be started"
-    assert not reg_called[0], "Timer should not be registered when lkey is empty"
+    with caplog.at_level(logging.DEBUG, logger="plugin.calc.python.function"):
+        python_function._queue_off_main_auto_spill(None, "code", [[1, 2]], doc)
+    assert "skipping off-main auto-spill" in caplog.text
 
 
 def test_matrix_cache_staleness_after_gap(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2232,31 +2159,21 @@ def test_matrix_sessions_expire() -> None:
 
 
 def test_second_spill_timer_cancels_the_first() -> None:
-    """Two _register_spill_timer calls with the same lifecycle and token; the first timer's cancel was called and only the second remains. A different token does not cancel the first."""
-    _clear_spill_timer_registry()
+    """Debounce replaces callback and maintains one active thread per token."""
+    from plugin.calc.python.workbook_state import Debounce
 
-    t1 = MagicMock()
-    t1.finished.is_set.return_value = False
-    t2 = MagicMock()
-    t2.finished.is_set.return_value = False
-    t3 = MagicMock()
-    t3.finished.is_set.return_value = False
+    debounce = Debounce()
+    called = []
 
-    python_function._register_spill_timer("life1", t1, token="Sheet1:0:0")
-    # Same lifecycle and token -> t1 cancelled, t2 stored
-    python_function._register_spill_timer("life1", t2, token="Sheet1:0:0")
-    t1.cancel.assert_called_once()
-    t2.cancel.assert_not_called()
+    debounce.schedule("Sheet1:0:0", 0.1, lambda: called.append("first"))
+    debounce.schedule("Sheet1:0:0", 0.1, lambda: called.append("second"))
+    debounce.schedule("Sheet1:1:0", 0.1, lambda: called.append("third"))
 
-    # Different token -> does not cancel t2
-    python_function._register_spill_timer("life1", t3, token="Sheet1:1:0")
-    t2.cancel.assert_not_called()
-    t3.cancel.assert_not_called()
-
-    active_timers = list(python_function._PENDING_SPILL_TIMERS)
-    assert t1 not in active_timers
-    assert t2 in active_timers
-    assert t3 in active_timers
+    assert len(debounce) == 2
+    debounce.flush("Sheet1:0:0")
+    assert called == ["second"]
+    debounce.flush("Sheet1:1:0")
+    assert called == ["second", "third"]
 
 
 def test_calc_formula_error_double_and_tokens() -> None:
@@ -2446,15 +2363,6 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     python_function.execute_python_addin(ctx, "spill_fail_code", doc=doc)
     assert len(python_function.SPILL_REGISTRY) == 0
 
-    class DummyTimer:
-        def __init__(self, interval, function, args=(), kwargs={}):
-            self.function = function
-            self.args = args
-            self.kwargs = kwargs
-        def start(self):
-            self.function(*self.args, **self.kwargs)
-
-    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
     monkeypatch.setattr(
         "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
@@ -2471,6 +2379,11 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     out_spill = python_function.execute_python_addin(ctx_spill, "num_spill_code", doc=doc_spill)
     assert isinstance(out_spill, float)
     assert struct.unpack("Q", struct.pack("d", out_spill))[0] & 0xFFFF == 503
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    st_spill = WorkbookState.for_doc(doc_spill)
+    assert st_spill is not None
+    st_spill.debounce.flush("spill:Sheet1:0:0")
     key_spill = ("file:///fake_col_addin.ods", "Sheet1", 0, 0)
     assert key_spill in python_function.SPILL_REGISTRY
 
@@ -2709,15 +2622,8 @@ def test_flat_result_equal_and_scalar_matrix_session(monkeypatch: pytest.MonkeyP
 def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.doc_stubs import CalcRangeStub
 
-    class DummyTimer:
-        def __init__(self, interval, function, args=(), kwargs={}):
-            self.function = function
-            self.args = args
-            self.kwargs = kwargs
-        def start(self):
-            self.function(*self.args, **self.kwargs)
+    from plugin.calc.python.workbook_state import WorkbookState
 
-    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
     monkeypatch.setattr(
         "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
@@ -2742,6 +2648,9 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
 
     col_result = [1, "#VALUE!", "#DIV/0!", "#N/A"]
     ret_corner = python_function.finalize_python_return(ctx, "col_err_test", col_result, doc=doc)
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    state.debounce.flush("spill:Sheet1:0:0")
     assert ret_corner == 1.0
     assert sheet.getCellByPosition(0, 1).getFormula() == "=#ERR519!"
     assert sheet.getCellByPosition(0, 2).getFormula() == "=#ERR532!"
@@ -2767,6 +2676,9 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
 
     grid_result = [[1, "#NUM!"], ["#REF!", "#NAME?"]]
     ret_corner2 = python_function.finalize_python_return(ctx2, "grid_2x2_test", grid_result, doc=doc2)
+    state2 = WorkbookState.for_doc(doc2)
+    assert state2 is not None
+    state2.debounce.flush("spill:Sheet1:0:0")
     assert ret_corner2 == 1.0
     assert sheet2.getCellByPosition(1, 0).getFormula() == "=#ERR503!"
     assert sheet2.getCellByPosition(0, 1).getFormula() == "=#ERR524!"
@@ -2853,15 +2765,18 @@ def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.Mon
 
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
-    with python_function._PENDING_SPILL_LOCK:
-        python_function._PENDING_SPILL_TIMERS.clear()
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    st = WorkbookState.for_doc(doc)
+    if st is not None:
+        st.debounce.cancel_all()
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     val = finalize_python_return(ctx, "empty_row", [[]], doc=doc)
     assert val == ""
     assert ("file:///empty-row.ods", "Sheet1", 0, 0) not in python_function.SPILL_REGISTRY
-    with python_function._PENDING_SPILL_LOCK:
-        assert len(python_function._PENDING_SPILL_TIMERS) == 0
+    assert st is not None
+    assert "spill:Sheet1:0:0" not in st.debounce
 
     # Repeat off the main thread
     queue_mock = MagicMock()

@@ -218,11 +218,8 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
     def _release_calc_state(self, session_ids: tuple[str, ...], *args: Any) -> None:
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
         if self._calc_cleanup:
-            from plugin.calc.python.function import cancel_pending_spill_timers, clear_python_addin_cache
-            from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers
+            from plugin.calc.python.function import clear_python_addin_cache
 
-            best_effort(lambda: cancel_pending_spill_timers(self._state.key), "python_workbook_lifecycle: cancel spill timers")
-            best_effort(lambda: cancel_pending_sheet_timers(self._state.key), "python_workbook_lifecycle: cancel sheet timers")
             best_effort(self._state.clear, "python_workbook_lifecycle: spill state clear")
             best_effort(clear_python_addin_cache, "python_workbook_lifecycle: matrix cache clear")
 

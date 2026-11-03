@@ -121,19 +121,13 @@ def _wait_spill_settled(doc, timeout: float = 10.0) -> None:
 
     Tip: closing while a deferred spill write is still pending hangs close() on Windows.
     """
-    from plugin.calc.python import function as python_function
     from plugin.framework.queue_executor import pump_main_thread_work_queue
 
-    key = _lifecycle_key(doc)
+    st = WorkbookState.for_doc(doc)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         pump_main_thread_work_queue(max_items=20)
-        with python_function._PENDING_SPILL_LOCK:
-            pending = [
-                t for t, (k, _tok) in python_function._PENDING_SPILL_TIMERS.items()
-                if k == key and not python_function._spill_timer_finished(t)
-            ]
-        if not pending:
+        if st is None or len(st.debounce) == 0:
             break
         time.sleep(0.05)
     # A timer that just fired may still have its write queued for the UI thread.
