@@ -755,6 +755,24 @@ def test_format_instruction_avoids_doubled_period_after_arg():
     assert "Spanish: Good morning, friends." in text
 
 
+def test_format_instruction_keeps_trailing_ellipsis_when_template_has_period():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, _format_instruction
+
+    translate = next(c for c in SLASH_COMMANDS if c.name == "translate")
+    text = _format_instruction(translate, "Spanish: Hello...")
+    assert "Spanish: Hello..." in text
+    assert "Spanish: Hello...." not in text
+
+
+def test_format_instruction_avoids_doubled_question_mark():
+    from plugin.chatbot.slash_commands import SlashCommand, SlashKind, _format_instruction
+
+    cmd = SlashCommand("test", "x", kind=SlashKind.ANSWER, instruction="Answer: {arg}?")
+    text = _format_instruction(cmd, "Why?")
+    assert "Why??" not in text
+    assert "Why?" in text
+
+
 def test_slash_local_messages_omitted_from_llm_view():
     from plugin.chatbot.compaction import messages_for_llm
     from plugin.chatbot.rich_text_paste import SLASH_LOCAL
@@ -778,4 +796,3 @@ def test_slash_local_survives_next_user_message_in_session():
     assert append_slash_local_message(session, "\nSaved to memory: x\n")
     session.messages.append({"role": "user", "content": "next"})
     assert any(m.get(SLASH_LOCAL) for m in session.messages)
-

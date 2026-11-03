@@ -329,8 +329,10 @@ def _format_instruction(cmd: SlashCommand, arg: str) -> str:
     arg_text = (arg or "").strip()
     if "{arg}" in base:
         # Bugfix (QA N6): "/translate Spanish: Hello." plus a template period after {arg} became "..".
-        if arg_text and arg_text[-1] in ".!?" and re.search(r"\{arg\}[.!?]", base):
-            arg_text = arg_text.rstrip(".!?")
+        # Strip at most one trailing char when it duplicates punctuation immediately after {arg}.
+        punct_after = re.search(r"\{arg\}([.!?])", base)
+        if arg_text and punct_after and arg_text.endswith(punct_after.group(1)):
+            arg_text = arg_text[:-1]
         return base.format(arg=arg_text)
     if arg_text:
         return base + " " + _("Additional instruction: {0}").format(arg_text)
@@ -388,14 +390,19 @@ def _calc_active_cell_explain_line(model: Any) -> str:
     return _("Cell {0} value: {1}").format(address, display)
 
 
-def effective_slash_kind(cmd: SlashCommand, model: Any | None) -> SlashKind:
-    if (
+def slash_answer_is_local_only(cmd: SlashCommand, model: Any | None) -> bool:
+    """Writer /translate with no selection: sidebar answer only, no edit tools on the wire."""
+    return (
         cmd.name == "translate"
         and cmd.kind == SlashKind.REWRITE
         and model is not None
         and get_document_type(model) == DocumentType.WRITER
         and not _writer_has_selection(model)
-    ):
+    )
+
+
+def effective_slash_kind(cmd: SlashCommand, model: Any | None) -> SlashKind:
+    if slash_answer_is_local_only(cmd, model):
         return SlashKind.ANSWER
     return cmd.kind
 

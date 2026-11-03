@@ -2483,6 +2483,7 @@ class TestPanelR14Fixes:
             skip_append_user: bool = False,
             *,
             user_transcript_text: str | None = None,
+            slash_sidebar_only: bool = False,
         ) -> None:
             display = user_transcript_text if user_transcript_text else query
             listener.session.messages.append({"role": "user", "content": display})
@@ -2720,3 +2721,17 @@ def test_append_output_during_tool_loop_streams_slash_local_row():
         listener.append_output("\nSlash commands:\n")
     assert session.messages[-1][SLASH_LOCAL] is True
     listener.rich_text_widget.stream_session.assert_called_once_with(session)
+
+
+def test_append_output_falls_back_to_response_control_without_session():
+    from plugin.chatbot.panel import SendButtonListener
+    from unittest.mock import MagicMock, patch
+
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
+        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    listener.session = None
+    response = MagicMock()
+    listener.response_control = response
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value=""), patch("plugin.chatbot.dialogs.set_control_text") as set_text, patch.object(listener, "_scroll_response_to_bottom"):
+        listener.append_output("\n/help line\n")
+    set_text.assert_called_once_with(response, "\n/help line\n")

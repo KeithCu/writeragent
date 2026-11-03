@@ -1100,7 +1100,7 @@ def test_replace_range_collapses_doubled_newlines_between_paragraphs():
     cursor = MagicMock()
     text_obj.createTextCursorByRange.return_value = cursor
 
-    _replace_range_with_paragraph_text(text_range, "Alpha\n\nBeta\n\nGamma")
+    _replace_range_with_paragraph_text(text_range, "Alpha\n\nBeta\n\nGamma", collapse_blank_paragraph_lines=True)
 
     assert text_obj.insertControlCharacter.call_count == 2
 

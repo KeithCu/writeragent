@@ -503,6 +503,15 @@ class SendButtonListener(BaseActionListener):
         """
         session = self.session
         if session is None:
+            log.warning("append_output with no session; falling back to response control")
+            response = self.response_control
+            if response is None:
+                return
+            from plugin.chatbot.dialogs import get_control_text, set_control_text
+
+            current = get_control_text(response) or ""
+            set_control_text(response, current + text)
+            self._scroll_response_to_bottom()
             return
         from plugin.chatbot.rich_text_paste import append_slash_local_message
         from plugin.chatbot.tool_loop_actions import running_turn
@@ -1327,9 +1336,9 @@ class SendButtonListener(BaseActionListener):
             effective_slash_kind,
             parse_slash_text,
             run_slash_command,
+            slash_answer_is_local_only,
             slash_send_continues_after_begin,
         )
-        from plugin.framework.doc_type import DocumentType, get_document_type
 
         peek_text = ""
         if self.query_control and self.query_control.getModel():
@@ -1372,11 +1381,7 @@ class SendButtonListener(BaseActionListener):
             if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
                 slash_transcript_line = peek_text.strip()
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
-                if (
-                    slash_cmd.name == "translate"
-                    and slash_cmd.kind == SlashKind.REWRITE
-                    and get_document_type(model) == DocumentType.WRITER
-                ):
+                if slash_answer_is_local_only(slash_cmd, model):
                     slash_sidebar_only = True
 
         try:

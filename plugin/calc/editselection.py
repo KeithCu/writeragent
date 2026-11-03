@@ -82,6 +82,9 @@ def do_calc_extend_edit(
     cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
     formula_array = cell_range.getFormulaArray()
 
+    saw_skipped_formula = False
+    saw_nonempty_for_formula_msg = False
+
     for r_i, row_vals in enumerate(formula_array):
         for c_i, raw_val in enumerate(row_vals):
             if len(tasks) >= _MAX_CELLS:
@@ -96,6 +99,8 @@ def do_calc_extend_edit(
             if is_edit:
                 cell = sheet.getCellByPosition(col_abs, row_abs)
                 if cell.getType() == FORMULA:
+                    saw_nonempty_for_formula_msg = True
+                    saw_skipped_formula = True
                     continue
             tasks.append(
                 StreamCompletionTask(
@@ -113,20 +118,7 @@ def do_calc_extend_edit(
 
     if not tasks:
         if is_edit and preset_instruction is not None and sidebar_notify is not None:
-            saw_nonempty = False
-            saw_skipped_formula = False
-            for r_i, row_vals in enumerate(formula_array):
-                for c_i, raw_val in enumerate(row_vals):
-                    cell_text = "" if raw_val is None else str(raw_val)
-                    if not cell_text:
-                        continue
-                    saw_nonempty = True
-                    col_abs = start_col + c_i
-                    row_abs = start_row + r_i
-                    cell = sheet.getCellByPosition(col_abs, row_abs)
-                    if cell.getType() == FORMULA:
-                        saw_skipped_formula = True
-            if saw_nonempty and saw_skipped_formula:
+            if saw_nonempty_for_formula_msg and saw_skipped_formula:
                 sidebar_notify(_("Formula cells are skipped."))
                 return
         msgbox(ctx, title, _("Select one or more non-empty cells."))

@@ -2057,6 +2057,15 @@ def _sse_content_lines(*parts: str) -> list[bytes]:
     return lines
 
 
+def test_stream_completion_returns_finish_reason(client):
+    payload = json.dumps({"choices": [{"finish_reason": "length", "delta": {}}]})
+    resp = create_mock_http_response(sse_lines=[f"data: {payload}".encode(), b"data: [DONE]"])
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        finish = client.stream_completion("prompt", "system", 10, append_callback=lambda _t: None)
+    assert finish == "length"
+
+
 def _https_steps(mock_https, *steps):
     """Wire HTTPSConnection: each step is a response mock or an exception from request()."""
     conns = []
