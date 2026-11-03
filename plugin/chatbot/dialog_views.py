@@ -254,6 +254,12 @@ class SettingsDialog:
                     break
                 try:
                     apply_settings_result(self._ctx, result, field_specs)
+                    # What was wrong: saving settings did not re-apply the log level,
+                    # relying instead on per-request init_logging in llm_client.
+                    # When those per-request calls were removed, log level changes in Settings
+                    # were not reflected until restart or opening Settings again.
+                    # Why this change: re-apply the configured log level immediately on save.
+                    init_logging(self._ctx)
                     return result
                 except ConfigValidationError as ve:
                     msgbox(self._ctx, _("Invalid Setting"), str(ve))

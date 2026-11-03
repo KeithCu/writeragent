@@ -66,7 +66,6 @@ from .grammar_proofread_locale import (
 from .grammar_proofread_text import slice_preview_debug
 
 
-
 log = logging.getLogger("writeragent.grammar")
 
 
@@ -86,9 +85,6 @@ class GrammarWorkItem:
     n_start: int = 0
     checker_identity: str = ""
     paragraph_text: str = ""
-
-
-
 
 
 def grammar_inflight_key(a_document_identifier: str, loc_key: str, sent_text: str, is_complete: bool) -> str:

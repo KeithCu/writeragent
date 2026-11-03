@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
-from plugin.framework.worker_pool import get_subprocess_creationflags
+from plugin.framework.subprocess_env import get_subprocess_creationflags
 from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)

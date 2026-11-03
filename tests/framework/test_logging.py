@@ -315,6 +315,34 @@ class TestInitLogging:
 
             self._release_debug_handlers()
 
+    def test_repeated_init_logging_preserves_cache_and_level(self):
+        """Repeated init_logging with the same level must not call setLevel or clear logger._cache."""
+        mock_ctx = MagicMock()
+        with patch("plugin.framework.config.get_config", return_value="INFO"):
+            init_logging(mock_ctx)
+
+        assert log.level == logging.INFO
+
+        # Warm up the cache for a logger in the plugin hierarchy
+        probe_logger = logging.getLogger("plugin.test_cache_probe")
+        assert probe_logger.isEnabledFor(logging.INFO) is True
+        assert probe_logger.isEnabledFor(logging.DEBUG) is False
+        assert len(getattr(probe_logger, "_cache", {})) > 0
+
+        # Repeated init_logging with the same level should NOT call setLevel,
+        # leaving Manager._clear_cache() uncalled and probe_logger._cache intact.
+        with patch("plugin.framework.config.get_config", return_value="INFO"):
+            init_logging(mock_ctx)
+
+        assert log.level == logging.INFO
+        assert len(getattr(probe_logger, "_cache", {})) > 0
+
+        # When the log level actually changes, setLevel is called and clears _cache.
+        with patch("plugin.framework.config.get_config", return_value="DEBUG"):
+            init_logging(mock_ctx)
+
+        assert log.level == logging.DEBUG
+        assert len(getattr(probe_logger, "_cache", {})) == 0
 
 
 class TestLogRedaction:

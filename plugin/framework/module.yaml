@@ -7,7 +7,7 @@ config:
   log_level:
     type: string
     # Release default. Source checkouts with plugin/tests get DEBUG via
-    # config_schema._resolve_default (and get_config_schema overlays that).
+    # config_schema.resolve_default (and get_config_schema overlays that).
     default: WARN
     widget: select
     label: Log Level

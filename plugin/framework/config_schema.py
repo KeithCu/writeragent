@@ -425,7 +425,7 @@ def get_config_schema(key: str) -> dict[str, Any] | None:
     """Return the config schema for a flat or dotted key.
 
     Module schemas come from ``module.yaml`` via the manifest and take
-    precedence over dataclass defaults, matching ``_resolve_default``.
+    precedence over dataclass defaults, matching ``resolve_default``.
     """
     schema = _module_schema_for_key(key) or _dataclass_schema_for_key(key)
     if schema is None and key.split("@", 1)[0] in _LRU_LIST_CONFIG_KEY_PREFIXES:
@@ -434,7 +434,7 @@ def get_config_schema(key: str) -> dict[str, Any] | None:
     # literal. Overlay so get_config_schema["default"] matches get_config.
     if schema is not None and key == "core.log_level":
         schema = dict(schema)
-        schema["default"] = _resolve_default("core.log_level")
+        schema["default"] = resolve_default("core.log_level")
     return schema
 
 
@@ -606,7 +606,7 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
 # --- Default resolution ---
 
 
-def _resolve_default(key: str) -> Any:
+def resolve_default(key: str) -> Any:
     """Resolve default for key: schema first, then dataclass. Safe fallbacks for None."""
     if key == "core.log_level":
         tests_dir = os.path.join(get_plugin_dir(), "tests")
@@ -658,7 +658,7 @@ def _is_equal_to_default(key: str, value: Any, default_val: Any) -> bool:
 def is_known_config_key(key: str) -> bool:
     """True if `key` has a schema, dataclass, or LRU default."""
     try:
-        _resolve_default(key)
+        resolve_default(key)
     except ConfigError:
         return False
     return True
@@ -667,7 +667,7 @@ def is_known_config_key(key: str) -> bool:
 def is_default_value(key: str, value: Any) -> bool:
     """Return True if `value` matches the default configuration value for `key`."""
     try:
-        default_val = _resolve_default(key)
+        default_val = resolve_default(key)
     except ConfigError:
         return False
     return _is_equal_to_default(key, value, default_val)

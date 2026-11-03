@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from plugin.framework.grammar_rule_ids import grammar_match
+from plugin.framework.subprocess_env import get_subprocess_creationflags
 
 log = logging.getLogger(__name__)
 
@@ -35,20 +36,13 @@ def _get_vale_binary() -> str:
 
 
 def _wrap_vale_command(cmd: list[str]) -> list[str]:
-    # Importing plugin.scripting.sandbox loads smolagents into the venv child,
-    # and importing get_subprocess_creationflags from worker_pool loads thread_guard.
+    # Importing plugin.scripting.sandbox loads smolagents into the venv child.
     # Vale only needs the no-env flatpak branch, which is flatpak-spawn --host
     # inside Flatpak and the argv unchanged otherwise. The full wrapper stays
     # in sandbox.py for LibreHarper.
     if os.path.exists("/.flatpak-info") or os.environ.get("FLATPAK_ID"):
         return ["flatpak-spawn", "--host", *cmd]
     return cmd
-
-
-def _subprocess_creationflags() -> dict[str, Any]:
-    if sys.platform == "win32":
-        return {"creationflags": subprocess.CREATE_NO_WINDOW}
-    return {}
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -71,7 +65,7 @@ def _run_vale(cmd: list[str], timeout: int, timeout_label: str, fail_label: str,
             text=True,
             encoding="utf-8",
             timeout=timeout,
-            **_subprocess_creationflags(),
+            **get_subprocess_creationflags(),
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"{timeout_label} timed out after {timeout}s") from exc

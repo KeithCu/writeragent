@@ -81,9 +81,6 @@ def checker_identity(name: str | None = None) -> str:
         return active
     if active == "off":
         return "off"
-    try:
-        from plugin.framework.client.model_fetcher import get_grammar_model
+    from plugin.framework.client.model_fetcher import get_grammar_model
 
-        return f"llm:{get_grammar_model() or ''}"
-    except (ImportError, ModuleNotFoundError):
-        return "llm:unknown"
+    return f"llm:{get_grammar_model() or ''}"
