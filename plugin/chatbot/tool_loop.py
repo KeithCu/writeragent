@@ -303,8 +303,8 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
 
 def _ensure_llm_client(panel: Any, api_config: dict[str, Any]) -> LlmClient:
     # contextvars (SendCancellation) do not propagate to worker threads — LlmClient
-    # picks up resolve_stop_checker() via get_current_send_cancellation when created on
-    # the UI thread; spawned workers pass stop_checker= explicitly (_spawn_llm_worker).
+    # picks up the scope via get_current_send_cancellation when created on
+    # the UI thread; spawned workers pass cancel= explicitly (_spawn_llm_worker).
     if not panel.client:
         panel.client = LlmClient(api_config, panel.ctx)
     else:
@@ -619,9 +619,9 @@ class ToolCallingMixin:
         turn = current_turn(self._panel)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if turn is not None else None
-        # Spawn-time scope. The body must not call resolve_stop_checker or
-        # read _send_cancellation: Stop clears the field and the next send replaces it.
-        bound_scope, _unused_checker = capture_send_stop(self._panel)
+        # Spawn-time scope. The body must not re-read _send_cancellation:
+        # Stop clears the field and the next send replaces it.
+        bound_scope = capture_send_stop(self._panel)
 
         def emit(item: Any) -> None:
             put_for_turn(turn, item)
@@ -927,8 +927,7 @@ class ToolCallingMixin:
         # is not overflow — compact-and-retry on a dead llama-server is worse
         # than today's sentence. Kill switch offs this path too.
         if get_config("chat_compaction_enabled"):
-            stop_checker = self._panel.resolve_stop_checker()
-            stopped = bool(self._panel.stop_requested or stop_checker())
+            stopped = bool(self._panel.stop_requested)
             live_turn = running_turn(self._panel)
             retry_q = spawn_queue(live_turn) if live_turn is not None else None
             if (

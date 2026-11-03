@@ -18,13 +18,17 @@ def test_wait_for_approval_set_event_wins_over_stop():
     """A signaled approval must not lose to a stop that lands in the same wake."""
     event = threading.Event()
     event.set()
-    assert wait_for_approval(event, lambda: True, timeout=0.01) is True
+    cancel = SendCancellation()
+    cancel.cancel()
+    assert wait_for_approval(event, cancel, timeout=0.01) is True
 
 
 def test_wait_for_approval_stop_while_unset_returns_false():
     """Sidebar close latches stop and never sets the approval event."""
     event = threading.Event()
-    assert wait_for_approval(event, lambda: True, timeout=0.01) is False
+    cancel = SendCancellation()
+    cancel.cancel()
+    assert wait_for_approval(event, cancel, timeout=0.01) is False
     assert event.is_set() is False
 
 
@@ -404,43 +408,22 @@ def test_smol_executor_early_handler_return_interrupts_and_closes_generator():
     assert generator_closed is True
 
 
-def test_stop_checker_stays_true_after_panel_clears_scope_reference():
-    from plugin.framework.send_cancellation import bind_send_stop_checker
-
-    scope = SendCancellation()
-    stop_checker = bind_send_stop_checker(scope, lambda: False)
-    scope.cancel()
-    assert stop_checker() is True
-
-
-def test_bound_checker_ignores_a_replaced_scope_attribute():
-    from plugin.framework.send_cancellation import bind_send_stop_checker, capture_send_stop
+def test_capture_send_stop_returns_scope_and_survives_attribute_replace():
+    from plugin.framework.send_cancellation import capture_send_stop
 
     class Host:
         def __init__(self, scope):
             self._send_cancellation = scope
 
-        def resolve_stop_checker(self):
-            return bind_send_stop_checker(self._send_cancellation, lambda: False)
-
     old = SendCancellation()
     host = Host(old)
-    scope, checker = capture_send_stop(host)
+    scope = capture_send_stop(host)
     assert scope is old
     old.cancel()
     new = SendCancellation()
     host._send_cancellation = new
-    assert checker() is True
-    assert bind_send_stop_checker(new, lambda: False)() is False
-
-
-def test_bind_send_stop_checker_ors_fallback_before_scope_cancel():
-    from plugin.framework.send_cancellation import bind_send_stop_checker
-
-    scope = SendCancellation()
-    checker = bind_send_stop_checker(scope, lambda: True)
-    assert not scope.is_cancelled()
-    assert checker() is True
+    assert scope is not None and scope.is_cancelled() is True
+    assert new.is_cancelled() is False
 
 
 def test_agent_session_reuses_existing_scope():

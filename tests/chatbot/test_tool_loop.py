@@ -89,10 +89,6 @@ class FakePanel(ToolCallingMixin):
         self._get_document_model = Mock(return_value=None)
         self._terminal_status = "Ready"
 
-    def resolve_stop_checker(self):
-        from plugin.framework.send_cancellation import bind_send_stop_checker
-
-        return bind_send_stop_checker(getattr(self, "_send_cancellation", None), lambda: self._stop_requested_fallback)
 
 def setup_mock_panel():
     ctx = MagicMock()
@@ -1134,7 +1130,7 @@ def _run_captured_llm_worker(spawn):
     import queue
 
     from plugin.chatbot.tool_loop_actions import current_turn
-    from plugin.framework.send_cancellation import SendCancellation, bind_send_stop_checker
+    from plugin.framework.send_cancellation import SendCancellation, capture_send_stop
 
     panel, _session = setup_mock_panel()
     turn = current_turn(panel)
@@ -1146,17 +1142,6 @@ def _run_captured_llm_worker(spawn):
     new = SendCancellation()
     panel._send_cancellation = old
     panel._stop_requested_fallback = False
-    calls = []
-    bound = {}
-
-    def resolve():
-        scope = panel._send_cancellation
-        calls.append(scope)
-        checker = bind_send_stop_checker(scope, lambda: panel._stop_requested_fallback)
-        bound["checker"] = checker
-        return checker
-
-    panel.resolve_stop_checker = resolve
     client = MagicMock()
     client.stopped.return_value = False
     seen = {}
@@ -1168,12 +1153,6 @@ def _run_captured_llm_worker(spawn):
         panel._send_cancellation = new
         panel._stop_requested_fallback = False
         client.stopped.return_value = False
-
-        def boom():
-            calls.append(panel._send_cancellation)
-            raise AssertionError("resolve_stop_checker inside worker")
-
-        panel.resolve_stop_checker = boom
         return {"content": "should-not-finish", "tool_calls": []}
 
     client.stream_request_with_tools.side_effect = during_stream
@@ -1187,16 +1166,17 @@ def _run_captured_llm_worker(spawn):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture),
         patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
+        patch("plugin.chatbot.tool_loop.capture_send_stop", wraps=capture_send_stop) as mock_capture,
     ):
         spawn(panel, batched, client)
-        assert calls == [old]
+        assert mock_capture.call_count == 1
         assert len(started) == 1
         started[0]()
 
-    assert calls == [old]
+    assert mock_capture.call_count == 1
     assert seen["scope"] is old
     assert old.is_cancelled()
-    assert bind_send_stop_checker(new, lambda: False)() is False
+    assert new.is_cancelled() is False
     item = q.get(timeout=1)
     assert item[0] == StreamQueueKind.STOPPED
     assert q.empty()
@@ -1379,7 +1359,7 @@ def test_bind_spawn_without_live_turn_has_no_session():
     # current_turn can be None; _bind_spawn must still return usable callbacks.
     host = Mock()
     host._panel = Mock(_turn=None)
-    with patch("plugin.chatbot.tool_loop.capture_send_stop", return_value=(Mock(is_cancelled=lambda: True), lambda: False)):
+    with patch("plugin.chatbot.tool_loop.capture_send_stop", return_value=Mock(is_cancelled=lambda: True)):
         turn, session, bound_scope, emit, stopped_cb = ToolCallingMixin._bind_spawn(host, Mock())
     assert turn is None and session is None
     assert bound_scope.is_cancelled() is True

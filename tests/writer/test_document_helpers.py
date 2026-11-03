@@ -960,27 +960,6 @@ def test_do_edit_selection_observes_stop_checker(monkeypatch):
     assert text_range.getString() == "more"
 
 
-def test_stop_checker_exception_fails_closed():
-    from plugin.framework.send_cancellation import bind_send_stop_checker
-
-    class MockScope:
-        def is_cancelled(self):
-            raise ValueError("Some internal error")
-
-    # When scope raises an error, bind_send_stop_checker returns True
-    checker1 = bind_send_stop_checker(MockScope())
-    assert checker1() is True
-
-    def failing_fallback():
-        raise ValueError("Some internal error")
-
-    checker2 = bind_send_stop_checker(None, fallback=failing_fallback)
-    assert checker2() is True
-
-    checker3 = bind_send_stop_checker(MockScope(), fallback=failing_fallback)
-    assert checker3() is True
-
-
 def test_do_extend_selection_failure_visible(monkeypatch):
     from plugin.writer import editselection
 

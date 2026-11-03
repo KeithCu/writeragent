@@ -239,11 +239,9 @@ class TestSendDispose:
         listener = _make_send_listener()
         scope = SendCancellation()
         listener._send_cancellation = scope
-        checker = listener.resolve_stop_checker()
-        assert not (checker())
+        assert not (scope.is_cancelled())
         listener.disposing(None)
         assert (scope.is_cancelled())
-        assert (checker())
         assert (listener._stop_requested_fallback)
         assert (listener.ctx) is None
         assert (listener.panel) is None

@@ -41,13 +41,13 @@ class SendCancelled(Exception):
     """Raised when main-thread work is skipped because the user stopped the send."""
 
 
-def wait_for_approval(event: threading.Event, stop_checker: Callable[[], bool] | None, timeout: float = 0.2) -> bool:
+def wait_for_approval(event: threading.Event, cancel: SendCancellation | None, timeout: float = 0.2) -> bool:
     """Block until *event* is set, or the send is stopped.
 
     A set event wins a race with stop.
     """
     while not event.is_set():
-        if stop_checker is not None and stop_checker():
+        if cancel is not None and cancel.is_cancelled():
             return False
         event.wait(timeout)
     return True
@@ -120,37 +120,15 @@ def get_current_send_cancellation() -> SendCancellation | None:
     return _current_send_cancellation.get()
 
 
-def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[], bool] | None = None) -> Callable[[], bool]:
-    """Return a stop predicate tied to *scope*, not the panel field.
+def capture_send_stop(host: Any) -> SendCancellation | None:
+    """Scope frozen on the send thread before ``run_in_background``.
 
-    Worker threads must use this (or ``scope.is_cancelled``) so Stop stays latched after
-    the main thread clears ``panel._send_cancellation`` when the drain loop exits.
-
-    When both *scope* and *fallback* are set, either latch is enough: Stop can
-    fire after SEND_CLICKED but before the deferred drain enters ``agent_session``.
-    Fails closed if a checker raises so a broken latch still aborts the send.
+    The worker closes over this result. Reading ``host._send_cancellation``
+    inside the thread body misses Stop: the drain clears that field and the
+    next send stores a new scope, so the old worker can latch onto the new
+    send and cancel it.
     """
-    def _cancelled() -> bool:
-        try:
-            return (scope is not None and scope.is_cancelled()) or (fallback is not None and fallback())
-        except Exception:
-            log.exception("stop_checker raised exception; failing closed (treating as stopped)")
-            return True
-
-    return _cancelled
-
-
-def capture_send_stop(host: Any) -> tuple[Any, Callable[[], bool]]:
-    """Scope and stop checker frozen on the send thread before ``run_in_background``.
-
-    The worker closes over both results. Calling ``resolve_stop_checker`` or
-    reading ``host._send_cancellation`` inside the thread body misses Stop:
-    the drain clears that field and the next send stores a new scope, so the
-    old worker can latch onto the new send and cancel it.
-    """
-    scope = getattr(host, "_send_cancellation", None)
-    checker = host.resolve_stop_checker()
-    return scope, checker
+    return getattr(host, "_send_cancellation", None)
 
 
 def is_cancelled(scope: SendCancellation | None) -> bool:

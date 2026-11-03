@@ -62,9 +62,6 @@ class _DirectImageHost(SendHandlersMixin):
     def _set_status(self, text):
         self.status_history.append(text)
 
-    def resolve_stop_checker(self):
-        return lambda: self.stop_requested
-
     def rerender_rich_text_session(self):
         pass
 

@@ -21,6 +21,7 @@ from plugin.chatbot.tool_loop_state import (  # noqa: E402
     UpdateDocumentContextEffect,
 )
 from plugin.framework.stream_batch import StreamQueueKind  # noqa: E402
+from plugin.framework.send_cancellation import SendCancellation  # noqa: E402
 
 
 class FakeSession:
@@ -64,6 +65,7 @@ class FakeHost:
         self.spawned_llm = []
         self.spawned_final = []
         self.document = Mock()
+        self._send_cancellation = SendCancellation()
         from plugin.chatbot.tool_loop_actions import begin_send_turn
 
         turn = begin_send_turn(self)
@@ -240,9 +242,6 @@ class FakeHost:
 
     def _spawn_final_stream(self, q, client, max_tokens):
         self.spawned_final.append((q, client, max_tokens))
-
-    def resolve_stop_checker(self):
-        return lambda: False
 
 
 def test_interpreter_handles_session_ui_queue_and_exit_effects():
@@ -463,8 +462,12 @@ def test_sync_tool_returns_before_the_tool_finishes():
     ],
 )
 def test_sync_tool_stop_before_body_does_not_run_the_tool(is_async):
+    from plugin.framework.send_cancellation import SendCancellation
+
     host = FakeHost()
-    host.resolve_stop_checker = lambda: (lambda: True)
+    cancelled = SendCancellation()
+    cancelled.cancel()
+    host._send_cancellation = cancelled
     started: list = []
     interpreter = ToolLoopEffectInterpreter(host)
     with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
@@ -1010,6 +1013,7 @@ def test_new_send_drops_the_in_flight_tool_result():
 def test_async_tool_uses_fn_and_model_captured_at_spawn():
     """A later send must not retarget a tool that already started."""
     from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from plugin.framework.send_cancellation import SendCancellation
 
     host = FakeHost()
     turn = begin_send_turn(host)
@@ -1020,14 +1024,9 @@ def test_async_tool_uses_fn_and_model_captured_at_spawn():
     old_fn = Mock(return_value='{"status": "ok"}')
     host._active_model = old_model
     host._active_execute_tool_fn = old_fn
+    spawn_scope = SendCancellation()
+    host._send_cancellation = spawn_scope
 
-    def spawn_checker() -> bool:
-        return False
-
-    def resolve_spawn() -> object:
-        return spawn_checker
-
-    host.resolve_stop_checker = resolve_spawn
     started: list = []
     interpreter = ToolLoopEffectInterpreter(host)
     with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
@@ -1042,19 +1041,15 @@ def test_async_tool_uses_fn_and_model_captured_at_spawn():
         )
     host._active_model = Mock(name="new-model")
     host._active_execute_tool_fn = Mock(return_value='{"status": "new"}')
+    later_scope = SendCancellation()
+    later_scope.cancel()
+    host._send_cancellation = later_scope
 
-    def later_checker() -> bool:
-        return True
-
-    def resolve_later() -> object:
-        return later_checker
-
-    host.resolve_stop_checker = resolve_later
     started[0]()
     old_fn.assert_called_once()
     assert host._active_execute_tool_fn.call_count == 0
     assert old_fn.call_args.args[2] is old_model
-    assert old_fn.call_args.kwargs["stop_checker"] is spawn_checker
+    assert old_fn.call_args.kwargs["send_cancellation"] is spawn_scope
     assert old_fn.call_args.kwargs["captured_turn"] is turn
     assert "captured_q" not in old_fn.call_args.kwargs
     assert "captured_call_id" not in old_fn.call_args.kwargs
@@ -1062,6 +1057,7 @@ def test_async_tool_uses_fn_and_model_captured_at_spawn():
 
 def test_async_tool_aborted_before_run_drops_execution():
     from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from plugin.framework.send_cancellation import SendCancellation
 
     host = FakeHost()
     turn = begin_send_turn(host)
@@ -1072,14 +1068,8 @@ def test_async_tool_aborted_before_run_drops_execution():
     old_fn = Mock(return_value='{"status": "ok"}')
     host._active_model = old_model
     host._active_execute_tool_fn = old_fn
-
-    def spawn_checker() -> bool:
-        return False
-
-    def resolve_spawn() -> object:
-        return spawn_checker
-
-    host.resolve_stop_checker = resolve_spawn
+    spawn_scope = SendCancellation()
+    host._send_cancellation = spawn_scope
     started: list = []
     interpreter = ToolLoopEffectInterpreter(host)
     with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
@@ -1118,13 +1108,8 @@ def test_subagent_append_and_approval_use_the_captured_queue():
     old_model = Mock(name="old-doc")
     host._active_model = old_model
 
-    def spawn_checker() -> bool:
-        return False
-
-    def resolve_spawn() -> object:
-        return spawn_checker
-
-    host.resolve_stop_checker = resolve_spawn
+    spawn_scope = SendCancellation()
+    host._send_cancellation = spawn_scope
     host._active_execute_tool_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     started: list = []
     registry, old_main = _install_fake_main_registry()
@@ -1178,20 +1163,16 @@ def test_subagent_append_and_approval_use_the_captured_queue():
                     is_async=True,
                 )
             )
-            def later_checker() -> bool:
-                return True
-
-            def resolve_later() -> object:
-                return later_checker
-
-            host.resolve_stop_checker = resolve_later
+            later_scope = SendCancellation()
+            later_scope.cancel()
+            host._send_cancellation = later_scope
             for fn in started:
                 fn()
     finally:
         _restore_main(old_main)
 
     assert seen["doc"] is old_model
-    assert seen["stop"] is spawn_checker
+    assert callable(seen["stop"])
     assert "wait_checker" not in seen
     assert seen["approval"] == (False, None)
     assert first_q.empty()
@@ -1245,19 +1226,11 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
 
 def test_tool_worker_keeps_spawn_scope_after_next_send():
     """execute_fn must use the scope captured at spawn, not the panel field."""
-    from plugin.framework.send_cancellation import SendCancellation, bind_send_stop_checker
+    from plugin.framework.send_cancellation import SendCancellation, capture_send_stop
 
     host = FakeHost()
     old = SendCancellation()
     host._send_cancellation = old
-    calls = []
-
-    def resolve():
-        scope = host._send_cancellation
-        calls.append(scope)
-        return bind_send_stop_checker(scope, lambda: False)
-
-    host.resolve_stop_checker = resolve
     host._active_execute_tool_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     seen = {}
     registry, old_main = _install_fake_main_registry()
@@ -1271,7 +1244,10 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
     started = []
     interpreter = ToolLoopEffectInterpreter(host)
     try:
-        with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
+        with (
+            patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)),
+            patch("plugin.chatbot.tool_loop_actions.capture_send_stop", wraps=capture_send_stop) as mock_capture,
+        ):
             interpreter.execute(
                 SpawnToolWorkerEffect(
                     call_id="call_old",
@@ -1281,35 +1257,31 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
                     is_async=True,
                 )
             )
-        assert calls == [old]
-        new = SendCancellation()
-        host._send_cancellation = new
-
-        def boom():
-            calls.append(host._send_cancellation)
-            raise AssertionError("resolve_stop_checker inside worker")
-
-        host.resolve_stop_checker = boom
-        started[0]()
+            assert mock_capture.call_count == 1
+            new = SendCancellation()
+            host._send_cancellation = new
+            started[0]()
+            assert mock_capture.call_count == 1
     finally:
         _restore_main(old_main)
 
-    assert calls == [old]
     assert seen["scope"] is old
     assert seen["checker"]() is False # Because not cancelled
-    assert bind_send_stop_checker(new, lambda: False)() is False
+    assert not new.is_cancelled()
 
 def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
     from unittest.mock import MagicMock
     from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, SpawnToolWorkerEffect
+    from plugin.framework.send_cancellation import SendCancellation
     from plugin.framework.stream_batch import StreamQueueKind
 
     mock_host = MagicMock()
     mock_host._active_execute_tool_fn = MagicMock(return_value={"status": "ok"})
     mock_host._active_supports_status = False
 
-    # Force stop_checker to return True
-    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.capture_send_stop", lambda host: (None, lambda: True))
+    cancelled_scope = SendCancellation()
+    cancelled_scope.cancel()
+    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.capture_send_stop", lambda host: cancelled_scope)
 
     interpreter = ToolLoopEffectInterpreter(mock_host)
     effect = SpawnToolWorkerEffect(

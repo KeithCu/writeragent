@@ -62,7 +62,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import main
-from plugin.framework.send_cancellation import capture_send_stop
+from plugin.framework.send_cancellation import capture_send_stop, is_cancelled
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
@@ -797,7 +797,6 @@ class ToolLoopActionHost(Protocol):
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _set_status(self, text: str) -> None: ...
     def _get_document_model(self) -> Any: ...
-    def resolve_stop_checker(self) -> Callable[[], bool]: ...
 
 
 def build_tool_execute_fn(
@@ -861,7 +860,7 @@ def build_tool_execute_fn(
 
         # Workers pass the checker captured at spawn. Direct
         # callers (tests) omit it and still run on that thread.
-        checker = stop_checker if stop_checker is not None else host.resolve_stop_checker()
+        checker_scope = send_cancellation if send_cancellation is not None else getattr(host, "_send_cancellation", None)
         if prompt_for_web:
 
             def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
@@ -872,7 +871,7 @@ def build_tool_execute_fn(
                     return (False, None)
                 # event.wait() ignored Stop. Sidebar close latches the
                 # checker and never sets the event, so this worker parked.
-                if not wait_for_approval(event, checker) or not getattr(event, "approved", False):
+                if not wait_for_approval(event, checker_scope) or not getattr(event, "approved", False):
                     put_for_turn(captured_turn, (StreamQueueKind.STOPPED,))
                     return (False, None)
                 return (True, getattr(event, "query_override", None))
@@ -899,7 +898,7 @@ def build_tool_execute_fn(
             active_page_index=active_page_idx,
             status_callback=status_callback,
             append_thinking_callback=append_thinking_callback,
-            stop_checker=checker,
+            stop_checker=checker_scope.is_cancelled if checker_scope is not None else None,
             approval_callback=approval_cb,
             chat_append_callback=chat_append_cb,
             set_active_domain_callback=set_active_domain,
@@ -1119,9 +1118,9 @@ class ToolLoopEffectInterpreter:
         # disposed-document check.
         spawn_doc = turn.model
         supports_status = turn.active_supports_status
-        # Scope and checker from this send. execute_fn must not read the
+        # Scope from this send. execute_fn must not read the
         # panel field when the tool later runs.
-        bound_scope, bound_stop = capture_send_stop(host)
+        bound_scope = capture_send_stop(host)
 
         # Bugfix: getText ran for every tool whenever the sidebar combobox
         # existed, and main.call re-raises, so a disposed or
@@ -1150,12 +1149,12 @@ class ToolLoopEffectInterpreter:
             try:
                 # Stop can land after spawn and before this body. Do not start
                 # the tool; the drain's on_stopped path closes the turn.
-                if bound_stop() or not turn.alive:
+                if is_cancelled(bound_scope) or not turn.alive:
                     turn.put((StreamQueueKind.STOPPED,))
                     return
 
                 call_kwargs: dict[str, Any] = {
-                    "stop_checker": bound_stop,
+                    "stop_checker": bound_scope.is_cancelled if bound_scope is not None else None,
                     "send_cancellation": bound_scope,
                     "captured_turn": turn,
                 }
