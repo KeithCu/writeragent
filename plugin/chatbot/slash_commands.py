@@ -461,6 +461,25 @@ def tool_schemas_for_slash_compact(host: Any, ctx: Any, session: Any) -> list[An
     )
 
 
+def prepare_slash_compact_on_ui_thread(
+    host: Any, ctx: Any, session: Any
+) -> tuple[Any | None, list[Any]]:
+    """Resolve the LLM client and tool schemas on the UI thread before the worker starts.
+
+    ``create_validated_client`` may show a config ``msgbox`` (UNO); schemas need the
+    document model. ``run_blocking_in_thread`` holds SolarMutex while it waits, so UNO
+    on the worker can deadlock — pass only plain ``client`` and ``tools`` into the worker.
+    """
+    from plugin.chatbot.selection import create_validated_client
+
+    title = _("WriterAgent")
+    client = create_validated_client(ctx, title)
+    if client is None:
+        return None, []
+    tools = tool_schemas_for_slash_compact(host, ctx, session)
+    return client, tools
+
+
 def slash_send_continues_after_begin(cmd: SlashCommand, host: Any | None = None) -> bool:
     """True when Send must call ``_begin_send`` before finishing the command."""
     if cmd.needs_turn or cmd.runs_in_send_turn or cmd.kind == SlashKind.ANSWER:
@@ -623,29 +642,23 @@ def run_slash_command(
 
 
 def run_slash_compact_sync(
-    host: Any,
     *,
     focus: str,
     session: Any,
-    ctx: Any,
     cancel: Any,
+    client: Any,
     tools: list[Any],
 ) -> str:
     """Run ``compact_session(force=True)`` off-thread; return one status line.
 
-    ``tools`` must be resolved on the UI thread (see ``run_slash_compact``); this
-    worker must not touch UNO or the document.
+    ``client`` and ``tools`` must come from ``prepare_slash_compact_on_ui_thread`` on
+    the UI thread; this worker must not touch UNO, ``msgbox``, or the document.
     """
     from plugin.chatbot.compaction import compact_session
-    from plugin.chatbot.selection import create_validated_client
     from plugin.framework.config import get_config
     from plugin.framework.client.model_fetcher import resolve_context_window
     from plugin.framework.llm_lanes import llm_request_lane
     from plugin.framework.send_cancellation import is_cancelled
-    title = _("WriterAgent")
-    client = create_validated_client(ctx, title)
-    if client is None:
-        return "\n" + _("Configure an API key to compact.") + "\n"
 
     if not get_config("chat_compaction_enabled"):
         return "\n" + _("Chat compaction is disabled in settings.") + "\n"

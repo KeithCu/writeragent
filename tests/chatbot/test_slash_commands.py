@@ -433,73 +433,54 @@ def test_run_compact_sync_passes_tool_schema_list():
     from plugin.framework.send_cancellation import SendCancellation
 
     cancel = SendCancellation()
-    host = SimpleNamespace(
-        slash_document_model=MagicMock(return_value=object()),
-        cached_doc_type="writer",
-        cached_uno_services=None,
-    )
     session = MagicMock()
     session.messages = [{"role": "user", "content": "hi"}]
-    ctx = object()
+    client = MagicMock()
     schema_list = [{"name": "read_cell_range"}]
-    registry = MagicMock()
-    registry.get_schemas.return_value = schema_list
-    with patch("plugin.chatbot.selection.create_validated_client", return_value=MagicMock()):
-        with patch("plugin.framework.config.get_config", return_value=True):
-            with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
-                compact_mod.return_value = MagicMock(compacted=True, reason="ok")
-                with patch("plugin.main.get_tools", return_value=registry):
-                    with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=4096):
-                        with patch("plugin.framework.llm_lanes.llm_request_lane"):
-                            from plugin.chatbot.slash_commands import run_slash_compact_sync
+    with patch("plugin.framework.config.get_config", return_value=True):
+        with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
+            compact_mod.return_value = MagicMock(compacted=True, reason="ok")
+            with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=4096):
+                with patch("plugin.framework.llm_lanes.llm_request_lane"):
+                    from plugin.chatbot.slash_commands import run_slash_compact_sync
 
-                            run_slash_compact_sync(
-                                host,
-                                focus="",
-                                session=session,
-                                ctx=ctx,
-                                cancel=cancel,
-                                tools=schema_list,
-                            )
+                    run_slash_compact_sync(
+                        focus="",
+                        session=session,
+                        cancel=cancel,
+                        client=client,
+                        tools=schema_list,
+                    )
     assert compact_mod.call_args.kwargs.get("cancel") is cancel
     assert compact_mod.call_args.kwargs.get("tools") == schema_list
-    host.slash_document_model.assert_not_called()
 
 
 def test_run_compact_sync_passes_cancel():
     from plugin.framework.send_cancellation import SendCancellation
 
     cancel = SendCancellation()
-    host = SimpleNamespace(
-        slash_document_model=MagicMock(return_value=object()),
-        cached_doc_type="writer",
-        cached_uno_services=None,
-    )
     session = MagicMock()
     session.messages = [{"role": "user", "content": "hi"}]
-    ctx = object()
-    with patch("plugin.chatbot.selection.create_validated_client", return_value=MagicMock()):
-        with patch("plugin.framework.config.get_config", return_value=True):
-            with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
-                compact_mod.return_value = MagicMock(compacted=True, reason="ok")
-                with patch("plugin.main.get_tools", return_value=MagicMock(get_schemas=MagicMock(return_value=[]))):
-                    with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=4096):
-                        with patch("plugin.framework.llm_lanes.llm_request_lane"):
-                            from plugin.chatbot.slash_commands import run_slash_compact_sync
+    client = MagicMock()
+    with patch("plugin.framework.config.get_config", return_value=True):
+        with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
+            compact_mod.return_value = MagicMock(compacted=True, reason="ok")
+            with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=4096):
+                with patch("plugin.framework.llm_lanes.llm_request_lane"):
+                    from plugin.chatbot.slash_commands import run_slash_compact_sync
 
-                            run_slash_compact_sync(
-                                host,
-                                focus="",
-                                session=session,
-                                ctx=ctx,
-                                cancel=cancel,
-                                tools=[],
-                            )
+                    run_slash_compact_sync(
+                        focus="",
+                        session=session,
+                        cancel=cancel,
+                        client=client,
+                        tools=[],
+                    )
     assert compact_mod.call_args.kwargs.get("cancel") is cancel
 
 
 def test_run_slash_compact_resolves_document_on_main_thread_only():
-    """Regression (B3/N5): /compact must not call UNO from run_blocking_in_thread's worker."""
+    """Regression: /compact must not call UNO from run_blocking_in_thread's worker."""
     from plugin.chatbot.panel import SendButtonListener
     from plugin.framework.send_cancellation import SendCancellation
 
@@ -548,6 +529,96 @@ def test_run_slash_compact_resolves_document_on_main_thread_only():
     assert model_threads == [main]
     assert compact_mod.call_args.kwargs.get("tools") == schema_list
     listener.append_output.assert_called_once()
+
+
+def test_run_slash_compact_invalid_config_msgbox_on_main_thread():
+    """Config validation (msgbox) must run on the UI thread, not the blocking worker."""
+    from plugin.chatbot.panel import SendButtonListener
+    from plugin.framework.send_cancellation import SendCancellation
+
+    main = threading.main_thread()
+    msgbox_threads: list[threading.Thread] = []
+
+    def record_msgbox(ctx: object, title: str, message: str) -> None:
+        msgbox_threads.append(threading.current_thread())
+        if threading.current_thread() is not main:
+            raise AssertionError("msgbox must run on the main thread")
+
+    cancel = SendCancellation()
+    listener = MagicMock(spec=SendButtonListener)
+    listener.sidebar_state = SimpleNamespace(tool_loop=None)
+    listener.session = MagicMock()
+    listener.ctx = object()
+    listener._send_cancellation = cancel
+    listener._set_status = MagicMock()
+    listener.append_output = MagicMock()
+    listener.cached_doc_type = "writer"
+    listener.cached_uno_services = None
+    listener.slash_document_model = MagicMock(return_value=object())
+
+    with patch("plugin.framework.uno_context.get_toolkit", side_effect=RuntimeError("no uno")):
+        with patch("plugin.chatbot.selection.validate_api_config", return_value=(False, "bad config")):
+            with patch("plugin.chatbot.selection.msgbox", side_effect=record_msgbox):
+                with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
+                    listener.run_slash_compact = SendButtonListener.run_slash_compact.__get__(
+                        listener,
+                        SendButtonListener,
+                    )
+                    listener.run_slash_compact("focus", cancel=cancel)
+
+    assert msgbox_threads == [main]
+    compact_mod.assert_not_called()
+    listener.append_output.assert_called_once()
+    assert "Configure an API key" in listener.append_output.call_args[0][0]
+
+
+def test_run_slash_compact_stop_cancels_after_ui_thread_client():
+    """Stop still cancels /compact when LlmClient is built on the UI thread in send scope."""
+    from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
+    from plugin.framework.client.llm_client import LlmClient
+    from plugin.framework.send_cancellation import SendCancellation, agent_session
+
+    cancel = SendCancellation()
+    host = SimpleNamespace(
+        slash_document_model=MagicMock(return_value=object()),
+        cached_doc_type="writer",
+        cached_uno_services=None,
+    )
+    ctx = object()
+    session = MagicMock()
+    session.messages = [{"role": "user", "content": "hi"}]
+    api_config = {"endpoint": "http://127.0.0.1:5000", "model": "test-model"}
+    stopped_clients: list[LlmClient] = []
+    original_stop = LlmClient.stop
+
+    def track_stop(self: LlmClient) -> None:
+        stopped_clients.append(self)
+        original_stop(self)
+
+    with patch("plugin.chatbot.selection.get_api_config", return_value=api_config):
+        with patch("plugin.chatbot.selection.validate_api_config", return_value=(True, "")):
+            with patch("plugin.main.get_tools", return_value=MagicMock(get_schemas=MagicMock(return_value=[]))):
+                with patch.object(LlmClient, "stop", track_stop):
+                    with agent_session(cancel):
+                        client, tools = prepare_slash_compact_on_ui_thread(host, ctx, session)
+                        assert client is not None
+                        cancel.cancel()
+                        with patch("plugin.framework.config.get_config", return_value=True):
+                            with patch(
+                                "plugin.framework.client.model_fetcher.resolve_context_window",
+                                return_value=4096,
+                            ):
+                                with patch("plugin.framework.llm_lanes.llm_request_lane"):
+                                    line = run_slash_compact_sync(
+                                        focus="",
+                                        session=session,
+                                        cancel=cancel,
+                                        client=client,
+                                        tools=tools,
+                                    )
+
+    assert stopped_clients
+    assert "cancelled" in line.lower()
 
 
 def test_run_remember_writes_user_md(tmp_path, monkeypatch):
