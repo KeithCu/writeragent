@@ -177,14 +177,14 @@ class WriterAgentSmolModel(Model):
     max_tokens: int
     model_id: str | None
     _status_callback: Any
-    _stop_checker: Any
+    _cancel: Any
 
     def __init__(
         self,
         llm_client: LlmClient,
         max_tokens: int = 1024,
         status_callback: Any = None,
-        stop_checker: Any = None,
+        cancel: Any = None,
     ) -> None:
         # Note: Model.kwargs are intentionally ignored; request_with_tools defines wire keys.
         super().__init__()
@@ -192,7 +192,7 @@ class WriterAgentSmolModel(Model):
         self.max_tokens = max_tokens
         self.model_id = self.api.config.get("model")
         self._status_callback = status_callback
-        self._stop_checker = stop_checker
+        self._cancel = cancel
 
     def generate(
         self,
@@ -226,7 +226,7 @@ class WriterAgentSmolModel(Model):
             model=self.model_id,
             response_format=fmt,
             prepend_dev_build_system_prefix=False,
-            stop_checker=self._stop_checker,
+            cancel=self._cancel,
         )
 
         if self._status_callback:
@@ -364,24 +364,24 @@ def create_smol_model(
     client: LlmClient | None = None,
     max_tokens: int | None = None,
     status_callback: object | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: Any = None,
 ) -> WriterAgentSmolModel:
     """Construct a WriterAgentSmolModel with configured client, max tokens, and callbacks."""
     if max_tokens is None:
         max_tokens = int(get_config("chat_max_tokens"))
-    if stop_checker is None and ctx is not None:
-        stop_checker = ctx.stop_checker
+    if cancel is None and ctx is not None:
+        cancel = ctx.send_cancellation
     if status_callback is None and ctx is not None:
         status_callback = ctx.status_callback
     if client is None:
         uno_ctx = ctx.ctx if ctx is not None else None
         config = get_api_config()
-        client = LlmClient(config, uno_ctx, cancellation_scope=ctx.send_cancellation if ctx is not None else None)
+        client = LlmClient(config, uno_ctx, cancel=cancel)
     return WriterAgentSmolModel(
         client,
         max_tokens=max_tokens,
         status_callback=status_callback,
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
 
 

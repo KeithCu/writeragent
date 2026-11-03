@@ -48,7 +48,7 @@ def test_tool_context_init():
         caller=caller,
         status_callback=status_cb,
         append_thinking_callback=thinking_cb,
-        stop_checker=stop_cb
+        cancel=stop_cb
     )
 
     assert tc.doc is doc

@@ -132,13 +132,13 @@ def test_llm_client_not_registered_outside_agent_session():
         mock_outside.assert_not_called()
 
 
-def test_writer_agent_smol_model_passes_stop_checker():
+def test_writer_agent_smol_model_passes_cancel():
     api = MagicMock()
-    checker = MagicMock(return_value=False)
-    model = WriterAgentSmolModel(api, stop_checker=checker)
+    scope = SendCancellation()
+    model = WriterAgentSmolModel(api, cancel=scope)
     model.generate([{"role": "user", "content": "hi"}])
     _, kwargs = api.request_with_tools.call_args
-    assert kwargs.get("stop_checker") is checker
+    assert kwargs.get("cancel") is scope
 
 
 def test_unbound_cancel_leaves_default_executor_queue():
@@ -509,26 +509,19 @@ class TestSendCancellationHooksLocking:
 
 
 def test_send_stopped_predicates():
-    """send_stopped checks scope cancellation, stop_checker, and client stopped flag."""
+    """send_stopped checks scope cancellation and client stopped latch."""
     scope = SendCancellation()
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
 
-    # Initially not stopped
-    assert send_stopped(scope, lambda: False, client) is False
+    assert send_stopped(scope, client) is False
 
-    # Cancelled scope latches True
     scope.cancel()
-    assert send_stopped(scope, lambda: False, client) is True
+    assert send_stopped(scope, client) is True
 
-    # Active stop_checker returns True even if scope is uncancelled or None
     fresh_scope = SendCancellation()
-    assert send_stopped(fresh_scope, lambda: True, client) is True
-    assert send_stopped(None, lambda: True, client) is True
-
-    # Client _stopped flag latches True
-    client._stopped = True
-    assert send_stopped(fresh_scope, lambda: False, client) is True
+    client.stopped.return_value = True
+    assert send_stopped(fresh_scope, client) is True
 
 
 def test_send_cancellation_imports_before_queue_executor():

@@ -13,7 +13,14 @@ from unittest.mock import MagicMock, patch
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, StreamQueue, run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
+from plugin.framework.send_cancellation import SendCancellation
 from tests.framework.stream_test_helpers import DummyToolkit
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
 
 
 def test_run_async_worker_with_drain_next_tool_keeps_pumping():
@@ -946,7 +953,7 @@ def test_stop_checker_on_stopped_raise_is_not_an_error():
         on_stream_done=lambda _item: True,
         on_stopped=on_stopped,
         on_error=errors.append,
-        stop_checker=lambda: True,
+        stop_checker=lambda: _cancelled_scope().is_cancelled(),
     )
     assert outcome.done is True
     assert stopped == [True]

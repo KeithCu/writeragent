@@ -354,8 +354,8 @@ class PanelVoiceController:
         try:
             # Spawn-time scope. Do not call resolve_stop_checker inside the
             # worker: Stop's drain clears the field and the next send replaces it.
-            cancel_scope, stop_checker = capture_send_stop(self._panel)
-            if stop_checker():
+            cancel_scope, _unused = capture_send_stop(self._panel)
+            if cancel_scope is not None and cancel_scope.is_cancelled():
                 assign_send_outcome(self._panel, "Stopped")
                 return ""
 
@@ -367,7 +367,7 @@ class PanelVoiceController:
                 client = LlmClient(
                     api_config,
                     self._panel.ctx,
-                    cancellation_scope=cancel_scope,
+                    cancel=cancel_scope,
                     register_with_send=False,
                 )
                 if cancel_scope is not None and not cancel_scope.is_cancelled():
@@ -410,7 +410,7 @@ class PanelVoiceController:
                 log.exception("Transcription error in _transcribe_audio")
                 self._panel._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
                 raise
-            if stop_checker():
+            if cancel_scope is not None and cancel_scope.is_cancelled():
                 log.info("Speech-to-text finished after Stop; preserving transcript for query box")
                 assign_send_outcome(self._panel, "Stopped")
             return transcript_text

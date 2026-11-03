@@ -566,7 +566,7 @@ def _run_deep_web_research(
                 messages,
                 max_tokens=max_tok,
                 prepend_dev_build_system_prefix=False,
-                stop_checker=agent_params.stop_checker,
+                cancel=agent_params.cancellation_scope,
             )
 
         return chat
@@ -597,7 +597,7 @@ def _run_deep_web_research(
         worker_client = LlmClient(
             parent_client.config,
             parent_client.ctx,
-            cancellation_scope=agent_params.cancellation_scope,
+            cancel=agent_params.cancellation_scope,
         )
         from plugin.chatbot.smol_agent import create_smol_model
 
@@ -605,7 +605,7 @@ def _run_deep_web_research(
             client=worker_client,
             max_tokens=agent_params.smol_model.max_tokens,
             status_callback=agent_params.status_callback,
-            stop_checker=agent_params.stop_checker,
+            cancel=agent_params.cancellation_scope,
         )
         worker_params = replace(deep_params, smol_model=worker_model)
 
@@ -789,13 +789,18 @@ class WebResearchTool(ToolBase):
                 cache_max_mb=cache_max_mb,
                 cache_max_age_days=cache_max_age_days,
                 cdp_url=cdp_url,
-                stop_checker=ctx.stop_checker,
+                stop_checker=(
+                    (lambda: scope.is_cancelled())
+                    if (scope := getattr(ctx, "send_cancellation", None)) is not None
+                    and hasattr(scope, "is_cancelled")
+                    else getattr(ctx, "stop_checker", None)
+                ),
                 status_callback=status_callback,
                 append_thinking_callback=ctx.append_thinking_callback,
                 approval_callback=ctx.approval_callback if as_bool(get_config("chatbot.prompt_for_web_research")) else None,
                 chat_append_callback=ctx.chat_append_callback,
                 outer_query=query_str,
-                cancellation_scope=ctx.send_cancellation,
+                cancellation_scope=getattr(ctx, "send_cancellation", None),
             )
             if deep:
                 final_ans, researched_query = _run_deep_web_research(
