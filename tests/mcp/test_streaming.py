@@ -6,7 +6,7 @@ import json
 import os
 from plugin.framework.constants import get_plugin_dir
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(get_plugin_dir()))
