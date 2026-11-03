@@ -7,6 +7,7 @@
 # (at your option) any later version.
 
 import ast
+import sys
 from typing import Any
 
 import pytest
@@ -1279,6 +1280,7 @@ def test_slice9_timeout_validation_and_unwinding():
     assert val_at_timeout == val_after_wait
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGALRM timeout path is Unix-only")
 def test_timeout_restores_handler_when_alarm_arming_fails(monkeypatch):
     import signal
 
@@ -1882,6 +1884,7 @@ def test_timeout_fallback_sets_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
         lpe.abandoned_timeout = False
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGALRM timeout path is Unix-only")
 def test_sigalrm_timeout_leaves_abandoned_flag_clear():
     # Tip: normal SIGALRM path unwinds on the same thread without setting abandoned_timeout.
     import time
@@ -2416,6 +2419,7 @@ def test_local_python_executor_network_relax():
 
 
 def test_local_python_executor_files_relax(tmp_path):
+    import os
     import sys
     from plugin.contrib.smolagents.local_python_executor import (
         SANDBOX_POLICY_CONTEXT,
@@ -2470,7 +2474,9 @@ p = os.path.join("a", "b")
 scandir_type = type(scandir)
 """
         executor(code_allowed)
-        assert executor.state["link_dest"] == target_file
+        assert os.path.normcase(os.path.normpath(executor.state["link_dest"])) == os.path.normcase(
+            os.path.normpath(target_file)
+        )
         assert executor.state["p"] in ("a/b", "a\\b")
 
         for op in (
@@ -2514,6 +2520,7 @@ scandir_type = type(scandir)
         SANDBOX_POLICY_CONTEXT.reset(token)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os relax uses /dev/null and pty (Unix-only)")
 def test_local_python_executor_os_relax():
     from plugin.contrib.smolagents.local_python_executor import (
         SANDBOX_POLICY_CONTEXT,
@@ -2660,6 +2667,7 @@ def test_process_callables_blocked_when_os_false():
     assert "Import of pty is not allowed" in str(exc_pty.value)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="pty requires termios (Unix-only)")
 def test_process_callables_allowed_when_os_true():
     from plugin.contrib.smolagents.local_python_executor import SANDBOX_POLICY_CONTEXT
     from plugin.scripting.sandbox import (

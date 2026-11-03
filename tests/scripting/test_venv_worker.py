@@ -1454,12 +1454,13 @@ def test_shared_session_persists_after_soft_timeout():
         r1 = mgr.execute('x = 12345\nresult = x', session_id=sid)
         assert r1['status'] == 'ok'
         assert r1['result'] == 12345
+        slow_sec = 2.0 if sys.platform == 'win32' else 5.0
         with patch.object(vw, 'HOST_IPC_READ_GRACE_SEC', 8.0):
-            r2 = mgr.execute('import time\ntime.sleep(5)', session_id=sid, timeout_sec=1)
+            r2 = mgr.execute(f'import time\ntime.sleep({slow_sec})', session_id=sid, timeout_sec=1)
         assert r2['status'] == 'error'
         assert 'execution time' in r2.get('message', '').lower() or 'timed out' in r2.get('message', '').lower()
         r3 = mgr.execute('result = x + 1', session_id=sid)
-        assert r3['status'] == 'ok'
+        assert r3['status'] == 'ok', r3
         assert r3['result'] == 12346
     finally:
         mgr._terminate_worker()
@@ -1831,6 +1832,9 @@ def test_pool_key_change_retires_old_warm_child(monkeypatch: pytest.MonkeyPatch)
         second = PythonWorkerManager.get(other_exe, {'PATH': os.environ.get('PATH', '/usr/bin:/bin')})
         assert first._retired is True
         assert first._warm is None
+        deadline = time.monotonic() + 5.0
+        while pid_is_alive(old_pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
         assert not pid_is_alive(old_pid)
         second.exe = sys.executable
         assert second._ensure_running()

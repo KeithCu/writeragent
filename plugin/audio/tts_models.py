@@ -288,24 +288,25 @@ def _download_to_inner(
                 last_progress = 0.0
                 chunk_size = 256 * 1024
 
+                abort: DownloadOutcome | None = None
                 with open(tmp_path, "wb") as f_out:
                     while True:
                         if cancel is not None and cancel.is_cancelled():
-                            _unlink_temp(tmp_path)
-                            return DownloadOutcome.CANCELLED
+                            abort = DownloadOutcome.CANCELLED
+                            break
                         if time.monotonic() > deadline:
-                            _unlink_temp(tmp_path)
-                            return DownloadOutcome.FAILED
+                            abort = DownloadOutcome.FAILED
+                            break
 
                         try:
                             chunk = resp.read(chunk_size)
                         except (TimeoutError, socket.timeout):
                             if cancel is not None and cancel.is_cancelled():
-                                _unlink_temp(tmp_path)
-                                return DownloadOutcome.CANCELLED
+                                abort = DownloadOutcome.CANCELLED
+                                break
                             if time.monotonic() > deadline:
-                                _unlink_temp(tmp_path)
-                                return DownloadOutcome.FAILED
+                                abort = DownloadOutcome.FAILED
+                                break
                             continue
 
                         if not chunk:
@@ -324,8 +325,13 @@ def _download_to_inner(
                                 )
                             last_progress = now
 
-                    f_out.flush()
-                    os.fsync(f_out.fileno())
+                    if abort is None:
+                        f_out.flush()
+                        os.fsync(f_out.fileno())
+
+                if abort is not None:
+                    _unlink_temp(tmp_path)
+                    return abort
 
                 if expected_len is not None and downloaded != expected_len:
                     log.warning("Download size mismatch for %s: got %d, expected %d", url, downloaded, expected_len)
