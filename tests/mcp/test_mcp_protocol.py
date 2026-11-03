@@ -29,7 +29,7 @@ def test_precomputed_echo_shape_and_absence():
 
     def make_prepared(echo: dict[str, Any] | None) -> _PreparedMcpCall:
         ctx_mock = MagicMock(spec=ToolContext)
-        ctx_mock.stop_checker = None
+        ctx_mock.send_cancellation = None
         return _PreparedMcpCall(
             tool=MagicMock(),
             context=ctx_mock,

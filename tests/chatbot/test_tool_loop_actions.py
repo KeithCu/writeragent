@@ -394,7 +394,7 @@ def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
     host._active_execute_tool_fn.assert_called_once()
     assert host._active_execute_tool_fn.call_args.args == ("apply_document_content", {"content": "hi"}, host._active_model, host.ctx)
     kwargs = host._active_execute_tool_fn.call_args.kwargs
-    assert kwargs["stop_checker"]() is False
+    assert kwargs["send_cancellation"].is_cancelled() is False
     assert "captured_q" not in kwargs
     assert "captured_call_id" not in kwargs
     from plugin.chatbot.tool_loop_actions import current_turn
@@ -1117,7 +1117,7 @@ def test_subagent_append_and_approval_use_the_captured_queue():
 
     def registry_execute(name, ctx, **kwargs):
         seen["doc"] = ctx.doc
-        seen["stop"] = ctx.stop_checker
+        seen["cancel"] = ctx.send_cancellation
 
         # Simulate a new send happening mid-run
         from plugin.chatbot.tool_loop_actions import begin_send_turn
@@ -1172,7 +1172,8 @@ def test_subagent_append_and_approval_use_the_captured_queue():
         _restore_main(old_main)
 
     assert seen["doc"] is old_model
-    assert callable(seen["stop"])
+    assert seen["cancel"] is not None
+    assert not seen["cancel"].is_cancelled()
     assert "wait_checker" not in seen
     assert seen["approval"] == (False, None)
     assert first_q.empty()
@@ -1237,7 +1238,6 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
 
     def registry_execute(_name, ctx, **_kwargs):
         seen["scope"] = ctx.send_cancellation
-        seen["checker"] = ctx.stop_checker
         return {"status": "ok"}
 
     registry.execute.side_effect = registry_execute
@@ -1266,7 +1266,7 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
         _restore_main(old_main)
 
     assert seen["scope"] is old
-    assert seen["checker"]() is False # Because not cancelled
+    assert not seen["scope"].is_cancelled()
     assert not new.is_cancelled()
 
 def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):

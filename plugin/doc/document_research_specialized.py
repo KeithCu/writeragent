@@ -154,8 +154,10 @@ class DelegateReadDocument(ToolBase):
         if model is None or doc_type is None:
             return self._tool_error(err or "Open failed", path=path)
         try:
-            stop_checker = ctx.stop_checker if isinstance(ctx, ToolContext) else None
-            if stop_checker is not None and stop_checker():
+            from plugin.framework.send_cancellation import is_cancelled
+
+            scope = getattr(ctx, "send_cancellation", None)
+            if is_cancelled(scope):
                 return user_stopped_payload()
             result = run_inner_read_agent(ctx, model, doc_type, str(task))
         finally:

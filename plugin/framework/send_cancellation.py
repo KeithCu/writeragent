@@ -131,9 +131,14 @@ def capture_send_stop(host: Any) -> SendCancellation | None:
     return getattr(host, "_send_cancellation", None)
 
 
-def is_cancelled(scope: SendCancellation | None) -> bool:
+def is_cancelled(scope: Any) -> bool:
     """Return True if *scope* is cancelled."""
-    return scope is not None and scope.is_cancelled()
+    if scope is None:
+        return False
+    check = getattr(scope, "is_cancelled", None)
+    if not callable(check):
+        return False
+    return check() is True
 
 
 @contextmanager

@@ -353,7 +353,7 @@ def test_smol_executor_aborts_before_next_step_when_cancelled():
 
     scope = SendCancellation()
     ctx = MagicMock()
-    ctx.stop_checker = scope.is_cancelled
+    ctx.send_cancellation = scope
     agent = MagicMock()
     step1 = MagicMock()
     step1.__class__.__name__ = "ActionStep"

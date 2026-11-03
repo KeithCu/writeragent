@@ -62,6 +62,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             if err:
                 return err
 
+        scope = ctx.send_cancellation
         matches = search_spreadsheet_cells(
             ctx.doc,
             pattern,
@@ -70,7 +71,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             max_results=max_results,
             all_sheets=kwargs.get("all_sheets", False),
             sheet_name=kwargs.get("sheet"),
-            stop_checker=ctx.stop_checker,
+            stop_checker=scope.is_cancelled if scope is not None else None,
         )
 
         return {"status": "ok", "matches": matches, "count": len(matches)}

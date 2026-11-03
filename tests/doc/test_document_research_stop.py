@@ -1,5 +1,5 @@
 from unittest.mock import MagicMock, patch
-from plugin.framework.send_cancellation import SendCancelled
+from plugin.framework.send_cancellation import SendCancellation, SendCancelled
 from plugin.doc.document_research_specialized import DelegateReadDocument
 from plugin.doc.document_research_grep import grep_nearby_files
 from plugin.framework.tool import ToolContext
@@ -36,12 +36,14 @@ def test_delegate_read_document_closes_when_stopped(
         try:
             tool = DelegateReadDocument()
             r = ToolRegistry(services={})
+            scope = SendCancellation()
+            scope.cancel()
             ctx = ToolContext(
                 doc=MagicMock(),
                 ctx=MagicMock(),
                 doc_type="calc",
                 services={"tools": r},
-                stop_checker=MagicMock(return_value=True),
+                send_cancellation=scope,
             )
 
             res = tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")

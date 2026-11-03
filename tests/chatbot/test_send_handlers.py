@@ -1030,11 +1030,15 @@ def test_web_research_tool():
                 assert ctx.append_thinking_callback.called
 
 def test_web_research_tool_stop():
+    from plugin.framework.send_cancellation import SendCancellation
+
     ctx = MagicMock()
     ctx.ctx = MockContext()
     from unittest.mock import patch
     setattr(ctx.ctx, "getServiceManager", MagicMock())  # for config
-    ctx.stop_checker = lambda: True  # Stop immediately
+    scope = SendCancellation()
+    scope.cancel()
+    ctx.send_cancellation = scope
 
     with patch("plugin.chatbot.smol_agent.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
         with patch("urllib.request.urlopen"):
@@ -1900,7 +1904,6 @@ def test_run_search_keeps_spawn_scope_after_next_send():
 
     def execute(_name, tctx, bypass_thread_guard=False, **_kwargs):
         seen["scope"] = tctx.send_cancellation
-        seen["checker"] = tctx.stop_checker
         return {"status": "error", "message": "stop-here"}
 
     mock_main = MagicMock()
@@ -1922,7 +1925,7 @@ def test_run_search_keeps_spawn_scope_after_next_send():
                     assert mock_capture.call_count == 1
 
     assert seen["scope"] is old
-    assert seen["checker"]() is True
+    assert seen["scope"].is_cancelled() is True
     assert not new.is_cancelled()
 
 
@@ -1936,7 +1939,6 @@ def test_direct_image_keeps_spawn_scope_after_next_send():
 
     def execute(_name, tctx, bypass_thread_guard=False, **_kwargs):
         seen["scope"] = tctx.send_cancellation
-        seen["checker"] = tctx.stop_checker
         return {"status": "done", "message": "ok"}
 
     mock_main = MagicMock()
@@ -1958,7 +1960,7 @@ def test_direct_image_keeps_spawn_scope_after_next_send():
                     assert mock_capture.call_count == 1
 
     assert seen["scope"] is old
-    assert seen["checker"]() is True
+    assert seen["scope"].is_cancelled() is True
     assert not new.is_cancelled()
 
 

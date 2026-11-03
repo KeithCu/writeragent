@@ -25,7 +25,7 @@ def test_mcp_protocol_threads_send_cancellation():
         prepared = protocol._prepare_mcp_execution("some_tool", {}, None, send_cancellation=cancellation)
         assert prepared.context.send_cancellation is cancellation
         assert prepared.context.send_cancellation is not ambient
-        assert prepared.context.stop_checker() is True
+        assert prepared.context.send_cancellation.is_cancelled() is True
     finally:
         _current_send_cancellation.reset(token)
 
@@ -104,10 +104,10 @@ def test_cancellation_isolated_by_session():
 
     # Verify stop_checker isolation
     prepared_a = protocol._prepare_mcp_execution("tool", {}, req_id=1, session=session_a, send_cancellation=None)
-    assert hasattr(prepared_a, "context") and prepared_a.context.stop_checker() is True
+    assert hasattr(prepared_a, "context") and prepared_a.context.send_cancellation.is_cancelled() is True
 
     prepared_b = protocol._prepare_mcp_execution("tool", {}, req_id=1, session=session_b, send_cancellation=None)
-    assert hasattr(prepared_b, "context") and prepared_b.context.stop_checker() is False
+    assert hasattr(prepared_b, "context") and prepared_b.context.send_cancellation.is_cancelled() is False
 
     # Client A attempting to cancel Client B's request 2 (which Client A does not have) is dropped
     protocol._in_flight_requests[(session_b, 2)] = 1

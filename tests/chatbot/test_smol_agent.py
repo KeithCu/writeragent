@@ -1092,9 +1092,13 @@ class TestLibrarianSmol:
             assert ("called Keith") not in (kwargs["instructions"])
 
     def test_librarian_stop_calls_interrupt(self, mock_get_api, mock_get_int):
+        from plugin.framework.send_cancellation import SendCancellation
+
         ctx = MagicMock()
         ctx.ctx = MagicMock()
-        ctx.stop_checker.return_value = True
+        scope = SendCancellation()
+        scope.cancel()
+        ctx.send_cancellation = scope
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, patch(
             "plugin.chatbot.smol_agent.ToolCallingAgent"

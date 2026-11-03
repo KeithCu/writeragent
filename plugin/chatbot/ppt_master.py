@@ -27,7 +27,7 @@ def _run_ppt_master_venv_agent(
 
     status_callback = ctx.status_callback
     append_thinking_callback = ctx.append_thinking_callback
-    stop_checker = ctx.stop_checker
+    scope = ctx.send_cancellation
 
     if status_callback:
         status_callback("PPT-Master...")
@@ -57,7 +57,7 @@ def _run_ppt_master_venv_agent(
             if text:
                 append_thinking_callback(str(text))
 
-    if stop_checker and stop_checker():
+    if scope is not None and scope.is_cancelled():
         return format_error_payload(ToolExecutionError("PPT-Master stopped by user.", code="USER_STOPPED"))
 
     return run_ppt_master_venv_turn(
@@ -68,8 +68,8 @@ def _run_ppt_master_venv_agent(
         model=None,
         session_id=session_id,
         on_worker_event=on_worker_event,
-        stop_checker=stop_checker,
-        cancellation_scope=ctx.send_cancellation,
+        stop_checker=scope.is_cancelled if scope is not None else None,
+        cancellation_scope=scope,
     )
 
 

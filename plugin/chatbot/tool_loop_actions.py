@@ -820,7 +820,6 @@ def build_tool_execute_fn(
         ctx: Any,
         status_callback: Callable[[str], None] | None = None,
         append_thinking_callback: Callable[[str], None] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
         *,
         captured_turn: Any = None,
         send_cancellation: Any = None,
@@ -898,7 +897,6 @@ def build_tool_execute_fn(
             active_page_index=active_page_idx,
             status_callback=status_callback,
             append_thinking_callback=append_thinking_callback,
-            stop_checker=checker_scope.is_cancelled if checker_scope is not None else None,
             approval_callback=approval_cb,
             chat_append_callback=chat_append_cb,
             set_active_domain_callback=set_active_domain,
@@ -1154,7 +1152,6 @@ class ToolLoopEffectInterpreter:
                     return
 
                 call_kwargs: dict[str, Any] = {
-                    "stop_checker": bound_scope.is_cancelled if bound_scope is not None else None,
                     "send_cancellation": bound_scope,
                     "captured_turn": turn,
                 }

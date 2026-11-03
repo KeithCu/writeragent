@@ -667,7 +667,6 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
         MagicMock(),
         "calc",
         {"tools": r},
-        stop_checker=lambda: False,
         active_domain=active_domain_sentinel,
         active_page_index=active_page_sentinel,
         approval_callback=approval_cb,
