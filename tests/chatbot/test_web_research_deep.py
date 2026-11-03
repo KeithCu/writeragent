@@ -4,6 +4,22 @@ import threading
 import time
 
 import pytest
+
+def _research_config_side_effect(cfg_int, *, cache_enabled=True, cache_max_mb=50):
+    def side_effect(key: str):
+        if key == "chatbot.web_research_cache_enabled":
+            return cache_enabled
+        if key == "chatbot.web_cache_max_mb":
+            return cache_max_mb
+        if key == "chatbot.web_research_browser":
+            return "off"
+        if key == "chatbot.prompt_for_web_research":
+            return False
+        if key == "chat_max_tokens":
+            return 2048
+        return cfg_int(key)
+    return side_effect
+
 from unittest.mock import MagicMock, patch
 
 
@@ -678,6 +694,28 @@ class TestRunDeepResearch:
         assert assess_called is False
 
 
+def _tool_execute_get_config(key: str):
+    if key == "chatbot.web_research_cache_enabled":
+        return True
+    if key == "chatbot.web_cache_max_mb":
+        return 50
+    if key == "chatbot.web_cache_validity_days":
+        return 30
+    if key == "chatbot.web_research_browser":
+        return "off"
+    if key == "chat_max_tokens":
+        return 2048
+    if key == "chatbot.max_tool_rounds":
+        return 15
+    if "breadth" in key:
+        return 4
+    if "depth" in key:
+        return 2
+    if "sub_agent" in key:
+        return 0
+    return 50
+
+
 class TestWebResearchExecuteDeepKwarg:
     @patch("plugin.chatbot.web_research._run_web_agent")
     def test_default_calls_run_web_agent_once(self, mock_run):
@@ -697,14 +735,11 @@ class TestWebResearchExecuteDeepKwarg:
 
         with (
             patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en", "english")),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
             patch("plugin.framework.config.user_config_dir", return_value=None),
-            patch("plugin.framework.config.get_config_int", side_effect=lambda key: 15 if "max_tool" in key else 50),
-            patch("plugin.framework.config.get_config_int_safe", return_value=0),
             patch("plugin.framework.config.get_api_config", return_value={}),
+            patch("plugin.framework.config.get_config", side_effect=_tool_execute_get_config),
             patch("plugin.framework.client.llm_client.LlmClient"),
             patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
-            patch("plugin.framework.config.get_config", return_value="off"),
         ):
             out = tool.execute(ctx, query="test query")
 
@@ -731,14 +766,11 @@ class TestWebResearchExecuteDeepKwarg:
 
         with (
             patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en", "english")),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
             patch("plugin.framework.config.user_config_dir", return_value=None),
-            patch("plugin.framework.config.get_config_int", side_effect=lambda key: 4 if "breadth" in key else (2 if "depth" in key else 15)),
-            patch("plugin.framework.config.get_config_int_safe", return_value=0),
             patch("plugin.framework.config.get_api_config", return_value={}),
+            patch("plugin.framework.config.get_config", side_effect=_tool_execute_get_config),
             patch("plugin.framework.client.llm_client.LlmClient"),
             patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
-            patch("plugin.framework.config.get_config", return_value="off"),
         ):
             out = tool.execute(ctx, query="deep topic", deep=True)
 
@@ -773,12 +805,9 @@ def test_deep_change_writes_cache_under_the_edited_query(tmp_path):
         patch("plugin.chatbot.web_research._run_deep_web_research", return_value=("REPORT", edited)),
         patch("plugin.chatbot.web_research._write_research_cache", side_effect=_write),
         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
-        patch("plugin.framework.config.get_config_bool_safe", return_value=True),
         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
-        patch("plugin.framework.config.get_config_int", return_value=30),
-        patch("plugin.framework.config.get_config_int_safe", return_value=50),
         patch("plugin.framework.config.get_api_config", return_value={}),
-        patch("plugin.framework.config.get_config", return_value="off"),
+        patch("plugin.framework.config.get_config", side_effect=_tool_execute_get_config),
         patch("plugin.framework.client.llm_client.LlmClient"),
         patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
     ):
@@ -921,8 +950,8 @@ def test_deep_preview_reject_stops_the_run():
         params = _deep_preview_params(lambda q, tool, args, decision=decision: decision)
         with patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg, \
              patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
-             patch("plugin.framework.config.get_config_int", return_value=1), \
-             patch("plugin.framework.config.get_config_int_safe", return_value=1):
+             patch("plugin.framework.config.get_config", return_value=1), \
+             patch("plugin.framework.config.get_config", return_value=1):
             out = _run_deep_web_research(MagicMock(), "topic", params)
         answer, used_query = out
         assert isinstance(answer, dict)
@@ -949,8 +978,8 @@ def test_deep_preview_approval_uses_edited_query():
 
     with patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg, \
          patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
-         patch("plugin.framework.config.get_config_int", return_value=1), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=1), \
+         patch("plugin.framework.config.get_config", return_value=1), \
+         patch("plugin.framework.config.get_config", return_value=1), \
          patch("plugin.framework.client.llm_client.LlmClient", return_value=MagicMock()), \
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
          patch("plugin.chatbot.web_research._run_web_agent", side_effect=_capture_agent):
@@ -1032,27 +1061,21 @@ def _execute_deep_with_recording_client(tmp_path, *, extract_raises: bool, synth
     ctx.send_cancellation = scope
 
     def _cfg_int(key):
-        if key == "web_cache_validity_days":
+        if key == "chatbot.web_cache_validity_days":
             return 30
         if "breadth" in key:
             return 1
-        if key == "web_cache_max_mb":
+        if key == "chatbot.web_cache_max_mb":
             return 50
-        return 8
-
-    def _cfg_int_safe(key):
         if "max_rounds" in key:
             return 1
         if "sub_agent" in key:
             return 0
-        return 50
+        return 8
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
-         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
-         patch("plugin.framework.config.get_config_int_safe", side_effect=_cfg_int_safe), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.config.get_api_config", return_value={"model": "test-model"}), \
-         patch("plugin.framework.config.get_config", return_value="off"), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
          patch("plugin.framework.client.llm_client.LlmClient", _RecordingClient), \

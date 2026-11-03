@@ -154,8 +154,8 @@ def test_run_extension_update_check_dialog_formatting(monkeypatch):
     ctx = MagicMock()
     with patch("plugin.framework.client.requests.sync_request", return_value=SAMPLE_XML) as mock_sync, \
          patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox, \
-         patch("plugin.framework.config.get_config_float", return_value=0.0), \
-         patch("plugin.framework.config.set_config") as mock_set_config, \
+         patch("plugin.framework.config.get_config", return_value=0.0), \
+         patch("plugin.framework.config.save") as mock_set_config, \
          patch("plugin.version.EXTENSION_VERSION", "0.7.0"):
         run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
 
@@ -165,30 +165,32 @@ def test_run_extension_update_check_dialog_formatting(monkeypatch):
         assert msg_args[1] == "Update available"
         assert "A newer WriterAgent (0.7.1) is available." in msg_args[2]
         mock_set_config.assert_called_once()
-        assert mock_set_config.call_args[0][0] == _WRITERAGENT_PROFILE.config_key_epoch
-        assert mock_set_config.call_args[0][1] == pytest.approx(time.time(), abs=60)
+        assert mock_set_config.call_args[0][0] == {
+            _WRITERAGENT_PROFILE.config_key_epoch: pytest.approx(time.time(), abs=60),
+        }
 
 
 def test_transient_fetch_failure_retries_in_six_hours(monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     ctx = MagicMock()
     with patch("plugin.framework.client.requests.sync_request", side_effect=OSError("offline")), \
-         patch("plugin.framework.config.get_config_float", return_value=0.0), \
-         patch("plugin.framework.config.set_config") as mock_set_config:
+         patch("plugin.framework.config.get_config", return_value=0.0), \
+         patch("plugin.framework.config.save") as mock_set_config:
         run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
 
         mock_set_config.assert_called_once_with(
-            _WRITERAGENT_PROFILE.config_key_epoch,
-            pytest.approx(time.time() - 7 * 24 * 3600 + _FAILURE_RETRY_SECONDS, abs=60),
+            {_WRITERAGENT_PROFILE.config_key_epoch: pytest.approx(
+                time.time() - 7 * 24 * 3600 + _FAILURE_RETRY_SECONDS, abs=60
+            )},
         )
 
 
 def test_not_due_check_writes_nothing(monkeypatch):
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     ctx = MagicMock()
-    with patch("plugin.framework.config.get_config_float", return_value=time.time()), \
+    with patch("plugin.framework.config.get_config", return_value=time.time()), \
          patch("plugin.framework.client.requests.sync_request") as mock_sync, \
-         patch("plugin.framework.config.set_config") as mock_set_config:
+         patch("plugin.framework.config.save") as mock_set_config:
         run_extension_update_check(ctx, EXTENSION_ID_WRITERAGENT)
         mock_sync.assert_not_called()
         mock_set_config.assert_not_called()

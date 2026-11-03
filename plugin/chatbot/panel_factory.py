@@ -632,7 +632,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         removeItems, addItems) synchronously fires UNO listeners (ModelSyncListener,
         ModelTextSyncListener, ImageModelSyncListener). Without ``_in_refresh_controls``,
         those listeners treat programmatic UI updates as user edits, calling
-        sync_sidebar_text_model -> update_lru_history -> set_config -> event_bus
+        sync_sidebar_text_model -> update_lru_history -> save -> event_bus
         emit('config_changed') -> _refresh_controls_from_config in an infinite synchronous
         recursion loop on the main UI thread that freezes LibreOffice.
         """

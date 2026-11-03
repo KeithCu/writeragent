@@ -327,14 +327,14 @@ def _cold_kernel() -> None:
 
 
 def _settle_soffice_config() -> None:
-    """``get_config`` in soffice is mtime-cached for 2s. Client ``set_config`` is not enough."""
+    """``get_config`` in soffice is mtime-cached for 2s. Client ``save`` is not enough."""
     time.sleep(2.1)
 
 
 def _set_session_mode(ctx, mode: str) -> None:
     """Write session mode where soffice ``get_config`` will see it.
 
-    Client ``set_config`` can use a cached path that is not the throwaway
+    Client ``save`` can use a cached path that is not the throwaway
     ``UserInstallation`` profile. Write only throwaway / in-profile paths
     (see ``_session_config_paths``).
     """

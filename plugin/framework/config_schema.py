@@ -412,7 +412,7 @@ def _dataclass_schema_for_key(key: str) -> dict[str, Any] | None:
         if field_type:
             schema["type"] = field_type
         # validate() reads these from field metadata. Callers of
-        # get_config_schema / strict coerce (settings compare, set_config)
+        # get_config_schema / strict coerce (settings compare, save)
         # never saw them, so temperature 5.0 and chat_max_tokens -1 passed.
         for bound in ("min", "max", "min_exclusive", "code", "message", "fallback", "parse_fallback"):
             if bound in field.metadata:

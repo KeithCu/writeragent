@@ -213,11 +213,11 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
     ``field_specs`` may be the list the dialog built at open; it is rebuilt only when omitted.
 
     Endpoint, text model, API key, voice family, and the other fields go
-    through one ``set_configs``, and only when the value differs from disk
+    through one ``save``, and only when the value differs from disk
     or from the schema default of a missing key. LRU lists for those keys
     are entries in that same dict. A list that already starts with the new
     value is omitted. A batch that changes nothing does not write and does
-    not emit. Per-field ``set_config`` rewrites ``writeragent.json`` and
+    not emit. Per-field ``save`` rewrites ``writeragent.json`` and
     emits ``config:changed`` once each, and a second emit refreshes the
     sidebar mode combo.
     """
@@ -271,7 +271,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             # The generic label match above can bind a shared parenthetical
             # (French Female - Siwis) to the provider that was current when
             # the dialog opened. Read the combo text and this result's provider.
-            # set_scoped_tts_voice writes both voice keys via set_config; stage
+            # set_scoped_tts_voice writes both voice keys via save; stage
             # them in this batch instead.
             prov = result.get("audio__tts_provider") or ""
             model = result.get("audio__tts_model") or ""
@@ -329,7 +329,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
                 lru_rows.append((save_key, val, lru_name, current_endpoint if scoped else ""))
 
     if "api_key" in result:
-        # One slot, not a copy of the whole map. set_configs merges that slot
+        # One slot, not a copy of the whole map. save merges that slot
         # into the map it reads under the config lock. Copying the map here
         # and replacing it in the batch dropped a key another writer stored
         # for a different endpoint between this read and that write.
@@ -344,12 +344,12 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
         if slot is not None:
             pending["api_keys_by_endpoint"] = {slot: typed_key}
 
-    # One set_configs, and only keys that differ from disk or from the
+    # One save, and only keys that differ from disk or from the
     # schema default of a missing key. Passing the whole dialog made a
     # one-field edit a rewrite of every settings key.
     #
     # The new lists are computed here and stored in the same dict, so
-    # one set_configs writes the file once and emits once. A list that
+    # one save writes the file once and emits once. A list that
     # already has this value at the head is left out. Calling
     # update_lru_history afterwards writes writeragent.json again for
     # every LRU list.

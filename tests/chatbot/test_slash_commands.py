@@ -164,7 +164,7 @@ def test_set_config_raising_still_runs_help():
         clear_ask=MagicMock(),
         append_output=MagicMock(),
     )
-    with patch("plugin.framework.model_lru.set_config", side_effect=OSError("write failed")):
+    with patch("plugin.framework.model_lru.save", side_effect=OSError("write failed")):
         assert run_slash_command("help", host) is True
     host.append_output.assert_called_once()
 

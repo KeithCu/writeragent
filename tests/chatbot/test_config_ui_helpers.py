@@ -21,30 +21,24 @@ class TestSyncSidebarTextModel:
                 return self.config_data[key]
             return default if default is not None else ''
 
-        def mock_set_config(key, value, event_key=None):
-            self.config_data[key] = value
-
-        def mock_set_configs(values):
-            self.config_writes.append(dict(values))
-            self.config_data.update(values)
+        def mock_save(patch, event_key=None):
+            self.config_writes.append(dict(patch))
+            self.config_data.update(patch)
 
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
-        self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
-        self.configs_patcher = patch('plugin.chatbot.config_ui_helpers.set_configs', side_effect=mock_set_configs)
+        self.save_patcher = patch('plugin.chatbot.config_ui_helpers.save', side_effect=mock_save)
         self.get_mf_patcher = patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config)
-        self.set_mf_patcher = patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config)
+        self.set_mf_patcher = patch('plugin.framework.client.model_fetcher.save', side_effect=mock_save)
         self.mock_get = self.get_patcher.start()
-        self.mock_set = self.set_patcher.start()
-        self.configs_patcher.start()
+        self.mock_save = self.save_patcher.start()
         self.get_mf_patcher.start()
-        self.mock_mf_set = self.set_mf_patcher.start()
+        self.mock_mf_save = self.set_mf_patcher.start()
         self.endpoint_patcher = patch('plugin.chatbot.config_ui_helpers.get_current_endpoint', return_value=self.endpoint)
         self.endpoint_patcher.start()
 
     def teardown_method(self):
         self.get_patcher.stop()
-        self.set_patcher.stop()
-        self.configs_patcher.stop()
+        self.save_patcher.stop()
         self.get_mf_patcher.stop()
         self.set_mf_patcher.stop()
         self.endpoint_patcher.stop()
@@ -61,11 +55,10 @@ class TestSyncSidebarTextModel:
         assert (result) == ('anthropic/claude-3.7-sonnet')
         assert (self.config_data['text_model']) == ('anthropic/claude-3.7-sonnet')
         assert (self.config_data[f'model_lru@{self.endpoint}']) == (['anthropic/claude-3.7-sonnet'])
-        # Model id and LRU list are one set_configs, not set_text_model plus set_config.
+        # Model id and LRU list are one save, not set_text_model plus a second write.
         assert len(self.config_writes) == 1
         assert set(self.config_writes[0]) == {'text_model', f'model_lru@{self.endpoint}'}
-        self.mock_set.assert_not_called()
-        self.mock_mf_set.assert_not_called()
+        self.mock_mf_save.assert_not_called()
 
     def test_unchanged_model_skips_text_model_write(self):
         self.config_data['text_model'] = 'openai/gpt-oss-120b:nitro'
@@ -75,7 +68,9 @@ class TestSyncSidebarTextModel:
         with patch('plugin.framework.client.model_fetcher.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
             sync_sidebar_text_model(ctrl)
 
-        text_model_writes = [c for c in self.mock_mf_set.call_args_list if c.args[0] == 'text_model']
+        text_model_writes = [
+            c for c in self.mock_mf_save.call_args_list if 'text_model' in c.args[0]
+        ]
         assert (text_model_writes) == ([])
         assert all('text_model' not in write for write in self.config_writes)
         assert len(self.config_writes) <= 1
@@ -89,7 +84,7 @@ class TestSyncSidebarTextModel:
 
         assert (result) is None
         assert (self.config_data['text_model']) == ('openai/gpt-oss-120b:nitro')
-        self.mock_mf_set.assert_not_called()
+        self.mock_mf_save.assert_not_called()
 
     def test_missing_control_returns_none(self):
         assert (sync_sidebar_text_model(None)) is None
@@ -110,13 +105,13 @@ class TestSyncSidebarTextModel:
                 return self.config_data[key]
             return default if default is not None else ''
 
-        def shared_set_config(key, value, event_key=None):
-            self.config_data[key] = value
+        def shared_save(patch, event_key=None):
+            self.config_data.update(patch)
 
         with patch('plugin.framework.config.get_config', side_effect=shared_get_config), \
-             patch('plugin.framework.config.set_config', side_effect=shared_set_config), \
+             patch('plugin.framework.config.save', side_effect=shared_save), \
              patch('plugin.framework.client.model_fetcher.get_config', side_effect=shared_get_config), \
-             patch('plugin.framework.client.model_fetcher.set_config', side_effect=shared_set_config), \
+             patch('plugin.framework.client.model_fetcher.save', side_effect=shared_save), \
              patch('plugin.framework.client.model_fetcher.get_text_model') as mock_get_text_model:
             mock_get_text_model.side_effect = lambda: str(self.config_data.get('text_model') or '')
             sync_sidebar_text_model(ctrl)
@@ -134,7 +129,7 @@ def test_sync_sidebar_text_model_writes_model_and_lru_once(tmp_path):
 
     path = tmp_path / "writeragent.json"
     endpoint = "https://openrouter.ai/api"
-    path.write_text(json.dumps({"text_model": "old-model", "python_venv_path": "/old"}), encoding="utf-8")
+    path.write_text(json.dumps({"text_model": "old-model", "scripting.python_venv_path": "/old"}), encoding="utf-8")
     reset_config_for_tests()
     real_write = _write_config_file
     ctrl = MagicMock()
@@ -156,7 +151,7 @@ def test_sync_sidebar_text_model_writes_model_and_lru_once(tmp_path):
             data = json.loads(body[body.index("{"):])
             assert data["text_model"] == "new-model"
             assert data[f"model_lru@{endpoint}"] == ["new-model"]
-            assert data["python_venv_path"] == "/old"
+            assert data["scripting.python_venv_path"] == "/old"
 
             write.reset_mock()
             emit.reset_mock()
@@ -187,17 +182,17 @@ class TestPopulateComboboxWithLruFetchOptions:
         def mock_get_config(key):
             return self.config_data.get(key, '')
 
-        def mock_set_config(key, value):
-            self.config_data[key] = value
+        def mock_save(patch, event_key=None):
+            self.config_data.update(patch)
 
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
-        self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
+        self.save_patcher = patch('plugin.chatbot.config_ui_helpers.save', side_effect=mock_save)
         self.get_patcher.start()
-        self.set_patcher.start()
+        self.save_patcher.start()
 
     def teardown_method(self):
         self.get_patcher.stop()
-        self.set_patcher.stop()
+        self.save_patcher.stop()
 
     def test_openrouter_combobox_does_not_fetch_models(self):
         # Massive providers stay LRU + defaults. Vision lookup fetches /v1/models

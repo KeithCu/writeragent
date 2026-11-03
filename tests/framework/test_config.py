@@ -768,7 +768,7 @@ class TestConfigSyncFileIO:
         assert mock_emit.call_args.kwargs["value"] == "https://api.example.com"
         assert self._load_written().get("endpoint") == "https://api.example.com"
 
-    def test_set_configs_api_key_patch_keeps_other_slots(self):
+    def test_save_api_key_patch_keeps_other_slots(self):
         """A one-slot save merges under the lock. It does not replace the map.
 
         What was wrong: the caller copied the map, edited one URL, and the
@@ -952,7 +952,7 @@ class TestConfigSyncFileIO:
         assert keys.get('https://api.openai.com') == 'sk-a'
         assert keys.get('http://localhost:11434') == 'sk-b'
 
-    def test_set_configs_unchanged_defaults_do_not_rewrite(self):
+    def test_save_unchanged_defaults_do_not_rewrite(self):
         """A missing key at its default is not a change, even in a batch."""
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'custom-model'}, f)
@@ -965,7 +965,7 @@ class TestConfigSyncFileIO:
         with open(self.config_path, encoding='utf-8') as f:
             assert f.read() == before
 
-    def test_set_configs_two_changes_leave_other_keys(self):
+    def test_save_two_changes_leave_other_keys(self):
         """One or two real changes patch those keys and emit once."""
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({

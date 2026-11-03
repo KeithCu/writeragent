@@ -562,10 +562,22 @@ def test_settings_dialog_saved_fields_agreement(tmp_path: Path) -> None:
     all_specs_names: set[str] = set()
     ctx = MagicMock()
     with (
-        patch("plugin.chatbot.settings_dialog.get_config_str", return_value=""),
-        patch("plugin.chatbot.settings_dialog.get_config_int", return_value=1),
-        patch("plugin.chatbot.settings_dialog.get_config_float", return_value=1.0),
-        patch("plugin.chatbot.settings_dialog.get_config_bool", return_value=True),
+        patch(
+            "plugin.chatbot.settings_dialog.get_config",
+            side_effect=lambda key: (
+                "Square"
+                if key == "image_default_aspect"
+                else 512
+                if key == "image_base_size"
+                else 1.0
+                if key == "temperature"
+                else True
+                if key in ("image_auto_gallery", "image_insert_frame")
+                else 1
+                if key.endswith("_tokens") or "timeout" in key
+                else ""
+            ),
+        ),
         patch("plugin.chatbot.settings_dialog.get_text_model", return_value="dummy_text"),
         patch("plugin.chatbot.settings_dialog.get_image_model", return_value="dummy_image"),
         patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="default"),

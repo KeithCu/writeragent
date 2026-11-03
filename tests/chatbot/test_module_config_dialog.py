@@ -125,15 +125,15 @@ def test_apply_module_config_result_stores_select_option_values():
     disk = {"demo.count": 1, "demo.mode": "fast"}
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", side_effect=lambda key: disk[key]), \
-         patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
+         patch("plugin.chatbot.settings_fields.save") as mock_save:
         specs = build_module_field_specs("demo", ctx=ctx, control_ids="flat")
         apply_field_specs_result({"count": "42", "mode": "Fast Mode"}, specs)
-        mock_set_configs.assert_called_once_with({"demo.count": "42"})
+        mock_save.assert_called_once_with({"demo.count": "42"})
 
-        mock_set_configs.reset_mock()
+        mock_save.reset_mock()
         disk["demo.mode"] = "slow"
         apply_field_specs_result({"count": "42", "mode": "Fast Mode"}, specs)
-        mock_set_configs.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
+        mock_save.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
 
 
 def test_extract_result_prefers_numeric_getvalue_over_stale_gettext():
@@ -200,10 +200,10 @@ def test_extract_result_checkbox_bool_skips_write_when_already_true():
     # Verify through apply_field_specs_result
     with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
          patch("plugin.chatbot.settings_fields.get_config", return_value=True), \
-         patch("plugin.chatbot.settings_fields.set_configs") as mock_set_configs:
+         patch("plugin.chatbot.settings_fields.save") as mock_save:
         specs = build_module_field_specs("demo", ctx=MagicMock(), control_ids="flat")
         apply_field_specs_result(result, specs)
-        mock_set_configs.assert_not_called()
+        mock_save.assert_not_called()
 
 
 def test_tab_buttons_follow_element_order_and_skip_other_controls():

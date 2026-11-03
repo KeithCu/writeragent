@@ -50,7 +50,7 @@ def next_lru_list(current: Any, val: Any) -> list[str] | None:
         return None
     # LRU entries are model id strings; get_config is JSON-shaped so normalize explicitly.
     lru: list[str] = [str(item) for item in current] if isinstance(current, list) else []
-    # Already at the head: a set_config here would rewrite the file and emit
+    # Already at the head: a save here would rewrite the file and emit
     # config:changed for a list the UI already shows first.
     if lru and lru[0] == val_str:
         return None
@@ -62,7 +62,7 @@ def update_lru_history(val: Any, lru_key: str, endpoint: str) -> None:
 
     No write when the value is blank or already the first item. Settings OK
     and the sidebar model sync do not call this once per key: they merge
-    ``next_lru_list`` into the same ``set_configs`` as the field change.
+    ``next_lru_list`` into the same ``save`` as the field change.
     """
     scoped_key = lru_config_key(lru_key, endpoint)
     new_lru = next_lru_list(get_config(scoped_key), val)

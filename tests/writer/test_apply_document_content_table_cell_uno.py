@@ -175,7 +175,7 @@ def test_emptying_an_inner_table_deletes_only_the_inner_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_emptied_table_stays_until_review_accept_uno(ctx, doc):
     """Under review the delete is a tracked change. removeTextContent would drop the table with no redline."""
-    from plugin.framework.config import get_config, set_config
+    from plugin.framework.config import get_config, save
 
     skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     _insert_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
@@ -183,7 +183,7 @@ def test_emptied_table_stays_until_review_accept_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
-    set_config(flag, "record")
+    save({flag: "record"})
     try:
         res = ApplyDocumentContent().execute(
             tool_ctx, content=[""], old_content="ONLY_FEE", target="search"
@@ -196,21 +196,21 @@ def test_emptied_table_stays_until_review_accept_uno(ctx, doc):
         _accept_all(doc, ctx)
         assert doc.getTextTables().hasByName("Fee") is False
     finally:
-        set_config(flag, prev)
+        save({flag: prev})
 
 
 @native_test
 @with_native_doc("writer")
 def test_rejecting_the_emptied_table_restores_it_uno(ctx, doc):
     """Rejecting the tracked delete puts the table and its text back."""
-    from plugin.framework.config import get_config, set_config
+    from plugin.framework.config import get_config, save
 
     skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     _insert_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     flag = "doc.agent_edit_review_mode"
     prev = get_config(flag)
-    set_config(flag, "record")
+    save({flag: "record"})
     try:
         res = ApplyDocumentContent().execute(
             tool_ctx, content=[""], old_content="ONLY_FEE", target="search"
@@ -220,7 +220,7 @@ def test_rejecting_the_emptied_table_restores_it_uno(ctx, doc):
         assert doc.getTextTables().hasByName("Fee")
         assert "ONLY_FEE" in doc.getTextTables().getByName("Fee").getCellByName("A1").getString()
     finally:
-        set_config(flag, prev)
+        save({flag: prev})
 
 
 def _apply_clear(ctx, doc, old_content, **kwargs):

@@ -626,7 +626,7 @@ def _apply_fake_stt(mode: str) -> None:
             }
 
         # Keep existing config for STT provider to allow testing both local and endpoint.
-        # set_config("audio.stt_provider", "local")
+        # save("audio.stt_provider", "local")
 
         _FAKE_STT_MODE = mode
         _FAKE_STT_STATE = _fresh_or_update_fake_state(_FAKE_STT_STATE, mode, _FAKE_STT_SAVED)
@@ -1187,7 +1187,7 @@ def handle_debug_sidebar_command(command: str) -> None:
         _post_to_soffice_vcl(kick_pending_peer_starts, sl=sl)
         _write_debug_snapshot(sl)
         return
-    # Packet I5: a short request_timeout read by the soffice sidebar (URP set_config is
+    # Packet I5: a short request_timeout read by the soffice sidebar (URP save is
     # not seen there); RESTORE puts back the value SHORT replaced.
     if op in ("REQUEST_TIMEOUT_SHORT", "REQUEST_TIMEOUT_RESTORE"):
         global _SAVED_REQUEST_TIMEOUT

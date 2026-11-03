@@ -76,7 +76,7 @@ def test_configured_python_exec_timeout_failed_read_uses_default_not_min(mock_ge
     """Failed read uses the schema/fallback default, not the 1s floor.
 
     The _resolve_default patch is not used by the fixed function. It is what
-    makes get_config_int_safe return 0 if the function goes back to that helper.
+    makes get_config return 0 if the function goes back to that helper.
     In this checkout the manifest is present, so without this patch the old
     helper still returns 10 and the assertion would pass on the bug.
     """

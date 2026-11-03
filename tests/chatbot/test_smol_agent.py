@@ -698,7 +698,7 @@ def test_smol_tool_adapter_resolves_dynamic_parameters():
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.chatbot.smol_agent.get_config_int")
+@patch("plugin.chatbot.smol_agent.get_config")
 @patch("plugin.chatbot.smol_agent.get_api_config")
 def test_build_toolcalling_agent_wires_max_tokens_and_steps(
     mock_get_api, mock_get_int, mock_llm, mock_wsm, mock_tca
@@ -751,7 +751,7 @@ def test_create_smol_model_reads_chat_max_tokens_and_explicit_max_tokens_wins():
     ctx.status_callback = MagicMock()
 
     with patch("plugin.chatbot.smol_agent.get_api_config", return_value={"model": "m"}), \
-         patch("plugin.chatbot.smol_agent.get_config_int", return_value=2048), \
+         patch("plugin.chatbot.smol_agent.get_config", return_value=2048), \
          patch("plugin.chatbot.smol_agent.LlmClient"), \
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel") as mock_wsm:
 
@@ -892,7 +892,7 @@ def test_run_inner_tool_agent():
 # =============================================================================
 
 
-@patch("plugin.chatbot.smol_agent.get_config_int", side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024)
+@patch("plugin.chatbot.smol_agent.get_config", side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024)
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 class TestLibrarianSmol:
     def test_tool_adapter_initialization(self, mock_get_api, mock_get_int):
