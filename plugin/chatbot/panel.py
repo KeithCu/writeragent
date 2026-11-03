@@ -269,7 +269,6 @@ class SendButtonListener(BaseActionListener):
     _acp_backend_id: str | None
     _approval_event: Any
     slash_popup: Any
-    _slash_compact_allowed: bool
     clear_listener: Any
     rich_text_widget: Any
     _rich_plain_fallback_warned: bool
@@ -361,7 +360,6 @@ class SendButtonListener(BaseActionListener):
         self._stop_mouse_listener = None
         self._record_mouse_listener = None
         self.slash_popup = None
-        self._slash_compact_allowed = False
         self.clear_listener = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
@@ -549,7 +547,7 @@ class SendButtonListener(BaseActionListener):
         from plugin.chatbot.slash_commands import run_slash_compact_worker
         from plugin.framework.i18n import _
 
-        if self.sidebar_state.send.is_busy and not getattr(self, "_slash_compact_allowed", False):
+        if self.sidebar_state.tool_loop is not None:
             self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
             return
         run_slash_compact_worker(self, focus=focus, session=self.session, ctx=self.ctx)
@@ -1257,10 +1255,6 @@ class SendButtonListener(BaseActionListener):
             return
 
         log.info("=== _do_send START ===")
-        doc_info = self._begin_send()
-        if not doc_info:
-            return
-        model, doc_type_label = doc_info
 
         query_text = self._read_and_clear_query()
         if query_text is None:
@@ -1274,20 +1268,27 @@ class SendButtonListener(BaseActionListener):
         )
 
         parsed = parse_slash_text(query_text)
+        slash_cmd = None
+        slash_arg = ""
         if parsed is not None:
-            cmd, arg = parsed
-            if cmd.requires_arg and not arg.strip():
-                self.append_output("\n" + format_usage_line(cmd) + "\n")
+            slash_cmd, slash_arg = parsed
+            if slash_cmd.requires_arg and not slash_arg.strip():
+                self.append_output("\n" + format_usage_line(slash_cmd) + "\n")
                 self._terminal_status = "Ready"
                 return
-            self._slash_compact_allowed = cmd.name == "compact"
-            try:
-                if run_slash_command(cmd.name, self, arg, from_popup=False):
-                    if not slash_command_continues_chat_turn(cmd):
-                        self._terminal_status = "Ready"
-                    return
-            finally:
-                self._slash_compact_allowed = False
+            if not slash_command_continues_chat_turn(slash_cmd):
+                run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False)
+                self._terminal_status = "Ready"
+                return
+
+        doc_info = self._begin_send()
+        if not doc_info:
+            return
+        model, doc_type_label = doc_info
+
+        if slash_cmd is not None:
+            if run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False):
+                return
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
