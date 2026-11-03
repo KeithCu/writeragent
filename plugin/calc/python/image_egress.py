@@ -310,6 +310,7 @@ def insert_image_result_on_sheet(
     image_path: str | None = None,
     image_count: int | None = None,
     notify_cell: bool = False,
+    on_main: bool | None = None,
 ) -> None:
     """Write image payload bytes to a temp file and insert as a cell-anchored shape on the target sheet.
 
@@ -345,7 +346,8 @@ def insert_image_result_on_sheet(
         if notify_cell:
             _clear_image_cell_annotation(doc, code)
 
-    if not main.is_current():
+    is_ui_thread = on_main if on_main is not None else main.is_current()
+    if not is_ui_thread:
         def _off_main_wrapper() -> None:
             try:
                 _run()

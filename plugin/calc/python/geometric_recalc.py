@@ -211,7 +211,13 @@ def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, workbook_key: str = "
     return True
 
 
-def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any], *, doc: Any = None) -> list[Any]:
+def maybe_strip_geometric_eval_args(
+    resolved_code: str,
+    args: list[Any],
+    *,
+    doc: Any = None,
+    cell_ctx: Any = None,
+) -> list[Any]:
     """Drop the last split arg when the triple is strip-safe.
 
     Must run after ``split_python_addin_data_args`` and before
@@ -221,11 +227,22 @@ def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any], *, doc:
     """
     if not args:
         return args
-    from plugin.framework.queue_executor import main
+    ctx_obj = cell_ctx if cell_ctx is not None else (doc if hasattr(doc, "on_main") else None)
+    if ctx_obj is not None:
+        if not ctx_obj.on_main:
+            return args
+        target_doc = ctx_obj.doc
+        if target_doc is None:
+            return args
+        workbook_key = ctx_obj.workbook_key
+    else:
+        if doc is None:
+            return args
+        from plugin.framework.queue_executor import main
 
-    if doc is None or not main.is_current():
-        return args
-    workbook_key = geometric_workbook_key(doc)
+        if not main.is_current():
+            return args
+        workbook_key = geometric_workbook_key(doc)
     key = EvalIndexKey(workbook_key, resolved_code, len(args))
     if key not in _RUNTIME.strip_safe:
         return args
@@ -482,24 +499,39 @@ def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
 
 
-def ensure_geometric_strip_index_for_eval(doc: Any, ctx: Any = None) -> None:
+def ensure_geometric_strip_index_for_eval(
+    doc: Any = None,
+    ctx: Any = None,
+    *,
+    cell_ctx: Any = None,
+) -> None:
     """UI-thread only: rebuild ``_STRIP_SAFE`` from UDProp before packing ``data``."""
-    if doc is None:
-        return
-    from plugin.framework.queue_executor import main
+    ctx_obj = cell_ctx if cell_ctx is not None else (doc if hasattr(doc, "on_main") else None)
+    if ctx_obj is not None:
+        if not ctx_obj.on_main:
+            return
+        target_doc = ctx_obj.doc
+        if target_doc is None:
+            return
+        workbook_key = ctx_obj.workbook_key
+    else:
+        if doc is None:
+            return
+        from plugin.framework.queue_executor import main
 
-    if not main.is_current():
-        return
-    workbook_key = geometric_workbook_key(doc)
+        if not main.is_current():
+            return
+        target_doc = doc
+        workbook_key = geometric_workbook_key(target_doc)
     if geometric_flag_enabled() and any(key.workbook_key == workbook_key for key in _RUNTIME.strip_safe):
         return
-    load_geometric_registry_for_doc(doc)
+    load_geometric_registry_for_doc(target_doc)
     with _RUNTIME.lock:
         has_records = any(key[0] == workbook_key for key in _RUNTIME.records)
     if not has_records:
         replace_geometric_strip_safe(workbook_key, frozenset())
         return
-    _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
+    _rebuild_strip_safe_from_doc(ctx, target_doc, workbook_key)
 
 
 def _on_geometric_config_changed(**kwargs: Any) -> None:

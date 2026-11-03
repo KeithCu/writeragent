@@ -2278,7 +2278,7 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     assert raw & 0xFFFF == 519
     assert "Code execution failed" in caplog.text
     assert "ValueError" in caplog.text
-    rec_diag.assert_called_with(ctx, "bad_code", {"status": "error", "message": err_msg}, status="error", message=err_msg, doc=doc)
+    rec_diag.assert_called_with(ctx, "bad_code", {"status": "error", "message": err_msg}, status="error", message=err_msg, doc=doc, workbook_key="calc:test://calc")
 
     # 2. ZeroDivisionError-shaped dict -> 532
     div_msg = "Code execution failed at line '1/0' due to: ZeroDivisionError: division by zero"
@@ -2526,6 +2526,7 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
         status="error",
         message="quick_stats: UNKNOWN_COLUMN: Unknown columns: Region",
         doc=doc,
+        workbook_key="calc:test://calc",
     )
 
     # Message text that would stay a Settings string on the worker-status path is still #VALUE! here.
@@ -2562,7 +2563,7 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
     assert isinstance(out_plain, str)
     assert "hello" in out_plain
     assert caplog.text == ""
-    rec_diag.assert_called_once_with(ctx, "plain_dict", {"status": "ok", "result": plain}, status="ok", doc=doc)
+    rec_diag.assert_called_once_with(ctx, "plain_dict", {"status": "ok", "result": plain}, status="ok", doc=doc, workbook_key="calc:test://calc")
 
     # Worker USER_STOPPED is still the text path (status on the envelope, not a helper result).
     caplog.clear()

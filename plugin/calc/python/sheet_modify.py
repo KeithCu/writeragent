@@ -29,6 +29,7 @@ from types import SimpleNamespace
 from typing import Any, Generator
 
 from plugin.framework.errors import best_effort, uno_read
+from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseModifyListener
 
 log = logging.getLogger(__name__)
@@ -237,6 +238,7 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
             log.exception("Error in geometric sheet modify pass (%s)", name)
 
 
+@main_thread_only
 def dispatch_sheet_modified(
     ctx: Any,
     doc_key: str,
@@ -245,9 +247,7 @@ def dispatch_sheet_modified(
     doc: Any = None,
 ) -> None:
     """Shared ``modified`` entry. Debounces; does not walk ``state.spills``."""
-    from plugin.framework.queue_executor import main
-
-    if not main.is_current() or _skip_sheet_modify():
+    if _skip_sheet_modify():
         return
     sheet = getattr(event, "Source", None)
     if sheet is None:

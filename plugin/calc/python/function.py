@@ -490,13 +490,89 @@ def _get_calc_doc(ctx: Any) -> Any | None:
     return uno_read(_probe, None)
 
 
-def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
+@dataclass(frozen=True, slots=True)
+class CellContext:
+    on_main: bool
+    doc: Any
+    state: WorkbookState | None  # for_doc(doc) when on_main and doc is not None, else known(doc)
+    session_id: str | None  # sk[2] when on_main, else None
+    init_kwargs: dict[str, Any]
+    scoped_dir: str | None
+    origin: str  # "row,col" or ""
+    workbook_key: str = ""  # calc_workbook_base_session_id(doc) when on_main and doc is not None, else ""
+    diag_workbook_key: str = "unknown"  # existing_calc_session_id(doc) or "unknown" when on_main, else "unknown"
+    sk: tuple[str, ...] = ()
+
+
+def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool | None = None) -> CellContext:
+    if on_main is None:
+        from plugin.framework.queue_executor import main
+
+        on_main = main.is_current()
+    if on_main:
+        state = WorkbookState.for_doc(doc) if doc is not None else None
+        try:
+            sk = session_key(ctx, code, doc=doc, on_main=True)
+        except TypeError:
+            sk = session_key(ctx, code, doc=doc)
+        session_id = sk[2] or None
+        origin = sk[4]
+        init_kwargs = get_python_init_kwargs(ctx, doc=doc, on_main=True) if doc is not None else {}
+        scoped_dir = None
+        if doc is not None:
+            try:
+                from plugin.doc.document_research import get_document_directory
+
+                folder = get_document_directory(doc)
+                scoped_dir = folder or None
+            except Exception:
+                log.debug("scoped_dir binding failed", exc_info=True)
+        from plugin.scripting.session_manager import calc_workbook_base_session_id, existing_calc_session_id
+
+        workbook_key = calc_workbook_base_session_id(doc) if doc is not None else ""
+        diag_workbook_key = (
+            best_effort(lambda: existing_calc_session_id(doc) or "unknown", "diagnostics workbook key", "unknown")
+            if doc is not None
+            else "unknown"
+        )
+    else:
+        state = WorkbookState.known(doc) if doc is not None else None
+        sk = ("", "", "", code, "")
+        session_id = None
+        origin = ""
+        init_kwargs = {}
+        scoped_dir = None
+        workbook_key = ""
+        diag_workbook_key = "unknown"
+    return CellContext(
+        on_main=on_main,
+        doc=doc,
+        state=state,
+        session_id=session_id,
+        init_kwargs=init_kwargs,
+        scoped_dir=scoped_dir,
+        origin=origin,
+        workbook_key=workbook_key,
+        diag_workbook_key=diag_workbook_key,
+        sk=sk,
+    )
+
+
+def session_key(ctx: Any, code: str, doc: Any | None = None, *, on_main: bool | None = None) -> tuple[str, ...]:
     # Bugfix (#402, #411): Include workbook session_id in key so unsaved documents
     # (where doc_url="") do not collide in the in-memory formula result cache.
     # Do not use getActiveSheet(): full recalc's active sheet is not the formula cell
     # (XAddIn has no calling cell). Unique locate fills sheet+origin; otherwise
     # callers must not share WorkerResultSession.
-    from plugin.framework.queue_executor import main
+    if on_main is None:
+        if isinstance(ctx, CellContext):
+            on_main = ctx.on_main
+        elif hasattr(ctx, "on_main") and isinstance(ctx.on_main, bool):
+            on_main = ctx.on_main
+        else:
+            from plugin.framework.queue_executor import main
+
+            on_main = main.is_current()
 
     # Skip UNO off the main thread. Off-main finalize hands
     # scalar_for_list_result the cached spill model (the object a deferred
@@ -504,7 +580,7 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     # None lets getURL and locate_formula_cell_in_doc touch that model from
     # a Yellow thread. The key stays ambiguous, and WorkerResultSession is
     # not shared, until the UI thread locates the cell.
-    if not main.is_current():
+    if not on_main:
         return ("", "", "", code, "")
     doc_url = ""
     sheet_name = ""
@@ -585,13 +661,34 @@ def _worker_data_token(worker_data: Any) -> str:
     return h.hexdigest()
 
 
-def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any = None, doc: Any | None = None, data_token: str | None = None) -> float | str | bool:
+def scalar_for_list_result(
+    ctx: Any,
+    code: str,
+    result: Any,
+    *,
+    worker_data: Any = None,
+    doc: Any | None = None,
+    data_token: str | None = None,
+    on_main: bool | None = None,
+) -> float | str | bool:
     """Return one Calc scalar per invocation when the worker produced a list."""
     flat: tuple[Any, ...] = tuple(py_addin_cell_value(v) for v in flatten_result_values(result))
     if not flat:
         return ""
+    if on_main is None:
+        if isinstance(ctx, CellContext):
+            on_main = ctx.on_main
+        elif hasattr(ctx, "on_main") and isinstance(ctx.on_main, bool):
+            on_main = ctx.on_main
+        else:
+            from plugin.framework.queue_executor import main
+
+            on_main = main.is_current()
     tid = threading.get_ident()
-    sk = session_key(ctx, code, doc=doc)
+    try:
+        sk = session_key(ctx, code, doc=doc, on_main=on_main)
+    except TypeError:
+        sk = session_key(ctx, code, doc=doc)
     if not sk[4]:
         # Ambiguous formula identity: do not share next_index across duplicate =PY() cells.
         # flat was already rejected when empty.
@@ -599,12 +696,11 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
     token = data_token if data_token is not None else _worker_data_token(worker_data)
     key = (tid, sk, token)
     now = time.monotonic()
-    from plugin.framework.queue_executor import main
 
     target_doc = doc
     wb_state = None
     if target_doc is not None:
-        wb_state = WorkbookState.for_doc(target_doc) if main.is_current() else WorkbookState.known(target_doc)
+        wb_state = WorkbookState.for_doc(target_doc) if on_main else WorkbookState.known(target_doc)
     if wb_state is None:
         states = WorkbookState.all_states()
         if states:
@@ -1597,8 +1693,9 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     log.debug("Spill: scheduling off-main deferred locate code=%r", code)
 
     def _on_main() -> None:
+        cell_ctx = build_cell_context(ctx, doc, code, on_main=True)
         try:
-            prepared = _prepare_auto_spill(ctx, code, grid_to_spill, doc)
+            prepared = _prepare_auto_spill(cell_ctx, code, grid_to_spill, doc)
         except Exception:
             log.exception("Error checking spill collision or locating formula cell")
             return
@@ -1619,9 +1716,28 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     state.debounce.schedule(f"code:{code}", 0.1, _on_main)
 
 
-def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any = None, worker_data: Any = None, doc: Any | None = None, data_token: str | None = None) -> float | str | bool | tuple[Any, ...]:
+def finalize_python_return(
+    ctx: Any,
+    code: str,
+    result: Any,
+    *,
+    index_arg: Any = None,
+    worker_data: Any = None,
+    doc: Any | None = None,
+    data_token: str | None = None,
+    cell_ctx: CellContext | None = None,
+) -> float | str | bool | tuple[Any, ...]:
     """Map worker result to a single value Calc's add-in bridge accepts."""
-    from plugin.framework.queue_executor import main
+    if cell_ctx is not None:
+        on_main = cell_ctx.on_main
+    elif isinstance(ctx, CellContext):
+        on_main = ctx.on_main
+    elif hasattr(ctx, "on_main") and isinstance(ctx.on_main, bool):
+        on_main = ctx.on_main
+    else:
+        from plugin.framework.queue_executor import main
+
+        on_main = main.is_current()
 
     # Worker egress (payload_codec.child_pack_result + host_unpack_data) always yields plain
     # lists/scalars on the host — NumPy lives only in the venv subprocess, not in LO's Python.
@@ -1642,8 +1758,7 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
         from plugin.framework.config import get_config
 
         if get_config("scripting.python_auto_spill"):
-            # AST lint only treats a bare ``if main.is_current():`` as a guard.
-            if main.is_current():
+            if on_main:
                 try:
                     if doc is not None:
                         # Bugfix: What was wrong: UI selection check ran before formula locator; if user had selected multiple cells elsewhere on the sheet, single-cell =PY() was mistakenly treated as a matrix formula.
@@ -1669,7 +1784,7 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
             # Why this change fixes it: Skipping when the corner cell does not exist writes nothing.
             if grid_to_spill and grid_to_spill[0]:
                 try:
-                    if not main.is_current():
+                    if not on_main:
                         if doc is not None:
                             _queue_off_main_auto_spill(ctx, code, grid_to_spill, doc)
                         # We return the corner as py_addin_cell_value (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
@@ -1696,8 +1811,8 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
 
         # Cached spill model is for the deferred UI write only. Passing it
         # into session_key off-main calls getURL / locate (see session_key).
-        scalar_doc = doc if main.is_current() else None
-        return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=scalar_doc, data_token=data_token)
+        scalar_doc = doc if on_main else None
+        return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=scalar_doc, data_token=data_token, on_main=on_main)
 
     return py_addin_cell_value(result)
 
@@ -1739,7 +1854,7 @@ def _code_uses_indexed_multi_data(code: str) -> bool:
     return bool(_INDEXED_BINDING_RE.search(code or ""))
 
 
-def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
+def _py_scoped_dir_bindings(doc_or_ctx: Any | None) -> dict[str, Any]:
     """Document folder for in-cell folder SQL.
 
     On-main with the calling document: ``get_document_directory`` (UNO
@@ -1747,6 +1862,12 @@ def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
     read. Bind ``scoped_dir`` as ``None`` when no folder is known so join
     formulas do not ``NameError`` (file joins then fail loud).
     """
+    if isinstance(doc_or_ctx, CellContext):
+        return {"scoped_dir": doc_or_ctx.scoped_dir}
+    if hasattr(doc_or_ctx, "scoped_dir") and not hasattr(doc_or_ctx, "getURL"):
+        return {"scoped_dir": getattr(doc_or_ctx, "scoped_dir", None)}
+
+    doc = doc_or_ctx
     from plugin.framework.queue_executor import main
 
     if doc is not None and main.is_current():
@@ -1762,15 +1883,23 @@ def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
     return {"scoped_dir": None}
 
 
-def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
+def get_python_init_kwargs(ctx: Any, doc: Any | None = None, *, on_main: bool | None = None) -> dict[str, Any]:
     """Init-script kwargs for the calling document, read on the UI thread.
 
     Off-main the doc is only passed through (its document scripts are UNO),
     and with no doc there is nothing to read: both return ``{}``.
     """
-    from plugin.framework.queue_executor import main
+    if on_main is None:
+        if isinstance(ctx, CellContext):
+            on_main = ctx.on_main
+        elif hasattr(ctx, "on_main") and isinstance(ctx.on_main, bool):
+            on_main = ctx.on_main
+        else:
+            from plugin.framework.queue_executor import main
 
-    if doc is None or not main.is_current():
+            on_main = main.is_current()
+
+    if doc is None or not on_main:
         return {}
 
     from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
@@ -1813,6 +1942,11 @@ def execute_python_addin(ctx: Any, code: str, data: Any = None, *, doc: Any | No
 
 def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: Any | None = None) -> Any:
     target_doc: Any = doc
+    from plugin.framework.queue_executor import main
+
+    on_main = main.is_current()
+    cell_ctx = build_cell_context(ctx, target_doc, code, on_main=on_main)
+
     try:
         args = split_python_addin_data_args(data)
         # Named-range args arrive as already-evaluated values from Calc.
@@ -1827,10 +1961,10 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         from plugin.calc.python.geometric_recalc import ensure_geometric_strip_index_for_eval, maybe_strip_geometric_eval_args
 
         # Same-process hydrate: client/URP attach cannot fill soffice's map.
-        ensure_geometric_strip_index_for_eval(target_doc, ctx)
+        ensure_geometric_strip_index_for_eval(target_doc, ctx, cell_ctx=cell_ctx)
         # UI-thread target_doc is a real workbook_key. Off-main never strips
         # (the doc is only passed through there, so no key is read).
-        args = maybe_strip_geometric_eval_args(code, args, doc=target_doc)
+        args = maybe_strip_geometric_eval_args(code, args, doc=target_doc, cell_ctx=cell_ctx)
         py_data = calc_addin_args_from_split(args)
         is_multi = len(args) > 1
         index_arg = None
@@ -1858,7 +1992,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             size_err = check_python_data_size(py_data, max_cells=max_cells, multi=is_multi)
             if size_err:
                 ret = f"Error: {size_err}"
-                _record_py_diagnostic(ctx, code, None, status="error", message=ret, doc=target_doc)
+                _record_py_diagnostic(ctx, code, None, status="error", message=ret, doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
                 return ret
             worker_data = pack_calc_multi_data_for_wire(py_data) if is_multi else pack_calc_data_for_wire(py_data)
         else:
@@ -1868,17 +2002,15 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         # target_doc is the add-in caller argument (strip hydrate + worker session).
 
         tid = threading.get_ident()
-        sk = session_key(ctx, code, doc=target_doc)
-        unique_origin = bool(sk[4])
+        sk = cell_ctx.sk
+        unique_origin = bool(cell_ctx.origin)
         now = time.monotonic()
         cached = None
         data_token: str | None = None
         if unique_origin:
             data_token = _worker_data_token(worker_data)
             cache_key = (tid, sk, data_token)
-            from plugin.framework.queue_executor import main
-
-            wb_state = (WorkbookState.for_doc(target_doc) if main.is_current() else WorkbookState.known(target_doc)) if target_doc is not None else None
+            wb_state = cell_ctx.state
             if wb_state is None:
                 states = WorkbookState.all_states()
                 wb_state = states[0] if states else None
@@ -1894,29 +2026,26 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
             res = {"status": "ok", "result": cached.raw}
         else:
-            from plugin.framework.queue_executor import main
             from plugin.framework.thread_guard import in_sync_host_dispatch
 
             # Off-main the caller doc is only passed through: reading its URL or
             # init script is UNO. Such a call runs with no shared session id and
             # no init kwargs rather than borrowing another workbook's.
-            on_main = main.is_current()
-            # session_key already resolved this on the main thread. "" means no shared kernel.
-            session_id = (sk[2] or None) if on_main else None
-            init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)
+            session_id = cell_ctx.session_id
+            init_kwargs = cell_ctx.init_kwargs
 
             log.debug(
                 "PYTHON eval: target_doc=%s session_id=%r has_init=%s on_main=%s in_sync_host=%s",
                 target_doc is not None,
                 session_id,
                 bool(init_kwargs),
-                main.is_current(),
+                cell_ctx.on_main,
                 in_sync_host_dispatch(),
             )
             res = run_code_in_user_venv(
                 code,
                 data=worker_data,
-                bindings=_py_scoped_dir_bindings(target_doc),
+                bindings=_py_scoped_dir_bindings(cell_ctx),
                 session_id=session_id,
                 # Formula recalc must not mutate the document via writeragent tools.
                 python_tool_domain="",
@@ -1930,30 +2059,40 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                 # reach the LibrePy sidebar. Map here, before the image scan.
                 err_text = _helper_error_log_message(result)
                 cell = py_addin_cell_value(result)
-                _record_py_diagnostic(ctx, code, res, status="error", message=err_text, doc=target_doc)
+                _record_py_diagnostic(ctx, code, res, status="error", message=err_text, doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
                 return cell
-            _record_py_diagnostic(ctx, code, res, status="ok", doc=target_doc)
+            _record_py_diagnostic(ctx, code, res, status="ok", doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
             images = find_image_payloads(result)
             if images:
                 for i, img in enumerate(images):
-                    insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
+                    insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True, on_main=cell_ctx.on_main)
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")
             # Pass data_token: the digest was already computed for the cache key.
-            return finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=target_doc, data_token=data_token)
+            return finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=target_doc, data_token=data_token, cell_ctx=cell_ctx)
 
         raw_message = str(res.get("message") or res.get("error") or "")
         cell = _addin_result_for_worker_status(res)
         message = cell if isinstance(cell, str) else raw_message
-        _record_py_diagnostic(ctx, code, res, status="error", message=message, doc=target_doc)
+        _record_py_diagnostic(ctx, code, res, status="error", message=message, doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
         return cell
     except Exception as e:
         log.exception("PYTHON unexpected error during execution")
         err_msg = _format_error_for_display(e)
-        _record_py_diagnostic(ctx, code, None, status="error", message=err_msg, traceback=str(e), doc=target_doc)
+        _record_py_diagnostic(ctx, code, None, status="error", message=err_msg, traceback=str(e), doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
         return err_msg
 
 
-def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, status: str, message: str = "", traceback: str = "", doc: Any | None = None) -> None:
+def _record_py_diagnostic(
+    ctx: Any,
+    code: str,
+    res: dict[str, Any] | None,
+    *,
+    status: str,
+    message: str = "",
+    traceback: str = "",
+    doc: Any | None = None,
+    workbook_key: str | None = None,
+) -> None:
     """Record stdout/errors for the LibrePy sidebar without extra UNO work.
 
     Skips successful evaluations with empty stdout so the log stays actionable.
@@ -1972,9 +2111,12 @@ def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, st
             tb = str(raw_tb) if raw_tb else ""
     if status == "ok" and not (stdout or "").strip():
         return
+    wb_key = workbook_key if workbook_key is not None else (
+        getattr(ctx, "diag_workbook_key", None) or diagnostics_workbook_key(doc)
+    )
     best_effort(
         lambda: get_diagnostics_store().record(
-            workbook_key=diagnostics_workbook_key(doc),
+            workbook_key=wb_key,
             code=code or "",
             status=status,
             message=msg,
