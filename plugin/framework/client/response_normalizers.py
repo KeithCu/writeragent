@@ -281,11 +281,7 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
 
     messages = coalesced_messages
 
-    # Bugfix: In #3085, the date line was removed from prepare_chat_messages and
-    # placed into the chat request_tail. This broke non-chat callers (librarian,
-    # smol agents, quick web research, grammar, forms, Extend/Edit, Calc =PROMPT(),
-    # image prompts, compaction summarizer, eval harness), which bypass the chat tail.
-    # Restoring date injection here ensures every LLM request has the current date.
+    # Non-chat callers never see the chat tail, so the date is injected here.
     today = datetime.date.today().strftime("%A, %Y-%m-%d")
     date_msg = f"Today's date is {today}."
     system_message: Any = None

@@ -58,7 +58,7 @@ from plugin.chatbot.dialogs import get_optional as get_optional_control, set_con
 from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
-from plugin.chatbot.rich_text_control import _debug_env_active
+from plugin.chatbot.rich_text_control import debug_env_active
 
 # debug-only: omitted in release (thread_guard stub has no _violation_ui_lock).
 _LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
@@ -134,7 +134,7 @@ def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
 
 def iter_debug_live_chat_panels() -> list[Any]:
     """debug-only: omitted in release."""
-    if not _debug_env_active():
+    if not debug_env_active():
         return []
     return list(_LIVE_CHAT_PANELS)
 

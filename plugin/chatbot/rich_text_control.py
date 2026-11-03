@@ -38,7 +38,7 @@ from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 log = logging.getLogger(__name__)
 
 
-def _debug_env_active() -> bool:  # pyright: ignore[reportUnusedFunction]
+def debug_env_active() -> bool:
     """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1``)."""
     from plugin.framework import thread_guard as tg
 
