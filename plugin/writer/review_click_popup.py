@@ -36,27 +36,11 @@ _DOUBLE_CLICK_SEC = 0.5
 
 _handler_cls: Any = None
 
-_attached = rva.click_attached
-
 
 def _same_click_point(pressed: tuple[int, int] | None, x: int, y: int) -> bool:
     if pressed is None:
         return True
     return abs(x - pressed[0]) <= _CLICK_SLOP and abs(y - pressed[1]) <= _CLICK_SLOP
-
-
-def _detach(handler: Any) -> Any | None:
-    controller = None
-    with rva._lock:
-        for attachment in rva._attachments.values():
-            for idx, (c, _i, h) in enumerate(attachment.controllers):
-                if h is handler:
-                    controller = c
-                    attachment.controllers.pop(idx)
-                    break
-            if controller is not None:
-                break
-    return controller
 
 
 def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> None:
@@ -168,7 +152,7 @@ def _make_handler(model: Any) -> Any:
                 return False
 
             def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO API
-                controller = _detach(self)
+                controller = rva.detach_click_handler(self)
                 if controller is None:
                     return
                 try:

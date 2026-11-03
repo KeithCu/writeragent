@@ -157,11 +157,27 @@ def test_register_controller_dedups_by_uno_identity(monkeypatch):
 
     change_context_menu._register_controller(ctrl1)
     assert len(ctrl1.registered) == 1
-    assert len(change_context_menu._registered) == 1
+    assert len(rva.registered_controllers()) == 1
 
     change_context_menu._register_controller(ctrl2)
     assert len(ctrl2.registered) == 0
-    assert len(change_context_menu._registered) == 1
+    assert len(rva.registered_controllers()) == 1
+
+
+def _seed_controller_hooks(
+    controller: Any,
+    interceptor: Any,
+    click_handler: Any | None = None,
+) -> None:
+    handler = click_handler if click_handler is not None else MagicMock()
+    model = getattr(interceptor, "_model", None)
+    key = rva.attachment_key(model) if model is not None else "test:%d" % id(controller)
+    with rva._lock:
+        attachment = rva._attachments.get(key)
+        if attachment is None:
+            attachment = rva.ReviewViewAttachment(key=key, model=model)
+            rva._attachments[key] = attachment
+        attachment.controllers.append((controller, interceptor, handler))
 
 
 def test_unload_removes_interceptor_and_pair():
@@ -174,13 +190,13 @@ def test_unload_removes_interceptor_and_pair():
     interceptor1 = SimpleNamespace(_model=model1)
     interceptor2 = SimpleNamespace(_model=model2)
 
-    rva.seed_controller_hooks(ctrl1, interceptor1)
-    rva.seed_controller_hooks(ctrl2, interceptor2)
+    _seed_controller_hooks(ctrl1, interceptor1)
+    _seed_controller_hooks(ctrl2, interceptor2)
 
     change_context_menu._unregister_model(model1)
     assert ctrl1.removed == [interceptor1]
     assert ctrl2.removed == []
-    assert change_context_menu._registered == [(ctrl2, interceptor2)]
+    assert rva.registered_controllers() == [(ctrl2, interceptor2)]
 
 
 def test_unload_swallows_removal_disposal():
@@ -192,10 +208,10 @@ def test_unload_swallows_removal_disposal():
         raise RuntimeError("gone")
 
     ctrl.releaseContextMenuInterceptor = _raise_gone
-    rva.seed_controller_hooks(ctrl, interceptor)
+    _seed_controller_hooks(ctrl, interceptor)
 
     change_context_menu._unregister_model(model)
-    assert change_context_menu._registered == []
+    assert rva.registered_controllers() == []
 
 
 def test_on_unload_event_removes_registered_interceptor():
@@ -204,13 +220,13 @@ def test_on_unload_event_removes_registered_interceptor():
     ctrl = _StubController("c", model)
     interceptor = SimpleNamespace(_model=model)
 
-    rva.seed_controller_hooks(ctrl, interceptor)
+    _seed_controller_hooks(ctrl, interceptor)
     listener = _build_listener()
 
     event = SimpleNamespace(EventName="OnUnload", ViewController=None, Source=model)
     listener.documentEventOccured(event)
     assert ctrl.removed == [interceptor]
-    assert change_context_menu._registered == []
+    assert rva.registered_controllers() == []
 
 
 @pytest.fixture
