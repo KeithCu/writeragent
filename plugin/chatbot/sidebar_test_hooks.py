@@ -2450,6 +2450,18 @@ class _UrpSlashHost:
 
         run_slash_compact_worker(self, focus=focus, session=getattr(self, "session", None), ctx=self.ctx)
 
+    def slash_agent_edit_in_flight(self) -> bool:
+        return False
+
+    def run_slash_formula(self, description: str) -> None:
+        from plugin.chatbot.slash_commands import run_slash_formula_worker
+
+        model = self.slash_document_model()
+        if model is None:
+            self.append_output("\n" + "No document\n")
+            return
+        run_slash_formula_worker(self, ctx=self.ctx, model=model, description=description)
+
 
 def _urp_slash_controller() -> Any:
     """Bind ``SlashPopupController`` to the live sidebar ListBox over URP."""

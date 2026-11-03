@@ -77,6 +77,9 @@ def _stream_into_session(
     max_tokens: int,
     session: Any,
 ) -> None:
+    from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
+
+    record_agent_turn_before(session.doc)
     # Extend/Edit has no Stop control; a chunk already in hand is a document write
     # and lands (session.append_chunk).
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
@@ -84,13 +87,19 @@ def _stream_into_session(
             session.append_chunk(chunk_text)
 
     def on_done() -> None:
-        warning = session.finish()
-        if warning:
-            msgbox(ctx, title, warning)
+        try:
+            warning = session.finish()
+            if warning:
+                msgbox(ctx, title, warning)
+        finally:
+            record_agent_turn_after(session.doc)
 
     def on_error(e: BaseException) -> None:
-        session.abort_and_restore()
-        msgbox(ctx, title, format_error_message(e))
+        try:
+            session.abort_and_restore()
+            msgbox(ctx, title, format_error_message(e))
+        finally:
+            record_agent_turn_after(session.doc)
 
     stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
 

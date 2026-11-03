@@ -554,6 +554,28 @@ class SendButtonListener(BaseActionListener):
             return
         run_slash_compact_worker(self, focus=focus, session=self.session, ctx=self.ctx)
 
+    def slash_agent_edit_in_flight(self) -> bool:
+        from plugin.framework.async_drain_guard import get_drain_owner
+
+        return self.sidebar_state.send.is_busy or get_drain_owner() is not None
+
+    def run_slash_formula(self, description: str) -> None:
+        from plugin.chatbot.slash_commands import run_slash_formula_worker
+        from plugin.framework.doc_type import DocumentType, get_document_type
+        from plugin.framework.i18n import _
+
+        if self.slash_agent_edit_in_flight():
+            self.append_output("\n" + _("Wait for the current operation to finish before /formula.") + "\n")
+            return
+        model = self._get_document_model(log_failure=True)
+        if not model:
+            self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
+            return
+        if get_document_type(model) != DocumentType.CALC:
+            self.append_output("\n" + _("Only in Calc") + "\n")
+            return
+        run_slash_formula_worker(self, ctx=self.ctx, model=model, description=description)
+
     def _set_status(self, text: str) -> None:
         """Update the status field in the sidebar (read-only TextField).
         Uses setText() (XTextComponent) to write directly to the control/peer,
@@ -1119,6 +1141,12 @@ class SendButtonListener(BaseActionListener):
             # exception) skips them and leaks the turn, including Stop
             # with TTS enabled.
             strip_audio_from_last_user_message(self, speak=speak)
+            from plugin.chatbot.tool_loop_actions import current_turn
+            from plugin.doc.agent_undo import record_agent_turn_after
+
+            turn = current_turn(self)
+            if turn is not None and turn.model is not None:
+                record_agent_turn_after(turn.model)
             # Spoken text was copied above. Later callbacks must not find this turn.
             drop_turn(self)
             kick_pending_peer_starts()
@@ -1242,6 +1270,9 @@ class SendButtonListener(BaseActionListener):
         if doc_info is not None:
             if (started := current_turn(self)) is not None:
                 started.model = doc_info[0]
+                from plugin.doc.agent_undo import record_agent_turn_before
+
+                record_agent_turn_before(doc_info[0])
         return doc_info
 
     def _do_send(self) -> None:

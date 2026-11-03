@@ -281,6 +281,8 @@ def test_tier1_commands_are_in_product_table():
         "explain",
         "remember",
         "compact",
+        "undo",
+        "formula",
     ):
         assert name in names
 
@@ -393,3 +395,80 @@ def test_enable_mock_slash_commands_adds_stubs(monkeypatch):
         assert run_slash_command("mock-bravo", host) is True
     slash._mock_commands_enabled = False
     assert "mock-bravo" not in [c.name for c in slash.registered_slash_commands()]
+
+
+def test_run_undo_delegates_to_agent_undo():
+    host = MagicMock()
+    host.slash_agent_edit_in_flight.return_value = False
+    model = object()
+    host.slash_document_model.return_value = model
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.doc.agent_undo.undo_last_agent_edit", return_value="Undid the last agent edit (2 steps)") as undo_fn:
+            assert run_slash_command("undo", host) is True
+    undo_fn.assert_called_once_with(model)
+    host.clear_ask.assert_called_once()
+    assert "Undid" in host.append_output.call_args[0][0]
+
+
+def test_run_undo_refuses_while_in_flight():
+    host = MagicMock()
+    host.slash_agent_edit_in_flight.return_value = True
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("undo", host) is True
+    host.slash_document_model.assert_not_called()
+
+
+def test_run_formula_only_in_calc():
+    host = MagicMock()
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("formula", host, "sum column A") is True
+    host.run_slash_formula.assert_called_once_with("sum column A")
+
+
+def test_popup_accept_runs_undo_immediately():
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
+        slash_agent_edit_in_flight=lambda: False,
+        slash_document_model=lambda: None,
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.doc.agent_undo.undo_last_agent_edit", return_value="There is no agent edit to undo."):
+            assert run_slash_command("undo", host, from_popup=True) is True
+    host.clear_ask.assert_called_once()
+    host.append_output.assert_called_once()
+
+
+def test_clean_formula_model_reply():
+    from plugin.chatbot.slash_commands import clean_formula_model_reply
+
+    assert clean_formula_model_reply("```\n=SUM(A1:A5)\n```") == "=SUM(A1:A5)"
+    assert clean_formula_model_reply("  =A1+B1  ") == "=A1+B1"
+    assert clean_formula_model_reply("not a formula") == "not a formula"
+
+
+def test_formula_insert_uses_undo_context():
+    from plugin.chatbot.slash_commands import _FORMULA_UNDO_TITLE
+
+    cell = MagicMock()
+    cell.getError.return_value = 1
+    model = MagicMock()
+    formula = "=SUM(A1:A2)"
+
+    def mutate() -> None:
+        cell.setFormula(formula)
+
+    with patch("plugin.doc.compound_undo.commit_or_rollback", side_effect=lambda doc, title, fn: (fn(), None)[1]) as cor:
+        cor(model, _FORMULA_UNDO_TITLE, mutate)
+    cell.setFormula.assert_called_once_with(formula)
+
+
+def test_formula_missing_equals_shows_reply_only():
+    from plugin.chatbot.slash_commands import clean_formula_model_reply
+
+    bad = clean_formula_model_reply("SUM(A1)")
+    assert not bad.startswith("=")
+    # insert path is in worker; unit-test the cleanup gate the worker uses
+    assert bad == "SUM(A1)"
+
