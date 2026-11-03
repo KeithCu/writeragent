@@ -496,14 +496,6 @@ def get_background_task_name() -> str | None:
 # In release bundles untagged Dummy-N is not current so linguistic worker Dummy-21 does not skip PE2I posts.
 UNTAGGED_DUMMY_IS_CURRENT = False
 
-def on_python_main_thread() -> bool:
-    from plugin.framework.queue_executor import MainThread
-
-    current = threading.current_thread()
-    if MainThread.designated is not None:
-        return current is MainThread.designated
-    return current is threading.main_thread()
-
 
 def _wrap_uno(obj: Any) -> Any:
     return obj
@@ -556,7 +548,6 @@ __all__ = [
     "in_sync_host_dispatch",
     "set_background_task",
     "get_background_task_name",
-    "on_python_main_thread",
     "UNTAGGED_DUMMY_IS_CURRENT",
     "_wrap_uno",
     "_unwrap_uno",
