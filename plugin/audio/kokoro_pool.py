@@ -397,14 +397,10 @@ class KokoroProcessPool:
                                     worker = spawned
 
                 if worker is not None:
-                    run_job = True
                     with self._lock:
-                        if self._job_stopped(cancel):
-                            run_job = False
-                    if run_job:
+                        stopped = self._job_stopped(cancel)
+                    if not stopped:
                         result = worker.execute(payload, deadline.left())
-                    else:
-                        result = error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
             finally:
                 if cancel is not None:
                     cancel.unregister_on_cancel(self._kill_inflight)
@@ -421,6 +417,7 @@ class KokoroProcessPool:
                         self._last_active = time.monotonic()
                     # A second execute waits on _job_lock until this finally runs,
                     # so job flags cannot belong to two jobs.
+                    # Stop state never clears within a job; finally is the sole path to WORKER_CANCELLED.
                     aborted = self._job_stopped(cancel)
 
         if aborted:
@@ -448,12 +445,12 @@ class KokoroProcessPool:
         Pool-wide hook: kills whatever job is live. Safe because utterance scopes
         are cancelled under ``_speech_lock`` before the next utterance can start.
 
-        Stop raises the utterance scope before this hook runs; ``execute`` reads
-        ``cancel.is_cancelled()`` and ``_shutdown`` so the spawner cannot adopt the child, and kill
-        the process if it has already been published. signal() sets
-        _killed so an in-flight respawn discards the child instead of
-        publishing it. The worker is stored before respawn so Stop
-        during the ready handshake still finds it.
+        ``cancel()`` sets the scope event before running this hook, and ``execute``
+        checks it (and ``_shutdown``) under ``self._lock``, so the spawner never
+        publishes a child after Stop. This hook kills the child if it is already
+        published. signal() sets _killed so an in-flight respawn discards the
+        child instead of publishing it. The worker is stored before respawn so
+        Stop during the ready handshake still finds it.
         """
         with self._lock:
             if not self._job_live:

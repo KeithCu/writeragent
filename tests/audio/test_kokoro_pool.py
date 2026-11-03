@@ -105,6 +105,79 @@ def test_cancel_after_worker_init_does_not_respawn(monkeypatch) -> None:
         thread.join(3)
 
 
+def test_cancel_in_respawn_skips_worker_execute(monkeypatch) -> None:
+    """Scope cancel inside respawn must not call worker.execute."""
+    calls: dict[str, int] = {"respawn": 0, "execute": 0}
+    cancel = SendCancellation()
+
+    class _CancelInRespawn:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def respawn(self) -> None:
+            calls["respawn"] += 1
+            cancel.cancel()
+
+        def is_alive(self) -> bool:
+            return True
+
+        def execute(self, payload, timeout_sec):
+            del payload, timeout_sec
+            calls["execute"] += 1
+            return {"status": "ok", "echo": "done"}
+
+        def kill(self) -> None:
+            return None
+
+    monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _CancelInRespawn)
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    try:
+        result = pool.execute({"text": "hi"}, cancel=cancel)
+        assert result.get("code") == "WORKER_CANCELLED"
+        assert calls["respawn"] == 1
+        assert calls["execute"] == 0
+    finally:
+        pool.shutdown()
+
+
+def test_shutdown_in_respawn_skips_worker_execute(monkeypatch) -> None:
+    """pool.shutdown() inside respawn must not call worker.execute."""
+    calls: dict[str, int] = {"respawn": 0, "execute": 0}
+
+    class _ShutdownInRespawn:
+        def __init__(self, pool_ref: KokoroProcessPool, *_args, **_kwargs) -> None:
+            self._pool = pool_ref
+
+        def respawn(self) -> None:
+            calls["respawn"] += 1
+            self._pool.shutdown()
+
+        def is_alive(self) -> bool:
+            return True
+
+        def execute(self, payload, timeout_sec):
+            del payload, timeout_sec
+            calls["execute"] += 1
+            return {"status": "ok", "echo": "done"}
+
+        def kill(self) -> None:
+            return None
+
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+
+    def _factory(*args, **kwargs):
+        return _ShutdownInRespawn(pool, *args, **kwargs)
+
+    monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _factory)
+    try:
+        result = pool.execute({"text": "hi"})
+        assert result.get("code") == "WORKER_CANCELLED"
+        assert calls["respawn"] == 1
+        assert calls["execute"] == 0
+    finally:
+        pool.shutdown()
+
+
 def test_shutdown_during_execute_is_worker_cancelled(monkeypatch) -> None:
     entered = threading.Event()
     release = threading.Event()

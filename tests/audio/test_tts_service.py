@@ -570,14 +570,15 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
         path = tts._new_speech_temp(".wav", cancel)
         assert path is not None
         temp_path.append(path)
-        path_obj = tmp_path / "blocked.wav"
-        path_obj.write_bytes(b"wav")
+        with open(path, "wb") as handle:
+            handle.write(b"wav")
         synth_entered.set()
         release_synth.wait(5)
-        return tts._ReadyClip(str(path_obj), "Hello.", 3)
+        return tts._ReadyClip(path, "Hello.", 3)
 
     utt = tts._begin_utterance()
     finished = threading.Event()
+    mocks: list[Any] = []
 
     def run() -> None:
         try:
@@ -586,6 +587,7 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
             ), patch.object(tts, "_synthesize_sentence_clip", side_effect=blocking_synth), patch.object(
                 tts, "_play_audio_file"
             ) as mock_play, patch.object(tts, "_speak_system") as mock_system:
+                mocks.extend([mock_play, mock_system])
                 tts._run_sentence_pipeline(
                     ["Hello."],
                     "kokoro",
@@ -594,8 +596,6 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
                     None,
                     utt,
                 )
-                mock_play.assert_not_called()
-                mock_system.assert_not_called()
         finally:
             finished.set()
 
@@ -606,6 +606,9 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
         tts.stop_speech()
         release_synth.set()
         assert finished.wait(2)
+        assert len(mocks) == 2
+        assert mocks[0].called is False
+        assert mocks[1].called is False
         tracked = temp_path[0] if temp_path else ""
         deadline = time.monotonic() + 2.0
         while tracked and os.path.exists(tracked) and time.monotonic() < deadline:
