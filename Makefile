@@ -779,8 +779,8 @@ lo-test-threadguard:
 lo-test-threadguard-visible: _check-lo-python
 	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_UNO_THREAD_GUARD=1 -- -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
-build/uno_thread_safety.yml: tests/semgrep/uno_thread_safety.yml scripts/thread_safety_roots.py
-	$(PYTHON) -c "from pathlib import Path; from scripts.thread_safety_roots import write_opengrep_rules; write_opengrep_rules(Path('tests/semgrep/uno_thread_safety.yml'), Path('build/uno_thread_safety.yml'))"
+build/uno_thread_safety.yml: $(OPENGREP_DIR)/uno_thread_safety.yml scripts/thread_safety_roots.py
+	"$(PYTHON)" -c "from pathlib import Path; from scripts.thread_safety_roots import write_opengrep_rules; write_opengrep_rules(Path('$<'), Path('$@'))"
 
 opengrep-lint: build/uno_thread_safety.yml
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
