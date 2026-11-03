@@ -1391,31 +1391,114 @@ def test_start_watchdog_resets_flag_when_background_start_fails() -> None:
 
 
 def test_log_record_factory_pyuno_str_failure_uses_placeholder() -> None:
+    """PyUNO proxies become ``<pyuno>`` with no ``str`` or ``repr`` call.
+
+    ``str(pyuno)`` is a deep UNO call (``getImplementationName`` and the
+    service list) and must not run while the handler lock is held.
+    """
+    calls: list[str] = []
+
     class pyuno:
         def __str__(self) -> str:
-            raise RuntimeError("disposed")
-
-    failing = pyuno()
-    factory = logging.getLogRecordFactory()
-    record1 = factory("test", logging.INFO, "file.py", 10, "value=%s", (failing,), None, None, None)
-    assert record1.args == ("<pyuno>",)
-
-    class pyuno:  # type: ignore[no-redef]
-        def __str__(self) -> str:
+            calls.append("str")
             return "proxy-ok"
 
-    ok = pyuno()
-    record2 = factory("test", logging.INFO, "file.py", 10, "value=%s", (ok,), None, None, None)
-    assert record2.args == ("proxy-ok",)
+        def __repr__(self) -> str:
+            calls.append("repr")
+            return "proxy-repr"
+
+    proxy = pyuno()
+    factory = logging.getLogRecordFactory()
+    record1 = factory("test", logging.INFO, "file.py", 10, "value=%s", (proxy,), None, None, None)
+    assert record1.args == ("<pyuno>",)
+    assert calls == []
 
     plain_args = ("text",)
-    record3 = factory("test", logging.INFO, "file.py", 10, "value=%s", plain_args, None, None, None)
-    assert record3.args == ("text",)
-    assert record3.args is plain_args
+    record_plain = factory("test", logging.INFO, "file.py", 10, "value=%s", plain_args, None, None, None)
+    assert record_plain.args == ("text",)
+    assert record_plain.args is plain_args
 
-    record4 = factory("test", logging.INFO, "file.py", 10, "value=%s", args=(failing,), exc_info=None, func=None, sinfo=None)
-    assert record4.args == ("<pyuno>",)
+    record_kwargs = factory("test", logging.INFO, "file.py", 10, "value=%s", args=(proxy,), exc_info=None, func=None, sinfo=None)
+    assert record_kwargs.args == ("<pyuno>",)
 
+    record_msg = factory("test", logging.INFO, "file.py", 10, proxy, (), None, None, None)
+    assert record_msg.msg == "<pyuno>"
+
+    nested = ({"d": proxy, proxy: "key"}, [proxy])
+    record_nested = factory("test", logging.INFO, "file.py", 10, "value=%s %s", nested, None, None, None)
+    assert record_nested.args == ({"d": "<pyuno>", "<pyuno>": "key"}, ["<pyuno>"])
+    assert calls == []
+
+
+class _FormatHandler(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+        self.exc_text_at_emit: list[str | None] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.exc_text_at_emit.append(record.exc_text)
+        self.messages.append(self.format(record))
+
+
+def _isolated_logger(name: str) -> tuple[logging.Logger, _FormatHandler]:
+    logger = logging.getLogger(name)
+    logger.handlers.clear()
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    handler = _FormatHandler()
+    logger.addHandler(handler)
+    return logger, handler
+
+
+def test_log_emit_does_not_stringify_pyuno() -> None:
+    calls: list[str] = []
+
+    class pyuno:
+        def __str__(self) -> str:
+            calls.append("str")
+            return "from-str"
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            return "from-repr"
+
+    proxy = pyuno()
+    logger, handler = _isolated_logger("writeragent.test.pyuno-emit")
+    try:
+        logger.debug("v=%s", proxy)
+        logger.debug(proxy)  # type: ignore[arg-type]
+        logger.debug("v=%s", {"d": proxy})
+        logger.debug("v=%s", [proxy])
+    finally:
+        logger.handlers.clear()
+    assert calls == []
+    assert handler.messages == ["v=<pyuno>", "<pyuno>", "v={'d': '<pyuno>'}", "v=['<pyuno>']"]
+
+
+def test_exception_text_is_formatted_before_handler_emit() -> None:
+    phase = {"emit": False}
+    calls: list[bool] = []
+
+    class Boom(Exception):
+        def __str__(self) -> str:
+            calls.append(phase["emit"])
+            return "boom"
+
+    logger, handler = _isolated_logger("writeragent.test.exc-text")
+    try:
+        try:
+            raise Boom()
+        except Boom:
+            logger.exception("failed")
+    finally:
+        logger.handlers.clear()
+    assert calls
+    assert all(flag is False for flag in calls)
+    assert handler.exc_text_at_emit
+    assert handler.exc_text_at_emit[0]
+    assert "boom" in handler.exc_text_at_emit[0]
+    assert "Boom" in handler.messages[0]
 
 
 def test_debug_log_max_bytes_env(monkeypatch):
