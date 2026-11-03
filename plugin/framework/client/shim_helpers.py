@@ -100,14 +100,6 @@ def _is_tail_block(block: Any) -> bool:
     return False
 
 
-def _is_tail_content(content: Any) -> bool:
-    if _is_tail_text(content):
-        return True
-    if isinstance(content, list) and len(content) == 1:
-        return _is_tail_block(content[0])
-    return False
-
-
 def annotate_anthropic_cache(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Place Anthropic ephemeral cache marker on the block before the trailing tail text."""
     if not messages:
@@ -116,26 +108,7 @@ def annotate_anthropic_cache(messages: list[dict[str, Any]]) -> list[dict[str, A
     if not isinstance(last_msg, dict) or last_msg.get("role") != "user":
         return messages
 
-    # OpenRouter tool loop: previous message is role "tool"
-    if len(messages) >= 2 and _is_tail_content(last_msg.get("content")):
-        prev_msg = messages[-2]
-        if isinstance(prev_msg, dict) and prev_msg.get("role") == "tool":
-            tool_content = prev_msg.get("content")
-            if isinstance(tool_content, list):
-                parts = [dict(p) if isinstance(p, dict) else p for p in tool_content]
-                if parts and isinstance(parts[-1], dict):
-                    parts[-1] = dict(parts[-1], cache_control={"type": "ephemeral"})
-            elif isinstance(tool_content, str):
-                parts = [{"type": "text", "text": tool_content, "cache_control": {"type": "ephemeral"}}]
-            else:
-                parts = [{"type": "text", "text": str(tool_content or ""), "cache_control": {"type": "ephemeral"}}]
-            new_tool_msg = dict(prev_msg, content=parts)
-            new_messages = list(messages)
-            new_messages[-2] = new_tool_msg
-            return new_messages
-
-    # User send (or Anthropic native tool round where tail was folded into the user turn):
-    # content list has block(s) followed by the tail block.
+    # User send: content list has block(s) followed by the tail block.
     c = last_msg.get("content")
     if isinstance(c, list) and len(c) >= 2:
         last_block = c[-1]

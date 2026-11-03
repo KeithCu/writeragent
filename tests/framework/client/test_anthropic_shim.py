@@ -381,8 +381,7 @@ def test_anthropic_tool_loop_prompt_caching_and_merge():
             "reasoning_content": "thinking text that must not become a block",
         },
         {"role": "tool", "tool_call_id": "t1", "content": "res1"},
-        {"role": "tool", "tool_call_id": "t2", "content": "res2"},
-        {"role": "user", "content": snap},
+        {"role": "tool", "tool_call_id": "t2", "content": f"res2\n\n{snap}"},
     ]
 
     _m, _p, body, _h = shim.build_chat_request(
@@ -401,18 +400,13 @@ def test_anthropic_tool_loop_prompt_caching_and_merge():
     user_msg = converted_messages[1]
     assert user_msg["role"] == "user"
     parts = user_msg["content"]
-    assert len(parts) == 3
+    assert len(parts) == 2
     assert parts[0]["type"] == "tool_result"
     assert parts[0]["tool_use_id"] == "t1"
-    assert "cache_control" not in parts[0]
 
     assert parts[1]["type"] == "tool_result"
     assert parts[1]["tool_use_id"] == "t2"
-    assert parts[1].get("cache_control") == {"type": "ephemeral"}
-
-    assert parts[2]["type"] == "text"
-    assert parts[2]["text"] == snap
-    assert "cache_control" not in parts[2]
+    assert parts[1]["content"][0]["text"] == f"res2\n\n{snap}"
 
 
 def test_anthropic_user_send_prompt_caching():

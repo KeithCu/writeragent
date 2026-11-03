@@ -1654,6 +1654,8 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
         for msg in reversed(messages):
             if isinstance(msg, dict) and msg.get("role") == "tool":
                 tool_text = _as_text(msg.get("content"))
+                if SNAPSHOT_HEADER in tool_text:
+                    tool_text = tool_text[: tool_text.find(SNAPSHOT_HEADER)].strip()
                 break
         return Completion(
             content=_html_tool_wrapup(user_text, last_called_tool, tool_text),
