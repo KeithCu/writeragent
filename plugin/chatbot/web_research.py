@@ -782,6 +782,9 @@ class WebResearchTool(ToolBase):
                 except Exception as e:
                     log.warning("Failed to launch or connect to local %s via CDP: %s. Falling back to static HTTP.", browser_type, e)
 
+            scope = ctx.send_cancellation
+            stop_checker = scope.is_cancelled if scope is not None else None
+
             agent_params = WebAgentRunParams(
                 smol_model=smol_model,
                 max_steps=max_steps,
@@ -789,18 +792,13 @@ class WebResearchTool(ToolBase):
                 cache_max_mb=cache_max_mb,
                 cache_max_age_days=cache_max_age_days,
                 cdp_url=cdp_url,
-                stop_checker=(
-                    (lambda: scope.is_cancelled())
-                    if (scope := getattr(ctx, "send_cancellation", None)) is not None
-                    and hasattr(scope, "is_cancelled")
-                    else getattr(ctx, "stop_checker", None)
-                ),
+                stop_checker=stop_checker,
                 status_callback=status_callback,
                 append_thinking_callback=ctx.append_thinking_callback,
                 approval_callback=ctx.approval_callback if as_bool(get_config("chatbot.prompt_for_web_research")) else None,
                 chat_append_callback=ctx.chat_append_callback,
                 outer_query=query_str,
-                cancellation_scope=getattr(ctx, "send_cancellation", None),
+                cancellation_scope=scope,
             )
             if deep:
                 final_ans, researched_query = _run_deep_web_research(

@@ -73,7 +73,7 @@ def _get_or_create_thread_llm_client(api_cfg: dict[str, Any], ctx: Any) -> Any:
     if (
         cached_client is not None
         and cached_key == cache_key
-        and not send_cancellation.is_client_stopped(cached_client)
+        and cached_client.stopped() is not True
     ):
         return cached_client
 

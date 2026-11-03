@@ -45,7 +45,7 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import capture_send_stop, get_current_send_cancellation, send_stopped
+from plugin.framework.send_cancellation import SendCancellation, capture_send_stop, get_current_send_cancellation
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 from plugin.doc.peer_message import log_peer_tool_on_wire
@@ -172,7 +172,7 @@ def _compact_bound_session(
     *,
     tools: Any,
     max_tokens: int | None,
-    cancel: Any,
+    cancel: SendCancellation | None,
     force: bool,
     status_cb: Callable[[str], None],
 ) -> bool:
@@ -627,7 +627,7 @@ class ToolCallingMixin:
             put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
-            return send_stopped(bound_scope, client)
+            return (bound_scope is not None and bound_scope.is_cancelled()) or client.stopped() is True
 
         return turn, bound_session, bound_scope, emit, stopped_for_this_send
 

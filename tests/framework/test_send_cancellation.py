@@ -11,7 +11,7 @@ from plugin.chatbot.smol_agent import WriterAgentSmolModel
 from plugin.doc.document_research_specialized import DelegateReadDocument
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.queue_executor import MainThread, main
-from plugin.framework.send_cancellation import SendCancellation, SendCancelled, agent_session, is_agent_active, send_stopped, wait_for_approval
+from plugin.framework.send_cancellation import SendCancellation, SendCancelled, agent_session, is_agent_active, is_cancelled, wait_for_approval
 
 
 def test_wait_for_approval_set_event_wins_over_stop():
@@ -508,20 +508,13 @@ class TestSendCancellationHooksLocking:
         )
 
 
-def test_send_stopped_predicates():
-    """send_stopped checks scope cancellation and client stopped latch."""
+def test_is_cancelled_predicate():
+    """is_cancelled checks scope is not None and scope.is_cancelled()."""
+    assert is_cancelled(None) is False
     scope = SendCancellation()
-    client = MagicMock()
-    client.stopped.return_value = False
-
-    assert send_stopped(scope, client) is False
-
+    assert is_cancelled(scope) is False
     scope.cancel()
-    assert send_stopped(scope, client) is True
-
-    fresh_scope = SendCancellation()
-    client.stopped.return_value = True
-    assert send_stopped(fresh_scope, client) is True
+    assert is_cancelled(scope) is True
 
 
 def test_send_cancellation_imports_before_queue_executor():
