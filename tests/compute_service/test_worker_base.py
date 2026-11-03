@@ -581,14 +581,14 @@ def test_execute_respawn_respects_request_deadline() -> None:
     assert 1.0 <= respawn_left[0] <= 2.0
 
 
-def test_set_pdeathsig() -> None:
+def test_die_with_parent() -> None:
     import sys
-    from compute_service.worker_base import set_pdeathsig
+    from plugin.framework.child_runtime import die_with_parent
 
     if sys.platform != "linux":
-        assert set_pdeathsig() is False
+        assert die_with_parent() is False
     else:
-        assert set_pdeathsig() is True
+        assert die_with_parent() is True
 
 
 def test_run_worker_stdio_loop_oversized_result_recovers(monkeypatch: pytest.MonkeyPatch) -> None:

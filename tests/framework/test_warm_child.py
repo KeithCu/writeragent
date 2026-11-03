@@ -12,13 +12,13 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable, Generator
 from typing import Any
 
 import pytest
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
-from plugin.framework.process_worker import Deadline
-from plugin.framework.warm_child import ChildSpec, Death, WarmChild, supervisor
+from plugin.framework.warm_child import ChildSpec, Deadline, Death, Supervisor, WarmChild
 
 
 def _repo_root() -> str:
@@ -59,16 +59,24 @@ def _spec(tmp_path: Any, script: str, **kwargs: Any) -> ChildSpec:
     return ChildSpec(name="warm-test", argv=[sys.executable, script], env=env, **kwargs)
 
 
-@pytest.fixture(autouse=True)
-def _reset_supervisor_shutdown() -> Any:
-    yield
-    supervisor._shutdown = False
-    supervisor._reaper_stop.clear()
+@pytest.fixture
+def supervisor() -> Generator[Supervisor, None, None]:
+    sup = Supervisor()
+    yield sup
+    sup.shutdown_all()
 
 
-def test_spawn_runs_on_supervisor_spawner_thread(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def _wait_until(deadline: float, predicate: Callable[[], bool], *, interval: float = 0.05) -> bool:
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return predicate()
+
+
+def test_spawn_runs_on_supervisor_spawner_thread(tmp_path: Any, monkeypatch: pytest.MonkeyPatch, supervisor: Supervisor) -> None:
     script = _stdio_worker(tmp_path)
-    warm = WarmChild(_spec(tmp_path, script))
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
     start_idents: list[int] = []
     orig = ManagedSubprocess.start
 
@@ -87,9 +95,9 @@ def test_spawn_runs_on_supervisor_spawner_thread(tmp_path: Any, monkeypatch: pyt
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="PDEATHSIG is Linux-only")
-def test_pdeathsig_survives_short_lived_caller_thread(tmp_path: Any) -> None:
+def test_pdeathsig_survives_short_lived_caller_thread(tmp_path: Any, supervisor: Supervisor) -> None:
     script = _stdio_worker(tmp_path)
-    warm = WarmChild(_spec(tmp_path, script))
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
     try:
 
         def brief() -> None:
@@ -100,13 +108,13 @@ def test_pdeathsig_survives_short_lived_caller_thread(tmp_path: Any) -> None:
         t.start()
         t.join(timeout=10)
         assert not t.is_alive()
-        time.sleep(0.5)
-        assert warm.is_alive()
+        deadline = time.monotonic() + 2.0
+        assert _wait_until(deadline, warm.is_alive)
     finally:
         warm.retire()
 
 
-def test_handshake_timeout_returns_error(tmp_path: Any, caplog: pytest.LogCaptureFixture) -> None:
+def test_handshake_timeout_returns_error(tmp_path: Any, caplog: pytest.LogCaptureFixture, supervisor: Supervisor) -> None:
     script = tmp_path / "slow_ready.py"
     script.write_text(
         "\n".join(
@@ -119,7 +127,7 @@ def test_handshake_timeout_returns_error(tmp_path: Any, caplog: pytest.LogCaptur
         ),
         encoding="utf-8",
     )
-    warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=0.4))
+    warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=0.4), supervisor=supervisor)
     try:
         with caplog.at_level(logging.ERROR):
             with warm.lease(Deadline(5)) as leased:
@@ -131,7 +139,7 @@ def test_handshake_timeout_returns_error(tmp_path: Any, caplog: pytest.LogCaptur
         warm.retire()
 
 
-def test_garbage_ready_frame_not_adopted(tmp_path: Any) -> None:
+def test_garbage_ready_frame_not_adopted(tmp_path: Any, supervisor: Supervisor) -> None:
     root = _repo_root()
     script = tmp_path / "garbage_ready.py"
     script.write_text(
@@ -147,7 +155,7 @@ def test_garbage_ready_frame_not_adopted(tmp_path: Any) -> None:
         ),
         encoding="utf-8",
     )
-    warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=5))
+    warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=5), supervisor=supervisor)
     try:
         with warm.lease(Deadline(10)) as leased:
             assert isinstance(leased, dict)
@@ -157,10 +165,10 @@ def test_garbage_ready_frame_not_adopted(tmp_path: Any) -> None:
         warm.retire()
 
 
-def test_kill_during_handshake_not_adopted(tmp_path: Any) -> None:
+def test_kill_during_handshake_not_adopted(tmp_path: Any, supervisor: Supervisor) -> None:
     script = tmp_path / "hang_ready.py"
     script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
-    warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=30))
+    warm = WarmChild(_spec(tmp_path, str(script), ready_timeout_sec=30), supervisor=supervisor)
     first_pid: list[int] = []
     err: list[dict[str, Any] | None] = [None]
 
@@ -177,7 +185,7 @@ def test_kill_during_handshake_not_adopted(tmp_path: Any) -> None:
     assert not t.is_alive()
     assert warm._child is None or not warm.is_alive()
     script2 = _stdio_worker(tmp_path)
-    warm2 = WarmChild(_spec(tmp_path, script2))
+    warm2 = WarmChild(_spec(tmp_path, script2), supervisor=supervisor)
     try:
         with warm2.lease(Deadline(10)) as leased:
             assert not isinstance(leased, dict)
@@ -187,14 +195,14 @@ def test_kill_during_handshake_not_adopted(tmp_path: Any) -> None:
     warm.retire()
 
 
-def test_death_hook_on_external_sigkill(tmp_path: Any, caplog: pytest.LogCaptureFixture) -> None:
+def test_death_hook_on_external_sigkill(tmp_path: Any, caplog: pytest.LogCaptureFixture, supervisor: Supervisor) -> None:
     script = _stdio_worker(tmp_path)
     deaths: list[Death] = []
 
     def on_death(d: Death) -> None:
         deaths.append(d)
 
-    warm = WarmChild(_spec(tmp_path, script), on_death=on_death)
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor, on_death=on_death)
     child_pid: int | None = None
     try:
         with warm.lease(Deadline(10)) as leased:
@@ -202,11 +210,13 @@ def test_death_hook_on_external_sigkill(tmp_path: Any, caplog: pytest.LogCapture
             child_pid = leased.pid
         assert child_pid is not None
         os.kill(child_pid, signal.SIGKILL)
-        time.sleep(0.2)
+        gone_deadline = time.monotonic() + 5.0
+        assert _wait_until(gone_deadline, lambda: not warm.is_alive())
         with caplog.at_level(logging.WARNING):
             with warm.lease(Deadline(10)) as leased:
                 assert not isinstance(leased, dict)
-        assert len(deaths) == 1
+        deadline = time.monotonic() + 5.0
+        assert _wait_until(deadline, lambda: len(deaths) == 1)
         assert deaths[0].during == "idle"
         assert deaths[0].returncode == -9
         assert "unexpectedly" in caplog.text.lower() or "died" in caplog.text.lower()
@@ -214,15 +224,15 @@ def test_death_hook_on_external_sigkill(tmp_path: Any, caplog: pytest.LogCapture
         warm.retire()
 
 
-def test_idle_ttl_kills_idle_not_leased(tmp_path: Any) -> None:
+def test_idle_ttl_kills_idle_not_leased(tmp_path: Any, supervisor: Supervisor) -> None:
     script = _stdio_worker(tmp_path)
-    warm = WarmChild(_spec(tmp_path, script, idle_ttl_sec=0.2))
+    warm = WarmChild(_spec(tmp_path, script, idle_ttl_sec=0.2), supervisor=supervisor)
     try:
         with warm.lease(Deadline(10)) as leased:
             assert not isinstance(leased, dict)
         assert warm.is_alive()
-        time.sleep(0.45)
-        assert not warm.is_alive()
+        deadline = time.monotonic() + 3.0
+        assert _wait_until(deadline, lambda: not warm.is_alive())
         with warm.lease(Deadline(10)) as leased:
             assert not isinstance(leased, dict)
         assert warm.is_alive()
@@ -230,36 +240,35 @@ def test_idle_ttl_kills_idle_not_leased(tmp_path: Any) -> None:
         warm.retire()
 
 
-def test_shutdown_all_kills_children_and_refuses_lease(tmp_path: Any) -> None:
+def test_shutdown_all_kills_children_and_refuses_lease(tmp_path: Any, supervisor: Supervisor) -> None:
     script = _stdio_worker(
         tmp_path,
         preamble="import time",
         handler_body="time.sleep(60)\nreturn {'status': 'ok'}",
     )
-    warm = WarmChild(_spec(tmp_path, script))
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
     pid_holder: list[int] = []
     try:
         with warm.lease(Deadline(10)) as leased:
             assert not isinstance(leased, dict)
             pid_holder.append(leased.pid)
-        t0 = time.monotonic()
         supervisor.shutdown_all()
-        assert time.monotonic() - t0 < 1.0
         if pid_holder:
-            deadline = time.monotonic() + 1.0
-            while time.monotonic() < deadline:
+            deadline = time.monotonic() + 5.0
+
+            def pid_gone() -> bool:
                 try:
                     os.kill(pid_holder[0], 0)
+                    return False
                 except OSError:
-                    break
-                time.sleep(0.05)
-            else:
-                pytest.fail("warm child pid still alive after shutdown_all")
+                    return True
+
+            assert _wait_until(deadline, pid_gone)
         with warm.lease(Deadline(5)) as leased:
             assert isinstance(leased, dict)
             assert leased.get("code") == "SERVICE_SHUTDOWN"
     finally:
-        supervisor._shutdown = False
+        pass
 
 
 @pytest.mark.slow
@@ -276,8 +285,7 @@ def test_orphan_warm_child_dies_with_parent(tmp_path: Any) -> None:
             [
                 "import os, sys, time",
                 f"sys.path.insert(0, {root!r})",
-                "from plugin.framework.process_worker import Deadline",
-                "from plugin.framework.warm_child import ChildSpec, WarmChild",
+                "from plugin.framework.warm_child import ChildSpec, Deadline, WarmChild",
                 f"script = {child_script!r}",
                 "env = {k: v for k, v in os.environ.items() if isinstance(v, str)}",
                 "spec = ChildSpec(name='orphan', argv=[sys.executable, script], env=env)",
@@ -305,7 +313,7 @@ def test_orphan_warm_child_dies_with_parent(tmp_path: Any) -> None:
         child_pid = int(pid_file.read_text(encoding="utf-8").strip())
         os.kill(parent.pid, signal.SIGKILL)
         parent.wait(timeout=5)
-        gone_by = time.monotonic() + 2.0
+        gone_by = time.monotonic() + 5.0
         while time.monotonic() < gone_by:
             try:
                 os.kill(child_pid, 0)

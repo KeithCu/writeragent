@@ -56,16 +56,6 @@ def unpack_restricted_pickle_frame(payload: bytes) -> Any:
         raise ValueError(str(exc)) from exc
 
 
-def set_pdeathsig() -> bool:
-    """Set parent death signal on Linux so the child dies if the host exits abruptly."""
-    if sys.platform != "linux":
-        return False
-    from plugin.framework.child_runtime import die_with_parent
-
-    die_with_parent()
-    return True
-
-
 COMPUTE_THREAD_ENV_VARS: tuple[str, ...] = (
     "OPENBLAS_NUM_THREADS",
     "OMP_NUM_THREADS",
@@ -102,8 +92,9 @@ def run_compute_worker(handler: Callable[[dict[str, Any]], dict[str, Any]]) -> i
 
 def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> int:
     """Standard binary Pickle 5 stdio worker loop for child subprocesses."""
-    # Ensure worker subprocess terminates immediately if master HTTP process dies abruptly
-    set_pdeathsig()
+    from plugin.framework.child_runtime import die_with_parent
+
+    die_with_parent()
 
     stdin_bin = sys.stdin.buffer
 
