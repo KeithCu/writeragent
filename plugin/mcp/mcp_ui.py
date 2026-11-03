@@ -49,7 +49,9 @@ def _tested_tunnel_urls() -> dict[str, str]:
 
     tunnel = current_tunnel()
     if tunnel is not None:
-        return tunnel.tested_provider_tunnel_urls
+        cache = getattr(tunnel, "tested_provider_tunnel_urls", None)
+        if isinstance(cache, dict):
+            return cache
     return _standalone_tunnel.tested_provider_tunnel_urls
 
 _PROVIDER_DEFAULT_URLS = {"cloudflare": "https://<subdomain>.trycloudflare.com/mcp", "bore": "http://bore.pub:<remote-port>/mcp", "ngrok": "https://<domain>.ngrok-free.app/mcp", "tailscale": "https://<machine>.<tailnet>.ts.net/mcp"}
@@ -202,7 +204,8 @@ def sync_mcp_config_snippet(dlg: Any) -> None:
     # Same lock as remember and clear. A stop cannot drop the URL mid-read,
     # and a connect cannot publish into a gap.
     with _active_settings_dialog_lock:
-        active_url = _tested_tunnel_urls().get(selected_provider)
+        cached = _tested_tunnel_urls().get(selected_provider)
+        active_url = cached if isinstance(cached, str) and cached else None
     if not active_url:
         from plugin.mcp import current_tunnel
 
