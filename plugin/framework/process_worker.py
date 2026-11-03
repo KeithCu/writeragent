@@ -48,8 +48,8 @@ from plugin.framework.warm_child import (
     SPAWN_READY_TIMEOUT_SEC,
     error_dict,
     framed_request_roundtrip,
-    read_ready_frame_during_io,
     spawn_budget,
+    spawn_managed_child_with_handshake,
 )
 
 __all__ = ["BaseProcessWorker", "Child", "Deadline", "MIN_REQUEST_SEC", "error_dict", "read_pickle_frame", "write_packed_frame_with_timeout"]
@@ -199,7 +199,6 @@ class BaseProcessWorker:
         a call run about a second past its timeout. ``None`` is startup, which
         has no request clock.
         """
-        timeout_sec = _SPAWN_READY_TIMEOUT_SEC
         if self._shutting_down:
             return
         if not self.kill():
@@ -220,34 +219,35 @@ class BaseProcessWorker:
         )
         spawned: Child | None = None
         published = False
+        cap_sec = _SPAWN_READY_TIMEOUT_SEC
+
+        def _handshake_timeout_sec() -> float | None:
+            if deadline is None:
+                return cap_sec
+            spawn_for = _spawn_budget(deadline)
+            if spawn_for is None:
+                return None
+            return min(cap_sec, spawn_for)
+
         try:
-            managed.start()
-            spawned = Child(managed, worker_name=self.worker_name, worker_id=self.worker_id)
-            # Do not hold _lifecycle_lock across start() or the handshake read.
-            # kill() takes that lock only to drop the pointer, and the
-            # handshake can block for the spawn budget.
-            if not self._adopt(spawned):
-                # Only signal the unpublished child constructed in this call.
-                spawned.signal_from()
+            tag, extra, spawned, published = spawn_managed_child_with_handshake(
+                managed,
+                worker_name=self.worker_name,
+                worker_id=self.worker_id,
+                is_alive=self.is_alive,
+                max_payload_bytes=self.max_payload_bytes,
+                unpacker=self._unpacker,
+                start=ManagedSubprocess.start,
+                publish=self._adopt,
+                handshake_timeout_sec=_handshake_timeout_sec,
+            )
+            if tag == "refused":
                 return
-            published = True
-            proc = managed.popen
-            if deadline is not None:
-                spawn_for = _spawn_budget(deadline)
-                if spawn_for is None:
-                    self.kill()
-                    return
-                timeout_sec = min(_SPAWN_READY_TIMEOUT_SEC, spawn_for)
-            spawned.begin_io()
+            if tag == "budget_exhausted":
+                self.kill()
+                return
             try:
-                tag, extra = read_ready_frame_during_io(
-                    spawned,
-                    proc,
-                    timeout_sec,
-                    is_alive=self.is_alive,
-                    max_payload_bytes=self.max_payload_bytes,
-                    unpacker=self._unpacker,
-                )
+                proc = managed.popen
                 if tag == "ready":
                     ready_data = extra
                     log.info(
@@ -273,8 +273,14 @@ class BaseProcessWorker:
                         f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})",
                         spawned,
                     )
+                elif tag == "error":
+                    exc = extra
+                    message = f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}"
+                    self.kill()
+                    self._log_spawn_outcome(message, spawned)
             finally:
-                self._end_child_io(spawned)
+                if spawned is not None:
+                    self._end_child_io(spawned)
         except Exception as exc:
             message = f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}"
             if not published:
