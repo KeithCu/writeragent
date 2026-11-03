@@ -34,7 +34,10 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-from plugin.framework.process_worker import Deadline
+# Same one-second lift as ``plugin.framework.process_worker.Deadline.run_for``;
+# LibrePy does not ship ``process_worker`` (compute-only IPC stack).
+_EXECUTOR_ALARM_MIN_SEC = 1.0
+
 from plugin.contrib.smolagents.local_python_executor import (
     ExecutionTimeoutError,
     InterpreterError,
@@ -711,13 +714,15 @@ def _seed_shared_executor_once(
 def _executor_alarm_seconds(timeout_sec: int, deadline_end: float) -> int | None:
     """Whole seconds for the child executor alarm, or None when the budget is spent.
 
-    ``Deadline.run_for()`` is the shared lift (at least one second; ``alarm(0)``
-    cancels). *timeout_sec* is the request budget; *deadline_end* is when it ends.
+    Matches ``Deadline.from_absolute(timeout_sec, deadline_end).run_for()`` (at least
+    one second; ``alarm(0)`` cancels). *timeout_sec* is the request budget;
+    *deadline_end* is when it ends.
     """
-    clock = Deadline.from_absolute(float(timeout_sec), deadline_end)
-    if clock.left() <= 0:
+    del timeout_sec  # budget is stored on Deadline; alarm uses end time only
+    left = deadline_end - time.monotonic()
+    if left <= 0:
         return None
-    return math.ceil(clock.run_for())
+    return math.ceil(max(left, _EXECUTOR_ALARM_MIN_SEC))
 
 
 def _budget_timeout_error(timeout_sec: int) -> dict[str, Any]:
