@@ -193,6 +193,27 @@ def parse_slash_text(text: str) -> tuple[SlashCommand, str] | None:
     return cmd, arg
 
 
+def slash_ask_past_command_name(text: str) -> bool:
+    """True when Ask has a full command token plus trailing space or arguments.
+
+    The slash popup should stay closed so Enter runs Send, not ``accept_selected``
+    (QA B2: ``/tone very formal`` must not lose the argument to a usage line).
+    """
+    if not isinstance(text, str):
+        return False
+    stripped = text.lstrip()
+    if not stripped.startswith("/"):
+        return False
+    parts = stripped.split(maxsplit=1)
+    token = parts[0].lstrip("/").lower()
+    if token not in _registry_map():
+        return False
+    if len(parts) > 1:
+        return True
+    suffix = stripped[len(parts[0]) :]
+    return suffix.startswith((" ", "\t"))
+
+
 def slash_typed_prefix(text: str) -> str | None:
     """Prefix after ``/`` for the first Ask-box token, or None if not a slash draft."""
     stripped = text.lstrip()
@@ -254,6 +275,18 @@ def format_slash_item(cmd: SlashCommand) -> str:
     desc = _(cmd.description)
     if _popup_shows_usage_hint(cmd):
         return "/%s%s — %s (%s)" % (cmd.name, tag, desc, command_usage_hint(cmd))
+    return "/%s%s — %s" % (cmd.name, tag, desc)
+
+
+_POPUP_DESC_MAX = 52
+
+
+def format_slash_popup_item(cmd: SlashCommand) -> str:
+    """Single-line list row without usage hints (avoids horizontal scroll, QA B7)."""
+    tag = " [mock]" if cmd in MOCK_SLASH_COMMANDS else ""
+    desc = _(cmd.description)
+    if len(desc) > _POPUP_DESC_MAX:
+        desc = desc[: _POPUP_DESC_MAX - 1] + "\u2026"
     return "/%s%s — %s" % (cmd.name, tag, desc)
 
 
@@ -466,6 +499,8 @@ def _run_clear(host: Any) -> None:
 
 def _run_stop(host: Any) -> None:
     host.stop_in_flight()
+    # Bugfix (QA B11): partial slash drafts like "/sto" stayed in Ask after Stop.
+    host.clear_ask()
 
 
 def _run_remember(host: Any, fact: str) -> None:

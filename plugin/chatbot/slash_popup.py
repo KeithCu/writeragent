@@ -31,9 +31,11 @@ from plugin.chatbot.slash_commands import (
     SlashCommand,
     classify_slash_key,
     filter_slash_commands,
-    format_slash_item,
+    format_slash_popup_item,
     load_slash_lru,
+    parse_slash_text,
     run_slash_command,
+    slash_ask_past_command_name,
     slash_typed_prefix,
 )
 from plugin.framework.errors import best_effort, suppress_disposed, uno_read
@@ -460,6 +462,10 @@ class SlashPopupController:
         _ovlog("query_text entered raw=%r", snippet)
         prefix = slash_typed_prefix(text)
         _ovlog("on_query_text prefix=%r text=%r", prefix, snippet)
+        if slash_ask_past_command_name(text):
+            _ovlog("on_query_text hide (command name complete with arg or space)")
+            _defer_to_next_turn(self.hide)
+            return False
         if prefix is None:
             _ovlog("on_query_text hide (not a slash prefix)")
             # Bugfix: main.post raises TimeoutError when the pending
@@ -589,11 +595,18 @@ class SlashPopupController:
             _ovlog("accept_selected no name selected=%s matches=%s", self._selected, [c.name for c in self._matches])
             return
         _ovlog("accept_selected name=%s", name)
+        from plugin.chatbot.dialogs import get_control_text
+
         # run_slash_command → hide() disposes the list. Post so the key or
         # mouse callback returns before dispose. hide() is not called again
         # here; a second hide would TEXT_UPDATED while the window still exists.
         host = self.send_listener
-        _defer_to_next_turn(run_slash_command, name, host)
+        raw = get_control_text(self.query_control) or ""
+        parsed = parse_slash_text(raw.strip())
+        arg = parsed[1] if parsed is not None and parsed[0].name == name else ""
+        # Bugfix (QA B1): from_popup=True completes "/name " for presets instead of
+        # running them with an empty argument from the partial filter text.
+        _defer_to_next_turn(lambda: run_slash_command(name, host, arg, from_popup=True))
 
     def accept_row_at_y(self, y: int) -> bool:
         """Accept the command under mouse Y. Ignores chrome / off-list clicks."""
@@ -659,7 +672,7 @@ class SlashPopupController:
         ctrl = self.control
         if ctrl is None:
             return
-        labels = tuple(format_slash_item(cmd) for cmd in self._matches)
+        labels = tuple(format_slash_popup_item(cmd) for cmd in self._matches)
         add = getattr(ctrl, "addItems", None)
         if callable(add):
             try:

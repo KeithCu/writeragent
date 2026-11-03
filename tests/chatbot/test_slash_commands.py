@@ -147,7 +147,7 @@ def test_run_clear_calls_existing_clear_listener():
     host.clear_chat.assert_called_once()
 
 
-def test_run_stop_uses_stop_button_and_keeps_draft():
+def test_run_stop_uses_stop_button_and_clears_ask():
     host = SimpleNamespace(
         hide_popup=MagicMock(),
         clear_ask=MagicMock(),
@@ -156,7 +156,7 @@ def test_run_stop_uses_stop_button_and_keeps_draft():
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         assert run_slash_command("stop", host) is True
     host.stop_in_flight.assert_called_once()
-    host.clear_ask.assert_not_called()
+    host.clear_ask.assert_called_once()
 
 
 def test_set_config_raising_still_runs_help():
@@ -170,7 +170,7 @@ def test_set_config_raising_still_runs_help():
     host.append_output.assert_called_once()
 
 
-def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
+def test_run_stop_stops_speech_and_hands_free_and_clears_ask():
     from plugin.chatbot.panel import StopButtonListener
 
     stop_model = SimpleNamespace(Enabled=True)
@@ -185,6 +185,7 @@ def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
         _stop_button_action=ButtonAction.IGNORE,
         stop_control=SimpleNamespace(getModel=lambda: stop_model),
         hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
         stop_in_flight=lambda: StopButtonListener(host).on_action_performed(None),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
@@ -193,14 +194,14 @@ def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
                 with patch("plugin.audio.tts_service.stop_speech") as stop_speech:
                     run_slash_command("stop", host)
     set_text.assert_not_called()
-    assert host.query_control.text == "/stop"
+    host.clear_ask.assert_called_once()
     stop_speech.assert_called_once()
     voice_mock.exit_hands_free_record.assert_called_once()
     host.dispatch.assert_not_called()
     assert stop_model.Enabled is False
 
 
-def test_run_stop_during_inline_approval_opens_change_dialog_without_clearing_ask():
+def test_run_stop_during_inline_approval_opens_change_dialog_and_clears_ask():
     from plugin.chatbot.panel import StopButtonListener
     from plugin.framework.i18n import _
 
@@ -220,13 +221,14 @@ def test_run_stop_during_inline_approval_opens_change_dialog_without_clearing_as
         _finish_inline_web_approval=events_mock._finish_inline_web_approval,
         _open_web_search_change_dialog=events_mock._open_web_search_change_dialog,
         hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
         stop_in_flight=lambda: StopButtonListener(host).on_action_performed(None),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
             run_slash_command("stop", host)
     set_text.assert_not_called()
-    assert host.query_control.text == "keep me"
+    host.clear_ask.assert_called_once()
     events_mock._open_web_search_change_dialog.assert_called_once_with()
     events_mock._finish_inline_web_approval.assert_not_called()
     host.dispatch.assert_not_called()
@@ -694,4 +696,52 @@ def test_popup_accept_runs_undo_immediately():
             assert run_slash_command("undo", host, from_popup=True) is True
     host.clear_ask.assert_called_once()
     host.append_output.assert_called_once()
+
+
+def test_slash_ask_past_command_name_with_arg_or_trailing_space():
+    from plugin.chatbot.slash_commands import slash_ask_past_command_name
+
+    assert slash_ask_past_command_name("/tone very formal") is True
+    assert slash_ask_past_command_name("/tone ") is True
+    assert slash_ask_past_command_name("/to") is False
+    assert slash_ask_past_command_name("/tone") is False
+
+
+def test_format_slash_popup_item_omits_usage_hint():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, format_slash_item, format_slash_popup_item
+
+    tone = next(c for c in SLASH_COMMANDS if c.name == "tone")
+    full = format_slash_item(tone)
+    assert "tone" in full.lower()
+    popup_line = format_slash_popup_item(tone)
+    assert popup_line.startswith("/tone —")
+    assert "<" not in popup_line
+    assert len(popup_line) <= 80
+
+
+def test_slash_answer_send_keeps_typed_transcript_line():
+    from plugin.chatbot.rich_text_paste import session_history_items
+
+    session = SimpleNamespace(
+        messages=[
+            {
+                "role": "user",
+                "content": "Summarize the selected text, or the whole document if nothing is selected. in 400 words",
+                "_transcript_text": "/summarize in 400 words",
+            }
+        ]
+    )
+    items = session_history_items(session)
+    assert items == [("user", "/summarize in 400 words")]
+
+
+def test_run_stop_from_popup_clears_partial_draft():
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        stop_in_flight=MagicMock(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("stop", host, from_popup=True) is True
+    host.clear_ask.assert_called_once()
 

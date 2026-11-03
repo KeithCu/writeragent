@@ -2476,8 +2476,16 @@ class TestPanelR14Fixes:
         listener.query_control = MagicMock()
         listener.query_control.getModel.return_value = MagicMock()
 
-        def _fake_chat_with_tools(query: str, model: Any, doc_type: str) -> None:
-            listener.session.messages.append({"role": "user", "content": query})
+        def _fake_chat_with_tools(
+            query: str,
+            model: Any,
+            doc_type: str,
+            skip_append_user: bool = False,
+            *,
+            user_transcript_text: str | None = None,
+        ) -> None:
+            display = user_transcript_text if user_transcript_text else query
+            listener.session.messages.append({"role": "user", "content": display})
             raise RuntimeError("after commit")
 
         with (
@@ -2694,3 +2702,16 @@ def test_append_output_shows_help_without_live_turn() -> None:
         listener.append_output("\n/help — Print the command list\n")
     widget.append_chunk.assert_called_once_with("\n/help — Print the command list\n")
     append_response.assert_not_called()
+
+
+def test_append_output_during_tool_loop_uses_append_response() -> None:
+    from plugin.chatbot.panel import SendButtonListener
+    from unittest.mock import MagicMock, patch
+
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
+        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    listener.rich_text_widget = MagicMock()
+    with patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=object()), patch.object(listener, "_append_response") as append_response:
+        listener.append_output("\nSlash commands:\n")
+    append_response.assert_called_once_with("\nSlash commands:\n", role="assistant")
+    listener.rich_text_widget.append_chunk.assert_not_called()
