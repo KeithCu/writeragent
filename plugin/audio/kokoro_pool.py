@@ -5,6 +5,8 @@
 """One warm Kokoro worker on the process-wide warm-child Supervisor.
 
 The child speaks Pickle 5 frames via ``kokoro_worker.run_kokoro_stdio_loop``.
+``kokoro_worker`` emits ready before importing ``kokoro_onnx``, so the spawn
+timeout covers process start only and model load counts against the first job.
 ``ChildSpec.idle_ttl_sec`` (default 300s) evicts idle ONNX via the supervisor
 reaper. Stop on an utterance registers ``WarmChild.kill()`` on ``SendCancellation``.
 
@@ -22,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.process_worker import Deadline, error_dict
 from plugin.framework.subprocess_env import scrub_subprocess_env
-from plugin.framework.warm_child import ChildSpec, WarmChild
+from plugin.framework.warm_child import ChildSpec, Supervisor, WarmChild, get_supervisor
 from plugin.scripting.sandbox import resolve_venv_python
 
 if TYPE_CHECKING:
@@ -33,6 +35,7 @@ log = logging.getLogger(__name__)
 _SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kokoro_worker.py")
 _SPAWN_READY_TIMEOUT_SEC = 20.0
 _DEFAULT_JOB_TIMEOUT_SEC = 120.0
+# Long enough to cover a chat reply; short enough an abandoned CPU model does not sit in RAM.
 _DEFAULT_IDLE_TTL_SEC = 300.0
 _SEEN_WARNINGS_MAX = 32
 WORKER_CANCELLED = "WORKER_CANCELLED"
@@ -41,32 +44,9 @@ WORKER_CANCELLED = "WORKER_CANCELLED"
 def _child_env() -> dict[str, str]:
     """Scrub secrets and LibreOffice PYTHONPATH, then point at the extension."""
     env = scrub_subprocess_env(dict(os.environ))
+    # scrub_subprocess_env strips PYTHONPATH on purpose (LO's bundled stdlib breaks venv imports).
     env["PYTHONPATH"] = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
     return env
-
-
-def _error_with_tail(code: str, msg: str, tail: str, *, with_message: bool = False) -> dict[str, Any]:
-    res = error_dict(code, f"{msg}\n{tail}" if tail else msg, message=msg if with_message else None)
-    if tail:
-        res["stderr"] = tail
-    return res
-
-
-def _timeout_error(timeout_sec: float, tail: str = "") -> dict[str, Any]:
-    return _error_with_tail(
-        "EXECUTION_TIMEOUT",
-        f"Execution exceeded maximum timeout of {timeout_sec} seconds.",
-        tail,
-        with_message=True,
-    )
-
-
-def _stderr_tail_from_result(result: dict[str, Any]) -> str:
-    err = result.get("error")
-    if isinstance(err, str) and "\n" in err:
-        return err.split("\n", 1)[1].strip()
-    stderr = result.get("stderr")
-    return stderr.strip() if isinstance(stderr, str) else ""
 
 
 class KokoroProcessPool:
@@ -78,13 +58,14 @@ class KokoroProcessPool:
         *,
         script_path: str | None = None,
         idle_worker_ttl_sec: float | None = _DEFAULT_IDLE_TTL_SEC,
+        supervisor: Supervisor | None = None,
     ) -> None:
         self.python_executable: str = python_executable
         self.script_path: str = script_path or _SCRIPT_PATH
         self.job_timeout_sec: float = _DEFAULT_JOB_TIMEOUT_SEC
         ttl = idle_worker_ttl_sec
         if ttl is not None and ttl <= 0:
-            ttl = 0.001
+            ttl = None
         spec = ChildSpec(
             name="kokoro",
             argv=[python_executable, self.script_path],
@@ -92,8 +73,10 @@ class KokoroProcessPool:
             ready_timeout_sec=_SPAWN_READY_TIMEOUT_SEC,
             idle_ttl_sec=ttl,
         )
-        self._warm: WarmChild = WarmChild(spec)
+        sup = supervisor if supervisor is not None else get_supervisor()
+        self._warm: WarmChild = WarmChild(spec, supervisor=sup)
         self._job_lock: threading.Lock = threading.Lock()
+        self._state_lock: threading.Lock = threading.Lock()
         self._shutdown: bool = False
         self._job_live: bool = False
         self._abort: bool = False
@@ -114,8 +97,9 @@ class KokoroProcessPool:
             if cancel is not None and cancel.is_cancelled():
                 return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
 
-            self._job_live = True
-            self._abort = False
+            with self._state_lock:
+                self._job_live = True
+                self._abort = False
             if cancel is not None:
                 cancel.register_on_cancel(self._on_cancel)
 
@@ -126,22 +110,18 @@ class KokoroProcessPool:
             finally:
                 if cancel is not None:
                     cancel.unregister_on_cancel(self._on_cancel)
-                self._job_live = False
+                with self._state_lock:
+                    self._job_live = False
 
-            if self._abort:
+            with self._state_lock:
+                abort = self._abort
+            if abort:
                 return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
 
             if self._shutdown:
                 return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
 
             if result.get("status") == "error":
-                code = str(result.get("code") or "WORKER_CRASHED")
-                tail = _stderr_tail_from_result(result)
-                if code == "EXECUTION_TIMEOUT":
-                    return _timeout_error(eff_timeout, tail)
-                if code in ("WORKER_SPAWN_FAILED", "WORKER_CRASHED", "EMPTY_RESPONSE", "WORKER_PIPE_BROKEN"):
-                    msg = str(result.get("error") or result.get("message") or code).split("\n", 1)[0]
-                    return _error_with_tail(code, msg, tail, with_message=code == "WORKER_CRASHED")
                 return result
 
         raw_warning = result.get("warning")
@@ -162,10 +142,13 @@ class KokoroProcessPool:
         return result
 
     def _on_cancel(self) -> None:
-        if not self._job_live:
-            return
-        self._abort = True
-        self._job_live = False
+        # Pool-wide hook: kills whatever job is live. Safe because utterance scopes are
+        # cancelled under _speech_lock before the next utterance can start.
+        with self._state_lock:
+            if not self._job_live:
+                return
+            self._abort = True
+            self._job_live = False
         log.info("Cancelling in-flight Kokoro synthesis")
         self._warm.kill()
 
@@ -173,8 +156,9 @@ class KokoroProcessPool:
         """Retire the warm child (tests and venv-path changes)."""
         with self._job_lock:
             self._shutdown = True
-            self._abort = True
-            self._job_live = False
+            with self._state_lock:
+                self._abort = True
+                self._job_live = False
         self._warm.retire()
 
     def is_warm_alive(self) -> bool:

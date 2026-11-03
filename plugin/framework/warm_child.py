@@ -308,6 +308,7 @@ class WarmChild:
         self._retired: bool = False
         self._killed_by_us: bool = False
         self._death_hook_fired: bool = False
+        self._cancel_pending: bool = False
         self._supervisor._register(self)
 
     def is_alive(self) -> bool:
@@ -323,6 +324,8 @@ class WarmChild:
         self._killed_by_us = True
         child = self._child
         if child is None:
+            with self._lifecycle_lock:
+                self._cancel_pending = True
             return
         if not child.signal_from():
             return
@@ -356,6 +359,8 @@ class WarmChild:
             yield error_dict("EXECUTION_TIMEOUT", "Could not acquire warm child pipe lock.")
             return
         try:
+            with self._lifecycle_lock:
+                self._cancel_pending = False
             if self._supervisor.is_shutting_down() or self._retired:
                 yield error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
                 return
@@ -490,6 +495,9 @@ class WarmChild:
                     # Only signal the unpublished child constructed in this call.
                     spawned.signal_from()
                     return error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
+                if self._cancel_pending:
+                    spawned.signal_from()
+                    return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} spawn was cancelled.")
                 if self._child is not None:
                     spawned.signal_from()
                     return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} already has a child.")

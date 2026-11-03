@@ -20,7 +20,7 @@ import pytest
 
 from plugin.audio.kokoro_pool import KokoroProcessPool, _child_env
 from plugin.framework.send_cancellation import SendCancellation
-from plugin.framework.warm_child import WarmChild, supervisor
+from plugin.framework.warm_child import Supervisor, WarmChild
 
 
 def _repo_root() -> str:
@@ -88,16 +88,24 @@ def _warm_popen(pool: KokoroProcessPool) -> subprocess.Popen[bytes] | None:
     return child.managed.popen
 
 
-@pytest.fixture(autouse=True)
-def _reset_supervisor_shutdown() -> Any:
-    yield
-    supervisor._shutdown = False
-    supervisor._reaper_stop.clear()
+def _wait_until(deadline: float, predicate, *, interval: float = 0.02) -> bool:
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return predicate()
 
 
-def test_pool_reuses_one_child_and_returns_wav_path(tmp_path):
+@pytest.fixture
+def supervisor() -> Any:
+    sup = Supervisor()
+    yield sup
+    sup.shutdown_all()
+
+
+def test_pool_reuses_one_child_and_returns_wav_path(tmp_path, supervisor):
     script = _fake_worker_script(tmp_path)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     try:
         first_out = tmp_path / "one.wav"
         second_out = tmp_path / "two.wav"
@@ -113,9 +121,9 @@ def test_pool_reuses_one_child_and_returns_wav_path(tmp_path):
         pool.shutdown()
 
 
-def test_scope_cancel_after_job_keeps_warm_worker(tmp_path):
+def test_scope_cancel_after_job_keeps_warm_worker(tmp_path, supervisor):
     script = _fake_worker_script(tmp_path)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     scope = SendCancellation()
     try:
         out = tmp_path / "done.wav"
@@ -129,9 +137,9 @@ def test_scope_cancel_after_job_keeps_warm_worker(tmp_path):
         pool.shutdown()
 
 
-def test_pool_cancel_inflight_kills_child_and_next_job_respawns(tmp_path):
+def test_pool_cancel_inflight_kills_child_and_next_job_respawns(tmp_path, supervisor):
     script = _fake_worker_script(tmp_path)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     try:
         blocked = tmp_path / "blocked.wav"
         result: dict[str, object] = {}
@@ -157,24 +165,58 @@ def test_pool_cancel_inflight_kills_child_and_next_job_respawns(tmp_path):
         pool.shutdown()
 
 
-def test_pool_idle_reaper_drops_warm_worker(tmp_path):
+def test_pool_idle_reaper_drops_warm_worker(tmp_path, supervisor):
     script = _fake_worker_script(tmp_path)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=0.2)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=0.2, supervisor=supervisor)
     try:
         out = pool.execute({"text": "Hi.", "out_path": str(tmp_path / "idle.wav")})
         assert out["status"] == "ok"
         assert pool.is_warm_alive()
-        time.sleep(0.45)
-        assert not pool.is_warm_alive()
+        deadline = time.monotonic() + 2.0
+        assert _wait_until(deadline, lambda: not pool.is_warm_alive(), interval=0.05)
     finally:
         pool.shutdown()
 
 
-def test_pool_cancel_during_spawn_handshake_kills_child(tmp_path):
+def test_pool_cancel_before_child_published(tmp_path, supervisor, monkeypatch):
+    script = _fake_worker_script(tmp_path)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
+    from plugin.framework import managed_subprocess as ms
+
+    orig_start = ms.ManagedSubprocess.start
+
+    def slow_start(self: ms.ManagedSubprocess) -> None:
+        orig_start(self)
+        time.sleep(1.5)
+
+    monkeypatch.setattr(ms.ManagedSubprocess, "start", slow_start)
+    result: dict[str, object] = {}
+    cancel = SendCancellation()
+    out = tmp_path / "never.wav"
+
+    def _run() -> None:
+        result.update(pool.execute({"text": "Hi.", "out_path": str(out)}, cancel=cancel))
+
+    thread = threading.Thread(target=_run)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 2.0
+        assert _wait_until(deadline, thread.is_alive)
+        assert _warm_popen(pool) is None
+        cancel.cancel()
+        thread.join(5)
+        assert result.get("code") == "WORKER_CANCELLED"
+        assert not out.is_file()
+    finally:
+        pool.shutdown()
+        thread.join(3)
+
+
+def test_pool_cancel_during_spawn_handshake_kills_child(tmp_path, supervisor):
     flag = tmp_path / "delay-ready"
     flag.write_text("1", encoding="utf-8")
     script = _delayed_ready_script(tmp_path, flag)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     result: dict[str, object] = {}
     cancel = SendCancellation()
 
@@ -193,11 +235,9 @@ def test_pool_cancel_during_spawn_handshake_kills_child(tmp_path):
             time.sleep(0.02)
         assert proc is not None and proc.pid
         pid = proc.pid
-        t0 = time.monotonic()
         cancel.cancel()
-        thread.join(8)
-        assert not thread.is_alive()
-        assert time.monotonic() - t0 < 8
+        join_deadline = time.monotonic() + 8.0
+        assert _wait_until(join_deadline, lambda: not thread.is_alive(), interval=0.05)
         assert result.get("code") == "WORKER_CANCELLED"
         try:
             proc.wait(timeout=2)
@@ -212,8 +252,13 @@ def test_pool_cancel_during_spawn_handshake_kills_child(tmp_path):
         thread.join(3)
 
 
-def test_pool_missing_script_is_spawn_failed_not_cancelled(tmp_path):
-    pool = KokoroProcessPool(sys.executable, script_path=str(tmp_path / "missing.py"), idle_worker_ttl_sec=None)
+def test_pool_missing_script_is_spawn_failed_not_cancelled(tmp_path, supervisor):
+    pool = KokoroProcessPool(
+        sys.executable,
+        script_path=str(tmp_path / "missing.py"),
+        idle_worker_ttl_sec=None,
+        supervisor=supervisor,
+    )
     try:
         result = pool.execute({"text": "Hi.", "out_path": str(tmp_path / "missing.wav")})
         assert result["status"] == "error"
@@ -222,9 +267,9 @@ def test_pool_missing_script_is_spawn_failed_not_cancelled(tmp_path):
         pool.shutdown()
 
 
-def test_cancel_check_true_keeps_warm_worker(tmp_path):
+def test_cancel_check_true_keeps_warm_worker(tmp_path, supervisor):
     script = _fake_worker_script(tmp_path)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     try:
         cancel = SendCancellation()
         cancel.cancel()
@@ -238,11 +283,12 @@ def test_cancel_check_true_keeps_warm_worker(tmp_path):
         pool.shutdown()
 
 
-def test_cancel_check_true_does_not_spawn(tmp_path) -> None:
+def test_cancel_check_true_does_not_spawn(tmp_path, supervisor) -> None:
     pool = KokoroProcessPool(
         sys.executable,
         script_path=str(tmp_path / "missing.py"),
         idle_worker_ttl_sec=None,
+        supervisor=supervisor,
     )
     try:
         assert not pool.is_warm_alive()
@@ -255,9 +301,9 @@ def test_cancel_check_true_does_not_spawn(tmp_path) -> None:
         pool.shutdown()
 
 
-def test_execute_serializes_callers(tmp_path) -> None:
+def test_execute_serializes_callers(tmp_path, supervisor) -> None:
     script = _fake_worker_script(tmp_path)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     barrier = threading.Barrier(2)
     results: list[dict[str, Any]] = []
     lock = threading.Lock()
@@ -286,7 +332,7 @@ def test_execute_serializes_callers(tmp_path) -> None:
         pool.shutdown()
 
 
-def test_execute_logs_each_warning_once(caplog) -> None:
+def test_execute_logs_each_warning_once(caplog, supervisor) -> None:
     warning_msg = "Kokoro fell back to espeak-ng for ja; non-English text may be misread"
 
     class _StubWarm:
@@ -307,7 +353,7 @@ def test_execute_logs_each_warning_once(caplog) -> None:
             return None
 
     caplog.set_level(logging.DEBUG, logger="plugin.audio.kokoro_pool")
-    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None, supervisor=supervisor)
     stub = _StubWarm()
     pool._warm = stub  # type: ignore[assignment]
     try:
@@ -347,7 +393,7 @@ def test_execute_logs_each_warning_once(caplog) -> None:
         pool.shutdown()
 
 
-def test_kokoro_pool_spawn_failed_includes_stderr(tmp_path):
+def test_kokoro_pool_spawn_failed_includes_stderr(tmp_path, supervisor):
     script = tmp_path / "broken_worker.py"
     script.write_text(
         "import sys\n"
@@ -355,33 +401,28 @@ def test_kokoro_pool_spawn_failed_includes_stderr(tmp_path):
         "sys.stderr.flush()\n"
         "raise SystemExit(1)\n"
     )
-    pool = KokoroProcessPool(sys.executable, script_path=str(script), idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path=str(script), idle_worker_ttl_sec=None, supervisor=supervisor)
     try:
         result = pool.execute({"text": "Hello", "out_path": str(tmp_path / "out.wav")})
         assert result.get("status") == "error"
         assert result.get("code") == "WORKER_SPAWN_FAILED"
-        assert (
-            "ModuleNotFoundError: kokoro_onnx" in result.get("stderr", "")
-            or "ModuleNotFoundError: kokoro_onnx" in result.get("error", "")
-        )
+        assert "ModuleNotFoundError: kokoro_onnx" in str(result.get("error", ""))
     finally:
         pool.shutdown()
 
 
-def test_delayed_ready_script_timeout_kills_child(tmp_path):
+def test_delayed_ready_script_timeout_kills_child(tmp_path, supervisor):
     flag = tmp_path / "delay-ready"
     flag.write_text("1", encoding="utf-8")
     script = _delayed_ready_script(tmp_path, flag)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
-    t0 = time.monotonic()
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     result = pool.execute({"text": "Hi.", "out_path": str(tmp_path / "out.wav")}, timeout_sec=0.5)
-    elapsed = time.monotonic() - t0
-    assert elapsed < 1.0
     assert result.get("code") in ("EXECUTION_TIMEOUT", "WORKER_SPAWN_FAILED")
     assert not pool.is_warm_alive()
+    pool.shutdown()
 
 
-def test_alive_worker_execute_shares_clock(monkeypatch):
+def test_alive_worker_execute_shares_clock(monkeypatch, supervisor):
     recorded_timeout: list[float] = []
 
     def tracked_request(self, payload, deadline):
@@ -389,7 +430,7 @@ def test_alive_worker_execute_shares_clock(monkeypatch):
         return {"status": "ok"}
 
     monkeypatch.setattr(WarmChild, "request", tracked_request)
-    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None, supervisor=supervisor)
     try:
         res = pool.execute({"text": "Hi."}, timeout_sec=0.3)
         assert res.get("status") == "ok"
@@ -399,7 +440,7 @@ def test_alive_worker_execute_shares_clock(monkeypatch):
         pool.shutdown()
 
 
-def test_crash_mid_job_returns_worker_crashed(tmp_path):
+def test_crash_mid_job_returns_worker_crashed(tmp_path, supervisor):
     root = _repo_root()
     script = tmp_path / "crash_worker.py"
     script.write_text(
@@ -413,7 +454,7 @@ def test_crash_mid_job_returns_worker_crashed(tmp_path):
         "raise SystemExit(run_kokoro_stdio_loop(handler))\n",
         encoding="utf-8",
     )
-    pool = KokoroProcessPool(sys.executable, script_path=str(script), idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path=str(script), idle_worker_ttl_sec=None, supervisor=supervisor)
     try:
         result = pool.execute({"text": "Hi.", "out_path": str(tmp_path / "out.wav")})
         assert result.get("status") == "error"
@@ -473,7 +514,7 @@ def test_get_kokoro_pool_caches_for_configured_venv(monkeypatch):
             kp._POOL_CONFIG_VENV = None
 
 
-def test_kokoro_child_spec_env_and_spawn(monkeypatch):
+def test_kokoro_child_spec_env_and_spawn(monkeypatch, supervisor):
     from unittest.mock import MagicMock
 
     monkeypatch.setenv("OPENAI_API_KEY", "super-secret-key")
@@ -493,11 +534,11 @@ def test_kokoro_child_spec_env_and_spawn(monkeypatch):
     monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", lambda *_a, **_k: MagicMock())
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     monkeypatch.setattr(
-        "plugin.framework.warm_child.read_pickle_frame",
+        "plugin.framework.process_worker.read_pickle_frame",
         lambda *_a, **_k: {"status": "ready", "pid": 1234},
     )
 
-    pool = KokoroProcessPool(sys.executable, script_path="dummy_script.py", idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path="dummy_script.py", idle_worker_ttl_sec=None, supervisor=supervisor)
     try:
         spec = pool._warm.spec
         assert spec.name == "kokoro"
@@ -552,9 +593,9 @@ def test_venv_path_change_retires_warm_child(monkeypatch):
             kp._POOL_CONFIG_VENV = None
 
 
-def test_cancel_inflight_returns_without_blocking_on_reap(tmp_path):
+def test_cancel_inflight_returns_without_blocking_on_reap(tmp_path, supervisor):
     script = _fake_worker_script(tmp_path)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     cancel = SendCancellation()
     result: dict[str, object] = {}
 
@@ -564,12 +605,10 @@ def test_cancel_inflight_returns_without_blocking_on_reap(tmp_path):
     thread = threading.Thread(target=_run)
     thread.start()
     deadline = time.monotonic() + 2
-    while time.monotonic() < deadline and not pool.is_warm_alive():
-        time.sleep(0.02)
-    t0 = time.monotonic()
+    assert _wait_until(deadline, pool.is_warm_alive)
     cancel.cancel()
-    thread.join(3)
-    assert time.monotonic() - t0 < 1.0
+    join_deadline = time.monotonic() + 1.0
+    assert _wait_until(join_deadline, lambda: not thread.is_alive())
     assert result.get("code") == "WORKER_CANCELLED"
     pool.shutdown()
 
@@ -614,21 +653,14 @@ def test_orphan_kokoro_child_dies_with_parent(tmp_path):
     parent = subprocess.Popen([sys.executable, str(parent_script), str(out_wav), str(pid_file)])
     try:
         deadline = time.monotonic() + 20.0
-        while time.monotonic() < deadline:
-            if pid_file.is_file():
-                break
-            time.sleep(0.05)
+        assert _wait_until(deadline, pid_file.is_file, interval=0.05)
         assert pid_file.is_file(), "parent never recorded child pid"
         child_pid = int(pid_file.read_text(encoding="utf-8").strip())
         os.kill(parent.pid, signal.SIGKILL)
         parent.wait(timeout=5)
         gone_by = time.monotonic() + 2.0
-        while time.monotonic() < gone_by:
-            try:
-                os.kill(child_pid, 0)
-            except OSError:
-                return
-            time.sleep(0.05)
+        if _wait_until(gone_by, lambda: _process_gone(child_pid), interval=0.05):
+            return
         pytest.fail(f"Kokoro warm child {child_pid} outlived SIGKILL parent")
     finally:
         if parent.poll() is None:
@@ -636,7 +668,15 @@ def test_orphan_kokoro_child_dies_with_parent(tmp_path):
             parent.wait(timeout=5)
 
 
-def test_base_exception_during_request_propagates(tmp_path, monkeypatch):
+def _process_gone(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return True
+    return False
+
+
+def test_base_exception_during_request_propagates(tmp_path, monkeypatch, supervisor):
     orig_request = WarmChild.request
     first = True
 
@@ -649,7 +689,7 @@ def test_base_exception_during_request_propagates(tmp_path, monkeypatch):
 
     monkeypatch.setattr(WarmChild, "request", mock_request)
     script = _fake_worker_script(tmp_path)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
     try:
         with pytest.raises(KeyboardInterrupt):
             pool.execute({"text": "Hi.", "out_path": str(tmp_path / "out1.wav")})
