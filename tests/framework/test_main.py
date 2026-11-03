@@ -285,6 +285,10 @@ def test_terminate_listener_runs_quit_hooks_before_shutdown_all(monkeypatch):
         "plugin.framework.managed_subprocess.shutdown_all",
         lambda: order.append("shutdown_all"),
     )
+    monkeypatch.setattr(
+        "plugin.framework.warm_child.supervisor.shutdown_all",
+        lambda: order.append("supervisor_shutdown_all"),
+    )
 
     listeners: list = []
     fake_desktop = MagicMock()
@@ -296,7 +300,8 @@ def test_terminate_listener_runs_quit_hooks_before_shutdown_all(monkeypatch):
     assert len(listeners) == 1
     listeners[0].notifyTermination(MagicMock())
     assert order.index("quit_hooks") < order.index("shutdown_all")
-    assert order == ["quit_hooks", "kokoro", "shutdown_all"]
+    assert order.index("shutdown_all") < order.index("supervisor_shutdown_all")
+    assert order == ["quit_hooks", "kokoro", "shutdown_all", "supervisor_shutdown_all"]
 
 
 def test_dispatch_command_unhandled_raises_when_bootstrap_failed():
