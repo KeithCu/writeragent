@@ -29,8 +29,8 @@ from plugin.embeddings.embeddings_cache import (  # noqa: E402
     EMBEDDINGS_CACHE_DIRNAME,
     LEGACY_FILE_INDEX_STATE_FILENAME,
     LEGACY_INDEX_DB,
+    CorpusMeta,
     folder_corpus_key,
-    read_corpus_meta,
 )
 
 
@@ -83,7 +83,8 @@ def _print_corpus_meta(meta_path: Path) -> None:
     if not meta_path.is_file():
         print("  (missing)")
         return
-    meta = read_corpus_meta(meta_path)
+    meta_obj = CorpusMeta.load(meta_path)
+    meta = meta_obj.data if meta_obj.is_valid else {}
     if not meta:
         print("  (empty or unreadable)")
         return

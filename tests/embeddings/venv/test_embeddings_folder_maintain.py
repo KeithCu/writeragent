@@ -32,7 +32,7 @@ def test_maintain_cold_calls_heartbeat_and_ingest(tmp_path: Path):
     heartbeats: list[dict] = []
 
     with patch("plugin.embeddings.venv.embeddings_folder_maintain.index_is_empty", return_value=True):
-        with patch("plugin.embeddings.venv.embeddings_folder_maintain.needs_cold_rebuild", return_value=True):
+        with patch.object(embeddings_folder_maintain.CorpusMeta, "load", return_value=MagicMock(needs_cold_rebuild=MagicMock(return_value=True))):
             with patch("plugin.embeddings.venv.embeddings_folder_maintain.clear_folder_cache") as clear_mock:
                 with patch(
                     "plugin.embeddings.venv.embeddings_folder_maintain._ingest_rows",

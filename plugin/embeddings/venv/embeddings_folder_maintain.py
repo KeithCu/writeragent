@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any, Callable, Literal
 
-from plugin.embeddings.embeddings_cache import _load_meta_object, clear_folder_cache, corpus_db_path, corpus_meta_path, ensure_corpus_meta, index_is_empty, maybe_upgrade_legacy_index, needs_cold_rebuild, write_row_count_meta
+from plugin.embeddings.embeddings_cache import CorpusMeta, clear_folder_cache, corpus_db_path, corpus_meta_path, index_is_empty, maybe_upgrade_legacy_index
 from plugin.embeddings.embeddings_fs import WriterFileEntry, chunk_to_index_row, guess_indexable_paths, indexable_chunks_from_path
 from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 from plugin.embeddings.venv.embeddings_sqlite import (
@@ -29,7 +29,6 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     sync_file_paragraph_state_in_db,
 )
 from plugin.embeddings.venv.heartbeat_throttle import HeartbeatThrottle
-from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -52,21 +51,21 @@ def _resolve_mode(listing_root: str, embedding_model: str, mode: MaintainMode, *
     # Model change must cold-rebuild even when the caller asked for incremental.
     # Staying incremental rewrites embedding_model onto a vec table that is
     # empty, partial, or still the previous dimension.
-    if build_vectors and needs_cold_rebuild(meta_path, embedding_model):
+    meta = CorpusMeta.load(meta_path)
+    if build_vectors and meta.needs_cold_rebuild(embedding_model):
         return "cold"
     if mode != "auto":
         return mode
     # corpus.db is absent for zvec/lancedb. Pass the backend so that absence
     # is not read as an empty sqlite corpus (which cold-wipes the collection).
-    if index_is_empty(meta_path, db_path, search_mode=search_mode, listing_root=listing_root):
+    if index_is_empty(meta_path, db_path, search_mode=search_mode, listing_root=listing_root, meta=meta):
         return "cold"
-    loaded = _load_meta_object(meta_path)
-    if loaded is None:
+    if not meta.is_valid:
         # Unreadable or non-object meta is not a schema mismatch. A mismatch
         # here would cold-wipe the corpus. #1153 stopped the decode-error wipe;
         # a JSON list still crashed on .get or looked like the wrong version.
         return "incremental"
-    if str(loaded.get("schema_version", "")) != EMBEDDINGS_SCHEMA_VERSION:
+    if not meta.schema_matches():
         return "cold"
     return "incremental"
 
@@ -94,7 +93,7 @@ def _ingest_rows(
         delete_paragraph_keys(conn, list(delete_keys or []), with_fts=build_fts, with_vec=False)
         inserted = insert_paragraph_rows(conn, rows, with_fts=build_fts)
         count = corpus_chunk_count(conn)
-        write_row_count_meta(listing_root, count)
+        CorpusMeta.write_row_count(listing_root, count)
         return {"indexed": inserted, "dim": 0, "storage_backend": "sqlite_vec", "upserted": inserted}
     finally:
         conn.close()
@@ -108,7 +107,7 @@ def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any] | None]
 def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileEntry], hb: HeartbeatThrottle, *, build_fts: bool, build_vectors: bool, search_mode: str = "embeddings") -> dict[str, Any]:
     clear_folder_cache(listing_root)
     if build_vectors:
-        ensure_corpus_meta(corpus_meta_path(listing_root), embedding_model=embedding_model)
+        CorpusMeta.ensure(corpus_meta_path(listing_root), embedding_model=embedding_model)
     db_path = corpus_db_path(listing_root)
     indexed = 0
     upserted = 0
@@ -140,7 +139,7 @@ def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileE
         row_count = corpus_chunk_count(conn)
     finally:
         conn.close()
-    write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
+    CorpusMeta.write_row_count(listing_root, row_count, embedding_model=embedding_model)
 
     return {"mode": "cold", "indexed_paragraphs": indexed, "files": total, "upserted": upserted, "row_count": row_count}
 
@@ -242,7 +241,7 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
         if has_missing:
             _ingest_rows(listing_root, embedding_model, [], build_fts=False, build_vectors=True, search_mode=search_mode, fill_vector_gaps=True, heartbeat_fn=lambda p: hb.emit(p, immediate=True))
 
-    write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
+    CorpusMeta.write_row_count(listing_root, row_count, embedding_model=embedding_model)
 
     return {"mode": "incremental", "indexed_paragraphs": indexed, "deleted_paragraphs": deleted, "files_touched": files_touched, "files": total, "row_count": row_count}
 

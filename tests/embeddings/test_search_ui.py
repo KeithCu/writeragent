@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from plugin.embeddings.embeddings_cache import ready_search_path
+from plugin.embeddings.embeddings_cache import CorpusMeta, ready_search_path
 from plugin.embeddings.search_ui import (
     SearchDialog,
     format_cache_age,
@@ -405,7 +405,7 @@ class TestSearchDialog:
                 with patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=("key", Path("/db"), Path("/meta"), "/root")):
                     with patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="sqlite"):
                         with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
-                            with patch("plugin.embeddings.embeddings_cache.read_corpus_meta", return_value={"updated_at": str(two_days_ago)}):
+                            with patch("plugin.embeddings.embeddings_cache.CorpusMeta.load", return_value=CorpusMeta(data={"updated_at": str(two_days_ago)}, is_valid=True)):
                                 dialog._refresh_cache_status(mock_dlg)
 
         assert status_lbl.getModel().Label == "Cache Status: Built (2d ago)"

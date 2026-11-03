@@ -77,12 +77,12 @@ def test_cold_build_ingests_one_file_at_a_time(tmp_path):
 
     with (
         patch.object(maintain, "clear_folder_cache"),
-        patch.object(maintain, "ensure_corpus_meta"),
+        patch.object(maintain.CorpusMeta, "ensure"),
         patch.object(maintain, "indexable_chunks_from_path", side_effect=[(1, [_chunk("file:///a.odt", 0, "a")]), (1, [_chunk("file:///b.odt", 0, "b")])]),
         patch.object(maintain, "_ingest_rows", side_effect=_fake_ingest_rows),
         patch.object(maintain, "sync_file_paragraph_state_in_db") as sync_mock,
         patch.object(maintain, "corpus_db_path", return_value=db_path),
-        patch.object(maintain, "write_row_count_meta"),
+        patch.object(maintain.CorpusMeta, "write_row_count"),
     ):
         result = maintain._cold_build(
             listing_root,
@@ -107,12 +107,12 @@ def test_cold_build_skips_ingest_for_empty_files(tmp_path):
 
     with (
         patch.object(maintain, "clear_folder_cache"),
-        patch.object(maintain, "ensure_corpus_meta"),
+        patch.object(maintain.CorpusMeta, "ensure"),
         patch.object(maintain, "indexable_chunks_from_path", return_value=(0, [])),
         patch.object(maintain, "_ingest_rows") as ingest_mock,
         patch.object(maintain, "sync_file_paragraph_state_in_db") as sync_mock,
         patch.object(maintain, "corpus_db_path", return_value=tmp_path / "writeragent_embeddings" / "corpus.db"),
-        patch.object(maintain, "write_row_count_meta"),
+        patch.object(maintain.CorpusMeta, "write_row_count"),
     ):
         result = maintain._cold_build(
             listing_root,
@@ -250,7 +250,7 @@ def test_incremental_same_model_vector_gap_requests_backfill(tmp_path):
         patch.object(maintain, "ensure_schema"),
         patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"),
         patch.object(maintain, "corpus_chunk_count", return_value=2),
-        patch.object(maintain, "write_row_count_meta"),
+        patch.object(maintain.CorpusMeta, "write_row_count"),
         patch.object(maintain, "_ingest_rows", return_value={"indexed": 2, "upserted": 2}) as ingest,
     ):
         maintain._incremental_refresh(
@@ -281,7 +281,7 @@ def test_incremental_skips_backfill_when_vectors_present(tmp_path):
         patch.object(maintain, "get_all_indexed_urls_in_db", return_value=[]),
         patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"),
         patch.object(maintain, "corpus_chunk_count", return_value=2),
-        patch.object(maintain, "write_row_count_meta"),
+        patch.object(maintain.CorpusMeta, "write_row_count"),
         patch.object(maintain, "_ingest_rows") as ingest,
     ):
         maintain._incremental_refresh(

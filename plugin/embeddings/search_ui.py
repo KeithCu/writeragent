@@ -195,8 +195,8 @@ class SearchDialog:
             def _get_status() -> str:
                 try:
                     from plugin.embeddings.embeddings_cache import (
+                        CorpusMeta,
                         index_is_empty,
-                        read_corpus_meta,
                         resolve_index_context,
                         zvec_collection_looks_populated,
                         zvec_collection_path,
@@ -226,7 +226,8 @@ class SearchDialog:
                     elif index_is_empty(meta_path, db_path):
                         return _("Cache Status: Not built")
 
-                    meta = read_corpus_meta(meta_path)
+                    meta_obj = CorpusMeta.load(meta_path)
+                    meta = meta_obj.data if meta_obj.is_valid else {}
                     updated_at_str = meta.get("updated_at")
                     if updated_at_str:
                         try:
@@ -275,7 +276,7 @@ class SearchDialog:
         def _do_background_search() -> None:
             try:
                 from plugin.framework.constants import folder_search_enabled
-                from plugin.embeddings.embeddings_cache import query_blocked_for_model, ready_search_path
+                from plugin.embeddings.embeddings_cache import CorpusMeta, ready_search_path
                 from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
                 from plugin.embeddings.embedding_client import get_embedding_model
                 from plugin.embeddings.embeddings_service import hybrid_search, _folder_search_mode
@@ -303,7 +304,7 @@ class SearchDialog:
                 if search_path is not None:
                     model = get_embedding_model()
                     # Do not query a vec store built for a different model.
-                    if mode != "fts" and query_blocked_for_model(meta_path, model):
+                    if mode != "fts" and CorpusMeta.load(meta_path).query_blocked_for_model(model):
                         search_path = None
                 if search_path is None:
                     main.call(ensure_index_wakeup, ctx, None, doc)
