@@ -2,21 +2,24 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Ask-box slash-command registry, prefix filter, and LRU ranking.
+"""Ask-box slash-command registry, routing, prefix filter, and LRU ranking.
 
-The product list is /help /clear /stop. Echo-only ``[mock]`` stubs exist for
-the mock-LLM sidebar harness and register only through
-``enable_mock_slash_commands()``. Ranking is prefix match, then ``slash_command_lru`` in
-``writeragent.json`` (empty filter and as a tie-break). Do not implement
-the consider-list in ``docs/chat/slash-commands.md`` here.
+Product commands include Tier 1 presets (rewrite / answer / local), plus
+``/help``, ``/clear``, and ``/stop``. Echo-only ``[mock]`` stubs register only
+through ``enable_mock_slash_commands()`` for the debug sidebar harness.
+Ranking is prefix match, then ``slash_command_lru`` in ``writeragent.json``.
+Do not implement the consider-list in ``docs/chat/slash-commands.md`` here.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Sequence
 
+from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.i18n import N_, _
 
 log = logging.getLogger("writeragent.slash_commands")
@@ -33,19 +36,112 @@ KEY_TAB = 1282
 KEY_MODIFIER_SHIFT = 1
 
 
+class SlashKind(str, Enum):
+    LOCAL = "local"
+    REWRITE = "rewrite"
+    ANSWER = "answer"
+
+
+_POPUP_IMMEDIATE = frozenset({"help", "clear", "stop", "undo"})
+
+
 @dataclass(frozen=True)
 class SlashCommand:
-    """One popup row. ``name`` is without the leading slash."""
+    """One registered command. ``name`` is without the leading slash."""
 
     name: str
     description: str
+    kind: SlashKind = SlashKind.LOCAL
+    instruction: str = ""
+    requires_arg: bool = False
+    usage: str = ""
+    needs_turn: bool = False
+    runs_in_send_turn: bool = False
 
 
-# Product commands: /help /clear /stop.
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
-    SlashCommand("help", N_("Print the command list")),
-    SlashCommand("clear", N_("Start a new chat")),
-    SlashCommand("stop", N_("Cancel the in-flight send")),
+    SlashCommand("help", N_("Print the command list"), usage="/help"),
+    SlashCommand("clear", N_("Start a new chat"), usage="/clear"),
+    SlashCommand("stop", N_("Cancel the in-flight send"), usage="/stop"),
+    SlashCommand(
+        "summarize",
+        N_("Summarize the selection or document in the sidebar"),
+        kind=SlashKind.ANSWER,
+        instruction=N_("Summarize the selected text, or the whole document if nothing is selected."),
+        usage="/summarize [focus]",
+    ),
+    SlashCommand(
+        "proofread",
+        N_("Fix spelling, grammar, and punctuation without restyling"),
+        kind=SlashKind.REWRITE,
+        instruction=N_("Fix spelling, grammar, and punctuation only. Do not change style, tone, or meaning."),
+        usage="/proofread",
+    ),
+    SlashCommand(
+        "shorten",
+        N_("Shorten the selection"),
+        kind=SlashKind.REWRITE,
+        instruction=N_("Make the text shorter while preserving the meaning."),
+        usage="/shorten [target]",
+    ),
+    SlashCommand(
+        "expand",
+        N_("Expand the selection with more detail"),
+        kind=SlashKind.REWRITE,
+        instruction=N_("Expand the text with more detail and clarity."),
+        usage="/expand [what]",
+    ),
+    SlashCommand(
+        "tone",
+        N_("Rewrite the selection to match a described tone"),
+        kind=SlashKind.REWRITE,
+        instruction=N_("Rewrite the text to match this tone or style: {arg}"),
+        requires_arg=True,
+        usage="/tone <description>",
+    ),
+    SlashCommand(
+        "translate",
+        N_("Translate the selection (sidebar when nothing is selected in Writer)"),
+        kind=SlashKind.REWRITE,
+        instruction=N_("Translate the text into {arg}. Keep formatting and structure."),
+        requires_arg=True,
+        usage="/translate <language>",
+    ),
+    SlashCommand(
+        "explain",
+        N_("Explain the selection or active Calc formula"),
+        kind=SlashKind.ANSWER,
+        instruction=N_("Explain the following in plain language."),
+        usage="/explain",
+    ),
+    SlashCommand(
+        "remember",
+        N_("Save a fact to persistent memory"),
+        kind=SlashKind.LOCAL,
+        requires_arg=True,
+        usage="/remember <fact>",
+    ),
+    SlashCommand(
+        "compact",
+        N_("Compact older chat history now"),
+        kind=SlashKind.LOCAL,
+        usage="/compact [focus]",
+        needs_turn=True,
+    ),
+    SlashCommand(
+        "undo",
+        N_("Undo the last agent edit as one step"),
+        kind=SlashKind.LOCAL,
+        usage="/undo",
+    ),
+    SlashCommand(
+        "formula",
+        N_("Write a Calc formula from a plain-English description"),
+        kind=SlashKind.LOCAL,
+        requires_arg=True,
+        usage="/formula <description>",
+        runs_in_send_turn=True,
+    ),
 )
 
 # Echo-only stubs for the mock-LLM sidebar harness and prefix/LRU tests.
@@ -76,11 +172,26 @@ def registered_slash_commands() -> tuple[SlashCommand, ...]:
     return SLASH_COMMANDS
 
 
-def slash_typed_prefix(text: str) -> str | None:
-    """Prefix after ``/`` for the first Ask-box token, or None if not a slash draft.
+def _registry_map() -> dict[str, SlashCommand]:
+    return {c.name: c for c in registered_slash_commands()}
 
-    ``/`` → ``""`` (full list). ``/he`` → ``"he"``. ``hello`` → None.
-    """
+
+def parse_slash_text(text: str) -> tuple[SlashCommand, str] | None:
+    """Return ``(command, arg)`` when the first token is a registered name, else None."""
+    stripped = (text or "").strip()
+    if not stripped.startswith("/"):
+        return None
+    parts = stripped.split(maxsplit=1)
+    token = parts[0].lstrip("/").lower()
+    cmd = _registry_map().get(token)
+    if cmd is None:
+        return None
+    arg = parts[1].strip() if len(parts) > 1 else ""
+    return cmd, arg
+
+
+def slash_typed_prefix(text: str) -> str | None:
+    """Prefix after ``/`` for the first Ask-box token, or None if not a slash draft."""
     stripped = text.lstrip()
     if not stripped.startswith("/"):
         return None
@@ -123,9 +234,24 @@ def classify_slash_key(key_code: int, modifiers: int = 0) -> str | None:
     return None
 
 
+def command_usage_hint(cmd: SlashCommand) -> str:
+    if cmd.usage:
+        return cmd.usage
+    if cmd.requires_arg:
+        return "/%s <…>" % cmd.name
+    return "/%s" % cmd.name
+
+
+def _popup_shows_usage_hint(cmd: SlashCommand) -> bool:
+    return command_usage_hint(cmd) != ("/%s" % cmd.name)
+
+
 def format_slash_item(cmd: SlashCommand) -> str:
     tag = " [mock]" if cmd in MOCK_SLASH_COMMANDS else ""
-    return "/%s%s — %s" % (cmd.name, tag, _(cmd.description))
+    desc = _(cmd.description)
+    if _popup_shows_usage_hint(cmd):
+        return "/%s%s — %s (%s)" % (cmd.name, tag, desc, command_usage_hint(cmd))
+    return "/%s%s — %s" % (cmd.name, tag, desc)
 
 
 def format_help_text() -> str:
@@ -133,6 +259,10 @@ def format_help_text() -> str:
     for cmd in registered_slash_commands():
         lines.append("  " + format_slash_item(cmd))
     return "\n".join(lines)
+
+
+def format_usage_line(cmd: SlashCommand) -> str:
+    return _("Usage: {0}").format(command_usage_hint(cmd))
 
 
 def load_slash_lru() -> list[str]:
@@ -157,8 +287,181 @@ def record_slash_lru(name: str) -> None:
     )
 
 
-def run_slash_command(name: str, host: Any) -> bool:
-    """Run a registry command on the live send listener. Not a chat turn.
+def _format_instruction(cmd: SlashCommand, arg: str) -> str:
+    base = _(cmd.instruction)
+    if "{arg}" in base:
+        return base.format(arg=arg)
+    if arg:
+        return base + " " + arg
+    return base
+
+
+def _writer_has_selection(model: Any) -> bool:
+    from plugin.doc.text_helpers import get_selection_text, selected_text_range
+
+    controller = model.getCurrentController()
+    if controller is None:
+        return False
+    rng = selected_text_range(controller)
+    if rng is not None:
+        from plugin.doc.text_helpers import get_string_without_tracked_deletions
+
+        return bool(get_string_without_tracked_deletions(rng).strip())
+    text = get_selection_text(model)
+    return bool(text and str(text).strip())
+
+
+def _calc_active_cell_explain_line(model: Any) -> str:
+    """One short line for Calc /explain: cell address and formula text."""
+    from plugin.calc.address_utils import index_to_column
+
+    view = model.CurrentController
+    sheet = view.ActiveSheet
+    selection = view.getSelection()
+    addr = selection.getCellAddress()
+    cell = sheet.getCellByPosition(addr.Column, addr.Row)
+    formula = str(cell.getFormula() or "")
+    address = "%s%d" % (index_to_column(addr.Column), addr.Row + 1)
+    if formula:
+        return _("Cell {0} formula: {1}").format(address, formula)
+    display = str(cell.getString() or cell.getValue())
+    return _("Cell {0} value: {1}").format(address, display)
+
+
+def effective_slash_kind(cmd: SlashCommand, model: Any | None) -> SlashKind:
+    if (
+        cmd.name == "translate"
+        and cmd.kind == SlashKind.REWRITE
+        and model is not None
+        and get_document_type(model) == DocumentType.WRITER
+        and not _writer_has_selection(model)
+    ):
+        return SlashKind.ANSWER
+    return cmd.kind
+
+
+def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
+    """Instruction-only user message; document snapshot is appended at send time."""
+    instruction = _format_instruction(cmd, arg)
+    if cmd.name == "explain" and get_document_type(model) == DocumentType.CALC:
+        return instruction + "\n\n" + _calc_active_cell_explain_line(model)
+    return instruction
+
+
+def slash_send_continues_after_begin(cmd: SlashCommand, host: Any | None = None) -> bool:
+    """True when Send must call ``_begin_send`` before finishing the command."""
+    if cmd.needs_turn or cmd.runs_in_send_turn or cmd.kind == SlashKind.ANSWER:
+        return True
+    if host is not None:
+        model = host.slash_document_model()
+        if model is not None and effective_slash_kind(cmd, model) == SlashKind.ANSWER:
+            return True
+    return False
+
+
+def _remember_key(fact: str) -> str:
+    digest = hashlib.sha256(fact.strip().encode("utf-8")).hexdigest()[:12]
+    return "slash." + digest
+
+
+def _complete_ask_draft(host: Any, name: str) -> None:
+    from plugin.chatbot.dialogs import set_control_text
+    from plugin.chatbot.send_state import SendEvent, SendEventKind
+
+    query = host.query_control
+    if query is not None:
+        set_control_text(query, "/" + name + " ")
+    host.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
+
+
+def _run_help(host: Any) -> None:
+    host.clear_ask()
+    host.append_output("\n" + format_help_text() + "\n")
+
+
+def _run_clear(host: Any) -> None:
+    host.clear_ask()
+    host.clear_chat()
+
+
+def _run_stop(host: Any) -> None:
+    host.stop_in_flight()
+
+
+def _run_remember(host: Any, fact: str) -> None:
+    from plugin.chatbot.memory import MemoryStore
+
+    host.clear_ask()
+    try:
+        store = MemoryStore()
+    except Exception as exc:
+        host.append_output("\n" + str(exc) + "\n")
+        return
+    result = store.upsert(_remember_key(fact), fact)
+    if result.get("status") == "error":
+        host.append_output("\n" + str(result.get("message", _("Failed to save memory."))) + "\n")
+        return
+    host.append_output("\n" + _("Saved to memory: {0}").format(fact) + "\n")
+
+
+def _run_mock_echo(host: Any, cmd: SlashCommand) -> None:
+    host.clear_ask()
+    host.append_output("\nslash: /%s\n" % cmd.name)
+
+
+def _run_rewrite(host: Any, cmd: SlashCommand, arg: str) -> None:
+    host.clear_ask()
+    host.slash_run_rewrite(_format_instruction(cmd, arg))
+
+
+def _run_compact(host: Any, arg: str) -> None:
+    host.clear_ask()
+    host.run_slash_compact(arg.strip())
+
+
+def _run_undo(host: Any) -> None:
+    host.clear_ask()
+    from plugin.chatbot.slash_undo_formula import run_slash_undo
+
+    run_slash_undo(host)
+
+
+_LOCAL_HANDLERS: dict[str, Any] = {
+    "help": lambda host, _cmd, _arg: _run_help(host),
+    "clear": lambda host, _cmd, _arg: _run_clear(host),
+    "stop": lambda host, _cmd, _arg: _run_stop(host),
+    "remember": lambda host, _cmd, arg: _run_remember(host, arg.strip()),
+    "compact": lambda host, _cmd, arg: _run_compact(host, arg),
+    "undo": lambda host, _cmd, _arg: _run_undo(host),
+}
+
+
+def _compact_result_line(result: Any) -> str:
+    if result.compacted:
+        return _("Conversation compacted.")
+    reason = getattr(result, "reason", "") or ""
+    if reason == "nothing_to_compact":
+        return _("Nothing to compact.")
+    if reason == "below_threshold":
+        return _("Nothing to compact yet (history is still small).")
+    if reason == "no_window":
+        return _("Compaction is not available for this model.")
+    return _("Compaction failed.")
+
+
+def run_slash_command(
+    name: str,
+    host: Any,
+    arg: str = "",
+    *,
+    from_popup: bool = False,
+) -> bool:
+    """Run a registry command.
+
+    Returns ``False`` when ``name`` is unknown, or when Send must continue after
+    ``_begin_send`` (answer presets, ``/compact``, and commands with ``runs_in_send_turn``).
+    Returns ``True`` when the
+    command is fully handled (including usage lines and rewrites).
 
     Mocks echo ``slash: /name`` so the popup can be exercised. ``/help``
     prints the static list. ``/clear`` uses ClearButtonListener. Those and
@@ -167,21 +470,91 @@ def run_slash_command(name: str, host: Any) -> bool:
     button, and leaves the draft.
     """
     clean = name.lstrip("/").strip().lower()
-    cmd = {c.name: c for c in registered_slash_commands()}.get(clean)
+    cmd = _registry_map().get(clean)
     if cmd is None:
         return False
     record_slash_lru(cmd.name)
     host.hide_popup()
 
-    if cmd.name == "stop":
-        host.stop_in_flight()
+    if from_popup and cmd.name not in _POPUP_IMMEDIATE and cmd not in MOCK_SLASH_COMMANDS:
+        _complete_ask_draft(host, cmd.name)
         return True
+
+    if cmd.requires_arg and not (arg or "").strip():
+        host.append_output("\n" + format_usage_line(cmd) + "\n")
+        return True
+
+    if cmd in MOCK_SLASH_COMMANDS:
+        _run_mock_echo(host, cmd)
+        return True
+
+    if cmd.name in _LOCAL_HANDLERS and not cmd.needs_turn and not cmd.runs_in_send_turn:
+        _LOCAL_HANDLERS[cmd.name](host, cmd, arg)
+        return True
+
+    if cmd.kind == SlashKind.REWRITE:
+        model = host.slash_document_model()
+        if effective_slash_kind(cmd, model) == SlashKind.ANSWER:
+            return False
+        _run_rewrite(host, cmd, arg)
+        return True
+
+    if cmd.kind == SlashKind.ANSWER or cmd.needs_turn or cmd.runs_in_send_turn:
+        return False
+
     host.clear_ask()
-    if cmd.name == "help":
-        host.append_output("\n" + format_help_text() + "\n")
-        return True
-    if cmd.name == "clear":
-        host.clear_chat()
-        return True
     host.append_output("\nslash: /%s\n" % cmd.name)
     return True
+
+
+def run_slash_compact_sync(
+    host: Any,
+    *,
+    focus: str,
+    session: Any,
+    ctx: Any,
+    cancel: Any,
+) -> str:
+    """Run ``compact_session(force=True)`` off-thread; return one status line."""
+    from plugin.chatbot.compaction import compact_session
+    from plugin.chatbot.selection import create_validated_client
+    from plugin.framework.config import get_config
+    from plugin.framework.client.model_fetcher import resolve_context_window
+    from plugin.framework.llm_lanes import llm_request_lane
+    from plugin.framework.send_cancellation import is_cancelled
+    from plugin.main import get_tools
+
+    title = _("WriterAgent")
+    client = create_validated_client(ctx, title)
+    if client is None:
+        return "\n" + _("Configure an API key to compact.") + "\n"
+
+    if not get_config("chat_compaction_enabled"):
+        return "\n" + _("Chat compaction is disabled in settings.") + "\n"
+
+    tools = get_tools()
+
+    def status_cb(text: str) -> None:
+        log.debug("slash compact status: %s", text)
+
+    if is_cancelled(cancel):
+        return "\n" + _("Compaction cancelled.") + "\n"
+
+    try:
+        with llm_request_lane(status_callback=status_cb, resume_status=_("Thinking...")):
+            result = compact_session(
+                session,
+                client,
+                window=resolve_context_window(client),
+                tools=tools,
+                force=True,
+                focus=focus or None,
+                cancel=cancel,
+            )
+    except Exception:
+        log.exception("slash /compact failed")
+        return "\n" + _("Compaction failed.") + "\n"
+
+    if is_cancelled(cancel):
+        return "\n" + _("Compaction cancelled.") + "\n"
+    return "\n" + _compact_result_line(result) + "\n"

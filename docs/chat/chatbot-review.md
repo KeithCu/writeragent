@@ -6,7 +6,7 @@ The tree is in good structural shape. The pure tool-loop FSM, frame-only documen
 
 Coverage:
 
-- Send / FSM: `state_machine.py`, `tool_loop_state.py`, `tool_loop_actions.py`, `tool_loop.py`, `send_state.py`, `send_handlers.py`, `sticky_reply.py`, `chat_sidebar_mode.py`, `panel.py`
+- Send / FSM: `tool_loop_state.py`, `tool_loop_actions.py`, `tool_loop.py`, `send_state.py`, `send_handlers.py`, `sticky_reply.py`, `chat_sidebar_mode.py`, `panel.py`
 - Panel shell: `panel_factory.py`, `panel_wiring.py`, `panel_resize.py`, `sidebar_state.py`, `sidebar_test_hooks.py`, `dialogs.py`
 - Settings: `dialog_views.py`, `settings_dialog.py`, `settings_fields.py`, `settings_tab_order.py`, `config_ui_helpers.py`, `module_config_dialog.py`, `quick_setup.py`, `eval_dashboard_ui.py`, `hamburger_menu.py`
 - Transcript: `rich_text.py`, `rich_text_control.py`, `rich_text_paste.py`, `slash_commands.py`, `slash_popup.py`, `selection.py`, `external_editor.py`

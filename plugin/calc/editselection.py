@@ -17,7 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Operations for Calc (Extend/Edit Selection)."""
 
-from typing import Any, Callable, cast
+from typing import Any
 
 from plugin.calc.calc_utils import TEXT
 from plugin.chatbot.dialogs import msgbox
@@ -41,7 +41,13 @@ def _build_calc_edit_prompt(original: str, instructions: str) -> str:
     )
 
 
-def do_calc_extend_edit(ctx: Any, model: Any, is_edit: bool) -> None:
+def do_calc_extend_edit(
+    ctx: Any,
+    model: Any,
+    is_edit: bool,
+    *,
+    preset_instruction: str | None = None,
+) -> None:
     sheet = model.CurrentController.ActiveSheet
     selection = model.CurrentController.Selection
 
@@ -49,10 +55,13 @@ def do_calc_extend_edit(ctx: Any, model: Any, is_edit: bool) -> None:
     extra_instructions = ""
     title = _("WriterAgent: Edit Selection (Calc)") if is_edit else _("WriterAgent: Extend Selection (Calc)")
     if is_edit:
-        edit_request = prompt_for_edit_instructions(ctx, title)
-        if edit_request is None:
-            return
-        user_input, extra_instructions = edit_request
+        if preset_instruction is not None:
+            user_input = preset_instruction
+        else:
+            edit_request = prompt_for_edit_instructions(ctx, title)
+            if edit_request is None:
+                return
+            user_input, extra_instructions = edit_request
 
     area = selection.getRangeAddress()
 
@@ -112,6 +121,10 @@ def do_calc_extend_edit(ctx: Any, model: Any, is_edit: bool) -> None:
     if client is None:
         return
 
+    from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
+
+    record_agent_turn_before(model)
+
     def prepare_task(task: StreamCompletionTask) -> tuple[ApplyChunkFn, ErrorFn]:
         col, row, original = task.payload
         cell = sheet.getCellByPosition(col, row)
@@ -145,8 +158,13 @@ def do_calc_extend_edit(ctx: Any, model: Any, is_edit: bool) -> None:
     # this step (WriterCompoundUndo).
     undo = WriterCompoundUndo(model, title)
 
+    def on_finished() -> None:
+        undo.close()
+        record_agent_turn_after(model)
+
     try:
-        stream_completion_tasks(ctx, client, tasks, prepare_task, cast("Callable[[], None]", undo.close))
+        stream_completion_tasks(ctx, client, tasks, prepare_task, on_finished)
     except BaseException:
         undo.close()
+        record_agent_turn_after(model)
         raise

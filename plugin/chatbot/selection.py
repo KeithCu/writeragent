@@ -73,10 +73,33 @@ def prompt_for_edit_instructions(ctx: Any, title: str) -> tuple[str, str] | None
     return user_input, extra_instructions
 
 
-def stream_completion(ctx: Any, client: LlmClient, prompt: str, system_prompt: str, max_tokens: int, apply_chunk_fn: ApplyChunkFn, on_done_fn: Callable[[], None], on_error_fn: ErrorFn) -> None:
+def stream_completion(
+    ctx: Any,
+    client: LlmClient,
+    prompt: str,
+    system_prompt: str,
+    max_tokens: int,
+    apply_chunk_fn: ApplyChunkFn,
+    on_done_fn: Callable[[], None],
+    on_error_fn: ErrorFn,
+    *,
+    cancel: Any = None,
+    on_stopped_fn: Callable[[], None] | None = None,
+) -> None:
     """Start a simple completion stream and route startup failures like stream errors."""
     try:
-        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn)
+        run_stream_completion_async(
+            ctx,
+            client,
+            prompt,
+            system_prompt,
+            max_tokens,
+            apply_chunk_fn,
+            on_done_fn,
+            on_error_fn,
+            cancel=cancel,
+            on_stopped_fn=on_stopped_fn,
+        )
     except Exception as e:
         on_error_fn(e)
 
@@ -158,14 +181,26 @@ def stream_completion_tasks(
         raise
 
 
-def do_selection_action_for_document(ctx: Any, model: Any, is_edit: bool) -> None:
+def do_selection_action_for_document(
+    ctx: Any,
+    model: Any,
+    is_edit: bool,
+    *,
+    preset_instruction: str | None = None,
+    allow_whole_document: bool = False,
+) -> None:
     """Dispatch Extend/Edit Selection to the document-specific implementation."""
     doc_type = get_document_type(model)
     if doc_type == DocumentType.WRITER:
         from plugin.writer.editselection import do_edit_selection, do_extend_selection
 
         if is_edit:
-            do_edit_selection(ctx, model)
+            do_edit_selection(
+                ctx,
+                model,
+                preset_instruction=preset_instruction,
+                allow_whole_document=allow_whole_document,
+            )
         else:
             do_extend_selection(ctx, model)
         return
@@ -173,7 +208,7 @@ def do_selection_action_for_document(ctx: Any, model: Any, is_edit: bool) -> Non
     if doc_type == DocumentType.CALC:
         from plugin.calc.editselection import do_calc_extend_edit
 
-        do_calc_extend_edit(ctx, model, is_edit)
+        do_calc_extend_edit(ctx, model, is_edit, preset_instruction=preset_instruction)
         return
 
     action = _("Edit") if is_edit else _("Extend")

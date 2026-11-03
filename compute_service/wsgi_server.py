@@ -39,6 +39,33 @@ REQUEST_READ_TIMEOUT_SEC = 30.0
 # Socket write deadline for sending the response once computation completes.
 REQUEST_WRITE_TIMEOUT_SEC = 30.0
 
+# Single WSGI environ slot for per-request socket state (see RequestConn).
+WSGI_REQUEST_CONN = "compute_service.request_conn"
+
+
+@dataclass
+class RequestConn:
+    """Per-request connection state shared by the WSGI handler and server.py.
+
+    Stored by reference on ``environ``: wsgiref gives the app a shallow copy of
+    ``environ``, so a scalar flag set only in the app dict would not reach
+    ``DeadlineRequestHandler.handle()``; this object is shared across both.
+    """
+
+    connection: socket.socket | None = None
+    accept_time: float | None = None
+    close_connection: bool = False
+    raw_body: bytes | None = None
+
+
+def request_conn(environ: dict[str, Any]) -> RequestConn:
+    """Return the request connection object, creating one for direct WSGI callers."""
+    rc = environ.get(WSGI_REQUEST_CONN)
+    if not isinstance(rc, RequestConn):
+        rc = RequestConn()
+        environ[WSGI_REQUEST_CONN] = rc
+    return rc
+
 
 def listener_thread_count(max_threads: int | None) -> int:
     """Listener threads for ``max_threads``: ``None`` is the class default of 16, otherwise ``max(8, n + 4)``."""
@@ -110,7 +137,7 @@ class ComputeServerHandler(ServerHandler):
         # advertise it, so the socket closes with the response.
         close_conn = (
             h.environ.get("SERVER_PROTOCOL") == "HTTP/1.0"
-            or bool(h.environ.get("compute.close_connection"))
+            or request_conn(h.environ).close_connection
             or bool(getattr(req_handler, "close_connection", False))
         )
         # write() sets bytes_sent to the first block before send_headers. A
@@ -130,7 +157,7 @@ class ComputeServerHandler(ServerHandler):
         req_handler = getattr(h, "request_handler", None)
         if req_handler is not None:
             req_handler.close_connection = True
-        h.environ["compute.close_connection"] = True
+        request_conn(h.environ).close_connection = True
         super().handle_error()
 
 
@@ -193,7 +220,8 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         handler = ComputeServerHandler(self.rfile, cast("Any", self.wfile), self.get_stderr(), environ, multithread=False)
         cast("Any", handler).request_handler = self
         handler.run(cast("Any", self.server).get_app())
-        if environ.get("compute.close_connection"):
+        # RequestConn is shared with the app's shallow copy of environ (see RequestConn).
+        if request_conn(environ).close_connection:
             self.close_connection = True
 
     def handle_expect_100(self) -> bool:
@@ -220,9 +248,11 @@ class DeadlineRequestHandler(WSGIRequestHandler):
 
     def get_environ(self) -> dict[str, Any]:
         environ = super().get_environ()
-        environ["compute.connection"] = self.connection
         # Keyed by the socket object: an ``id()`` key is reused after close, so a later accept would inherit the stamp.
-        environ["compute.accept_time"] = cast("Any", self.server)._accept_times.get(self.connection)
+        environ[WSGI_REQUEST_CONN] = RequestConn(
+            connection=self.connection,
+            accept_time=cast("Any", self.server)._accept_times.get(self.connection),
+        )
         return environ
 
 

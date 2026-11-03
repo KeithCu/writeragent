@@ -126,6 +126,14 @@ def _install_terminate_listener(ctx: Any) -> None:
         class _TerminateListener(BaseTerminateListener):
             def notifyTermination(self, Event: Any) -> None:
                 try:
+                    from plugin.framework.quit_hooks import run_quit_hooks
+
+                    run_quit_hooks()
+                except Exception:
+                    # UNO boundary: XTerminateListener.notifyTermination callback
+                    log.exception("Error running quit hooks on desktop termination")
+
+                try:
                     from plugin.audio.kokoro_pool import shutdown_kokoro_pool
 
                     shutdown_kokoro_pool()

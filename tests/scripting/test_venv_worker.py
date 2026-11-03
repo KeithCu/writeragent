@@ -417,30 +417,40 @@ def test_terminate_worker_kills_grandchild(tmp_path, monkeypatch):
                 pass
 
 def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
-    pytest.skip('Pipe-lock test used legacy _proc snapshot; rewrite against WarmChild lease ownership')
+    """A child that never reads stdin must not hold the warm-child pipe lock forever."""
+    from plugin.framework.process_worker import Deadline
+    from plugin.framework.warm_child import ChildSpec, WarmChild
     import plugin.scripting.venv_worker as venv_worker_module
     child = tmp_path / 'blocked_stdin_worker.py'
-    child.write_text((_STUB_WORKER_EMIT_READY + 'import time\ntime.sleep(60)\n').lstrip(), encoding='utf-8')
-    monkeypatch.setattr(venv_worker_module, '_HARNESS_PATH', str(child))
+    child.write_text(('import sys\n' + _STUB_WORKER_EMIT_READY + 'import time\ntime.sleep(60)\n').lstrip(), encoding='utf-8')
     monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
-    mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
+    env = {k: v for k, v in os.environ.items() if isinstance(v, str)}
+    env['WRITERAGENT_IS_WORKER'] = '1'
+    spec = ChildSpec(
+        name='blocked-stdin-test',
+        argv=[sys.executable, str(child)],
+        env=env,
+        command_wrapper=venv_worker_module.wrap_command_for_sandbox,
+    )
+    warm = WarmChild(spec)
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = sys.executable
+    mgr._warm = warm
     try:
-        mgr._ensure_running()
-        assert _mgr_proc(mgr) is not None and _mgr_proc(mgr).stdin is not None
-        started = time.monotonic()
-        with mgr._io_lock:
+        with warm.lease(Deadline(30)) as leased:
+            assert not isinstance(leased, dict)
+            started = time.monotonic()
             with pytest.raises(subprocess.TimeoutExpired):
-                mgr._write_packed_frame_with_timeout(_mgr_proc(mgr).stdin, b'x' * (8 * 1024 * 1024), timeout_sec=0.2, label='test request')
-        assert time.monotonic() - started < 5
-        assert _mgr_proc(mgr) is None
+                mgr._write_packed_frame_with_timeout(leased.stdin, b'x' * (8 * 1024 * 1024), timeout_sec=0.2, label='test request')
+            assert time.monotonic() - started < 5
         for t in threading.enumerate():
             if t.name == 'ipc-stdin-write':
                 t.join(timeout=5)
                 assert not t.is_alive()
-        assert mgr._io_lock.acquire(timeout=1)
-        mgr._io_lock.release()
+        assert warm._io_lock.acquire(timeout=1)
+        warm._io_lock.release()
     finally:
-        mgr._terminate_worker()
+        warm.retire()
 
 def test_execute_refuses_reentry_while_this_thread_owns_the_pipe():
     mgr = PythonWorkerManager(sys.executable, {})
@@ -477,42 +487,6 @@ def test_initial_write_timeout_retries_once():
     first = mgr._write_frame_with_timeout.call_args_list[0].args[1]
     second = mgr._write_frame_with_timeout.call_args_list[1].args[1]
     assert first['id'] == second['id']
-
-def test_write_timeout_skips_terminate_when_writer_already_detached():
-    pytest.skip('WarmChild write timeout always kills via warm.kill(); legacy detach race removed')
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = io.BytesIO()
-    proc.stdout = io.BytesIO()
-    _install_mock_proc(mgr, proc)
-
-    def ensure() -> None:
-        if _mgr_proc(mgr) is None:
-            _install_mock_proc(mgr, proc)
-    writes = {'n': 0}
-
-    def write(stdin: object, request: object, timeout_sec: float, label: str) -> None:
-        del stdin, request, timeout_sec, label
-        writes['n'] += 1
-        if writes['n'] == 1:
-            mgr._warm = None
-            raise subprocess.TimeoutExpired(cmd=sys.executable, timeout=1)
-
-    def read(*args: object, **kwargs: object) -> Terminal:
-        del kwargs
-        wire = args[3]
-        assert isinstance(wire, dict)
-        return Terminal({'id': wire.get('id'), 'status': 'ok', 'result': 1})
-    mgr._ensure_running = MagicMock(side_effect=ensure)
-    mgr._write_frame_with_timeout = write
-    mgr._read_until_terminal = read
-    mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
-    assert result['status'] == 'ok'
-    assert result['result'] == 1
-    assert writes['n'] == 2
-    assert mgr._terminate_worker.call_count == 0
 
 def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     mgr = PythonWorkerManager(sys.executable, {})
@@ -805,9 +779,6 @@ def test_win32_partial_frame_timeout_with_stop_is_cancelled(monkeypatch: pytest.
     assert res.kind == 'cancel'
     with pytest.raises(IpcPartialFrameTimeout):
         mgr._read_frame_bytes(_Stdout(), 1.0, stop_checker=lambda: False)
-
-def test_ensure_running_joins_dead_child_before_spawn(monkeypatch: pytest.MonkeyPatch):
-    pytest.skip('WarmChild respawn is owned by the supervisor; legacy reap-join spawn path removed')
 
 def test_manager_separate_pools_same_exe():
     from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_EMBEDDINGS
@@ -1596,59 +1567,7 @@ def test_execute_refuses_other_thread_during_tool_rpc():
     assert result['code'] == 'WORKER_REENTRY'
     assert 'busy' in result['message']
 
-def test_execute_stops_waiting_when_holder_enters_tool_rpc(monkeypatch):
-    pytest.skip('covered by test_execute_ui_thread_returns_busy_when_pipe_lock_held')
-    monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
-    monkeypatch.setattr(venv_worker_module, '_IO_LOCK_ACQUIRE_TIMEOUT_SEC', 30.0)
-    mgr = PythonWorkerManager(sys.executable, {})
-    _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
-    assert mgr._io_lock.acquire(timeout=1)
-    mgr._io_owner = threading.get_ident()
-    outcome: dict[str, dict] = {}
-
-    def _other() -> None:
-        with patch.object(mgr, '_execute_ipc_unlocked', side_effect=_guard_ipc_while_lock_wait):
-            got = mgr.execute('result = 1', timeout_sec=1)
-        outcome['result'] = got
-
-    waiter = threading.Thread(target=_other)
-    waiter.start()
-    time.sleep(0.1)
-    mgr._serving_tool_call = True
-    waiter.join(timeout=2)
-    try:
-        assert not waiter.is_alive()
-        assert outcome['result']['code'] == 'WORKER_REENTRY'
-        assert 'busy' in outcome['result']['message']
-    finally:
-        mgr._serving_tool_call = False
-        mgr._io_owner = None
-        mgr._io_lock.release()
-
-def test_execute_pipe_lock_wait_times_out(monkeypatch):
-    pytest.skip('covered by test_execute_ui_thread_returns_busy_when_pipe_lock_held')
-    monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
-    monkeypatch.setattr(venv_worker_module, '_IO_LOCK_ACQUIRE_TIMEOUT_SEC', 0.15)
-    mgr = PythonWorkerManager(sys.executable, {})
-    _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
-    assert mgr._io_lock.acquire(timeout=1)
-    outcome: dict[str, dict] = {}
-
-    def _other() -> None:
-        with patch.object(mgr, '_execute_ipc_unlocked', side_effect=_guard_ipc_while_lock_wait):
-            outcome['result'] = mgr.execute('result = 1', timeout_sec=1)
-
-    try:
-        waiter = threading.Thread(target=_other)
-        waiter.start()
-        waiter.join(timeout=2)
-        assert not waiter.is_alive()
-        assert outcome['result']['code'] == 'WORKER_REENTRY'
-    finally:
-        mgr._io_lock.release()
-
 def test_execute_serialized_after_pipe_lock_release(monkeypatch):
-    pytest.skip('WarmChild lease serializes writers; see test_execute_refuses_reentry_while_this_thread_owns_the_pipe')
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO())
     _install_mock_proc(mgr, proc)
@@ -1657,9 +1576,12 @@ def test_execute_serialized_after_pipe_lock_release(monkeypatch):
     outcome: list[dict[str, Any]] = []
 
     def _other() -> None:
-        with patch.object(mgr, '_read_until_terminal', return_value=Terminal({'id': 'x', 'status': 'ok', 'result': 1})):
-            with patch.object(mgr, '_write_frame_with_timeout'):
-                outcome.append(mgr.execute('result = 1', timeout_sec=1))
+        def _fake_ipc(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
+            del req, leased
+            return {'status': 'ok', 'result': 1}
+
+        with patch.object(mgr, '_execute_ipc_unlocked', side_effect=_fake_ipc):
+            outcome.append(mgr.execute('result = 1', timeout_sec=1))
 
     waiter = threading.Thread(target=_other)
     waiter.start()
@@ -1829,8 +1751,30 @@ def test_unknown_frame_does_not_extend_heartbeat_deadline(caplog: pytest.LogCapt
     assert time.monotonic() - started < 10.0
     assert 'unknown frame type' in caplog.text
 
-def test_get_returns_while_previous_reap_is_blocked():
-    pytest.skip('Pool-key retirement uses WarmChild.retire(); legacy background reap join removed')
+def test_pool_key_change_retires_old_warm_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A new venv path retires the old warm child before the replacement can spawn."""
+    monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
+    shutdown_venv_workers_for_tests()
+    try:
+        first = PythonWorkerManager.get(sys.executable, {'PATH': os.environ.get('PATH', '/usr/bin:/bin')})
+        assert first._ensure_running()
+        warm = first._warm
+        assert warm is not None
+        with warm.lease(Deadline(30)) as leased:
+            assert not isinstance(leased, dict)
+            old_pid = leased.pid
+        other_exe = f'{sys.executable}-wa-retire-test'
+        second = PythonWorkerManager.get(other_exe, {'PATH': os.environ.get('PATH', '/usr/bin:/bin')})
+        assert first._retired is True
+        assert first._warm is None
+        assert not pid_is_alive(old_pid)
+        second.exe = sys.executable
+        assert second._ensure_running()
+        new_proc = _mgr_proc(second)
+        assert new_proc is not None
+        assert new_proc.pid != old_pid
+    finally:
+        shutdown_venv_workers_for_tests()
 
 def test_warm_venv_worker_embeddings_timeout(monkeypatch):
     from plugin.scripting import venv_worker as vw
@@ -1864,52 +1808,6 @@ def test_warm_venv_worker_embeddings_timeout(monkeypatch):
     assert mock_execute_calls[0]['action'] == 'run_trusted_action'
     assert mock_execute_calls[0]['timeout_sec'] == 300
     assert mock_execute_calls[0]['allow_heartbeat'] is True
-
-def test_terminate_worker_race_condition(monkeypatch: pytest.MonkeyPatch):
-    pytest.skip('WarmChild kill/reap is synchronous on the Child owner; legacy detach race test removed')
-    if sys.platform == 'win32':
-        pytest.skip('select mock only tests POSIX path')
-    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
-    mgr.exe = 'dummy'
-    mgr._proc_lock = threading.Lock()
-    mgr._retired = False
-    mgr._reap_handles = []
-
-    class DummyProc:
-
-        def __init__(self):
-            self.pid = 123
-
-        def poll(self):
-            return None
-
-        def kill(self):
-            pass
-
-        def wait(self, timeout=None):
-            pass
-    _install_mock_proc(mgr, DummyProc())
-    mgr._warm = None
-    mgr._primed = True
-
-    def mocked_select(r, w, x, timeout):
-        mgr._terminate_worker()
-        return ([r], [], [])
-
-    class MockStdout(io.BytesIO):
-
-        def fileno(self) -> int:
-            return 3
-
-        def read(self, n: int=-1) -> bytes:
-            return b''
-    with monkeypatch.context() as m:
-        m.setattr('plugin.framework.ipc.select.select', mocked_select)
-        try:
-            mgr._read_response_bytes(MockStdout(), timeout_sec=1)
-        except (subprocess.TimeoutExpired, EOFError):
-            pass
-    assert _mgr_proc(mgr) is None
 
 def test_read_response_with_heartbeats_swallows_callback_exceptions():
     from plugin.scripting.venv_worker import PythonWorkerManager
@@ -2082,7 +1980,19 @@ def test_host_pack_oversize_returns_error_without_terminate(monkeypatch):
     assert proc.stdin.getvalue() == b''
 
 def test_missing_proc_after_concurrent_terminate():
-    pytest.skip('WarmChild uses lease-held stdio; legacy concurrent _proc=None race test removed')
+    """Concurrent retire/kill during read returns an error, not AttributeError."""
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    _install_mock_proc(mgr, proc)
+    mgr._write_frame_with_timeout = MagicMock()
+    mgr._read_response_bytes = MagicMock(side_effect=RuntimeError('worker terminated concurrently'))
+    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    assert result['status'] == 'error'
+    assert result['code'] == 'WORKER_IPC_ERROR'
+    assert 'worker terminated concurrently' in result['message']
 
 def test_stop_checker_returns_cancelled_code():
     """Stop during the IPC wait kills the worker, does not replay, and returns CANCELLED."""
@@ -2406,9 +2316,6 @@ def test_resolve_allowed_tools_failure_does_not_write(monkeypatch: pytest.Monkey
     assert mgr._write_frame_with_timeout.call_count == 0
     assert mgr._terminate_worker.call_count == 0
 
-def test_ensure_running_retired_during_reap_join_does_not_return_live_proc() -> None:
-    pytest.skip('WarmChild owns respawn; legacy reap-join before Popen removed')
-
 def test_invalid_pickle_request_frame_keeps_worker(monkeypatch: pytest.MonkeyPatch) -> None:
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
@@ -2522,10 +2429,18 @@ def test_caller_thread_exit_does_not_pdeathsig_the_worker() -> None:
         if helper_err is not None:
             stderr = mgr._drain_stderr()
             raise AssertionError(f'_ensure_running failed on helper: {helper_err}{stderr}') from helper_err
+
+        # A round trip proves the harness is past die_with_parent (main() arms
+        # PR_SET_PDEATHSIG before its first stdin read). A fixed sleep raced
+        # interpreter startup under CI load: if the spawn thread exited before
+        # prctl ran, nothing was armed and the worker never died.
         result = mgr.execute('result = 42', timeout_sec=30)
         assert result.get('status') == 'ok', result
         assert _mgr_proc(mgr) is not None
         assert _mgr_proc(mgr).poll() is None
+
+        # The kernel delivers SIGKILL when the spawn OS thread exits, which can
+        # trail Thread.join() slightly; allow for a loaded CI runner.
         deadline = time.monotonic() + 15.0
         exit_code = None
         while time.monotonic() < deadline:
@@ -2592,8 +2507,19 @@ def test_execute_stop_checker_returns_cancelled_before_io(monkeypatch):
     res = mgr.execute('result = 1', timeout_sec=1, stop_checker=lambda: True)
     assert res['code'] == 'CANCELLED'
 
-def test_ensure_running_live_proc_reads_proc_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    pytest.skip('WarmChild lease spawns via supervisor; legacy _proc snapshot spawn path removed')
+def test_ensure_running_does_not_respawn_live_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
+    mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
+    assert mgr._ensure_running()
+    pid1 = _mgr_proc(mgr).pid
+    assert pid1 is not None
+    warm = mgr._warm
+    assert warm is not None
+    with patch.object(warm._supervisor, 'spawn') as mock_spawn:
+        assert mgr._ensure_running()
+        mock_spawn.assert_not_called()
+    assert _mgr_proc(mgr).pid == pid1
+    mgr._terminate_worker()
 
 def test_parse_worker_stdout_frame_rejects_non_dict():
     payload = pickle.dumps([1], protocol=5)
@@ -2607,9 +2533,6 @@ def test_parse_worker_stdout_frame_returns_empty_dict():
 def test_parse_worker_stdout_frame_empty_bytes_raise():
     with pytest.raises(ValueError):
         parse_worker_stdout_frame(b'')
-
-def test_acquire_io_stop_checker_returns_cancelled_promptly():
-    pytest.skip('replaced by test_execute_stop_checker_returns_cancelled_before_io')
 
 def test_run_in_session_does_not_warm_when_stopped():
     mgr = PythonWorkerManager('/tmp/python-test', {'PATH': '/usr/bin'})
