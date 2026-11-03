@@ -412,8 +412,6 @@ class RetryBudget:
     wait_index: int
     emitted_any: bool
     body_in_hand: bool
-    _first_body: Any
-    _last_body: Any
 
     def __init__(
         self,
@@ -431,8 +429,6 @@ class RetryBudget:
         self.wait_index = 0
         self.emitted_any = False
         self.body_in_hand = False
-        self._first_body = None
-        self._last_body = None
 
     def stopped(self) -> bool:
         return is_cancelled(self._cancel)
@@ -623,8 +619,6 @@ class RetryBudget:
 
         transport = self._transport
         cancel = self._cancel
-        self._first_body = body
-        self._last_body = body
         while True:
             if self.stopped():
                 transport.close()
@@ -713,7 +707,6 @@ class RetryBudget:
                         bytes(body) if isinstance(body, (bytes, bytearray)) else bytes(str(body), "utf-8")
                     )
                     if next_body is not None:
-                        self._last_body = next_body
                         body = next_body
                         continue
                 raise

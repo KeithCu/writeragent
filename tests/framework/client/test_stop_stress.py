@@ -22,6 +22,7 @@ from plugin.framework.client.request_controls import (
     reset_local_unverified_hosts_for_tests,
 )
 from plugin.framework.errors import NetworkError
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.tests.testing_utils import MockContext, create_mock_http_response
 
 
@@ -162,35 +163,66 @@ def test_stop_hammer_four_phases() -> None:
             assert mock_https.call_count <= 1
             return
 
-        # phase 3: stop after first token, then connection reset
-        seen: list[str] = []
+        if phase == 3:
+            # phase 3: stop after first token, then connection reset
+            seen: list[str] = []
 
-        def _on_content(text: str) -> None:
-            seen.append(text)
-            client.stop()
+            def _on_content(text: str) -> None:
+                seen.append(text)
+                client.stop()
 
-        resp = create_mock_http_response(
-            sse_lines=_sse_content_lines("one", "two"),
-            iter_side_effect=ConnectionResetError("reset after stop"),
-        )
-        with patch("http.client.HTTPSConnection") as mock_https:
-            conn = MagicMock()
-            conn.getresponse.return_value = resp
-            mock_https.return_value = conn
-            result = client.stream_request_with_tools(
-                messages=messages,
-                max_tokens=50,
-                append_callback=_on_content,
+            resp = create_mock_http_response(
+                sse_lines=_sse_content_lines("one", "two"),
+                iter_side_effect=ConnectionResetError("reset after stop"),
             )
-        assert seen == ["one"]
-        assert result["content"] == "one"
-        assert result["finish_reason"] == "stop"
-        assert mock_https.call_count == 1
+            with patch("http.client.HTTPSConnection") as mock_https:
+                conn = MagicMock()
+                conn.getresponse.return_value = resp
+                mock_https.return_value = conn
+                result = client.stream_request_with_tools(
+                    messages=messages,
+                    max_tokens=50,
+                    append_callback=_on_content,
+                )
+            assert seen == ["one"]
+            assert result["content"] == "one"
+            assert result["finish_reason"] == "stop"
+            assert mock_https.call_count == 1
+            return
+
+        if phase == 4:
+            # Caller cancel= mid tool-call delta (client not registered with scope)
+            scope = SendCancellation()
+
+            def _tool_iter():
+                yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}\n'
+                scope.cancel()
+                yield b'data: {"choices": [{"finish_reason": "stop", "delta": {}}]}\n'
+
+            resp = create_mock_http_response(sse_lines=[])
+            resp.__iter__.return_value = _tool_iter()
+            with patch("http.client.HTTPSConnection") as mock_https:
+                conn = MagicMock()
+                conn.getresponse.return_value = resp
+                mock_https.return_value = conn
+                result = client.stream_request_with_tools(
+                    messages=messages,
+                    max_tokens=50,
+                    tools=[{"type": "function", "function": {"name": "get_weather"}}],
+                    cancel=scope,
+                )
+            assert result["finish_reason"] == "stop"
+            assert result.get("tool_calls") is None
+            assert client.stopped() is False
+            assert scope.is_cancelled() is True
+            return
+
+        raise AssertionError(f"unexpected phase {phase}")
 
     def _thread_main(tid: int) -> None:
         try:
             for iteration in range(2):
-                phase = (tid * 2 + iteration) % 4
+                phase = (tid * 2 + iteration) % 5
                 _run_once(phase)
         except Exception as exc:
             with lock:

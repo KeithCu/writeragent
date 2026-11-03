@@ -457,7 +457,7 @@ class LlmClient:
 
         Image and speech used ``sync_request``, which ignored Stop and 429/503
         backoff. This shares the chat transport so ``stop()`` closes the socket.
-        ``stop_checker`` / ``status_callback`` match the sync chat path: a 429
+        ``cancel`` / ``status_callback`` match the sync chat path: a 429
         wait ends when the caller stops, and the sidebar sees the retry line.
         """
         action, parsed = self._exchange_json(method, path, body, headers, cancel=cancel, status_callback=status_callback, retry_log_message="Retrying JSON request on fresh connection")
@@ -1013,13 +1013,16 @@ class LlmClient:
 
         # Shared post-processing.
         # A model that finishes with stop plus a complete tool_calls list
-        # remaps to tool_calls. Skip that when this client latched Stop
-        # (_stopped): a Stop/abort that already delivered a partial tool-call
-        # delta must not look like a call the UI should run. The in-loop abort
-        # checker and the streaming connection-error 'stop' path both set
-        # _stopped before returning.
-        if last_finish_reason == "stop" and tool_calls and not self.stopped():
-            last_finish_reason = "tool_calls"
+        # remaps to tool_calls. Skip that when the request scope is cancelled
+        # (caller cancel= or this client's owned scope): a Stop that already
+        # delivered a partial tool-call delta must not look like a call the UI
+        # should run.
+        request_cancelled = is_cancelled(self._activate(cancel))
+        if last_finish_reason == "stop" and tool_calls:
+            if request_cancelled:
+                tool_calls = None
+            else:
+                last_finish_reason = "tool_calls"
 
         if content:
             cleaned = strip_leaked_chat_template_control_tokens(content)
