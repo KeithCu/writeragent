@@ -333,11 +333,12 @@ def test_edit_selection_preset_whole_body_without_select_first_msgbox(
     model.CurrentController.getSelection.return_value = None
 
     with patch("plugin.writer.editselection.selected_text_range", return_value=None), \
-         patch("plugin.doc.text_helpers.get_string_without_tracked_deletions", return_value="whole doc"), \
-         patch("plugin.doc.text_helpers.normalize_linebreaks", return_value="whole doc"), \
+         patch("plugin.doc.text_helpers.get_string_without_tracked_deletions", return_value="Para one\nPara two"), \
+         patch("plugin.doc.text_helpers.normalize_linebreaks", return_value="Para one\nPara two"), \
          patch("plugin.writer.edit_review.refuse_tracked_insert_or_delete"), \
          patch("plugin.writer.editselection.review_recording_enabled", return_value=False), \
-         patch("plugin.writer.editselection.get_config", return_value=100):
+         patch("plugin.writer.editselection.get_config", return_value=100), \
+         patch("plugin.writer.editselection.WriterStreamedRewriteSession") as session_cls:
         do_edit_selection(
             ctx,
             model,
@@ -348,7 +349,9 @@ def test_edit_selection_preset_whole_body_without_select_first_msgbox(
     mock_msgbox.assert_not_called()
     assert mock_stream.called
     prompt = mock_stream.call_args.args[2]
-    assert "whole doc" in prompt
+    assert "Para one\nPara two" in prompt
+    assert "Preserve paragraph breaks" in prompt
+    assert session_cls.call_args.kwargs.get("preserve_paragraph_breaks") is True
 
 
 @patch("plugin.writer.editselection.stream_completion")

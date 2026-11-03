@@ -457,6 +457,15 @@ def test_tier1_commands_are_in_product_table():
         assert name in names
 
 
+def test_format_instruction_appends_optional_arg_cleanly():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, _format_instruction
+
+    shorten = next(c for c in SLASH_COMMANDS if c.name == "shorten")
+    formatted = _format_instruction(shorten, "to about 10 words")
+    assert "preserving the meaning." in formatted
+    assert formatted.endswith("Additional instruction: to about 10 words")
+
+
 def test_missing_required_arg_prints_usage():
     host = SimpleNamespace(
         hide_popup=MagicMock(),
