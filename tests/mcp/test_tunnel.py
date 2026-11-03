@@ -983,7 +983,7 @@ def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch, tm
         assert reset_cmds == tailscale_reset * 2
         assert len(spawned) == 2
         assert marker.exists()
-        assert mgr._providers["tailscale"].resets_in_flight == 0
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
 
 def test_tailscale_post_stop_runs_when_no_newer_session_started(monkeypatch):
@@ -1071,14 +1071,14 @@ def test_stopped_stop_resets_tailscale_when_crash_marker_exists(monkeypatch, tmp
     ):
         mgr.stop()
         assert len(scheduled) == 1
-        assert mgr._providers["tailscale"].resets_in_flight == 1
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 1
         mgr.stop()
         assert len(scheduled) == 1
-        assert mgr._providers["tailscale"].resets_in_flight == 1
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 1
         scheduled[0]()
         assert reset_cmds == _tailscale_reset_cmds()
         assert not marker.exists()
-        assert mgr._providers["tailscale"].resets_in_flight == 0
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 0
         mgr.stop()
         assert len(scheduled) == 1
         assert reset_cmds == _tailscale_reset_cmds()
@@ -1111,7 +1111,7 @@ def test_failed_tailscale_reset_keeps_crash_marker_for_retry(monkeypatch, tmp_pa
         assert len(scheduled) == 1
         scheduled[0]()
         assert marker.exists()
-        assert mgr._providers["tailscale"].resets_in_flight == 0
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 0
         assert reset_cmds == [["tailscale", "funnel", "--https=443", "off"]]
 
         completed.returncode = 0
@@ -1120,7 +1120,7 @@ def test_failed_tailscale_reset_keeps_crash_marker_for_retry(monkeypatch, tmp_pa
         assert len(scheduled) == 2
         scheduled[1]()
         assert not marker.exists()
-        assert mgr._providers["tailscale"].resets_in_flight == 0
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
         mgr.stop()
         assert len(scheduled) == 2
@@ -1156,14 +1156,14 @@ def test_tailscale_reset_oserror_keeps_crash_marker_for_retry(monkeypatch, tmp_p
         assert len(scheduled) == 1
         scheduled[0]()
         assert marker.exists()
-        assert mgr._providers["tailscale"].resets_in_flight == 0
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
         fail = False
         mgr.stop()
         assert len(scheduled) == 2
         scheduled[1]()
         assert not marker.exists()
-        assert mgr._providers["tailscale"].resets_in_flight == 0
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
 
 def test_stale_tailscale_reset_does_not_drop_a_newer_inflight_count(monkeypatch, tmp_path):
@@ -1193,23 +1193,23 @@ def test_stale_tailscale_reset_does_not_drop_a_newer_inflight_count(monkeypatch,
         assert reset_cmds == tailscale_reset
         mgr.stop()
         assert len(scheduled) == 1
-        assert mgr._providers["tailscale"].resets_in_flight == 1
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 1
 
         assert mgr.start(18765, "tailscale") is True
         assert reset_cmds == tailscale_reset * 2
         mgr.stop()
         assert len(scheduled) == 2
-        assert mgr._providers["tailscale"].resets_in_flight == 2
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 2
 
         scheduled[0]()
         assert reset_cmds == tailscale_reset * 2
         assert marker.exists()
-        assert mgr._providers["tailscale"].resets_in_flight == 1
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 1
 
         scheduled[1]()
         assert reset_cmds == tailscale_reset * 3
         assert not marker.exists()
-        assert mgr._providers["tailscale"].resets_in_flight == 0
+        assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
 
 def test_tailscale_spawn_writes_arm_marker_and_post_stop_clears_it(monkeypatch, tmp_path):
@@ -1805,7 +1805,7 @@ def test_post_stop_start_failure_decrements_under_lock(monkeypatch):
         with pytest.raises(RuntimeError, match="cannot start thread"):
             mgr._schedule_post_stop_unlocked("tailscale", 18765)
         assert counting.acquires > before
-    assert mgr._providers["tailscale"].resets_in_flight == 0
+    assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
 
 def _sync_tunnel_module(monkeypatch, port, bound_port=18765):
