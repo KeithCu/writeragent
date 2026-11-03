@@ -745,3 +745,37 @@ def test_run_stop_from_popup_clears_partial_draft():
         assert run_slash_command("stop", host, from_popup=True) is True
     host.clear_ask.assert_called_once()
 
+
+def test_format_instruction_avoids_doubled_period_after_arg():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, _format_instruction
+
+    translate = next(c for c in SLASH_COMMANDS if c.name == "translate")
+    text = _format_instruction(translate, "Spanish: Good morning, friends.")
+    assert "friends.." not in text
+    assert "Spanish: Good morning, friends." in text
+
+
+def test_slash_local_messages_omitted_from_llm_view():
+    from plugin.chatbot.compaction import messages_for_llm
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
+
+    session = SimpleNamespace(
+        messages=[
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "help text", SLASH_LOCAL: True},
+        ]
+    )
+    view = messages_for_llm(session)
+    assert all(not m.get(SLASH_LOCAL) for m in view)
+    assert len(view) == 2
+
+
+def test_slash_local_survives_next_user_message_in_session():
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL, append_slash_local_message
+
+    session = SimpleNamespace(messages=[{"role": "system", "content": "sys"}])
+    assert append_slash_local_message(session, "\nSaved to memory: x\n")
+    session.messages.append({"role": "user", "content": "next"})
+    assert any(m.get(SLASH_LOCAL) for m in session.messages)
+

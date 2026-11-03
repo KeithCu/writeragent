@@ -526,6 +526,9 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if msg.get("_open_transcript"):
             i += 1
             continue
+        if msg.get("_slash_local"):
+            i += 1
+            continue
         if msg.get("role") == "assistant" and (msg.get("tool_calls") or []):
             j = i + 1
             tools = []

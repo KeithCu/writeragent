@@ -47,6 +47,7 @@ from dataclasses import dataclass
 import itertools
 import logging
 import os
+import re
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generator
@@ -1083,7 +1084,9 @@ def _replace_range_with_paragraph_text(text_range: Any, text: str) -> None:
     cursor.setString("")
     if not text:
         return
-    parts = text.split("\n")
+    # Bugfix (QA B6): the model often returns "\\n\\n" between paragraphs; split("\\n")
+    # turned each blank line into an extra empty paragraph. Collapse newline runs first.
+    parts = re.split(r"\n+", text.strip("\n"))
     cursor.setString(parts[0])
     for part in parts[1:]:
         cursor.gotoEnd(False)

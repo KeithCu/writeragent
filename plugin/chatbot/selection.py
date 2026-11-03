@@ -80,11 +80,12 @@ def stream_completion(
     system_prompt: str,
     max_tokens: int,
     apply_chunk_fn: ApplyChunkFn,
-    on_done_fn: Callable[[], None],
+    on_done_fn: Callable[..., None],
     on_error_fn: ErrorFn,
     *,
     cancel: Any = None,
     on_stopped_fn: Callable[[], None] | None = None,
+    completion_out: dict[str, Any] | None = None,
 ) -> None:
     """Start a simple completion stream and route startup failures like stream errors."""
     try:
@@ -99,6 +100,7 @@ def stream_completion(
             on_error_fn,
             cancel=cancel,
             on_stopped_fn=on_stopped_fn,
+            completion_out=completion_out,
         )
     except Exception as e:
         on_error_fn(e)
@@ -188,6 +190,7 @@ def do_selection_action_for_document(
     *,
     preset_instruction: str | None = None,
     allow_whole_document: bool = False,
+    sidebar_notify: Callable[[str], None] | None = None,
 ) -> None:
     """Dispatch Extend/Edit Selection to the document-specific implementation."""
     doc_type = get_document_type(model)
@@ -200,6 +203,7 @@ def do_selection_action_for_document(
                 model,
                 preset_instruction=preset_instruction,
                 allow_whole_document=allow_whole_document,
+                sidebar_notify=sidebar_notify,
             )
         else:
             do_extend_selection(ctx, model)
@@ -208,7 +212,7 @@ def do_selection_action_for_document(
     if doc_type == DocumentType.CALC:
         from plugin.calc.editselection import do_calc_extend_edit
 
-        do_calc_extend_edit(ctx, model, is_edit, preset_instruction=preset_instruction)
+        do_calc_extend_edit(ctx, model, is_edit, preset_instruction=preset_instruction, sidebar_notify=sidebar_notify)
         return
 
     action = _("Edit") if is_edit else _("Extend")

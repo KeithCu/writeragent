@@ -2688,30 +2688,35 @@ class TestJ02Regression:
 
 
 
-def test_append_output_shows_help_without_live_turn() -> None:
-    # Live qt6 box 2026-10-29: /help went through _append_response, which
-    # drops text with no live turn, so the transcript showed nothing.
+def test_append_output_persists_slash_local_on_session():
     from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
     from unittest.mock import MagicMock, patch
 
+    session = SimpleNamespace(messages=[])
     with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
         listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    listener.session = session
     widget = MagicMock()
     listener.rich_text_widget = widget
-    with patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)), patch.object(listener, "_append_response") as append_response:
-        listener.append_output("\n/help — Print the command list\n")
-    widget.append_chunk.assert_called_once_with("\n/help — Print the command list\n")
-    append_response.assert_not_called()
+    with patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)), patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=None):
+        listener.append_output("\nSlash commands:\n")
+    assert session.messages[-1][SLASH_LOCAL] is True
+    widget.paint_session.assert_called_once_with(session)
 
 
-def test_append_output_during_tool_loop_uses_append_response() -> None:
+def test_append_output_during_tool_loop_streams_slash_local_row():
     from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
     from unittest.mock import MagicMock, patch
 
+    session = SimpleNamespace(messages=[])
+    turn = SimpleNamespace(session=session)
     with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
         listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    listener.session = session
     listener.rich_text_widget = MagicMock()
-    with patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=object()), patch.object(listener, "_append_response") as append_response:
+    with patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=turn), patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)):
         listener.append_output("\nSlash commands:\n")
-    append_response.assert_called_once_with("\nSlash commands:\n", role="assistant")
-    listener.rich_text_widget.append_chunk.assert_not_called()
+    assert session.messages[-1][SLASH_LOCAL] is True
+    listener.rich_text_widget.stream_session.assert_called_once_with(session)

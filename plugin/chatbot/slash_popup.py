@@ -590,19 +590,23 @@ class SlashPopupController:
         self.on_query_text("/" + name)
 
     def accept_selected(self) -> None:
+        from plugin.chatbot.dialogs import get_control_text
+
+        host = self.send_listener
+        raw = get_control_text(self.query_control) or ""
+        parsed = parse_slash_text(raw.strip())
+        typed = raw.strip()
+        # Bugfix (QA N1): exact "/explain" + Enter should run, not complete to "/explain ".
+        if parsed is not None:
+            cmd, arg = parsed
+            if typed.lower() == ("/" + cmd.name) and not slash_ask_past_command_name(raw):
+                _defer_to_next_turn(lambda: run_slash_command(cmd.name, host, arg, from_popup=False))
+                return
         name = self.selected_name
         if not name:
             _ovlog("accept_selected no name selected=%s matches=%s", self._selected, [c.name for c in self._matches])
             return
         _ovlog("accept_selected name=%s", name)
-        from plugin.chatbot.dialogs import get_control_text
-
-        # run_slash_command → hide() disposes the list. Post so the key or
-        # mouse callback returns before dispose. hide() is not called again
-        # here; a second hide would TEXT_UPDATED while the window still exists.
-        host = self.send_listener
-        raw = get_control_text(self.query_control) or ""
-        parsed = parse_slash_text(raw.strip())
         arg = parsed[1] if parsed is not None and parsed[0].name == name else ""
         # Bugfix (QA B1): from_popup=True completes "/name " for presets instead of
         # running them with an empty argument from the partial filter text.

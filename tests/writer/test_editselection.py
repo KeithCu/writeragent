@@ -355,6 +355,44 @@ def test_edit_selection_preset_whole_body_without_select_first_msgbox(
 
 
 @patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+def test_edit_selection_preset_length_empty_notifies_sidebar(mock_create_client, mock_stream):
+    save({"chatbot.edit_selection_max_new_tokens": 100, "doc.agent_edit_review_mode": "none", "additional_instructions": ""})
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+    sidebar_lines: list[str] = []
+    session_inst = MagicMock()
+    session_inst.generated_text = ""
+    session_inst.finish.return_value = None
+    session_inst.doc = model
+
+    def fake_stream(ctx_arg, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error, **kwargs):
+        if kwargs.get("completion_out") is not None:
+            kwargs["completion_out"]["finish_reason"] = "length"
+        on_done()
+
+    mock_stream.side_effect = fake_stream
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
+         patch("plugin.writer.editselection.WriterStreamedRewriteSession", return_value=session_inst):
+        do_edit_selection(
+            ctx,
+            model,
+            preset_instruction="shorten",
+            sidebar_notify=sidebar_lines.append,
+        )
+
+    assert sidebar_lines
+    assert "tokens" in sidebar_lines[0].lower()
+
+
+@patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.prompt_for_edit_instructions")
 @patch("plugin.writer.editselection.create_validated_client", return_value=None)
 def test_edit_selection_no_client_skips_prompt(mock_create_client, mock_prompt, mock_stream):

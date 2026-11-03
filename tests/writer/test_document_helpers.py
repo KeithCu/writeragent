@@ -977,7 +977,7 @@ def test_do_extend_selection_failure_visible(monkeypatch):
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
 
-    def stream_completion_mock(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error, stop_checker=None):
+    def stream_completion_mock(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error, stop_checker=None, **_unused):
         on_error(ValueError("simulated stream failure"))
 
     monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)

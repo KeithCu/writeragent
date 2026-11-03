@@ -314,6 +314,29 @@ def test_click_row_accepts_command_chrome_does_not_dump_help():
     assert "Slash commands:" in send.append_output.call_args[0][0]
 
 
+def test_enter_on_exact_explain_runs_not_completes_draft():
+    from plugin.chatbot.slash_commands import filter_slash_commands
+
+    popup, _box = _controller()
+    send = popup.send_listener
+    query = popup.query_control
+    query.text = "/explain"
+    send.dispatch = MagicMock()
+    send.append_output = MagicMock()
+    send.clear_ask = MagicMock()
+    send.hide_popup = MagicMock(side_effect=popup.hide)
+    popup._open = True
+    popup._matches = filter_slash_commands("/explain")
+    popup._selected = 0
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
+            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=False) as run_cmd:
+                with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+                    popup.accept_selected()
+                    run_cmd.assert_called_once_with("explain", send, "", from_popup=False)
+                    set_text.assert_not_called()
+
+
 def test_enter_on_summarize_completes_ask_draft_not_rewrite():
     popup, _box = _controller()
     send = popup.send_listener

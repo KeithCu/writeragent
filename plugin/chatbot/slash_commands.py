@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Sequence
@@ -325,10 +326,14 @@ def record_slash_lru(name: str) -> None:
 
 def _format_instruction(cmd: SlashCommand, arg: str) -> str:
     base = _(cmd.instruction)
+    arg_text = (arg or "").strip()
     if "{arg}" in base:
-        return base.format(arg=arg)
-    if arg:
-        return base + " " + _("Additional instruction: {0}").format(arg)
+        # Bugfix (QA N6): "/translate Spanish: Hello." plus a template period after {arg} became "..".
+        if arg_text and arg_text[-1] in ".!?" and re.search(r"\{arg\}[.!?]", base):
+            arg_text = arg_text.rstrip(".!?")
+        return base.format(arg=arg_text)
+    if arg_text:
+        return base + " " + _("Additional instruction: {0}").format(arg_text)
     return base
 
 

@@ -495,30 +495,40 @@ class SendButtonListener(BaseActionListener):
         self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
 
     def append_output(self, text: str) -> None:
-        """Show a UI-only line (slash /help); it is not a chat message.
+        """Show slash /help and similar lines in the transcript (not an LLM turn).
 
-        ``_append_response`` drops text when no turn is live, which is always
-        the case for a slash command, so /help printed nothing.
-
-        During a tool loop, ``append_chunk`` is transient and the next turn
-        repaint wipes it (QA B8). Fold into the live session instead.
+        Persists a closed assistant row on ``session.messages`` so repaints and the
+        next chat turn keep the text (QA B8/N2). Local rows use ``_slash_local`` and are
+        omitted from ``messages_for_llm``.
         """
+        session = self.session
+        if session is None:
+            return
+        from plugin.chatbot.rich_text_paste import append_slash_local_message
         from plugin.chatbot.tool_loop_actions import running_turn
 
-        if running_turn(self) is not None:
-            self._append_response(text, role="assistant")
+        if not append_slash_local_message(session, text):
             return
-        widget = self.rich_text_widget
-        if widget is not None:
-            self._run_rich_ui(widget.append_chunk, text)
-            return
-        response = self.response_control
-        if response is None:
-            return
-        from plugin.chatbot.dialogs import get_control_text, set_control_text
 
-        current = get_control_text(response) or ""
-        set_control_text(response, current + text)
+        def _paint() -> None:
+            widget = self.rich_text_widget
+            if widget is not None:
+                turn = running_turn(self)
+                if turn is not None and turn.session is session:
+                    widget.stream_session(session)
+                else:
+                    widget.paint_session(session)
+                return
+            response = self.response_control
+            if response is None:
+                return
+            from plugin.chatbot.dialogs import set_control_text
+            from plugin.chatbot.rich_text_paste import plain_transcript_text
+
+            set_control_text(response, plain_transcript_text(session))
+            self._scroll_response_to_bottom()
+
+        self._run_rich_ui(_paint)
 
     def clear_chat(self) -> None:
         if self.clear_listener is not None:
@@ -547,6 +557,7 @@ class SendButtonListener(BaseActionListener):
             True,
             preset_instruction=instruction,
             allow_whole_document=True,
+            sidebar_notify=lambda msg: self.append_output("\n" + msg + "\n"),
         )
 
     def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
@@ -1318,6 +1329,7 @@ class SendButtonListener(BaseActionListener):
             run_slash_command,
             slash_send_continues_after_begin,
         )
+        from plugin.framework.doc_type import DocumentType, get_document_type
 
         peek_text = ""
         if self.query_control and self.query_control.getModel():
@@ -1345,6 +1357,7 @@ class SendButtonListener(BaseActionListener):
             return
 
         slash_transcript_line: str | None = None
+        slash_sidebar_only = False
         if slash_cmd is not None:
             if slash_cmd.needs_turn:
                 self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
@@ -1359,6 +1372,12 @@ class SendButtonListener(BaseActionListener):
             if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
                 slash_transcript_line = peek_text.strip()
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
+                if (
+                    slash_cmd.name == "translate"
+                    and slash_cmd.kind == SlashKind.REWRITE
+                    and get_document_type(model) == DocumentType.WRITER
+                ):
+                    slash_sidebar_only = True
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
@@ -1403,6 +1422,7 @@ class SendButtonListener(BaseActionListener):
                 model,
                 doc_type_label,
                 user_transcript_text=slash_transcript_line,
+                slash_sidebar_only=slash_sidebar_only,
             )
 
         except Exception:

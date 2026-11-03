@@ -452,6 +452,29 @@ def test_calc_edit_skips_formula_cells():
     assert formula_cell.getFormula() == "=1+1"
 
 
+def test_calc_slash_preset_formula_only_notifies_sidebar():
+    from plugin.calc.calc_utils import FORMULA
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("=1+1",),))
+    sheet.getCellByPosition(0, 0).getType = MagicMock(return_value=FORMULA)
+    sidebar_lines: list[str] = []
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.calc.editselection.msgbox") as msgbox:
+        do_calc_extend_edit(
+            MagicMock(),
+            model,
+            is_edit=True,
+            preset_instruction="tone casual",
+            sidebar_notify=sidebar_lines.append,
+        )
+
+    assert sidebar_lines == ["Formula cells are skipped."]
+    msgbox.assert_not_called()
+
+
 def test_calc_edit_strips_echoed_scaffolding_from_cell():
     from plugin.calc.editselection import do_calc_extend_edit
 
