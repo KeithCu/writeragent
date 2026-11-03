@@ -752,7 +752,7 @@ def test_populate_reasoning_effort_selector():
          patch("plugin.chatbot.config_ui_helpers.get_reasoning_effort_for_endpoint", return_value="high"):
         populate_reasoning_effort_selector(ctrl)
 
-    assert model.StringItemList == REASONING_EFFORT_DISPLAY_LABELS
+    ctrl.addItems.assert_called_with(REASONING_EFFORT_DISPLAY_LABELS, 0)
     ctrl.setText.assert_called_with("hi")
     ctrl.selectItem.assert_called_with("hi", True)
 

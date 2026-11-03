@@ -395,7 +395,7 @@ _.press_send_clicked  # function: plugin/chatbot/sidebar_test_hooks.py:2661
 _.press_stop  # function: plugin/chatbot/sidebar_test_hooks.py:2561
 _.press_stop_mouse  # function: plugin/chatbot/sidebar_test_hooks.py:2578
 _.press_stop_rec  # function: plugin/chatbot/sidebar_test_hooks.py:2639
-_.request_office_recycle_after_suite  # function: plugin/testing_runner.py:1133
+_.current_office  # function: plugin/testing_runner.py
 _.reset_config_for_tests  # function: plugin/framework/config.py:186
 _.reset_desktop_create_is_unsafe_for_tests  # function: plugin/framework/uno_context.py:112
 _.reset_extension_update_check_schedule_for_tests  # function: plugin/chatbot/extension_update_check.py:138
@@ -413,7 +413,6 @@ _.reset_suppressed_vcl_pump_count  # function: plugin/framework/async_drain_guar
 _.set_drain_scheduler_override  # function: plugin/framework/async_stream.py:1145
 _.set_fake_vision  # function: plugin/chatbot/sidebar_test_hooks.py:3075
 _.set_late_transcript_delay  # function: plugin/chatbot/sidebar_test_hooks.py:331
-_.show_window  # variable: plugin/testing_runner.py:647
 _.sidebar_deck_names  # function: plugin/chatbot/sidebar_test_hooks.py:1719
 _.slash_popup_state  # function: plugin/chatbot/sidebar_test_hooks.py:2412
 _.stop_label  # variable: plugin/chatbot/sidebar_test_hooks.py:2787

@@ -129,9 +129,9 @@ def _close(doc):
     if _windows_skip_doc_close():
         _progress("peer_message_uno: skip close (windows) uid=%s" % uid)
         # Leftover hidden docs poison later suites' close_doc (34544965319).
-        from plugin.testing_runner import request_office_recycle_after_suite
+        from plugin.testing_runner import current_office
 
-        request_office_recycle_after_suite()
+        current_office().request_recycle()
         return None
     _progress("peer_message_uno: close_doc start uid=%s" % uid)
     TestingFactory.close_doc(doc)
@@ -198,13 +198,13 @@ def _teardown_peer_pair(writer, impress, ctx=None):
     """
     had_impress = impress is not None
     if had_impress and _draw_family_raw_close():
-        from plugin.testing_runner import request_office_recycle_after_suite
+        from plugin.testing_runner import current_office
 
         if _windows_skip_impress_close():
             # Second raw close exited soffice 0 (34547869791). Last test
             # in this file — leftover Impress dies with recycle.
             _progress("peer_message_uno: skip second impress close (windows)")
-            request_office_recycle_after_suite()
+            current_office().request_recycle()
             return None, None
         _progress("peer_message_uno: close impress start")
         close_draw_family_doc(impress)
@@ -218,7 +218,7 @@ def _teardown_peer_pair(writer, impress, ctx=None):
         # (34544965319). Recycle so later suites are not poisoned.
         global _windows_impress_raw_closed
         _windows_impress_raw_closed = True
-        request_office_recycle_after_suite()
+        current_office().request_recycle()
         _progress("peer_message_uno: skip writer close after impress")
         return None, None
     _progress("peer_message_uno: close writer start")

@@ -1109,6 +1109,28 @@ def test_shape_edit_enter_disposed_reraises():
     replace.assert_not_called()
 
 
+def test_shape_edit_rolls_back_when_replace_returns_false():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    mgr = ctx.doc.getUndoManager.return_value
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.side_effect = [(), ("WriterAgent edit#1",)]
+    shape = MagicMock()
+    shape.Name = "Box"
+    with patch("plugin.writer.search.find_first_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
+         patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=False), \
+         patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="WriterAgent edit#1"):
+        res = ApplyDocumentContent().execute(
+            ctx, target="search", old_content="foo", content="bar")
+    assert res["status"] == "error"
+    assert res["replaced_count"] == 0
+    mgr.undo.assert_called_once()
+
+
 def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
     from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
     from plugin.writer.apply_document_content import ApplyDocumentContent

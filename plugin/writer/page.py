@@ -1184,7 +1184,7 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
 def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[str | None, int, int]:
     """setString from the last match backward. Returns (error, fields, shapes)."""
     from .edit_review import next_agent_edit_undo_title
-    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     before = _scan_region_content(doc, text_obj)
     after_box: list[dict[str, Any]] = [before]

@@ -806,18 +806,19 @@ def next_agent_edit_undo_title() -> str:
 def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callable[[], Any],
                            **record_kwargs: Any) -> Any:
     """Record an HTML/import mutation that DELETES before it inserts."""
-    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     undo_title = next_agent_edit_undo_title()
     changes_before = len(session.changes)
     result_holder: list[Any] = []
+    err: dict[str, Any] | None = None
 
     def do_mutate() -> None:
         res = session.record_mutation(mutate, **record_kwargs)
         result_holder.append(res)
 
     try:
-        commit_or_rollback(
+        err = commit_or_rollback(
             doc,
             undo_title,
             do_mutate,
@@ -827,6 +828,9 @@ def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callabl
         raise ToolExecutionError(
             "Cannot apply this content edit atomically (no usable undo context); "
             "refusing rather than risk a half-applied edit.")
+
+    if err is not None and err.get("code") == "ROLLBACK_FAILED":
+        raise ToolExecutionError(err["message"])
 
     return result_holder[0] if result_holder else None
 
@@ -901,7 +905,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
     each its own tracked Delete+Insert with its own accept/reject outcome.
     """
     from .html_import import replace_preserving_format
-    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     split_author = split and _SPLIT_AUTHOR_COLORS
 
@@ -1169,9 +1173,16 @@ def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterC
     refuse_tracked_insert_or_delete(text_range)
     from plugin.doc.compound_undo import WriterCompoundUndo
 
-    compound_undo = WriterCompoundUndo(doc, title)
     record_cm = record_changes(doc, False)
-    was_recording = record_cm.__enter__()
+    try:
+        was_recording = record_cm.__enter__()
+    except Exception:
+        raise
+    try:
+        compound_undo = WriterCompoundUndo(doc, title)
+    except Exception:
+        record_cm.__exit__(None, None, None)
+        raise
     return compound_undo, was_recording, record_cm
 
 
@@ -1241,6 +1252,7 @@ class _WriterStreamedSessionBase:
                     except Exception:
                         log.debug("%s: review tagging setup failed", label, exc_info=True)
 
+                # setString(original) runs with recording off so the reset is not its own redline.
                 self.text_range.setString(self.original_text)
 
                 if self.track_reviewable:
@@ -1253,9 +1265,11 @@ class _WriterStreamedSessionBase:
 
                 if before_ids is not None:
                     try:
+                        # Tag redlines so the inline review UI treats the streamed edit as an agent change.
                         tag_agent_redlines(self.doc, before_ids, before_reliable=before_ids_ok)
                     except Exception:
                         log.debug("%s: redline tagging failed", label, exc_info=True)
+                # restore prior recording so the user's later typing isn't tracked
                 return None
             except Exception as exc:
                 # A closed document is not "the text was kept".

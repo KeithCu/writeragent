@@ -76,14 +76,18 @@ def test_manifest_vision_insert_mode_has_options():
 
 
 def test_populate_settings_control_sets_translated_option_labels():
-    class DummyModel:
-        StringItemList: tuple[str, ...] = ()
-
-    model = DummyModel()
-
     class DummyCtrl:
-        def getModel(self) -> DummyModel:
-            return model
+        def __init__(self) -> None:
+            self.items: list[str] = []
+
+        def getItemCount(self) -> int:
+            return len(self.items)
+
+        def removeItems(self, pos: int, count: int) -> None:
+            del self.items[pos : pos + count]
+
+        def addItems(self, items: tuple[str, ...], pos: int) -> None:
+            self.items[pos:pos] = list(items)
 
         def setText(self, _text: str) -> None:
             pass
@@ -99,8 +103,8 @@ def test_populate_settings_control_sets_translated_option_labels():
         "value": "html",
     }
     populate_settings_control(ctrl, field)
-    assert model.StringItemList[0]
-    assert "Standard HTML" in model.StringItemList[0]
+    assert ctrl.items[0]
+    assert "Standard HTML" in ctrl.items[0]
 
 
 def test_apply_module_config_result_stores_select_option_values():

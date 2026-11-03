@@ -663,3 +663,20 @@ def test_html_atomic_closed_document_is_not_a_missing_undo_context():
             proposed_preview="x")
     assert calls["n"] == 0
     assert session.changes == []
+
+
+def test_html_atomic_rollback_failed_raises_tool_error():
+    class FailingUndoManager(FakeUndoManager):
+        def undo(self):
+            raise RuntimeError("undo failed")
+
+    um = FailingUndoManager()
+    session = FakeSession()
+
+    def mutate():
+        um.record_action()
+        raise RuntimeError("import boom")
+
+    with pytest.raises(ToolExecutionError, match="undo failed"):
+        record_html_atomically(session, FakeDoc(um), mutate, proposed_preview="x")
+    assert session.changes == []

@@ -13,8 +13,9 @@ action and to tell the user."""
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any
 
+from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger("writeragent.undo")
@@ -25,74 +26,6 @@ def _get_undo_manager(doc: Any) -> Any:
     if hasattr(doc, "getUndoManager"):
         return doc.getUndoManager()
     raise RuntimeError("Document does not support undo.")
-
-
-class UndoUnavailable(RuntimeError):
-    """Raised when an undo manager cannot be entered or is locked."""
-
-
-def commit_or_rollback(
-    doc: Any,
-    title: str,
-    mutate: Any,
-    on_fail: Callable[[], None] | None = None,
-) -> dict[str, Any] | None:
-    """Run mutate inside an undo context with title.
-
-    Missing or locked undo manager raises UndoUnavailable.
-    Rolls back on error dict or exception from mutate, and re-raises real disposal.
-    `mutate` returns an error dict or None; any dict is treated as an error.
-    """
-    from plugin.doc.compound_undo import WriterCompoundUndo
-    from plugin.framework.errors import is_disposal, reraise_if_disposed
-
-    group = WriterCompoundUndo.try_enter(doc, title)
-    if group is None:
-        raise UndoUnavailable("Undo manager is missing, locked, or could not be entered.")
-
-    error: dict[str, Any] | None = None
-    exc_cause: Exception | None = None
-    try:
-        res = mutate()
-        if isinstance(res, dict):
-            error = res
-    except Exception as exc:
-        exc_cause = exc
-    finally:
-        left = False
-        try:
-            left = group.close()
-        except Exception as exc:
-            if is_disposal(exc):
-                exc_cause = exc
-        if not left and error is None and exc_cause is None and group.leave_error is not None:
-            error = {
-                "status": "error",
-                "code": "UNDO_CONTEXT_LEAK",
-                "message": f"Could not close the undo context; the document may stay in one undo group ({group.leave_error}).",
-            }
-        failed = error is not None or exc_cause is not None
-        if failed and left:
-            undone = group.rollback_if_top()
-            if undone and on_fail is not None:
-                try:
-                    on_fail()
-                except Exception:
-                    log.debug("commit_or_rollback: on_fail callback failed", exc_info=True)
-            if group.rollback_error is not None:
-                # Keep the original cause and use a code distinct from a clean rollback.
-                cause = str(error.get("message")) if error and error.get("message") else str(exc_cause)
-                error = {
-                    "status": "error",
-                    "code": "ROLLBACK_FAILED",
-                    "message": f"Rollback failed; the document may be only partly edited ({group.rollback_error}). Cause: {cause}",
-                }
-                exc_cause = None
-
-    if exc_cause is not None:
-        reraise_if_disposed(exc_cause)
-        raise exc_cause
-    return error
 
 
 def commit_or_rollback_mutation(

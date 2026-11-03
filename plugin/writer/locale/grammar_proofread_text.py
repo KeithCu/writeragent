@@ -16,42 +16,8 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
 from plugin.framework.grammar_rule_ids import bcp47_to_uno_lang_country
-
-log = logging.getLogger("writeragent.grammar")
-
-
-def slice_preview_debug(text: str, max_len: int = 72) -> str:
-    """Compact one-line preview for DEBUG logs (avoid dumping huge paragraphs)."""
-    if not text:
-        return ""
-    chars: list[str] = []
-    in_whitespace = False
-    started = False
-    limit = max_len + 1
-    for ch in text:
-        if ch.isspace():
-            if started and not in_whitespace:
-                chars.append(" ")
-                in_whitespace = True
-                if len(chars) == limit:
-                    break
-        else:
-            started = True
-            in_whitespace = False
-            chars.append(ch)
-            if len(chars) == limit:
-                break
-    if not chars:
-        return ""
-    if len(chars) > max_len:
-        return f"{''.join(chars[:max_len])}\u2026"
-    if chars[-1] == " ":
-        chars.pop()
-    return "".join(chars)
-
-
 from .grammar_ignore_rules import WA_G_RULE_PREFIX
-from .grammar_obs import grammar_obs
+from .grammar_obs import grammar_obs, slice_preview_debug
 from .grammar_proofread_locale import (
     GRAMMAR_TRAILING_CLOSERS,
     GRAMMAR_WHITESPACE_RUN_RE,
@@ -59,6 +25,8 @@ from .grammar_proofread_locale import (
     split_sentence_chunks_by_separator_regex,
 )
 from .locale_abbrev import CLDR_ABBREVS
+
+log = logging.getLogger("writeragent.grammar")
 
 SentenceSpan = tuple[int, int, str]
 

@@ -10,7 +10,7 @@
 
 import unittest
 
-from plugin.testing_runner import native_test, show_window
+from plugin.testing_runner import current_office, native_test
 from tests.testing_utils import TestingFactory, with_native_doc
 
 
@@ -19,7 +19,7 @@ def _execute(doc, ctx, name, args, domain="calc"):
 
 
 @native_test
-@with_native_doc("calc", hidden=not show_window)
+@with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_calc_enhanced_chart(ctx, doc):
     # 1. Setup data
     _execute(doc, ctx, "write_formula_range", {"range": "A1:B3", "values": [["A", 1], ["B", 2], ["C", 3]]})
@@ -64,7 +64,7 @@ def test_calc_enhanced_chart(ctx, doc):
 
 
 @native_test
-@with_native_doc("calc", hidden=not show_window)
+@with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_calc_chart_colors(ctx, doc):
     # 1. Setup data
     _execute(doc, ctx, "write_formula_range", {"range": "A1:B3", "values": [["A", 1], ["B", 2], ["C", 3]]})
@@ -110,7 +110,7 @@ def test_calc_chart_colors(ctx, doc):
 
 @unittest.skip("Disabled as per user request: internal test causing problems")
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_writer_chart_polymorphic(ctx, doc):
     # 1. Create in Writer
     res = _execute(doc, ctx, "manage_charts", {
@@ -142,9 +142,9 @@ def test_writer_chart_polymorphic(ctx, doc):
     assert "PieDiagram" in info.get("diagram_type", "")
 
 
-@unittest.skipIf(not show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
+@unittest.skipIf(not current_office().options.show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
 @native_test
-@with_native_doc("impress", hidden=not show_window)
+@with_native_doc("impress", hidden=not current_office().options.show_window)
 def test_draw_chart_polymorphic(ctx, doc):
     # 1. Create in Draw
     res = _execute(doc, ctx, "manage_charts", {
@@ -170,7 +170,7 @@ def test_draw_chart_polymorphic(ctx, doc):
 
 
 @native_test
-@with_native_doc("calc", hidden=not show_window)
+@with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_calc_multisheet_charts(ctx, doc):
     # 1. Setup data on active sheet (Sheet1)
     _execute(doc, ctx, "write_formula_range", {"range": "A1:B3", "values": [["A", 10], ["B", 20], ["C", 30]]})
@@ -277,9 +277,9 @@ def test_calc_multisheet_charts(ctx, doc):
     assert "Chart_1" not in remaining_names
 
 
-@unittest.skipIf(not show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
+@unittest.skipIf(not current_office().options.show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
 @native_test
-@with_native_doc("impress", hidden=not show_window)
+@with_native_doc("impress", hidden=not current_office().options.show_window)
 def test_impress_grouped_and_multipage_chart(ctx, doc):
     # 1. Create chart on first slide (Chart_0)
     res0 = _execute(doc, ctx, "manage_charts", {

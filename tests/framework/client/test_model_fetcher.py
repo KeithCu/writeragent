@@ -641,9 +641,9 @@ class TestHasNativeVision:
             model_fetcher._catalog_memos.update(saved)
 
     def test_vision_support_map_is_a_config_field(self):
-        from plugin.framework.config_schema import _resolve_default, is_known_config_key, validate
+        from plugin.framework.config_schema import is_known_config_key, resolve_default, validate
         assert (is_known_config_key('vision_support_map'))
-        assert (_resolve_default('vision_support_map')) == ({})
+        assert (resolve_default('vision_support_map')) == ({})
         validated = validate({
             'vision_support_map': {'https://openrouter.ai/api@google/gemini-3.8-flash': False},
         })

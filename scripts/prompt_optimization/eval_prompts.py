@@ -86,7 +86,12 @@ def get_draw_eval_chat_system_prompt() -> str:
 
 
 def get_eval_system_prompt(task_id: str = "") -> str:
-    from dataset import task_kind
+    # Callers like tests/scripts/test_eval_prompts.py import this module as
+    # scripts.prompt_optimization.eval_prompts when scripts/prompt_optimization is not on sys.path.
+    try:
+        from dataset import task_kind
+    except ImportError:
+        from scripts.prompt_optimization.dataset import task_kind
 
     if task_id == "python_shapes_flag":
         return _prompt_for_kind("writer", FLAG_HARNESS_NOTE)

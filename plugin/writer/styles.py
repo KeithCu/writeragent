@@ -371,8 +371,6 @@ def apply_paragraph_style_preserving_direct_char(
         report["capture_incomplete"] = True
     return report
 
-# What was wrong: StyleCreate / paragraph and character StyleClone drop the
-# createInstance proxy when the function returns. insertByName adopts that
 _STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
 
 
@@ -1324,7 +1322,7 @@ class ApplyStyle(FrameworkToolBase):
 
             if len(ranges) > 1:
                 from .edit_review import next_agent_edit_undo_title
-                from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+                from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
                 title = next_agent_edit_undo_title()
                 rolled_back: list[bool] = []
@@ -1358,7 +1356,7 @@ class ApplyStyle(FrameworkToolBase):
                             % (style_name, len(reports), err.get("message")),
                             code="TOOL_EXECUTION_ERROR",
                         )
-                    if err.get("code") == "ROLLBACK_FAILED" or not rolled_back:
+                    if err.get("code") == "ROLLBACK_FAILED":
                         return self._tool_error(
                             "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
                             % (len(reports), len(ranges), err.get("message"))

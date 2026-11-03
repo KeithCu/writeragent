@@ -721,7 +721,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
     cursor.gotoEnd(True)
 
     from .edit_review import next_agent_edit_undo_title
-    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     title = next_agent_edit_undo_title()
 

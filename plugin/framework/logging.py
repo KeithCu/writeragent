@@ -414,7 +414,13 @@ def init_logging(ctx: Any | None = None) -> None:
 
             logger = log
             plugin_logger = logging.getLogger("plugin")
-            logger.setLevel(numeric_level)
+            # What was wrong: Logger.setLevel always calls manager._clear_cache(),
+            # taking logging._lock and invalidating every logger's level cache.
+            # When called repeatedly, every thread's next log call misses the cache
+            # and contends for logging._lock, which is the hot trigger for deadlocks
+            # with SolarMutex. Only call setLevel when the level actually changes.
+            if logger.level != numeric_level:
+                logger.setLevel(numeric_level)
 
             active_path = shared["debug_log_path"]
             if isinstance(active_path, str) and active_path:
@@ -423,7 +429,8 @@ def init_logging(ctx: Any | None = None) -> None:
                 # Both share one file handler so rotation has a single fd.
                 # The handler is not on the root logger: at DEBUG that pulled
                 # third-party records (full URLs) into writeragent_debug.log.
-                plugin_logger.setLevel(numeric_level)
+                if plugin_logger.level != numeric_level:
+                    plugin_logger.setLevel(numeric_level)
                 _ensure_debug_file_handler(logger)
                 _ensure_debug_file_handler(plugin_logger)
                 # writeragent has its own handler. plugin.* keeps propagating so

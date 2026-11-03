@@ -559,7 +559,8 @@ def test_enqueue_misses_emits_one_queued_status() -> None:
     queue = MagicMock()
     ctx = MagicMock()
     uncached = [(0, 14, "Sentence one. "), (14, 27, "Sentence two.")]
-    with patch("plugin.writer.locale.grammar_work_queue.emit_grammar_status") as mock_status:
+    with patch("plugin.writer.locale.grammar_work_queue.get_grammar_status") as mock_get_status:
+        mock_status = mock_get_status.return_value
         enqueue_misses(
             queue,
             ctx,
@@ -567,10 +568,7 @@ def test_enqueue_misses_emits_one_queued_status() -> None:
             "en-US",
             uncached,
         )
-    assert mock_status.call_count == 1
-    assert mock_status.call_args[0][0] == "start"
-    assert mock_status.call_args[0][1] == "2 sentences"
-    assert mock_status.call_args[1].get("result") == "queued"
+    mock_status.start.assert_called_once_with("2 sentences", result="queued")
     assert queue.enqueue.call_count == 2
 
 

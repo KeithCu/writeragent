@@ -44,7 +44,7 @@ from plugin.writer.edit_review import (
     attach_edited_context,
     next_agent_edit_undo_title,
 )
-from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
@@ -630,7 +630,10 @@ class ApplyDocumentContent(ToolBase):
                 )
             except Exception as exc:
                 reraise_if_disposed(exc)
-                return {"status": "error", "message": f"Failed to update shape text: {exc}"}
+                return self._tool_error(
+                    f"Failed to update shape text: {exc}",
+                    code="TOOL_EXECUTION_ERROR",
+                )
 
             result = attach_edited_context(
                 {"status": "ok",
@@ -1227,17 +1230,16 @@ class ApplyDocumentContent(ToolBase):
                 return payload, session
 
             if err is not None and err.get("code") == "ROLLBACK_FAILED":
-                is_rolled_back = bool(rolled_back or len(session.changes) == changes_before)
                 cause_msg = err.get("message", "unknown error")
-                if is_rolled_back:
-                    msg = "all_matches aborted after %d replacement(s); document rolled back (%s)." % (count, cause_msg)
-                else:
-                    msg = "all_matches aborted after %d replacement(s); the document could not be rolled back and may be partially edited (%s)." % (count, cause_msg)
+                msg = (
+                    "all_matches aborted after %d replacement(s); the document could not be "
+                    "rolled back and may be partially edited (%s)."
+                ) % (count, cause_msg)
                 payload = {
                     "status": "error",
                     "code": "TOOL_EXECUTION_ERROR",
                     "message": msg,
-                    "replaced_count": 0,
+                    "replaced_count": count,
                     "partial_failure": True,
                     "attempted": count,
                 }
