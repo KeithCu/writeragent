@@ -21,6 +21,63 @@ from tests.harness.strip_bundle import asserts_stripped, requires_asserts  # noq
 
 
 
+_GC_POLICY_INSTALL_MODULES = frozenset(
+    {
+        "tests.framework.test_gc_policy",
+    }
+)
+
+
+@pytest.fixture
+def gc_policy_restored():
+    """Restore gc_policy module state and gc.callbacks after gc_policy unit tests."""
+    import gc as gc_mod
+
+    from plugin.framework import gc_policy
+
+    was_enabled = gc_mod.isenabled()
+    callbacks = list(gc_mod.callbacks)
+    thresholds = gc_mod.get_threshold()
+    main_ident = gc_policy._main_ident
+    posted_at = gc_policy._posted_at
+    last_full = gc_policy._last_full
+    off_main = list(gc_policy._off_main)
+    gc_mod.enable()
+    try:
+        yield
+    finally:
+        gc_policy._main_ident = main_ident
+        gc_policy._posted_at = posted_at
+        gc_policy._last_full = last_full
+        gc_policy._off_main[:] = off_main
+        gc_mod.callbacks[:] = callbacks
+        gc_mod.set_threshold(*thresholds)
+        if was_enabled:
+            gc_mod.enable()
+        else:
+            gc_mod.disable()
+
+
+@pytest.fixture(autouse=True)
+def _stub_gc_policy_install_for_headless_tests(request, monkeypatch):
+    """Bootstrap unit tests must not leave GC disabled for the rest of the xdist worker."""
+    from plugin.framework import gc_policy
+
+    if not hasattr(gc_policy, "_real_install"):
+        gc_policy._real_install = gc_policy.install
+
+    mod_name = getattr(request.module, "__name__", "")
+    if mod_name in _GC_POLICY_INSTALL_MODULES:
+        yield
+        return
+
+    def _noop_install(_executor: Any) -> bool:
+        return False
+
+    monkeypatch.setattr(gc_policy, "install", _noop_install)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _reset_main_thread_policy_for_tests():
     """Ensure MainThread policy and designated thread do not leak across tests."""

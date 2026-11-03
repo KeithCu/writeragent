@@ -53,20 +53,24 @@ def install(executor: Any) -> bool:
     if _main_ident is not None:
         return True
     if executor._get_async_callback() is None:
+        log.info("gc_policy: skipped (no AsyncCallback)")
         return False
     _main_ident = threading.get_ident()
     gc.disable()
-    if hasattr(os, "register_at_fork"):
+    if hasattr(os, "register_at_fork"):  # absent on Windows
+        # A forked child (multiprocessing 'fork') has no main-thread ticker.
         os.register_at_fork(after_in_child=gc.enable)
     gc.callbacks.append(_sentinel)
     from plugin.framework.worker_pool import run_in_background
 
     run_in_background(_ticker_loop, executor, name="gc-ticker", daemon=True, dedicated=True)
+    log.info("gc_policy: active")
     return True
 
 
 def _sentinel(phase: str, info: dict[str, Any]) -> None:
     # Runs inside the collection on the collecting thread: no logging, no locks.
+    # list.append is atomic under the GIL.
     if phase == "start" and threading.get_ident() != _main_ident:
         _off_main.append(threading.get_ident())
 
@@ -92,9 +96,9 @@ def _ticker_iteration(executor: Any, *, now: float | None = None) -> None:
         return
     _posted_at = now
     try:
-        executor.post(_collect_on_main, bound_scope=None)
+        executor.post(_collect_on_main, bound_scope=None)  # Stop must not drop it
     except Exception:
-        _posted_at = 0.0
+        _posted_at = 0.0  # TimeoutError etc.; retry next tick
 
 
 def _collect_on_main() -> None:
@@ -102,6 +106,8 @@ def _collect_on_main() -> None:
     global _posted_at, _last_full
     _posted_at = 0.0
     if gc.isenabled():
+        # Third-party gc.enable(), or automatic_gc_suspended restoring a state
+        # recorded before install(). Put the policy back.
         gc.disable()
         log.warning("gc_policy: automatic GC was re-enabled; disabled again")
     if _off_main:
@@ -113,4 +119,7 @@ def _collect_on_main() -> None:
         _last_full = now
     else:
         count, thr = gc.get_count(), gc.get_threshold()
+        # Manual gc.collect(g) still bumps count[g+1] with GC disabled
+        # (3.11-3.13), so this matches CPython's own gen-1 schedule.
+        # Gen 2 is time-based (above) instead of the long-lived heuristic.
         gc.collect(1 if count[1] >= thr[1] else 0)

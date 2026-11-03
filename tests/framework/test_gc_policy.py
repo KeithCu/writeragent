@@ -32,29 +32,21 @@ def _release_logging_lock() -> None:
     _logging_lock().release()
 
 
-@pytest.fixture
-def gc_policy_restored():
-    was_enabled = gc.isenabled()
-    callbacks = list(gc.callbacks)
-    thresholds = gc.get_threshold()
-    main_ident = gc_policy._main_ident
-    posted_at = gc_policy._posted_at
-    last_full = gc_policy._last_full
-    off_main = list(gc_policy._off_main)
-    gc.enable()
-    try:
+@pytest.fixture(autouse=True)
+def _gc_policy_tests_no_ticker_thread(request, monkeypatch):
+    """install() must not start a real endless gc-ticker thread in pytest."""
+    if getattr(request.module, "__name__", "") != "tests.framework.test_gc_policy":
         yield
-    finally:
-        gc_policy._main_ident = main_ident
-        gc_policy._posted_at = posted_at
-        gc_policy._last_full = last_full
-        gc_policy._off_main[:] = off_main
-        gc.callbacks[:] = callbacks
-        gc.set_threshold(*thresholds)
-        if was_enabled:
-            gc.enable()
-        else:
-            gc.disable()
+        return
+
+    def _record_run_in_background(fn, *args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "plugin.framework.worker_pool.run_in_background",
+        _record_run_in_background,
+    )
+    yield
 
 
 class FakeExecutor:
