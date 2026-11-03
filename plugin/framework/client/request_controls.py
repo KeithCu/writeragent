@@ -415,7 +415,6 @@ class RetryBudget:
     emitted_any: bool
     body_in_hand: bool
     attempt_charged: bool
-    _connection_outcome_handler: Callable[[Exception], tuple[str, Any]] | None
 
     def __init__(
         self,
@@ -433,7 +432,6 @@ class RetryBudget:
         self.emitted_any = False
         self.body_in_hand = False
         self.attempt_charged = False
-        self._connection_outcome_handler = None
 
     def stopped(self) -> bool:
         return is_cancelled(self._cancel)
@@ -464,24 +462,19 @@ class RetryBudget:
         model: str | None = None,
         retry_log_message: str = "Retrying HTTP request on a fresh connection",
         close_on_fatal: bool = False,
-        delegate: bool = True,
     ) -> tuple[str, Any]:
-        """Evaluate connection error retry policy for exchange and streaming.
-
-        What was wrong: connection retry policy was duplicated across exchange
-        and stream loops with divergent handling for attempt counts on failed
-        error-body reads.
-        Fix: single policy helper parameterized by fatal flag, secrets, and attempt state.
-        """
-        if delegate:
-            handler = getattr(self, "_connection_outcome_handler", None)
-            if handler is not None:
-                return handler(exc)
-
+        """Evaluate connection error retry policy for exchange and streaming."""
+        # stop() closes the socket, so the blocked read raises here.
+        # Looking only at emitted_any reported Stop after the first
+        # token as CONNECTION_LOST. A latched Stop (or cancel scope)
+        # is a user cancel, same as the pre-token path. A real drop
+        # still refuses retry once any token reached the UI.
         if self.stopped():
             self._transport.close()
             return "stop", None
 
+        # A retry after tokens already reached the UI would duplicate text,
+        # or after the body is in hand for an exchange.
         if fatal:
             if close_on_fatal:
                 self._transport.close()
@@ -493,7 +486,11 @@ class RetryBudget:
             err = NetworkError(err_msg, code="CONNECTION_LOST", details={"url": target})
             return "raise", err
 
-        # An error-body read that raises IncompleteRead must cost one attempt, not two.
+        # handle_http_status reads the error body, and that read can
+        # raise IncompleteRead, a reset, or a timeout. The non-200
+        # branch above already decremented sends_left. Charging
+        # again would consume two of the three attempts for one
+        # failed read, and the last try would never run.
         if not attempt_charged:
             self.sends_left -= 1
 
@@ -516,7 +513,12 @@ class RetryBudget:
             return "stop", None
         return "again", None
 
-    def run_with_retries(self, body: Any, dispatch: Callable[[Any], tuple[str, Any]]) -> Any:
+    def run_with_retries(
+        self,
+        body: Any,
+        dispatch: Callable[[Any], tuple[str, Any]],
+        on_connection_error: Callable[[Exception], tuple[str, Any]],
+    ) -> Any:
         """The single while True retry loop for all outbound HTTP requests."""
         from plugin.framework.errors import NetworkError
         from .http_transport import CONNECTION_ERRORS, _stopped_error
@@ -534,7 +536,7 @@ class RetryBudget:
                     continue
                 raise
             except CONNECTION_ERRORS as exc:
-                action, value = self._connection_outcome(exc)
+                action, value = on_connection_error(exc)
                 if action == "again":
                     continue
                 if action == "stop":
@@ -577,10 +579,24 @@ class RetryBudget:
         wire_headers = dict(headers or {})
         transport._redirect_origin = None
         redirects_followed = 0
+        current_model: str | None = None
+        wire_secrets: list[str] | None = None
+
+        def on_connection_error(err: Exception) -> tuple[str, Any]:
+            return self._connection_outcome(
+                err,
+                fatal=self.body_in_hand,
+                attempt_charged=self.attempt_charged,
+                secrets=wire_secrets,
+                path=path,
+                model=current_model,
+                retry_log_message=retry_log_message,
+                close_on_fatal=False,
+            )
 
         def dispatch(current_body: Any) -> tuple[str, Any]:
-            nonlocal method, path, wire_headers, redirects_followed
-            model = request_model_from_body(current_body)
+            nonlocal method, path, wire_headers, redirects_followed, current_model, wire_secrets
+            current_model = request_model_from_body(current_body)
             wire_secrets = http_security.collect_secrets(
                 secrets,
                 http_security.secrets_from_headers(wire_headers),
@@ -589,22 +605,9 @@ class RetryBudget:
             self.body_in_hand = False
             self.attempt_charged = False
 
-            def _handle_conn(err: Exception) -> tuple[str, Any]:
-                return self._connection_outcome(
-                    err,
-                    fatal=self.body_in_hand,
-                    attempt_charged=self.attempt_charged,
-                    secrets=wire_secrets,
-                    path=path,
-                    model=model,
-                    retry_log_message=retry_log_message,
-                    close_on_fatal=False,
-                    delegate=False,
-                )
-
-            self._connection_outcome_handler = _handle_conn
-
             transport._raise_if_stopped(cancel)
+            # A custom sender is bound to the caller's connection. After a
+            # cross-origin redirect, send() on this transport uses the new host.
             if sender is not None and transport._redirect_origin is None:
                 response = sender(method, path, current_body, wire_headers, cancel=cancel, status_callback=self._status_callback)
             else:
@@ -618,6 +621,10 @@ class RetryBudget:
                 )
             status = int(getattr(response, "status", 0) or 0)
             if status in http_security._REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
+                # A CDN 301/302/307 is not a failure. Image URLs, TTS audio,
+                # catalogs, and update checks follow Location. One hop
+                # rewrites method/body, then loops. The retry budget is
+                # for 429/503, not for a redirect the server asked for.
                 current_url = transport._absolute_url(path)
                 hop = http_security._apply_redirect(
                     method,
@@ -662,7 +669,7 @@ class RetryBudget:
                 return "again", current_body
 
             if self.sends_left == RETRY_MAX_ATTEMPTS:
-                clear_host_gap(transport.pacing_key_for_model(model))
+                clear_host_gap(transport.pacing_key_for_model(current_model))
             if max_bytes is not None:
                 raw = transport._read_bounded_response(response, max_bytes=max_bytes, cancel=cancel)
             else:
@@ -679,7 +686,7 @@ class RetryBudget:
             )
 
         try:
-            return self.run_with_retries(body, dispatch)
+            return self.run_with_retries(body, dispatch, on_connection_error)
         finally:
             if transport._redirect_origin is not None:
                 transport._redirect_origin = None
@@ -700,29 +707,28 @@ class RetryBudget:
 
         transport = self._transport
         cancel = self._cancel
+        current_model: str | None = None
+
+        def on_connection_error(err: Exception) -> tuple[str, Any]:
+            return self._connection_outcome(
+                err,
+                fatal=self.emitted_any,
+                attempt_charged=self.attempt_charged,
+                secrets=None,
+                path=path,
+                model=current_model,
+                retry_log_message="Retrying streaming request on fresh connection",
+                close_on_fatal=True,
+            )
 
         def dispatch(current_body: Any) -> tuple[str, Any]:
+            nonlocal current_model
             if self.stopped():
                 transport.close()
                 return "stop", None
 
-            model = request_model_from_body(current_body)
+            current_model = request_model_from_body(current_body)
             self.attempt_charged = False
-
-            def _handle_conn(err: Exception) -> tuple[str, Any]:
-                return self._connection_outcome(
-                    err,
-                    fatal=self.emitted_any,
-                    attempt_charged=self.attempt_charged,
-                    secrets=None,
-                    path=path,
-                    model=model,
-                    retry_log_message="Retrying streaming request on fresh connection",
-                    close_on_fatal=True,
-                    delegate=False,
-                )
-
-            self._connection_outcome_handler = _handle_conn
 
             response = transport.send(
                 method,
@@ -753,7 +759,7 @@ class RetryBudget:
                 return "again", current_body
 
             if self.sends_left == RETRY_MAX_ATTEMPTS:
-                clear_host_gap(transport.pacing_key_for_model(model))
+                clear_host_gap(transport.pacing_key_for_model(current_model))
 
             try:
                 res = consume(response)
@@ -765,7 +771,7 @@ class RetryBudget:
                 attempt = RETRY_MAX_ATTEMPTS - self.sends_left
                 delay = backoff_delay_sec(attempt=attempt)
                 remember_host_gap(
-                    transport.pacing_key_for_model(model),
+                    transport.pacing_key_for_model(current_model),
                     delay,
                 )
                 emit_retry_status(self._status_callback, delay)
@@ -774,7 +780,7 @@ class RetryBudget:
                 return "again", current_body
 
         try:
-            return self.run_with_retries(body, dispatch)
+            return self.run_with_retries(body, dispatch, on_connection_error)
         except NetworkError as exc:
             if getattr(exc, "code", None) == "STOPPED":
                 return "stop"

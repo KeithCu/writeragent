@@ -913,7 +913,10 @@ class ApplyDocumentContent(ToolBase):
 
         # Stop waiting early when the review feature is toggled off mid-wait OR the user
         # cancels the chat turn (Stop button); MCP has no stop predicate -> None.
-        user_stop = getattr(ctx, "stop_checker", None)
+        # What was wrong: ToolContext lost stop_checker, so getattr returned None and Stop was ignored.
+        # Fix: read send_cancellation scope directly and check is_cancelled.
+        scope = getattr(ctx, "send_cancellation", None)
+        user_stop = scope.is_cancelled if scope is not None else None
 
         def _stop() -> bool:
             if get_agent_edit_review_mode() != "wait":

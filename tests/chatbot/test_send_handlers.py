@@ -910,7 +910,6 @@ def test_web_research_tool():
     setattr(ctx.ctx, "getServiceManager", MagicMock())  # for config
     ctx.status_callback = MagicMock()
     ctx.append_thinking_callback = MagicMock()
-    ctx.stop_checker = lambda: False
     ctx.send_cancellation = None
 
     # Track the steps of our mock model
@@ -1089,7 +1088,6 @@ def test_web_research_tool_approval():
     setattr(ctx.ctx, "getServiceManager", MagicMock())  # for config
     ctx.status_callback = MagicMock()
     ctx.append_thinking_callback = MagicMock()
-    ctx.stop_checker = lambda: False
     ctx.send_cancellation = None
 
     # We will provide an approval_callback

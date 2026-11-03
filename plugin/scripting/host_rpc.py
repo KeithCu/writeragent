@@ -374,14 +374,14 @@ def execute_tool(
         else:
             doc_type = ""
         registry = get_tools()
-        # What was wrong: ToolContext had no send_cancellation, so web_research
-        # and image generation started from a script ran the HTTP request to
-        # completion after Stop.
+        # What was wrong: ToolContext had neither stop_checker nor send_cancellation,
+        # so web_research and image generation started from a script ran the HTTP request
+        # to completion after Stop.
         # How it happened: handle_tool_call_frame checked Stop only before
         # execute_tool, and cancellation_scope stopped in _maybe_dispatch_intermediate_response.
         # Why this change: The turn's scope is the one RunVenvPythonScript.execute
         # captured, copied onto ToolContext so existing readers abort the wait.
-        # The frame stop_checker callable remains until the venv migration.
+        # execute_tool(stop_checker=) is now unused until venv migration (the pre-check lives in handle_tool_call_frame).
         tctx = ToolContext(
             doc=doc,
             ctx=uno_ctx,

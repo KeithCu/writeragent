@@ -857,9 +857,13 @@ def build_tool_execute_fn(
                 )
                 return json.dumps(format_error_payload(err), default=str)
 
-        # Workers pass the checker captured at spawn. Direct
+        # Workers pass the scope captured at spawn. Direct
         # callers (tests) omit it and still run on that thread.
+        from plugin.framework.send_cancellation import SendCancellation
+
         checker_scope = send_cancellation if send_cancellation is not None else getattr(host, "_send_cancellation", None)
+        if checker_scope is not None and not isinstance(checker_scope, SendCancellation):
+            checker_scope = None
         if prompt_for_web:
 
             def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:

@@ -156,7 +156,7 @@ class DelegateReadDocument(ToolBase):
         try:
             from plugin.framework.send_cancellation import is_cancelled
 
-            scope = getattr(ctx, "send_cancellation", None)
+            scope = ctx.send_cancellation
             if is_cancelled(scope):
                 return user_stopped_payload()
             result = run_inner_read_agent(ctx, model, doc_type, str(task))

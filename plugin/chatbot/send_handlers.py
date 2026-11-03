@@ -251,7 +251,7 @@ class SendHandlersMixin:
                 on_stream_done,
                 on_error,
                 on_status_fn=self._panel._set_status,
-                cancel=getattr(self._panel, "_send_cancellation", None),
+                cancel=self._panel._send_cancellation,
                 on_stopped_fn=on_stopped,
                 name="chatbot-send-handler",
                 q=q,

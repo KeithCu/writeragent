@@ -746,7 +746,6 @@ def test_create_smol_model_reads_chat_max_tokens_and_explicit_max_tokens_wins():
 
     ctx = MagicMock()
     ctx.ctx = MagicMock()
-    ctx.stop_checker = lambda: False
     ctx.send_cancellation = MagicMock()
     ctx.status_callback = MagicMock()
 

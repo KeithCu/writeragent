@@ -85,10 +85,10 @@ class SendCancellation:
         with self._lock:
             # Equality, not identity, because each adapter.stop access is a new
             # bound method that compares equal.
-            if hook in self._hooks:
+            already = self._cancelled.is_set()
+            if already and hook in self._hooks:
                 return
             self._hooks.append(hook)
-            already = self._cancelled.is_set()
         # Stop can win the race: a hook registered after cancel() must still run.
         if already:
             try:
@@ -96,13 +96,25 @@ class SendCancellation:
             except Exception:
                 log.exception("SendCancellation: error in late cancel hook")
 
+    def unregister_on_cancel(self, hook: Callable[[], None]) -> None:
+        with self._lock:
+            try:
+                self._hooks.remove(hook)
+            except ValueError:
+                pass
+
     def cancel(self) -> None:
         # Set the flag under the lock so two callers cannot both run the hooks.
         with self._lock:
             if self._cancelled.is_set():
                 return
             self._cancelled.set()
-            hooks = list(self._hooks)
+            seen: set[Callable[[], None]] = set()
+            hooks: list[Callable[[], None]] = []
+            for h in self._hooks:
+                if h not in seen:
+                    seen.add(h)
+                    hooks.append(h)
             executors = list(self._executors)
         for hook in hooks:
             try:
@@ -131,14 +143,9 @@ def capture_send_stop(host: Any) -> SendCancellation | None:
     return getattr(host, "_send_cancellation", None)
 
 
-def is_cancelled(scope: Any) -> bool:
+def is_cancelled(scope: SendCancellation | None) -> bool:
     """Return True if *scope* is cancelled."""
-    if scope is None:
-        return False
-    check = getattr(scope, "is_cancelled", None)
-    if not callable(check):
-        return False
-    return check() is True
+    return scope is not None and scope.is_cancelled() is True
 
 
 @contextmanager

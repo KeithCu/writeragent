@@ -230,7 +230,7 @@ def test_delegate_read_runs_inner_agent_off_main_thread(mock_resolve, mock_open,
     ctx = MagicMock()
     ctx.ctx = MagicMock()
     ctx.doc = MagicMock()
-    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
     result = tool.execute(ctx, path_or_name="budget.ods", task="Q4")
 
     assert result["status"] == "ok"
@@ -386,7 +386,7 @@ def test_smol_executor_early_handler_return_interrupts_and_closes_generator():
     from plugin.contrib.smolagents.memory import ToolCall
 
     ctx = MagicMock()
-    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
     agent = MagicMock()
     tool_step = ToolCall(name="test_tool", arguments={}, id="call_1")
 

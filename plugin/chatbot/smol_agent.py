@@ -260,7 +260,7 @@ class SmolAgentExecutor:
     def _abort_if_stopped(self, agent: Any) -> None:
         from plugin.framework.send_cancellation import is_cancelled
 
-        if is_cancelled(getattr(self.ctx, "send_cancellation", None)):
+        if is_cancelled(self.ctx.send_cancellation):
             agent.interrupt()
             raise ToolExecutionError("Task stopped by user.", code="USER_STOPPED")
 
