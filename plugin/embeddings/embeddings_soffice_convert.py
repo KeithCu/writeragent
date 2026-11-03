@@ -99,12 +99,14 @@ def convert_legacy_to_odf(source_path: str, *, timeout_sec: int = 120) -> Path |
             str(source),
         ]
         try:
-            proc = ManagedSubprocess.run_with_process_tree(
-                wrap_command_for_sandbox(cmd),
+            # One-shot convert: watch_bus so Flatpak kill reaches host soffice, not only flatpak-spawn.
+            proc = ManagedSubprocess.run(
+                wrap_command_for_sandbox(cmd, watch_bus=True),
                 capture_output=True,
                 text=True,
                 timeout=max(1, int(timeout_sec)),
                 check=False,
+                kill_tree=True,
             )
         except (OSError, subprocess.TimeoutExpired):
             log.debug("legacy soffice convert failed for %s", source_path, exc_info=True)

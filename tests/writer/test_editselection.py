@@ -293,6 +293,65 @@ def test_edit_selection_empty_text_shows_message_before_prompt(mock_get_str, moc
 
 
 @patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+def test_edit_selection_preset_skips_prompt_and_validates_client_first(
+    mock_create_client, mock_stream,
+):
+    save({"edit_selection_max_new_tokens": 100, "doc.agent_edit_review_mode": "none", "additional_instructions": ""})
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
+         patch("plugin.writer.editselection.prompt_for_edit_instructions") as mock_prompt:
+        do_edit_selection(ctx, model, preset_instruction="Fix typos")
+
+    mock_prompt.assert_not_called()
+    assert mock_create_client.called
+    assert mock_stream.called
+
+
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+@patch("plugin.writer.editselection.msgbox")
+def test_edit_selection_preset_whole_body_without_select_first_msgbox(
+    mock_msgbox, mock_create_client, mock_stream,
+):
+    save({"edit_selection_max_new_tokens": 100, "doc.agent_edit_review_mode": "none", "additional_instructions": ""})
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    body = MagicMock()
+    cursor = MagicMock()
+    body.createTextCursor.return_value = cursor
+    model.getText.return_value = body
+    model.CurrentController.getSelection.return_value = None
+
+    with patch("plugin.writer.editselection.selected_text_range", return_value=None), \
+         patch("plugin.doc.text_helpers.get_string_without_tracked_deletions", return_value="whole doc"), \
+         patch("plugin.doc.text_helpers.normalize_linebreaks", return_value="whole doc"), \
+         patch("plugin.writer.edit_review.refuse_tracked_insert_or_delete"), \
+         patch("plugin.writer.editselection.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.editselection.get_config", return_value=100):
+        do_edit_selection(
+            ctx,
+            model,
+            preset_instruction="Proofread",
+            allow_whole_document=True,
+        )
+
+    mock_msgbox.assert_not_called()
+    assert mock_stream.called
+    prompt = mock_stream.call_args.args[2]
+    assert "whole doc" in prompt
+
+
+@patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.prompt_for_edit_instructions")
 @patch("plugin.writer.editselection.create_validated_client", return_value=None)
 def test_edit_selection_no_client_skips_prompt(mock_create_client, mock_prompt, mock_stream):
