@@ -23,6 +23,7 @@ from plugin.framework.logging import (
     format_tool_result_for_display,
     get_debug_log_path,
     init_logging,
+    is_logging_initialized,
     redact_sensitive_payload_for_log,
     resolve_log_level,
     update_activity_state,
@@ -39,6 +40,7 @@ class TestInitLogging:
 
         self._saved_config_path = config_mod._resolved_config_path
         self._saved_debug_path = logging_mod._shared()["debug_log_path"]
+        self._saved_initialized = logging_mod._shared().get("initialized", False)
         self._saved_hooks = getattr(sys, "_writeragent_excepthook", None)
         self._saved_excepthook = sys.excepthook
         import threading
@@ -54,6 +56,7 @@ class TestInitLogging:
         config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = None
         logging_mod._shared()["debug_log_path"] = None
+        logging_mod._shared()["initialized"] = False
         # What was wrong: these lived on the logging module. A second import
         # did not see them. Tests must reset the sys copies or they leak.
         logging_mod._debug_slot()["handler"] = None
@@ -73,6 +76,7 @@ class TestInitLogging:
                 except Exception:
                     pass
         logging_mod._shared()["debug_log_path"] = None
+        logging_mod._shared()["initialized"] = False
         logging_mod._debug_slot()["handler"] = None
 
     def teardown_method(self):
@@ -83,6 +87,7 @@ class TestInitLogging:
 
         config_mod._resolved_config_path = self._saved_config_path
         logging_mod._shared()["debug_log_path"] = self._saved_debug_path
+        logging_mod._shared()["initialized"] = self._saved_initialized
         logging_mod._debug_slot()["handler"] = None
         if self._saved_hooks is not None:
             setattr(sys, "_writeragent_excepthook", self._saved_hooks)
@@ -315,6 +320,72 @@ class TestInitLogging:
 
             self._release_debug_handlers()
 
+    def test_repeated_init_logging_preserves_cache_and_level(self):
+        """Repeated init_logging with the same level must not call setLevel or clear logger._cache."""
+        mock_ctx = MagicMock()
+        with patch("plugin.framework.config.get_config", return_value="INFO"):
+            init_logging(mock_ctx)
+
+        assert is_logging_initialized()
+        assert log.level == logging.INFO
+
+        # Warm up the cache for a logger in the plugin hierarchy
+        probe_logger = logging.getLogger("plugin.test_cache_probe")
+        assert probe_logger.isEnabledFor(logging.INFO) is True
+        assert probe_logger.isEnabledFor(logging.DEBUG) is False
+        assert len(getattr(probe_logger, "_cache", {})) > 0
+
+        # Repeated init_logging with the same level should NOT call setLevel,
+        # leaving Manager._clear_cache() uncalled and probe_logger._cache intact.
+        with patch("plugin.framework.config.get_config", return_value="INFO"):
+            init_logging(mock_ctx)
+
+        assert log.level == logging.INFO
+        assert len(getattr(probe_logger, "_cache", {})) > 0
+
+        # When the log level actually changes, setLevel is called and clears _cache.
+        with patch("plugin.framework.config.get_config", return_value="DEBUG"):
+            init_logging(mock_ctx)
+
+        assert log.level == logging.DEBUG
+        assert len(getattr(probe_logger, "_cache", {})) == 0
+
+    def test_is_logging_initialized_lifecycle(self):
+        import plugin.framework.logging as logging_mod
+
+        logging_mod._shared()["initialized"] = False
+        assert not is_logging_initialized()
+
+        mock_ctx = MagicMock()
+        init_logging(mock_ctx)
+        assert is_logging_initialized()
+
+    def test_llm_client_skips_init_logging_if_already_initialized(self):
+        from plugin.framework.client.llm_client import LlmClient
+
+        mock_ctx = MagicMock()
+        init_logging(mock_ctx)
+        assert is_logging_initialized()
+
+        client = LlmClient({"endpoint": "http://127.0.0.1:5000", "model": "test"}, mock_ctx, register_with_send=False)
+
+        with patch("plugin.framework.client.llm_client.init_logging") as mock_init:
+            client.make_chat_request([{"role": "user", "content": "hi"}], max_tokens=10)
+            mock_init.assert_not_called()
+
+    def test_llm_client_calls_init_logging_if_not_initialized(self):
+        from plugin.framework.client.llm_client import LlmClient
+        import plugin.framework.logging as logging_mod
+
+        logging_mod._shared()["initialized"] = False
+        assert not is_logging_initialized()
+
+        mock_ctx = MagicMock()
+        client = LlmClient({"endpoint": "http://127.0.0.1:5000", "model": "test"}, mock_ctx, register_with_send=False)
+
+        with patch("plugin.framework.client.llm_client.init_logging") as mock_init:
+            client.make_chat_request([{"role": "user", "content": "hi"}], max_tokens=10)
+            mock_init.assert_called_once_with(mock_ctx)
 
 
 class TestLogRedaction:
