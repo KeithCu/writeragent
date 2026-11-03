@@ -18,8 +18,9 @@ def test_emptied_calc_retains_chunks(tmp_path: Path):
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     # We want to test diff_chunk_rows_in_db when chunks == []
-    from plugin.embeddings.venv.embeddings_sqlite import _open_index_db, diff_chunk_rows_in_db
-    conn = _open_index_db(db_path)
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, diff_chunk_rows_in_db, ensure_schema
+    conn = connect_corpus_db(db_path)
+    ensure_schema(conn, with_fts=False, with_vec=False)
     conn.execute("INSERT INTO chunks (doc_url, para_index, char_start, char_end, content_hash, body) VALUES (?, ?, ?, ?, ?, ?)", ("file:///fake.ods", 0, 0, 10, "abc", "bodytext"))
     conn.commit()
 
@@ -37,7 +38,7 @@ def test_failed_extract_cold_build_skips(tmp_path: Path):
     hb = HeartbeatThrottle(lambda x: None)
 
     with patch("plugin.embeddings.venv.embeddings_folder_maintain._extract_file_chunks", return_value=(0, None)):
-        with patch("plugin.embeddings.venv.embeddings_folder_maintain.sync_file_paragraph_state") as mock_sync:
+        with patch("plugin.embeddings.venv.embeddings_folder_maintain.sync_file_paragraph_state_in_db") as mock_sync:
             _cold_build(str(tmp_path), "fake_model", [entry], hb, build_fts=False, build_vectors=False)
             mock_sync.assert_not_called()
 
@@ -49,10 +50,10 @@ def test_failed_extract_incremental_refresh_skips(tmp_path: Path):
 
     hb = HeartbeatThrottle(lambda x: None)
 
-    with patch("plugin.embeddings.venv.embeddings_folder_maintain.file_is_stale", return_value=True):
+    with patch("plugin.embeddings.venv.embeddings_folder_maintain.file_is_stale_in_db", return_value=True):
         with patch("plugin.embeddings.venv.embeddings_folder_maintain._extract_file_chunks", return_value=(0, None)):
-            with patch("plugin.embeddings.venv.embeddings_folder_maintain.diff_chunk_rows") as mock_diff:
-                with patch("plugin.embeddings.venv.embeddings_folder_maintain.mark_file_indexed") as mock_mark:
+            with patch("plugin.embeddings.venv.embeddings_folder_maintain.diff_chunk_rows_in_db") as mock_diff:
+                with patch("plugin.embeddings.venv.embeddings_folder_maintain.mark_file_indexed_in_db") as mock_mark:
                     _incremental_refresh(str(tmp_path), "fake_model", [entry], hb, build_fts=False, build_vectors=False)
                     mock_diff.assert_not_called()
                     mock_mark.assert_not_called()

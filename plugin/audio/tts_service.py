@@ -75,7 +75,6 @@ _SPEECH_EMPH_RE = re.compile(r"(?<![\w*])\*{1,3}(\S(?:.*?\S)?)\*{1,3}(?![\w*])")
 _CHUNK_BREAK_RE = re.compile(r"[.!?。！？](?:\s+|$)")
 # Kokoro's CLI takes the utterance as the last argv. Past this, skip it and
 # use the stdin one-shot path so a long reply cannot hit the OS argument limit.
-_KOKORO_CLI_MAX_CHARS = 32000
 
 # Playback and synthesis overlap during sentence prefetch. Stop kills every
 # child tracked here. Each object is the Popen from ManagedSubprocess(raw_spawn=True).
@@ -992,35 +991,6 @@ def _kokoro_oneshot_to_file(
     return wav_path
 
 
-def _kokoro_cli_to_file(
-    cand_cli: str,
-    text: str,
-    voice: str,
-    speed: float,
-    generation: int,
-) -> str | None:
-    """Kokoro CLI fallback.
-
-    The utterance is the last argv. A leading ``-`` is a flag, and a long
-    reply can exceed the OS argument limit. Those cases return None so the
-    caller uses the stdin one-shot path. A non-zero exit used to be ignored
-    when the file was non-empty, so a partial wav was played.
-    """
-    if _playback_blocked(generation):
-        return None
-    if text.startswith("-") or len(text) > _KOKORO_CLI_MAX_CHARS:
-        log.info("Kokoro CLI skipped; text is flag-like or too long for argv")
-        return None
-    tmp_wav = _new_speech_temp(".wav", generation)
-    if tmp_wav is None:
-        return None
-    cmd = [cand_cli, "--voice", voice, "--speed", str(speed), "--output", tmp_wav, text]
-    wav_path, _stdout = _run_synth_to_temp(
-        tmp_wav, cmd, generation, label="Kokoro CLI", timeout=_synth_timeout(text, 60.0),
-    )
-    return wav_path
-
-
 def _kokoro_audio_file(
     text: str,
     voice: str,
@@ -1028,7 +998,7 @@ def _kokoro_audio_file(
     on_status: Callable[[str], None] | None,
     generation: int,
 ) -> str | None:
-    """Write one Kokoro wav. Warm worker first, then CLI, then one-shot."""
+    """Write one Kokoro wav. Warm worker first, then kokoro_worker.py --once."""
     py_exe = resolve_kokoro_python()
     # Bugfix: Model files were downloaded even without a configured venv because
     # resolution ran before checking py_exe. Returning None early skips download
@@ -1046,13 +1016,6 @@ def _kokoro_audio_file(
             on_status=on_status,
         )
         if wav_path or not allow_fallback:
-            return wav_path
-    # py_exe is set: an empty venv already returned above, so this is not checked again.
-    bin_dir = os.path.dirname(py_exe)
-    cand_cli = os.path.join(bin_dir, "kokoro.exe" if sys.platform == "win32" else "kokoro")
-    if os.path.isfile(cand_cli) and os.access(cand_cli, os.X_OK):
-        wav_path = _kokoro_cli_to_file(cand_cli, text, voice, speed, generation)
-        if wav_path or _playback_blocked(generation):
             return wav_path
     if os.path.isfile(model_path) and os.path.isfile(voices_path):
         return _kokoro_oneshot_to_file(

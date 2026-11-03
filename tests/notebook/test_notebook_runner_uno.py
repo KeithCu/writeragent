@@ -485,13 +485,14 @@ def _output_text_for_cell(doc, cell) -> str:
         _is_next_cell_boundary,
         _paragraph_string,
     )
-    from plugin.notebook.writer_importer import _STYLE_NOTEBOOK_IN, _resolve_para_style
+    from plugin.notebook.layout import STYLE_NOTEBOOK_IN
+    from plugin.notebook.writer_importer import resolve_para_style
 
     start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
     if start is None:
         return ""
     text = doc.getText()
-    notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
+    notebook_in = resolve_para_style(doc, STYLE_NOTEBOOK_IN)
     end = text.createTextCursorByRange(start)
     while end.gotoNextParagraph(False):
         if _is_next_cell_boundary(end.ParaStyleName, _paragraph_string(end), notebook_in):

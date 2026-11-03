@@ -83,32 +83,6 @@ def hybrid_corpus_search(
                 top_n=final_k,
             )
         elif use_mmr and fused and final_k > 1:
-            # MMR diversity rerank — disabled for fair cross-encoder experiment (2026-06).
-            # Re-enable if we want hybrid rerank + diversity instead of LI-style rerank-only.
-            '''
-            load_embeddings_for_candidates(conn, fused, model=model)
-            with_embeddings = [c for c in fused if c.get("embedding") is not None]
-            without = [c for c in fused if c.get("embedding") is None]
-            if len(with_embeddings) >= final_k:
-                import numpy as np
-                from plugin.embeddings.venv.embeddings_search_graph import MMR_LAMBDA, _max_marginal_relevance
-
-                fused = _max_marginal_relevance(
-                    np.asarray(query_vec, dtype=np.float32),
-                    [c["embedding"] for c in with_embeddings],
-                    with_embeddings,
-                    final_k,
-                    lambda_mult=MMR_LAMBDA,
-                )
-                if len(fused) < final_k:
-                    for cand in without:
-                        if len(fused) >= final_k:
-                            break
-                        if cand not in fused:
-                            fused.append(cand)
-            else:
-                fused = fused[:final_k]
-            '''
             fused = fused[:final_k]
         else:
             fused = fused[:final_k]

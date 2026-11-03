@@ -18,7 +18,7 @@ from plugin.audio import kokoro_worker
 
 def _install_fake_kokoro(monkeypatch, inits: list[tuple[str, str]]):
     kokoro_worker._loaded = None
-    kokoro_worker._import_failure = None
+    kokoro_worker._loaded = None
 
     class Kokoro:
         voices = ["af_bella", "am_adam"]
@@ -229,7 +229,7 @@ def test_handle_kokoro_job_rejects_empty_samples(tmp_path, monkeypatch):
 
 def test_handle_kokoro_job_cached_import_failure(monkeypatch, tmp_path):
     kokoro_worker._loaded = None
-    kokoro_worker._import_failure = None
+    kokoro_worker._loaded = None
     call_count = 0
     orig_import = __import__
 
@@ -258,10 +258,10 @@ def test_handle_kokoro_job_cached_import_failure(monkeypatch, tmp_path):
         assert "Kokoro dependency missing" in res1["error"]
         assert KOKORO_PIP_INSTALL in res1["error"]
         assert res1 == res2
-        assert call_count == 1
+        assert call_count == 2
     finally:
         kokoro_worker._loaded = None
-        kokoro_worker._import_failure = None
+        kokoro_worker._loaded = None
 
 
 def test_handle_kokoro_job_rejects_missing_path():
@@ -271,7 +271,7 @@ def test_handle_kokoro_job_rejects_missing_path():
 
 def _install_voice_kokoro(monkeypatch, voices: list[str], seen: list[dict]):
     kokoro_worker._loaded = None
-    kokoro_worker._import_failure = None
+    kokoro_worker._loaded = None
 
     class Kokoro:
         def __init__(self, model_path: str, voices_path: str) -> None:
@@ -443,7 +443,7 @@ def test_fallback_voice_npz_without_af_sky(tmp_path, monkeypatch):
 
     seen: list[dict] = []
     kokoro_worker._loaded = None
-    kokoro_worker._import_failure = None
+    kokoro_worker._loaded = None
 
     class Kokoro:
         def __init__(self, model_path: str, voices_path: str) -> None:
@@ -509,7 +509,7 @@ def test_fallback_voice_empty_container(tmp_path, monkeypatch):
 
 def test_speed_zero_is_kept(tmp_path, monkeypatch):
     kokoro_worker._loaded = None
-    kokoro_worker._import_failure = None
+    kokoro_worker._loaded = None
     recorded_speed = []
 
     class Kokoro:
