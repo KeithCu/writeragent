@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from PIL import Image
 
@@ -313,3 +314,27 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
     assert doc3.closed is True
     assert any("reference PNG rasterize failed" in err for err in res3.errors)
 
+
+def test_soffice_convert_to_pdf_timeout_uses_tree_kill(monkeypatch, tmp_path: Path):
+    import subprocess
+
+    import plugin.framework.managed_subprocess as ms
+    from plugin.ppt_master import fidelity
+
+    proc = MagicMock()
+    proc.poll.return_value = None
+    killed: list[object] = []
+
+    monkeypatch.setattr(ms.subprocess, "Popen", lambda *args, **kwargs: proc)
+    monkeypatch.setattr(ms, "kill_process_tree", lambda p: killed.append(p))
+    proc.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd=["soffice"], timeout=1.0),
+        ("", ""),
+    ]
+
+    source = tmp_path / "deck.odp"
+    source.write_text("x", encoding="utf-8")
+    out_dir = tmp_path / "pdf_out"
+
+    assert fidelity.soffice_convert_to_pdf("soffice", source, out_dir, timeout_sec=1) is None
+    assert killed == [proc]
