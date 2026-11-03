@@ -1290,7 +1290,7 @@ def test_managed_subprocess_run_is_subprocess_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import plugin.framework.managed_subprocess as ms
-    from plugin.framework.worker_pool import get_subprocess_creationflags
+    from plugin.framework.subprocess_env import get_subprocess_creationflags
 
     captured_args: list[Any] = []
     captured_kwargs: list[dict[str, Any]] = []
@@ -1677,7 +1677,7 @@ def test_managed_subprocess_run_capture_output(monkeypatch: pytest.MonkeyPatch) 
     for key in absent_keys:
         assert key not in recorded_kwargs
 
-    from plugin.framework.worker_pool import get_subprocess_creationflags
+    from plugin.framework.subprocess_env import get_subprocess_creationflags
 
     assert recorded_kwargs.get("creationflags") == get_subprocess_creationflags().get("creationflags")
 
