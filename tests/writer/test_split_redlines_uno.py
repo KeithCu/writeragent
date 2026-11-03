@@ -345,7 +345,7 @@ def test_surgical_partial_apply_rolls_back_atomically_uno(ctx, doc):
     back. Proves the two UNO semantics the fix relies on and unit fakes can't: (a) undoing the
     grouped context removes the first sub-edit's tagged redlines, (b) the orphan anchor bookmark is
     cleaned -- so the document is byte-for-byte pristine and the failure is surfaced, not swallowed."""
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     base = "The quick brown fox jumps over the lazy dog near the river."
     _body(doc, ctx, base)
@@ -394,7 +394,7 @@ def test_surgical_first_subedit_failure_preserves_prior_undo_uno(ctx, doc):
     the undo context is empty and discarded on leave -- so the rollback must NOT call undo() (that
     would revert the user's PRIOR action). Proves the empty-context-discard semantics with a real
     undoable user edit that must survive the failed batch."""
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     _body(doc, ctx, "Alpha beta gamma delta epsilon zeta.")
     # A real, undoable user edit BEFORE the agent batch -- it MUST survive the rollback.
@@ -439,7 +439,7 @@ def test_prior_surgical_batch_survives_later_empty_failed_batch_uno(ctx, doc):
     fails before mutating, so its context is EMPTY and discarded on leave -- exposing batch 1's title
     on top. The per-batch-unique title must stop batch 2's rollback from undoing batch 1's good edit
     (a constant title would match and revert it)."""
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     b1 = "The quick brown fox jumps over the lazy dog."
     b2 = "A nimble red cat leaps across the small wooden fence."

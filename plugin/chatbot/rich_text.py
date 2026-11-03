@@ -280,7 +280,7 @@ def _sidebar_import_html(text: str) -> str:
         and "<body" in lowered
         and "</body>" in lowered
     ):
-        from plugin.writer.format import _strip_html_boilerplate
+        from plugin.writer.html_export import _strip_html_boilerplate
 
         return _strip_html_boilerplate(text)
     return text

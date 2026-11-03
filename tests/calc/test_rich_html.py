@@ -70,7 +70,8 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     with (
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
-        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
+        patch("plugin.calc.rich_html.create_property_value", return_value=hidden_prop) as mock_cpv,
         patch("plugin.calc.rich_html.clear_writer_body", side_effect=_record_clear) as mock_clear,
         caplog.at_level(logging.INFO, logger="plugin.calc.rich_html"),
     ):
@@ -79,7 +80,6 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
         sheet.getCellByPosition.return_value = cell
         mock_bridge.get_active_sheet.return_value = sheet
         mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
-        mock_fmt.create_property_value.return_value = hidden_prop
         mock_fmt._insert_starwriter_html_at_cursor.side_effect = lambda *_a, **_k: order.append("insert")
 
         insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "Plain <b>BoldBit</b> tail")
@@ -92,7 +92,7 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     assert args[1] not in ("_blank", "_default")
     assert args[2] == _HTML_WRITER_SEARCH_FLAGS
     assert args[3] == (hidden_prop,)
-    mock_fmt.create_property_value.assert_called_once_with("Hidden", True)
+    mock_cpv.assert_called_once_with("Hidden", True)
     mock_fmt._insert_starwriter_html_at_cursor.assert_called_once()
     writer_ctrl.getTransferable.assert_called_once()
     calc_ctrl.select.assert_called_once_with(cell)
@@ -129,7 +129,7 @@ def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
     with (
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
-        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
         mock_bridge = mock_bridge_cls.return_value
         sheet = MagicMock()
@@ -154,7 +154,7 @@ def test_insert_cell_html_rich_error_names_the_last_step():
     with (
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
-        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
         pytest.raises(ToolExecutionError, match="get transferable"),
     ):
         mock_bridge = mock_bridge_cls.return_value
@@ -175,7 +175,7 @@ def test_failure_after_a_paste_keeps_the_keeper():
     with (
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
-        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
         mock_bridge = mock_bridge_cls.return_value
         sheet = MagicMock()
@@ -204,7 +204,7 @@ def test_insert_cell_html_rich_raises_when_hidden_writer_stays_dirty():
     with (
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
-        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
         patch("plugin.calc.rich_html.clear_writer_body", return_value=False),
         pytest.raises(ToolExecutionError, match="Could not clear the hidden Writer"),
     ):
@@ -272,7 +272,7 @@ def test_insert_cell_html_rich_releases_clipboard_and_keeps_writer():
     with (
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
-        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
     ):
         mock_bridge = mock_bridge_cls.return_value
         sheet = MagicMock()
@@ -297,7 +297,7 @@ def test_insert_cell_html_rich_closes_writer_when_paste_never_happened():
     with (
         patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
-        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        patch("plugin.calc.rich_html.html_import") as mock_fmt,
         pytest.raises(ToolErr, match="Failed to insert HTML"),
     ):
         mock_bridge = mock_bridge_cls.return_value

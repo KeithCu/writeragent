@@ -197,7 +197,7 @@ def _run(found, old, new, max_runs=10_000, threshold=_THRESHOLD, doc=None, repla
          patch("plugin.writer.edit_review._WORD_DIFF_THRESHOLD", threshold), \
          patch("plugin.writer.edit_review._MAX_SURGICAL_RUNS", max_runs), \
          patch("plugin.writer.edit_review._SPLIT_AUTHOR_COLORS", split_author), \
-         patch("plugin.writer.format.replace_preserving_format",
+         patch("plugin.writer.html_import.replace_preserving_format",
                side_effect=_wire_replace(um, replace_side_effect)) as mock_replace:
         record_preserve_replace(session, doc, found, new, MagicMock(), split=True)
     return session, mock_replace

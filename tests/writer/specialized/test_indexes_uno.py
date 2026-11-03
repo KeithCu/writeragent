@@ -751,8 +751,7 @@ def test_list_toc_entries_reads_linked_rows_without_export_uno(ctx, doc):
         raise AssertionError("full document export")
 
     with patch("plugin.writer.html_export._export_xhtml", side_effect=_refuse_export), \
-         patch("plugin.writer.html_export.document_to_content", side_effect=_refuse_export), \
-         patch("plugin.writer.format.document_to_content", side_effect=_refuse_export):
+         patch("plugin.writer.html_export.document_to_content", side_effect=_refuse_export):
         listed = IndexesListTocEntries().execute(tctx)
 
     assert listed.get("status") == "ok", listed

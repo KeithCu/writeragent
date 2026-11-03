@@ -951,7 +951,7 @@ def test_insert_empty_ok_result_raises_and_inserts_nothing(monkeypatch):
     def fake_insert(doc, ctx, html, pos):
         captured_html.append(html)
 
-    monkeypatch.setattr("plugin.writer.format.insert_content_at_position", fake_insert)
+    monkeypatch.setattr("plugin.writer.html_import.insert_content_at_position", fake_insert)
 
     class FakeDoc:
         def getCurrentController(self):
@@ -973,7 +973,7 @@ def test_insert_topic_inner_error_raises(monkeypatch):
     def fake_insert(doc, ctx, html, pos):
         captured_html.append(html)
 
-    monkeypatch.setattr("plugin.writer.format.insert_content_at_position", fake_insert)
+    monkeypatch.setattr("plugin.writer.html_import.insert_content_at_position", fake_insert)
 
     class FakeDoc:
         def getCurrentController(self):

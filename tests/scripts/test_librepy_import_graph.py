@@ -170,7 +170,6 @@ def test_librepy_entry_imports_avoid_writeragent_only_modules():
     import plugin.scripting.venv_worker  # noqa: F401
     import plugin.vision.vision_availability  # noqa: F401
     import plugin.vision.vision_runner  # noqa: F401
-    import plugin.writer.format  # noqa: F401
     import plugin.writer.images.image_tools  # noqa: F401
     import plugin.writer.math.latex_dialog  # noqa: F401
     import plugin.writer.xhtml_style_postprocess  # noqa: F401
@@ -212,8 +211,6 @@ def test_librepy_shipped_function_level_imports_are_safe():
         "plugin/scripting/venv/worker_harness.py",
         # Image insert page style resolution
         "plugin/writer/images/image_tools.py",
-        # Writer scope selection fallback
-        "plugin/writer/format.py",
         # Undo manager title helper in html_import (next_agent_edit_undo_title)
         "plugin/writer/html_import.py",
     }

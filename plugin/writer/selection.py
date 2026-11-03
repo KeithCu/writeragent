@@ -12,7 +12,7 @@ import logging
 from plugin.doc.text_helpers import get_text_cursor_at_range_reached
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
-from plugin.writer.format import plain_text_if_markup
+from plugin.writer.html_import import plain_text_if_markup
 from plugin.writer.search import (
     describe_match_location,
     drawing_shape_containing,

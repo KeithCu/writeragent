@@ -341,7 +341,7 @@ flowchart LR
 
 | App | Insertion | Result shaping |
 |-----|-----------|----------------|
-| **Writer** | HTML at **selection** via [`insert_content_at_position`](../../plugin/writer/format.py) | [`format_result_for_writer`](../../plugin/scripting/python_runner.py) — lists → tables, dicts → sections |
+| **Writer** | HTML at **selection** via [`insert_content_at_position`](../../plugin/writer/html_import.py) | [`format_result_for_writer`](../../plugin/scripting/python_runner.py) — lists → tables, dicts → sections |
 | **Calc** | Values from **active selection** via [`insert_result_into_calc`](../../plugin/scripting/python_runner.py) | Dict title/summary + tables; 1D/2D lists via `write_formula_range` |
 | **Draw/Impress** | None (message box) | — |
 
@@ -364,8 +364,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/doc/text_helpers.py`](../../plugin/doc/text_helpers.py) | Linebreaks, tracked-deletion reads, heading tree, document path |
 | [`plugin/doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) | Graphic export for Vision egress |
 | [`plugin/doc/compound_undo.py`](../../plugin/doc/compound_undo.py) | `WriterCompoundUndo` context manager |
-| [`plugin/writer/format.py`](../../plugin/writer/format.py) | HTML insert facade, mixed math segments |
-| [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) | HTML import, replace. `review_authors` is `ImportError`-guarded (LibrePy applies HTML without split-author coloring) |
+| [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) | HTML import, replace, `insert_content_at_position`, `run_writer_mutation_with_optional_review`. `review_authors` is `ImportError`-guarded (LibrePy applies HTML without split-author coloring) |
 | [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) | HTML post-process |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Active sheet / document access |
 | [`plugin/calc/address_utils.py`](../../plugin/calc/address_utils.py) | `index_to_column` for anchor cell |
@@ -543,7 +542,7 @@ flowchart TB
 - WriterAgent `description.xml` dependency on `org.extension.librepy`.
 - Dual-install: one `=PY()` add-in, chat tools import the core worker.
 
-Allowlist source of truth: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py). [`tests/scripts/test_librepy_import_graph.py`](../../tests/scripts/test_librepy_import_graph.py) checks that top-level `plugin.*` imports of shipped modules resolve to allowlisted files, and that loading editor / function / sidebar / settings / python_runner does not import WriterAgent-only modules. Skip generated `plugin._manifest`, the build-replaced `contrib/smolagents/__init__.py` stub, and optional `ImportError` imports (Cython `vec_pack.pack`). Do **not** ship [`plugin/writer/__init__.py`](../../plugin/writer/__init__.py) (it registers chat tools); [`rich_html.py`](../../plugin/calc/rich_html.py) imports `plugin.writer.format` directly.
+Allowlist source of truth: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py). [`tests/scripts/test_librepy_import_graph.py`](../../tests/scripts/test_librepy_import_graph.py) checks that top-level `plugin.*` imports of shipped modules resolve to allowlisted files, and that loading editor / function / sidebar / settings / python_runner does not import WriterAgent-only modules. Skip generated `plugin._manifest`, the build-replaced `contrib/smolagents/__init__.py` stub, and optional `ImportError` imports (Cython `vec_pack.pack`). Do **not** ship [`plugin/writer/__init__.py`](../../plugin/writer/__init__.py) (it registers chat tools); [`rich_html.py`](../../plugin/calc/rich_html.py) imports `plugin.writer.html_import` directly.
 
 ---
 
@@ -931,7 +930,7 @@ flowchart LR
 
 | File | Role |
 |------|------|
-| [`plugin/writer/format.py`](../../plugin/writer/format.py) | `_insert_mixed_html_and_math_at_cursor`, `insert_content_at_position` |
+| [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) | `_insert_mixed_html_and_math_at_cursor`, `insert_content_at_position` |
 | [`plugin/writer/math/html_math_segment.py`](../../plugin/writer/math/html_math_segment.py) | `$…$`, `$$…$$`, `\(...\)`, `\[...\]`, MathML segments |
 | [`plugin/writer/math/math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) | LaTeX/MathML → StarMath (shared with menu) |
 
@@ -1110,7 +1109,7 @@ flowchart LR
   runner[vision_runner.py]
   rpc[trusted RPC domain vision]
   venv[vision/venv/vision.py]
-  egressW[writer/format.py HTML insert]
+  egressW[writer/html_import.py HTML insert]
   egressC[calc/vision_egress.py]
   rps --> runner --> rpc --> venv
   venv --> egressW
@@ -1148,7 +1147,7 @@ Registered in [`trusted_action_registry.py`](../../plugin/scripting/trusted_acti
 |------|------|
 | [`calc/vision_egress.py`](../../plugin/calc/vision_egress.py) | Calc HTML / structured grid insert |
 | [`calc/rich_html.py`](../../plugin/calc/rich_html.py) | `insert_cell_html_rich` |
-| [`writer/format.py`](../../plugin/writer/format.py) | Writer HTML at cursor; `run_writer_mutation_with_optional_review` wraps insert in `EditReviewSession` when WriterAgent’s `edit_review` module is co-installed (LibrePy alone applies directly) |
+| [`writer/html_import.py`](../../plugin/writer/html_import.py) | Writer HTML at cursor; `run_writer_mutation_with_optional_review` wraps insert in `EditReviewSession` when WriterAgent’s `edit_review` module is co-installed (LibrePy alone applies directly) |
 | [`doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) | Export graphic to bytes |
 
 ### Settings / UI

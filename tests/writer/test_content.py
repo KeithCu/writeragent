@@ -33,7 +33,7 @@ def test_dry_run_reports_matches_without_mutating():
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False):
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(ctx, content=["x"], target="search", old_content="clause 3.2", dry_run=True)
     assert res["status"] == "ok" and res["dry_run"] is True and res["count"] == 2
     assert res["matches"][0]["location"] == "body"
@@ -72,7 +72,7 @@ def test_dry_run_marshals_to_main_thread(monkeypatch):
          patch("plugin.writer.search.find_all_ranges", return_value=[r1]), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False):
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(ctx, content=["x"], target="search", old_content="clause 3.2", dry_run=True)
 
     assert res["status"] == "ok" and res["dry_run"] is True and res["count"] == 1
@@ -91,7 +91,7 @@ def test_dry_run_honors_regex_via_the_same_matcher_as_the_edit():
     with patch("plugin.writer.search.find_ranges_regex_case", return_value=[r]) as frc, \
          patch("plugin.writer.search.find_all_ranges") as far, \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
-         patch("plugin.writer.format.content_has_markup", return_value=False):
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(
             ctx, content=["x"], target="search", old_content=r"brav. charl.e", dry_run=True, regex=True)
     assert res["status"] == "ok" and res["count"] == 1
@@ -105,7 +105,7 @@ def test_dry_run_invalid_regex():
 
     ctx = _edit_ctx()
     ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.format.content_has_markup", return_value=False):
+    with patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(
             ctx, content=["x"], target="search", old_content="([a-", dry_run=True, regex=True)
     assert res["status"] == "error" and res["code"] == "INVALID_REGEX"
@@ -135,7 +135,7 @@ def test_position_after_inserts_at_match_edge_without_replacing():
     styles, result carries inserted=true/position and NO replaced_count."""
     from unittest.mock import patch
 
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()
@@ -164,7 +164,7 @@ def test_position_after_inserts_at_match_edge_without_replacing():
 def test_position_before_inserts_at_match_start():
     from unittest.mock import patch
 
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()
@@ -201,7 +201,7 @@ def test_position_after_block_opens_a_paragraph_after_the_matched_one():
     """#59: a block imported at the match end split "... EM DOBRO" mid-paragraph and glued the
     first block onto it. It must go into a fresh paragraph after the matched one, and the empty
     paragraph the import leaves behind must be removed."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -226,7 +226,7 @@ def test_position_after_block_opens_a_paragraph_after_the_matched_one():
 
 
 def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=True, leftover="texto do usuario")
@@ -242,7 +242,7 @@ def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
 
 def test_position_after_table_preserves_table():
     """Tip: stepping left from a paragraph following a table spans into the table; don't delete it."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -266,7 +266,7 @@ def test_position_after_table_preserves_table():
 
 def test_table_insert_reports_failure_when_no_table_produced():
     """Tip: table insert must honestly report failure if table count did not increase."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -288,7 +288,7 @@ def test_table_insert_reports_failure_when_no_table_produced():
 
 
 def test_position_before_block_goes_to_paragraph_start_without_a_break():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -306,7 +306,7 @@ def test_position_before_block_goes_to_paragraph_start_without_a_break():
 
 def test_position_before_inline_stays_at_the_exact_match_edge():
     """#59: plain text went through <p> wrapping and split the paragraph around the word."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -327,7 +327,7 @@ def test_position_before_inline_stays_at_the_exact_match_edge():
 def test_position_after_plain_text_with_line_breaks_is_block(content):
     """Plain text with line breaks on the inline path went in as manual line breaks glued onto
     the matched paragraph ("inteiro.Novo A\\n\\nNovo B")."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, _cursor = _next_to_match_found(at_paragraph_edge=True)
@@ -346,7 +346,7 @@ def test_position_after_plain_text_with_line_breaks_is_block(content):
 def test_position_after_rejects_math_and_table_cells():
     from unittest.mock import patch
 
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = MagicMock()
@@ -411,7 +411,7 @@ def test_apply_document_content_validate_accepts_string_or_array():
 def test_truncated_flag_on_get_document_content():
     from unittest.mock import patch
 
-    from plugin.writer import format as format_support
+    from plugin.writer import html_export as format_support
     from plugin.writer.get_document_content import GetDocumentContent
 
     ctx = MagicMock()
@@ -429,7 +429,7 @@ def test_get_document_content_surfaces_portion_walk_warning():
     """Range/selection paint that hits _COPY_PORTION_LIMIT must not look complete."""
     from unittest.mock import patch
 
-    from plugin.writer import format as format_support
+    from plugin.writer import html_export as format_support
     from plugin.writer.get_document_content import GetDocumentContent
 
     ctx = MagicMock()
@@ -465,6 +465,8 @@ def test_get_document_content_surfaces_tracked_changes():
     rl2 = MagicMock()
     rl2.getPropertyValue.side_effect = lambda prop: "Delete" if prop == "RedlineType" else None
     enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [rl1, rl2]
     redlines.createEnumeration.return_value = enum
     doc.getRedlines.return_value = redlines
@@ -474,7 +476,7 @@ def test_get_document_content_surfaces_tracked_changes():
     ctx.ctx = MagicMock()
     ctx.services.get.return_value = MagicMock()
     with patch("plugin.writer.tracking._redline_text", side_effect=["novo", "velho"]), \
-         patch("plugin.writer.format.document_to_content", return_value="body"):
+         patch("plugin.writer.html_export.document_to_content", return_value="body"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
     assert res["tracked_changes"] == [
@@ -585,7 +587,7 @@ def test_grow_over_edge_space_is_a_no_op_without_edges():
 
 
 def test_all_matches_hoists_plain_text_conversion():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -637,7 +639,7 @@ def test_edge_spaces_with_use_preserve():
 
 
 def test_position_after_string_with_backslash_is_not_block():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -656,7 +658,7 @@ def test_position_after_string_with_backslash_is_not_block():
 
 
 def test_target_end_entity_decoded_proposed_preview():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.edit_review import EditReviewSession
 
@@ -700,7 +702,7 @@ def test_content_list_item_must_be_string():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
-    with patch("plugin.writer.format.insert_content_at_position") as mock_insert:
+    with patch("plugin.writer.html_import.insert_content_at_position") as mock_insert:
         res = ApplyDocumentContent().execute(ctx, content=[None], target="end")
     assert res["status"] == "error"
     assert "content list items must be strings." in res["message"]
@@ -722,7 +724,7 @@ def test_empty_insert_at_end_beginning_selection(target, content):
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
-    with patch("plugin.writer.format.insert_content_at_position") as mock_insert:
+    with patch("plugin.writer.html_import.insert_content_at_position") as mock_insert:
         res = ApplyDocumentContent().execute(ctx, content=content, target=target)
     assert res["status"] == "error"
     assert "content is empty; nothing was inserted." in res["message"]
@@ -733,7 +735,7 @@ def test_empty_full_document_is_not_the_insert_error():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
-    with patch("plugin.writer.format.replace_full_document") as mock_replace:
+    with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
         res = ApplyDocumentContent().execute(ctx, content="", target="full_document")
     assert res["status"] == "ok"
     assert "content is empty; nothing was inserted." not in (res.get("message") or "")
@@ -866,12 +868,13 @@ def test_get_document_content_warns_when_redlines_are_not_listed():
     doc = MagicMock()
     redlines = MagicMock()
     redlines.getCount.return_value = 2
+    redlines.createEnumeration.return_value.hasMoreElements.return_value = True
     redlines.createEnumeration.return_value.nextElement.side_effect = RuntimeError("boom")
     doc.getRedlines.return_value = redlines
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
     assert "tracked_changes" not in res
@@ -888,6 +891,7 @@ def test_format_only_redlines_are_reported_without_a_listing_failure():
     rl = MagicMock()
     rl.getPropertyValue.side_effect = lambda prop: "Format" if prop == "RedlineType" else None
     enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
     enum.nextElement.return_value = rl
     redlines.createEnumeration.return_value = enum
     doc.getRedlines.return_value = redlines
@@ -895,7 +899,7 @@ def test_format_only_redlines_are_reported_without_a_listing_failure():
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
     assert res.get("tracked_changes_total") == 1
@@ -916,6 +920,8 @@ def test_redline_cap_reports_truncation(monkeypatch):
     rl2 = MagicMock()
     rl2.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
     enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [rl1, rl2]
     redlines.createEnumeration.return_value = enum
     doc.getRedlines.return_value = redlines
@@ -929,12 +935,13 @@ def test_redline_cap_reports_truncation(monkeypatch):
     assert reliable is True
     assert truncated is True
 
+    enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [rl1, rl2]
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
     with patch("plugin.writer.tracking._redline_text", side_effect=["one", "two"]), \
-         patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+         patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert res.get("tracked_changes_truncated") is True
 
@@ -950,6 +957,8 @@ def test_inserted_image_redline_without_text_is_not_truncated():
     rl2 = MagicMock()
     rl2.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
     enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [rl1, rl2]
     redlines.createEnumeration.return_value = enum
     doc.getRedlines.return_value = redlines
@@ -958,7 +967,7 @@ def test_inserted_image_redline_without_text_is_not_truncated():
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
     with patch("plugin.writer.tracking._redline_text", side_effect=["", ""]), \
-         patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+         patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert "tracked_changes_truncated" not in res
     assert "insertion/deletion change(s) are listed" not in res.get("tracked_changes_note", "")
@@ -969,7 +978,7 @@ def test_range_rejects_invalid_bounds_and_max_chars():
 
     ctx = MagicMock()
     tool = GetDocumentContent()
-    with patch("plugin.writer.format.document_to_content") as mock_dtc:
+    with patch("plugin.writer.html_export.document_to_content") as mock_dtc:
         for kwargs in [
             {"scope": "range", "start": 5, "end": 5},
             {"scope": "range", "start": -1, "end": 5},
@@ -986,7 +995,7 @@ def test_range_result_uses_validated_ints():
 
     ctx = MagicMock()
     ctx.services.document.get_document_length.return_value = 100
-    with patch("plugin.writer.format.document_to_content", return_value="<p>slice</p>"):
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>slice</p>"):
         res = GetDocumentContent().execute(ctx, scope="range", start="2", end="4")
     assert res["status"] == "ok"
     assert res["start"] == 2 and res["end"] == 4
@@ -997,7 +1006,7 @@ def test_selection_with_no_content_warns():
 
     ctx = MagicMock()
     ctx.services.document.get_document_length.return_value = 100
-    with patch("plugin.writer.format.document_to_content", return_value=""):
+    with patch("plugin.writer.html_export.document_to_content", return_value=""):
         res = GetDocumentContent().execute(ctx, scope="selection")
     assert res["status"] == "ok"
     assert "does not mean the document is empty" in res.get("warning", "")
@@ -1018,11 +1027,11 @@ def test_document_length_zero_warns():
 
     ctx = MagicMock()
     ctx.services.document.get_document_length.return_value = 0
-    with patch("plugin.writer.format.document_to_content", return_value="<p>x</p>"):
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>x</p>"):
         res = GetDocumentContent().execute(ctx)
     assert "document_length came back 0" in res.get("warning", "")
 
-    with patch("plugin.writer.format.document_to_content", return_value=""):
+    with patch("plugin.writer.html_export.document_to_content", return_value=""):
         res = GetDocumentContent().execute(ctx)
     assert "document_length came back 0" not in res.get("warning", "")
 
@@ -1036,7 +1045,7 @@ def test_get_document_content_redline_read_reraises_disposed():
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         with pytest.raises(DocumentDisposedError):
             GetDocumentContent().execute(ctx)
 
@@ -1164,7 +1173,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
 
 
 def test_position_after_cell_probe_reraises_disposed():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -1203,7 +1212,7 @@ def test_dry_run_outline_capture_failure_is_not_a_missing_link():
     with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", side_effect=RuntimeError("boom")):
         res = ApplyDocumentContent().execute(
             ctx, content="bar", target="search", old_content="clause", dry_run=True)
@@ -1223,7 +1232,7 @@ def test_dry_run_outline_capture_failure_is_not_a_missing_link():
     with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", side_effect=disposed_exc):
         with pytest.raises(DocumentDisposedError):
             ApplyDocumentContent().execute(
@@ -1347,7 +1356,7 @@ def test_selection_table_insert_fails_when_the_doc_already_has_a_table():
     ctx = _edit_ctx()
     ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
     with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
-         patch("plugin.writer.format.insert_content_at_position"):
+         patch("plugin.writer.html_import.insert_content_at_position"):
         res = ApplyDocumentContent().execute(
             ctx, content="<table><tr><td>X</td></tr></table>", target="selection")
     assert res["status"] == "error"
@@ -1370,7 +1379,7 @@ def test_search_replace_table_insert_fails_when_the_doc_already_has_a_table():
 
 
 def test_position_before_table_insert_reports_failure():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
 
     found, _cursor = _next_to_match_found(at_paragraph_edge=False)
     ctx = _edit_ctx()
@@ -1390,7 +1399,7 @@ def test_position_before_table_insert_reports_failure():
 def test_table_count_read_reraises_disposed():
     ctx = _edit_ctx()
     ctx.doc.getTextTables.side_effect = type("DisposedException", (Exception,), {})("gone")
-    with patch("plugin.writer.format.insert_content_at_position"):
+    with patch("plugin.writer.html_import.insert_content_at_position"):
         with pytest.raises(DocumentDisposedError):
             ApplyDocumentContent().execute(ctx, content="<table><tr><td>X</td></tr></table>", target="end")
 
@@ -1398,7 +1407,7 @@ def test_table_count_read_reraises_disposed():
 @pytest.mark.parametrize("extra", [{}, {"all_matches": True}, {"occurrence": 0}])
 def test_invalid_regex_is_invalid_regex_in_the_edit_path(extra):
     ctx = _edit_ctx()
-    with patch("plugin.writer.format.content_has_markup", return_value=False), \
+    with patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.search.find_first_range") as find_first, \
          patch("plugin.writer.search.find_all_ranges") as find_all:
         res = ApplyDocumentContent().execute(

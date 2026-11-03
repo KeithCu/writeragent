@@ -5,13 +5,13 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Unit tests for plugin.writer.format helpers (no UNO)."""
+"""Unit tests for plugin.writer format helpers (html_export/html_import, no UNO)."""
 
 import base64
 
 import pytest
 
-from plugin.writer.format import (
+from plugin.writer.html_import import (
     _content_has_block_markup,
 )
 from plugin.writer.html_export import (
@@ -97,7 +97,7 @@ def test_replace_preserving_format_restores_original_on_insert_failure():
     import contextlib
     from unittest.mock import patch
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     text = _FakeText()
     target = _FakeRange(text)
@@ -119,7 +119,7 @@ def test_replace_preserving_format_atomic_setstring_when_not_in_undo_context():
     # manager merely EXISTS is irrelevant; only an actually-open context makes the two-step safe.
     from unittest.mock import patch
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     text = _FakeText()
     target = _FakeRange(text)
@@ -134,7 +134,7 @@ def test_insert_content_at_position_text_selection_clears_range():
     from unittest.mock import MagicMock, patch
 
     from plugin.doc import visual_helpers
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
     text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
@@ -166,7 +166,7 @@ def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
     from unittest.mock import MagicMock, patch
 
     from plugin.doc import visual_helpers
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     rng0 = MagicMock()
     rng0.getStart.return_value = MagicMock()
@@ -207,7 +207,7 @@ def test_insert_content_at_position_shape_selection_falls_back_to_doc_end():
     """After shape.upsert, controller selects the Draw shape — HTML insert must not use it."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     shape = MagicMock()
     # LibreOffice often returns 1 rather than True
@@ -244,7 +244,7 @@ def test_insert_content_at_position_shape_selection_falls_back_to_doc_end():
 def test_insert_content_at_position_empty_selection_uses_doc_end():
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     sel = MagicMock()
     sel.getCount.return_value = 0
@@ -277,7 +277,7 @@ def test_insert_content_at_position_beginning_applies_styles():
     """beginning path passes apply_styles=True (no PARAGRAPH_BREAK prep needed at para start)."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     body_cursor = MagicMock()
     body_text = MagicMock()
@@ -302,7 +302,7 @@ def test_insert_content_at_position_end_preps_then_applies_styles():
     """end path runs absorb prep then passes apply_styles=True."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     body_cursor = MagicMock()
     body_text = MagicMock()
@@ -326,7 +326,7 @@ def test_insert_content_at_position_end_preps_then_applies_styles():
 def test_insert_content_at_position_selection_still_skips_styles():
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     sel = MagicMock()
     sel.getCount.return_value = 0
@@ -441,7 +441,7 @@ def test_insert_content_at_position_nested_table_is_not_appended_at_end():
 
     from plugin.doc import visual_helpers
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
     text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
@@ -472,7 +472,7 @@ def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
     from unittest.mock import MagicMock, patch
 
     from plugin.doc import visual_helpers
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
     text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
@@ -503,7 +503,7 @@ def test_insert_content_at_position_attribute_error_still_uses_doc_end():
     from unittest.mock import MagicMock, patch
 
     from plugin.doc import visual_helpers
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
     text_rng.getText.side_effect = AttributeError("insertDocumentFromURL")
@@ -989,7 +989,7 @@ def test_replace_preserving_format_atomic_when_split_author_false_even_in_undo_c
     # all-or-nothing.
     from unittest.mock import patch
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     text = _FakeText()
     target = _FakeRange(text)
@@ -1008,7 +1008,7 @@ def test_replace_preserving_format_two_step_when_split_author_true_in_undo_conte
     import contextlib
     from unittest.mock import patch
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     class _OkText(_FakeText):
         def insertString(self, _cursor, s, _sel):  # never fails -> no restore
@@ -1028,7 +1028,7 @@ def test_run_writer_mutation_with_optional_review_import_error():
     """LibrePy omits edit_review; helper must apply the mutation directly."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import run_writer_mutation_with_optional_review
+    from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
     apply_fn = MagicMock()
     real_import = __import__
@@ -1047,7 +1047,7 @@ def test_document_to_content_full_timing_path_with_mocks():
     """Phase timing logs must not change the full-scope export result."""
     from unittest.mock import patch
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_export as fmt
     import plugin.writer.html_export as html_export
 
     xhtml = '<html><body><p class="paragraph-Text_20_body">hello</p></body></html>'
@@ -1065,11 +1065,11 @@ def test_document_to_content_full_timing_path_with_mocks():
 
 
 def test_format_module_avoids_document_helpers_ops_review_authors():
-    """LibrePy RPS insert loads format.py; chat export/replace stay local imports."""
+    """LibrePy RPS insert loads html_import.py; chat export/replace stay local imports."""
     import ast
     from pathlib import Path
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     tree = ast.parse(Path(fmt.__file__).read_text(encoding="utf-8"))
     mods: list[str] = []
@@ -1194,7 +1194,7 @@ def test_reported_char_properties_cover_style_governed():
 
 def test_enum_hit_walk_cap_and_warning_are_honest():
     from unittest.mock import MagicMock
-    from plugin.writer import format as fmt
+    from plugin.doc import text_helpers as fmt
 
     more = MagicMock()
     more.hasMoreElements.return_value = True

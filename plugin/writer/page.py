@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import iter_elements_limited
+from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
 from plugin.framework.errors import (
     best_effort,
     is_disposal,
@@ -33,7 +33,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
-from .format import PAGE_NUMBER_NUMBERING_TYPE_NAMES, record_walk_cap
+from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES
 from .range_copy import _ANCHORED_GRAPHIC_PROPS
 from .search import parse_non_negative_int
 from .specialized_base import ToolWriterPageBase, enum_param

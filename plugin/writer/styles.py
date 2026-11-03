@@ -47,12 +47,11 @@ else:
                 self.Name = Name
                 self.Value = Value
 
-from plugin.doc.text_helpers import iter_elements_limited
+from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
-from .format import record_walk_cap
 from .page import get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
 from .target_resolver import cursor_spanning_range, resolve_target_cursor
@@ -1306,7 +1305,7 @@ class ApplyStyle(FrameworkToolBase):
         occ_raw = kwargs.get("occurrence")
         if target == "search" and (all_matches or occ_raw is not None):
             from plugin.writer.search import find_all_ranges, normalize_search_string_for_find
-            from plugin.writer.format import plain_text_if_markup
+            from plugin.writer.html_import import plain_text_if_markup
 
             s = str(old_content).strip() if old_content is not None else ""
             if not s:

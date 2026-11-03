@@ -470,7 +470,7 @@ class ApplyDocumentContent(ToolBase):
     @staticmethod
     def _replacement_plain(content: Any) -> str:
         """Visible text a search replace will insert, for outline-URL substitution."""
-        from . import format as format_support
+        from . import html_import as format_support
 
         if isinstance(content, list):
             content = "\n".join(str(part) for part in content)
@@ -627,7 +627,7 @@ class ApplyDocumentContent(ToolBase):
         *batch* is the all_matches loop, which already holds the undo context. A single
         match opens one when a URL write is needed. Returns ``(reports, error_or_None)``.
         """
-        from . import format as format_support
+        from . import html_import as format_support
 
         anchor = collapsed_anchor(found)
         # Invariant: a failed capture refuses the edit (HYPERLINK_UPDATE_FAILED) before any text change; disposal propagates.
@@ -754,7 +754,7 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error(override_err, code="INVALID_PARAM")
         rewrites_outline = position == "replace"
         edit_idx = 0 if occurrence is None else occurrence
-        from . import format as format_support
+        from . import html_import as format_support
 
         old_stripped = str(old_content).strip()
         s = format_support.plain_text_if_markup(old_stripped)
@@ -943,7 +943,7 @@ class ApplyDocumentContent(ToolBase):
         Runs on the MAIN thread always (directly on the sync path; marshalled via
         main.call on the review-wait path). The caller owns the session's
         wait/cleanup."""
-        from . import format as format_support
+        from . import html_import as format_support
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
         target = self._effective_target(kwargs.get("target"), old_content)

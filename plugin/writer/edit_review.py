@@ -930,7 +930,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
     recording is on) and only PART of the block changed -- as several SURGICAL sub-changes,
     each its own tracked Delete+Insert with its own accept/reject outcome.
     """
-    from . import format as format_support
+    from .html_import import replace_preserving_format
 
     split_author = split and _SPLIT_AUTHOR_COLORS
 
@@ -942,7 +942,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                 log.debug("edit_review: no usable/unlocked undo manager; split-author whole-block edit falls back "
                           "to the single atomic op (one color)")
             session.record_mutation(
-                lambda: format_support.replace_preserving_format(
+                lambda: replace_preserving_format(
                     doc, found, new_text, uno_ctx,
                     in_undo_context=(mgr is not None), split_author=split_author),
                 original_preview=_preview(original), proposed_preview=_preview(new_text))
@@ -997,9 +997,9 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                 if sub is None:
                     raise RuntimeError(
                         "surgical sub-edit offset drifted at apply time; aborting to avoid corruption")
-                format_support.replace_preserving_format(doc, sub, se.new_text, uno_ctx,
-                                                         in_undo_context=True,
-                                                         split_author=split_author)
+                replace_preserving_format(doc, sub, se.new_text, uno_ctx,
+                                          in_undo_context=True,
+                                          split_author=split_author)
 
             session.record_mutation(
                 apply_se,
