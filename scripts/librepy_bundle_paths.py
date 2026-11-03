@@ -141,6 +141,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/json_utils.py",
     "plugin/framework/i18n.py",
     "plugin/framework/event_bus.py",
+    "plugin/framework/gc_policy.py",
     "plugin/framework/service.py",
     "plugin/framework/url_utils.py",
     "plugin/framework/thread_guard.py",
