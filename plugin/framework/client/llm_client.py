@@ -210,7 +210,6 @@ class LlmClient:
     ctx: Any
     _transport: LlmHttpTransport
     _owned: SendCancellation
-    _inflight: SendCancellation | None
 
     def __init__(self, config: dict[str, Any], ctx: Any, cancel: SendCancellation | None = None, *, register_with_send: bool = True) -> None:
         self.config = config
@@ -220,7 +219,6 @@ class LlmClient:
         # Stop before the first byte: close() alone is a no-op when sock is None;
         # the worker must not open a new connection (B13 / llm_request_lane).
         self._owned = SendCancellation()
-        self._inflight = None
         scope = cancel
         if scope is None and register_with_send:
             scope = get_current_send_cancellation()
@@ -228,14 +226,27 @@ class LlmClient:
             scope.register_client(self)
 
     def stopped(self) -> bool:
-        return is_cancelled(self._owned)
+        return self._owned.is_cancelled()
 
-    def _activate(self, cancel: SendCancellation | None) -> SendCancellation:
-        if is_cancelled(self._owned):
-            return self._owned
-        if cancel is not None:
-            return cancel
-        return self._owned
+    def _request_scope(self, cancel: SendCancellation | None) -> SendCancellation:
+        """Link caller's cancellation scope with this client's owned scope.
+
+        What was wrong: Stop could fire after _activate returned a caller scope
+        but before _inflight was assigned. stop() cancelled _owned only, leaving
+        the active scope uncancelled so reconnect was attempted.
+        Fix: register a late-cancellation hook directly on _owned so stop() cancels
+        both the client and caller scope in a single pass without needing _inflight.
+        """
+        owned = self._owned
+        if cancel is None or cancel is owned:
+            return owned
+        # stop() cancels owned. The hook below cancels the caller's scope in that
+        # same cancel(), including when stop() already ran (late hook).
+        # Do not register self.stop on cancel: scope.cancel() must not latch the client.
+        owned.register_on_cancel(cancel.cancel)
+        if owned.is_cancelled():
+            return owned
+        return cancel
 
     def _get_shim(self) -> BaseProviderShim:
         """Get the provider shim for this client."""
@@ -300,9 +311,6 @@ class LlmClient:
         """
         log.debug("LlmClient.stop() called")
         self._owned.cancel()
-        inflight = self._inflight
-        if inflight is not None and inflight is not self._owned:
-            inflight.cancel()
         self._close_connection()
 
     def clear_stop(self) -> None:
@@ -343,7 +351,7 @@ class LlmClient:
 
     def _send_request(self, method: str, path: str, body: Any, headers: dict[str, str], *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
         """Send through the transport with cancellation scope."""
-        active = self._activate(cancel)
+        active = self._request_scope(cancel)
         if is_cancelled(active):
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
 
@@ -412,8 +420,7 @@ class LlmClient:
         failure_log: str = "JSON request failed",
     ) -> tuple[str, Any]:
         """One non-streaming JSON exchange with the shared retry budget."""
-        active = self._activate(cancel)
-        self._inflight = active
+        active = self._request_scope(cancel)
         if is_cancelled(active):
             self._close_connection()
             return "stop", None
@@ -467,9 +474,6 @@ class LlmClient:
             err_msg = format_error_message(exc)
             log.exception(failure_log)
             raise NetworkError(err_msg, details={"url": path}) from exc
-        finally:
-            if self._inflight is active:
-                self._inflight = None
         if effort_used and isinstance(first_body, (bytes, bytearray)):
             fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
             lb = bytes(body) if isinstance(body, bytearray) else body
@@ -637,8 +641,7 @@ class LlmClient:
 
         # Do not clear cancellation here — that races with stop() on another thread
         # (B13). UI clears via ``clear_stop()`` at the start of a new send.
-        active = self._activate(cancel)
-        self._inflight = active
+        active = self._request_scope(cancel)
         if active.is_cancelled():
             log.debug("streaming_loop: Stop already requested before connect")
             self._close_connection()
@@ -949,9 +952,6 @@ class LlmClient:
             err_msg = format_error_message(e)
             log.exception("streaming_loop: Unexpected error")
             raise NetworkError(err_msg, details={"url": path}) from e
-        finally:
-            if self._inflight is active:
-                self._inflight = None
 
 
     def stream_chat_response(
@@ -1081,7 +1081,7 @@ class LlmClient:
         else:
             # Sync path (nested smol / specialized). Same Stop-before-connect latch as stream.
             stopped_result: dict[str, Any] = {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-            active = self._activate(cancel)
+            active = self._request_scope(cancel)
             if active.is_cancelled():
                 log.debug("request_with_tools sync: Stop already requested before connect")
                 self._close_connection()
@@ -1144,7 +1144,7 @@ class LlmClient:
         # (caller cancel= or this client's owned scope): a Stop that already
         # delivered a partial tool-call delta must not look like a call the UI
         # should run.
-        request_cancelled = is_cancelled(self._activate(cancel))
+        request_cancelled = self._request_scope(cancel).is_cancelled()
         if last_finish_reason == "stop" and tool_calls:
             if request_cancelled:
                 tool_calls = None
