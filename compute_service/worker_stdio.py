@@ -56,23 +56,6 @@ def unpack_restricted_pickle_frame(payload: bytes) -> Any:
         raise ValueError(str(exc)) from exc
 
 
-def set_pdeathsig() -> bool:
-    """Set parent death signal on Linux via prctl so child worker terminates on hard host exit.
-
-    Guarded so non-Linux platforms (macOS/Windows) safely return False without error.
-    SIGKILL is read only inside this Linux branch. Windows has no SIGKILL.
-    """
-    if sys.platform != "linux":
-        return False
-    try:
-        import ctypes
-
-        res = ctypes.CDLL(None).prctl(1, ctypes.c_ulong(signal.SIGKILL), 0, 0, 0)
-        return res == 0
-    except Exception:
-        return False
-
-
 COMPUTE_THREAD_ENV_VARS: tuple[str, ...] = (
     "OPENBLAS_NUM_THREADS",
     "OMP_NUM_THREADS",
@@ -109,8 +92,9 @@ def run_compute_worker(handler: Callable[[dict[str, Any]], dict[str, Any]]) -> i
 
 def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> int:
     """Standard binary Pickle 5 stdio worker loop for child subprocesses."""
-    # Ensure worker subprocess terminates immediately if master HTTP process dies abruptly
-    set_pdeathsig()
+    from plugin.framework.child_runtime import die_with_parent
+
+    die_with_parent()
 
     stdin_bin = sys.stdin.buffer
 

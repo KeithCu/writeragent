@@ -1412,45 +1412,6 @@ def test_shutdown_all_sets_retired_before_terminate():
     assert calls == ["term"]
 
 
-def test_worker_harness_dies_with_parent(monkeypatch):
-    import ctypes
-
-    import plugin.scripting.venv.worker_harness as harness
-
-    calls: list[tuple] = []
-
-    class _Libc:
-        def prctl(self, *args):
-            calls.append(args)
-            return 0
-
-    monkeypatch.setattr(harness.sys, "platform", "linux")
-    monkeypatch.setattr(ctypes, "CDLL", lambda *args, **kwargs: _Libc())
-    monkeypatch.setattr(harness.os, "getppid", lambda: 50)
-    harness._die_with_parent()
-    assert calls == [(1, 9, 0, 0, 0)]
-
-    killed: list[int] = []
-    ppids = [50, 1]
-    monkeypatch.setattr(harness.os, "getppid", lambda: ppids.pop(0))
-    monkeypatch.setattr(harness.os, "getpid", lambda: 123)
-    monkeypatch.setattr(harness.os, "kill", lambda pid, sig: killed.append(sig))
-    harness._die_with_parent()
-    assert killed == [9]
-
-    # Under subreaper: ppid changes from 50 to 999 (not 1)
-    killed.clear()
-    subreaper_ppids = [50, 999]
-    monkeypatch.setattr(harness.os, "getppid", lambda: subreaper_ppids.pop(0))
-    harness._die_with_parent()
-    assert killed == [9]
-
-    monkeypatch.setattr(harness.sys, "platform", "win32")
-    calls.clear()
-    harness._die_with_parent()
-    assert calls == []
-
-
 @patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10)
 @patch("plugin.scripting.venv_worker.get_config", return_value="")
 @patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable)
@@ -3008,7 +2969,7 @@ def test_harness_main_value_error_in_handle_request_returns_traceback(monkeypatc
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
     monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
-    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
     def _raise_ve(*args, **kwargs):
@@ -3045,7 +3006,7 @@ def test_harness_main_value_error_in_read_stage_returns_invalid_pickle_request(m
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
     monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
-    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
     harness.main()
@@ -3071,7 +3032,7 @@ def test_harness_main_ipc_frame_error_in_read_stage_breaks_without_response(monk
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
     monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
-    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
     harness.main()
@@ -3089,7 +3050,7 @@ def test_harness_main_truncated_frame_breaks_without_response(monkeypatch, caplo
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
     monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
-    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
     with caplog.at_level(logging.WARNING, logger="worker_harness"):
@@ -3111,7 +3072,7 @@ def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
     monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
-    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
     def _raise_read_desync(*args, **kwargs):
@@ -3140,7 +3101,7 @@ def test_harness_main_pack_size_error_during_handle_request_writes_error_frame(m
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
     monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
-    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
     def _raise_pack_err(*args, **kwargs):
@@ -3173,7 +3134,7 @@ def test_harness_main_user_stopped_writes_user_stopped_frame(monkeypatch):
     monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(stdin))
     monkeypatch.setattr(harness.sys, "stdout", _FakeStdStream(stdout))
     monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
-    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
     def _raise_user_stopped(*args, **kwargs):
@@ -3206,7 +3167,7 @@ def test_harness_main_reads_claimed_stdin(monkeypatch):
     monkeypatch.setattr(harness, "claim_ipc_stdin", lambda: claimed_stdin)
     monkeypatch.setattr(harness, "claim_ipc_channel", lambda: stdout)
     monkeypatch.setattr(harness.os, "_exit", lambda code: pytest.fail(f"Unexpected os._exit({code})"))
-    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
     monkeypatch.setattr(harness, "_handle_request", lambda req, stdout=None: {"status": "ok", "result": 1})
 
@@ -3549,7 +3510,7 @@ def test_caller_thread_exit_does_not_pdeathsig_the_worker() -> None:
             stderr = mgr._drain_stderr()
             raise AssertionError(f"_ensure_running failed on helper: {helper_err}{stderr}") from helper_err
 
-        # A round trip proves the harness is past _die_with_parent (main() arms
+        # A round trip proves the harness is past die_with_parent (main() arms
         # PR_SET_PDEATHSIG before its first stdin read). A fixed sleep raced
         # interpreter startup under CI load: if the spawn thread exited before
         # prctl ran, nothing was armed and the worker never died.

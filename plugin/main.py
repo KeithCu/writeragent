@@ -149,6 +149,14 @@ def _install_terminate_listener(ctx: Any) -> None:
                     # UNO boundary: XTerminateListener.notifyTermination callback
                     log.exception("Error shutting down managed subprocesses on desktop termination")
 
+                try:
+                    from plugin.framework.warm_child import supervisor
+
+                    supervisor.shutdown_all()
+                except Exception:
+                    # UNO boundary: XTerminateListener.notifyTermination callback
+                    log.exception("Error shutting down warm child supervisor on desktop termination")
+
         listener = _TerminateListener()
         desktop.addTerminateListener(listener)
         _terminate_listener = listener
