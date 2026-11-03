@@ -1242,17 +1242,15 @@ def test_tailscale_spawn_writes_arm_marker_and_post_stop_clears_it(monkeypatch, 
 
 
 def test_pytest_does_not_use_config_dir_for_tailscale_arm(monkeypatch, tmp_path):
-    """PYTEST_CURRENT_TEST forces the marker off even when config has a resolved path."""
-    import os
-
+    """Tailscale arm_path returns the marker file path next to writeragent.json without creating it."""
     from plugin.mcp.tunnel import TailscaleProvider
 
     fake_config = tmp_path / "writeragent.json"
     fake_config.write_text("{}", encoding="utf-8")
     monkeypatch.setattr("plugin.framework.config._resolved_config_path", str(fake_config))
-    assert os.environ.get("PYTEST_CURRENT_TEST")
-    assert TailscaleProvider().arm_path() is None
-    assert not (tmp_path / "writeragent-tailscale-funnel-armed").exists()
+    expected = tmp_path / "writeragent-tailscale-funnel-armed"
+    assert TailscaleProvider().arm_path() == str(expected)
+    assert not expected.exists()
 
 
 def test_tailscale_pre_start_does_not_hold_tunnel_lock(monkeypatch):

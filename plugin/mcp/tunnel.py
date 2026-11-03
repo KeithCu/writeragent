@@ -405,24 +405,12 @@ class TailscaleProvider(Provider):
         return self.reset_funnel(port)
 
     def arm_path(self) -> str | None:
-        """Marker path, or None when the marker must not be read or written.
+        from plugin.framework.config import get_config_file_path
 
-        init_config() is not called here. It needs a UNO context. Only a path
-        already resolved at bootstrap is used. PYTEST_CURRENT_TEST forces None
-        so a test that initialized config cannot create the marker in the user's
-        profile; tests that need the file monkeypatch this function.
-        """
-        if os.environ.get("PYTEST_CURRENT_TEST"):
+        path = get_config_file_path()
+        if not path:
             return None
-        # The config import does not fail. getattr already defaults a missing
-        # path to None. The old except hid a broken config module and skipped
-        # the arm file.
-        from plugin.framework import config as config_mod
-
-        config_path = getattr(config_mod, "_resolved_config_path", None)
-        if not config_path:
-            return None
-        return os.path.join(os.path.dirname(str(config_path)), self.ARM_FILENAME)
+        return os.path.join(os.path.dirname(path), self.ARM_FILENAME)
 
     def armed_file_exists(self) -> bool:
         path = self.arm_path()
