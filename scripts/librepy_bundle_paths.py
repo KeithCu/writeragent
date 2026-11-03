@@ -160,6 +160,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/stream_batch.py",
     "plugin/framework/stream_delta.py",
     "plugin/framework/blocking_wait.py",
+    "plugin/framework/child_runtime.py",
     "plugin/framework/sidebar_column.py",
     "plugin/framework/queue_executor.py",
     "plugin/framework/send_cancellation.py",
