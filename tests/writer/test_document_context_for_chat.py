@@ -257,3 +257,30 @@ def test_get_document_context_for_chat_selection_markers_use_visible_offsets():
 
     assert "Hello [SELECTION_START]World[SELECTION_END]" in out
 
+
+def test_document_context_end_document_markers():
+    from plugin.framework.client.shim_helpers import snapshot_text
+    from plugin.framework.doc_type import DocumentType
+
+    model = MagicMock()
+    with (
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.doc.text_helpers._writer_char_count", return_value=100),
+        patch("plugin.doc.text_helpers._read_writer_text_slice", return_value="short body"),
+    ):
+        ctx_fitting = get_document_context_for_chat(model, max_context=8000, include_end=True, include_selection=False)
+
+    assert ctx_fitting.count("[END DOCUMENT]") == 0
+    assert snapshot_text(ctx_fitting).count("[END DOCUMENT]") == 1
+
+    with (
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.doc.text_helpers._writer_char_count", return_value=20000),
+        patch("plugin.doc.text_helpers._read_writer_text_slice", side_effect=lambda _m, start, length: f"slice_{start}"),
+    ):
+        ctx_head_tail = get_document_context_for_chat(model, max_context=8000, include_end=True, include_selection=False)
+
+    assert ctx_head_tail.count("[END DOCUMENT]") == 0
+    assert ctx_head_tail.count("[DOCUMENT END]") == 1
+    assert snapshot_text(ctx_head_tail).count("[END DOCUMENT]") == 1
+

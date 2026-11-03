@@ -846,14 +846,13 @@ def test_make_chat_request_includes_dev_build_prefix_when_enabled():
 
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
-    messages = [{"role": "user", "content": "Hi"}]
+    messages = [{"role": "system", "content": "You are helpful."}, {"role": "user", "content": "Hi"}]
     with patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=True):
         _m, _p, body, _h = client.make_chat_request(messages, max_tokens=50)
     data = json.loads(body.decode("utf-8"))
     system = data["messages"][0]["content"]
     assert LLM_DEV_BUILD_SYSTEM_PREFIX in system
-
-    assert "Today's date" in system
+    assert "Today's date is" in system
 
 
 def test_make_chat_request_skips_dev_build_prefix_when_disabled():
@@ -1450,7 +1449,7 @@ def test_anthropic_shim(client):
         data = json.loads(body)
         assert data["model"] == "claude-sonnet-4-5"
         assert data["system"].endswith("You are a helpful assistant.")
-        assert data["messages"] == [{"role": "user", "content": "Hello!"}]
+        assert data["messages"] == [{"role": "user", "content": [{"type": "text", "text": "Hello!"}]}]
         assert data["max_tokens"] == 100
 
 
@@ -1594,7 +1593,7 @@ def test_anthropic_does_not_merge_tool_result_into_user_text(client):
         mock_auth.return_value = {"provider": "anthropic"}
         _method, _path, body, _headers = client.make_chat_request(messages, max_tokens=20)
     data = json.loads(body)
-    assert data["messages"][0] == {"role": "user", "content": "Hello"}
+    assert data["messages"][0] == {"role": "user", "content": [{"type": "text", "text": "Hello"}]}
     assert data["messages"][1]["role"] == "user"
     assert data["messages"][1]["content"][0]["type"] == "tool_result"
 

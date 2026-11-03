@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, NamedTuple, TypeVar, assert_never,
 
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
 from plugin.framework.deal_shim import deal
+from plugin.framework.i18n import _
 from plugin.framework.service import BaseState, FsmTransition
 
 
@@ -291,8 +292,22 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
 
         case EventKind.FINAL_DONE:
             content = event_data.get("content")
-            if content:
-                effects.extend(_assistant_text_effects(content, event_data))
+            if content and str(content).strip():
+                effects.extend(_assistant_text_effects(str(content), event_data))
+            else:
+                # Bugfix: on backends that ignore tool_choice="none", the final stream
+                # may emit only a tool call and no text. Showing an empty "AI: " reply
+                # confuses the user. Display a clear localized message explaining that
+                # tool rounds were exhausted without a response.
+                msg = _("Reached the maximum number of tool rounds.")
+                effects.append(
+                    AddMessageEffect(
+                        role=MessageRole.ASSISTANT,
+                        content=msg,
+                        reasoning_replay=reasoning_replay_from_assistant_response(event_data),
+                    )
+                )
+                effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text=msg + "\n"))
             return _ready_transition(state, effects)
 
         case EventKind.ERROR:

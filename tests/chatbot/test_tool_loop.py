@@ -576,6 +576,31 @@ def test_final_done_handling(mock_get_config, mock_drain_loop):
     assert len(session.messages) == 1
     assert session.messages[0]["content"] == "This is the final word."
 
+
+@patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config')
+def test_final_done_empty_content_shows_out_of_tool_rounds_message(mock_get_config, mock_drain_loop):
+    from plugin.framework.i18n import _
+
+    panel, session = setup_mock_panel()
+
+    results = []
+    def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
+        res = on_stream_done((StreamQueueKind.FINAL_DONE, ''))
+        results.append(res)
+
+    mock_drain_loop.side_effect = mock_drain_impl
+
+    client = Mock()
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
+
+    assert results[0] is True
+    assert panel._terminal_status == "Ready"
+    expected = _("Reached the maximum number of tool rounds.")
+    panel._append_response.assert_any_call(expected + "\n")
+    assert len(session.messages) == 1
+    assert session.messages[0]["content"] == expected
+
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
 @patch('plugin.chatbot.tool_loop.get_config')
 def test_error_handling_in_loop(mock_get_config, mock_drain_loop):
@@ -1321,6 +1346,32 @@ def test_retry_status_restored_on_first_chunk_final_stream():
     assert items[0] == (StreamQueueKind.STATUS, "Provider busy, retrying in 0.4s…")
     assert items[1] == (StreamQueueKind.STATUS, "Finishing...")
     assert items[2] == (StreamQueueKind.CHUNK, "World")
+    assert client.stream_chat_response.call_args.kwargs["tool_choice"] == "none"
+
+
+def test_spawn_final_stream_passes_active_tools_and_tool_choice_none():
+    import queue
+
+    panel, session = setup_mock_panel()
+    q = queue.Queue()
+    batched = BatchingStreamQueue(q, batch_interval=10)
+    client = MagicMock()
+    client.stopped.return_value = False
+    tools = [{"type": "function", "function": {"name": "test_tool"}}]
+
+    started = []
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
+        patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
+    ):
+        ToolCallingMixin._spawn_final_stream(panel, batched, client, 100, tools=tools)
+        started[0]()
+    batched._timer.stop()
+
+    client.stream_chat_response.assert_called_once()
+    assert client.stream_chat_response.call_args.kwargs["tools"] == tools
+    assert client.stream_chat_response.call_args.kwargs["tool_choice"] == "none"
+    client.stream_request_with_tools.assert_not_called()
 
 
 

@@ -305,24 +305,39 @@ def test_document_content_never_in_summary_or_replaced_in_view():
     assert "LIVE PROMPT" in view[0]["content"]
     assert "secret-doc" not in view[0]["content"]
     req = session.messages_for_request()
-    assert "secret-doc" in req[-1]["content"][-1]["text"]
+    assert "secret-doc" in str(req[-1]["content"])
     assert "[DOCUMENT CONTENT]" not in "\n".join(C._summary_lines(session.messages[1:]))
 
 
 def test_token_estimates_and_keep_recent_with_snapshot():
-    from plugin.framework.client.shim_helpers import snapshot_text
+    from plugin.chatbot.chat_session import request_tail
 
     base_sys = {"role": "system", "content": "You are a helpful assistant."}
     session = DummySession([base_sys, _msg("user", 10)], document_context="Short doc")
     view = C.messages_for_llm(session)
     assert C.estimate_message_tokens(view[0]) == C.estimate_message_tokens(base_sys)
 
-    snap = snapshot_text(session.document_context)
-    expected_snap_tokens = C.estimate_message_tokens({"role": "user", "content": snap})
+    tail = request_tail(session)
+    assert "Short doc" in tail
+    expected_snap_tokens = C.estimate_message_tokens({"role": "user", "content": tail})
     assert expected_snap_tokens > 0
 
     assert C.keep_recent_tokens(4096, 2000, 0, snapshot_tokens=500) == 828
 
+    client = DummyClient(content="summary")
+    res = C.compact_session(session, client, window=4096, force=False)
+    expected_before = C.estimate_tokens(view) + expected_snap_tokens
+    assert res.tokens_before == expected_before
+
+
+def test_compaction_counts_tail_tokens_without_document():
+    """Compaction counts tail tokens whether or not there is a document."""
+    base_sys = {"role": "system", "content": "You are a helpful assistant."}
+    session_no_doc = DummySession([base_sys, _msg("user", 10)], document_context="")
+    client = DummyClient(content="summary")
+    res = C.compact_session(session_no_doc, client, window=4096, force=False)
+    view = C.messages_for_llm(session_no_doc)
+    assert res.tokens_before == C.estimate_tokens(view)
 
 def test_large_document_snapshot_triggers_proactive_compaction():
     # Session whose transcript tokens alone are under threshold (4096 * 0.70 = 2867),

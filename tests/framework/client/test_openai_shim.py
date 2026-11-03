@@ -220,3 +220,85 @@ def test_openrouter_prompt_caching():
     assert [m["role"] for m in msgs3] == ["assistant", "tool", "tool", "user"]
     body3_str = json.dumps(data3)
     assert "cache_control" not in body3_str
+    # 4. User send: folded messages to anthropic/* mark the block before the tail
+    user_send_messages = [
+        {"role": "user", "content": [
+            {"type": "text", "text": "hello"},
+            {"type": "text", "text": snap},
+        ]},
+    ]
+    _m, _url, body_u1, _h = shim.build_chat_request(
+        user_send_messages, 100, None, None, False, "anthropic/claude-sonnet-4.5", None
+    )
+    data_u1 = json.loads(body_u1)
+    msgs_u1 = data_u1["messages"]
+    assert len(msgs_u1) == 1
+    assert msgs_u1[0]["role"] == "user"
+    assert msgs_u1[0]["content"] == [
+        {"type": "text", "text": "hello", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": snap},
+    ]
+
+    # 5. User send: openai/gpt-oss-120b and Cerebras keep the single folded user message without cache_control
+    _m, _url, body_u2, _h = shim.build_chat_request(
+        user_send_messages, 100, None, None, False, "openai/gpt-oss-120b", None
+    )
+    data_u2 = json.loads(body_u2)
+    msgs_u2 = data_u2["messages"]
+    assert len(msgs_u2) == 1
+    assert msgs_u2[0]["role"] == "user"
+    assert msgs_u2[0]["content"] == [
+        {"type": "text", "text": "hello"},
+        {"type": "text", "text": snap},
+    ]
+    assert "cache_control" not in json.dumps(data_u2)
+
+    _m, _url, body_u3, _h = cerebras_shim.build_chat_request(
+        user_send_messages, 100, None, None, False, "openai/gpt-oss-120b", None
+    )
+    data_u3 = json.loads(body_u3)
+    msgs_u3 = data_u3["messages"]
+    assert len(msgs_u3) == 1
+    assert msgs_u3[0]["role"] == "user"
+    assert msgs_u3[0]["content"] == [
+        {"type": "text", "text": "hello"},
+        {"type": "text", "text": snap},
+    ]
+    assert "cache_control" not in json.dumps(data_u3)
+
+
+def test_openai_tool_choice():
+    class DummyClient:
+        def _get_provider(self):
+            return "openai"
+
+        def _endpoint(self):
+            return "http://test"
+
+        def _api_path(self):
+            return "/api/v1"
+
+        def _headers(self):
+            return {}
+
+    shim = OpenAIShim(DummyClient())
+    tools = [{"type": "function", "function": {"name": "test_func", "parameters": {}}}]
+    messages = [{"role": "user", "content": "hi"}]
+
+    # tool_choice=None sends "auto"
+    _m, _url, body_auto, _h = shim.build_chat_request(
+        messages, 100, None, tools, False, "gpt-4o", None, tool_choice=None
+    )
+    data_auto = json.loads(body_auto)
+    assert data_auto["tool_choice"] == "auto"
+    assert data_auto["parallel_tool_calls"] is False
+    assert "tools" in data_auto
+
+    # tool_choice="none" sends "none"
+    _m, _url, body_none, _h = shim.build_chat_request(
+        messages, 100, None, tools, False, "gpt-4o", None, tool_choice="none"
+    )
+    data_none = json.loads(body_none)
+    assert data_none["tool_choice"] == "none"
+    assert data_none["parallel_tool_calls"] is False
+    assert "tools" in data_none

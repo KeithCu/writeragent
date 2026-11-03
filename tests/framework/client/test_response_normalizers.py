@@ -409,3 +409,28 @@ def test_prepare_chat_messages_midstring_date_no_duplicate():
     messages = [{"role": "system", "content": "Context before. Today's date is Monday. More context."}]
     res = prepare_chat_messages(messages, "openai", prepend_dev_build_system_prefix=False)
     assert res[0]["content"].count("Today's date is ") == 1
+
+
+def test_prepare_chat_messages_non_chat_call_gets_date():
+    """Non-chat callers (librarian, quick web research, grammar, forms, Extend/Edit,
+    Calc =PROMPT(), image prompts, compaction summarizer, eval harness) pass user-only
+    or system prompt messages without the sidebar request_tail, but must still receive
+    the current date."""
+    # User-only message gets a system message with date prepended
+    messages = [{"role": "user", "content": "Proofread this sentence."}]
+    res = prepare_chat_messages(messages, "openai", prepend_dev_build_system_prefix=False)
+    assert len(res) == 2
+    assert res[0]["role"] == "system"
+    assert "Today's date is " in res[0]["content"]
+    assert res[1]["role"] == "user"
+
+    # Non-chat caller with explicit system instructions has date prepended to that system message
+    messages2 = [
+        {"role": "system", "content": "You are a grammar proofreader."},
+        {"role": "user", "content": "Their going to the store."},
+    ]
+    res2 = prepare_chat_messages(messages2, "openai", prepend_dev_build_system_prefix=False)
+    assert len(res2) == 2
+    assert res2[0]["role"] == "system"
+    assert "Today's date is " in res2[0]["content"]
+    assert "You are a grammar proofreader." in res2[0]["content"]

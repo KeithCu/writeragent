@@ -7,7 +7,7 @@ from plugin.chatbot.history_db import get_chat_history
 
 log = logging.getLogger(__name__)
 
-from plugin.framework.client.shim_helpers import snapshot_text
+from plugin.framework.client.shim_helpers import fold_trailing_user_message, snapshot_text
 
 
 def strip_legacy_document_suffix(content: str) -> str:
@@ -21,6 +21,18 @@ def strip_legacy_document_suffix(content: str) -> str:
             return content[:idx]
     return content
 
+def request_tail(session: Any) -> str:
+    """Return dynamic per-request context (such as the document snapshot).
+
+    Everything that changes per request lives after the cache breakpoint so
+    earlier history and system prompts stay cacheable across turns.
+    """
+    doc_text = getattr(session, "document_context", "") or ""
+    if doc_text:
+        snap = snapshot_text(doc_text)
+        if snap:
+            return snap
+    return ""
 
 # ---------------------------------------------------------------------------
 # ChatSession - holds conversation history for multi-turn chat
@@ -132,31 +144,28 @@ class ChatSession:
     def messages_for_request(self) -> list[dict[str, Any]]:
         """Return the messages to send to the LLM for a request.
 
-        Starts with messages_for_llm(self), then appends one snapshot at the tail.
-        Does not mutate self.messages or self.compaction. Empty snapshot_text:
-        return the view as-is.
+        Starts with messages_for_llm(self), then appends request_tail(self).
+        When the conversation ends with a user turn, the tail is merged into that
+        trailing user message so strict alternating-role templates (Gemma, Mistral,
+        llama.cpp, vLLM) never see two adjacent user messages.
+        Does not mutate self.messages or self.compaction.
         """
         from plugin.chatbot.compaction import messages_for_llm
 
-        view = list(messages_for_llm(self))
-        snap = snapshot_text(self.document_context)
-        if not snap or not view:
+        view = [dict(m) for m in messages_for_llm(self)]
+        if not view:
             return view
 
-        last = view[-1]
-        if isinstance(last, dict) and last.get("role") == "user":
-            old_content = last.get("content")
-            if isinstance(old_content, list):
-                new_content = list(old_content) + [{"type": "text", "text": snap}]
-            elif isinstance(old_content, str):
-                new_content = [{"type": "text", "text": old_content}, {"type": "text", "text": snap}]
-            else:
-                new_content = [{"type": "text", "text": str(old_content or "")}, {"type": "text", "text": snap}]
-            new_last = dict(last)
-            new_last["content"] = new_content
-            return view[:-1] + [new_last]
-        else:
-            return view + [{"role": "user", "content": snap}]
+        tail = request_tail(self)
+        if tail:
+            # Bugfix: in #3085, appending the tail as a separate user message resulted
+            # in two consecutive user messages for all OpenAI-format providers. Jinja
+            # templates enforcing role alternation (Gemma, Mistral on LM Studio, llama.cpp,
+            # vLLM) reject adjacent user messages with HTTP 400/500. Merging here ensures
+            # one unified place for all providers without duplicate adjacent user messages.
+            view.append({"role": "user", "content": tail})
+            view = fold_trailing_user_message(view)
+        return view
 
     def add_user_message(self, content: Any) -> None:
         self.messages.append({"role": "user", "content": content})

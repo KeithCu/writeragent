@@ -317,6 +317,37 @@ def test_payload_structure_and_format() -> None:
     assert json.loads(body2)["text"] == {"format": {"type": "json_object"}}
 
 
+def test_responses_tool_choice_none() -> None:
+    shim = OpenAIShim(DummyClient())
+    tools = [
+        {
+            "type": "function",
+            "function": {"name": "fn", "description": "d", "parameters": {"type": "object"}},
+        }
+    ]
+    _method, path, body, _headers = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 500, None, tools, True, "gpt-6", None, tool_choice="none"
+    )
+    assert path.endswith("/responses")
+    data = json.loads(body)
+    assert data["tool_choice"] == "none"
+    assert data["tools"] == [
+        {
+            "type": "function",
+            "name": "fn",
+            "description": "d",
+            "strict": False,
+            "parameters": {"type": "object"},
+        }
+    ]
+
+    # Tools omitted still uses chat completions
+    _method, path_no_tools, _body_no_tools, _headers = shim.build_chat_request(
+        [{"role": "user", "content": "hi"}], 500, None, None, True, "gpt-6", None
+    )
+    assert path_no_tools.endswith("/chat/completions")
+
+
 def test_effort_and_temperature_handling() -> None:
     tools = [{"type": "function", "function": {"name": "fn", "parameters": {}}}]
     c1 = DummyClient(config={"reasoning_effort": "high"})

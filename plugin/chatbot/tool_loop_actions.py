@@ -962,7 +962,9 @@ class ToolLoopEffectInterpreter:
             if target is None:
                 return True
             turn, q = target
-            host._tool_calling._spawn_final_stream(q, turn.active_client, turn.active_max_tokens)
+            host._tool_calling._spawn_final_stream(
+                q, turn.active_client, turn.active_max_tokens, tools=turn.active_tools
+            )
         elif isinstance(effect, UpdateDocumentContextEffect):
             return self._refresh_document_context()
         elif isinstance(effect, ToolLoopUIEffect):

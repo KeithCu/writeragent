@@ -12,7 +12,7 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from .shim_helpers import _dict_parts, _normalize_usage, _system_text, annotate_anthropic_cache
+from .shim_helpers import _dict_parts, _normalize_usage, _system_text, annotate_anthropic_cache, fold_trailing_user_message
 from .base_provider_shim import (
     BaseProviderShim,
     coerce_raw_b64,
@@ -217,20 +217,31 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
                 converted.append({"role": "assistant", "content": anth_content})
             continue
 
-        if role not in ("user", "assistant"):
-            # ``function`` and any other role are not valid in messages[].
-            # Coercing them to user would present tool plumbing as a question.
-            log.warning("Anthropic shim skipping unsupported role %r", role)
+        if role == "user":
+            user_parts: list[dict[str, Any]]
+            if isinstance(content, list):
+                user_parts = _convert_parts(content, allow_images=True)
+            else:
+                user_parts = [{"type": "text", "text": str(content or "")}]
+            converted.append({"role": "user", "content": user_parts})
             continue
 
-        normalized: list[dict[str, Any]] | str
-        if isinstance(content, list):
-            normalized = _convert_parts(content, allow_images=True)
-        else:
-            normalized = str(content or "")
-        if normalized or role != "assistant":
-            converted.append({"role": role, "content": normalized})
+        if role == "assistant":
+            if isinstance(content, list):
+                asst_parts = _convert_parts(content, allow_images=True)
+                if asst_parts:
+                    converted.append({"role": "assistant", "content": asst_parts})
+            else:
+                asst_text = str(content or "")
+                if asst_text:
+                    converted.append({"role": "assistant", "content": asst_text})
+            continue
 
+        # ``function`` and any other role are not valid in messages[].
+        # Coercing them to user would present tool plumbing as a question.
+        log.warning("Anthropic shim skipping unsupported role %r", role)
+
+    converted = fold_trailing_user_message(converted)
     return "\n\n".join(system_parts), converted
 
 
@@ -312,7 +323,7 @@ class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
 
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
         endpoint = self.client._endpoint()
         url = f"{endpoint}/v1/messages"
@@ -336,6 +347,8 @@ class AnthropicShim(BaseProviderShim):
             converted_tools = [tool_def for tool_def in (_anthropic_tool_def(t) for t in tools) if tool_def]
             if converted_tools:
                 data["tools"] = converted_tools
+                if tool_choice == "none":
+                    data["tool_choice"] = {"type": "none"}
         # effort_payload sends only supported Anthropic effort levels.
         data.update(effort_payload("anthropic", self._requested_effort_level(chat_extra)))
 

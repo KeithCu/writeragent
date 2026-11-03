@@ -241,8 +241,7 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
     """Coalesce consecutive system messages, inject the date line, then flatten text-only system content.
 
     Dev-build prefix and ``normalize_multimodal_messages`` stay between the date
-    line and the flatten. That was the order inside ``make_chat_request``;
-    pulling the three blocks out must not reorder them around image normalization.
+    line and the flatten.
     """
     coalesced_messages: list[Any] = []
     coalesced_any = False
@@ -282,7 +281,11 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
 
     messages = coalesced_messages
 
-    # Inject date into the first system message
+    # Bugfix: In #3085, the date line was removed from prepare_chat_messages and
+    # placed into the chat request_tail. This broke non-chat callers (librarian,
+    # smol agents, quick web research, grammar, forms, Extend/Edit, Calc =PROMPT(),
+    # image prompts, compaction summarizer, eval harness), which bypass the chat tail.
+    # Restoring date injection here ensures every LLM request has the current date.
     today = datetime.date.today().strftime("%A, %Y-%m-%d")
     date_msg = f"Today's date is {today}."
     system_message: Any = None

@@ -379,7 +379,7 @@ class BaseProviderShim:
         return "POST", path, json.dumps(data).encode("utf-8"), headers if headers is not None else self.client._headers()
 
     def _chat_payload(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
     ) -> dict[str, Any]:
         # Omit top_p so models that reject temperature and top_p together use server default.
         data: dict[str, Any] = {"messages": messages, "max_tokens": max_tokens, "stream": stream}
@@ -389,7 +389,7 @@ class BaseProviderShim:
             data["model"] = model_name
         if tools:
             data["tools"] = tools
-            data["tool_choice"] = "auto"
+            data["tool_choice"] = tool_choice if tool_choice is not None else "auto"
             # Always false until the tool loop can apply parallel calls. The
             # config key is stored but not read here; do not send True.
             # Omitting the field is not safe: OpenAI defaults it to true.
@@ -420,9 +420,9 @@ class BaseProviderShim:
         return data
 
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
-        data = self._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
+        data = self._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice)
         return self._post(self._url("/chat/completions"), data)
 
     def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:

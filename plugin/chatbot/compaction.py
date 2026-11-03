@@ -30,8 +30,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from plugin.chatbot.chat_session import message_text
-from plugin.framework.client.shim_helpers import snapshot_text
+from plugin.chatbot.chat_session import message_text, request_tail
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -850,13 +849,13 @@ def compact_session(
     # Hermes estimate_request_tokens_rough (model_metadata.py:2155-2167):
     # count the request, not just the transcript.
     gate_tokens = estimate_tokens(view) + tool_tokens
-    snap_text = snapshot_text(getattr(session, "document_context", "") or "")
-    snapshot_tokens = (
-        estimate_message_tokens({"role": "user", "content": snap_text})
-        if snap_text
+    tail = request_tail(session)
+    tail_tokens = (
+        estimate_message_tokens({"role": "user", "content": tail})
+        if tail
         else 0
     )
-    before = gate_tokens + snapshot_tokens
+    before = gate_tokens + tail_tokens
     if window is None or window <= 0:
         # No denominator → no remaining-budget clamp. Skip proactive *and* force.
         return CompactResult(False, "no_window", before, before)
@@ -865,7 +864,7 @@ def compact_session(
         return CompactResult(False, "below_threshold", before, before)
 
     system_tokens = estimate_message_tokens(messages[0])
-    keep = keep_recent_tokens(window, system_tokens, tool_tokens, force=force, snapshot_tokens=snapshot_tokens)
+    keep = keep_recent_tokens(window, system_tokens, tool_tokens, force=force, snapshot_tokens=tail_tokens)
     if keep is None:
         return CompactResult(False, "nothing_to_compact", before, before)
 
@@ -913,7 +912,7 @@ def compact_session(
         stubbed_tool_call_ids=stubbed_ids,
         kept_message_id=id(messages[new_cut]),
     )
-    after = estimate_tokens(messages_for_llm(session)) + tool_tokens + snapshot_tokens
+    after = estimate_tokens(messages_for_llm(session)) + tool_tokens + tail_tokens
     reserve = gen_reserve(window)
     if after > window - reserve:
         session.compaction = state  # revert; do not ship a too-large view
