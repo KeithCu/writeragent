@@ -518,6 +518,11 @@ _DANGEROUS_CALLABLE_MODULES = (
 _DANGEROUS_BUILTIN_FUNCTIONS = frozenset({"compile", "eval", "exec", "globals", "locals", "__import__"})
 _DANGEROUS_SYS_FUNCTIONS = frozenset({"_getframe", "_current_frames", "settrace", "setprofile"})
 _PROCESS_CALLABLE_NAMES = frozenset({"create_subprocess_exec", "create_subprocess_shell", "ProcessPoolExecutor"})
+# os.path.* metadata probes (no file content); allowed without the files sandbox flag.
+_PATH_METADATA_MODULE_ROOTS = frozenset({"genericpath", "ntpath", "posixpath"})
+_PATH_METADATA_FUNCTION_NAMES = frozenset(
+    {"exists", "isfile", "isdir", "islink", "lexists", "commonpath"}
+)
 
 SANDBOX_POLICY_CONTEXT: ContextVar[tuple[frozenset[str], frozenset[int]]] = ContextVar(
     "sandbox_policy_context", default=(frozenset(), frozenset())
@@ -555,6 +560,8 @@ def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None
             except (ImportError, ModuleNotFoundError):
                 pass
             allowed_file_ids = file_os_ids or _get_default_file_os_ids()
+            if root in _PATH_METADATA_MODULE_ROOTS and fn_name in _PATH_METADATA_FUNCTION_NAMES:
+                return
             if root in _DANGEROUS_CALLABLE_MODULES:
                 # os file functions are posix callables, hence the id set.
                 if root not in relaxed_roots and id(val) not in allowed_file_ids and root not in extras_roots:
@@ -749,7 +756,15 @@ def timeout(timeout_seconds: Any):
                     return future.result(timeout=timeout_seconds)
                 except FuturesTimeoutError:
                     global abandoned_timeout
-                    abandoned_timeout = True
+                    # Bugfix: on Windows the cell runs on a thread-pool worker. Marking
+                    # abandoned_timeout immediately made worker_harness os._exit after every
+                    # soft timeout and dropped shared venv sessions (CI 41712352052).
+                    # Drain the worker for up to timeout_seconds so a finishing time.sleep
+                    # can complete; only abandon when the C call still has not returned.
+                    try:
+                        future.result(timeout=timeout_seconds)
+                    except FuturesTimeoutError:
+                        abandoned_timeout = True
                     raise ExecutionTimeoutError(
                         f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"
                     )

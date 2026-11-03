@@ -1257,10 +1257,10 @@ def _file_fixture(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, p
     target = tmp_path / "target.txt"
     target.write_text("fixture")
     target.chmod(0o644)
-    if sys.platform == "win32":
-        src.write_text("fixture")
-    else:
+    try:
         src.symlink_to(target)
+    except OSError:
+        src.write_text("fixture")
     d.mkdir()
     return p, src, d, {"p": repr(str(p)), "src": repr(str(src)), "d": repr(str(d))}
 
@@ -1330,6 +1330,8 @@ _FILE_READS = [
 @pytest.mark.parametrize("code", _FILE_READS)
 def test_sandbox_runtime_file_reads_gated(code: str, tmp_path: pathlib.Path) -> None:
     _p, _src, _d, names = _file_fixture(tmp_path)
+    if "readlink" in code and not _src.is_symlink():
+        pytest.skip("symlink fixture unavailable on this host")
     res = run_sandboxed_code(code.format(**names), sandbox_policy=None)
     assert res["status"] == "error"
     if "open({src}).read()" in code:
