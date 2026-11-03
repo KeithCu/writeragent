@@ -63,8 +63,7 @@ _ROUTINE_LIBREHARPER_STATUS_RESULTS = frozenset({
     "queued",
 })
 _ISSUE_COUNT_RESULT = re.compile(r"^\d+ issues?$", re.IGNORECASE)
-_DONE_PHASES = ("done", "complete")
-_TERMINAL_STATUS_PHASES = _DONE_PHASES + ("failed",)
+_TERMINAL_STATUS_PHASES = ("done", "failed")
 
 
 def is_routine_libreharper_status(phase: str, result: str) -> bool:
@@ -155,8 +154,20 @@ class GrammarStatus:
         self._status_inflight = 0
         self._pending_done = None
 
-    def start(self, text: str, *, result: str = "") -> None:
+    def _deliver(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+    ) -> None:
         pass
+
+    def start(self, text: str, *, result: str = "") -> None:
+        self._deliver("start", text, result=result)
 
     def request(
         self,
@@ -165,7 +176,7 @@ class GrammarStatus:
         result: str = "",
         preview_source: str | None = None,
     ) -> None:
-        pass
+        self._deliver("request", text, result=result, preview_source=preview_source)
 
     def done(
         self,
@@ -175,12 +186,18 @@ class GrammarStatus:
         elapsed_ms: int | None = None,
         preview_source: str | None = None,
         length_hint: int | None = None,
-        phase: str = "done",
     ) -> None:
-        pass
+        self._deliver(
+            "done",
+            text,
+            result=result,
+            elapsed_ms=elapsed_ms,
+            preview_source=preview_source,
+            length_hint=length_hint,
+        )
 
     def failed(self, text: str, *, result: str = "") -> None:
-        pass
+        self._deliver("failed", text, result=result)
 
     def begin_status_cycle(self) -> None:
         """Mark one batch in flight (sidebar/status-bar done is deferred)."""
@@ -229,7 +246,7 @@ class GrammarStatus:
 class SidebarGrammarStatus(GrammarStatus):
     """WriterAgent: relay status to the sidebar event bus."""
 
-    def _emit(
+    def _deliver(
         self,
         phase: str,
         text: str,
@@ -258,40 +275,6 @@ class SidebarGrammarStatus(GrammarStatus):
         except Exception as e:
             log.debug("[grammar] sidebar status emit failed: %s", e, exc_info=True)
 
-    def start(self, text: str, *, result: str = "") -> None:
-        self._emit("start", text, result=result)
-
-    def request(
-        self,
-        text: str,
-        *,
-        result: str = "",
-        preview_source: str | None = None,
-    ) -> None:
-        self._emit("request", text, result=result, preview_source=preview_source)
-
-    def done(
-        self,
-        text: str,
-        *,
-        result: str = "",
-        elapsed_ms: int | None = None,
-        preview_source: str | None = None,
-        length_hint: int | None = None,
-        phase: str = "done",
-    ) -> None:
-        self._emit(
-            phase,
-            text,
-            result=result,
-            elapsed_ms=elapsed_ms,
-            preview_source=preview_source,
-            length_hint=length_hint,
-        )
-
-    def failed(self, text: str, *, result: str = "") -> None:
-        self._emit("failed", text, result=result)
-
 
 class StatusBarGrammarStatus(GrammarStatus):
     """LibreHarper: update the LibreOffice window status bar using XStatusIndicator."""
@@ -302,7 +285,16 @@ class StatusBarGrammarStatus(GrammarStatus):
         super().__init__()
         self._indicator = None
 
-    def _post(self, phase: str, result: str) -> None:
+    def _deliver(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+    ) -> None:
         try:
             routine = is_routine_libreharper_status(phase, result)
             if routine and (
@@ -311,21 +303,37 @@ class StatusBarGrammarStatus(GrammarStatus):
                 return
             if desktop_create_is_unsafe():
                 return
-            from plugin.framework.queue_executor import main
+            from plugin.framework.queue_executor import main, pump_main_thread_work_queue
+            from plugin.framework.uno_context import get_ctx, process_events_to_idle
 
             try:
-                main.post(update_libreoffice_status_bar, phase, result)
+                main.post(self._paint, phase, result)
             except Exception:
                 log.debug("Failed to post status bar update to main thread", exc_info=True)
+                return
+
+            # After a status-bar post is successfully queued, post one repaint from the same _deliver.
+            # Copy the body of harper.py:942-960 (pump_main_thread_work_queue(max_items=8) then process_events_to_idle).
+            # Why, at that site: the grammar worker is blocked in harper-ls while the indicator text is only a
+            # queued callback; setText does not show until the main thread drains that queue and idles VCL.
+            # main.post only. force=False so a chat drain owner still skips PE2I.
+            def _pump() -> None:
+                pump_main_thread_work_queue(max_items=8)
+                process_events_to_idle(get_ctx(), force=False)
+
+            try:
+                main.post(_pump)
+            except Exception as e:
+                log.warning("[grammar] Harper status UI pump skipped: %s", e)
         except Exception as e:
             log.debug("[grammar] status bar emit failed: %s", e, exc_info=True)
 
-    def update_libreoffice_status_bar(self, phase: str, result: str = "") -> None:
+    def _paint(self, phase: str, result: str = "") -> None:
         """Update the LibreOffice window status bar using XStatusIndicator."""
         routine = is_routine_libreharper_status(phase, result)
 
         msg = f"LibreHarper: {result or 'Checking...'}"
-        if phase in _DONE_PHASES:
+        if phase == "done":
             msg = "LibreHarper: Grammar check complete"
         elif phase == "failed":
             msg = f"LibreHarper: Failed ({result})" if result else "LibreHarper: Grammar check failed"
@@ -343,7 +351,7 @@ class StatusBarGrammarStatus(GrammarStatus):
             if frame is None:
                 return
 
-            if phase in _DONE_PHASES:
+            if phase == "done":
                 if self._indicator is not None:
                     self._indicator.setText(msg)
                     self._indicator.setValue(100)
@@ -360,33 +368,6 @@ class StatusBarGrammarStatus(GrammarStatus):
         except Exception as e:
             log.debug("[grammar] update_libreoffice_status_bar failed: %s", e)
             self._indicator = None
-
-    def start(self, text: str, *, result: str = "") -> None:
-        self._post("start", result)
-
-    def request(
-        self,
-        text: str,
-        *,
-        result: str = "",
-        preview_source: str | None = None,
-    ) -> None:
-        self._post("request", result)
-
-    def done(
-        self,
-        text: str,
-        *,
-        result: str = "",
-        elapsed_ms: int | None = None,
-        preview_source: str | None = None,
-        length_hint: int | None = None,
-        phase: str = "done",
-    ) -> None:
-        self._post(phase, result)
-
-    def failed(self, text: str, *, result: str = "") -> None:
-        self._post("failed", result)
 
 
 _STATUS_SINK: GrammarStatus | None = None
@@ -406,39 +387,4 @@ def set_grammar_status(sink: GrammarStatus | None) -> None:
     """Override or reset status sink (for tests and teardown)."""
     global _STATUS_SINK
     _STATUS_SINK = sink
-
-
-def update_libreoffice_status_bar(phase: str, result: str = "") -> None:
-    """Entry point for posted status-bar updates; delegates to active StatusBarGrammarStatus."""
-    sink = get_grammar_status()
-    if isinstance(sink, StatusBarGrammarStatus):
-        sink.update_libreoffice_status_bar(phase, result)
-
-
-def emit_grammar_status(
-    phase: str,
-    text: str,
-    *,
-    result: str = "",
-    elapsed_ms: int | None = None,
-    preview_source: str | None = None,
-    length_hint: int | None = None,
-) -> None:
-    """Emit status to the active GrammarStatus sink."""
-    sink = get_grammar_status()
-    if phase == "start":
-        sink.start(text, result=result)
-    elif phase == "request":
-        sink.request(text, result=result, preview_source=preview_source)
-    elif phase in _DONE_PHASES:
-        sink.done(
-            text,
-            result=result,
-            elapsed_ms=elapsed_ms,
-            preview_source=preview_source,
-            length_hint=length_hint,
-            phase=phase,
-        )
-    elif phase == "failed":
-        sink.failed(text, result=result)
 

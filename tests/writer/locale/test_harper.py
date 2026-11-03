@@ -24,7 +24,6 @@ from plugin.writer.locale.harper import (
     HarperLSClient,
     HarperRuntimeState,
     _harper_lsp_settings,
-    _pump_grammar_status_ui,
     harper_runtime_is_ready,
     harper_try_lint,
     lsp_range_to_offset,
@@ -910,24 +909,6 @@ def test_harper_lsp_initialize_logs_exception_on_failure(
     assert "Failed to start managed subprocess" not in caplog.text
 
 
-def test_pump_grammar_status_ui_posts_not_blocking_execute() -> None:
-    ctx = MagicMock()
-    with (
-        patch("plugin.framework.queue_executor.main.post") as mock_post,
-        patch("plugin.framework.queue_executor.main.call") as mock_execute,
-    ):
-        _pump_grammar_status_ui(ctx)
-
-    mock_post.assert_called_once()
-    mock_execute.assert_not_called()
-
-
-def test_pump_grammar_status_ui_swallows_post_errors() -> None:
-    ctx = MagicMock()
-    with patch("plugin.framework.queue_executor.main.post", side_effect=RuntimeError("no AsyncCallback")):
-        _pump_grammar_status_ui(ctx)  # must not raise
-
-
 def test_run_harper_check_continues_when_pump_post_times_out() -> None:
     """Regression: status UI pump must not abort Harper when main-thread post fails."""
     ctx = MagicMock()
@@ -953,10 +934,6 @@ def test_run_harper_check_continues_when_pump_post_times_out() -> None:
 
 def test_run_harper_check_pumps_ui_after_start_and_heartbeat() -> None:
     ctx = MagicMock()
-    pump_calls: list[object] = []
-
-    def _record_pump(c: object) -> None:
-        pump_calls.append(c)
 
     def _fake_lint(text, config_dir, *, bcp47="en-US", heartbeat_fn=None):
         if heartbeat_fn is not None:
@@ -966,7 +943,6 @@ def test_run_harper_check_pumps_ui_after_start_and_heartbeat() -> None:
     mock_status = MagicMock()
     with (
         patch("plugin.writer.locale.grammar_obs.get_grammar_status", return_value=mock_status),
-        patch("plugin.writer.locale.harper._pump_grammar_status_ui", side_effect=_record_pump),
         patch("plugin.writer.locale.harper.run_harper_lint", side_effect=_fake_lint) as mock_lint,
     ):
         result = run_harper_check(ctx, "They is here.", "/tmp/cfg", bcp47="en-US")
@@ -975,7 +951,6 @@ def test_run_harper_check_pumps_ui_after_start_and_heartbeat() -> None:
     mock_lint.assert_called_once()
     assert mock_status.request.call_args_list[0] == (("They is here.",), {"result": "Starting Harper…"})
     assert mock_status.request.call_args_list[1] == (("They is here.",), {"result": "Downloading harper-ls v2.7.0…"})
-    assert pump_calls == [ctx, ctx]
 
 
 def test_run_harper_check_heartbeat_skips_empty_message() -> None:
@@ -989,15 +964,12 @@ def test_run_harper_check_heartbeat_skips_empty_message() -> None:
     mock_status = MagicMock()
     with (
         patch("plugin.writer.locale.grammar_obs.get_grammar_status", return_value=mock_status),
-        patch("plugin.writer.locale.harper._pump_grammar_status_ui") as mock_pump,
         patch("plugin.writer.locale.harper.run_harper_lint", side_effect=_fake_lint),
     ):
         run_harper_check(ctx, "Hi.", "/tmp/cfg")
 
     assert mock_status.request.call_count == 1
     mock_status.request.assert_called_once_with("Hi.", result="Starting Harper…")
-    # Start pump once; empty heartbeat must not emit or pump again
-    assert mock_pump.call_count == 1
 
 
 def test_run_harper_check_does_not_pass_ctx_to_lint() -> None:
@@ -1005,7 +977,6 @@ def test_run_harper_check_does_not_pass_ctx_to_lint() -> None:
     ctx = MagicMock()
     with (
         patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
-        patch("plugin.writer.locale.harper._pump_grammar_status_ui"),
         patch("plugin.writer.locale.harper.run_harper_lint", return_value={"errors": []}) as mock_lint,
         patch("plugin.framework.uno_context.wait_while_pumping") as mock_wait,
     ):

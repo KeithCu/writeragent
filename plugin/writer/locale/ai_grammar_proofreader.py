@@ -80,7 +80,7 @@ from plugin.writer.locale.grammar_proofread_locale import (
     filter_sentence_spans_for_thresholds,
     uno_locales_for_tags,
 )
-from plugin.writer.locale.grammar_obs import slice_preview_debug
+from plugin.writer.locale.grammar_obs import get_grammar_status, slice_preview_debug
 from plugin.writer.locale.grammar_proofread_text import (
     Utf16OffsetMap,
     calculate_covered_span_end,
@@ -89,7 +89,6 @@ from plugin.writer.locale.grammar_proofread_text import (
     resolve_work_spans,
 )
 from plugin.writer.locale.grammar_work_queue import (
-    emit_grammar_status,
     enqueue_misses,
     grammar_obs,
     grammar_queue,
@@ -639,7 +638,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
         cfg_dir = user_config_dir() or ""
         if uncached_spans[0][2]:
-            emit_grammar_status("start", uncached_spans[0][2], result="Harper")
+            get_grammar_status().start(uncached_spans[0][2], result="Harper")
         issue_count = 0
         ignore_set = IgnoreSet.for_document(self.ctx, a_doc_id)
         for sent_start, _sent_end, sent_text in uncached_spans:
@@ -647,9 +646,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             res = harper_try_lint(sent_text, cfg_dir, bcp47=loc_key, ctx=self.ctx)
             if res is None:
                 grammar_obs("do_proofreading_harper_ensure", doc_id=a_doc_id, grammar_bcp47=loc_key)
-                emit_grammar_status("request", sent_text, result="Starting Harper…")
+                get_grammar_status().request(sent_text, result="Starting Harper…")
                 return
-            emit_grammar_status("request", sent_text, result="Harper check")
+            get_grammar_status().request(sent_text, result="Harper check")
             errors = res.get("errors", [])
             active_errors = store_sentence_result(
                 self.ctx,
@@ -664,7 +663,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             _append_shifted_errors(active_errors, sent_start, combined_errors)
         if uncached_spans[-1][2]:
             iw = "issue" if issue_count == 1 else "issues"
-            emit_grammar_status("done", uncached_spans[-1][2], result=f"{issue_count} {iw}")
+            get_grammar_status().done(uncached_spans[-1][2], result=f"{issue_count} {iw}")
 
     # --- XProofreader ---
     def isSpellChecker(self) -> bool:

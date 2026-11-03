@@ -939,38 +939,15 @@ def run_harper_lint(
         return _lint_with_client(client, text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
 
 
-def _pump_grammar_status_ui(ctx: Any) -> None:
-    """Best-effort drain of grammar status UI on the LO main thread.
-
-    Must never block or fail the Harper check: a busy VCL / delayed AsyncCallback
-    used to raise TimeoutError from main.call(timeout=2.0) and abort
-    linting even though status painting is optional.
-    """
-    from plugin.framework.queue_executor import main, pump_main_thread_work_queue
-    from plugin.framework.uno_context import process_events_to_idle
-
-    def _pump() -> None:
-        pump_main_thread_work_queue(max_items=8)
-        # Chokepoint: no-ops while a stream drain owns VCL pumping.
-        process_events_to_idle(ctx)
-
-    try:
-        main.post(_pump)
-    except Exception as e:
-        log.warning("[grammar] Harper status UI pump skipped: %s", e)
-
-
 def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
     """Grammar-queue entry: status UI + in-process harper-ls lint (no venv worker)."""
     from plugin.writer.locale.grammar_obs import get_grammar_status
 
     get_grammar_status().request(text, result="Starting Harper…")
-    _pump_grammar_status_ui(ctx)
 
     def _on_progress(payload: dict[str, Any]) -> None:
         message = str(payload.get("message") or "").strip()
         if message:
             get_grammar_status().request(text, result=message)
-            _pump_grammar_status_ui(ctx)
 
     return run_harper_lint(text, config_dir, bcp47=bcp47, heartbeat_fn=_on_progress)
