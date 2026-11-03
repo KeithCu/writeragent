@@ -54,8 +54,7 @@ def apply_slide_layout(page: Any, name: str) -> str:
     if lid is None:
         raise ValueError("Unknown layout: %s" % name)
     page.Layout = lid
-    canonical = layout_name(lid)
-    return canonical if not canonical.startswith("unknown_") else name.strip().lower()
+    return layout_name(lid)
 
 
 def _transition_enum_name(value: Any) -> str:

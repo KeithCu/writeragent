@@ -1604,10 +1604,6 @@ def _response_socket(response: Any) -> Any | None:
     return sock if sock is not None and hasattr(sock, "settimeout") else None
 
 
-def _send_cancelled(cancel: SendCancellation | None) -> bool:
-    return is_cancelled(cancel)
-
-
 def _set_read_timeout(response: Any, seconds: float) -> bool:
     """Shorten the per-read socket timeout so Stop is checked between chunks.
 
@@ -1711,12 +1707,12 @@ def _download_image_to_cache(
                 initial_bytes = b""
                 deadline = time.monotonic() + timeout
                 while True:
-                    if _send_cancelled(cancel):
+                    if is_cancelled(cancel):
                         raise _DownloadStopped()
                     try:
                         chunk = response.read(_IMAGE_DOWNLOAD_CHUNK)
                     except (TimeoutError, socket.timeout):
-                        if time.monotonic() > deadline and not _send_cancelled(cancel):
+                        if time.monotonic() > deadline and not is_cancelled(cancel):
                             raise TimeoutError("image download timed out")
                         continue
 
