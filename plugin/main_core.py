@@ -106,30 +106,6 @@ def bootstrap(ctx: Any | None = None) -> None:
 
         init_i18n(ctx)
         _register_librepy_handlers()
-        try:
-            from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
-
-            install_calc_cell_context_menu(ctx)
-        except Exception:
-            log.debug("Calc cell context menu install failed", exc_info=True)
-        try:
-            from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
-
-            install_excel_py_auto_convert(ctx)
-        except Exception:
-            log.debug("Excel PY auto-convert on open install failed", exc_info=True)
-        try:
-            from plugin.calc.python.geometric_recalc import install_geometric_recalc
-
-            install_geometric_recalc()
-        except Exception:
-            log.debug("Geometric recalc install failed", exc_info=True)
-        try:
-            from plugin.notebook.notebook_controls import install_notebook_run_button_wiring
-
-            install_notebook_run_button_wiring(ctx)
-        except Exception:
-            log.debug("Notebook run button wiring install failed", exc_info=True)
         _initialized = True
     finally:
         _bootstrapping = False

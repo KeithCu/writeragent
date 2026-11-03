@@ -295,30 +295,6 @@ def register_core_handlers() -> None:
 
     register_action_handler("calc", "convert_spreadsheet_to_python", _convert_spreadsheet)
 
-    def _install_calc_menus() -> None:
-        from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
-        from plugin.notebook.notebook_controls import install_notebook_run_button_wiring
-
-        install_calc_cell_context_menu(get_ctx())
-        install_notebook_run_button_wiring(get_ctx())
-
-    _install_optional(_install_calc_menus, message="Calc cell context menu install failed", level=logging.DEBUG)
-
-    # Import inside the callable so ImportError is caught by _install_optional.
-    def _install_excel_py_auto_convert() -> None:
-        from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
-
-        install_excel_py_auto_convert(get_ctx())
-
-    _install_optional(_install_excel_py_auto_convert, message="Excel PY auto-convert on open install failed", level=logging.DEBUG)
-
-    def _install_geometric_recalc() -> None:
-        from plugin.calc.python.geometric_recalc import install_geometric_recalc
-
-        install_geometric_recalc()
-
-    _install_optional(_install_geometric_recalc, message="Geometric recalc install failed", level=logging.DEBUG)
-
     def _open_search_dialog() -> None:
         from plugin.embeddings.search_ui import show_search_dialog
         show_search_dialog(get_ctx())

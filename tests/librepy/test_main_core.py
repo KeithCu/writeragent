@@ -251,3 +251,36 @@ def test_dispatch_survives_report_failure(monkeypatch) -> None:
     # Must not raise
     handler.dispatch(url, ())
 
+
+def test_calc_menu_failure_does_not_abort_handlers_or_notebook_wiring(monkeypatch) -> None:
+    import plugin.main_core as main_core
+
+    main_core._initialized = False
+    main_core._bootstrapping = False
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
+    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
+    monkeypatch.setattr(
+        "plugin.scripting.native_binaries.ensure_native_binaries_on_path",
+        lambda: None,
+    )
+
+    def raising_calc_menu(_ctx):
+        raise RuntimeError("calc menu exploded")
+
+    monkeypatch.setattr(
+        "plugin.calc.python.editor_context_menu.install_calc_cell_context_menu",
+        raising_calc_menu,
+    )
+    notebook_wired = []
+    monkeypatch.setattr(
+        "plugin.notebook.notebook_controls.install_notebook_run_button_wiring",
+        lambda _ctx: notebook_wired.append(True),
+    )
+    try:
+        main_core.bootstrap(MagicMock())
+        assert get_action_handler("scripting.run_python_dialog") is not None
+        assert notebook_wired == [True]
+    finally:
+        main_core._initialized = False
+        main_core._bootstrapping = False
+
