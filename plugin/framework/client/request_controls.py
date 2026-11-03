@@ -486,9 +486,12 @@ class RetryBudget:
                     http_security.secrets_from_target(path),
                 )
                 self.body_in_hand = False
+                # True once this iteration has already spent one attempt on a non-200.
                 attempt_charged = False
                 try:
                     transport._raise_if_stopped(cancel)
+                    # A custom sender is bound to the caller's connection. After a
+                    # cross-origin redirect, send() on this transport uses the new host.
                     if sender is not None and transport._redirect_origin is None:
                         response = sender(method, path, body, wire_headers, cancel=cancel, status_callback=self._status_callback)
                     else:
@@ -502,6 +505,10 @@ class RetryBudget:
                         )
                     status = int(getattr(response, "status", 0) or 0)
                     if status in http_security._REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
+                        # A CDN 301/302/307 is not a failure. Image URLs, TTS audio,
+                        # catalogs, and update checks follow Location. One hop
+                        # rewrites method/body, then loops. The retry budget is
+                        # for 429/503, not for a redirect the server asked for.
                         current_url = transport._absolute_url(path)
                         hop = http_security._apply_redirect(
                             method,
@@ -586,6 +593,11 @@ class RetryBudget:
                             code="CONNECTION_LOST",
                             details={"url": http_security.public_target(path)},
                         ) from exc
+                    # handle_http_status reads the error body, and that read can
+                    # raise IncompleteRead, a reset, or a timeout. The non-200
+                    # branch above already decremented sends_left. Charging
+                    # again would consume two of the three attempts for one
+                    # failed read, and the last try would never run.
                     if not attempt_charged:
                         self.sends_left -= 1
                     action = transport.handle_connection_error(
@@ -675,9 +687,15 @@ class RetryBudget:
                         return "stop"
                     continue
             except CONNECTION_ERRORS as exc:
+                # stop() closes the socket, so the blocked read raises here.
+                # Looking only at emitted_any reported Stop after the first
+                # token as CONNECTION_LOST. A latched Stop (or cancel scope)
+                # is a user cancel, same as the pre-token path. A real drop
+                # still refuses retry once any token reached the UI.
                 if self.stopped():
                     transport.close()
                     return "stop"
+                # A retry after tokens already reached the UI would duplicate text.
                 if self.emitted_any:
                     transport.close()
                     raise NetworkError(format_error_message(exc), code="CONNECTION_LOST", details={"url": path}) from exc

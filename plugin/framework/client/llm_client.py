@@ -216,6 +216,8 @@ class LlmClient:
         self.ctx = ctx
         self._transport = LlmHttpTransport(self._endpoint, self._timeout, openrouter_getter=lambda: bool(self.config.get("is_openrouter")))
         self._shims: dict[str, BaseProviderShim] = {}
+        # Stop before the first byte: close() alone is a no-op when sock is None;
+        # the worker must not open a new connection (B13 / llm_request_lane).
         self._owned = SendCancellation()
         self._inflight = None
         scope = cancel
@@ -417,6 +419,8 @@ class LlmClient:
             return next_body
 
         try:
+            # Same exchange as catalog and speech. Stop, timeout, retry, and
+            # redaction are not a second loop here.
             result = self._transport.exchange(
                 method,
                 path,
@@ -611,6 +615,8 @@ class LlmClient:
         log.info("=== Starting streaming loop (persistent) ===")
         log.debug("Request Path: %s" % path)
 
+        # Do not clear cancellation here — that races with stop() on another thread
+        # (B13). UI clears via ``clear_stop()`` at the start of a new send.
         active = self._activate(cancel)
         self._inflight = active
         if active.is_cancelled():
@@ -649,12 +655,25 @@ class LlmClient:
         body = prepared if isinstance(prepared, bytes) else prepared.encode("utf-8")
 
         def consume(response: Any) -> str | None:
+            # on_delta writes role, usage, and a buffered "<think" prefix into
+            # the caller's snapshot before any callback runs. emitted_any stays
+            # false for a usage-only chunk and a partial tag, so an overload or
+            # connection retry would call accumulate_delta again and add
+            # prompt_tokens / completion_tokens and concatenate that prefix.
+            # Drop only that attempt, and only while nothing has been shown.
+            # Once emitted_any is set this does not run, so shown text stays.
+            # The first call clears an empty snapshot; a later call drops the
+            # failed attempt before the next send.
             if not budget.emitted_any and reset_unemitted_attempt is not None:
                 reset_unemitted_attempt()
             last_finish_reason: str | None = None
+            # Set only when the SSE loop finishes without an error or Stop.
+            # The finally block drains solely in that case.
             clean_finish = False
             try:
+                # Use a flag to stop logical processing but keep reading to exhaust the stream
                 content_finished = False
+                # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                 last_contents: collections.deque[str] = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
                 think_tag_splitter = ThinkTagStreamSplitter()
                 requested_model = request_model_from_body(body)
@@ -668,6 +687,9 @@ class LlmClient:
                         continue
 
                     try:
+                        # Same strict parser as sync chat and catalog. A
+                        # truncated SSE line is skipped, not repaired into
+                        # a finished chunk.
                         chunk = parse_strict_json(payload)
                     except NetworkError as decode_err:
                         if getattr(decode_err, "code", None) != "BAD_RESPONSE":
@@ -676,6 +698,9 @@ class LlmClient:
                             log.exception("streaming_loop: JSON decode error in payload: %s", payload)
                         continue
 
+                    # Valid JSON that is not an object (array / string / number) is not a
+                    # chat chunk. .get would raise and abort the stream; skip so later
+                    # well-formed chunks can still apply.
                     if type(chunk) is not dict:
                         continue
 
@@ -693,13 +718,18 @@ class LlmClient:
                     if content_finished:
                         continue
 
+                    # stop() cancels the scope and closes the socket, but http.client
+                    # can already have buffered SSE lines. Checking is_cancelled here
+                    # avoids parsing buffered lines and passing them to on_content.
                     if active.is_cancelled():
                         log.debug("streaming_loop: Stop requested.")
                         last_finish_reason = "stop"
                         content_finished = True
+                        # Close connection immediately on stop so response.read() does not block.
                         self._close_connection()
                         break
 
+                    # Check for mid-stream provider error objects inside a 200 stream.
                     stream_err = stream_error_message(chunk)
                     if stream_err is not None:
                         api_key = str(self.config.get("api_key") or "").strip()
@@ -709,12 +739,21 @@ class LlmClient:
                             raise StreamOverload(stream_err)
                         raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
 
+                    # Grok/xAI sends a final chunk with empty choices + usage.
+                    # Anthropic SSE events have no choices array; dropping them
+                    # discarded text_delta and tool_use before the shim could parse.
+                    # Usage-only chunks still reach on_delta so request_with_tools
+                    # can fill its usage field. They are not emitted text.
                     if not _chunk_should_parse(chunk):
                         if usage_obj and on_delta:
                             on_delta({"usage": usage_obj})
                         continue
 
                     content, finish_reason, thinking, delta = self._get_shim().parse_response_chunk(chunk, stream_state)
+                    # Keep the provider's parsed SSE shape before normalization. Some
+                    # OpenAI-compatible routes have appeared to continue one function's
+                    # arguments under a new tool-call index; the completed snapshot alone
+                    # cannot tell whether that index came from the wire or our accumulator.
                     raw_tool_calls = delta.get("tool_calls") if isinstance(delta, dict) else None
                     if raw_tool_calls is not None:
                         log.debug(
@@ -726,12 +765,16 @@ class LlmClient:
                             json.dumps(raw_tool_calls, ensure_ascii=False),
                         )
 
+                    # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"
                     if finish_reason == "error":
                         from plugin.framework.i18n import _
 
                         raise NetworkError(_("Stream ended with finish_reason=error"), code="STREAM_ERROR")
 
                     if thinking:
+                        # A reasoning delta still reaches on_delta even when
+                        # on_thinking is missing. Count those bytes, or a
+                        # socket drop retries text the UI already has.
                         budget.note_emitted()
                         if on_thinking:
                             on_thinking(thinking)
@@ -739,6 +782,9 @@ class LlmClient:
                         pieces = think_tag_splitter.feed(content)
                         for is_think, text_piece in pieces:
                             if is_think:
+                                # <think> text must set emitted_any. A drop during
+                                # the reasoning block would otherwise retry
+                                # and duplicate it.
                                 if text_piece:
                                     budget.note_emitted()
                                     if on_thinking:
@@ -748,6 +794,7 @@ class LlmClient:
                                     budget.note_emitted()
                                 if on_content:
                                     on_content(text_piece)
+                                # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
                                 last_contents.append(text_piece)
                                 if (
                                     len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT
@@ -761,13 +808,23 @@ class LlmClient:
                                         code="INFINITE_LOOP",
                                     )
                     if raw_tool_calls:
+                        # Tool-call deltas still call on_delta, and
+                        # accumulate_delta concatenates function.name and
+                        # arguments onto a snapshot created outside the
+                        # retry loop. A socket drop after those chunks would
+                        # merge a second copy of the call. Count tool-call
+                        # bytes like emitted text so the retry branch raises
+                        # CONNECTION_LOST. Do not clear or replay the
+                        # snapshot; callbacks have already run.
                         budget.note_emitted()
                     outgoing: dict[str, Any] | None = delta if isinstance(delta, dict) else None
+                    # Preserve normalized usage already present on the delta before checking chunk usage.
                     shim_usage = outgoing.get("usage") if isinstance(outgoing, dict) else None
                     if usage_obj and not (isinstance(shim_usage, dict) and shim_usage):
                         outgoing = dict(outgoing or {})
                         outgoing["usage"] = usage_obj
                     if outgoing and on_delta:
+                        # on_delta receives this normalized delta; do not normalize twice.
                         normalize_delta(outgoing)
                         if chunk_model and "model" not in outgoing:
                             outgoing["model"] = str(chunk_model)
@@ -784,6 +841,12 @@ class LlmClient:
                         log.debug("streaming_loop: logical finish_reason=%s" % finish_reason)
                         last_finish_reason = finish_reason
 
+                # iterate_sse finishes quietly on EOF, so a socket that
+                # closed early looked like a successful answer with
+                # finish_reason None. A missing [DONE] / finish_reason
+                # is a drop. Raise a real connection error so the outer
+                # loop can retry (if nothing was emitted) or surface
+                # CONNECTION_LOST.
                 if not content_finished and not last_finish_reason:
                     if active.is_cancelled():
                         last_finish_reason = "stop"
@@ -799,6 +862,12 @@ class LlmClient:
                     last_finish_reason,
                 )
 
+                # Flush any trailing buffered text from the think tag splitter
+                # (trailing buffer contains small tag prefix remnants like '<' at EOF).
+                # The splitter holds at most a tag prefix. Flushing after Stop
+                # would still call on_content for a partial "<think". A
+                # completed stream still needs the flush; Stop must not
+                # paint that prefix into the sidebar.
                 if not active.is_cancelled():
                     for is_think, text_piece in think_tag_splitter.flush():
                         if is_think and text_piece:
@@ -811,6 +880,13 @@ class LlmClient:
                             on_content(text_piece)
                 clean_finish = not active.is_cancelled()
             finally:
+                # STREAM_ERROR, INFINITE_LOOP, finish_reason error, and any
+                # other raised stream exception must not fall into
+                # response.read(). That waits out the rest of the generation
+                # (up to request_timeout, holding llm_request_lane). Drain
+                # only after a clean finish so the keep-alive socket can be
+                # reused. Every other exit closes. Stop still skips the
+                # drain (B13).
                 if clean_finish:
                     try:
                         remaining = response.read()
@@ -818,6 +894,7 @@ class LlmClient:
                             log.debug("Consumed extra %d bytes after loop" % len(remaining))
                     except Exception:
                         log.debug("stream trailing read failed", exc_info=True)
+                    # Honor Connection: close so we don't try to reuse when the server closed.
                     self._close_if_connection_close(response)
                 else:
                     try:
@@ -1085,6 +1162,12 @@ class LlmClient:
             cancel=cancel,
             status_callback=status_callback,
         )
+        # request_with_tools reports Stop as an empty assistant message whose
+        # finish_reason is also "stop" — the same finish_reason a normal
+        # completion uses. Deep-research planning treated that "" as a finished
+        # plan and later cached a partial report. Only the cancel scope or the
+        # client latch means the user stopped. No cancel scope: grammar and forms
+        # still receive the historical string, including "".
         if scope is not None and (scope.is_cancelled() or self.stopped()):
             from plugin.framework.errors import ToolExecutionError
 
