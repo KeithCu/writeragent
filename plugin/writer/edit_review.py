@@ -1039,6 +1039,58 @@ def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
     return f"Rewrite the following text according to the instructions below. Output only the rewritten text with no labels, headings, or explanations.\n\nInstructions: {instructions}\n\nText to rewrite:\n{original_text}"
 
 
+# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
+_PARAGRAPH_BREAK = 0
+
+_SCAFFOLD_LINE_PREFIXES = (
+    "ORIGINAL VERSION:",
+    "EDITED VERSION:",
+    "Below is an edited version",
+    "Ci-dessous se trouve une version",
+    "Sous ce texte se trouve une version",
+)
+
+
+def strip_echoed_edit_scaffolding(text: str) -> str:
+    """Remove completion-style markers some models echo into the edited text."""
+    if not text:
+        return text
+    lines = text.split("\n")
+    kept: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped in ("END OF DOCUMENT", "END OF DOCUMENT."):
+            continue
+        if any(stripped.startswith(prefix) for prefix in _SCAFFOLD_LINE_PREFIXES):
+            continue
+        kept.append(line)
+    # Do not strip the whole result: a whitespace-only rewrite is valid edited text.
+    result = "\n".join(kept)
+    for trailer in ("END OF DOCUMENT.", "END OF DOCUMENT"):
+        if result.endswith(trailer):
+            result = result[: -len(trailer)].rstrip()
+    return result
+
+
+def _replace_range_with_paragraph_text(text_range: Any, text: str) -> None:
+    """Write *text* into *text_range*, mapping each ``\\n`` to a real paragraph break.
+
+    ``setString`` on a multi-paragraph range turns ``\\n`` into line breaks inside one
+    paragraph; slash whole-document proofread needs separate paragraphs preserved.
+    """
+    text_obj = text_range.getText()
+    cursor = text_obj.createTextCursorByRange(text_range)
+    cursor.setString("")
+    if not text:
+        return
+    parts = text.split("\n")
+    cursor.setString(parts[0])
+    for part in parts[1:]:
+        cursor.gotoEnd(False)
+        text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        cursor.setString(part)
+
+
 _BLOCKING_REDLINE_TYPES = frozenset({"Insert", "Delete"})
 
 # Shown by the Extend/Edit Selection message box.
@@ -1308,9 +1360,18 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
 
     generated_text: str
 
-    def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False) -> None:
+    def __init__(
+        self,
+        doc: Any,
+        text_range: Any,
+        original_text: str,
+        track_reviewable: bool = False,
+        *,
+        preserve_paragraph_breaks: bool = False,
+    ) -> None:
         super().__init__(doc, text_range, original_text, track_reviewable=track_reviewable)
         self.generated_text = ""
+        self.preserve_paragraph_breaks: bool = preserve_paragraph_breaks
 
         log.info("WriterStreamedRewriteSession: was_recording=%s, compound_undo open=%s", self.was_recording, self._compound_undo._open)
         try:
@@ -1325,7 +1386,10 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
         if not chunk:
             return
         self.generated_text += chunk
-        _write_stream_chunk(self, self.generated_text, "streamed rewrite")
+        if self.preserve_paragraph_breaks:
+            return
+        cleaned = strip_echoed_edit_scaffolding(self.generated_text)
+        _write_stream_chunk(self, cleaned, "streamed rewrite")
 
     def finish(self) -> str | None:
         """Finalize the rewrite. Returns a warning message on degraded success."""
@@ -1334,10 +1398,20 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
                 self.abort_and_restore()
                 return _stream_write_warning(self.last_write_error)
 
+            final_text = strip_echoed_edit_scaffolding(self.generated_text)
+            if self.preserve_paragraph_breaks:
+                _write_stream_chunk(self, final_text, "streamed rewrite")
+
+            def _collapse() -> None:
+                if self.preserve_paragraph_breaks:
+                    _replace_range_with_paragraph_text(self.text_range, final_text)
+                else:
+                    self.text_range.setString(final_text)
+
             return self._finish_collapse(
                 label="streamed rewrite",
-                collapse_fn=lambda: self.text_range.setString(self.generated_text),
-                fallback_text=self.generated_text,
+                collapse_fn=_collapse,
+                fallback_text=final_text,
                 fallback_desc="restore generated text failed",
                 fallback_err_msg=_("Failed to finalize the tracked edit and preserve the generated text: {0}"),
                 success_msg=_(

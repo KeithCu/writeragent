@@ -187,6 +187,14 @@ def do_edit_selection(
     if target is None:
         return
     text_range, original_text = target
+    preserve_paragraph_breaks = bool(
+        allow_whole_document and preset_instruction is not None and "\n" in original_text
+    )
+    if preserve_paragraph_breaks:
+        user_input = (
+            user_input
+            + " Preserve paragraph breaks; separate paragraphs with a single newline character."
+        )
 
     if preset_instruction is not None:
         client = create_validated_client(ctx, title)
@@ -202,8 +210,11 @@ def do_edit_selection(
 
     record_agent_turn_before(model)
     session = WriterStreamedRewriteSession(
-        model, text_range, original_text,
+        model,
+        text_range,
+        original_text,
         track_reviewable=review_recording_enabled(),
+        preserve_paragraph_breaks=preserve_paragraph_breaks,
     )
     assert client is not None
     _stream_into_session(ctx, title, client, prompt, system_prompt, max_tokens, session)

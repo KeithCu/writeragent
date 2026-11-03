@@ -295,7 +295,7 @@ def _format_instruction(cmd: SlashCommand, arg: str) -> str:
     if "{arg}" in base:
         return base.format(arg=arg)
     if arg:
-        return base + " " + arg
+        return base + " " + _("Additional instruction: {0}").format(arg)
     return base
 
 

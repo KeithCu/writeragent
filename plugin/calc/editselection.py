@@ -19,7 +19,8 @@
 
 from typing import Any
 
-from plugin.calc.calc_utils import TEXT
+from plugin.calc.calc_utils import FORMULA, TEXT
+from plugin.writer.edit_review import build_writer_rewrite_prompt, strip_echoed_edit_scaffolding
 from plugin.chatbot.dialogs import msgbox
 from plugin.chatbot.selection import ApplyChunkFn, ErrorFn, StreamCompletionTask, create_validated_client, prompt_for_edit_instructions, stream_completion_tasks
 from plugin.doc.compound_undo import WriterCompoundUndo
@@ -29,16 +30,6 @@ from plugin.framework.i18n import _
 
 # Caps queued LLM tasks so a huge selection cannot queue minutes of requests.
 _MAX_CELLS = 250
-
-
-def _build_calc_edit_prompt(original: str, instructions: str) -> str:
-    return (
-        "ORIGINAL VERSION:\n"
-        + original
-        + "\n Below is an edited version according to the following instructions. Don't waste time thinking, be as fast as you can. The edited text will be a shorter or longer version of the original text based on the instructions. There are no comments in the edited version. The edited version is followed by the end of the document. The original version will be edited as follows to create the edited version:\n"
-        + instructions
-        + "\nEDITED VERSION:\n"
-    )
 
 
 def do_calc_extend_edit(
@@ -99,12 +90,18 @@ def do_calc_extend_edit(
             cell_text = "" if raw_val is None else str(raw_val)
             if not cell_text:
                 continue
+            col_abs = start_col + c_i
+            row_abs = start_row + r_i
+            if is_edit:
+                cell = sheet.getCellByPosition(col_abs, row_abs)
+                if cell.getType() == FORMULA:
+                    continue
             tasks.append(
                 StreamCompletionTask(
-                    _build_calc_edit_prompt(cell_text, user_input) if is_edit else cell_text,
+                    build_writer_rewrite_prompt(cell_text, user_input) if is_edit else cell_text,
                     edit_sys if is_edit else extend_sys,
                     len(cell_text) + edit_max if is_edit else extend_max,
-                    (start_col + c_i, start_row + r_i, cell_text if is_edit else None),
+                    (col_abs, row_abs, cell_text if is_edit else None),
                 )
             )
         if len(tasks) >= _MAX_CELLS:
@@ -144,7 +141,7 @@ def do_calc_extend_edit(
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
                 accumulated_text[0] += chunk_text
-                _write_cell(accumulated_text[0])
+                _write_cell(strip_echoed_edit_scaffolding(accumulated_text[0]))
 
         def on_error(e: BaseException) -> None:
             if original is not None:
