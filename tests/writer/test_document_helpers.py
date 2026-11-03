@@ -176,11 +176,29 @@ def test_writer_streamed_rewrite_session_abort_empty_does_not_undo_previous_edit
     # the top undo title is the user's previous action, not the session title.
     doc.undo.discard_empty_context = True
     doc.undo.titles = ["Typing: hello"]
+    session.append_chunk("Partial")
     session.abort_and_restore()
 
     assert doc.undo.undone is False
     assert doc.undo.titles == ["Typing: hello"]
+    assert text_range.getString() == "Original"
     assert doc.getPropertyValue("RecordChanges") is True
+
+
+def test_writer_streamed_rewrite_session_abort_does_not_undo_prior_same_title_on_stack():
+    """Top title matching our session title is not enough; the stack must have changed."""
+    doc = _MockDoc(recording=True)
+    text_range = _MutableTextRange()
+    doc.undo.discard_empty_context = True
+    doc.undo.titles = ["WriterAgent: Edit selection"]
+
+    session = WriterStreamedRewriteSession(doc, text_range, "Original")
+    session.append_chunk("Partial")
+    session.abort_and_restore()
+
+    assert doc.undo.undone is False
+    assert doc.undo.titles == ["WriterAgent: Edit selection"]
+    assert text_range.getString() == "Original"
 
 
 def test_writer_streamed_rewrite_session_fallback_keeps_generated_text():

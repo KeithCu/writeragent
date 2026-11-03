@@ -12,7 +12,20 @@ import logging
 import os
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Protocol
+
+SendOutcome = Literal["ready", "error", "stopped"]
+
+_OUTCOME_TO_TERMINAL: dict[SendOutcome, str] = {
+    "ready": "Ready",
+    "error": "Error",
+    "stopped": "Stopped",
+}
+_TERMINAL_TO_OUTCOME: dict[str, SendOutcome] = {
+    "Ready": "ready",
+    "Error": "error",
+    "Stopped": "stopped",
+}
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
@@ -262,6 +275,7 @@ class TurnController:
     active_execute_tool_fn: Callable[..., Any] | None
     active_query_text: str | None
     active_supports_status: bool
+    outcome: SendOutcome | None
 
     def __init__(
         self,
@@ -292,6 +306,7 @@ class TurnController:
         self.active_execute_tool_fn = None
         self.active_query_text = None
         self.active_supports_status = False
+        self.outcome = None
 
     def same_messages(self) -> bool:
         """Clear replaces the list. A write against the old list must not land."""
@@ -485,7 +500,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     # drop that tail. A successful rerender already replaced it from the
     # session.
     replaced = False
-    if getattr(listener, "_terminal_status", None) != "Error" and allow_rerender:
+    if not send_outcome_is_error(listener) and allow_rerender:
         rerender = getattr(listener, "rerender_rich_text_session", None)
         if callable(rerender):
             replaced = rerender() is True
@@ -502,7 +517,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     # close_stopped only persisted the line on session.messages, so the
     # control never drew [Stopped by user].
     stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
-    if stop_requested and getattr(listener, "_terminal_status", None) != "Error":
+    if stop_requested and not send_outcome_is_error(listener):
         if turn is not None:
             if turn._stop_banner_appended:
                 return
@@ -523,6 +538,45 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
                 set_control_text(control, cur + _STOP_LINE)
 
 
+def assign_send_outcome(host: Any, terminal: str) -> None:
+    """Record how this send ended. Empty terminal means an earlier path already explained itself."""
+    if terminal == "":
+        outcome: SendOutcome | None = None
+    else:
+        outcome = _TERMINAL_TO_OUTCOME.get(terminal, "ready")
+    turn = current_turn(host)
+    if turn is not None:
+        turn.outcome = outcome
+    else:
+        host._orphan_send_outcome = outcome
+
+
+def send_outcome_terminal_display(host: Any) -> str:
+    """Map the turn outcome to the status-line literals ``_close_turn_ui`` expects."""
+    turn = current_turn(host)
+    if turn is not None:
+        oc = turn.outcome
+    else:
+        oc = getattr(host, "_orphan_send_outcome", None)
+    if oc is None:
+        return ""
+    return _OUTCOME_TO_TERMINAL[oc]
+
+
+def send_outcome_is_error(host: Any) -> bool:
+    turn = current_turn(host)
+    if turn is not None:
+        return turn.outcome == "error"
+    return getattr(host, "_orphan_send_outcome", None) == "error"
+
+
+def send_outcome_is_stopped(host: Any) -> bool:
+    turn = current_turn(host)
+    if turn is not None:
+        return turn.outcome == "stopped"
+    return getattr(host, "_orphan_send_outcome", None) == "stopped"
+
+
 def abort_turn(host: Any) -> None:
     """Stop, a mode change, or dispose. The host still names this turn until ``drop_turn``."""
     turn = current_turn(host)
@@ -535,6 +589,8 @@ def drop_turn(host: Any) -> None:
     turn = current_turn(host)
     if turn is None:
         return
+    if turn.outcome is not None:
+        host._orphan_send_outcome = turn.outcome
     turn.abort()
     host._turn = None
 
@@ -550,6 +606,10 @@ def begin_send_turn(host: Any) -> TurnController:
         previous.abort()
     session = getattr(host, "session", None)
     turn = TurnController(session)
+    orphan = getattr(host, "_orphan_send_outcome", None)
+    if orphan is not None:
+        turn.outcome = orphan
+        host._orphan_send_outcome = None
     host._turn = turn
     return turn
 
@@ -731,7 +791,6 @@ class ToolLoopActionHost(Protocol):
     session: Any
     image_model_selector: Any
     audio_wav_path: str | None
-    _terminal_status: str
     _tool_calling: Any
     _tool_loop_interpreter: Any
     rich_text_widget: Any
@@ -943,7 +1002,7 @@ class ToolLoopEffectInterpreter:
 
         def _fail(message: str) -> bool:
             host._append_response(message)
-            host._terminal_status = "Error"
+            assign_send_outcome(host, "Error")
             host._set_status("Error")
             return True
 
@@ -973,7 +1032,7 @@ class ToolLoopEffectInterpreter:
         elif effect.kind == UIEffectKind.STATUS:
             host._set_status(effect.text)
             if effect.text in ("Stopped", "Ready", "Error"):
-                host._terminal_status = effect.text
+                assign_send_outcome(host, effect.text)
         elif effect.kind == UIEffectKind.TOOL_RUNNING:
             status_text, run_line = format_tool_running_ui(effect.func_name, effect.func_args or {})
             host._set_status(status_text)

@@ -28,7 +28,8 @@ class DummyChatbotPanel(SendHandlersMixin):
         self.responses = []
         self.thinking_flags = []
         self.status_history = []
-        self._terminal_status = None
+        self._orphan_send_outcome = None
+        self._turn = None
         from plugin.chatbot.panel_voice import PanelVoiceController
         self._voice = PanelVoiceController(self)
         self.audio_wav_path = None
@@ -50,6 +51,18 @@ class DummyChatbotPanel(SendHandlersMixin):
 
         self.base_size_input = MagicMock()
         self.base_size_input.getText.return_value = "1024"
+
+    @property
+    def _terminal_status(self) -> str:
+        from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
+
+        return send_outcome_terminal_display(self)
+
+    @_terminal_status.setter
+    def _terminal_status(self, value: str) -> None:
+        from plugin.chatbot.tool_loop_actions import assign_send_outcome
+
+        assign_send_outcome(self, "" if value is None else value)
 
     def _append_response(self, text, is_thinking=False, role="assistant"):
         self.responses.append(text)

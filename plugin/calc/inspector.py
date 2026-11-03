@@ -34,7 +34,7 @@ from plugin.calc.calc_utils import cell_value_and_type
 from plugin.framework.errors import CalcError, is_disposed_exception
 from plugin.scripting.config_limits import configured_python_max_data_cells
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 _CELL_FLAG_DATETIME = 2
 FormatSpan: TypeAlias = tuple[int, int, str, str | None]

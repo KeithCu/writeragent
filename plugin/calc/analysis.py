@@ -39,7 +39,7 @@ from plugin.scripting.helper_registry import names
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 
 # Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit

@@ -43,7 +43,7 @@ from plugin.framework.uno_listeners import (
 )
 from plugin.scripting.editor_errors import exception_traceback, failure_message
 
-log = logging.getLogger("writeragent.scripting")
+log = logging.getLogger(__name__)
 
 _active: NativePythonCellEditorDialog | None = None
 

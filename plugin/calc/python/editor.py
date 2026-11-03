@@ -47,7 +47,7 @@ from plugin.scripting.editor_host import (
 )
 from plugin.scripting.editor_errors import editor_error_markers, failure_message
 
-log = logging.getLogger("writeragent.scripting")
+log = logging.getLogger(__name__)
 
 
 def _cell_formula_strings(cell: Any) -> list[str]:

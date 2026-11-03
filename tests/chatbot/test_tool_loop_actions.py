@@ -57,7 +57,7 @@ class FakeHost:
         self.session = FakeSession()
         self.image_model_selector = None
         self.audio_wav_path = None
-        self._terminal_status = "Ready"
+        self._orphan_send_outcome = None
         self.appended = []
         self.statuses = []
         self.refreshed_tools = 0
@@ -165,6 +165,18 @@ class FakeHost:
         turn = current_turn(self)
         if turn is not None:
             turn.active_supports_status = value
+
+    @property
+    def _terminal_status(self) -> str:
+        from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
+
+        return send_outcome_terminal_display(self)
+
+    @_terminal_status.setter
+    def _terminal_status(self, value: str) -> None:
+        from plugin.chatbot.tool_loop_actions import assign_send_outcome
+
+        assign_send_outcome(self, "" if value is None else value)
 
     @property
     def _active_q(self):
@@ -1891,4 +1903,37 @@ def test_update_activity_state_effect_calls_update_activity_state():
     with patch("plugin.chatbot.tool_loop_actions.update_activity_state") as mock_update:
         interpreter.execute(UpdateActivityStateEffect(round_num=3, tool_name="test_tool"))
         mock_update.assert_called_once_with("tool_execute", round_num=3, tool_name="test_tool")
+
+
+def test_assign_send_outcome_on_turn_and_orphan():
+    from plugin.chatbot.tool_loop_actions import (
+        TurnController,
+        assign_send_outcome,
+        begin_send_turn,
+        send_outcome_is_error,
+        send_outcome_is_stopped,
+        send_outcome_terminal_display,
+    )
+
+    host = FakeHost()
+    assign_send_outcome(host, "Error")
+    assert send_outcome_terminal_display(host) == "Error"
+    assert send_outcome_is_error(host)
+
+    host2 = type("H", (), {"_turn": None, "_orphan_send_outcome": None})()
+    assign_send_outcome(host2, "Stopped")
+    assert send_outcome_terminal_display(host2) == "Stopped"
+    assert send_outcome_is_stopped(host2)
+
+    assign_send_outcome(host2, "")
+    assert send_outcome_terminal_display(host2) == ""
+
+    turn = TurnController(None)
+    turn.outcome = "ready"
+    assert send_outcome_terminal_display(type("H2", (), {"_turn": turn, "_orphan_send_outcome": None})()) == "Ready"
+
+    host3 = FakeHost()
+    host3._orphan_send_outcome = "ready"
+    turn3 = begin_send_turn(host3)
+    assert turn3.outcome == "ready"
 

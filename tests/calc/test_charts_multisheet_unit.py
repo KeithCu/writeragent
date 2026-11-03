@@ -844,12 +844,12 @@ def test_styling_logging_counts_not_payloads(caplog):
     chart_data = MagicMock()
     chart_doc.getData.return_value = chart_data
 
-    with caplog.at_level(logging.INFO, logger="writeragent.calc"):
+    with caplog.at_level(logging.INFO, logger="plugin.calc.charts"):
         _apply_chart_data_arrays(chart_doc, ["Cat", "Val"], [["SecretDistinctCellXYZ", 999.0]])
     assert "SecretDistinctCellXYZ" not in caplog.text
 
     # At DEBUG, first row may be inspected
-    with caplog.at_level(logging.DEBUG, logger="writeragent.calc"):
+    with caplog.at_level(logging.DEBUG, logger="plugin.calc.charts"):
         _apply_chart_data_arrays(chart_doc, ["Cat", "Val"], [["SecretDistinctCellXYZ", 999.0]])
     assert "SecretDistinctCellXYZ" in caplog.text
 

@@ -227,7 +227,7 @@ def test_apply_axis_title_does_not_log_success_without_string(caplog):
         def getDiagram(self) -> _Diagram:
             return _Diagram()
 
-    caplog.set_level(logging.DEBUG, logger="writeragent.calc")
+    caplog.set_level(logging.DEBUG, logger="plugin.calc.charts")
     _apply_chart_styling(_Chart(), x_axis_title="Sales")
     assert "Set X axis title" not in caplog.text
 
