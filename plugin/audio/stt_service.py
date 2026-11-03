@@ -30,7 +30,8 @@ from typing import Any, Callable
 from plugin.framework.config import get_config
 from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.i18n import _
-from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.framework.subprocess_env import scrub_subprocess_env
+from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)
 

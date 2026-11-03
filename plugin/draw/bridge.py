@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 from plugin.doc import text_helpers as _text_helpers
-from plugin.doc.doc_type import is_impress
+from plugin.framework.doc_type import is_impress
 from plugin.framework.constants import truncate_chat_context
 from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, check_disposed, is_disposed_exception, is_real_disposal, safe_call, uno_probe, uno_read
 from plugin.framework.thread_guard import main_thread_only

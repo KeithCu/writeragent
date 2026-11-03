@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from plugin.scripting.ipc import HOST_PICKLE_LEAF_TYPES
+from plugin.framework.ipc import HOST_PICKLE_LEAF_TYPES
 from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME, is_image_payload, is_split_grid
 from plugin.scripting.venv.to_wire import to_wire
 

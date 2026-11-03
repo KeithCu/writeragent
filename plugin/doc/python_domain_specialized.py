@@ -33,7 +33,7 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
-from plugin.doc.doc_type import agent_label_for_context
+from plugin.framework.doc_type import agent_label_for_context
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.queue_executor import run_on_main
 from plugin.framework.tool import ToolBase, ToolContext

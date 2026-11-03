@@ -259,17 +259,16 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         )
     else:
         data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
-    from plugin.scripting.import_policy import (
-        format_matplotlib_plot_hint,
-        format_units_helper_hint,
-        format_venv_import_policy_for_prompt,
-    )
-
-    policy = format_venv_import_policy_for_prompt(compact=False)
-
-    plot_hint = format_matplotlib_plot_hint(doc_type=agent_label.lower())
+    if (
+        _python_sub_agent_policy is None
+        or _python_sub_agent_plot_hint is None
+        or _python_sub_agent_units_hint is None
+    ):
+        raise RuntimeError("python sub-agent prompt helpers are not registered")
+    policy = _python_sub_agent_policy()
+    plot_hint = _python_sub_agent_plot_hint(agent_label.lower())
     plot_suffix = f" {plot_hint}" if plot_hint else ""
-    units_hint = format_units_helper_hint()
+    units_hint = _python_sub_agent_units_hint()
     if agent_label == "Calc":
         domain_examples = "sheets, ranges, charts"
     elif agent_label == "Draw":
@@ -854,6 +853,9 @@ _prompt_catalog_delegation_hint: Callable[..., str] | None = None
 _prompt_catalog_domain_description: Callable[..., str] | None = None
 _system_prompt_blocks: dict[str, Callable[..., str]] = {}
 _python_prompt_extras: Callable[[str], str] | None = None
+_python_sub_agent_policy: Callable[[], str] | None = None
+_python_sub_agent_plot_hint: Callable[[str], str] | None = None
+_python_sub_agent_units_hint: Callable[[], str] | None = None
 
 
 def set_prompt_catalog(
@@ -874,6 +876,17 @@ def set_system_prompt_block(name: str, fn: Callable[..., str]) -> None:
 def set_python_prompt_extras(fn: Callable[[str], str] | None) -> None:
     global _python_prompt_extras
     _python_prompt_extras = fn
+
+
+def set_python_sub_agent_prompt_helpers(
+    policy_fn: Callable[[], str],
+    plot_hint_fn: Callable[[str], str],
+    units_hint_fn: Callable[[], str],
+) -> None:
+    global _python_sub_agent_policy, _python_sub_agent_plot_hint, _python_sub_agent_units_hint
+    _python_sub_agent_policy = policy_fn
+    _python_sub_agent_plot_hint = plot_hint_fn
+    _python_sub_agent_units_hint = units_hint_fn
 
 
 def _require_prompt_catalog() -> tuple[

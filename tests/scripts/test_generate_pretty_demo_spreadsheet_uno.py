@@ -12,7 +12,7 @@ from pathlib import Path
 
 import uno
 
-from plugin.doc.doc_type import is_calc
+from plugin.framework.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test
 from plugin.writer.format import create_property_value

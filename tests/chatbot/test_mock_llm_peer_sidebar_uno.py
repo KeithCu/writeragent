@@ -71,7 +71,7 @@ def _setup_peer(ctx):
         desktop_from_ctx,
         ensure_sidebar_chat_mode,
     )
-    from plugin.doc.doc_type import is_writer
+    from plugin.framework.doc_type import is_writer
     from plugin.framework.uno_context import get_runtime_uid
 
     # Point JSON at the mock before showing either deck.

@@ -99,6 +99,10 @@ def _headless_registry() -> ToolRegistry:
     tools = ToolRegistry(services)
     services.register("tools", tools)
 
+    from plugin.writeragent_hooks import register_writeragent_chat_tooling
+
+    register_writeragent_chat_tooling(tools)
+
     WriterModule().initialize(services)
     CalcModule().initialize(services)
     DrawModule().initialize(services)

@@ -47,7 +47,7 @@ import shutil
 import tempfile
 from typing import Any, NamedTuple
 
-from plugin.doc.doc_type import is_impress
+from plugin.framework.doc_type import is_impress
 from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_directory_path, _should_skip_filename
 from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.design_look import derive_otp_look

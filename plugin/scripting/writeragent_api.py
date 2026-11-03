@@ -44,7 +44,7 @@ def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:
                 setattr(err, "code", code)
             raise err from e
 
-    from plugin.scripting.ipc import exchange_tool_call
+    from plugin.framework.ipc import exchange_tool_call
 
     return exchange_tool_call(tool_name, kwargs)
 

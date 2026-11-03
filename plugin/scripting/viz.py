@@ -18,7 +18,7 @@ import os
 from typing import Any, cast
 
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.doc.doc_type import is_calc, is_draw, is_writer
+from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.scripting.helper_registry import names
 from plugin.scripting.payload_codec import (
     find_image_payloads,

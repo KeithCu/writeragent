@@ -552,7 +552,7 @@ def test_speed_zero_is_kept(tmp_path, monkeypatch):
 
 
 def test_stdio_loop_exits_on_bad_length_prefix(tmp_path):
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
 
     marker_file = tmp_path / "called.txt"
     script = tmp_path / "worker.py"
@@ -587,7 +587,7 @@ def test_stdio_loop_exits_on_bad_length_prefix(tmp_path):
 
 
 def test_stdio_loop_continues_after_handler_error(tmp_path):
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
 
     script = tmp_path / "worker_err.py"
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -631,7 +631,7 @@ def test_stdio_loop_continues_after_handler_error(tmp_path):
 
 
 def test_stdio_loop_claim_keeps_fd1_off_the_frame(tmp_path):
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
 
     script = tmp_path / "worker_noise.py"
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

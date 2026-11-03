@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unit tests for plugin.doc.doc_type."""
+"""Unit tests for plugin.framework.doc_type."""
 
 import types
 from unittest.mock import patch
 
 import pytest
 
-from plugin.doc.doc_type import (
+from plugin.framework.doc_type import (
     CALC_DOCUMENT_SERVICE,
     DOCUMENT_SERVICES,
     DRAW_DOCUMENT_SERVICE,

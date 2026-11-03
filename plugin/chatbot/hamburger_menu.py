@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.doc.doc_type import is_calc, is_draw, is_writer
+from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler

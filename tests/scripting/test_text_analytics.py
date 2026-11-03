@@ -890,7 +890,7 @@ def test_selection_scope_topics_uses_selection_string(monkeypatch):
 
 
 def test_whole_scope_topics_still_uses_sections(monkeypatch):
-    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr("plugin.framework.doc_type.is_writer", lambda doc: True)
 
     class FakeDoc:
         def getCurrentController(self):

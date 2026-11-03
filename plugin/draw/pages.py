@@ -19,7 +19,7 @@
 import logging
 from typing import Any
 
-from plugin.doc.doc_type import is_impress
+from plugin.framework.doc_type import is_impress
 from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.bridge import resolve_page_and_bridge
 from plugin.draw.masters import iter_masters

@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from plugin.doc.doc_type import is_impress
+from plugin.framework.doc_type import is_impress
 from plugin.draw.bridge import DrawBridge, set_notes_text
 from plugin.framework.errors import is_disposed_exception
 

@@ -278,7 +278,7 @@ def _close_extra_calc_docs(ctx, keep) -> int:
 
     Full ``make test-uno`` often still has another factory scalc open.
     """
-    from plugin.doc.doc_type import is_calc
+    from plugin.framework.doc_type import is_calc
     from plugin.framework.uno_context import get_desktop
 
     keep_uid = _runtime_uid(keep)

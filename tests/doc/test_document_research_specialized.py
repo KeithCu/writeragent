@@ -822,7 +822,7 @@ def test_delegate_read_document_opens_file_url_from_listing(
 
 def test_get_open_documents():
     from plugin.doc.document_research import get_open_documents
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     mock_ctx = MagicMock()
     mock_desktop = MagicMock()

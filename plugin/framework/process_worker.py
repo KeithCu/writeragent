@@ -38,7 +38,7 @@ is the gate before a lease or a write. ``run_for`` is the one place a
 pool lifts a short remainder to ``MIN_REQUEST_SEC``.
 A dead slot also refuses to spawn once less than
 ``_MIN_SPAWN_REMAINING_SEC`` is left. The 0.01s floor that keeps
-``select`` off zero lives in ``plugin.scripting.ipc``.
+``select`` off zero lives in ``plugin.framework.ipc``.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ _STDERR_SNIPPET = 500
 # characters. The snippet attached to an error is the last _STDERR_SNIPPET.
 _STDERR_LOG_CAP = 64 * 1024
 # A write, and a pool's decision to lift, is refused below one second.
-# The 0.01s select floor lives in plugin.scripting.ipc, and only for a
+# The 0.01s select floor lives in plugin.framework.ipc, and only for a
 # remainder that is already positive. formula_pool and vision import this.
 MIN_REQUEST_SEC = 1.0
 # usable() still lets a one-second budget through with a short remainder
@@ -129,7 +129,7 @@ class Deadline:
     request still passes after the clock has moved. A longer request with
     under one second left does not. Spawning a dead slot is tighter: see
     ``_spawn_budget``. The 0.01s floor that keeps ``select`` off zero
-    is applied in ``plugin.scripting.ipc`` to a remainder that is already
+    is applied in ``plugin.framework.ipc`` to a remainder that is already
     positive.
     """
 

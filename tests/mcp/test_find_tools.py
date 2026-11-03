@@ -533,7 +533,7 @@ def test_find_tools_suppresses_ppt_master_when_draw_or_impress_doc_is_open():
     The registry still returns those schemas for the open document. Hiding is
     the sidebar-only name filter, which needs doc_type and uno_services.
     """
-    from plugin.doc.doc_type import uno_services_for_doc_type_label
+    from plugin.framework.doc_type import uno_services_for_doc_type_label
     from plugin.framework.tool import ToolContext
     from plugin.ppt_master.tools import (
         ApplyPptMasterNativeEnhance,

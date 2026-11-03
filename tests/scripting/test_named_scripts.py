@@ -637,7 +637,7 @@ def test_rpc_named_librepy_fallback_uses_exchange_tool_call():
         # force it off so this test does not depend on what ran earlier.
         patch.dict("os.environ", {"WRITERAGENT_IS_WORKER": "1", "WRITERAGENT_COMPUTE_WORKER": "0"}),
         patch("builtins.__import__", side_effect=_block_api),
-        patch("plugin.scripting.ipc.exchange_tool_call", return_value={"body": "x"}) as mock_exchange,
+        patch("plugin.framework.ipc.exchange_tool_call", return_value={"body": "x"}) as mock_exchange,
     ):
         result = _rpc_named("get_named_python_script", name="Hello", missing=None)
 
@@ -650,7 +650,7 @@ def test_rpc_named_fails_closed_in_compute_worker():
 
     with (
         patch.dict("os.environ", {"WRITERAGENT_COMPUTE_WORKER": "1"}),
-        patch("plugin.scripting.ipc.exchange_tool_call") as mock_exchange,
+        patch("plugin.framework.ipc.exchange_tool_call") as mock_exchange,
     ):
         with pytest.raises(RuntimeError, match="compute service"):
             _rpc_named("get_named_python_script", name="Hello")

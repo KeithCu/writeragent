@@ -47,6 +47,9 @@ def _prompt_for_kind(kind: str, note: str | None = None) -> str:
     GUARD off → warn while real UNO may be in flight on the shared bridge).
     """
     from plugin.framework.prompts import get_chat_system_prompt_for_kind
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
 
     return get_chat_system_prompt_for_kind(
         kind, note if note is not None else EVAL_HARNESS_NOTE, ctx=None

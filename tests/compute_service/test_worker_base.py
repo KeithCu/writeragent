@@ -427,7 +427,7 @@ def test_host_unpicklers_share_allowlist_and_keep_policies() -> None:
     import pickle
 
     from compute_service.worker_base import RestrictedUnpickler, unpack_restricted_pickle_frame
-    from plugin.scripting.ipc import AllowlistUnpickler, _SafeUnpickler, unpack_pickle_frame
+    from plugin.framework.ipc import AllowlistUnpickler, _SafeUnpickler, unpack_pickle_frame
 
     assert issubclass(RestrictedUnpickler, AllowlistUnpickler)
     assert issubclass(_SafeUnpickler, AllowlistUnpickler)
@@ -597,7 +597,7 @@ def test_run_worker_stdio_loop_oversized_result_recovers(monkeypatch: pytest.Mon
     import sys
     import types
     from compute_service.worker_base import run_worker_stdio_loop
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
 
     # Request 1 returns oversized bytes; Request 2 returns normal result
     req1 = {"id": "req-1", "action": "oversized"}
@@ -644,7 +644,7 @@ def test_run_worker_stdio_loop_catches_base_exception(monkeypatch: pytest.Monkey
     import sys
     import types
     from compute_service.worker_base import run_worker_stdio_loop
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
 
     req1 = {"id": "req-base-exc"}
     req2 = {"id": "req-normal"}
@@ -754,7 +754,7 @@ def test_partial_frame_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
-    from plugin.scripting.ipc import IpcPartialFrameTimeout
+    from plugin.framework.ipc import IpcPartialFrameTimeout
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
@@ -780,7 +780,7 @@ def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch
     """An oversized frame is rejected before any byte is written, so the kernel stays."""
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
-    from plugin.scripting.ipc import IpcPayloadSizeError
+    from plugin.framework.ipc import IpcPayloadSizeError
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
@@ -1482,7 +1482,7 @@ def test_partial_handshake_timeout_logs_timeout(monkeypatch: pytest.MonkeyPatch,
     import logging
 
     from plugin.framework import process_worker as worker_base
-    from plugin.scripting.ipc import IpcPartialFrameTimeout
+    from plugin.framework.ipc import IpcPartialFrameTimeout
 
     class _Proc:
         def __init__(self) -> None:
@@ -2173,7 +2173,7 @@ def test_response_frame_error_is_ipc_not_crash(monkeypatch: pytest.MonkeyPatch) 
     from unittest.mock import MagicMock
 
     from compute_service.worker_base import BaseProcessWorker
-    from plugin.scripting.ipc import IpcFrameReadError
+    from plugin.framework.ipc import IpcFrameReadError
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)

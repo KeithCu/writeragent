@@ -508,7 +508,6 @@ def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:
 
 from plugin.framework import subprocess_env as _subprocess_env
 
-scrub_subprocess_env = _subprocess_env.scrub_subprocess_env
 _BLOCKED_ENV_EXACT = _subprocess_env._BLOCKED_ENV_EXACT
 _DEAL_BASENAME_LEN = _subprocess_env._DEAL_BASENAME_LEN
 _deal_path_ok = _subprocess_env._deal_path_ok

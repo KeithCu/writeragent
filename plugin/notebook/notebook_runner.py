@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.chatbot.dialogs import msgbox
-from plugin.doc.doc_type import is_writer
+from plugin.framework.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import best_effort, is_document_disposed, is_real_disposal
 from plugin.framework.blocking_wait import run_blocking_in_thread

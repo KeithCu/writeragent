@@ -33,7 +33,7 @@ from plugin.calc.address_utils import (
     split_sheet_and_name,
     split_sheet_prefix,
 )
-from plugin.doc.doc_type import is_calc
+from plugin.framework.doc_type import is_calc
 
 
 def is_agent_visible_sheet(name: str) -> bool:

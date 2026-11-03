@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.doc.doc_type import agent_label_for_doc_type
+from plugin.framework.doc_type import agent_label_for_doc_type
 from plugin.doc.specialized_catalog import get_specialized_domain_catalog
 from plugin.framework.prompts import (
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,

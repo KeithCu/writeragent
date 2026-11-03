@@ -55,7 +55,7 @@ from plugin.scripting.payload_codec import (
 )
 from plugin.scripting.venv.to_wire import _figure_to_image_payload, to_wire
 from plugin.scripting.config_limits import python_exec_timeout_default
-from plugin.scripting.ipc import UserStopped
+from plugin.framework.ipc import UserStopped
 from plugin.framework.constants import auto_imports
 from plugin.scripting.venv.results import error_result
 from plugin.scripting.sandbox import (

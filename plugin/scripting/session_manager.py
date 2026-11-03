@@ -14,7 +14,7 @@ import threading
 import uuid
 from typing import Any
 
-from plugin.doc.doc_type import is_calc, is_draw, is_writer
+from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework.config import get_config
 from plugin.framework.i18n import _

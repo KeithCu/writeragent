@@ -75,7 +75,7 @@ def _vision_html_block_count(html: str) -> int:
 # (is_result scan order), PICKER_WIRING (script-picker UI). Do not collapse them
 # or add a fourth registry. Drift is caught by test_domain_registry: same members
 # for wiring vs post-venv; picker is not 1:1 (text is wiring-only); a
-# post_venv_calc_only domain's picker supports is "plugin.doc.doc_type:is_calc".
+# post_venv_calc_only domain's picker supports is "plugin.framework.doc_type:is_calc".
 @dataclass(frozen=True)
 class DomainWiring:
     id: str
@@ -401,7 +401,7 @@ class PickerWiring:
     origin: str
     display_prefix: str
     title: str
-    supports_ref: str  # "module.path:attr" (e.g. "plugin.doc.doc_type:is_calc")
+    supports_ref: str  # "module.path:attr" (e.g. "plugin.framework.doc_type:is_calc")
     templates_ref: str  # "module.path:attr" returning dict[str, str]
 
     def supports(self, doc: Any) -> bool:
@@ -444,14 +444,14 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         origin=SCRIPT_ORIGIN_ANALYSIS,
         display_prefix=ANALYSIS_SCRIPT_DISPLAY_PREFIX,
         title=N_("Analysis Helpers"),
-        supports_ref="plugin.doc.doc_type:is_calc",
+        supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.analysis:get_analysis_script_templates",
     ),
     PickerWiring(
         origin="sql",
         display_prefix="[SQL] ",
         title=N_("SQL Helpers"),
-        supports_ref="plugin.doc.doc_type:is_calc",
+        supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.duckdb_sql:get_sql_script_templates",
     ),
     PickerWiring(
@@ -471,22 +471,22 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         # stringified the nested table dict.
         # How: the picker copied the symbolic/viz supports alias when the registry
         # was introduced. Egress was never a Writer inserter.
-        # Why: "plugin.doc.doc_type:is_calc" matches analysis, sql, optimize, and forecast.
-        supports_ref="plugin.doc.doc_type:is_calc",
+        # Why: "plugin.framework.doc_type:is_calc" matches analysis, sql, optimize, and forecast.
+        supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.quant:get_quant_script_templates",
     ),
     PickerWiring(
         origin="optimize",
         display_prefix="[Optimize] ",
         title=N_("Optimize Helpers"),
-        supports_ref="plugin.doc.doc_type:is_calc",
+        supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.optimize:get_optimize_script_templates",
     ),
     PickerWiring(
         origin="forecast",
         display_prefix="[Forecast] ",
         title=N_("Forecast Helpers"),
-        supports_ref="plugin.doc.doc_type:is_calc",
+        supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.forecast:get_forecast_script_templates",
     ),
 )

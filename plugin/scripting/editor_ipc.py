@@ -23,7 +23,7 @@ from plugin.framework.deal_shim import (
     ascii_bounded,
     deal,
 )
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     _write_all,
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcPayloadSizeError,

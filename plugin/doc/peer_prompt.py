@@ -143,7 +143,7 @@ PEER_INNER_CHOICE_RULES = (
 
 def _agent_for_model(model: Any) -> str:
     # Unknown and None stay Writer, same as the previous else branches.
-    from plugin.doc.doc_type import is_calc, is_draw
+    from plugin.framework.doc_type import is_calc, is_draw
 
     if is_calc(model):
         return "Calc"

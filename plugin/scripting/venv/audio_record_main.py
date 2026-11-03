@@ -26,7 +26,7 @@ register_alias_importer()
 
 from plugin.scripting.audio_silence_detector import DEFAULT_SILENCE_STOP_MS, SilenceDetectorConfig
 from plugin.scripting.venv.audio_recorder import record_to_wav
-from plugin.scripting.ipc import claim_ipc_channel, get_child_ipc_stream, write_json_line
+from plugin.framework.ipc import claim_ipc_channel, get_child_ipc_stream, write_json_line
 
 _emit_lock = threading.Lock()
 

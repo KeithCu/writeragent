@@ -12,7 +12,7 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import plugin.doc.document_research as dr
-from plugin.doc.doc_type import DocumentType
+from plugin.framework.doc_type import DocumentType
 from plugin.doc.document_research import (
     NEARBY_IMAGE_EXTENSIONS,
     _collect_open_file_urls,

@@ -209,7 +209,7 @@ def test_main_fails_fast_when_monaco_loader_is_missing(tmp_path, monkeypatch, ca
     monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(tmp_path))
     monkeypatch.setattr(em, "_ROCHER_ROOT", "")
     # Keep main() from claiming the real stdout fd when pytest runs with -s.
-    monkeypatch.setattr("plugin.scripting.ipc.claim_ipc_channel", lambda: io.BytesIO())
+    monkeypatch.setattr("plugin.framework.ipc.claim_ipc_channel", lambda: io.BytesIO())
     with pytest.raises(SystemExit) as exc_info:
         em.main()
     assert exc_info.value.code == 1
@@ -303,7 +303,7 @@ def test_main_codemirror_backend_does_not_fatal_on_missing_rocher(tmp_path, monk
     monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(assets))
     monkeypatch.setenv("WRITERAGENT_EDITOR_BACKEND", "codemirror")
     monkeypatch.setattr(em, "_ROCHER_ROOT", "")
-    monkeypatch.setattr("plugin.scripting.ipc.claim_ipc_channel", lambda: io.BytesIO())
+    monkeypatch.setattr("plugin.framework.ipc.claim_ipc_channel", lambda: io.BytesIO())
 
     mock_webview = MagicMock()
     mock_webview.create_window.return_value = MagicMock()
@@ -323,7 +323,7 @@ def test_main_codemirror_backend_fatals_when_cm6_assets_missing(tmp_path, monkey
 
     monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(assets))
     monkeypatch.setenv("WRITERAGENT_EDITOR_BACKEND", "codemirror")
-    monkeypatch.setattr("plugin.scripting.ipc.claim_ipc_channel", lambda: io.BytesIO())
+    monkeypatch.setattr("plugin.framework.ipc.claim_ipc_channel", lambda: io.BytesIO())
 
     with pytest.raises(SystemExit) as exc_info:
         em.main()

@@ -55,7 +55,7 @@ if TYPE_CHECKING:
 
     from com.sun.star.util import URL as UnoURL
     from plugin.framework.module_base import ModuleBase
-    from plugin.framework.tool import SchemaFilterContext, ToolRegistry
+    from plugin.framework.tool import ToolRegistry
 
 officehelper: ModuleType | None = None
 try:
@@ -397,105 +397,6 @@ def register_core_handlers() -> None:
     _install_optional(_install_review_toolbar, message="Review toolbar visibility install failed", level=logging.WARNING)
 
 
-def _register_writeragent_hooks(ctx: Any) -> None:
-    """Register framework hooks before config, tools, and module load."""
-    from plugin.framework import config_schema
-    from plugin.framework.main_shared import set_action_error_ui
-    from plugin.framework.prompts import (
-        set_prompt_catalog,
-        set_python_prompt_extras,
-        set_system_prompt_block,
-    )
-    from plugin.framework.thread_guard import set_thread_violation_ui
-
-    def _thread_violation_ui(uno_ctx: Any, title: str, full_msg: str) -> None:
-        from plugin.chatbot.dialogs import msgbox_with_report
-
-        msgbox_with_report(
-            uno_ctx,
-            title,
-            full_msg,
-            reportable=True,
-            report_title="UNO thread violation",
-            report_extra=full_msg,
-        )
-
-    set_thread_violation_ui(_thread_violation_ui)
-
-    def _action_error_ui(uno_ctx: Any, detail: str, report_title: str, exc: BaseException) -> None:
-        from plugin.chatbot.dialogs import msgbox_with_report
-        from plugin.framework.i18n import _
-        from plugin.framework.uno_context import get_ctx
-
-        msgbox_with_report(
-            uno_ctx or get_ctx(),
-            _("Error"),
-            detail,
-            reportable=True,
-            report_title=report_title,
-            report_extra=str(exc),
-        )
-
-    set_action_error_ui(_action_error_ui)
-
-    def _norm(endpoint_str: str, is_openwebui: bool) -> str:
-        from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
-
-        return endpoint_from_selector_text(endpoint_str)
-
-    config_schema.set_endpoint_normalizer(_norm)
-
-    from plugin.scripting.import_policy import format_venv_import_policy_for_prompt
-
-    set_python_prompt_extras(lambda _agent: format_venv_import_policy_for_prompt(compact=True))
-    import plugin.scripting.sandbox  # noqa: F401  # pyright: ignore[reportUnusedImport] — alias authorizer
-
-    from plugin.doc import specialized_catalog
-    from plugin.doc.peer_prompt import get_peer_inner_choice_block, get_peer_messaging_prompt_block
-    from plugin.vision.vision_availability import filter_vision_delegate_schemas, filter_vision_specialized_tools, get_vision_core_directive
-    from plugin.chatbot.memory import format_user_memory_prompt_block
-    from plugin.chatbot.skills import format_humanizer_guidance_prompt_block
-    from plugin.doc.specialized_base import narrow_delegate_domain_enums
-    from plugin.doc.peer_message import filter_peer_message_schemas
-
-    set_prompt_catalog(
-        specialized_catalog.get_specialized_domain_catalog,
-        specialized_catalog.get_specialized_delegation_tool_hint,
-        specialized_catalog.format_specialized_domains_description,
-    )
-    set_system_prompt_block("peer_outer", get_peer_messaging_prompt_block)
-    set_system_prompt_block("peer_inner", get_peer_inner_choice_block)
-    set_system_prompt_block("vision", get_vision_core_directive)
-    set_system_prompt_block("memory", lambda: format_user_memory_prompt_block())
-    set_system_prompt_block("humanizer", lambda: format_humanizer_guidance_prompt_block())
-
-    global _tools
-
-    if _tools is None:
-        return
-
-    def _filter_vision_tools(tools: list[Any], ctx: Any = None) -> list[Any]:
-        if ctx is None:
-            return list(tools)
-        return filter_vision_specialized_tools(list(tools), ctx)
-
-    def _narrow_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
-        return narrow_delegate_domain_enums(schemas, context.tools, context.uno_services)
-
-    def _filter_vision_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
-        if context.protocol != "openai" or context.ctx is None:
-            return schemas
-        return filter_vision_delegate_schemas(schemas, context.ctx)
-
-    def _filter_peer_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
-        peer_domain = context.active_domain if context.protocol == "openai" else None
-        return filter_peer_message_schemas(
-            schemas, context.ctx, doc=context.doc, active_domain=peer_domain
-        )
-
-    _tools.tool_filters.append(_filter_vision_tools)
-    _tools.schema_filters.extend([_narrow_schemas, _filter_vision_schemas, _filter_peer_schemas])
-
 def bootstrap(ctx: Any | None = None) -> None:
     """Bootstraps the service container and modules.
 
@@ -549,7 +450,14 @@ def bootstrap(ctx: Any | None = None) -> None:
 
         set_package_extension_id(EXTENSION_ID)
 
-        _register_writeragent_hooks(ctx)
+        from plugin.bootstrap_ui_hooks import register_framework_ui_hooks
+        from plugin.writeragent_hooks import (
+            register_writeragent_prompt_hooks,
+            register_writeragent_tool_filters,
+        )
+
+        register_framework_ui_hooks()
+        register_writeragent_prompt_hooks()
 
         from plugin.framework.config import init_config
 
@@ -577,7 +485,7 @@ def bootstrap(ctx: Any | None = None) -> None:
         from plugin.framework.tool import ToolRegistry
 
         _tools = ToolRegistry(_services)
-        _register_writeragent_hooks(ctx)
+        register_writeragent_tool_filters(_tools)
         _services.register("tools", _tools)
 
         # 4b. Main Thread Execution Service
@@ -1147,7 +1055,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
                 return
 
             model = get_active_document(self.ctx)
-            from plugin.doc.doc_type import get_document_type, DocumentType
+            from plugin.framework.doc_type import get_document_type, DocumentType
 
             doc_type = get_document_type(model)
             if doc_type in (DocumentType.WRITER, DocumentType.CALC) and Event in ("ExtendSelection", "EditSelection"):

@@ -658,6 +658,7 @@ _PATCHERS: dict[str, Callable[[Any], None]] = {
     "plugin.scripting.helper_domain": _patch_helper_domain,
     "plugin.scripting.payload_codec": _patch_payload_codec,
     "plugin.scripting.sandbox": _patch_sandbox,
+    "plugin.framework.subprocess_env": _patch_sandbox,
     "plugin.scripting.sandbox_cache": _patch_sandbox_cache,
     "plugin.writer.word_diff_split": _patch_word_diff_split,
     "plugin.embeddings.embeddings_split": _patch_embeddings_split,

@@ -18,17 +18,17 @@ from hypothesis import strategies as st
 
 import deal
 from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH
-from plugin.scripting.sandbox import (
+from plugin.framework.subprocess_env import (
     _BLOCKED_ENV_EXACT as _BLOCKED_EXACT,
     _env_name_is_credential,
     scrub_subprocess_env,
-    wrap_command_for_sandbox,
 )
+from plugin.scripting.sandbox import wrap_command_for_sandbox
 from tests.harness.strip_bundle import deal_pre_present
 from tests.harness.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
-_CROSSHAIR_TARGET = "plugin.scripting.sandbox.scrub_subprocess_env"
+_CROSSHAIR_TARGET = "plugin.framework.subprocess_env.scrub_subprocess_env"
 _CROSSHAIR_TARGET_WRAP = "plugin.scripting.sandbox.wrap_command_for_sandbox"
 
 
@@ -137,7 +137,7 @@ def test_scrub_overrides_inherited_python_flags() -> None:
 
 
 def test_scrub_drops_loader_injection() -> None:
-    from plugin.scripting.sandbox import scrub_subprocess_env
+    from plugin.framework.subprocess_env import scrub_subprocess_env
     out = scrub_subprocess_env({"LD_PRELOAD": "/tmp/x.so", "ld_audit": "/tmp/a.so", "DYLD_INSERT_LIBRARIES": "/tmp/y.dylib", "PATH": "/usr/bin"})
     assert "LD_PRELOAD" not in {k.upper() for k in out}
     assert "LD_AUDIT" not in {k.upper() for k in out}

@@ -314,7 +314,7 @@ def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
     """
     # The data toolbar binds a Calc sheet range; run_viz is not post_venv_calc_only
     # because plots insert on Writer, and that must not enable this toolbar.
-    from plugin.doc.doc_type import is_calc
+    from plugin.framework.doc_type import is_calc
 
     if not code or not is_calc(doc):
         return False
@@ -539,7 +539,7 @@ def run_domain(
 
         doc_type = kwargs.get("doc_type")
         if doc_type is None and doc is not None:
-            from plugin.doc.doc_type import is_calc, is_writer
+            from plugin.framework.doc_type import is_calc, is_writer
 
             if is_calc(doc):
                 doc_type = "calc"
@@ -638,7 +638,7 @@ def run_trusted_calc_data_helper(
 
     def _read_sheet() -> tuple[Any, str | None, dict[str, Any]]:
         # UNO only. Callers are async workers; the venv IPC must not sit in this hop.
-        from plugin.doc.doc_type import is_calc, is_writer
+        from plugin.framework.doc_type import is_calc, is_writer
         from plugin.framework.errors import reraise_if_disposed
 
         # What was wrong: require_calc_or_writer checked is_calc(doc) and is_writer(doc)
@@ -703,7 +703,7 @@ def supports_calc_or_writer_manual(doc: Any) -> bool:
     """True when Run Python Script should expose helpers for Calc or Writer *doc*."""
     if doc is None:
         return False
-    from plugin.doc.doc_type import is_calc, is_writer
+    from plugin.framework.doc_type import is_calc, is_writer
 
     return is_writer(doc) or is_calc(doc)
 

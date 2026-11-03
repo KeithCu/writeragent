@@ -31,23 +31,9 @@ from plugin.framework.prompts import (
 
 @pytest.fixture(autouse=True)
 def _register_prompt_hooks_for_tests():
-    from plugin.doc import peer_prompt, specialized_catalog
-    from plugin.chatbot.memory import format_user_memory_prompt_block
-    from plugin.chatbot.skills import format_humanizer_guidance_prompt_block
-    from plugin.framework.prompts import set_prompt_catalog, set_system_prompt_block
-    from plugin.vision.vision_availability import get_vision_core_directive
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
 
-    set_prompt_catalog(
-        specialized_catalog.get_specialized_domain_catalog,
-        specialized_catalog.get_specialized_delegation_tool_hint,
-        specialized_catalog.format_specialized_domains_description,
-    )
-    set_system_prompt_block("peer_outer", peer_prompt.get_peer_messaging_prompt_block)
-    set_system_prompt_block("peer_inner", peer_prompt.get_peer_inner_choice_block)
-    set_system_prompt_block("vision", get_vision_core_directive)
-    set_system_prompt_block("memory", lambda: format_user_memory_prompt_block())
-    set_system_prompt_block("humanizer", lambda: format_humanizer_guidance_prompt_block())
-    import plugin.scripting.import_policy  # noqa: F401
+    register_writeragent_prompt_hooks()
 
 
 def test_get_greeting_for_document_writer():

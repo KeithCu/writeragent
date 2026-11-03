@@ -372,7 +372,7 @@
           "wrap_command_for_sandbox",
           "is_safe_workspace_path"
         ],
-        "crosshair_target": "plugin.scripting.sandbox.scrub_subprocess_env",
+        "crosshair_target": "plugin.framework.subprocess_env.scrub_subprocess_env",
         "crosshair_last_run": "2026-08-09",
         "crosshair_result": "no_counterexamples",
         "ci_integration": true

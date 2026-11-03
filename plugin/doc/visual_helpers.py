@@ -19,7 +19,7 @@ from typing import Any
 
 from com.sun.star.awt import Point
 
-from plugin.doc.doc_type import (
+from plugin.framework.doc_type import (
     DOCUMENT_SERVICES,
     WEB_DOCUMENT_SERVICE,
     DocumentType,
@@ -69,7 +69,7 @@ def anchor_type_index(raw: Any) -> int | None:
 def get_visual_doc_type(doc: Any) -> str:
     """Return the visual-tool document label used by image and shape helpers.
 
-    Delegates to :func:`plugin.doc.doc_type.get_document_type` for the
+    Delegates to :func:`plugin.framework.doc_type.get_document_type` for the
     shared Writer/Calc/Draw/Impress map. Web documents are checked first because
     they also support TextDocument and would otherwise look like Writer.
     Unknown models keep the legacy ``\"writer\"`` default (not ``\"unknown\"``).

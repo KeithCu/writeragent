@@ -32,7 +32,7 @@ import logging
 import re
 from typing import Any, Callable
 
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
 
 log = logging.getLogger(__name__)
 
@@ -352,7 +352,7 @@ def execute_tool(
 
     def _run() -> Any:
         try:
-            from plugin.doc.doc_type import is_calc, is_draw, is_writer
+            from plugin.framework.doc_type import is_calc, is_draw, is_writer
             from plugin.framework.tool import ToolContext
             from plugin.framework.uno_context import get_ctx
             from plugin.main import get_tools

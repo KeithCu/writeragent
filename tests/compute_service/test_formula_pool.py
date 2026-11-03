@@ -464,7 +464,7 @@ class TestFormulaPoolSupervisor:
                 [
                     "import sys, time",
                     f"sys.path.insert(0, {root!r})",
-                    "from plugin.scripting.ipc import write_pickle_frame",
+                    "from plugin.framework.ipc import write_pickle_frame",
                     "write_pickle_frame(sys.stdout.buffer, {'status': 'booting'})",
                     "sys.stdout.buffer.flush()",
                     "time.sleep(30)",

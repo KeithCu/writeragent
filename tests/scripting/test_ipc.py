@@ -21,8 +21,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import plugin.scripting.ipc
-from plugin.scripting.ipc import (
+import plugin.framework.ipc
+from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
     IpcFrameReadError,
@@ -104,7 +104,7 @@ def test_unknown_pickle_opcode_is_value_error():
 
 
 def test_unpickler_handler_keyerror_is_value_error(monkeypatch):
-    from plugin.scripting.ipc import AllowlistUnpickler, unpack_pickle_frame
+    from plugin.framework.ipc import AllowlistUnpickler, unpack_pickle_frame
 
     def handler(unpickler):
         raise KeyError("missing-state")
@@ -138,13 +138,13 @@ def test_pickle_frame_default_cap_rejects_oversized_header():
 
 
 def test_pack_pickle_frame_defaults_to_max_payload():
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
     with pytest.raises(IpcFrameError, match="maximum payload"):
         pack_pickle_frame({"text": "x" * (DEFAULT_MAX_PAYLOAD_BYTES + 10)})
 
 
 def test_ipc_error_subclasses():
-    from plugin.scripting.ipc import IpcFrameError, IpcFrameReadError, IpcPayloadSizeError
+    from plugin.framework.ipc import IpcFrameError, IpcFrameReadError, IpcPayloadSizeError
 
     assert issubclass(IpcPayloadSizeError, IpcFrameError)
     assert issubclass(IpcFrameReadError, IpcFrameError)
@@ -172,7 +172,7 @@ def test_text_error_prefix_is_invalid_frame_with_header_repr(caplog, capsys):
 
 def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch, caplog):
     """Windows/ty: os.set_blocking is POSIX-only; skip the non-blocking peek."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "win32")
 
@@ -190,7 +190,7 @@ def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch, caplog):
 
 def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch, caplog, capsys):
     """Win32 skip still attaches stdout_rest= (empty) on IpcFrameError."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "win32")
 
@@ -213,7 +213,7 @@ def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch,
 
 def test_unread_pipe_bytes_posix_peek_uses_set_blocking(monkeypatch):
     """Unix leftover peek still uses set_blocking; mock so Windows pytest can run it."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "linux")
     seen: list[tuple[int, bool]] = []
@@ -233,7 +233,7 @@ def test_unread_pipe_bytes_posix_peek_uses_set_blocking(monkeypatch):
 
 def test_nonblocking_skips_on_win32(monkeypatch):
     """On Windows or when os.set_blocking is absent, _nonblocking yields cleanly without error."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "win32")
 
@@ -247,7 +247,7 @@ def test_nonblocking_skips_on_win32(monkeypatch):
 
 def test_nonblocking_restores_blocking_posix(monkeypatch):
     """On POSIX, _nonblocking records initial blocking state and restores it on normal exit or exception."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "linux")
     events: list[tuple[str, int, bool | None]] = []
@@ -551,7 +551,7 @@ def test_json_line_timeout_on_pipe():
 def test_win32_read_raising_stop_checker_keeps_reading(monkeypatch):
     """A raising stop_checker is not a stop; the peek loop still returns the bytes."""
     import struct
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(sys, "platform", "win32")
     stream = MagicMock()
@@ -577,7 +577,7 @@ def test_win32_read_raising_stop_checker_keeps_reading(monkeypatch):
 
 def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch):
     """PeekNamedPipe can finish after the deadline; sleep(negative) is ValueError."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(sys, "platform", "win32")
     slept: list[float] = []
@@ -595,7 +595,7 @@ def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch
 
 def test_win32_pickle_read_breaks_when_child_exits_before_ready(monkeypatch):
     """When peek is empty and child exits (is_alive() is False), win32 read breaks to EOF rather than timing out."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(ipc.time, "monotonic", lambda: 0.0)
@@ -613,7 +613,7 @@ def test_win32_pickle_read_breaks_when_child_exits_before_ready(monkeypatch):
 def test_win32_read_drains_queued_bytes_when_child_already_dead(monkeypatch):
     import struct
     from unittest.mock import MagicMock
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(sys, "platform", "win32")
     slept: list[float] = []
@@ -636,7 +636,7 @@ def test_win32_read_drains_queued_bytes_when_child_already_dead(monkeypatch):
 
 
 def test_peek_closed_pipe_errors_exclude_no_data():
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     assert ipc._WIN_ERROR_BROKEN_PIPE == 109
     assert ipc._WIN_ERROR_PIPE_NOT_CONNECTED == 233
@@ -646,7 +646,7 @@ def test_peek_closed_pipe_errors_exclude_no_data():
 
 def test_win32_readline_sleep_clamps_when_peek_crosses_deadline(monkeypatch):
     """PeekNamedPipe can finish after the deadline; sleep(negative) is ValueError."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "win32")
     slept: list[float] = []
@@ -663,7 +663,7 @@ def test_win32_readline_sleep_clamps_when_peek_crosses_deadline(monkeypatch):
 
 def test_win32_partial_json_line_times_out_then_resumes(monkeypatch):
     """Queued bytes without a newline must not block in readline past the deadline."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "win32")
     partial = b'{"status": "partial"'
@@ -714,7 +714,7 @@ def test_win32_partial_json_line_times_out_then_resumes(monkeypatch):
 
 def test_oversize_pending_json_line_is_restored(monkeypatch):
     """A line over max_bytes must still be pending, not dropped mid-line."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "win32")
     chunk = b"x" * 20
@@ -748,7 +748,7 @@ def test_untimed_read_json_line_uses_saved_partial(monkeypatch):
     The tail is the next ``os.read``. ``readline()`` would decode a saved
     prefix that ends mid-character before the continuation bytes arrive.
     """
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "win32")
     partial = b'{"a": 1'
@@ -785,7 +785,7 @@ def test_untimed_read_json_line_uses_saved_partial(monkeypatch):
 
 
 def test_exchange_tool_call_returns_result_when_id_matches(monkeypatch):
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     written: dict[str, object] = {}
 
@@ -809,7 +809,7 @@ def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
     """SIGALRM during the tool read used to desync the next cell. Consume the reply first."""
     import signal
 
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     written: dict[str, object] = {}
     reads = {"n": 0}
@@ -847,7 +847,7 @@ def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
 def test_resume_script_alarm_rearms_only_when_time_remains(monkeypatch):
     import signal
 
-    from plugin.scripting.ipc import _resume_script_alarm
+    from plugin.framework.ipc import _resume_script_alarm
 
     armed: list[float] = []
 
@@ -867,7 +867,7 @@ def test_resume_script_alarm_keeps_fractional_remainder(monkeypatch):
     """alarm() used to round a leftover fraction up to the next whole second."""
     import signal
 
-    from plugin.scripting.ipc import _resume_script_alarm
+    from plugin.framework.ipc import _resume_script_alarm
 
     armed: list[float] = []
 
@@ -909,7 +909,7 @@ def test_json_line_partial_line_times_out_and_resumes():
 
 
 def test_exchange_tool_call_user_stopped_is_not_a_normal_error(monkeypatch):
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     written: dict[str, object] = {}
 
@@ -934,7 +934,7 @@ def test_exchange_tool_call_user_stopped_is_not_a_normal_error(monkeypatch):
 
 
 def test_exchange_tool_call_plain_error_stays_runtime_error(monkeypatch):
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     written: dict[str, object] = {}
 
@@ -954,7 +954,7 @@ def test_exchange_tool_call_plain_error_stays_runtime_error(monkeypatch):
 
 def test_exchange_tool_call_preserves_error_code(monkeypatch):
     """RPC error responses with a code field attach .code to the raised RuntimeError."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     written: dict[str, object] = {}
 
@@ -974,7 +974,7 @@ def test_exchange_tool_call_preserves_error_code(monkeypatch):
 
 
 def test_exchange_tool_call_rejects_mismatched_id(monkeypatch):
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     drained: list[object] = []
     monkeypatch.setattr(ipc, "write_pickle_frame", lambda *args, **kwargs: None)
@@ -991,7 +991,7 @@ def test_exchange_tool_call_rejects_mismatched_id(monkeypatch):
 
 def test_drain_without_fileno_does_not_read():
     """A stream with no fd cannot be drained without blocking."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     class NoFd:
         def read(self, n: int = -1) -> bytes:
@@ -1002,7 +1002,7 @@ def test_drain_without_fileno_does_not_read():
 
 def test_drain_queued_pipe_bytes_returns_when_idle():
     """An open pipe with nothing queued must not block until the deadline."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     read_fd, write_fd = os.pipe()
     stream = os.fdopen(read_fd, "rb")
@@ -1029,7 +1029,7 @@ def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
     """
     import threading
 
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     in_r, in_w = os.pipe()
     out_r, out_w = os.pipe()
@@ -1103,7 +1103,7 @@ def test_json_line_timeout_falls_back_when_fileno_not_int():
 
 def test_timed_json_read_without_fd_uses_saved_pending():
     """A timed read with no real fd must not drop a partial line saved earlier."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     class Stream:
         def fileno(self) -> object:
@@ -1134,7 +1134,7 @@ def test_finish_saved_json_line_keeps_a_split_utf8_character():
     """
     import json
 
-    from plugin.scripting.ipc import _finish_saved_json_line
+    from plugin.framework.ipc import _finish_saved_json_line
 
     read_fd, write_fd = os.pipe()
     os.write(write_fd, b'\xa9"}\n')
@@ -1155,7 +1155,7 @@ def test_joined_write_aborts_when_child_is_dead() -> None:
     """
     import threading
 
-    from plugin.scripting.ipc import _write_bytes_until_joined
+    from plugin.framework.ipc import _write_bytes_until_joined
 
     release = threading.Event()
 
@@ -1195,7 +1195,7 @@ def test_packed_frame_write_without_int_fileno_logs_and_writes(caplog: pytest.Lo
 
 def test_hostile_reduce_bytes_raises_value_error():
     import pickle
-    from plugin.scripting.ipc import unpack_pickle_frame
+    from plugin.framework.ipc import unpack_pickle_frame
 
     class BadBytes:
         def __reduce__(self):
@@ -1209,7 +1209,7 @@ def test_hostile_reduce_bytes_raises_value_error():
 def test_roundtrip_ndarray_complex_containers():
     import numpy as np
     import pickle
-    from plugin.scripting.ipc import unpack_pickle_frame
+    from plugin.framework.ipc import unpack_pickle_frame
 
     obj1 = 1 + 2j
     obj2 = np.array([1, 2, 3], dtype=np.float64)
@@ -1249,7 +1249,7 @@ def test_unpack_rejects_ndarray_constructor_opcodes(payload: bytes):
 
 def test_allowlist_unpickler_pins_private_pickle_dispatch():
     """Guards live on pickle._Unpickler. A Python that moves that class or the opcode bytes fails here."""
-    from plugin.scripting.ipc import (
+    from plugin.framework.ipc import (
         AllowlistUnpickler,
         _guarded_load_bytearray8,
         _guarded_load_newobj,
@@ -1396,7 +1396,7 @@ def test_unpack_allows_numpy_reconstruct_under_cap(shape, dtype_spec, expected_n
 def test_numpy_arbitrary_submodule_import_fails():
     import pickle
     import numpy as np
-    from plugin.scripting.ipc import unpack_pickle_frame
+    from plugin.framework.ipc import unpack_pickle_frame
 
     class BadNumpy:
         def __reduce__(self):
@@ -1408,7 +1408,7 @@ def test_numpy_arbitrary_submodule_import_fails():
 
 def test_read_pickle_frame_win32_is_alive_honored(monkeypatch):
     import sys
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
     from unittest.mock import MagicMock
 
     monkeypatch.setattr(sys, "platform", "win32")
@@ -1441,7 +1441,7 @@ def test_read_pickle_frame_win32_is_alive_honored(monkeypatch):
 
 def test_get_child_ipc_stream_prefers_claim_over_replaced_stdout(monkeypatch):
     """A replaced sys.stdout must not hide the pipe claim_ipc_channel already took."""
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     claimed = io.BytesIO()
     monkeypatch.setattr(ipc, "_child_ipc_stream", claimed)
@@ -1457,7 +1457,7 @@ def test_get_child_ipc_stream_prefers_claim_over_replaced_stdout(monkeypatch):
 
 
 def test_get_child_ipc_stream_uses_stdout_buffer_when_unclaimed(monkeypatch):
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc, "_child_ipc_stream", None)
     buf = io.BytesIO()
@@ -1476,7 +1476,7 @@ def test_claim_ipc_channel_redirects_stdout_and_preserves_framing():
     """print() in child must go to stderr and not corrupt the claimed IPC channel."""
     code = """
 import os, sys
-from plugin.scripting.ipc import claim_ipc_channel, write_json_line
+from plugin.framework.ipc import claim_ipc_channel, write_json_line
 
 ipc_stream = claim_ipc_channel()
 print("Stray library debug print to stdout")
@@ -1501,7 +1501,7 @@ write_json_line(ipc_stream, {"status": "ok", "value": 42})
 
 
 def test_claim_ipc_stdin_returns_raw_and_does_not_read_ahead(monkeypatch):
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc, "_child_ipc_stdin", None)
     read_fd, write_fd = os.pipe()
@@ -1541,7 +1541,7 @@ def test_claim_ipc_stdin_returns_raw_and_does_not_read_ahead(monkeypatch):
 
 
 def test_claim_ipc_stdin_does_not_cache_bytesio(monkeypatch):
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     monkeypatch.setattr(ipc, "_child_ipc_stdin", None)
 
@@ -1563,7 +1563,7 @@ def test_claim_ipc_stdin_does_not_cache_bytesio(monkeypatch):
 def test_exchange_tool_call_win32_drain_drops_raw_stdin_tail(monkeypatch):
     import threading
 
-    from plugin.scripting import ipc
+    from plugin.framework import ipc
 
     in_r, in_w = os.pipe()
     out_r, out_w = os.pipe()
@@ -1661,7 +1661,7 @@ def test_write_child_ipc_frame_holds_tool_call_lock():
     t.start()
     try:
         assert stream.first_write_entered.wait(timeout=2.0)
-        assert plugin.scripting.ipc._tool_call_lock.acquire(blocking=False) is False
+        assert plugin.framework.ipc._tool_call_lock.acquire(blocking=False) is False
     finally:
         stream.release_write.set()
         t.join(timeout=2.0)
@@ -1743,7 +1743,7 @@ def test_read_frame_payload_posix_select_slices(monkeypatch):
             recorded_timeouts.append(timeout)
         return ([], [], [])
 
-    monkeypatch.setattr(plugin.scripting.ipc.select, "select", mock_select)
+    monkeypatch.setattr(plugin.framework.ipc.select, "select", mock_select)
 
     r_fd, w_fd = os.pipe()
     try:
@@ -1838,7 +1838,7 @@ class TestReadFramePayloadWithTimeoutNoFd:
 def test_host_pickle_leaf_types():
     import datetime
     import decimal
-    from plugin.scripting.ipc import (
+    from plugin.framework.ipc import (
         HOST_PICKLE_LEAF_TYPES,
         PICKLE_PROTOCOL,
         _SAFE_PICKLE_BUILTINS,

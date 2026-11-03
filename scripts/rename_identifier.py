@@ -21,7 +21,7 @@ Examples::
 
   python scripts/rename_identifier.py \\
     --import-from plugin.doc.document_helpers \\
-    --import-to plugin.doc.doc_type \\
+    --import-to plugin.framework.doc_type \\
     --names is_writer is_calc \\
     --paths plugin tests
 

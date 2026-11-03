@@ -10,7 +10,7 @@ from typing import Any
 
 from dataclasses import dataclass, field
 
-from plugin.doc.doc_type import is_calc, is_writer
+from plugin.framework.doc_type import is_calc, is_writer
 from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object, selected_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _

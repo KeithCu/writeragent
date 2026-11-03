@@ -27,8 +27,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
-from plugin.scripting.ipc import read_json_line, write_json_line
-from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.framework.ipc import read_json_line, write_json_line
+from plugin.framework.subprocess_env import scrub_subprocess_env
+from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)
 

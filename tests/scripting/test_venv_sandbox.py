@@ -15,7 +15,7 @@ from typing import Any, cast
 
 import pytest
 
-from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+from plugin.framework.ipc import read_pickle_frame, write_pickle_frame
 from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.venv.venv_sandbox import (
     clear_all_sandbox_sessions,
@@ -100,7 +100,7 @@ def test_zero_dim_temporal_ndarray_matches_scalar():
 
 def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
     """Stop during a wa.* call must not be a RuntimeError the script can swallow."""
-    from plugin.scripting.ipc import UserStopped
+    from plugin.framework.ipc import UserStopped
 
     def boom() -> None:
         raise UserStopped("Stopped by user.")
@@ -738,7 +738,7 @@ def test_isolated_init_lru_pops_non_isolated_id() -> None:
 def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     import io
     import plugin.contrib.smolagents.local_python_executor as lpe
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
 
     exit_calls: list[int] = []
@@ -777,7 +777,7 @@ def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
 def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     import io
     import plugin.contrib.smolagents.local_python_executor as lpe
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     # compute_service/ is not in the OXT bundle that release_verify tests.
     ws = pytest.importorskip("compute_service.worker_stdio")
 

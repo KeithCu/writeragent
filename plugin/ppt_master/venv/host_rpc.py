@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
 
 log = logging.getLogger(__name__)
 

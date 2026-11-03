@@ -57,7 +57,7 @@ _patch_unohelper_implementation_helper()
 
 import plugin.main as main
 from plugin.main import BootstrapState
-from plugin.doc.doc_type import DocumentType
+from plugin.framework.doc_type import DocumentType
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.event_bus import EventBus
 from plugin.framework.main_shared import (
@@ -894,7 +894,7 @@ def test_trigger_extend_selection_bootstraps():
 
     with (
         patch("plugin.main.get_active_document", return_value=fake_doc),
-        patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         patch("plugin.main.bootstrap") as mock_boot,
         patch("plugin.chatbot.selection.do_selection_action_for_document") as mock_do,
     ):

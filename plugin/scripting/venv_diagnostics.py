@@ -23,7 +23,8 @@ from plugin.scripting.config_limits import (
     VISION_PROBE_TIMEOUT_SEC,
 )
 from plugin.framework.worker_pool import get_subprocess_creationflags
-from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.framework.subprocess_env import scrub_subprocess_env
+from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_python, wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)
 

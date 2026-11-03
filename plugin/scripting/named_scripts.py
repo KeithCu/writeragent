@@ -293,7 +293,7 @@ def _rpc_named(tool_name: str, **kwargs: Any) -> Any:
             from plugin.scripting.writeragent_api import _rpc_call
         except ImportError:
             # LibrePy omits writeragent_api. Same locked, id-checked pipe as _rpc_call.
-            from plugin.scripting.ipc import exchange_tool_call
+            from plugin.framework.ipc import exchange_tool_call
 
             return exchange_tool_call(tool_name, kwargs)
         return _rpc_call(tool_name, **kwargs)

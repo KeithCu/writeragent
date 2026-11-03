@@ -54,7 +54,7 @@ def test_librepy_bundle_includes_ast_stmt_edit(value):
 @pytest.mark.parametrize(
     "value, value_2, value_3, value_4",
     [
-        pytest.param("plugin/doc/doc_type.py", "plugin/doc/text_helpers.py", "plugin/calc/datetime_wire.py", "plugin/calc/analyzer.py", id="test_librepy_bundle_includes_doc_type_and_datetime_wire"),
+        pytest.param("plugin/framework/doc_type.py", "plugin/doc/text_helpers.py", "plugin/calc/datetime_wire.py", "plugin/calc/analyzer.py", id="test_librepy_bundle_includes_doc_type_and_datetime_wire"),
         # Weekly update check + sync_request deps must ship in LibrePy.oxt.
         pytest.param("plugin/chatbot/extension_update_check.py", "plugin/framework/client/requests.py", "plugin/framework/client/ssl_helpers.py", "plugin/framework/client/provider_detection.py", id="test_librepy_bundle_includes_extension_update_check"),
     ],

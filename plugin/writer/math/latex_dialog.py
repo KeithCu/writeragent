@@ -22,7 +22,7 @@ from plugin.chatbot.dialogs import (
     msgbox_with_report,
 )
 from plugin.framework.i18n import _
-from plugin.doc.doc_type import is_writer
+from plugin.framework.doc_type import is_writer
 from plugin.writer.math.math_mml_convert import (
     convert_latex_to_starmath,
     insert_writer_math_formula,

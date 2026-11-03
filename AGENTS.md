@@ -93,13 +93,13 @@ Rules that apply in many places. Breaking them causes wrong-document bugs, froze
 
 - **Two products, one OXT at a time.** WriterAgent (`make deploy`, `plugin/main.py`) vs LibrePy (`make build-core` / `deploy-core`, `plugin/main_core.py`, `extension-core/`). `deploy-core` removes WriterAgent; `register-built-oxt` / `make release` removes LibrePy. Dual-install overlay is **not shipped**. File list: [`scripts/librepy_bundle_paths.py`](scripts/librepy_bundle_paths.py). Packaging: [docs/scripting/librepy-split.md](docs/scripting/librepy-split.md).
 
-- **LibrePy-safe document helpers.** Linebreaks, tracked-deletion reads, heading trees, path, selection text, Writer text slices, and selection range / char count: `plugin/doc/text_helpers.py`. Type guards: `doc_type.py`. Document properties: `udprops.py`. Do **not** import `document_helpers` from LibrePy paths (WriterAgent chat context / `DocumentService`). Do **not** re-export the light helpers from `document_helpers`.
+- **LibrePy-safe document helpers.** Linebreaks, tracked-deletion reads, heading trees, path, selection text, Writer text slices, and selection range / char count: `plugin/doc/text_helpers.py`. Type guards: `plugin/framework/doc_type.py`. Document properties: `udprops.py`. Do **not** import `document_helpers` from LibrePy paths (WriterAgent chat context / `DocumentService`). Do **not** re-export the light helpers from `document_helpers`.
 
 - **`plugin.framework.client` package init is lazy.** HTTP / errors / provider detection load immediately; `LlmClient` and analysis (`run_trusted_analysis`) load on attribute access. Embeddings are `plugin.embeddings`, not this package. LibrePy may import `requests` / `provider_detection`. Do not import `llm_client` or `plugin.embeddings` from LibrePy paths.
 
 - **Stop / cancellation policy:** When Stop is clicked, abort waiting on network/HTTP/IPC packets immediately (e.g. streaming LLM, image generation API, subprocess waits). However, do **not** abort document mutations (inserting pictures, appending in-flight text chunks, writing analysis/plots to sheets). Once data is generated and in hand, let it land in the document cleanly rather than implementing complicated defensive abort code or throwing away work. For voice/speech: clicking Stop while recording ends the take and transcribes it into the query box—do **not** abort transcription, throw away the audio, or auto-submit the transcript to the model.
 
-UNO helpers are intentionally split (`uno_context`, `text_helpers` / `doc_type` / `udprops`, `document_helpers` for chat context / `DocumentService`, `dialogs`)—there is no monolithic `uno_helpers.py`.
+UNO helpers are intentionally split (`uno_context`, `text_helpers`, `plugin/framework/doc_type.py`, `udprops`, `document_helpers` for chat context / `DocumentService`, `dialogs`)—there is no monolithic `uno_helpers.py`.
 
 ---
 

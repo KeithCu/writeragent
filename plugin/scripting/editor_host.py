@@ -46,8 +46,9 @@ from plugin.scripting.editor_ipc import (
     write_message,
 )
 from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handle_editor_script_message
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame
-from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame
+from plugin.framework.subprocess_env import scrub_subprocess_env
+from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 from plugin.scripting.venv_worker import (
     warm_venv_worker,
 )

@@ -436,7 +436,7 @@ def test_supports_calc_or_writer_manual():
 def test_script_header_needs_data_binding_on_calc_domains():
 
     calc_doc = object()
-    with patch("plugin.doc.doc_type.is_calc", return_value=True):
+    with patch("plugin.framework.doc_type.is_calc", return_value=True):
         assert script_header_needs_data_binding(
             "from writeragent.scripting.analysis import run_analysis\nresult = run_analysis(...)\n",
             doc=calc_doc,
@@ -454,7 +454,7 @@ def test_script_header_needs_data_binding_for_direct_helper_templates():
     from plugin.scripting.duckdb_sql import get_sql_script_templates
 
     calc_doc = object()
-    with patch("plugin.doc.doc_type.is_calc", return_value=True):
+    with patch("plugin.framework.doc_type.is_calc", return_value=True):
         assert script_header_needs_data_binding(
             get_analysis_script_templates()["describe_data"],
             doc=calc_doc,
@@ -475,7 +475,7 @@ def test_script_header_needs_data_binding_ignores_comments_and_non_calc():
 
     viz_code = "from writeragent.scripting.viz import quick_plot\nresult = quick_plot()\n"
 
-    with patch("plugin.doc.doc_type.is_calc", side_effect=is_calc_mock):
+    with patch("plugin.framework.doc_type.is_calc", side_effect=is_calc_mock):
         assert script_header_needs_data_binding("# run_analysis(foo)\n", doc=calc_doc) is False
         assert script_header_needs_data_binding('x = "run_analysis("\n', doc=calc_doc) is False
         assert script_header_needs_data_binding("run_analysis()\n", doc=calc_doc) is True

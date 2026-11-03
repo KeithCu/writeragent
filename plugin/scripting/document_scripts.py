@@ -25,7 +25,7 @@ import json
 import logging
 from typing import Any, Callable
 
-from plugin.doc.doc_type import is_calc, is_draw, is_writer
+from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework import config
 from plugin.framework.errors import DocumentDisposedError, is_disposed_exception
@@ -282,7 +282,7 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         return None
     if doc is not None and (is_writer(doc) or is_draw(doc)):
         # What was wrong: comments said Impress still enumerates.
-        # How: is_draw is Draw or Impress (plugin/doc/doc_type.py). 725df4915
+        # How: is_draw is Draw or Impress (plugin/framework/doc_type.py). 725df4915
         # returned None for Writer or is_draw so a focused non-Calc document
         # would not bind a background workbook. e9e5f4b35 described that check
         # as Writer and Draw only.

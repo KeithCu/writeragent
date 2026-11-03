@@ -589,7 +589,7 @@ def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
 
 def main() -> None:
     global _ipc_stream
-    from plugin.scripting.ipc import claim_ipc_channel
+    from plugin.framework.ipc import claim_ipc_channel
     _ipc_stream = claim_ipc_channel()
 
     logging.basicConfig(level=logging.INFO)

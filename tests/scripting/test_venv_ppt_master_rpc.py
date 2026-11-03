@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.ipc import read_pickle_frame
+from plugin.framework.ipc import read_pickle_frame
 
 
 def test_dispatch_worker_event_only():

@@ -29,7 +29,7 @@ from plugin.calc.python.function import (
     perform_deferred_spill,
 )
 from plugin.calc.python.workbook_lifecycle import _lifecycle_key
-from plugin.doc.doc_type import is_calc
+from plugin.framework.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
 from plugin.tests.testing_utils import with_native_doc

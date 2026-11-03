@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.ipc import read_pickle_frame
+from plugin.framework.ipc import read_pickle_frame
 from plugin.scripting.host_rpc import (
     TOOL_RPC_DISABLED,
     execute_tool,
@@ -280,9 +280,9 @@ def test_execute_tool_prefers_script_session_document():
         patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
         patch("plugin.main.get_tools", return_value=registry),
-        patch("plugin.doc.doc_type.is_draw", return_value=True),
-        patch("plugin.doc.doc_type.is_calc", return_value=False),
-        patch("plugin.doc.doc_type.is_writer", return_value=False),
+        patch("plugin.framework.doc_type.is_draw", return_value=True),
+        patch("plugin.framework.doc_type.is_calc", return_value=False),
+        patch("plugin.framework.doc_type.is_writer", return_value=False),
     ):
         execute_tool(
             "export_presentation_project",
@@ -311,9 +311,9 @@ def test_execute_tool_uses_pinned_document_not_front_window():
             patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
             patch("plugin.scripting.session_manager.get_desktop") as mock_desktop,
             patch("plugin.main.get_tools", return_value=registry),
-            patch("plugin.doc.doc_type.is_draw", return_value=True),
-            patch("plugin.doc.doc_type.is_calc", return_value=False),
-            patch("plugin.doc.doc_type.is_writer", return_value=False),
+            patch("plugin.framework.doc_type.is_draw", return_value=True),
+            patch("plugin.framework.doc_type.is_calc", return_value=False),
+            patch("plugin.framework.doc_type.is_writer", return_value=False),
         ):
             execute_tool("shape_upsert", {"action": "create"}, script_session_id=token)
         mock_desktop.assert_not_called()
@@ -435,7 +435,7 @@ def test_handle_tool_call_frame_rejects_non_dict_args():
     assert handled is True
     mock_tool.assert_not_called()
     assert len(written) == 1
-    from plugin.scripting.ipc import read_pickle_frame
+    from plugin.framework.ipc import read_pickle_frame
     import io
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -457,7 +457,7 @@ def test_handle_tool_call_frame_unpicklable_result():
         )
     assert handled is True
     assert len(written) == 1
-    from plugin.scripting.ipc import read_pickle_frame
+    from plugin.framework.ipc import read_pickle_frame
     import io
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -470,7 +470,7 @@ def test_rpc_call_drops_none_kwargs():
     import plugin.scripting.writeragent_api as api
 
     with patch.object(api, "IS_WORKER", True), patch(
-        "plugin.scripting.ipc.exchange_tool_call", return_value={}
+        "plugin.framework.ipc.exchange_tool_call", return_value={}
     ) as mock_exchange:
         api._rpc_call("apply_document_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
     mock_exchange.assert_called_once_with(
@@ -567,9 +567,9 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
         patch("plugin.framework.uno_context.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
         patch("plugin.main.get_tools", return_value=registry),
-        patch("plugin.doc.doc_type.is_draw", return_value=True),
-        patch("plugin.doc.doc_type.is_calc", return_value=False),
-        patch("plugin.doc.doc_type.is_writer", return_value=False),
+        patch("plugin.framework.doc_type.is_draw", return_value=True),
+        patch("plugin.framework.doc_type.is_calc", return_value=False),
+        patch("plugin.framework.doc_type.is_writer", return_value=False),
     ):
         res = execute_tool("async_mock_tool", {}, allowed_tools=frozenset({"async_mock_tool"}), caller="test_caller")
 
@@ -741,9 +741,9 @@ def test_execute_tool_copies_stop_onto_tool_context():
         patch("plugin.framework.uno_context.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
         patch("plugin.main.get_tools", return_value=registry),
-        patch("plugin.doc.doc_type.is_draw", return_value=True),
-        patch("plugin.doc.doc_type.is_calc", return_value=False),
-        patch("plugin.doc.doc_type.is_writer", return_value=False),
+        patch("plugin.framework.doc_type.is_draw", return_value=True),
+        patch("plugin.framework.doc_type.is_calc", return_value=False),
+        patch("plugin.framework.doc_type.is_writer", return_value=False),
     ):
         execute_tool(
             "export_presentation_project",
@@ -776,7 +776,7 @@ def test_handle_tool_call_frame_forwards_stop_to_execute_tool():
 
 def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
     import io
-    from plugin.scripting.ipc import IpcPayloadSizeError, pack_pickle_frame as real_pack
+    from plugin.framework.ipc import IpcPayloadSizeError, pack_pickle_frame as real_pack
 
     first = True
 
@@ -805,7 +805,7 @@ def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
 
 def test_handle_tool_call_frame_second_pack_failure_propagates(monkeypatch):
     import pytest
-    from plugin.scripting.ipc import IpcPayloadSizeError
+    from plugin.framework.ipc import IpcPayloadSizeError
 
     def mock_pack(payload, **kwargs):
         raise IpcPayloadSizeError("Pickle frame exceeds maximum payload size: 99")
