@@ -468,7 +468,8 @@ def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, s
         role = msg.get("role", "")
         content = msg.get("content", "")
         if role == "user":
-            items.append(("user", message_text(content)))
+            transcript = msg.get("_transcript_text")
+            items.append(("user", transcript if isinstance(transcript, str) and transcript else message_text(content)))
         elif role == "assistant":
             if content:
                 text = message_text(content)

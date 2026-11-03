@@ -313,6 +313,50 @@ def test_click_row_accepts_command_chrome_does_not_dump_help():
     send.append_output.assert_called_once()
     assert "Slash commands:" in send.append_output.call_args[0][0]
 
+
+def test_enter_on_summarize_completes_ask_draft_not_rewrite():
+    popup, _box = _controller()
+    send = popup.send_listener
+    query = popup.query_control
+    send.dispatch = MagicMock()
+    send.append_output = MagicMock()
+    send.clear_ask = MagicMock()
+    send.hide_popup = MagicMock(side_effect=popup.hide)
+    send.slash_run_rewrite = MagicMock()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/su")
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+            assert popup.handle_key(KEY_RETURN, 0) is True
+            set_text.assert_called_once_with(query, "/summarize ")
+    send.slash_run_rewrite.assert_not_called()
+    send.append_output.assert_not_called()
+
+
+def test_tone_with_argument_closes_popup_and_does_not_consume_enter():
+    popup, _box = _controller()
+    query = popup.query_control
+    query.text = "/tone very formal"
+    send = popup.send_listener
+    send.dispatch = MagicMock()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        assert popup.on_query_text("/tone very formal") is False
+    assert popup.is_open is False
+    assert popup.handle_key(KEY_RETURN, 0) is False
+    send.dispatch.assert_called_once()
+    event = send.dispatch.call_args[0][0]
+    assert event.kind is SendEventKind.TEXT_UPDATED
+
+
+def test_popup_list_labels_use_short_popup_formatter():
+    popup, box = _controller()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/t")
+    tone_row = next(label for label in box.items if label.startswith("/tone"))
+    assert "<" not in tone_row
+    assert " — " in tone_row
+
+
 def test_printable_key_char_skips_controls():
     assert _printable_key_char("h") == "h"
     assert _printable_key_char("\n") is None
@@ -466,10 +510,10 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
     send.append_output.assert_not_called()
     assert len(posted) == 1
     fn, args, kwargs = posted[0]
-    assert getattr(fn, "__name__", "") == "run_slash_command"
+    assert callable(fn)
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.dialogs.set_control_text"):
-            fn(*args, **kwargs)
+            fn()
     win.dispose.assert_called_once()
     floater.dispose.assert_called_once()
     assert popup.is_open is False

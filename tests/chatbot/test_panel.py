@@ -2694,3 +2694,16 @@ def test_append_output_shows_help_without_live_turn() -> None:
         listener.append_output("\n/help — Print the command list\n")
     widget.append_chunk.assert_called_once_with("\n/help — Print the command list\n")
     append_response.assert_not_called()
+
+
+def test_append_output_during_tool_loop_uses_append_response() -> None:
+    from plugin.chatbot.panel import SendButtonListener
+    from unittest.mock import MagicMock, patch
+
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
+        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    listener.rich_text_widget = MagicMock()
+    with patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=object()), patch.object(listener, "_append_response") as append_response:
+        listener.append_output("\nSlash commands:\n")
+    append_response.assert_called_once_with("\nSlash commands:\n", role="assistant")
+    listener.rich_text_widget.append_chunk.assert_not_called()

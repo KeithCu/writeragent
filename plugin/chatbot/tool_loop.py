@@ -327,7 +327,14 @@ def _append_user_message_for_send(
     query_text: str,
     b64_image: str | None,
     panel: Any,
+    *,
+    user_transcript_text: str | None = None,
 ) -> None:
+    display_line = user_transcript_text if user_transcript_text else query_text
+
+    def _tag_transcript(msg: dict[str, Any]) -> None:
+        if user_transcript_text:
+            msg["_transcript_text"] = user_transcript_text
     if b64_image or panel.audio_wav_path:
         content_list: list[dict[str, Any]] = []
         if query_text:
@@ -358,6 +365,8 @@ def _append_user_message_for_send(
             turn_session.add_user_message(_("[Voice message]"))
         else:
             turn_session.add_user_message(content_list)
+            if user_transcript_text and turn_session.messages:
+                _tag_transcript(turn_session.messages[-1])
 
         if audio_content and turn_session.messages:
             # Append audio to the in-memory message so it's sent this turn
@@ -374,13 +383,15 @@ def _append_user_message_for_send(
 
         attach_str = " & ".join(attachments)
         if attach_str:
-            display_text = f"{query_text} [{attach_str} Attached]" if query_text else f"[{attach_str} Message]"
+            display_text = f"{display_line} [{attach_str} Attached]" if display_line else f"[{attach_str} Message]"
         else:
-            display_text = query_text
+            display_text = display_line
         panel._append_response(display_text, role="user")
     else:
         turn_session.add_user_message(query_text)
-        panel._append_response(query_text, role="user")
+        if user_transcript_text and turn_session.messages:
+            _tag_transcript(turn_session.messages[-1])
+        panel._append_response(display_line, role="user")
 
 
 class _PanelDescriptor:
@@ -426,7 +437,15 @@ class ToolCallingMixin:
     def _sm_state(self, value: ToolLoopState | None) -> None:  # pyright: ignore[reportPropertyTypeMismatch]  # clear session with None
         self._panel.sidebar_state = dataclasses.replace(self._panel.sidebar_state, tool_loop=value)
 
-    def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str, skip_append_user: bool = False) -> None:
+    def _do_send_chat_with_tools(
+        self,
+        query_text: str,
+        model: Any,
+        doc_type_str: str,
+        skip_append_user: bool = False,
+        *,
+        user_transcript_text: str | None = None,
+    ) -> None:
         # The send already called begin_send_turn. A mode click inside
         # pump_ui_idle aborts that turn and swaps the session. Do not start
         # another turn here: that rebind wrote this reply onto the other chat.
@@ -571,7 +590,13 @@ class ToolCallingMixin:
                     except Exception:
                         log.exception("Failed to get selected image base64")
 
-            _append_user_message_for_send(turn_session, query_text, b64_image, self._panel)
+            _append_user_message_for_send(
+                turn_session,
+                query_text,
+                b64_image,
+                self._panel,
+                user_transcript_text=user_transcript_text,
+            )
 
         self._panel._append_response("\n[Using chat model.]\n")
         log.info("_do_send: using chat model")

@@ -493,7 +493,15 @@ class SendButtonListener(BaseActionListener):
 
         ``_append_response`` drops text when no turn is live, which is always
         the case for a slash command, so /help printed nothing.
+
+        During a tool loop, ``append_chunk`` is transient and the next turn
+        repaint wipes it (QA B8). Fold into the live session instead.
         """
+        from plugin.chatbot.tool_loop_actions import running_turn
+
+        if running_turn(self) is not None:
+            self._append_response(text, role="assistant")
+            return
         widget = self.rich_text_widget
         if widget is not None:
             self._run_rich_ui(widget.append_chunk, text)
@@ -1326,6 +1334,7 @@ class SendButtonListener(BaseActionListener):
         if query_text is None:
             return
 
+        slash_transcript_line: str | None = None
         if slash_cmd is not None:
             if slash_cmd.needs_turn:
                 self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
@@ -1338,6 +1347,7 @@ class SendButtonListener(BaseActionListener):
                 self.run_slash_formula(slash_arg)
                 return
             if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
+                slash_transcript_line = peek_text.strip()
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
 
         try:
@@ -1378,7 +1388,12 @@ class SendButtonListener(BaseActionListener):
                 return
 
             # Regular Chat with Tools or Streams
-            self._tool_calling._do_send_chat_with_tools(query_text, model, doc_type_label)
+            self._tool_calling._do_send_chat_with_tools(
+                query_text,
+                model,
+                doc_type_label,
+                user_transcript_text=slash_transcript_line,
+            )
 
         except Exception:
             # Bugfix: this except used to put the Ask text back after
