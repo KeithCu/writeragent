@@ -1089,11 +1089,10 @@ def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeyp
 
 
 def _clear_spill_timer_registry() -> None:
-    import plugin.calc.python.workbook_lifecycle as lifecycle
+    from plugin.calc.python.workbook_state import WorkbookState
 
     python_function._PENDING_SPILL_TIMERS.clear()
-    lifecycle._LIFECYCLE_KEYS.clear()
-    lifecycle._LIFECYCLE_KEY_BY_DOC_ID.clear()
+    WorkbookState.reset_for_tests()
 
 
 class _HoldSpillTimer:
@@ -2836,7 +2835,11 @@ def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPat
     python_function.LOADED_DOCUMENTS.clear()
 
     python_function.load_spill_registry_for_doc(doc)
-    doc_key = "file:///fake_malformed.ods"
+    from plugin.calc.python.workbook_state import WorkbookState
+
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    doc_key = st.key
     assert (doc_key, "Sheet1", 1, 1) not in python_function.SPILL_REGISTRY
     assert (doc_key, "Sheet1", 4, 4) in python_function.SPILL_REGISTRY
     assert len([k for k in python_function.SPILL_REGISTRY if k[0] == doc_key]) == 1
@@ -2927,6 +2930,8 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
 
 
 def test_spill_registry_doc_key_uses_runtime_uid_ladder() -> None:
+    from plugin.calc.python.workbook_state import WorkbookState
+
     class MethodVsPropStub:
         def getRuntimeUID(self) -> str:
             return "from-method"
@@ -2939,20 +2944,21 @@ def test_spill_registry_doc_key_uses_runtime_uid_ladder() -> None:
         def getURL(self) -> str:
             return ""
 
-    assert python_function._spill_registry_doc_key(MethodVsPropStub()) == "from-method"
+    assert WorkbookState.for_doc(MethodVsPropStub()).key == "from-method"
 
     int_stub = CalcDocStub(props={"RuntimeUID": 42})
-    assert python_function._spill_registry_doc_key(int_stub) == "42"
+    assert WorkbookState.for_doc(int_stub).key == "42"
 
     class NonStrIntObj:
         pass
 
     non_str_stub = CalcDocStub(url="file:///x.ods", props={"RuntimeUID": NonStrIntObj()})
-    assert python_function._spill_registry_doc_key(non_str_stub) == "file:///x.ods"
+    assert WorkbookState.for_doc(non_str_stub).key == "calc:file:///x.ods"
 
 
 def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.workbook_lifecycle import _forget_doc_lifecycle_key
+    from plugin.calc.python.workbook_state import WorkbookState
 
     doc = CalcDocStub(url="", props={})
     counter = 0
@@ -2966,10 +2972,13 @@ def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.M
 
     key1 = ""
     try:
-        key1 = python_function._spill_registry_doc_key(doc)
+        st1 = WorkbookState.for_doc(doc)
+        assert st1 is not None
+        key1 = st1.key
         assert key1 == "calc:unsaved:1"
-        key2 = python_function._spill_registry_doc_key(doc)
-        assert key2 == "calc:unsaved:1"
+        st2 = WorkbookState.for_doc(doc)
+        assert st2 is not None
+        assert st2.key == "calc:unsaved:1"
         assert counter == 1
     finally:
         if key1:

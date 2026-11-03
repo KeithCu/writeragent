@@ -64,13 +64,7 @@ def reset_sheet_modify_runtime_for_tests() -> None:
     _DISPATCH_DEPTH = 0
 
 
-def _doc_identity(doc: Any) -> str:
-    """Stable per-document id. URL collides for unsaved books and moves on Save-As."""
-    if doc is None:
-        return ""
-    from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-    return str(uno_read(lambda: _lifecycle_key(doc), "") or "")
 
 
 def _owning_calc_doc(sheet: Any) -> Any | None:
@@ -93,16 +87,6 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
             return None
         current = uno_read(parent, None)
     return None
-
-
-# Bugfix: What was wrong: posted pass outlives the doc; empty sheet name became "Sheet1".
-# How it happened: unguarded UNO getURL()/getName() calls, and `or "Sheet1"` fallback on empty names.
-# Why this change fixes it: best_effort returns "" on failure/disposal, and run_sheet_modify_pass aborts when name is empty.
-def _doc_url_of(doc: Any) -> str:
-    """URL, or "" when the document is gone. A posted pass can outlive it."""
-    if doc is None:
-        return ""
-    return str(best_effort(lambda: doc.getURL(), "sheet_modify: getURL failed", "") or "")
 
 
 def _sheet_name_of(sheet: Any) -> str:
@@ -144,13 +128,18 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
     Same shape as ``perform_deferred_spill`` (Timer → ``main.post``).
     Unload cancels via the shared spill-timer registry.
     """
-    if sheet is None:
+    if sheet is None or doc is None:
         return
-    url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
-    lifecycle_key = _doc_identity(doc)
-    identity = lifecycle_key or url
-    key = (identity, name)
+    if not name:
+        return
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.framework.queue_executor import main
+
+    state = WorkbookState.for_doc(doc) if main.is_current() else WorkbookState.known(doc)
+    if state is None or not state.key:
+        return
+    key = (state.key, name)
     _cancel_pending(key)
 
     timer_holder: list[Any] = []
@@ -167,12 +156,12 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
                         break
         from plugin.framework.queue_executor import main
 
-        main.post(lambda: run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=sheet_name_to_run))
+        main.post(lambda: run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=sheet_name_to_run))
 
     from plugin.calc.python.function import start_deferred_sheet_timer
 
     # Timer lives in function.py (Layer C allowlist) — same 0.1s spill site.
-    timer = start_deferred_sheet_timer(delay_sec, _fire, lifecycle_key=lifecycle_key)
+    timer = start_deferred_sheet_timer(delay_sec, _fire, lifecycle_key=state.key)
     timer_holder.append(timer)
     with _PENDING_LOCK:
         _PENDING_TIMERS[key] = timer
@@ -180,11 +169,14 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
 
 def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
     """Cancel debounce and run the pass on this thread. Tests only."""
-    url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
-    identity = _doc_identity(doc) or _doc_url_of(doc) or url
-    _cancel_pending((identity, name))
-    run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name)
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.framework.queue_executor import main
+
+    state = WorkbookState.for_doc(doc) if main.is_current() else WorkbookState.known(doc)
+    if state is not None and state.key:
+        _cancel_pending((state.key, name))
+    run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=name)
 
 
 def migrate_sheet_rename(
@@ -194,70 +186,63 @@ def migrate_sheet_rename(
 ) -> None:
     """Migrate in-memory and persistent state when a sheet is renamed.
 
-    Rekeys SPILL_REGISTRY, SHEET_MODIFY_LISTENERS, _PENDING_TIMERS,
+    Rekeys state.spills, state.listeners, _PENDING_TIMERS,
     geometric records, and updates dispatcher.sheet_name.
     """
     if not old_sheet_name or not new_sheet_name or old_sheet_name == new_sheet_name:
         return
 
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.framework.queue_executor import main
+
+    state = WorkbookState.for_doc(doc) if main.is_current() else WorkbookState.known(doc)
     # Bugfix: What was wrong: migrate_sheet_rename migrated keys across unrelated workbooks when doc_key or identity was empty.
     # How it happened: The filter expression used (not doc_key or k[0] in ...) and (not identity or ...), treating an empty identity as a wildcard matching all keys.
     # Why this change fixes it: We collect non-empty IDs; if no valid IDs exist for the document, we log a warning and skip that map without rekeying other workbooks' entries.
-    identity = _doc_identity(doc)
-    url = _doc_url_of(doc)
-    ids = {x for x in (identity, url) if x}
+    if state is None or not state.key:
+        log.warning("migrate_sheet_rename: no workbook identity found; skipping in-memory migration")
+        return
 
-    def _rekey(mapping: dict[Any, Any], touch: Any = None) -> None:
-        for key in list(mapping):
-            if key[1] == old_sheet_name and key[0] in ids:
-                value = mapping.pop(key)
-                if touch is not None:
-                    touch(value)
-                mapping[(key[0], new_sheet_name, *key[2:])] = value
-
-    # Rekey SPILL_REGISTRY for this doc
+    # Rekey state.spills for this doc
     try:
-        from plugin.calc.python.function import (
-            SPILL_REGISTRY,
-            _spill_registry_doc_key,
-            save_spill_registry_for_doc,
-        )
+        from plugin.calc.python.function import save_spill_registry_for_doc
 
-        doc_key = _spill_registry_doc_key(doc) if doc is not None else ""
-        if doc_key:
-            ids.add(doc_key)
-        _rekey(SPILL_REGISTRY)
+        for (sname, r, c) in list(state.spills):
+            if sname == old_sheet_name:
+                rec = state.spills.pop((sname, r, c))
+                state.spills[(new_sheet_name, r, c)] = rec
         if doc is not None:
-            save_spill_registry_for_doc(doc)
+            save_spill_registry_for_doc(doc, state)
     except Exception:
         log.exception("migrate_sheet_rename: failed to migrate SPILL_REGISTRY")
 
-    if not ids:
-        log.warning("migrate_sheet_rename: no workbook identity found; skipping in-memory migration")
-    else:
-        # Rekey SHEET_MODIFY_LISTENERS
-        try:
-            from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
+    # Rekey state.listeners
+    try:
+        if old_sheet_name in state.listeners:
+            disp = state.listeners.pop(old_sheet_name)
+            setattr(disp, "sheet_name", new_sheet_name)
+            state.listeners[new_sheet_name] = disp
+    except Exception:
+        log.exception("migrate_sheet_rename: failed to migrate listeners")
 
-            _rekey(SHEET_MODIFY_LISTENERS, lambda disp: setattr(disp, "sheet_name", new_sheet_name))
-        except Exception:
-            log.exception("migrate_sheet_rename: failed to migrate SHEET_MODIFY_LISTENERS")
-
-        # Rekey _PENDING_TIMERS
-        with _PENDING_LOCK:
-            _rekey(_PENDING_TIMERS)
+    # Rekey _PENDING_TIMERS
+    with _PENDING_LOCK:
+        for pkey in list(_PENDING_TIMERS):
+            if pkey[0] == state.key and pkey[1] == old_sheet_name:
+                timer = _PENDING_TIMERS.pop(pkey)
+                _PENDING_TIMERS[(state.key, new_sheet_name)] = timer
 
     # Rekey geometric records and persist
     try:
         from plugin.calc.python.geometric_recalc import (
-            geometric_workbook_key,
             records_for_sheet,
             replace_records_for_sheet,
             save_geometric_registry_for_doc,
         )
+        from plugin.scripting.session_manager import calc_workbook_base_session_id
 
         if doc is not None:
-            gwk = geometric_workbook_key(doc)
+            gwk = calc_workbook_base_session_id(doc)
             if gwk:
                 old_records = records_for_sheet(gwk, old_sheet_name)
                 if old_records:
@@ -278,27 +263,26 @@ def _skip_sheet_modify() -> bool:
 def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
     """UI-thread jobs after the shared debounce. Spill and geometric stay separate.
 
-    Spill: ``CalcSpillModifyListener.modified`` (``SPILL_REGISTRY`` walk only).
+    Spill: ``CalcSpillModifyListener.modified`` (``state.spills`` walk only).
     Geometric: own ``discover_python_cells_on_sheet`` via ``reconcile_geometric_sheet``.
     """
     if _skip_sheet_modify():
         return
     if sheet is None:
         return
-    url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
     if not name:
-        log.debug("run_sheet_modify_pass: unreadable sheet name; skipping (%s)", url or "?")
+        log.debug("run_sheet_modify_pass: unreadable sheet name; skipping")
         return
     with sheet_modify_scope():
-        from plugin.calc.python.function import CalcSpillModifyListener, _spill_registry_doc_key
+        from plugin.calc.python.function import CalcSpillModifyListener
+        from plugin.calc.python.workbook_state import WorkbookState
 
-        # Job 1 — spill orphan cleanup. Walks SPILL_REGISTRY only.
-        # Pass the lifecycle id the spill registry uses. The URL is empty
-        # for every unsaved book, so matching on it hits the wrong book.
+        state = WorkbookState.for_doc(doc) if doc is not None else None
+        # Job 1 — spill orphan cleanup. Walks state.spills only.
         try:
-            registry_id = _spill_registry_doc_key(doc) if doc is not None else url
-            CalcSpillModifyListener(ctx, registry_id, name).modified(SimpleNamespace(Source=sheet))
+            reg_id = state.key if state is not None else ""
+            CalcSpillModifyListener(ctx, reg_id, name, state=state).modified(SimpleNamespace(Source=sheet))
         except Exception:
             log.exception("Error in spill orphan cleanup (%s)", name)
 
@@ -319,7 +303,7 @@ def dispatch_sheet_modified(
     event: Any,
     doc: Any = None,
 ) -> None:
-    """Shared ``modified`` entry. Debounces; does not walk ``SPILL_REGISTRY``."""
+    """Shared ``modified`` entry. Debounces; does not walk ``state.spills``."""
     from plugin.framework.queue_executor import main
 
     if not main.is_current() or _skip_sheet_modify():
@@ -342,7 +326,7 @@ def dispatch_sheet_modified(
     if live and sheet_name and live != sheet_name:
         migrate_sheet_rename(owner, sheet_name, live)
         effective_name = live
-    live_url = _doc_url_of(owner) if owner is not None else ""
+    live_url = owner.getURL() if owner is not None and hasattr(owner, "getURL") else ""
     schedule_sheet_modify_pass(ctx, owner, sheet, doc_url=live_url or doc_key, sheet_name=effective_name)
 
 
@@ -350,26 +334,30 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
     """Register the one dispatcher on *sheet*. Idempotent; no second listener."""
     if doc is None or sheet is None:
         return None
-    url = _doc_url_of(doc)
     name = _sheet_name_of(sheet)
-    identity = _doc_identity(doc) or url
-    key = (identity, name)
-    from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
+    if not name:
+        return None
+    from plugin.calc.python.workbook_state import WorkbookState
 
-    existing = SHEET_MODIFY_LISTENERS.get(key)
+    state = WorkbookState.for_doc(doc)
+    if state is None:
+        return None
+
+    url = doc.getURL() if hasattr(doc, "getURL") else ""
+    existing = state.listeners.get(name)
     if existing is not None:
         existing.doc = doc
-        existing.doc_identity = identity
+        existing.doc_identity = state.key
         if url:
             existing.doc_key = url
         return existing
-    listener = SheetModifyDispatcher(ctx, doc, url, name, identity)
+    listener = SheetModifyDispatcher(ctx, doc, url or "", name, state.key)
     try:
         sheet.addModifyListener(listener)
     except Exception:
         log.exception("Failed to register sheet modify dispatcher on %s", name)
         return None
-    SHEET_MODIFY_LISTENERS[key] = listener
+    state.listeners[name] = listener
     return listener
 
 
@@ -397,10 +385,12 @@ class SheetModifyDispatcher(BaseModifyListener):
             log.exception("Error in SheetModifyDispatcher.modified")
 
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
+        from plugin.calc.python.workbook_state import WorkbookState
 
-        # Unload may already have popped this entry. Cancel is idempotent.
-        key = (self.doc_identity, self.sheet_name)
-        if SHEET_MODIFY_LISTENERS.get(key) is self:
-            SHEET_MODIFY_LISTENERS.pop(key, None)
-        _cancel_pending(key)
+        state = WorkbookState.known(self.doc)
+        if state is not None:
+            if state.listeners.get(self.sheet_name) is self:
+                state.listeners.pop(self.sheet_name, None)
+            _cancel_pending((state.key, self.sheet_name))
+        elif self.doc_identity:
+            _cancel_pending((self.doc_identity, self.sheet_name))

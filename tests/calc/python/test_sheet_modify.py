@@ -21,7 +21,6 @@ from plugin.calc.python.function import (
 from plugin.calc.python.sheet_modify import (
     SheetModifyDispatcher,
     _PENDING_TIMERS,
-    _doc_url_of,
     _sheet_name_of,
     cancel_pending_sheet_timers,
     dispatch_sheet_modified,
@@ -384,9 +383,7 @@ def test_doc_url_and_sheet_name_read_failures_return_empty() -> None:
             raise RuntimeError("DisposedException")
 
     obj = FailingUNO()
-    assert _doc_url_of(obj) == ""
     assert _sheet_name_of(obj) == ""
-    assert _doc_url_of(None) == ""
     assert _sheet_name_of(None) == ""
 
     class EmptyName:

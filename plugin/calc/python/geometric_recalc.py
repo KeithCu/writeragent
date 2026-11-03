@@ -89,18 +89,10 @@ def geometric_flag_enabled() -> bool:
 
 
 def geometric_workbook_key(doc: Any) -> str:
-    """``calc:`` + ``mint_document_key`` — never empty (unsaved uses a persisted id)."""
-    from plugin.scripting.session_key import SessionKey, SessionKind, new_unsaved_document_key
-    from plugin.scripting.session_manager import mint_document_key
+    """``calc:`` session wire id from ``calc_workbook_base_session_id``."""
+    from plugin.scripting.session_manager import calc_workbook_base_session_id
 
-    key = (mint_document_key(doc) or "").strip()
-    if not key:
-        cached = getattr(doc, "_geometric_unsaved_key", None)
-        if not cached:
-            cached = new_unsaved_document_key()
-            best_effort(lambda: setattr(doc, "_geometric_unsaved_key", cached), "set unsaved key")
-        key = cached
-    return SessionKey.of(SessionKind.CALC, key).wire()
+    return calc_workbook_base_session_id(doc)
 
 
 def replace_geometric_strip_safe(workbook_key: str, safe: frozenset[EvalIndexKey]) -> None:

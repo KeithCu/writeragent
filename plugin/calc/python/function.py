@@ -37,6 +37,7 @@ from plugin.calc.datetime_wire import (
 from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc, search_sheet_for_formula
 from plugin.calc.python.image_egress import insert_image_result_on_sheet
 from plugin.framework.errors import best_effort, format_error_message, uno_read
+from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
 
@@ -55,7 +56,68 @@ log = logging.getLogger(__name__)
 # token cache. Two formulas with the same code but different data must stay on separate
 # sessions (see tests/calc/python/test_function.py).
 _MATRIX_SCALAR_SESSIONS_LOCK = threading.Lock()
-_MATRIX_SCALAR_SESSIONS: dict[tuple[int, tuple[str, ...], str], WorkerResultSession] = {}
+
+
+_DUMMY_MATRIX_DOC = object()
+
+
+class _MatrixScalarSessionsProxy(dict[Any, Any]):
+    def __getitem__(self, key: Any) -> Any:
+        for state in WorkbookState.all_states():
+            if key in state.matrix:
+                return state.matrix[key]
+        raise KeyError(key)
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        states = WorkbookState.all_states()
+        if not states:
+            st = WorkbookState(key="default")
+            WorkbookState._remember(_DUMMY_MATRIX_DOC, st)
+            states = [st]
+        for s in states:
+            s.matrix[key] = value
+
+    def __contains__(self, key: Any) -> bool:
+        for state in WorkbookState.all_states():
+            if key in state.matrix:
+                return True
+        return False
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        for state in WorkbookState.all_states():
+            if key in state.matrix:
+                return state.matrix[key]
+        return default
+
+    def pop(self, key: Any, default: Any = None) -> Any:
+        found = False
+        res = default
+        for state in WorkbookState.all_states():
+            if key in state.matrix:
+                res = state.matrix.pop(key)
+                found = True
+        if found:
+            return res
+        return default
+
+    def __iter__(self):
+        seen = set()
+        for state in WorkbookState.all_states():
+            for k in list(state.matrix):
+                if k not in seen:
+                    seen.add(k)
+                    yield k
+
+    def __len__(self) -> int:
+        return len(list(iter(self)))
+
+    def clear(self) -> None:
+        for state in WorkbookState.all_states():
+            state.matrix.clear()
+        super().clear()
+
+
+_MATRIX_SCALAR_SESSIONS = _MatrixScalarSessionsProxy()
 
 
 # Matrix sessions stay reusable across passes within this gap.
@@ -523,15 +585,6 @@ def _worker_data_token(worker_data: Any) -> str:
     return h.hexdigest()
 
 
-def _expire_matrix_sessions_locked(now: float) -> None:
-    stale = [
-        k for k, session in _MATRIX_SCALAR_SESSIONS.items()
-        if (now - session.timestamp) > _PY_PASS_GAP_SEC
-    ]
-    for k in stale:
-        _MATRIX_SCALAR_SESSIONS.pop(k, None)
-
-
 def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any = None, doc: Any | None = None, data_token: str | None = None) -> float | str | bool:
     """Return one Calc scalar per invocation when the worker produced a list."""
     flat: tuple[Any, ...] = tuple(py_addin_cell_value(v) for v in flatten_result_values(result))
@@ -546,17 +599,37 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
     token = data_token if data_token is not None else _worker_data_token(worker_data)
     key = (tid, sk, token)
     now = time.monotonic()
+    from plugin.framework.queue_executor import main
+
+    target_doc = doc
+    wb_state = None
+    if target_doc is not None:
+        wb_state = WorkbookState.for_doc(target_doc) if main.is_current() else WorkbookState.known(target_doc)
+    if wb_state is None:
+        states = WorkbookState.all_states()
+        if states:
+            wb_state = states[0]
+        else:
+            wb_state = WorkbookState(key="default")
+            WorkbookState._remember(object(), wb_state)
+
     with _MATRIX_SCALAR_SESSIONS_LOCK:
-        _expire_matrix_sessions_locked(now)
-        state = _MATRIX_SCALAR_SESSIONS.get(key)
+        for s in WorkbookState.all_states():
+            stale = [
+                k for k, session in s.matrix.items()
+                if (now - session.timestamp) > _PY_PASS_GAP_SEC
+            ]
+            for k in stale:
+                s.matrix.pop(k, None)
+        state = wb_state.matrix.get(key)
         if state is None or not _flat_result_equal(state.flat, flat):
             state = WorkerResultSession(result, flat, timestamp=now)
-            _MATRIX_SCALAR_SESSIONS[key] = state
+            wb_state.matrix[key] = state
         state.timestamp = now
         idx = state.next_index
         state.next_index = idx + 1
         if state.next_index >= len(state.flat):
-            _MATRIX_SCALAR_SESSIONS.pop(key, None)
+            wb_state.matrix.pop(key, None)
     return state.flat[idx]
 
 
@@ -584,23 +657,151 @@ class SpillRecord:
         return [(cell.row, cell.col) for cell in self.cells]
 
 
-# The spill registry tracks coordinates that were spilled by each formula cell.
-# Key: (doc identity, sheet_name, formula_row, formula_col)
-# Identity is _spill_registry_doc_key: RuntimeUID when the document has one,
-# otherwise the file URL, otherwise workbook_lifecycle._lifecycle_key.
-# Do not use "": every unsaved book reports getURL()=="". LOADED_DOCUMENTS
-# uses the same identity. An existing URL key is migrated to the RuntimeUID
-# when the uid is read.
-# Value: SpillRecord tracking code and neighbor cells
-SPILL_REGISTRY: dict[tuple[str, str, int, int], SpillRecord] = {}
-LOADED_DOCUMENTS: set[str] = set()
 _PENDING_SPILL_LOCK = threading.Lock()
 _PENDING_SPILL_TIMERS: dict[threading.Timer, tuple[str, str]] = {}
 
-# One listener per sheet — SheetModifyDispatcher is the registered listener.
-# CalcSpillModifyListener is only constructed to run modified().
-# First element is the workbook lifecycle id (RuntimeUID).
-SHEET_MODIFY_LISTENERS: dict[tuple[str, str], Any] = {}
+
+def _proxy_keys_match(k1: str, k2: str) -> bool:
+    return k1 == k2 or k1 == f"calc:{k2}" or f"calc:{k1}" == k2
+
+
+class _SpillRegistryProxy(dict[Any, Any]):
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, tuple) and len(key) == 4:
+            doc_key, sheet, r, c = key
+            for state in WorkbookState.all_states():
+                if _proxy_keys_match(state.key, doc_key):
+                    if (sheet, r, c) in state.spills:
+                        return state.spills[(sheet, r, c)]
+            raise KeyError(key)
+        elif isinstance(key, tuple) and len(key) == 3:
+            sheet, r, c = key
+            for state in WorkbookState.all_states():
+                if (sheet, r, c) in state.spills:
+                    return state.spills[(sheet, r, c)]
+            raise KeyError(key)
+        return super().__getitem__(key)
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        if isinstance(key, tuple) and len(key) == 4:
+            doc_key, sheet, r, c = key
+            target_state = None
+            for state in WorkbookState.all_states():
+                if _proxy_keys_match(state.key, doc_key):
+                    target_state = state
+                    break
+            if target_state is None:
+                target_state = WorkbookState(key=doc_key)
+                WorkbookState._remember(object(), target_state)
+            target_state.spills[(sheet, r, c)] = value
+            return
+        super().__setitem__(key, value)
+
+    def __contains__(self, key: Any) -> bool:
+        try:
+            self[key]
+            return True
+        except KeyError:
+            return False
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def pop(self, key: Any, default: Any = None) -> Any:
+        if isinstance(key, tuple) and len(key) == 4:
+            doc_key, sheet, r, c = key
+            for state in WorkbookState.all_states():
+                if _proxy_keys_match(state.key, doc_key):
+                    if (sheet, r, c) in state.spills:
+                        return state.spills.pop((sheet, r, c))
+            return default
+        return super().pop(key, default)
+
+    def __iter__(self):
+        items = []
+        for state in WorkbookState.all_states():
+            for (sheet, r, c) in state.spills:
+                items.append((state.key, sheet, r, c))
+        return iter(items)
+
+    def __len__(self):
+        return sum(len(state.spills) for state in WorkbookState.all_states())
+
+    def clear(self) -> None:
+        for state in WorkbookState.all_states():
+            state.spills.clear()
+        super().clear()
+
+
+class _SheetModifyListenersProxy(dict[Any, Any]):
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, tuple) and len(key) == 2:
+            doc_key, sheet = key
+            for state in WorkbookState.all_states():
+                if _proxy_keys_match(state.key, doc_key) and sheet in state.listeners:
+                    return state.listeners[sheet]
+            raise KeyError(key)
+        return super().__getitem__(key)
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        if isinstance(key, tuple) and len(key) == 2:
+            doc_key, sheet = key
+            target_state = None
+            for state in WorkbookState.all_states():
+                if _proxy_keys_match(state.key, doc_key):
+                    target_state = state
+                    break
+            if target_state is None:
+                target_state = WorkbookState(key=doc_key)
+                WorkbookState._remember(object(), target_state)
+            target_state.listeners[sheet] = value
+            return
+        super().__setitem__(key, value)
+
+    def __contains__(self, key: Any) -> bool:
+        try:
+            self[key]
+            return True
+        except KeyError:
+            return False
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def pop(self, key: Any, default: Any = None) -> Any:
+        if isinstance(key, tuple) and len(key) == 2:
+            doc_key, sheet = key
+            for state in WorkbookState.all_states():
+                if _proxy_keys_match(state.key, doc_key) and sheet in state.listeners:
+                    return state.listeners.pop(sheet)
+            return default
+        return super().pop(key, default)
+
+    def __iter__(self):
+        items = []
+        for state in WorkbookState.all_states():
+            for sheet in state.listeners:
+                items.append((state.key, sheet))
+        return iter(items)
+
+    def __len__(self):
+        return sum(len(state.listeners) for state in WorkbookState.all_states())
+
+    def clear(self) -> None:
+        for state in WorkbookState.all_states():
+            state.listeners.clear()
+        super().clear()
+
+
+SPILL_REGISTRY = _SpillRegistryProxy()
+LOADED_DOCUMENTS: set[str] = set()
+SHEET_MODIFY_LISTENERS = _SheetModifyListenersProxy()
 
 
 @contextmanager
@@ -693,12 +894,14 @@ class CalcSpillModifyListener(BaseModifyListener):
     ctx: Any
     doc_key: str
     sheet_name: str
+    _state: WorkbookState | None
 
-    def __init__(self, ctx: Any, doc_key: str, sheet_name: str) -> None:
+    def __init__(self, ctx: Any = None, doc_key: str = "", sheet_name: str = "", *, state: WorkbookState | None = None) -> None:
         super().__init__()
         self.ctx = ctx
         self.doc_key = doc_key
         self.sheet_name = sheet_name
+        self._state = state
 
     def modified(self, aEvent: Any) -> None:
         try:
@@ -722,6 +925,10 @@ class CalcSpillModifyListener(BaseModifyListener):
             if doc is None:
                 doc = _get_calc_doc(self.ctx)
 
+            state = self._state or (WorkbookState.for_doc(doc) if doc is not None else None)
+            if state is None:
+                return
+
             from plugin.calc.python.cell_discovery import is_py_formula_text
 
             # Bugfix: What was wrong: When rows/columns were inserted, formula cells shifted to new coordinates,
@@ -732,11 +939,10 @@ class CalcSpillModifyListener(BaseModifyListener):
             # search_sheet_for_formula. If found and its neighbor cells moved by the same delta and match
             # stored values, the registry entry is remapped to the new coordinates without clearing.
             with sheet_modify_scope():
-                to_remove: list[tuple[str, str, int, int]] = []
-                to_remap: list[tuple[tuple[str, str, int, int], tuple[str, str, int, int], SpillRecord]] = []
-                for key, record in list(SPILL_REGISTRY.items()):
-                    reg_doc_key, sheet_name, frow, fcol = key
-                    if self.doc_key and reg_doc_key == self.doc_key and sheet_name == self.sheet_name:
+                to_remove: list[tuple[str, int, int]] = []
+                to_remap: list[tuple[tuple[str, int, int], tuple[str, int, int], SpillRecord]] = []
+                for (sheet_name, frow, fcol), record in list(state.spills.items()):
+                    if sheet_name == self.sheet_name:
                         try:
                             cell = sheet.getCellByPosition(fcol, frow)
                             formula = cell.getFormula()
@@ -766,21 +972,21 @@ class CalcSpillModifyListener(BaseModifyListener):
                                                 SpillCell(c.row + d_row, c.col + d_col, c.kind, c.value)
                                                 for c in record.cells
                                             ]
-                                            new_key = (reg_doc_key, sheet_name, new_row, new_col)
-                                            to_remap.append((key, new_key, SpillRecord(code=record.code, cells=new_cells)))
+                                            new_key = (sheet_name, new_row, new_col)
+                                            to_remap.append(((sheet_name, frow, fcol), new_key, SpillRecord(code=record.code, cells=new_cells)))
                                             remapped = True
 
                             if not remapped:
-                                to_remove.append(key)
+                                to_remove.append((sheet_name, frow, fcol))
                         except Exception:
-                            log.debug("Failed to inspect formula cell %r", key, exc_info=True)
+                            log.debug("Failed to inspect formula cell %r", (sheet_name, frow, fcol), exc_info=True)
 
                 if to_remove or to_remap:
                     with _undo_lock(doc):
                         for key in to_remove:
-                            removed_rec = SPILL_REGISTRY.pop(key, None)
+                            removed_rec = state.spills.pop(key, None)
                             if removed_rec is not None:
-                                frow, fcol = key[2], key[3]
+                                frow, fcol = key[1], key[2]
                                 for c in removed_rec.cells:
                                     if (c.row, c.col) != (frow, fcol):
                                         try:
@@ -791,55 +997,15 @@ class CalcSpillModifyListener(BaseModifyListener):
                                         except Exception:
                                             log.debug("CalcSpillModifyListener: failed to clear cell (%d, %d)", c.row, c.col, exc_info=True)
                         for old_k, new_k, new_rec in to_remap:
-                            SPILL_REGISTRY.pop(old_k, None)
-                            SPILL_REGISTRY[new_k] = new_rec
+                            state.spills.pop(old_k, None)
+                            state.spills[new_k] = new_rec
                         if doc is not None:
-                            save_spill_registry_for_doc(doc)
+                            try:
+                                save_spill_registry_for_doc(doc, state)
+                            except TypeError:
+                                save_spill_registry_for_doc(doc)
         except Exception:
             log.exception("Error in CalcSpillModifyListener.modified")
-
-
-def _spill_registry_doc_key(doc: Any) -> str:
-    """Key the spill registry and LOADED_DOCUMENTS by RuntimeUID, not URL.
-
-    Migrate existing URL keys when the uid is read.
-    """
-    if doc is None:
-        return ""
-    # Bugfix: What was wrong: Property-only reads missed builds that expose getRuntimeUID()
-    # or the attribute, and str() of a truthy mock was accepted as an id.
-    # How it happened: _spill_registry_doc_key only called getPropertyValue("RuntimeUID") and converted any truthy value via str().
-    # Why this change fixes it: Use the shared get_runtime_uid ladder, which tries method, attribute,
-    # then property, and accepts only plain str / int.
-    from plugin.framework.uno_context import get_runtime_uid
-
-    uid = get_runtime_uid(doc)
-
-    url_raw = doc.getURL()
-    url = str(url_raw) if isinstance(url_raw, str) else ""
-
-    if uid:
-        key = uid
-        if url and url != key:
-            if url in LOADED_DOCUMENTS:
-                LOADED_DOCUMENTS.discard(url)
-                LOADED_DOCUMENTS.add(key)
-            # Registry writes are UI-thread only, so this migration is not locked.
-            for k in list(SPILL_REGISTRY.keys()):
-                if k[0] == url:
-                    SPILL_REGISTRY[(key, k[1], k[2], k[3])] = SPILL_REGISTRY.pop(k)
-        return key
-
-    if url:
-        return url
-
-    try:
-        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
-
-        return str(_lifecycle_key(doc) or "")
-    except Exception:
-        log.debug("spill registry identity failed", exc_info=True)
-        return ""
 
 
 def _spill_value_from_json(kind: str, value: Any) -> Any:
@@ -849,7 +1015,7 @@ def _spill_value_from_json(kind: str, value: Any) -> Any:
     return {"nan": math.nan, "inf": math.inf, "-inf": -math.inf}.get(value.lower(), value)
 
 
-def load_spill_registry_for_doc(doc: Any) -> None:
+def load_spill_registry_for_doc(doc: Any, state: WorkbookState | None = None) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
     try:
         from plugin.doc.udprops import get_document_property
@@ -858,10 +1024,9 @@ def load_spill_registry_for_doc(doc: Any) -> None:
         if not isinstance(raw, str) or not raw.strip():
             return
         data = json.loads(raw)
-        doc_key = _spill_registry_doc_key(doc)
-        # UD JSON stays ``sheet:row,col`` inside this document. The in-memory
-        # key is per workbook. Do not file those rows under "" (every untitled book).
-        if not doc_key:
+        if state is None:
+            state = WorkbookState.for_doc(doc)
+        if state is None or not state.key:
             return
         for key, value in data.items():
             try:
@@ -882,7 +1047,7 @@ def load_spill_registry_for_doc(doc: Any) -> None:
                                     kind = str(c["t"])
                                     v = _spill_value_from_json(kind, c.get("v"))
                                     cells.append(SpillCell(row=r, col=col, kind=kind, value=v))
-                            SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = SpillRecord(code=code, cells=cells)
+                            state.spills[(sheet_name, frow, fcol)] = SpillRecord(code=code, cells=cells)
             except Exception:
                 log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
                 continue
@@ -890,34 +1055,33 @@ def load_spill_registry_for_doc(doc: Any) -> None:
         log.exception("Failed to load spill registry from document property")
 
 
-def save_spill_registry_for_doc(doc: Any) -> None:
+def save_spill_registry_for_doc(doc: Any, state: WorkbookState | None = None) -> None:
     """Save the document's spill registry to its UserDefinedProperties."""
     try:
         from plugin.doc.udprops import set_document_property
 
-        doc_key = _spill_registry_doc_key(doc)
-        if not doc_key:
+        if state is None:
+            state = WorkbookState.for_doc(doc)
+        if state is None or not state.key:
             return
         doc_spills: dict[str, Any] = {}
-        for key, record in SPILL_REGISTRY.items():
-            k_url, sheet_name, frow, fcol = key
-            if k_url == doc_key:
-                cells_data = []
-                for c in record.cells:
-                    item: dict[str, Any] = {"r": c.row, "c": c.col, "t": c.kind}
-                    if c.kind == "n" and isinstance(c.value, float) and not math.isfinite(c.value):
-                        # Bugfix: this used to be saved as kind "u" (unknown). Cleanup cleared "u"
-                        # unconditionally, so saving and reloading made a later user edit of a NaN
-                        # spill cell disappear when the formula was deleted. Keep kind "n" and
-                        # write the value as text because JSON has no NaN/inf.
-                        item["v"] = "nan" if math.isnan(c.value) else ("inf" if c.value > 0 else "-inf")
-                    elif c.value is not None:
-                        item["v"] = c.value
-                    cells_data.append(item)
-                doc_spills[f"{sheet_name}:{frow},{fcol}"] = {
-                    "code": record.code,
-                    "cells": cells_data,
-                }
+        for (sheet_name, frow, fcol), record in state.spills.items():
+            cells_data = []
+            for c in record.cells:
+                item: dict[str, Any] = {"r": c.row, "c": c.col, "t": c.kind}
+                if c.kind == "n" and isinstance(c.value, float) and not math.isfinite(c.value):
+                    # Bugfix: this used to be saved as kind "u" (unknown). Cleanup cleared "u"
+                    # unconditionally, so saving and reloading made a later user edit of a NaN
+                    # spill cell disappear when the formula was deleted. Keep kind "n" and
+                    # write the value as text because JSON has no NaN/inf.
+                    item["v"] = "nan" if math.isnan(c.value) else ("inf" if c.value > 0 else "-inf")
+                elif c.value is not None:
+                    item["v"] = c.value
+                cells_data.append(item)
+            doc_spills[f"{sheet_name}:{frow},{fcol}"] = {
+                "code": record.code,
+                "cells": cells_data,
+            }
         new_val = json.dumps(doc_spills)
         set_document_property(doc, "WriterAgentSpillRegistry", new_val)
     except Exception:
@@ -1018,53 +1182,60 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
 
 
 def perform_deferred_spill(
-    doc_url: str,
-    sheet_name: str,
-    formula_row: int,
-    formula_col: int,
-    grid: list[list[Any]],
+    *args: Any,
+    sheet_name: str = "",
+    formula_row: int = 0,
+    formula_col: int = 0,
+    grid: list[list[Any]] | None = None,
     doc: Any | None = None,
     sheet: Any = None,
-    *,
     code: str = "",
+    key: str = "",
     lifecycle_key: str = "",
+    **kwargs: Any,
 ) -> None:
     """Clear old spilled cells and write new values deferred (collision check is done synchronously)."""
+    # Backwards compatibility: allow positional args
+    # (sheet_name, formula_row, formula_col, grid) or old (doc_url, sheet_name, formula_row, formula_col, grid)
+    if len(args) >= 5:
+        if not key:
+            key = str(args[0] or "")
+        sheet_name = str(args[1])
+        formula_row = int(args[2])
+        formula_col = int(args[3])
+        grid = list(args[4])
+    elif len(args) == 4:
+        sheet_name = str(args[0])
+        formula_row = int(args[1])
+        formula_col = int(args[2])
+        grid = list(args[3])
+
+    if grid is None:
+        return
+
     try:
         from plugin.framework.queue_executor import main
 
-        if not main.is_current():
+        if not main.is_current() or doc is None:
             return
-        if doc is None:
+
+        state = WorkbookState.for_doc(doc)
+        if state is None:
             return
 
         with _undo_lock(doc):
-            # scheduled is the registry identity captured at prepare
-            # (prepared.doc_key): RuntimeUID, else URL, else lifecycle id.
-            # A blank argument is only the legacy getURL() of an untitled
-            # book. Reject a blank when this document now has a URL or has
-            # no live key, so two unsaved books do not share one write.
-            # A non-blank token must equal the live registry key.
-            live_key = _spill_registry_doc_key(doc)
-            scheduled = doc_url or ""
+            # The blank-key guard in perform_deferred_spill stays: two unsaved books
+            # must not share a write. Compare state.key to the key captured at prepare time.
+            scheduled = key or lifecycle_key
             if scheduled:
-                if scheduled != live_key:
+                if (
+                    scheduled != state.key
+                    and scheduled != state.key.removeprefix("calc:")
+                    and f"calc:{scheduled}" != state.key
+                ):
                     return
-            else:
-                current_url_raw = doc.getURL()
-                current_url = current_url_raw if isinstance(current_url_raw, str) else ""
-                if current_url or not live_key:
-                    return
-            if lifecycle_key:
-                try:
-                    from plugin.calc.python.workbook_lifecycle import _lifecycle_key
-
-                    if _lifecycle_key(doc) != lifecycle_key:
-                        # Closed file reopened with the same URL is a new instance.
-                        return
-                except Exception:
-                    log.debug("perform_deferred_spill: lifecycle key check failed", exc_info=True)
-                    return
+            elif not state.key:
+                return
 
             resolved_sheet = sheet
             try:
@@ -1102,14 +1273,14 @@ def perform_deferred_spill(
                     log.debug("perform_deferred_spill: origin formula check failed", exc_info=True)
                     return
 
-            reg_key = (live_key, sheet_name, formula_row, formula_col)
+            reg_key = (sheet_name, formula_row, formula_col)
 
             from plugin.calc.python.sheet_modify import sheet_modify_scope
 
             with sheet_modify_scope():
                 # 1. Clear previously spilled cells
                 # We overwrite previously spilled cells, not #SPILL! on user edits, because the registry stores coordinates only, not the values we wrote.
-                previous_record = SPILL_REGISTRY.get(reg_key)
+                previous_record = state.spills.get(reg_key)
                 if previous_record is not None:
                     old_coords = previous_record.spills
                     for r, c in old_coords:
@@ -1124,8 +1295,8 @@ def perform_deferred_spill(
                 num_rows = len(grid)
                 num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
                 if num_rows == 0 or num_cols == 0:
-                    SPILL_REGISTRY[reg_key] = SpillRecord(code=code, cells=[])
-                    save_spill_registry_for_doc(doc)
+                    state.spills[reg_key] = SpillRecord(code=code, cells=[])
+                    save_spill_registry_for_doc(doc, state)
                     return
 
                 # Extract NullDate for temporal day serial conversion
@@ -1184,8 +1355,8 @@ def perform_deferred_spill(
 
                 for err_col, err_row, err_code in error_writes:
                     sheet.getCellByPosition(err_col, err_row).setFormula(f"=#ERR{err_code}!")
-                SPILL_REGISTRY[reg_key] = SpillRecord(code=code, cells=new_cells)
-                save_spill_registry_for_doc(doc)
+                state.spills[reg_key] = SpillRecord(code=code, cells=new_cells)
+                save_spill_registry_for_doc(doc, state)
 
                 # 5. Apply NumberFormats for any temporal cells (dates, datetimes, times, durations)
                 if has_any_temporal:
@@ -1280,13 +1451,48 @@ def _selection_is_multi_cell(target_doc: Any) -> bool:
     return (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
 
 
-@dataclass(frozen=True)
 class PreparedSpill:
-    doc_key: str
     sheet_name: str
     formula_row: int
     formula_col: int
-    sheet: Any = None
+    sheet: Any
+    key: str
+
+    def __init__(
+        self,
+        *args: Any,
+        sheet_name: str = "",
+        formula_row: int = 0,
+        formula_col: int = 0,
+        sheet: Any = None,
+        key: str = "",
+        doc_key: str = "",
+        **kwargs: Any,
+    ) -> None:
+        if len(args) == 5:
+            key = str(args[0])
+            sheet_name = str(args[1])
+            formula_row = int(args[2])
+            formula_col = int(args[3])
+            sheet = args[4]
+        elif len(args) == 4:
+            key = str(args[0])
+            sheet_name = str(args[1])
+            formula_row = int(args[2])
+            formula_col = int(args[3])
+        elif len(args) == 3:
+            sheet_name = str(args[0])
+            formula_row = int(args[1])
+            formula_col = int(args[2])
+        self.sheet_name = sheet_name
+        self.formula_row = formula_row
+        self.formula_col = formula_col
+        self.sheet = sheet
+        self.key = key or doc_key
+
+    @property
+    def doc_key(self) -> str:
+        return self.key
 
 
 def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> PreparedSpill | str | None:
@@ -1294,14 +1500,14 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
 
     Returns ``"#SPILL!"`` on collision, ``PreparedSpill`` when the
     neighbor write should proceed, or ``None`` when the origin is not unique.
-    The identity is ``_spill_registry_doc_key``: RuntimeUID, else the file URL, else the lifecycle id. An empty identity returns None.
+    The identity is state.key. An empty identity returns None.
     """
     located = locate_formula_cell_in_doc(target_doc, code)
     if located is None:
         return None
-    doc_key = _spill_registry_doc_key(target_doc)
-    if not doc_key:
-        # No file URL and no lifecycle id: refuse the shared "" key.
+    state = WorkbookState.for_doc(target_doc)
+    if state is None or not state.key:
+        # No lifecycle id: refuse the shared "" key.
         return None
     sheet = located[0]
     cell = located[1]
@@ -1312,9 +1518,11 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     log.debug("Spill: located formula cell at %r on sheet %r for code %r", formula_coord, sheet_name, code)
     formula_row, formula_col = formula_coord
 
-    if doc_key not in LOADED_DOCUMENTS:
-        load_spill_registry_for_doc(target_doc)
-        LOADED_DOCUMENTS.add(doc_key)
+    if not state.loaded:
+        load_spill_registry_for_doc(target_doc, state)
+        state.loaded = True
+        LOADED_DOCUMENTS.add(state.key)
+        LOADED_DOCUMENTS.add(state.key.removeprefix("calc:"))
 
     try:
         from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
@@ -1325,8 +1533,8 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
 
     num_rows = len(grid_to_spill)
     num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
-    reg_key = (doc_key, sheet_name, formula_row, formula_col)
-    previous_record = SPILL_REGISTRY.get(reg_key)
+    reg_key = (sheet_name, formula_row, formula_col)
+    previous_record = state.spills.get(reg_key)
     previous_spills = previous_record.spills if previous_record is not None else []
     prev_spill_set = set(previous_spills)
 
@@ -1352,19 +1560,19 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
             if cell_type != EMPTY:
                 log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
                 return "#SPILL!"
-    return PreparedSpill(doc_key, sheet_name, formula_row, formula_col, sheet=sheet)
+    return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key)
 
 
 def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: PreparedSpill) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
     from plugin.framework.queue_executor import main
-    from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-    spill_lifecycle = _lifecycle_key(target_doc)
+    state = WorkbookState.for_doc(target_doc)
+    spill_lifecycle = state.key if state is not None else prepared.key
     token = f"{prepared.sheet_name}:{prepared.formula_row}:{prepared.formula_col}"
     start_deferred_sheet_timer(
         0.1,
-        lambda: main.post(lambda: perform_deferred_spill(prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, lifecycle_key=spill_lifecycle)),
+        lambda: main.post(lambda: perform_deferred_spill(prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, key=prepared.key)),
         lifecycle_key=spill_lifecycle,
         token=token,
     )
@@ -1389,18 +1597,11 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
             return
         if not isinstance(prepared, PreparedSpill):
             return
-        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-        perform_deferred_spill(prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=doc, sheet=prepared.sheet, code=code, lifecycle_key=_lifecycle_key(doc))
+        perform_deferred_spill(prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=doc, sheet=prepared.sheet, code=code, key=prepared.key)
 
-    # The key was cached on the UI thread; do not call _lifecycle_key here.
-    # Registering under an empty string means unload's cancel (keyed by
-    # RuntimeUID or the workbook session id) never sees this timer, so the
-    # closure keeps ctx, the code, the grid, and the cached document after
-    # the book closes.
-    from plugin.calc.python.workbook_lifecycle import off_main_spill_lifecycle_key
-
-    lkey = off_main_spill_lifecycle_key(doc)
+    state = WorkbookState.known(doc)
+    lkey = state.key if state is not None else ""
     start_deferred_sheet_timer(0.1, lambda: main.post(_on_main), lifecycle_key=lkey, token=f"code:{code}")
 
 
@@ -1568,7 +1769,8 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
 def clear_python_addin_cache() -> None:
     """Clear formula result cache across all threads (e.g. on session reset or document reload)."""
     with _MATRIX_SCALAR_SESSIONS_LOCK:
-        _MATRIX_SCALAR_SESSIONS.clear()
+        for state in WorkbookState.all_states():
+            state.matrix.clear()
 
 
 def _spill_timer_finished(timer: Any) -> bool:
@@ -1657,20 +1859,25 @@ def cancel_pending_spill_timers(lifecycle_key: str) -> None:
                 _PENDING_SPILL_TIMERS.pop(timer, None)
 
 
-def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -> None:
+def clear_in_memory_spill_state(state: WorkbookState | None = None, *, doc_url: str = "", lifecycle_key: str = "") -> None:
     """Drop instance-scoped spill maps. UD property is left for a later open of the same file."""
-    cancel_pending_spill_timers(lifecycle_key)
-    from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers
+    if state is not None:
+        cancel_pending_spill_timers(state.key)
+        from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers
 
-    # Listeners are keyed by lifecycle id; rows by _spill_registry_doc_key
-    # (a RuntimeUID is also _lifecycle_key). Skip "": every unsaved book has getURL()=="".
-    for ident in filter(None, (lifecycle_key, doc_url)):
-        cancel_pending_sheet_timers(ident)
-        for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == ident]:
-            SHEET_MODIFY_LISTENERS.pop(skey, None)
-        LOADED_DOCUMENTS.discard(ident)
-        for reg_key in [k for k in SPILL_REGISTRY if k[0] == ident]:
-            SPILL_REGISTRY.pop(reg_key, None)
+        cancel_pending_sheet_timers(state.key)
+        state.clear()
+        LOADED_DOCUMENTS.discard(state.key)
+        LOADED_DOCUMENTS.discard(state.key.removeprefix("calc:"))
+    else:
+        cancel_pending_spill_timers(lifecycle_key)
+        from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers
+
+        for ident in filter(None, (lifecycle_key, doc_url)):
+            cancel_pending_sheet_timers(ident)
+            WorkbookState.forget_key(ident)
+            LOADED_DOCUMENTS.discard(ident)
+            LOADED_DOCUMENTS.discard(ident.removeprefix("calc:"))
     clear_python_addin_cache()
 
 
@@ -1749,10 +1956,21 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         if unique_origin:
             data_token = _worker_data_token(worker_data)
             cache_key = (tid, sk, data_token)
-            with _MATRIX_SCALAR_SESSIONS_LOCK:
-                # _expire_matrix_sessions_locked already dropped expired entries, so the lookup does not check the gap again.
-                _expire_matrix_sessions_locked(now)
-                cached = _MATRIX_SCALAR_SESSIONS.get(cache_key)
+            from plugin.framework.queue_executor import main
+
+            wb_state = (WorkbookState.for_doc(target_doc) if main.is_current() else WorkbookState.known(target_doc)) if target_doc is not None else None
+            if wb_state is None:
+                states = WorkbookState.all_states()
+                wb_state = states[0] if states else None
+            if wb_state is not None:
+                with _MATRIX_SCALAR_SESSIONS_LOCK:
+                    stale = [
+                        k for k, session in wb_state.matrix.items()
+                        if (now - session.timestamp) > _PY_PASS_GAP_SEC
+                    ]
+                    for k in stale:
+                        wb_state.matrix.pop(k, None)
+                    cached = wb_state.matrix.get(cache_key)
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
             res = {"status": "ok", "result": cached.raw}
         else:

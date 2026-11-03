@@ -98,6 +98,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/calc/python/diagnostics.py",
     "plugin/calc/python/init_script_editor.py",
     "plugin/calc/python/workbook_lifecycle.py",
+    "plugin/calc/python/workbook_state.py",
     "plugin/doc/__init__.py",
     "plugin/doc/text_helpers.py",
     "plugin/doc/udprops.py",
