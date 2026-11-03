@@ -36,6 +36,9 @@ def copy_shapes_to_page(source_page: Any, target_doc: Any, target_page: Any, uno
             except Exception as exc:
                 if is_disposal(exc):
                     raise
+                # Non-disposal remove failure leaves an unplaced clone on the page;
+                # log so it is recorded why removal failed.
+                log.debug("remove empty-group clone failed", exc_info=True)
             log.warning("clone_shape empty group: %s", result.empty_group_message)
             continue
         if result.graphic_shapes > result.graphic_reimports:

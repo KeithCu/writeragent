@@ -58,9 +58,12 @@ _AVAILABLE_NAMES: list[str] = []
 
 for _friendly, _auto, _id, _aliases, _blurb in LAYOUT_TABLE:
     _NAME_TO_ID[_auto.lower()] = _id
+    # Rows with no friendly name (e.g. AUTOLAYOUT_NOTES) previously lacked an
+    # _ID_TO_NAME entry, causing layout_name to return "unknown_<id>". Fall back
+    # to the lowercase AUTOLAYOUT_* name so valid ids always have a name.
+    _ID_TO_NAME[_id] = _friendly if _friendly is not None else _auto.lower()
     if _friendly is not None:
         _NAME_TO_ID[_friendly.lower()] = _id
-        _ID_TO_NAME[_id] = _friendly
         _AVAILABLE_NAMES.append(_friendly)
     for _alias in _aliases:
         _NAME_TO_ID[_alias.lower()] = _id

@@ -327,3 +327,28 @@ def test_copy_shapes_to_page_empty_group_removes_clone_and_skips(monkeypatch):
     assert copied == 1
     assert target_page.getCount() == 1
     assert target_page.getByIndex(0) is clone2
+
+
+def test_copy_shapes_to_page_empty_group_remove_fails_logs_debug(monkeypatch, caplog):
+    import logging
+
+    doc = MagicMock()
+    clone1 = FakeShape("com.sun.star.drawing.GroupShape")
+    target_page = MagicMock()
+    target_page.remove.side_effect = RuntimeError("cannot remove")
+
+    res = ClonedShape(
+        shape=clone1,
+        shape_type="com.sun.star.drawing.GroupShape",
+        reimported=None,
+        graphic_shapes=0,
+        graphic_reimports=0,
+        empty_group_message="Empty group",
+    )
+    monkeypatch.setattr(postprocess, "clone_shape", lambda *a, **kw: res)
+
+    src_page = FakePage([FakeShape("s1")])
+    with caplog.at_level(logging.DEBUG):
+        copied = copy_shapes_to_page(src_page, doc, target_page)
+    assert copied == 0
+    assert "remove empty-group clone failed" in caplog.text
