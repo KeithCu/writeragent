@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
+from plugin.framework.errors import DocumentDisposedError
 from plugin.ppt_master.adapter import uno_pptx_import
 from plugin.ppt_master.adapter.uno_pptx_import import _copy_page_notes, _import_slides_from_source
 
@@ -337,7 +338,7 @@ def test_copy_page_notes_reraises_dispose():
         def getNotesPage(self) -> _NotesPage:
             raise DisposedException("notes page gone")
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         _copy_page_notes(source, _DeadPage())
 
 def test_copy_page_notes_skips_non_dispose_exceptions(caplog: pytest.LogCaptureFixture) -> None:
