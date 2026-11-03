@@ -569,7 +569,7 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
     for cell in state.code_cells:
         assert cell.code_field_name in names, f"{cell.code_field_name} missing: {names}"
 
-    from plugin.notebook.notebook_controls import _height_for_text
+    from plugin.notebook.layout import height_for_text
     from plugin.notebook.form_lookup import find_control_shape_by_name as _find_control_shape_by_name, read_code_from_field
 
     # Multi-line In[2] field must be tall enough that the last line is not clipped.
@@ -579,7 +579,7 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
     shape_in2 = _find_control_shape_by_name(doc, cell_in2.code_field_name)
     assert shape_in2 is not None
     h_in2 = int(shape_in2.getSize().Height)
-    want_h = _height_for_text(src_in2, doc)
+    want_h = height_for_text(src_in2, doc)
     print(f"medium In[2] lines={lines_in2} shape_h={h_in2} want_h={want_h}", flush=True)
     assert lines_in2 >= 10, f"fixture In[2] should be multi-line, got {lines_in2}"
     assert h_in2 >= want_h or h_in2 >= (lines_in2 + 1) * 420, (
@@ -592,20 +592,20 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
     shape_in1 = _find_control_shape_by_name(doc, cell_in1.code_field_name)
     assert shape_in1 is not None
     h_in1 = int(shape_in1.getSize().Height)
-    want_in1 = _height_for_text(src_in1, doc)
+    want_in1 = height_for_text(src_in1, doc)
     print(f"medium In[1] lines={lines_in1} shape_h={h_in1} want_h={want_in1}", flush=True)
     assert lines_in1 == 2, f"fixture In[1] should be two source lines, got {lines_in1}"
     # Full extra line of wrap slack. Short cells keep a bit of empty gray.
     assert h_in1 >= want_in1, f"In[1] lost wrap slack: height={h_in1} want={want_in1}"
 
     from plugin.notebook.cell_registry import cell_id_to_hex
-    from plugin.notebook.notebook_controls import _text_area_width_units
+    from plugin.notebook.layout import text_area_width_units
 
     run_in2 = f"nb_run_{cell_id_to_hex(cell_in2.cell_id)}"
     gutter_in2 = _anchor_paragraph_string(doc, run_in2)
     field_para_in2 = _anchor_paragraph_string(doc, cell_in2.code_field_name)
     field_w = int(shape_in2.getSize().Width)
-    area = _text_area_width_units(doc)
+    area = text_area_width_units(doc)
     print(
         f"medium In[2] gutter={gutter_in2!r} field_para={field_para_in2!r} "
         f"field_w={field_w} area={area}",
@@ -623,7 +623,7 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
     shape_in3 = _find_control_shape_by_name(doc, cell_in3.code_field_name)
     assert shape_in3 is not None
     h_in3 = int(shape_in3.getSize().Height)
-    want_in3 = _height_for_text(src_in3, doc)
+    want_in3 = height_for_text(src_in3, doc)
     print(f"medium In[3] lines={lines_in3} shape_h={h_in3} want_h={want_in3}", flush=True)
     assert h_in3 >= want_in3 - 5, f"In[3] wrap-clip: height={h_in3} want={want_in3} lines={lines_in3}"
     run_in3 = f"nb_run_{cell_id_to_hex(cell_in3.cell_id)}"
@@ -1030,7 +1030,8 @@ def test_doc_body_nonempty_sees_in_flow_image_uno(ctx, doc):
 def test_import_large_code_cell_stores_full_source_uno(ctx, doc):
     import json
     import tempfile
-    from plugin.notebook.cell_registry import _MAX_IMPORT_TEXT_CHARS, load_registry
+    from plugin.notebook.cell_registry import load_registry
+    from plugin.notebook.layout import _MAX_IMPORT_TEXT_CHARS
     from plugin.notebook.form_lookup import read_code_from_field
     from plugin.notebook.writer_importer import import_ipynb_to_writer
 

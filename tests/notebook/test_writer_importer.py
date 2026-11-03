@@ -26,12 +26,12 @@ from plugin.notebook.layout import (
     text_area_width_units,
     text_width_from_style,
 )
-from plugin.notebook.notebook_controls import (
-    _DEFAULT_WIDTH,
-    _FIELD_HEIGHT_PAD,
-    _LINE_HEIGHT,
-    _MAX_FIELD_HEIGHT,
-    _MIN_FIELD_HEIGHT,
+from plugin.notebook.layout import (
+    DEFAULT_WIDTH as _DEFAULT_WIDTH,
+    FIELD_HEIGHT_PAD as _FIELD_HEIGHT_PAD,
+    LINE_HEIGHT as _LINE_HEIGHT,
+    MAX_FIELD_HEIGHT as _MAX_FIELD_HEIGHT,
+    MIN_FIELD_HEIGHT as _MIN_FIELD_HEIGHT,
 )
 from plugin.notebook.writer_importer import (
     _append_body_paragraph,
@@ -58,7 +58,8 @@ from plugin.notebook.writer_importer import (
 )
 
 
-from plugin.notebook.cell_registry import NotebookDocState, _MAX_IMPORT_TEXT_CHARS, _TRUNCATION_SUFFIX
+from plugin.notebook.cell_registry import NotebookDocState
+from plugin.notebook.layout import _MAX_IMPORT_TEXT_CHARS, _TRUNCATION_SUFFIX
 
 # Tests still refer to legacy private names for layout helpers re-exported publicly.
 _coerce_notebook_text = coerce_notebook_text
@@ -448,10 +449,10 @@ def test_height_for_text_includes_one_wrap_line():
 
 
 def test_code_field_uses_full_text_area_width():
-    from plugin.notebook.notebook_controls import _insert_code_input_in_flow
+    from plugin.notebook.layout import insert_code_input_in_flow
 
-    src = inspect.getsource(_insert_code_input_in_flow)
-    assert "_text_area_width_units(doc)" in src
+    src = inspect.getsource(insert_code_input_in_flow)
+    assert "text_area_width_units(doc)" in src
     assert "_RUN_BUTTON_SIZE" not in src
     assert _text_area_width_units(None) == _DEFAULT_WIDTH
 
@@ -459,8 +460,8 @@ def test_code_field_uses_full_text_area_width():
 def test_page_style_shared_by_width_and_height():
 
     assert _page_style(None) is None
-    assert "_page_style(doc)" in inspect.getsource(_text_area_width_units)
-    assert "_page_style(doc)" in inspect.getsource(_height_for_text) and "_page_style(doc)" in inspect.getsource(_insert_code_input_in_flow)
+    assert "page_style(doc)" in inspect.getsource(_text_area_width_units)
+    assert "page_style(doc)" in inspect.getsource(_height_for_text) and "page_style(doc)" in inspect.getsource(insert_code_input_in_flow)
 
     style = MagicMock()
     style.getPropertyValue.side_effect = lambda name: {
@@ -643,7 +644,7 @@ def test_import_resolves_page_style_once(tmp_path, monkeypatch):
 
     monkeypatch.setattr("plugin.notebook.writer_importer.page_style", counting_page_style)
     monkeypatch.setattr("plugin.notebook.writer_importer._embed_markdown_image", lambda *_a, **_k: True)
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", lambda w, h: None)
+    monkeypatch.setattr("plugin.notebook.layout.Size", lambda w, h: None)
     monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
 
     import_ipynb_to_writer(doc, str(ipynb))
@@ -806,7 +807,7 @@ def test_import_ipynb_to_writer_logs(tmp_path, monkeypatch):
             self.Height = h
 
     doc.createInstance.side_effect = lambda service: MagicMock()
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
 
     log_messages: list[str] = []
 
@@ -847,7 +848,7 @@ def test_import_ipynb_to_writer_does_not_pump_vcl_idle(tmp_path, monkeypatch):
             self.Height = h
 
     flush = MagicMock()
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
     monkeypatch.setattr("plugin.notebook.notebook_runner.flush_ui_idle", flush)
     monkeypatch.setattr(
         "plugin.notebook.notebook_controls.wire_all_notebook_run_buttons",
@@ -915,7 +916,7 @@ def test_import_ipynb_code_cells_use_insert_text_content(tmp_path, monkeypatch):
         return MagicMock()
 
     doc.createInstance.side_effect = create_instance
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
 
     stats = import_ipynb_to_writer(doc, str(ipynb))
 
@@ -953,7 +954,7 @@ def test_import_ipynb_markdown_html_uses_insert_html(tmp_path, monkeypatch):
             self.Height = h
 
     doc.createInstance.side_effect = lambda service: MagicMock()
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
 
     def fake_insert_html(cursor, html, **kwargs):
         html_calls.append(html)
@@ -992,7 +993,7 @@ def test_import_ipynb_inserts_image_output(tmp_path, monkeypatch):
 
     doc.createInstance.side_effect = lambda service: MagicMock()
     body_text.insertTextContent.side_effect = lambda cursor, content, absorb: insert_calls.append(content)
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
     monkeypatch.setattr(
         "plugin.notebook.writer_importer.insert_image_at_locator",
         lambda ctx, model, path, **kw: MagicMock(),
@@ -1037,7 +1038,7 @@ def test_import_image_then_stream_keeps_notebook_order(tmp_path, monkeypatch):
 
     body_text.insertString.side_effect = tracking_insert_string
     doc.createInstance.side_effect = lambda service: MagicMock()
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
     monkeypatch.setattr(
         "plugin.notebook.writer_importer.insert_image_at_locator",
         tracking_insert_image,
@@ -1065,7 +1066,7 @@ def test_import_code_cell_without_outputs_has_no_output_heading(tmp_path, monkey
             self.Width = w
             self.Height = h
 
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
     monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
 
     import_ipynb_to_writer(doc, str(ipynb))
@@ -1111,7 +1112,7 @@ def test_import_ipynb_saves_registry_with_two_code_cells(tmp_path, monkeypatch):
             self.Width = w
             self.Height = h
 
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
     monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
 
     saved: list = []
@@ -1152,7 +1153,7 @@ def test_import_drops_bookmark_name_when_insert_fails(tmp_path, monkeypatch, cap
             self.Width = w
             self.Height = h
 
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
     monkeypatch.setattr("plugin.notebook.writer_importer.insert_output_start_bookmark", lambda _d, _n: False)
     saved: list = []
     monkeypatch.setattr("plugin.notebook.writer_importer.save_registry", lambda _d, state: saved.append(state))
@@ -1232,7 +1233,7 @@ def test_import_small_numpy_notebook_fixture(monkeypatch):
         return model
 
     doc.createInstance.side_effect = create_instance
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
     monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
 
     html_calls: list[str] = []
@@ -1523,7 +1524,7 @@ def test_inline_markdown_nested_code_in_bold():
 
 
 def test_height_for_text_accounts_for_long_wrapped_lines():
-    from plugin.notebook.notebook_controls import _height_for_text
+    from plugin.notebook.layout import height_for_text as _height_for_text
 
     short_lines = "a = 1\nb = 2"
     long_wrapped_line = "a = [" + "1, " * 100 + "]"
@@ -1949,8 +1950,8 @@ def test_import_cells_keeps_later_cell_when_one_cell_fails(tmp_path, monkeypatch
     doc, body_text, _cursor = _writer_doc_mock(with_bookmarks=True)
 
     real = __import__(
-        "plugin.notebook.notebook_controls", fromlist=["_insert_code_input_in_flow"]
-    )._insert_code_input_in_flow
+        "plugin.notebook.layout", fromlist=["insert_code_input_in_flow"]
+    ).insert_code_input_in_flow
 
     def fail_field(*_args, **_kwargs):
         raise RuntimeError("field failed")
@@ -1983,7 +1984,7 @@ def test_import_failed_output_image_writes_placeholder(tmp_path, monkeypatch):
     doc, body_text, _cursor = _writer_doc_mock()
     monkeypatch.setattr(
         "plugin.notebook.writer_importer._insert_image_in_flow", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", lambda w, h: None)
+    monkeypatch.setattr("plugin.notebook.layout.Size", lambda w, h: None)
 
     stats = import_ipynb_to_writer(doc, str(ipynb))
     inserted = [call.args[1] for call in body_text.insertString.call_args_list]
@@ -2044,7 +2045,7 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
 
 
 def test_line_display_cols():
-    from plugin.notebook.notebook_controls import _line_display_cols
+    from plugin.notebook.layout import _line_display_cols
 
     # Plain ASCII
     assert _line_display_cols("hello") == 5
