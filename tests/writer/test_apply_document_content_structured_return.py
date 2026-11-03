@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import plugin.writer.format as format_mod
+import plugin.writer.html_import as format_mod
 import plugin.writer.search as search_mod
 from plugin.writer.apply_document_content import (
     ApplyDocumentContent,

@@ -36,7 +36,8 @@ def test_resolve_layout_id_comprehensive():
     # Integers
     assert layout_id(0) == 0
     assert layout_id(19) == 19
-    assert layout_id(-1) == -1
+    assert layout_id(-1) is None
+    assert layout_id(999) is None
 
     # Floats with/without integer equivalence
     assert layout_id(19.0) == 19
@@ -71,7 +72,8 @@ def test_resolve_layout_id_comprehensive():
     assert layout_id("19") == 19
     assert layout_id("  12  ") == 12
     assert layout_id("0") == 0
-    assert layout_id("-5") == -5
+    assert layout_id("-5") is None
+    assert layout_id("999") is None
 
     # Strings: Invalid / non-matching names or non-integer numbers
     assert layout_id("invalid_layout_name") is None

@@ -676,30 +676,16 @@ def set_combo_items(ctrl: Any, items: Sequence[str], selected: str = "") -> None
     if not ctrl:
         return
     labels = tuple(items)
-    model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-    if model is not None and hasattr(model, "StringItemList"):
-        try:
-            model.StringItemList = labels
-        except Exception:  # noqa: S110 - StringItemList attribute assignment failed
-            pass
-    if hasattr(ctrl, "setStringItemList"):
-        try:
-            ctrl.setStringItemList(labels)
-        except Exception:  # noqa: S110 - setStringItemList call failed
-            pass
-    if hasattr(ctrl, "getItemCount") and hasattr(ctrl, "removeItems"):
-        count = ctrl.getItemCount()
-        if count:
-            ctrl.removeItems(0, count)
-    if hasattr(ctrl, "addItems") and labels:
+    # Real UNO ComboBox and ListBox controls expose removeItems and addItems via XComboBox / XListBox.
+    count = ctrl.getItemCount()
+    if count:
+        ctrl.removeItems(0, count)
+    if labels:
         ctrl.addItems(labels, 0)
-    elif hasattr(ctrl, "addItem") and labels:
-        for label in reversed(labels):
-            ctrl.addItem(label, 0)
 
     if selected:
         set_control_text(ctrl, selected)
-    elif hasattr(ctrl, "getItemCount") and ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
+    elif ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
         ctrl.setText("")
 
 

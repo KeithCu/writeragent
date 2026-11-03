@@ -196,7 +196,7 @@ class FakeHandler:
         self._model = model
 
     def disposing(self, source: Any) -> None:  # noqa: N802, N803 -- UNO API
-        ctrl = review_click_popup._detach(self)
+        ctrl = rva.detach_click_handler(self)
         if ctrl is None:
             return
         try:
@@ -216,22 +216,22 @@ def test_registration_dedup_and_detach(monkeypatch: pytest.MonkeyPatch) -> None:
     model.supportsService.return_value = True
     ctrl = FakeController(model=model)
     review_click_popup.register_click_review(ctrl)
-    assert len(review_click_popup._attached) == 1
+    assert len(rva.registered_click_handlers()) == 1
     assert ctrl.add_count == 1
 
     # Registering again is a no-op
     review_click_popup.register_click_review(ctrl)
-    assert len(review_click_popup._attached) == 1
+    assert len(rva.registered_click_handlers()) == 1
     assert ctrl.add_count == 1
 
-    # _detach
-    handler = review_click_popup._attached[0][1]
-    detached_ctrl = review_click_popup._detach(handler)
+    # detach_click_handler
+    handler = rva.registered_click_handlers()[0][1]
+    detached_ctrl = rva.detach_click_handler(handler)
     assert detached_ctrl is ctrl
-    assert len(review_click_popup._attached) == 0
+    assert len(rva.registered_click_handlers()) == 0
 
-    # _detach when not present
-    assert review_click_popup._detach(handler) is None
+    # detach_click_handler when not present
+    assert rva.detach_click_handler(handler) is None
 
 
 def test_handler_disposing_calls_remove_mouse_click_handler(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -244,13 +244,13 @@ def test_handler_disposing_calls_remove_mouse_click_handler(monkeypatch: pytest.
     model.supportsService.return_value = True
     ctrl = FakeController(model=model)
     review_click_popup.register_click_review(ctrl)
-    assert len(review_click_popup._attached) == 1
+    assert len(rva.registered_click_handlers()) == 1
 
-    handler = review_click_popup._attached[0][1]
+    handler = rva.registered_click_handlers()[0][1]
     handler.disposing(ctrl)
 
     assert ctrl.remove_count == 1
-    assert len(review_click_popup._attached) == 0
+    assert len(rva.registered_click_handlers()) == 0
 
 
 def test_cleanup_disposed_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -272,11 +272,11 @@ def test_cleanup_disposed_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
     review_click_popup.register_click_review(live_ctrl)
     key = rva.attachment_key(live_model)
     rva._attachments[key].controllers.append((dead_ctrl, MagicMock(), FakeHandler(live_model)))
-    assert len(review_click_popup._attached) == 2
+    assert len(rva.registered_click_handlers()) == 2
 
     review_click_popup.cleanup_disposed_controllers()
-    assert len(review_click_popup._attached) == 1
-    assert review_click_popup._attached[0][0] is live_ctrl
+    assert len(rva.registered_click_handlers()) == 1
+    assert rva.registered_click_handlers()[0][0] is live_ctrl
 
 
 def _click(x: int, y: int, count: int) -> Any:

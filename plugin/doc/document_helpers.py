@@ -510,7 +510,7 @@ def _teardown_cache_listener(key: str, owner_modify: Any | None = None, owner_un
     if pair is None:
         return
     # Recycled RuntimeUID: a late disposing() from the old listener must not
-    # evict the newer pair (review_toolbar._ReviewModifyListener).
+    # evict the newer pair (review_view_attachment.ReviewModifyListener).
     if owner_modify is not None and pair.modify is not owner_modify:
         return
     if owner_unload is not None and pair.unload is not owner_unload:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from tests.harness.strip_bundle import is_release_build
 import threading
 import time
@@ -1729,4 +1730,98 @@ def test_main_post_or_run_asserts_callable() -> None:
         main.post_or_run("not_callable")
 
 
+def _run_in_dummy_thread(fn: Callable[[], None], timeout: float = 5.0) -> None:
+    import _thread
 
+    done = threading.Event()
+    exc: list[BaseException] = []
+
+    def target() -> None:
+        try:
+            fn()
+        except BaseException as err:
+            exc.append(err)
+        finally:
+            done.set()
+
+    _thread.start_new_thread(target, ())
+    if not done.wait(timeout):
+        raise TimeoutError("Dummy thread failed to finish within %s s" % timeout)
+    if exc:
+        raise exc[0]
+
+
+def test_on_python_main_thread_is_designated_or_python_main() -> None:
+    from plugin.framework.queue_executor import MainThread, Policy, main
+    from plugin.framework.thread_guard import UNTAGGED_DUMMY_IS_CURRENT, set_background_task
+
+    orig_policy = MainThread._policy
+    orig_designated = MainThread.designated
+    orig_poke = MainThread.poke
+    try:
+        # Case 1: Pytest thread with designated is None
+        main.install(Policy.production, designated=None)
+        assert MainThread.on_python_main_thread() is True
+        assert main.is_current() is True
+        assert main._is_marshal_thread() is True
+
+        # Case 2: designated=worker; on worker all three are true; on pytest thread all three are false
+        worker_results: dict[str, bool] = {}
+        worker_done = threading.Event()
+        worker_release = threading.Event()
+
+        def worker_target() -> None:
+            worker_results["on_python_main_thread"] = MainThread.on_python_main_thread()
+            worker_results["is_current"] = main.is_current()
+            worker_results["_is_marshal_thread"] = main._is_marshal_thread()
+            worker_done.set()
+            worker_release.wait(timeout=5.0)
+
+        worker = threading.Thread(target=worker_target)
+        main.install(Policy.production, designated=worker)
+        worker.start()
+        try:
+            assert worker_done.wait(timeout=5.0)
+            assert worker_results == {
+                "on_python_main_thread": True,
+                "is_current": True,
+                "_is_marshal_thread": True,
+            }
+            assert MainThread.on_python_main_thread() is False
+            assert main.is_current() is False
+            assert main._is_marshal_thread() is False
+        finally:
+            worker_release.set()
+            worker.join(timeout=2.0)
+            main.install(Policy.production, designated=None)
+
+        # Case 3: Policy.test_marshal with designated is None on pytest thread
+        main.install(Policy.test_marshal, designated=None)
+        assert MainThread.on_python_main_thread() is True
+        assert main.is_current() is True
+        assert main._is_marshal_thread() is False
+
+        # Case 4: set_background_task("pe2i") on pytest thread under Policy.production
+        main.install(Policy.production, designated=None)
+        set_background_task("pe2i")
+        try:
+            assert MainThread.on_python_main_thread() is True
+            assert main.is_current() is True
+            assert main._is_marshal_thread() is False
+        finally:
+            set_background_task(None)
+
+        # Case 5: Dummy thread via _thread.start_new_thread
+        def dummy_target() -> None:
+            try:
+                assert MainThread.on_python_main_thread() is False
+                assert main.is_current() is UNTAGGED_DUMMY_IS_CURRENT
+                set_background_task("pe2i")
+                assert main.is_current() is False
+            finally:
+                set_background_task(None)
+
+        _run_in_dummy_thread(dummy_target)
+    finally:
+        main.install(orig_policy, designated=orig_designated, poke=orig_poke)
+        set_background_task(None)

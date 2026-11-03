@@ -54,7 +54,7 @@ class PanelEventsController:
         """True when get_tools() could need bootstrap and this is not the Python main thread."""
         import sys
 
-        from plugin.framework.thread_guard import on_python_main_thread
+        from plugin.framework.queue_executor import MainThread
 
         # Read the same module object that ``from plugin.main import get_tools`` resolves.
         main_mod = sys.modules.get("plugin.main")
@@ -62,7 +62,7 @@ class PanelEventsController:
             bootstrap_state = getattr(main_mod, "_bootstrap_state", None)
             if getattr(bootstrap_state, "name", None) == "INITIALIZED":
                 return False
-        return not on_python_main_thread()
+        return not MainThread.on_python_main_thread()
 
     @staticmethod
     def _post_to_main(fn: Any) -> None:

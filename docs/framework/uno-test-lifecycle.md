@@ -145,7 +145,7 @@ started on the same soffice (`6052,1752`). Later
 Impress + skipped Writer docs; office still alive). Cause:
 `python -m plugin.testing_runner` is `__main__`; tests imported
 `plugin.testing_runner` and set the recycle flag on that copy.
-`request_office_recycle_after_suite` / `consume_office_recycle_request`
+`current_office().request_recycle` / `consume_recycle_request`
 read and write that one flag (see “What the fixture actually does”).
 
 GHA 34551644954 (`0177648d`): recycle **did** run (`start` / `done`

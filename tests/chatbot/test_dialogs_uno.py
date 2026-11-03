@@ -60,3 +60,38 @@ def test_translate_dialog_does_not_raise_on_real_dialog(ctx):
         assert dlg.getControl("label1").getModel().Label
     finally:
         dlg.dispose()
+
+
+@native_test
+def test_set_combo_items_fills_combobox_and_listbox_without_duplicates(ctx):
+    from plugin.chatbot.dialogs import set_combo_items
+
+    smgr = ctx.getServiceManager()
+    model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
+    cb_model = model.createInstance("com.sun.star.awt.UnoControlComboBoxModel")
+    cb_model.Name = "combo1"
+    model.insertByName("combo1", cb_model)
+    lb_model = model.createInstance("com.sun.star.awt.UnoControlListBoxModel")
+    lb_model.Name = "list1"
+    model.insertByName("list1", lb_model)
+
+    dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
+    dlg.setModel(model)
+    toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    dlg.createPeer(toolkit, None)
+    try:
+        combo = dlg.getControl("combo1")
+        listbox = dlg.getControl("list1")
+
+        set_combo_items(combo, ["A", "B"])
+        set_combo_items(combo, ["X", "Y", "Z"])
+        assert combo.getItemCount() == 3
+        assert tuple(combo.getItems()) == ("X", "Y", "Z")
+
+        set_combo_items(listbox, ["One", "Two"])
+        set_combo_items(listbox, ["Alpha", "Beta"])
+        assert listbox.getItemCount() == 2
+        assert tuple(listbox.getItems()) == ("Alpha", "Beta")
+    finally:
+        dlg.dispose()
+

@@ -45,7 +45,6 @@ from plugin.framework import uno_context
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
-from plugin.framework.queue_executor import MainThread
 from plugin.framework.errors import resolve_exception_message, format_error_payload, make_tool_error
 import plugin.mcp.document_mutation_gate as document_mutation_gate
 import plugin.mcp.mcp_session as mcp_session
@@ -337,7 +336,7 @@ class MCPProtocolHandler:
 
     def __init__(self, services: Any, debug_token: str | None = None) -> None:
         self.services = services
-        self.queue_executor = services.get("main_thread") or MainThread(ctx=services.get("uno") if services else None)
+        self.queue_executor = services.main_thread
         self.tool_registry = services.tools
         self.event_bus = getattr(services, "events", None)
         self._cancelled_requests: set[tuple[Any, str | int]] = set()
@@ -410,10 +409,10 @@ class MCPProtocolHandler:
             if "text/event-stream" not in accept:
                 self._send_json(handler, 406, {"error": "Not Acceptable: must Accept text/event-stream"})
                 return
-        tcp_server = getattr(handler, "server", None)
+        tcp_server = handler.server
         sock = getattr(handler, "connection", None)
-        sse: SseRegistry | None = getattr(tcp_server, "sse_registry", None)
-        stop_event = sse.reserve(sock) if sse is not None else None
+        sse: SseRegistry = tcp_server.sse_registry
+        stop_event = sse.reserve(sock)
         if stop_event is None:
             _send_405(handler, "POST, DELETE, OPTIONS")
             return
@@ -434,7 +433,7 @@ class MCPProtocolHandler:
             if disconnect_log:
                 log.info("[SSE] GET stream disconnected")
         finally:
-            if reserved and sse is not None:
+            if reserved:
                 sse.release(sock)
 
     def handle_mcp_sse(self, handler: Any) -> None:
@@ -472,9 +471,9 @@ class MCPProtocolHandler:
         (that wakes select).
         """
         sock = handler.connection
-        tcp_server = getattr(handler, "server", None)
-        sse: SseRegistry | None = getattr(tcp_server, "sse_registry", None)
-        if stop_event is None and sock is not None and sse is not None:
+        tcp_server = handler.server
+        sse: SseRegistry = tcp_server.sse_registry
+        if stop_event is None and sock is not None:
             stop_event = sse.reserve(sock)
         if stop_event is None or sock is None:
             log.info("[SSE] GET stream closed")
@@ -764,8 +763,6 @@ class MCPProtocolHandler:
         # Pure name filtering -- no UNO -- so it stays off the main thread.
         if mode != "direct_discovery":
             schemas = [s for s in schemas if s.get("name") != "find_tools"]
-
-        return {"tools": schemas}
 
         return {"tools": schemas}
 

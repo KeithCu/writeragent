@@ -8,17 +8,22 @@ from __future__ import annotations
 
 import pytest
 from unittest.mock import MagicMock, patch
+from plugin.writer.locale import grammar_ignore_rules as gir
 from plugin.writer.locale import grammar_proofread_cache as gc
 from plugin.writer.locale import grammar_settings
-from plugin.writer.locale.grammar_proofread_cache import _normalize_for_sentence_cache
+from plugin.writer.locale.grammar_proofread_locale import (
+    fingerprint_for_text,
+    normalize_for_sentence_cache,
+    sentence_identity_fp,
+)
 
 @pytest.fixture(autouse=True)
 def clear_cache():
     gc.grammar_registry.clear_all()
-    gc.ignore_rules_clear()
+    gir.ignore_rules_clear()
     yield
     gc.grammar_registry.clear_all()
-    gc.ignore_rules_clear()
+    gir.ignore_rules_clear()
 
 def test_sentence_cache_roundtrip() -> None:
     from plugin.writer.locale.grammar_persistence import SentenceCacheEntry, grammar_registry
@@ -63,7 +68,7 @@ def test_sentence_cache_trailing_whitespace() -> None:
 
 def test_normalize_for_sentence_cache() -> None:
     """Test that first terminator is preserved but additional trailing punctuation is ignored."""
-    norm = _normalize_for_sentence_cache
+    norm = normalize_for_sentence_cache
     assert norm("Hello.") == "Hello."
     assert norm("Hello. ") == "Hello."
     assert norm("Hello...") == "Hello."
@@ -172,10 +177,10 @@ def test_sentence_cache_different_first_terminator_no_cross_hit() -> None:
     assert gc.cache_get_sentence("en-US", "Done.") is not None
 
 def test_ignore_rules_snapshot() -> None:
-    gc.ignore_rule_add("rule_a")
-    assert "rule_a" in gc.ignored_rules_snapshot()
-    gc.ignore_rules_clear()
-    assert gc.ignored_rules_snapshot() == set()
+    gir.ignore_rule_add("rule_a")
+    assert "rule_a" in gir.ignored_rules_snapshot()
+    gir.ignore_rules_clear()
+    assert gir.ignored_rules_snapshot() == set()
 
 def test_sentence_cache_incomplete_prefix_compaction() -> None:
     """Incomplete growing prefixes collapse to one LRU entry (newest wins)."""
@@ -214,7 +219,7 @@ def test_sentence_cache_locale_isolation() -> None:
 def test_sentence_cache_key_prefix_and_identity_fp() -> None:
     ident = grammar_settings.checker_identity().replace("|", "/")
     assert gc.sentence_cache_key_prefix("en-US") == f"sent|en-US|{ident}|"
-    fp = gc.sentence_identity_fp("Hello.")
+    fp = sentence_identity_fp("Hello.")
     assert gc._sentence_l1_key("en-US", None, fp) == f"{gc.sentence_cache_key_prefix('en-US')}{fp}"
 
 def test_should_evict_incomplete_prefix_predecessor() -> None:
@@ -230,12 +235,12 @@ def test_should_evict_incomplete_prefix_predecessor() -> None:
 
 def test_whitespace_normalization_cache_key() -> None:
     """Test cache key normalization: whitespace + trailing punctuation after first terminator."""
-    key1 = gc.sentence_identity_fp("Hello.")
-    key2 = gc.sentence_identity_fp("Hello. ")
-    key3 = gc.sentence_identity_fp("Hello.\n")
-    key4 = gc.sentence_identity_fp("Hello...")
-    key5 = gc.sentence_identity_fp("Hello?...")
-    key6 = gc.sentence_identity_fp("Hello?")
+    key1 = sentence_identity_fp("Hello.")
+    key2 = sentence_identity_fp("Hello. ")
+    key3 = sentence_identity_fp("Hello.\n")
+    key4 = sentence_identity_fp("Hello...")
+    key5 = sentence_identity_fp("Hello?...")
+    key6 = sentence_identity_fp("Hello?")
     assert key1 == key2 == key3 == key4
     assert key5 == key6
     assert key1 != key6
@@ -338,7 +343,7 @@ def test_l1_hit_records_session_accessed_for_doc() -> None:
 
         got = gc.cache_get_sentence("en-US", "Track me.", ctx=ctx, doc_id="doc-track")
         assert got == []
-        fp = gc.sentence_identity_fp("Track me.")
+        fp = sentence_identity_fp("Track me.")
         assert ("en-US", fp) in dp._session_accessed
 
 
@@ -425,8 +430,8 @@ def test_l2_same_sentence_is_locale_specific() -> None:
 
 
 def test_cache_get_sentence_hashes_once() -> None:
-    real = gc.fingerprint_for_text
-    with patch("plugin.writer.locale.grammar_proofread_cache.fingerprint_for_text", wraps=real) as fp_mock:
+    real = fingerprint_for_text
+    with patch("plugin.writer.locale.grammar_proofread_locale.fingerprint_for_text", wraps=real) as fp_mock:
         assert gc.cache_get_sentence("en-US", "Hello.") is None
     assert fp_mock.call_count == 1
 

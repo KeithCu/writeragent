@@ -199,6 +199,33 @@ def fingerprint_for_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()[:24]
 
 
+def normalize_for_sentence_cache(text: str) -> str:
+    """Canonical form for cache key that preserves first sentence terminator.
+
+    - rstrip() whitespace (preserves existing "Hello." vs "Hello. " behavior).
+    - Keep everything up to and including the *first* sentence terminator.
+    - Ignore any additional trailing punctuation after the first terminator.
+    - This makes "Hello." and "Hello..." share a cache entry, and
+      "Hello?" and "Hello?..." share one, but "Hello?" and "Hello." remain distinct.
+
+    The regex below matches all sentence terminators in ``grammar_proofread_locale.GRAMMAR_SENTENCE_TERMINATORS``
+    (the full Unicode STerm set). Both ``looks_complete_sentence`` and cache key normalization
+    are fully aligned and use the exact same character set.
+    """
+    s = text.rstrip()
+    if not s:
+        return s
+    match = GRAMMAR_CACHE_NORMALIZATION_RE.search(s)
+    if match:
+        return match.group(1)
+    return s
+
+
+def sentence_identity_fp(sentence: str) -> str:
+    """Stable fingerprint for cache lookup: normalize then hash (same key space as L1 cache keys)."""
+    return fingerprint_for_text(normalize_for_sentence_cache(sentence))
+
+
 def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:
     """Locales returned by ``getLocales`` as ``com.sun.star.lang.Locale`` structs."""
     try:

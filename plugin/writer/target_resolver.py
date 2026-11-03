@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
-from .format import plain_text_if_markup
+from .html_import import plain_text_if_markup
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext

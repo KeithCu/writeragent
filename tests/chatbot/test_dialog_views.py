@@ -629,7 +629,7 @@ def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
 
     from plugin.mcp import mcp_ui
 
-    mcp_ui._standalone_tunnel.tested_provider_tunnel_urls.clear()
+    mcp_ui._tested_provider_tunnel_urls.clear()
 
     snippet = MagicMock()
     port = MagicMock()
@@ -664,7 +664,7 @@ def test_sync_mcp_config_snippet_writes_template_without_a_poll() -> None:
         written = json.loads(snippet.setText.call_args[0][0])
         assert written["mcpServers"]["libreoffice"]["url"] == "https://<subdomain>.trycloudflare.com/mcp"
     finally:
-        mcp_ui._standalone_tunnel.tested_provider_tunnel_urls.clear()
+        mcp_ui._tested_provider_tunnel_urls.clear()
 
 
 class TestProviderButtonIcons:
@@ -2382,3 +2382,37 @@ def test_settings_dialog_retries_on_config_validation_error() -> None:
     mock_apply.assert_called_once()
     mock_msgbox.assert_called_once()
     dlg.dispose.assert_called_once()
+
+
+def test_settings_dialog_reinitializes_logging_after_apply_settings() -> None:
+    """SettingsDialog must re-initialize logging after apply_settings_result succeeds."""
+    from plugin.chatbot.dialog_views import SettingsDialog
+
+    dlg = MagicMock()
+    dlg.execute.side_effect = [1, 0]
+
+    ctx = MagicMock()
+    view = SettingsDialog(ctx)
+
+    with (
+        patch.object(view, "_create_dialog"),
+        patch.object(view, "_setup_tabs"),
+        patch.object(view, "_populate_fields"),
+        patch.object(view, "_schedule_initial_models_fetch"),
+        patch.object(view, "_apply_sqlite_restrictions"),
+        patch.object(view, "_extract_results", return_value={"core.log_level": "DEBUG"}),
+        patch("plugin.chatbot.dialog_views.set_active_settings_dialog"),
+        patch("plugin.chatbot.dialog_views.clear_active_settings_dialog"),
+        patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=[]),
+        patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="https://api.test"),
+        patch("plugin.chatbot.settings_dialog.apply_settings_result") as mock_apply,
+        patch("plugin.chatbot.dialog_views.init_logging") as mock_init_logging,
+    ):
+        view._dlg = dlg
+        res = view.show()
+
+    assert res == {"core.log_level": "DEBUG"}
+    mock_apply.assert_called_once()
+    # init_logging is called once at entry to show() and once after apply_settings_result succeeds
+    assert mock_init_logging.call_count == 2
+    mock_init_logging.assert_called_with(ctx)

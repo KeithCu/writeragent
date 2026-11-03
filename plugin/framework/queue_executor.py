@@ -168,14 +168,28 @@ class MainThread:
         cls.designated = designated
         cls.poke = poke
 
+    @staticmethod
+    def on_python_main_thread() -> bool:
+        """True for the Python main thread or the designated pump.
+
+        A PyUNO ``_DummyThread`` is not this. Bootstrap must use this, not
+        ``is_current()``: a status-listener upcall must not enter bootstrap.
+        """
+        current = threading.current_thread()
+        designated = MainThread.designated
+        if designated is not None:
+            return current is designated
+        return current is threading.main_thread()
+
     def is_current(self) -> bool:
         """True on the VCL thread, designated thread, or an untagged LibreOffice upcall holding SolarMutex."""
-        from plugin.framework.thread_guard import UNTAGGED_DUMMY_IS_CURRENT, get_background_task_name, on_python_main_thread
-
-        if self.designated is not None:
-            return threading.current_thread() is self.designated
-        if on_python_main_thread():
+        if MainThread.on_python_main_thread():
             return True
+        # A designated pump owns UNO alone; LO Dummy upcalls are not it (eval harness, test pump).
+        if MainThread.designated is not None:
+            return False
+        from plugin.framework.thread_guard import UNTAGGED_DUMMY_IS_CURRENT, get_background_task_name
+
         if not UNTAGGED_DUMMY_IS_CURRENT:
             return False
         if get_background_task_name():
@@ -183,18 +197,13 @@ class MainThread:
         return isinstance(threading.current_thread(), threading._DummyThread)
 
     def _is_marshal_thread(self) -> bool:
-        """True only when the caller is the thread that may run UNO work inline.
+        from plugin.framework.thread_guard import get_background_task_name
 
-        Do not use is_current() alone: designated-main test hooks and LO embed quirks
-        can mark workers as logical main while the drain loop runs on MainThread.
-        """
-        from plugin.framework.thread_guard import get_background_task_name, on_python_main_thread
-
-        if self.policy is Policy.test_marshal:
-            return False
-        if get_background_task_name():
-            return False
-        return on_python_main_thread()
+        return (
+            self.policy is not Policy.test_marshal
+            and not get_background_task_name()
+            and MainThread.on_python_main_thread()
+        )
 
     def run(
         self,

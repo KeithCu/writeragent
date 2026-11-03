@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-from plugin.testing_runner import native_test, show_window
+from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import with_native_doc
 
 _SMALL_IPYNB = (
@@ -246,7 +246,7 @@ def _hyperlink_urls(doc) -> list[str]:
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_debug_menu_import_html_img_and_markdown_link(ctx, doc):
     """Relative HTML <img> embeds; [text](url) is a hyperlink; mixed cell keeps markdown."""
     assert _HTML_IMG_IPYNB.is_file(), f"missing fixture {_HTML_IMG_IPYNB}"
@@ -290,7 +290,7 @@ def test_debug_menu_import_html_img_and_markdown_link(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_debug_menu_import_and_run_small_numpy_notebook(ctx, doc):
     assert _SMALL_IPYNB.is_file(), f"missing fixture {_SMALL_IPYNB}"
 
@@ -526,7 +526,7 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_medium_numpy_import_layout_no_run(ctx, doc):
     """Visual fixture: Jupyter-like layout, no Run All, no 184-cell notebook."""
     assert _MEDIUM_IPYNB.is_file(), f"missing fixture {_MEDIUM_IPYNB}"
@@ -730,7 +730,7 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_medium_run_in2_keeps_in3_controls(ctx, doc):
     """Keith repro: ▶ on medium In[2] must not eat In[3]'s play button and field."""
     assert _MEDIUM_IPYNB.is_file(), f"missing fixture {_MEDIUM_IPYNB}"
@@ -908,7 +908,7 @@ _MD_LISTS_QUOTES_IPYNB = (
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
     """Nested * / ol start=3 / blockquotes; In style must not KeepTogether-glue."""
     from plugin.notebook.notebook_runner import flush_ui_idle

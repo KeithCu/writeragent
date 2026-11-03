@@ -76,7 +76,7 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -
 
     eval_catalog._registry = None
     monkeypatch.setenv("WRITERAGENT_EVAL_HARNESS", "1")
-    monkeypatch.setattr("plugin.framework.thread_guard.on_python_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.MainThread.on_python_main_thread", lambda: True)
     monkeypatch.setattr(main, "register_core_handlers", lambda: None)
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
 

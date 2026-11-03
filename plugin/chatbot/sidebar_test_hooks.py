@@ -34,7 +34,7 @@ from plugin.chatbot.panel import (
     notify_record_mouse_released,
     notify_stop_mouse_pressed,
 )
-from plugin.chatbot.rich_text_control import _debug_env_active
+from plugin.chatbot.rich_text_control import debug_env_active
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.errors import best_effort, uno_read
@@ -87,7 +87,7 @@ def iter_live_chat_panels() -> list[Any]:
 
 
 def _require_debug() -> None:
-    if not _debug_env_active():
+    if not debug_env_active():
         raise RuntimeError(_HOOKS_UNAVAILABLE)
 
 

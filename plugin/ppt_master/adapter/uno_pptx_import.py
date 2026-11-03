@@ -87,7 +87,11 @@ def _drop_page(pages: Any, page: Any) -> None:
 
 
 def _copy_page_notes(source_page: Any, target_page: Any) -> None:
-    """Copy the source NotesShape onto the target NotesShape, including ""."""
+    """Copy the source NotesShape onto the target NotesShape, including "".
+
+    Slide shape cleanup never touches the notes page, so write empty notes
+    too; otherwise a re-import of empty notes leaves the previous slide's text.
+    """
     try:
         raw = notes_text(source_page)
         notes_str = "" if raw is None else raw.strip()

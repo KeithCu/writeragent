@@ -2,11 +2,9 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 
-from plugin.writer.format import (  # noqa: E402
-    HTML_FILTER,
-    _content_has_block_markup,
-)
+from plugin.writer.html_export import HTML_FILTER
 from plugin.writer.html_import import (
+    _content_has_block_markup,
     _wrap_html_fragment,
     insert_html_fragment_at_cursor,
 )
