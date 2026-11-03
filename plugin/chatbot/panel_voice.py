@@ -384,9 +384,9 @@ class PanelVoiceController:
                 # download progress is visible in the sidebar.
                 main.post(self._panel._set_status, message)
 
-            def _on_spawn(proc: Any) -> None:
+            def _on_spawn(managed: Any) -> None:
                 def _kill() -> None:
-                    terminate_stt_process(proc)
+                    terminate_stt_process(managed)
 
                 # Sidebar teardown (_kill_inflight_stt) calls this. Stop does
                 # not: the transcript is kept for the Ask box.

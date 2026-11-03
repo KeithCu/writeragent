@@ -19,17 +19,18 @@ mentions that download only when those weights are not already cached.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import functools
 import json
 import logging
 import os
 import subprocess
-import sys
 import time
 from typing import Any, Callable
 
 from plugin.framework.config import get_config
 from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.i18n import _
+from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 
@@ -221,19 +222,19 @@ def resolve_stt_python() -> str | None:
     return resolve_venv_python(venv_dir)
 
 
-def terminate_stt_process(proc: subprocess.Popen[str] | None) -> None:
-    """Kill a Whisper or probe child. A second call is a no-op.
+def terminate_stt_process(managed: ManagedSubprocess | None) -> None:
+    """Tree-kill a Whisper or probe child. A second call is a no-op.
 
-    ``SIGKILL`` (``kill``) so Stop does not wait on a 900s ``subprocess.run``.
-    The caller reaps with ``wait``. Do not ``wait`` here: this runs on the UI
-    thread from ``SendCancellation.cancel``.
+    Uses ``kill_tree`` (session group) so helpers such as ffmpeg die with Stop.
+    The caller reaps with ``wait``. Do not ``wait`` here: sidebar teardown runs
+    this on the UI thread via ``_stt_kill``.
     """
-    if proc is None or proc.poll() is not None:
+    if managed is None or not managed.is_alive():
         return
-    best_effort(proc.kill, "STT kill failed")
+    best_effort(managed.kill_tree, "STT kill_tree failed")
 
 
-def _reap_stt_process(proc: subprocess.Popen[str]) -> None:
+def _reap_stt_process(proc: subprocess.Popen[Any]) -> None:
     best_effort(lambda: proc.wait(timeout=1.0), "STT reap failed")
 
 
@@ -251,28 +252,33 @@ def _run_cmd(
     cmd: list[str],
     timeout: float,
     *,
-    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
+    on_spawn: Callable[[ManagedSubprocess], None] | None = None,
 ) -> SttCommandResult:
     """Run *cmd* and return when it exits or *timeout* elapses."""
     scrubbed_env = scrub_subprocess_env(dict(os.environ))
-    run_kwargs: dict[str, Any] = {
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "text": True,
-        "stdin": subprocess.DEVNULL,
-        "env": scrubbed_env,
-    }
-    if sys.platform == "win32":
-        run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    managed = ManagedSubprocess(
+        cmd,
+        base_env=scrubbed_env,
+        command_wrapper=functools.partial(wrap_command_for_sandbox, watch_bus=True),
+        text=True,
+        stdin=subprocess.DEVNULL,
+        drain_stderr=False,
+        register=True,
+        log_start_failure=False,
+        label="stt-whisper",
+    )
     try:
-        proc = subprocess.Popen(wrap_command_for_sandbox(cmd, env=scrubbed_env, watch_bus=True), **run_kwargs)
+        managed.start()
     except OSError as exc:
         log.warning("STT command failed (%s): %s", cmd[0], exc)
         return SttCommandResult(None, "", str(exc), spawn_failed=True)
 
+    proc = managed.popen
+    assert proc is not None
+
     if on_spawn is not None:
         try:
-            on_spawn(proc)
+            on_spawn(managed)
         except Exception:
             log.exception("STT on_spawn failed")
 
@@ -305,7 +311,7 @@ def _run_cmd(
             if remaining <= 0:
                 log.warning("STT command timed out (%s)", cmd[0])
                 timed_out = True
-                terminate_stt_process(proc)
+                terminate_stt_process(managed)
                 break
             try:
                 proc.wait(timeout=min(_STT_POLL_SEC, remaining))
@@ -326,7 +332,7 @@ def _run_cmd(
         )
     finally:
         if proc.poll() is None:
-            terminate_stt_process(proc)
+            terminate_stt_process(managed)
             _reap_stt_process(proc)
         _join_drains()
         # A grandchild that inherited the write end keeps the dedicated drain
@@ -334,6 +340,9 @@ def _run_cmd(
         # pipe so GC never closes it. Closing the read end unblocks the thread.
         _close_stt_pipe(proc.stdout)
         _close_stt_pipe(proc.stderr)
+        best_effort(managed.unregister, "STT unregister failed")
+        if managed.is_alive():
+            best_effort(managed.abandon, "STT abandon failed")
 
 
 def parse_whisper_stdout(stdout: str) -> str:
@@ -392,7 +401,7 @@ def _transcribe_local(
     model_name: str,
     on_status: Callable[[str], None] | None = None,
     *,
-    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
+    on_spawn: Callable[[ManagedSubprocess], None] | None = None,
 ) -> str:
     py_exe = resolve_stt_python()
     if not py_exe:
@@ -447,7 +456,7 @@ def transcribe(
     client: Any = None,
     model: str | None = None,
     on_status: Callable[[str], None] | None = None,
-    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
+    on_spawn: Callable[[ManagedSubprocess], None] | None = None,
 ) -> str:
     """Transcribe ``wav_path`` with the configured STT provider.
 
