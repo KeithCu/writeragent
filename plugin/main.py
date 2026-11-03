@@ -26,7 +26,6 @@ _ext_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ext_root not in sys.path:
     sys.path.insert(0, _ext_root)
 
-import enum
 import logging
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
@@ -42,6 +41,7 @@ ensure_plugin_on_path(
     also_add_vendor=True,           # root-level vendor/ when present (optional dev wheels)
 )
 
+# At import, config is not resolved, so the user-config half no-ops and only in-tree contrib/ is prepended.
 from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
 ensure_native_binaries_on_path()
@@ -66,14 +66,13 @@ except ImportError:
 
 from plugin.framework.logging import init_logging, log_exception
 
-from com.sun.star.task import XJobExecutor, XJob
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.uno_context import (
     get_active_document,
     get_ctx,
-    set_fallback_ctx,
-    set_package_extension_id,
+    set_fallback_ctx as set_fallback_ctx,
+    set_package_extension_id as set_package_extension_id,
 )
 from plugin.framework.url_utils import dispatch_command_from_url
 
@@ -87,17 +86,17 @@ _DISPATCH_PROTOCOL = EXTENSION_ID + ":"
 _services = None
 log = logging.getLogger(__name__)
 
+from plugin.bootstrap import (
+    BootstrapState,
+    _install_terminate_listener as _install_terminate_listener,
+    bootstrap_extension,
+    MainBootstrapJob as BaseMainBootstrapJob,
+)
 from plugin.framework.main_shared import ExtensionProtocolHandler, get_action_handler, report_action_failure
 
 
 _tools: ToolRegistry | None = None
 _modules: list[ModuleBase] = []
-
-
-class BootstrapState(enum.Enum):
-    UNINITIALIZED = "uninitialized"
-    BOOTSTRAPPING = "bootstrapping"
-    INITIALIZED = "initialized"
 
 
 # What was wrong: _bootstrap_state remained INITIALIZED even if module loading or
@@ -115,54 +114,6 @@ _terminate_listener: Any | None = None
 def bootstrap_complete() -> bool:
     """Return True if bootstrap has fully completed and initialized."""
     return _bootstrap_state is BootstrapState.INITIALIZED
-
-
-def _install_terminate_listener(ctx: Any) -> None:
-    """Register a desktop XTerminateListener to clean up child processes on app exit."""
-    global _terminate_listener
-    # The first successful addTerminateListener is process-lifetime and is not
-    # removed or replaced; a failed install leaves the global None so the next
-    # bootstrap retries.
-    if _terminate_listener is not None:
-        return
-    try:
-        from plugin.framework.uno_context import get_desktop
-
-        desktop = get_desktop(ctx)
-        if desktop is None:
-            return
-
-        from plugin.framework.uno_listeners import BaseTerminateListener
-
-        class _TerminateListener(BaseTerminateListener):
-            def notifyTermination(self, Event: Any) -> None:
-                try:
-                    from plugin.audio.kokoro_pool import shutdown_kokoro_pool
-
-                    shutdown_kokoro_pool()
-                except Exception:
-                    # UNO boundary: XTerminateListener.notifyTermination callback
-                    log.exception("Error shutting down Kokoro pool on desktop termination")
-
-                # shutdown_all kill_trees registered children and does not signal
-                # register=False venv workers. Do not call
-                # PythonWorkerManager.shutdown_all here either: it joins the reap on
-                # this thread. Idle children exit on stdin EOF. Linux native stalls
-                # use PR_SET_PDEATHSIG in the harness.
-                try:
-                    from plugin.framework.managed_subprocess import shutdown_all
-
-                    shutdown_all()
-                except Exception:
-                    # UNO boundary: XTerminateListener.notifyTermination callback
-                    log.exception("Error shutting down managed subprocesses on desktop termination")
-
-        listener = _TerminateListener()
-        desktop.addTerminateListener(listener)
-        _terminate_listener = listener
-    except Exception:
-        # UNO boundary: desktop.addTerminateListener registration
-        log.exception("Failed to install terminate listener")
 
 
 def get_services() -> Any:
@@ -212,7 +163,6 @@ def tests_bundled() -> bool:
 def _show_tests_unavailable(test_name: str) -> None:
     """Show a message when test suites are not bundled (release builds)."""
     from plugin.chatbot.dialogs import msgbox
-    from plugin.framework.uno_context import get_ctx
 
     msgbox(get_ctx(), test_name, "This WriterAgent build was packaged without the optional `plugin.tests` test modules.")
 
@@ -230,7 +180,6 @@ def _run_test_suite(module_name: str, test_name: str) -> None:
         return
 
     from plugin.framework.i18n import _
-    from plugin.framework.uno_context import get_ctx
 
     ctx = get_ctx()
     try:
@@ -255,7 +204,7 @@ def register_core_handlers() -> None:
     from plugin.chatbot.dialog_views import settings_box
     from plugin.chatbot.eval_dashboard_ui import show_eval_dashboard
     from plugin.framework.main_shared import open_dialog_safely, register_action_handler
-    from plugin.framework.uno_context import get_active_document, get_ctx
+    from plugin.framework.uno_context import get_active_document
 
     def _install_optional(fn: Callable[..., Any], *args: Any, message: str, level: int = logging.DEBUG) -> None:
         try:
@@ -378,161 +327,13 @@ def bootstrap(ctx: Any | None = None) -> None:
     MCP server starts automatically in headless mode. We could make this lazy
     again in the future if startup performance becomes a concern.
     """
-    global _services, _tools, _modules, _bootstrap_state, _bootstrap_error
-
-    # Off-thread get_menu_text and get_menu_icon depend on returning early
-    # when initialized, before the on_python_main_thread check raises BOOTSTRAP_OFF_THREAD.
-    if _bootstrap_state is BootstrapState.INITIALIZED:
-        return
-
-    from plugin.framework.thread_guard import on_python_main_thread
-
-    # A status-listener Dummy upcall is allowed to touch UNO, and it must not enter bootstrap.
-    if not on_python_main_thread():
-        from plugin.framework.errors import WriterAgentException
-
-        raise WriterAgentException(
-            "WriterAgent bootstrap must run on the main thread before tools or services are used.",
-            code="BOOTSTRAP_OFF_THREAD",
-        )
-
-    if _bootstrap_state is BootstrapState.BOOTSTRAPPING:
-        return
-
-    # What was wrong: _init_lock wrapped only the _initialized recheck, then
-    # released before any init work.
-    # How it happened: _bootstrapping was added around the old with-block and
-    # the body was dedented out of the lock (bd07cb792).
-    # Why this change: bootstrap() already raises BOOTSTRAP_OFF_THREAD on any
-    # other thread, and a nested call on this thread returns at _bootstrapping.
-    # The lock excluded nobody. It is also not reentrant, so putting the body
-    # back under it would deadlock if a nested call ever reached it.
-    _bootstrap_state = BootstrapState.BOOTSTRAPPING
-    try:
-        # 1. Basic UNO context
-        from plugin.framework.queue_executor import Policy, install_from_environ, main
-
-        if ctx is None:
-            ctx = get_ctx()
-
-        if ctx is not None:
-            # get_ctx() prefers this over uno.getComponentContext(). LibrePy
-            # already pins it; without it WriterAgent lookups can hit a
-            # different context (no VCL, wrong package, Desktop segfault).
-            set_fallback_ctx(ctx)
-            install_from_environ()
-            main.set_context(ctx)
-
-        set_package_extension_id(EXTENSION_ID)
-
-        from plugin.bootstrap_ui_hooks import register_framework_ui_hooks
-        from plugin.writeragent_hooks import (
-            register_writeragent_prompt_hooks,
-            register_writeragent_tool_filters,
-        )
-
-        register_framework_ui_hooks()
-        register_writeragent_prompt_hooks()
-
-        from plugin.framework.config import init_config
-
-        init_config(ctx)
-
-        # 2. Service Container
-        from plugin.framework.service import ServiceRegistry
-
-        _services = ServiceRegistry()
-        _services.register("uno", ctx)
-
-        # Skip terminate listener when running under the eval harness.
-        # The eval client already has a remote Desktop; this listener would shut down client subprocesses on office teardown.
-        if main.policy is not Policy.eval_harness:
-            _install_terminate_listener(ctx)
-
-        # 3. Core Services (Framework)
-        from plugin.doc.document_helpers import DocumentService
-        from plugin.framework.event_bus import get_event_bus
-
-        _services.register("document", DocumentService())
-        _services.register("events", get_event_bus())
-
-        # 4. Tool Registry
-        from plugin.framework.tool import ToolRegistry
-
-        _tools = ToolRegistry(_services)
-        register_writeragent_tool_filters(_tools)
-        _services.register("tools", _tools)
-
-        # 4b. Main Thread Execution Service
-        _services.register("main_thread", main)
-
-        # Initialize i18n
-        from plugin.framework.i18n import init_i18n
-
-        init_i18n(ctx)
-
-        # Set initialized early to prevent recursive calls from re-running bootstrap
-        # but after _services and _tools are created.
-        _bootstrap_state = BootstrapState.INITIALIZED
-
-        # 5. Load manifest and initialize modules
-        from plugin.framework.module_base import ModuleLoader
-
-        module_phase_failed = False
-        try:
-            _modules.extend(ModuleLoader.load_modules(_services))
-        except Exception as exc:
-            module_phase_failed = True
-            log.exception("bootstrap failed while loading modules")
-            _bootstrap_error = exc
-            if not _modules:
-                _bootstrap_state = BootstrapState.UNINITIALIZED
-                return
-            # Fall through so core handlers still register; the kept error makes an
-            # unhandled command raise BOOTSTRAP_FAILED.
-
-        # 6. Background phase: modules that start listeners/servers (e.g. McpModule when MCP enabled).
-        # Isolate each module: one failed start must not keep later servers/listeners from starting.
-        for mod in _modules:
-            try:
-                mod.start_background(_services)
-            except Exception as exc:
-                module_phase_failed = True
-                log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
-                if _bootstrap_error is None:
-                    _bootstrap_error = exc
-
-        try:
-            # Subscribe to menu:update for dynamic menu text + icons.
-            # execute runs this @background function on the main thread;
-            # dispatch already queues it with run_in_background.
-            from plugin.framework.worker_pool import run_in_background
-
-            _services.get("events").subscribe(
-                "menu:update", lambda **kw: run_in_background(menu_status.publish)
-            )
-
-            if main.policy is Policy.production:
-                # Pre-load icons into ImageManager so first menu display has them.
-                # Eval harness is headless with no VCL pump — posting icons to "main"
-                # trips the UNO thread guard and can segfault soffice (issue #402 family).
-                run_in_background(menu_icons.post_apply)
-
-            # Headless eval connects via UNO pipe; menu/context-menu install
-            # calls get_desktop() in this process and can segfault soffice.
-            if main.policy is not Policy.eval_harness:
-                register_core_handlers()
-        except Exception as exc:
-            log.exception("bootstrap failed after the init flag was set")
-            if _bootstrap_error is None:
-                _bootstrap_error = exc
-            return
-
-        if not module_phase_failed:
-            _bootstrap_error = None
-    finally:
-        if _bootstrap_state is BootstrapState.BOOTSTRAPPING:
-            _bootstrap_state = BootstrapState.UNINITIALIZED
+    bootstrap_extension(
+        ctx,
+        extension_id=EXTENSION_ID,
+        load_modules=True,
+        register=register_core_handlers,
+        owner=sys.modules[__name__],
+    )
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
@@ -674,18 +475,11 @@ _LEGACY_FRAMEWORK_COMMANDS: dict[str, str] = {
 
 # Bootstrapper replaces the previous monolithic MainJob.
 # It acts as an OnStartApp hook (triggered on office startup) and a proxy for legacy toolbar triggers.
-class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
-    ctx: Any
+class MainBootstrapJob(BaseMainBootstrapJob):
+    def init_logging(self, ctx: Any) -> None:
+        init_logging(ctx)
 
-    def __init__(self, ctx: Any) -> None:
-        self.ctx = ctx
-
-    def execute(self, Arguments: Any) -> tuple[()]:
-        """Called by the Jobs framework on OnStartApp."""
-        try:
-            init_logging(self.ctx)
-        except Exception:  # UNO boundary: XJob.execute entry point
-            log.exception("MainBootstrapJob.execute: init_logging failed")
+    def on_start(self, ctx: Any) -> None:
         try:
             bootstrap(self.ctx)
         except Exception as e:  # UNO boundary: XJob.execute entry point
@@ -696,7 +490,6 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             ensure_writeragent_proofreader_configured(self.ctx)
         except Exception as e:  # UNO boundary: XJob.execute entry point
             log.warning("[grammar] OnStartApp: could not load or run grammar proofreader bootstrap: %s", e, exc_info=True)
-        return ()
 
     def trigger(self, Event: str) -> None:
         try:
