@@ -231,6 +231,9 @@ def main(argv: list[str]) -> int:
 
         pytest_env = os.environ.copy()
         pytest_env["PYTHONPATH"] = str(root)
+        # Point harness scripts at the real checkout (compute_service, etc.);
+        # the stripped tree only has plugin/ + tests/.
+        pytest_env["WRITERAGENT_PROJECT_ROOT"] = str(PROJECT_ROOT)
         proc = subprocess.run(pytest_cmd, cwd=str(root), env=pytest_env, check=False)
         if proc.returncode != 0:
             return proc.returncode

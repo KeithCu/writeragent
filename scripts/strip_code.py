@@ -493,6 +493,14 @@ def set_background_task(name: str | None) -> None:
 def get_background_task_name() -> str | None:
     return getattr(_bg, "task_name", None)
 
+# What was wrong: release/LibrePy install ImportError on set_thread_violation_ui
+# when bootstrap_ui_hooks.register_framework_ui_hooks() ran after strip.
+# How it happened: THREAD_GUARD_RELEASE_STUB omitted the setter while the real
+# module and bootstrap still import it.
+# Why this change fixes it: no-op stub so registration is a no-op under GUARD_ON=False.
+def set_thread_violation_ui(fn: Any) -> None:
+    pass
+
 # In release bundles untagged Dummy-N is not current so linguistic worker Dummy-21 does not skip PE2I posts.
 UNTAGGED_DUMMY_IS_CURRENT = False
 
@@ -548,6 +556,7 @@ __all__ = [
     "in_sync_host_dispatch",
     "set_background_task",
     "get_background_task_name",
+    "set_thread_violation_ui",
     "UNTAGGED_DUMMY_IS_CURRENT",
     "_wrap_uno",
     "_unwrap_uno",

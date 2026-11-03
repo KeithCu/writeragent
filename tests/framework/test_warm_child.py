@@ -30,6 +30,12 @@ from plugin.framework.warm_child import (
 
 
 def _repo_root() -> str:
+    # make release verifies against a stripped temp tree that has no
+    # compute_service/; release_verify sets WRITERAGENT_PROJECT_ROOT to the
+    # real checkout so spawned worker scripts can import it.
+    env_root = os.environ.get("WRITERAGENT_PROJECT_ROOT", "").strip()
+    if env_root and os.path.isdir(os.path.join(env_root, "compute_service")):
+        return os.path.abspath(env_root)
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 

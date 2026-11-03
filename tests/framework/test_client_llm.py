@@ -11,6 +11,7 @@ from plugin.framework.client.llm_client import LlmClient, strip_leaked_chat_temp
 from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.tests.testing_utils import MockContext, create_mock_http_response
+from tests.harness.strip_bundle import is_release_build
 
 
 def _cancelled_scope() -> SendCancellation:
@@ -1736,9 +1737,11 @@ def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client, caplog
     assert usage["completion_tokens"] == 15
     assert usage["cache_read_input_tokens"] == 9
 
-    finished_records = [r for r in caplog.records if "LLM response stream finished" in r.getMessage()]
-    assert len(finished_records) == 1
-    assert "cache_read=9" in finished_records[0].getMessage()
+    # Release strip removes log.info call sites; usage asserts above still run.
+    if not is_release_build():
+        finished_records = [r for r in caplog.records if "LLM response stream finished" in r.getMessage()]
+        assert len(finished_records) == 1
+        assert "cache_read=9" in finished_records[0].getMessage()
 
 
 def test_cache_read_count_helper():

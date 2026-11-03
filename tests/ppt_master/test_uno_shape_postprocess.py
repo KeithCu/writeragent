@@ -21,6 +21,7 @@ from plugin.ppt_master.adapter import uno_shape_postprocess as postprocess
 from plugin.ppt_master.adapter.uno_shape_postprocess import (
     copy_shapes_to_page,
 )
+from tests.harness.strip_bundle import is_release_build
 
 # Hidden-document pool items. Assigning these and then closing the source
 # aborts soffice. See plugin/draw/designs.py.
@@ -351,4 +352,8 @@ def test_copy_shapes_to_page_empty_group_remove_fails_logs_debug(monkeypatch, ca
     with caplog.at_level(logging.DEBUG):
         copied = copy_shapes_to_page(src_page, doc, target_page)
     assert copied == 0
-    assert "remove empty-group clone failed" in caplog.text
+    # Release strip removes log.debug; empty-group WARNING path still fires.
+    if not is_release_build():
+        assert "remove empty-group clone failed" in caplog.text
+    else:
+        assert "clone_shape empty group" in caplog.text

@@ -505,6 +505,7 @@ __all__ = [
     "in_sync_host_dispatch",
     "set_background_task",
     "get_background_task_name",
+    "set_thread_violation_ui",
     "UNTAGGED_DUMMY_IS_CURRENT",
     "_wrap_uno",
     "_unwrap_uno",

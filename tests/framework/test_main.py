@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.queue_executor import main as main_thread
+from tests.harness.strip_bundle import is_release_build
 
 
 def _ensure_main_import_stubs() -> None:
@@ -1070,7 +1071,9 @@ def test_register_core_handlers_continues_after_optional_import_failure(
 
         register_core_handlers()
 
-        assert "Excel PY auto-convert on open install failed" in caplog.text
+        # Release strip removes log.debug; continue asserting handlers still registered.
+        if not is_release_build():
+            assert "Excel PY auto-convert on open install failed" in caplog.text
         assert recorded == ["geo", "writer_menu", "toolbar"]
         assert get_action_handler("embeddings.search_dialog") is not None
         assert get_action_handler("writer.accept_change") is not None

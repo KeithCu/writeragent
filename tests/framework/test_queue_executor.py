@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from tests.harness.strip_bundle import is_release_build
+from tests.harness.strip_bundle import is_release_build, requires_asserts
 import threading
 import time
 import plugin.framework.queue_executor as lc
@@ -1723,6 +1723,7 @@ def test_main_post_or_run_forwards_bound_scope() -> None:
         mock_post.assert_called_once_with(fn, bound_scope=scope)
 
 
+@requires_asserts
 def test_main_post_or_run_asserts_callable() -> None:
     from plugin.framework.queue_executor import main
 
