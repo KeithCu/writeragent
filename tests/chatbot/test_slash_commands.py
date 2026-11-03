@@ -302,6 +302,17 @@ def test_run_answer_returns_continue_for_send():
         assert run_slash_command("summarize", host, "budget") is False
 
 
+def test_slash_send_continues_after_begin_uses_kind_and_needs_turn():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, slash_send_continues_after_begin
+
+    compact = next(c for c in SLASH_COMMANDS if c.name == "compact")
+    summarize = next(c for c in SLASH_COMMANDS if c.name == "summarize")
+    proofread = next(c for c in SLASH_COMMANDS if c.name == "proofread")
+    assert slash_send_continues_after_begin(compact) is True
+    assert slash_send_continues_after_begin(summarize) is True
+    assert slash_send_continues_after_begin(proofread) is False
+
+
 def test_run_translate_writer_no_selection_continues_send():
     from plugin.framework.doc_type import DocumentType
 

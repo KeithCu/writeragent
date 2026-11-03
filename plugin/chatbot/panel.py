@@ -1261,10 +1261,6 @@ class SendButtonListener(BaseActionListener):
 
         log.info("=== _do_send START ===")
 
-        query_text = self._read_and_clear_query()
-        if query_text is None:
-            return
-
         from plugin.chatbot.slash_commands import (
             SlashKind,
             build_slash_answer_query,
@@ -1274,7 +1270,13 @@ class SendButtonListener(BaseActionListener):
             slash_send_continues_after_begin,
         )
 
-        parsed = parse_slash_text(query_text)
+        peek_text = ""
+        if self.query_control and self.query_control.getModel():
+            from plugin.chatbot.dialogs import get_control_text
+
+            peek_text = (get_control_text(self.query_control) or "").strip()
+
+        parsed = parse_slash_text(peek_text)
         slash_cmd = None
         slash_arg = ""
         if parsed is not None:
@@ -1289,14 +1291,16 @@ class SendButtonListener(BaseActionListener):
             return
         model, doc_type_label = doc_info
 
+        query_text = self._read_and_clear_query()
+        if query_text is None:
+            return
+
         if slash_cmd is not None:
-            if slash_cmd.name == "compact":
+            if slash_cmd.needs_turn:
                 self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
                 return
             if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
-            else:
-                return
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model

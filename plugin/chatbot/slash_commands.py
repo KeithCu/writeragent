@@ -55,6 +55,7 @@ class SlashCommand:
     instruction: str = ""
     requires_arg: bool = False
     usage: str = ""
+    needs_turn: bool = False
 
 
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
@@ -124,6 +125,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         N_("Compact older chat history now"),
         kind=SlashKind.LOCAL,
         usage="/compact [focus]",
+        needs_turn=True,
     ),
 )
 
@@ -332,12 +334,10 @@ def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
 
 
 def slash_send_continues_after_begin(cmd: SlashCommand, host: Any | None = None) -> bool:
-    """True when Send must call ``_begin_send_turn`` before finishing the command."""
-    if cmd.name == "compact":
+    """True when Send must call ``_begin_send`` before finishing the command."""
+    if cmd.needs_turn or cmd.kind == SlashKind.ANSWER:
         return True
-    if cmd.kind == SlashKind.ANSWER:
-        return True
-    if cmd.name == "translate" and host is not None:
+    if host is not None:
         model = host.slash_document_model()
         if model is not None and effective_slash_kind(cmd, model) == SlashKind.ANSWER:
             return True
@@ -464,7 +464,7 @@ def run_slash_command(
         _run_mock_echo(host, cmd)
         return True
 
-    if cmd.name in _LOCAL_HANDLERS and cmd.name != "compact":
+    if cmd.name in _LOCAL_HANDLERS and not cmd.needs_turn:
         _LOCAL_HANDLERS[cmd.name](host, cmd, arg)
         return True
 
@@ -475,7 +475,7 @@ def run_slash_command(
         _run_rewrite(host, cmd, arg)
         return True
 
-    if cmd.kind == SlashKind.ANSWER or cmd.name == "compact":
+    if cmd.kind == SlashKind.ANSWER or cmd.needs_turn:
         return False
 
     host.clear_ask()
