@@ -177,6 +177,12 @@ class QueryKeyListener(BaseKeyListener):
         if not sc or not sc.getModel():
             return
         if not sc.getModel().Enabled:
+            from plugin.chatbot.slash_commands import try_dispatch_slash_on_send_click
+
+            if try_dispatch_slash_on_send_click(self.send_listener):
+                with suppress_disposed("QueryKeyListener Consume busy slash", logger=log):
+                    if hasattr(e, "Consume"):
+                        setattr(e, "Consume", True)
             return
         # Enter in the query box sends only when the button label is
         # "Send". Enabled alone is not enough: an empty box reads "Record"
@@ -1002,6 +1008,10 @@ class SendButtonListener(BaseActionListener):
         elif self._button_action == ButtonAction.STOP_REC:
             self.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
         elif self._button_action == ButtonAction.SEND:
+            from plugin.chatbot.slash_commands import try_dispatch_slash_on_send_click
+
+            if try_dispatch_slash_on_send_click(self):
+                return
             self.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
     def _sync_has_text_from_query(self) -> None:

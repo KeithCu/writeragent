@@ -279,6 +279,72 @@ def test_build_slash_answer_explain_calc_adds_formula_line():
     assert "A2" in text
 
 
+def test_build_slash_answer_explain_writer_adds_selection_block():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, build_slash_answer_query
+    from plugin.framework.doc_type import DocumentType
+
+    explain = next(c for c in SLASH_COMMANDS if c.name == "explain")
+    model = MagicMock()
+    with patch("plugin.chatbot.slash_commands.get_document_type", return_value=DocumentType.WRITER):
+        with patch("plugin.chatbot.slash_commands._writer_has_selection", return_value=True):
+            with patch(
+                "plugin.chatbot.slash_commands._writer_selection_explain_block",
+                return_value="Selected text:\nHello world",
+            ):
+                text = build_slash_answer_query(explain, "", model)
+    assert "Selected text:" in text
+    assert "Hello world" in text
+
+
+def test_try_dispatch_undo_before_send_busy():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, try_dispatch_slash_on_send_click
+
+    undo = next(c for c in SLASH_COMMANDS if c.name == "undo")
+    send = SimpleNamespace(is_busy=False)
+    host = SimpleNamespace(
+        query_control=MagicMock(),
+        sidebar_state=SimpleNamespace(send=send),
+        slash_document_model=lambda: None,
+    )
+    host.query_control.getModel.return_value = True
+    with patch("plugin.chatbot.slash_commands._peek_slash_from_ask", return_value=(undo, "")):
+        with patch("plugin.chatbot.slash_commands.run_slash_command", return_value=True) as run_cmd:
+            assert try_dispatch_slash_on_send_click(host) is True
+    run_cmd.assert_called_once_with("undo", host, "", from_popup=False)
+
+
+def test_try_dispatch_remember_while_busy():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, try_dispatch_slash_on_send_click
+
+    remember = next(c for c in SLASH_COMMANDS if c.name == "remember")
+    send = SimpleNamespace(is_busy=True)
+    host = SimpleNamespace(
+        query_control=MagicMock(),
+        sidebar_state=SimpleNamespace(send=send),
+        slash_document_model=lambda: None,
+    )
+    with patch("plugin.chatbot.slash_commands._peek_slash_from_ask", return_value=(remember, "Denali")):
+        with patch("plugin.chatbot.slash_commands.run_slash_command", return_value=True) as run_cmd:
+            assert try_dispatch_slash_on_send_click(host) is True
+    run_cmd.assert_called_once_with("remember", host, "Denali", from_popup=False)
+
+
+def test_try_dispatch_refuses_undo_while_busy():
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, try_dispatch_slash_on_send_click
+
+    undo = next(c for c in SLASH_COMMANDS if c.name == "undo")
+    send = SimpleNamespace(is_busy=True)
+    host = SimpleNamespace(
+        query_control=MagicMock(),
+        sidebar_state=SimpleNamespace(send=send),
+        slash_document_model=lambda: None,
+    )
+    with patch("plugin.chatbot.slash_commands._peek_slash_from_ask", return_value=(undo, "")):
+        with patch("plugin.chatbot.slash_commands.run_slash_command") as run_cmd:
+            assert try_dispatch_slash_on_send_click(host) is False
+    run_cmd.assert_not_called()
+
+
 def test_run_rewrite_passes_instruction_text():
     host = SimpleNamespace(
         hide_popup=MagicMock(),
@@ -360,11 +426,45 @@ def test_run_compact_busy_refuses():
     assert "Wait for the current reply" in listener.append_output.call_args[0][0]
 
 
+def test_run_compact_sync_passes_tool_schema_list():
+    from plugin.framework.send_cancellation import SendCancellation
+
+    cancel = SendCancellation()
+    host = SimpleNamespace(
+        slash_document_model=MagicMock(return_value=object()),
+        cached_doc_type="writer",
+        cached_uno_services=None,
+    )
+    session = MagicMock()
+    session.messages = [{"role": "user", "content": "hi"}]
+    ctx = object()
+    schema_list = [{"name": "read_cell_range"}]
+    registry = MagicMock()
+    registry.get_schemas.return_value = schema_list
+    with patch("plugin.chatbot.selection.create_validated_client", return_value=MagicMock()):
+        with patch("plugin.framework.config.get_config", return_value=True):
+            with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
+                compact_mod.return_value = MagicMock(compacted=True, reason="ok")
+                with patch("plugin.main.get_tools", return_value=registry):
+                    with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=4096):
+                        with patch("plugin.framework.llm_lanes.llm_request_lane"):
+                            from plugin.chatbot.slash_commands import run_slash_compact_sync
+
+                            run_slash_compact_sync(host, focus="", session=session, ctx=ctx, cancel=cancel)
+    assert compact_mod.call_args.kwargs.get("cancel") is cancel
+    assert compact_mod.call_args.kwargs.get("tools") == schema_list
+    registry.get_schemas.assert_called_once()
+
+
 def test_run_compact_sync_passes_cancel():
     from plugin.framework.send_cancellation import SendCancellation
 
     cancel = SendCancellation()
-    host = SimpleNamespace()
+    host = SimpleNamespace(
+        slash_document_model=MagicMock(return_value=object()),
+        cached_doc_type="writer",
+        cached_uno_services=None,
+    )
     session = MagicMock()
     session.messages = [{"role": "user", "content": "hi"}]
     ctx = object()
@@ -372,7 +472,7 @@ def test_run_compact_sync_passes_cancel():
         with patch("plugin.framework.config.get_config", return_value=True):
             with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
                 compact_mod.return_value = MagicMock(compacted=True, reason="ok")
-                with patch("plugin.main.get_tools", return_value=MagicMock()):
+                with patch("plugin.main.get_tools", return_value=MagicMock(get_schemas=MagicMock(return_value=[]))):
                     with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=4096):
                         with patch("plugin.framework.llm_lanes.llm_request_lane"):
                             from plugin.chatbot.slash_commands import run_slash_compact_sync
@@ -404,6 +504,33 @@ def test_run_remember_writes_user_md(tmp_path, monkeypatch):
         assert run_slash_command("remember", host, "British spelling") is True
     saved = json.loads(user_md.read_text(encoding="utf-8"))
     assert any("British spelling" in str(v) for v in saved.values())
+    assert "Saved to memory" in host.append_output.call_args[0][0]
+
+
+def test_run_remember_migrates_prose_user_md(tmp_path, monkeypatch):
+    from plugin.chatbot.memory import MemoryStore, _LEGACY_PROSE_KEY
+
+    mem_dir = tmp_path / "memories"
+    mem_dir.mkdir()
+    user_md = mem_dir / "USER.md"
+    user_md.write_text("# Test User Profile\n", encoding="utf-8")
+
+    def fake_store() -> MemoryStore:
+        store = MemoryStore.__new__(MemoryStore)
+        store.path = str(user_md)
+        return store
+
+    monkeypatch.setattr("plugin.chatbot.memory.MemoryStore", fake_store)
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("remember", host, "Denali") is True
+    saved = json.loads(user_md.read_text(encoding="utf-8"))
+    assert saved[_LEGACY_PROSE_KEY] == "# Test User Profile"
+    assert any("Denali" in str(v) for v in saved.values())
     assert "Saved to memory" in host.append_output.call_args[0][0]
 
 
