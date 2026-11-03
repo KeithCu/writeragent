@@ -1661,6 +1661,66 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
+    def test_lease_miss_restores_lost_marker(self) -> None:
+        """A lease failure restores the lost-session marker consumed during admission."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "lost-lease-miss"
+            created = pool.execute(code="x = 42\nresult = x", session_id=sid, mode="shared")
+            assert created.get("status") == "ok"
+            assert created.get("result") == 42
+
+            worker = pool.live_session_worker(sid)
+            assert worker is not None
+            worker.kill()
+            assert not worker.is_alive()
+
+            with patch.object(pool, "lease_specific", return_value=None):
+                res = pool.execute(code="result = 1", session_id=sid, mode="shared")
+                assert res.get("code") == "WORKER_POOL_BUSY"
+
+            # The lost-session marker was restored/preserved, so the next sticky call reports session_reset
+            again = pool.execute(code="result = 1", session_id=sid, mode="shared")
+            assert again.get("status") == "ok"
+            assert again.get("session_reset") is True
+
+            # Third call on same session does not report session_reset again
+            third = pool.execute(code="result = 1", session_id=sid, mode="shared")
+            assert third.get("status") == "ok"
+            assert third.get("session_reset") is not True
+        finally:
+            pool.shutdown()
+
+    def test_admit_shared_session_and_restore_lost_marker(self) -> None:
+        """_admit_shared_session returns _SharedAdmission which can restore lost-session state."""
+        from compute_service.formula_pool import _Session
+
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "admit-test-sess"
+            adm1 = pool._admit_shared_session(sid)
+            assert not adm1.had_binding
+            assert adm1.worker is not None
+
+            # Simulate an existing binding
+            with pool._cond:
+                pool._sessions[sid] = _Session(worker=pool.workers[0], child=None)
+
+            adm2 = pool._admit_shared_session(sid)
+            assert adm2.had_binding
+            assert adm2.worker is pool.workers[0]
+
+            # Dropping session and restoring it via admission
+            with pool._cond:
+                pool._sessions.pop(sid, None)
+
+            adm2.restore_lost_marker(pool, sid)
+            with pool._cond:
+                assert sid in pool._sessions
+                assert pool._sessions[sid].child is None
+        finally:
+            pool.shutdown()
+
     def test_concurrent_first_calls_same_session(self) -> None:
         """Concurrent first calls for the same session_id must reserve and route to the same worker."""
         pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)

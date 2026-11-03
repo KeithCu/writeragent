@@ -584,8 +584,8 @@ def _admit_body(
     settings: ComputeSettings,
     start_response: Any,
     *,
-    default_timeout_sec: int,
     load: Callable[[dict[str, Any], ComputeSettings, Any], tuple[Any, list[bytes] | None]],
+    default_timeout_sec: int | None = None,
 ) -> tuple[_Admission | None, list[bytes] | None]:
     """Admit and validate request body, returning an _Admission or error response."""
     parts, err = load(environ, settings, start_response)
@@ -596,7 +596,7 @@ def _admit_body(
         clamp_timeout_sec(
             parts.timeout_ms,
             is_ms=True,
-            default_timeout_sec=default_timeout_sec,
+            default_timeout_sec=settings.default_timeout_sec if default_timeout_sec is None else default_timeout_sec,
             max_timeout_sec=settings.max_timeout_sec,
         )
     )
@@ -648,10 +648,10 @@ def _gated(
     settings: ComputeSettings,
     semaphore: threading.Semaphore,
     *,
-    busy_code: str,
-    busy_message: str,
     route_fn: Callable[[Any, _Admission], list[bytes]],
     prepare: Callable[[Any], tuple[_Admission | None, list[bytes] | None]],
+    busy_code: str = ec.WORKER_POOL_BUSY,
+    busy_message: str = "All compute workers are currently busy.",
 ) -> list[bytes]:
     """Execute route_fn guarded by auth, concurrency permit, try/finally, and 500 fallback.
 
@@ -752,10 +752,9 @@ def _handle_execute(environ: dict[str, Any], start_response: Any, settings: Comp
         if parts.has_session_id:
             raise ExecuteRequestError("session_id must be provided as a URL query parameter (?session_id=...), not in the request body.")
 
-        session_err = environ.get("compute.session_err")
-        if session_err is not None:
-            raise session_err
-        session_id = environ.get("compute.session_id")
+        # Parse session_id directly from the request query string without stashing
+        # temporary state across environ['compute.*'] keys.
+        session_id = _parse_session_id(environ)
 
         mode = canonical_execute_mode(parts.mode)
         if mode == "shared" and not session_id:
@@ -901,28 +900,35 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
     def _enter_health(_env: dict[str, Any], start: Any) -> list[bytes]:
         return _start_json(start, "200 OK", {"status": "healthy", "service": "python-compute", "version": __version__})
 
-    def _enter_execute(env: dict[str, Any], start: Any) -> list[bytes]:
-        session_id: str | None = None
-        session_err: ExecuteRequestError | None = None
-        try:
-            session_id = _parse_session_id(env)
-        except ExecuteRequestError as exc:
-            session_err = exc
-        env["compute.session_id"] = session_id
-        env["compute.session_err"] = session_err
+    def _gate(
+        env: dict[str, Any],
+        start: Any,
+        route_fn: Callable[[Any, _Admission], list[bytes]],
+        prepare: Callable[[Any], tuple[_Admission | None, list[bytes] | None]],
+        *,
+        busy_code: str = ec.WORKER_POOL_BUSY,
+        busy_message: str = "All compute workers are currently busy.",
+    ) -> list[bytes]:
         return _gated(
             env,
             start,
             settings,
             permits,
-            busy_code=ec.WORKER_POOL_BUSY,
-            busy_message="All compute workers are currently busy.",
+            busy_code=busy_code,
+            busy_message=busy_message,
+            route_fn=route_fn,
+            prepare=prepare,
+        )
+
+    def _enter_execute(env: dict[str, Any], start: Any) -> list[bytes]:
+        return _gate(
+            env,
+            start,
             route_fn=lambda s, admission: _handle_execute(env, s, settings, _get_execute(), admission),
             prepare=lambda s: _admit_body(
                 env,
                 settings,
                 s,
-                default_timeout_sec=settings.default_timeout_sec,
                 load=lambda env, st, start: _load_parts(
                     env,
                     st,
@@ -935,23 +941,17 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         )
 
     def _enter_reset(env: dict[str, Any], start: Any) -> list[bytes]:
-        return _gated(
+        return _gate(
             env,
             start,
-            settings,
-            permits,
-            busy_code=ec.WORKER_POOL_BUSY,
-            busy_message="All compute workers are currently busy.",
             route_fn=lambda s, admission: _handle_session_reset(env, s, settings, _get_reset(), admission),
             prepare=lambda s: _admit_reset(env, settings, s),
         )
 
     def _enter_vision(env: dict[str, Any], start: Any) -> list[bytes]:
-        return _gated(
+        return _gate(
             env,
             start,
-            settings,
-            permits,
             busy_code=ec.VISION_POOL_BUSY,
             busy_message="All vision workers are currently busy.",
             route_fn=lambda s, admission: _handle_vision(env, s, settings, admission),
