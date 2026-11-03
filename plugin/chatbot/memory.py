@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 # os.replace is atomic; the read-modify-write around it was not.
 _MEMORY_WRITE_LOCK = threading.Lock()
 
+# Non-JSON USER.md (legacy prose) is preserved under this key when migrating.
+_LEGACY_PROSE_KEY = "_legacy_prose"
+
 
 class MemoryStore:
     path: str
@@ -64,9 +67,9 @@ class MemoryStore:
                 try:
                     parsed_obj = json.loads(current)
                 except json.JSONDecodeError:
-                    # Invalid JSON used to become {} and the write replaced USER.md
-                    # with only the new key. Leave the file and tell the model.
-                    return {"status": "error", "message": "USER.md is not valid JSON; left unchanged."}
+                    # Bug: prose USER.md (e.g. "# Profile") blocked /remember entirely.
+                    # Wrap the existing text so upserts can migrate without data loss.
+                    parsed_obj = {_LEGACY_PROSE_KEY: current.rstrip("\n")}
                 if not isinstance(parsed_obj, dict):
                     return {"status": "error", "message": "USER.md is not a JSON object; left unchanged."}
                 parsed = parsed_obj

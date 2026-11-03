@@ -44,6 +44,9 @@ class SlashKind(str, Enum):
 
 _POPUP_IMMEDIATE = frozenset({"help", "clear", "stop", "undo"})
 
+# Local slash commands safe to run during an in-flight tool loop (no new agent turn).
+_SLASH_SAFE_WHILE_BUSY = frozenset({"help", "stop", "remember"})
+
 
 @dataclass(frozen=True)
 class SlashCommand:
@@ -311,6 +314,25 @@ def _writer_has_selection(model: Any) -> bool:
     return bool(text and str(text).strip())
 
 
+def _writer_selection_explain_block(model: Any) -> str | None:
+    """Selected Writer text for /explain; None when nothing is selected."""
+    if not _writer_has_selection(model):
+        return None
+    from plugin.doc.text_helpers import get_selection_text, get_string_without_tracked_deletions, selected_text_range
+
+    controller = model.getCurrentController()
+    if controller is None:
+        return None
+    rng = selected_text_range(controller)
+    if rng is not None:
+        text = get_string_without_tracked_deletions(rng).strip()
+    else:
+        text = (get_selection_text(model) or "").strip()
+    if not text:
+        return None
+    return _("Selected text:\n{0}").format(text)
+
+
 def _calc_active_cell_explain_line(model: Any) -> str:
     """One short line for Calc /explain: cell address and formula text."""
     from plugin.calc.address_utils import index_to_column
@@ -343,9 +365,67 @@ def effective_slash_kind(cmd: SlashCommand, model: Any | None) -> SlashKind:
 def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
     """Instruction-only user message; document snapshot is appended at send time."""
     instruction = _format_instruction(cmd, arg)
-    if cmd.name == "explain" and get_document_type(model) == DocumentType.CALC:
-        return instruction + "\n\n" + _calc_active_cell_explain_line(model)
+    if cmd.name == "explain":
+        doc_type = get_document_type(model)
+        if doc_type == DocumentType.CALC:
+            return instruction + "\n\n" + _calc_active_cell_explain_line(model)
+        if doc_type == DocumentType.WRITER:
+            block = _writer_selection_explain_block(model)
+            if block is not None:
+                return instruction + "\n\n" + block
     return instruction
+
+
+def _peek_slash_from_ask(host: Any) -> tuple[SlashCommand, str] | None:
+    query = getattr(host, "query_control", None)
+    if query is None or not query.getModel():
+        return None
+    from plugin.chatbot.dialogs import get_control_text
+
+    peek = (get_control_text(query) or "").strip()
+    parsed = parse_slash_text(peek)
+    if parsed is None:
+        return None
+    return parsed
+
+
+def try_dispatch_slash_on_send_click(host: Any) -> bool:
+    """Run a local slash command without ``SEND_CLICKED`` / a send turn.
+
+    Typed Send and Enter call this before the FSM enters BUSY so ``/undo`` is
+    not blocked by ``slash_agent_edit_in_flight``. While a tool loop runs,
+    only ``_SLASH_SAFE_WHILE_BUSY`` commands are handled (Send is disabled).
+    """
+    parsed = _peek_slash_from_ask(host)
+    if parsed is None:
+        return False
+    cmd, arg = parsed
+    send_state = getattr(host, "sidebar_state", None)
+    busy = bool(send_state is not None and send_state.send.is_busy)
+    if busy:
+        if cmd.name not in _SLASH_SAFE_WHILE_BUSY:
+            return False
+        return run_slash_command(cmd.name, host, arg, from_popup=False)
+    if slash_send_continues_after_begin(cmd, host):
+        return False
+    return run_slash_command(cmd.name, host, arg, from_popup=False)
+
+
+def tool_schemas_for_slash_compact(host: Any, ctx: Any, session: Any) -> list[Any]:
+    """OpenAI tool schemas for ``/compact`` — same shape as the main tool loop."""
+    from plugin.main import get_tools
+
+    model = host.slash_document_model()
+    doc_type_str = getattr(host, "cached_doc_type", None) or "writer"
+    active_domain = getattr(session, "active_specialized_domain", None)
+    return get_tools().get_schemas(
+        "openai",
+        doc_type=doc_type_str,
+        uno_services_supported=getattr(host, "cached_uno_services", None),
+        active_domain=active_domain,
+        ctx=ctx,
+        doc=model,
+    )
 
 
 def slash_send_continues_after_begin(cmd: SlashCommand, host: Any | None = None) -> bool:
@@ -522,8 +602,6 @@ def run_slash_compact_sync(
     from plugin.framework.client.model_fetcher import resolve_context_window
     from plugin.framework.llm_lanes import llm_request_lane
     from plugin.framework.send_cancellation import is_cancelled
-    from plugin.main import get_tools
-
     title = _("WriterAgent")
     client = create_validated_client(ctx, title)
     if client is None:
@@ -532,7 +610,7 @@ def run_slash_compact_sync(
     if not get_config("chat_compaction_enabled"):
         return "\n" + _("Chat compaction is disabled in settings.") + "\n"
 
-    tools = get_tools()
+    tools = tool_schemas_for_slash_compact(host, ctx, session)
 
     def status_cb(text: str) -> None:
         log.debug("slash compact status: %s", text)
