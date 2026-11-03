@@ -80,21 +80,31 @@ def _format_http_error_response(status: int, reason: str, err_body: str, context
     become a plain sentence (issue #570). The raw dict stays in ERROR logs.
     Missing ``context_window`` is fine — the sentence still explains overflow.
     """
-    if status == 500 and err_body and is_local_model_server_crash(err_body):
+    if not isinstance(err_body, str):
+        if isinstance(err_body, (bytes, bytearray)):
+            err_body = err_body.decode("utf-8", errors="replace")
+        else:
+            err_body = str(err_body or "")
+    try:
+        status_num = int(status)
+    except (TypeError, ValueError):
+        status_num = 500
+    reason_str = str(reason or "")
+    if status_num == 500 and err_body and is_local_model_server_crash(err_body):
         return local_model_overflow_message(context_window)
-    body = err_body.strip() if err_body else ""
-    mapped = http_status_message(status) if (status == 429 or not body) else None
-    base = mapped if mapped is not None else _("HTTP Error {0} from AI Provider: {1}").format(status, reason)
+    body = err_body.strip()
+    mapped = http_status_message(status_num) if (status_num == 429 or not body) else None
+    base = mapped if mapped is not None else _("HTTP Error {0} from AI Provider: {1}").format(status_num, reason_str)
     if not body:
-        return base
+        return str(base)
     data = safe_json_loads(err_body)
     if isinstance(data, dict):
         err = data.get("error")
         detail = (err.get("message") or err.get("msg") or err.get("error") or "") if isinstance(err, dict) else (str(err) if err else "")
         if detail:
-            return base + ". " + str(detail)
+            return str(base) + ". " + str(detail)
     snippet = body.replace("\n", " ")[:400]
-    return base + ".\nProvider Response:\n" + snippet
+    return str(base) + ".\nProvider Response:\n" + str(snippet)
 
 
 def append_zai_unknown_model_hint(message: str, err_body: Any, path: Any, provider: Any, request_model: Any = None) -> str:

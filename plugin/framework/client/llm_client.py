@@ -270,15 +270,20 @@ class LlmClient:
         # A leftover ``?key=`` on the path must not land in the log. Strip the
         # query and redact any echoed secret before logging.
         safe_path = redact_secrets(_path_without_query(path), [api_key])
-        log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, redact_secrets(err_body, [api_key]), self._get_provider(), safe_path, request_model)
+        st_raw = getattr(response, "status", 500)
+        try:
+            st = int(st_raw)
+        except (TypeError, ValueError):
+            st = 500
+        log.error("Provider API Error %s: %s (provider=%s path=%s request_model=%r)", str(st_raw), redact_secrets(str(err_body), [api_key]), self._get_provider(), safe_path, request_model)
         n_ctx = None
-        if response.status == 500:
+        if st == 500:
             from .model_fetcher import peek_live_ollama_num_ctx
 
             n_ctx = peek_live_ollama_num_ctx(self)
-        if response.status == 500:
+        if st == 500:
             _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
-        err_msg = _format_http_error_response(response.status, response.reason, err_body, context_window=n_ctx)
+        err_msg = _format_http_error_response(st, str(getattr(response, "reason", "") or ""), str(err_body), context_window=n_ctx)
         return append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
 
     def _wire_secrets(self) -> list[str]:
