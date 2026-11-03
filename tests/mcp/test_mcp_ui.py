@@ -8,6 +8,8 @@ import threading
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.mcp import mcp_ui
 from plugin.mcp.mcp_ui import (
     CopyMcpConfigListener,
@@ -19,6 +21,20 @@ from plugin.mcp.mcp_ui import (
     sync_mcp_config_snippet,
 )
 from plugin.mcp.tunnel import TunnelManager
+
+
+@pytest.fixture(autouse=True)
+def _isolate_snippet_cache_from_loaded_mcp_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Snippet URL cache uses the live McpModule tunnel when loaded.
+
+    Other MCP tests (e.g. module-scoped ``mcp_server`` in ``test_cors``) leave
+    ``_current_module`` set on the same xdist worker. These UI unit tests assert
+    on ``_standalone_tunnel.tested_provider_tunnel_urls`` and must not read/write
+    a different dict via ``_tested_tunnel_urls()``.
+    """
+    import plugin.mcp as mcp_mod
+
+    monkeypatch.setattr(mcp_mod, "_current_module", None)
 
 
 class TestMcpUi:
