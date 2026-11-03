@@ -41,6 +41,7 @@ class _DirectImageHost(SendHandlersMixin):
         self.ctx = ctx
         self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
         self.stop_requested = False
+        self._send_cancellation = None
         self._active_mode = ""
         self._mode_topic = ""
         self.responses = []
@@ -84,7 +85,7 @@ def _drive_direct_image_send(host, doc, execute_return):
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
 
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     # The stub must start the worker because, since #1446, spawn happens only from on_drain_started.
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
