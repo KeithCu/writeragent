@@ -221,16 +221,15 @@ class BaseProcessWorker:
         published = False
         cap_sec = _SPAWN_READY_TIMEOUT_SEC
 
-        def _handshake_timeout_sec() -> float | None:
-            if deadline is None:
-                return cap_sec
-            spawn_for = _spawn_budget(deadline)
-            if spawn_for is None:
-                return None
-            return min(cap_sec, spawn_for)
+        def _publish(child: Child) -> bool:
+            nonlocal published
+            if not self._adopt(child):
+                return False
+            published = True
+            return True
 
         try:
-            tag, extra, spawned, published = spawn_managed_child_with_handshake(
+            tag, extra, handshake_child = spawn_managed_child_with_handshake(
                 managed,
                 worker_name=self.worker_name,
                 worker_id=self.worker_id,
@@ -238,9 +237,11 @@ class BaseProcessWorker:
                 max_payload_bytes=self.max_payload_bytes,
                 unpacker=self._unpacker,
                 start=ManagedSubprocess.start,
-                publish=self._adopt,
-                handshake_timeout_sec=_handshake_timeout_sec,
+                publish=_publish,
+                deadline=deadline,
+                cap_sec=cap_sec,
             )
+            spawned = handshake_child
             if tag == "refused":
                 return
             if tag == "budget_exhausted":
@@ -259,6 +260,8 @@ class BaseProcessWorker:
                     )
                     self.tasks_executed = 0
                     self.pending_exit = False
+                elif tag == "interrupted":
+                    self._drop_child(spawned)
                 elif tag == "not_ready":
                     status = extra
                     self.kill()
@@ -273,15 +276,11 @@ class BaseProcessWorker:
                         f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})",
                         spawned,
                     )
-                elif tag == "error":
-                    exc = extra
-                    message = f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}"
-                    self.kill()
-                    self._log_spawn_outcome(message, spawned)
             finally:
-                if spawned is not None:
-                    self._end_child_io(spawned)
+                self._end_child_io(spawned)
         except Exception as exc:
+            if spawned is not None:
+                self._end_child_io(spawned)
             message = f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}"
             if not published:
                 if spawned is not None:

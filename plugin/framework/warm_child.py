@@ -198,14 +198,16 @@ def spawn_managed_child_with_handshake(
     unpacker: Callable[[bytes], Any] | None,
     start: Callable[[ManagedSubprocess], None],
     publish: Callable[[Child], bool],
-    handshake_timeout_sec: Callable[[], float | None],
-) -> tuple[str, Any, Child | None, bool]:
+    deadline: Deadline | None,
+    cap_sec: float,
+) -> tuple[str, Any, Child]:
     """Start *managed*, try *publish*, then read the spawn ready frame.
 
-    Returns ``(tag, extra, spawned, published)``. *tag* is ``refused`` when
-    *publish* returned False before any pipe I/O, ``budget_exhausted`` when
-    the child was published but *handshake_timeout_sec* returned None, or
-    otherwise the tag from :func:`read_ready_frame_during_io`.
+    Returns ``(tag, extra, spawned)``. *tag* is ``refused`` when *publish*
+    returned False before any pipe I/O, ``budget_exhausted`` when the child was
+    published but the post-start spawn budget is gone, or otherwise the tag
+    from :func:`read_ready_frame_during_io`. Callers must pair ``begin_io``
+    (inside this helper after publish) with ``end_io`` in their own ``finally``.
     """
     # Do not hold _lifecycle_lock across start() or the handshake read.
     # kill() takes that lock only to drop the pointer, and the
@@ -215,27 +217,25 @@ def spawn_managed_child_with_handshake(
     if not publish(spawned):
         # Only signal the unpublished child constructed in this call.
         spawned.signal_from()
-        return ("refused", None, spawned, False)
-    timeout_sec = handshake_timeout_sec()
-    if timeout_sec is None:
-        return ("budget_exhausted", None, spawned, True)
+        return ("refused", None, spawned)
+    if deadline is None:
+        timeout_sec = cap_sec
+    else:
+        spawn_for = spawn_budget(deadline)
+        if spawn_for is None:
+            return ("budget_exhausted", None, spawned)
+        timeout_sec = min(cap_sec, spawn_for)
     proc = managed.popen
     spawned.begin_io()
-    try:
-        try:
-            tag, extra = read_ready_frame_during_io(
-                spawned,
-                proc,
-                timeout_sec,
-                is_alive=is_alive,
-                max_payload_bytes=max_payload_bytes,
-                unpacker=unpacker,
-            )
-            return (tag, extra, spawned, True)
-        except Exception as exc:
-            return ("error", exc, spawned, True)
-    finally:
-        spawned.end_io()
+    tag, extra = read_ready_frame_during_io(
+        spawned,
+        proc,
+        timeout_sec,
+        is_alive=is_alive,
+        max_payload_bytes=max_payload_bytes,
+        unpacker=unpacker,
+    )
+    return (tag, extra, spawned)
 
 
 def framed_request_roundtrip(
@@ -518,7 +518,7 @@ class WarmChild:
             return error_dict("EXECUTION_TIMEOUT", "Insufficient time to spawn worker.")
         self._killed_by_us = False
         self._death_hook_fired = False
-        timeout_sec = min(self.spec.ready_timeout_sec, SPAWN_READY_TIMEOUT_SEC, spawn_for)
+        cap_sec = min(self.spec.ready_timeout_sec, SPAWN_READY_TIMEOUT_SEC)
         managed = ManagedSubprocess(
             self.spec.argv,
             base_env=None,
@@ -532,22 +532,26 @@ class WarmChild:
         )
         spawned: Child | None = None
         published = False
+        refuse_error: dict[str, Any] | None = None
 
         def _publish(candidate: Child) -> bool:
-            nonlocal published
+            nonlocal published, refuse_error
             with self._lifecycle_lock:
                 if self._retired or self._supervisor.is_shutting_down():
+                    refuse_error = error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
                     return False
                 if self._cancel_pending:
+                    refuse_error = error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} spawn was cancelled.")
                     return False
                 if self._child is not None:
+                    refuse_error = error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} already has a child.")
                     return False
                 self._child = candidate
                 published = True
                 return True
 
         try:
-            tag, extra, spawned, published = spawn_managed_child_with_handshake(
+            tag, extra, handshake_child = spawn_managed_child_with_handshake(
                 managed,
                 worker_name=self.spec.name,
                 worker_id=0,
@@ -556,53 +560,44 @@ class WarmChild:
                 unpacker=self.spec.unpacker,
                 start=self._supervisor.spawn,
                 publish=_publish,
-                handshake_timeout_sec=lambda: timeout_sec,
+                deadline=deadline,
+                cap_sec=cap_sec,
             )
+            spawned = handshake_child
             if tag == "refused":
-                assert spawned is not None
-                with self._lifecycle_lock:
-                    if self._retired or self._supervisor.is_shutting_down():
-                        return error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
-                    if self._cancel_pending:
-                        return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} spawn was cancelled.")
-                return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} already has a child.")
+                assert refuse_error is not None
+                return refuse_error
             if tag == "budget_exhausted":
                 self.kill()
                 return error_dict("EXECUTION_TIMEOUT", "Insufficient time to spawn worker.")
             try:
                 if tag == "interrupted":
-                    assert spawned is not None
                     self._drop_child(spawned)
                     return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} spawn was interrupted.")
                 if tag == "not_ready":
                     self.kill()
                     status = extra
-                    tail = spawned.diagnostic_tail() if spawned is not None else ""
+                    tail = spawned.diagnostic_tail()
                     msg = f"{self.spec.name} spawn handshake was not ready (status={status!r})"
                     if tail:
                         msg = f"{msg}\n{tail}"
                     return error_dict("WORKER_SPAWN_FAILED", msg)
                 if tag == "timeout":
                     self.kill()
-                    tail = spawned.diagnostic_tail() if spawned is not None else ""
+                    tail = spawned.diagnostic_tail()
                     msg = f"{self.spec.name} spawn handshake timed out"
                     if tail:
                         msg = f"{msg}\n{tail}"
                     return error_dict("EXECUTION_TIMEOUT", msg)
-                if tag == "error":
-                    self.kill()
-                    exc = extra
-                    tail = spawned.diagnostic_tail() if spawned is not None else ""
-                    msg = f"Failed to spawn {self.spec.name}: {exc}"
-                    if tail:
-                        msg = f"{msg}\n{tail}"
-                    return error_dict("WORKER_SPAWN_FAILED", msg)
                 self._generation += 1
                 self._last_active = time.monotonic()
             finally:
-                if spawned is not None and spawned.end_io():
+                if spawned.end_io():
                     self._drop_child(spawned)
         except Exception as exc:
+            if spawned is not None:
+                if spawned.end_io():
+                    self._drop_child(spawned)
             if spawned is not None and not published:
                 spawned.signal_from()
             elif published:

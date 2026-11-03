@@ -18,7 +18,15 @@ from typing import Any
 import pytest
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
-from plugin.framework.warm_child import ChildSpec, Deadline, Death, Supervisor, WarmChild
+from plugin.framework.warm_child import (
+    Child,
+    ChildSpec,
+    Deadline,
+    Death,
+    Supervisor,
+    WarmChild,
+    spawn_managed_child_with_handshake,
+)
 
 
 def _repo_root() -> str:
@@ -325,3 +333,161 @@ def test_orphan_warm_child_dies_with_parent(tmp_path: Any) -> None:
         if parent.poll() is None:
             parent.kill()
             parent.wait(timeout=5)
+
+
+class _FakePopen:
+    def __init__(self) -> None:
+        self.pid = 4242
+        self.stdout = object()
+        self.stdin = object()
+        self.stderr = object()
+
+    def poll(self) -> None:
+        return None
+
+
+def _managed_with_popen() -> ManagedSubprocess:
+    return ManagedSubprocess.wrap_existing(_FakePopen(), label="spawn-helper-test")
+
+
+def test_spawn_helper_refused_signals_without_pipe_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    read_calls: list[str] = []
+
+    def fail_read(*args: Any, **kwargs: Any) -> tuple[str, Any]:
+        read_calls.append("read")
+        raise AssertionError("read_ready_frame_during_io must not run on refused")
+
+    monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", fail_read)
+    managed = _managed_with_popen()
+    tag, extra, spawned = spawn_managed_child_with_handshake(
+        managed,
+        worker_name="warm-test",
+        worker_id=0,
+        is_alive=lambda: True,
+        max_payload_bytes=1024,
+        unpacker=None,
+        start=lambda unused: None,
+        publish=lambda unused: False,
+        deadline=None,
+        cap_sec=5.0,
+    )
+    assert tag == "refused"
+    assert extra is None
+    assert read_calls == []
+    assert spawned.was_signaled()
+
+
+def test_spawn_helper_budget_exhausted_skips_begin_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    read_calls: list[str] = []
+
+    def fail_read(*args: Any, **kwargs: Any) -> tuple[str, Any]:
+        read_calls.append("read")
+        raise AssertionError("read_ready_frame_during_io must not run when budget is gone")
+
+    monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", fail_read)
+    monkeypatch.setattr("plugin.framework.warm_child.spawn_budget", lambda deadline: None)
+    managed = _managed_with_popen()
+    tag, extra, spawned = spawn_managed_child_with_handshake(
+        managed,
+        worker_name="warm-test",
+        worker_id=0,
+        is_alive=lambda: True,
+        max_payload_bytes=1024,
+        unpacker=None,
+        start=lambda unused: None,
+        publish=lambda unused: True,
+        deadline=Deadline(15.0),
+        cap_sec=5.0,
+    )
+    assert tag == "budget_exhausted"
+    assert extra is None
+    assert read_calls == []
+    assert spawned._io_owner is None
+
+
+def test_spawn_helper_read_exception_clears_io_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*args: Any, **kwargs: Any) -> tuple[str, Any]:
+        raise RuntimeError("handshake read failed")
+
+    monkeypatch.setattr("plugin.framework.warm_child.read_ready_frame_during_io", boom)
+    managed = _managed_with_popen()
+    published: list[Child] = []
+
+    def publish(child: Child) -> bool:
+        published.append(child)
+        return True
+
+    with pytest.raises(RuntimeError, match="handshake read failed"):
+        spawn_managed_child_with_handshake(
+            managed,
+            worker_name="warm-test",
+            worker_id=0,
+            is_alive=lambda: True,
+            max_payload_bytes=1024,
+            unpacker=None,
+            start=lambda unused: None,
+            publish=publish,
+            deadline=None,
+            cap_sec=5.0,
+        )
+    assert len(published) == 1
+    spawned = published[0]
+    assert spawned._io_owner is not None
+    spawned.end_io()
+    assert spawned._io_owner is None
+
+
+def test_warm_ensure_live_interrupted_drops_child(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = _stdio_worker(tmp_path)
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
+    drops: list[Child] = []
+    orig_drop = warm._drop_child
+
+    def track_drop(child: Child) -> None:
+        drops.append(child)
+        orig_drop(child)
+
+    monkeypatch.setattr(warm, "_drop_child", track_drop)
+    monkeypatch.setattr(
+        "plugin.framework.warm_child.read_ready_frame_during_io",
+        lambda *args, **kwargs: ("interrupted", None),
+    )
+    monkeypatch.setattr(supervisor, "spawn", ManagedSubprocess.start)
+
+    try:
+        err = warm._ensure_live(Deadline(15.0))
+        assert isinstance(err, dict)
+        assert err.get("code") == "WORKER_SPAWN_FAILED"
+        assert drops, "interrupted spawn should drop the child"
+    finally:
+        warm.retire()
+
+
+def test_process_worker_respawn_interrupted_drops_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.process_worker import BaseProcessWorker
+
+    worker = BaseProcessWorker(1, "unused.py", start=False)
+    drops: list[Child] = []
+    orig_drop = worker._drop_child
+
+    def track_drop(child: Child) -> None:
+        drops.append(child)
+        orig_drop(child)
+
+    monkeypatch.setattr(worker, "_drop_child", track_drop)
+    monkeypatch.setattr(
+        "plugin.framework.warm_child.read_ready_frame_during_io",
+        lambda *args, **kwargs: ("interrupted", None),
+    )
+
+    def fake_start(self: ManagedSubprocess) -> None:
+        with self._lock:
+            if self._proc is not None:
+                raise RuntimeError("ManagedSubprocess is single-use")
+            self._proc = _FakePopen()
+
+    monkeypatch.setattr(ManagedSubprocess, "start", fake_start)
+    worker.respawn()
+    assert drops, "interrupted respawn should drop the child"
