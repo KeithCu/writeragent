@@ -24,9 +24,9 @@ from plugin.audio.tts_endpoint import (
     _speech_url,
     _tts_format_key,
 )
-from plugin.audio import tts_service
 from plugin.audio.tts_service import _speak_endpoint
 from plugin.framework.client import model_fetcher as cfg
+from plugin.framework.send_cancellation import SendCancellation
 
 
 def _speech_meta(body: bytes, content_type: str, status: int = 200):
@@ -138,9 +138,10 @@ def test_speak_endpoint_payload():
     cfg._tts_supported_voices.clear()
     cfg._tts_response_format.clear()
 
+    cancel = SendCancellation()
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake-audio-bytes", "audio/mpeg")) as mock_sync:
         with patch("plugin.audio.tts_service._play_audio_file") as mock_play:
-            _speak_endpoint("Test hello", "https://openrouter.ai/api", "test-key", model="hexgrad/Kokoro-82M", voice="nova", generation=tts_service._speech_generation)
+            _speak_endpoint("Test hello", "https://openrouter.ai/api", "test-key", model="hexgrad/Kokoro-82M", voice="nova", cancel=cancel)
             mock_play.assert_called_once()
 
         assert mock_sync.call_args.args[0] == "https://openrouter.ai/api/v1/audio/speech"
@@ -178,6 +179,7 @@ def test_speak_endpoint_prefers_cached_openrouter_speech_id():
     cfg._tts_supported_voices.clear()
     cfg._tts_response_format.clear()
     cfg._get_catalog_memo("https://openrouter.ai/api").tts_ids = ["hexgrad/kokoro-82m", "microsoft/mai-voice-2"]
+    cancel = SendCancellation()
     try:
         with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake-audio-bytes", "audio/mpeg")) as mock_sync:
             with patch("plugin.audio.tts_service._play_audio_file"):
@@ -187,7 +189,7 @@ def test_speak_endpoint_prefers_cached_openrouter_speech_id():
                     "test-key",
                     model="hexgrad/Kokoro-82M",
                     voice="af_bella",
-                    generation=tts_service._speech_generation,
+                    cancel=cancel,
                 )
             payload = json.loads(mock_sync.call_args.kwargs["data"].decode("utf-8"))
             assert payload["model"] == "hexgrad/kokoro-82m"
@@ -616,12 +618,12 @@ def test_speak_endpoint_chunks_long_text():
         downloads.append(chunk)
         return _EndpointClip(b"RIFFfake", ".wav")
 
+    cancel = SendCancellation()
     with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
-         patch("plugin.audio.tts_service._speak_system") as system, \
-         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
-        _speak_endpoint("A" * 4500, "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", generation=tts_service._speech_generation)
+         patch("plugin.audio.tts_service._speak_system") as system:
+        _speak_endpoint("A" * 4500, "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", cancel=cancel)
     assert [len(chunk) for chunk in downloads] == [600, 3900]
     assert play.call_count == 2
     system.assert_not_called()
@@ -635,12 +637,12 @@ def test_speak_endpoint_short_reply_single_download():
         downloads.append(chunk)
         return _EndpointClip(b"RIFFfake", ".wav")
 
+    cancel = SendCancellation()
     with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
-         patch("plugin.audio.tts_service._speak_system") as system, \
-         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
-        _speak_endpoint("A" * 4000, "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", generation=tts_service._speech_generation)
+         patch("plugin.audio.tts_service._speak_system") as system:
+        _speak_endpoint("A" * 4000, "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", cancel=cancel)
     assert [len(chunk) for chunk in downloads] == [4000]
     assert play.call_count == 1
     system.assert_not_called()
@@ -656,12 +658,12 @@ def test_speak_endpoint_falls_back_with_unplayed_tail():
             return _EndpointClip(b"RIFFfake", ".wav")
         return None
 
+    cancel = SendCancellation()
     with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
-         patch("plugin.audio.tts_service._speak_system") as system, \
-         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
-        _speak_endpoint(("A" * 4000) + " tail stays", "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", generation=tts_service._speech_generation)
+         patch("plugin.audio.tts_service._speak_system") as system:
+        _speak_endpoint(("A" * 4000) + " tail stays", "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", cancel=cancel)
     assert len(downloads) == 2
     play.assert_called_once()
     system.assert_called_once()
@@ -669,12 +671,12 @@ def test_speak_endpoint_falls_back_with_unplayed_tail():
 
 
 def test_speak_endpoint_playback_failure_uses_system_speech():
+    cancel = SendCancellation()
     with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=False), \
          patch("plugin.audio.tts_service._release_temp"), \
-         patch("plugin.audio.tts_service._speak_system") as system, \
-         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
-        _speak_endpoint("Hello", "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", generation=tts_service._speech_generation)
+         patch("plugin.audio.tts_service._speak_system") as system:
+        _speak_endpoint("Hello", "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", cancel=cancel)
     system.assert_called_once()
     assert system.call_args.args[0] == "Hello"
 
@@ -682,10 +684,10 @@ def test_speak_endpoint_playback_failure_uses_system_speech():
 def test_speak_endpoint_stopped_during_playback_skips_system():
     import plugin.audio.tts_service as tts
 
-    generation = tts._begin_utterance()
+    scope = tts._begin_utterance()
 
-    def play(path, generation=None):
-        del path, generation
+    def play(path, cancel=None):
+        del path, cancel
         tts.stop_speech()
         return False
 
@@ -696,7 +698,7 @@ def test_speak_endpoint_stopped_during_playback_skips_system():
              patch("plugin.audio.tts_service._speak_system") as system:
             _speak_endpoint(
                 "Hello", "https://api.openai.com/v1", "k", model="tts-1", voice="alloy",
-                generation=generation,
+                cancel=scope,
             )
         system.assert_not_called()
     finally:
@@ -705,21 +707,22 @@ def test_speak_endpoint_stopped_during_playback_skips_system():
 
 def test_speak_endpoint_save_temp_failure():
     statuses: list[str] = []
+    cancel = SendCancellation()
     with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
          patch("plugin.audio.tts_service._new_speech_temp", return_value=None), \
-         patch("plugin.audio.tts_service._speak_system") as system, \
-         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
-        _speak_endpoint("Hello", "https://api.openai.com/v1", "k", on_status=statuses.append, generation=tts_service._speech_generation)
+         patch("plugin.audio.tts_service._speak_system") as system:
+        _speak_endpoint("Hello", "https://api.openai.com/v1", "k", on_status=statuses.append, cancel=cancel)
     assert any("Could not save speech audio" in s for s in statuses)
-    system.assert_called_once_with("Hello", speed=1.0, generation=tts_service._speech_generation)
+    system.assert_called_once_with("Hello", speed=1.0, cancel=cancel)
 
-    # Blocked generation suppresses save error
+    # Cancelled scope suppresses save error
     statuses.clear()
+    cancel_blocked = SendCancellation()
+    cancel_blocked.cancel()
     with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
          patch("plugin.audio.tts_service._new_speech_temp", return_value=None), \
-         patch("plugin.audio.tts_service._speak_system") as system_blocked, \
-         patch("plugin.audio.tts_service._playback_blocked", return_value=True):
-        _speak_endpoint("Hello", "https://api.openai.com/v1", "k", on_status=statuses.append, generation=tts_service._speech_generation)
+         patch("plugin.audio.tts_service._speak_system") as system_blocked:
+        _speak_endpoint("Hello", "https://api.openai.com/v1", "k", on_status=statuses.append, cancel=cancel_blocked)
     assert not statuses
     system_blocked.assert_not_called()
 
@@ -735,18 +738,18 @@ def test_speak_endpoint_prefetch_pipeline_overlap():
             chunk2_download_started.set()
         return _EndpointClip(b"RIFFfake", ".wav")
 
-    def fake_play(path, generation=None):
-        del path, generation
+    def fake_play(path, cancel=None):
+        del path, cancel
         # Wait until second download is in flight before returning
         assert chunk2_download_started.wait(timeout=5.0)
         return True
 
+    cancel = SendCancellation()
     with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", side_effect=fake_play) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
-         patch("plugin.audio.tts_service._speak_system"), \
-         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
-        _speak_endpoint("A" * 4500, "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", generation=tts_service._speech_generation)
+         patch("plugin.audio.tts_service._speak_system"):
+        _speak_endpoint("A" * 4500, "https://api.openai.com/v1", "k", model="tts-1", voice="alloy", cancel=cancel)
 
     assert play.call_count == 2
     assert chunk2_download_started.is_set()
@@ -793,12 +796,12 @@ def test_speak_endpoint_later_chunk_failure_still_reports_status():
 
     sentinel_status = MagicMock()
     text = ("A" * 4000) + " tail stays"
+    cancel = SendCancellation()
 
     with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True), \
          patch("plugin.audio.tts_service._release_temp"), \
-         patch("plugin.audio.tts_service._speak_system") as system, \
-         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
+         patch("plugin.audio.tts_service._speak_system") as system:
         _speak_endpoint(
             text,
             "https://api.openai.com/v1",
@@ -806,7 +809,7 @@ def test_speak_endpoint_later_chunk_failure_still_reports_status():
             model="tts-1",
             voice="alloy",
             on_status=sentinel_status,
-            generation=tts_service._speech_generation,
+            cancel=cancel,
         )
 
     assert len(downloads) == 2
