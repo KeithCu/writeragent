@@ -17,7 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Operations for Calc (Extend/Edit Selection)."""
 
-from typing import Any
+from typing import Any, Callable
 
 from plugin.calc.calc_utils import FORMULA, TEXT
 from plugin.writer.edit_review import build_writer_rewrite_prompt, strip_echoed_edit_scaffolding
@@ -38,6 +38,7 @@ def do_calc_extend_edit(
     is_edit: bool,
     *,
     preset_instruction: str | None = None,
+    sidebar_notify: Callable[[str], None] | None = None,
 ) -> None:
     sheet = model.CurrentController.ActiveSheet
     selection = model.CurrentController.Selection
@@ -81,6 +82,9 @@ def do_calc_extend_edit(
     cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
     formula_array = cell_range.getFormulaArray()
 
+    saw_skipped_formula = False
+    saw_nonempty_for_formula_msg = False
+
     for r_i, row_vals in enumerate(formula_array):
         for c_i, raw_val in enumerate(row_vals):
             if len(tasks) >= _MAX_CELLS:
@@ -95,6 +99,8 @@ def do_calc_extend_edit(
             if is_edit:
                 cell = sheet.getCellByPosition(col_abs, row_abs)
                 if cell.getType() == FORMULA:
+                    saw_nonempty_for_formula_msg = True
+                    saw_skipped_formula = True
                     continue
             tasks.append(
                 StreamCompletionTask(
@@ -111,6 +117,10 @@ def do_calc_extend_edit(
         msgbox(ctx, title, _("Only the first {0} non-empty cells are edited.").format(_MAX_CELLS))
 
     if not tasks:
+        if is_edit and preset_instruction is not None and sidebar_notify is not None:
+            if saw_nonempty_for_formula_msg and saw_skipped_formula:
+                sidebar_notify(_("Formula cells are skipped."))
+                return
         msgbox(ctx, title, _("Select one or more non-empty cells."))
         return
 

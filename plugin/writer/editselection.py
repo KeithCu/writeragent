@@ -22,7 +22,7 @@ Extend sends the selection text with ``extend_selection_system_prompt``. Edit se
 is the chat system prompt and is not read here.
 """
 
-from typing import Any
+from typing import Any, Callable
 
 from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model
@@ -84,8 +84,13 @@ def _stream_into_session(
     system_prompt: str,
     max_tokens: int,
     session: Any,
+    *,
+    preset_instruction: str | None = None,
+    sidebar_notify: Callable[[str], None] | None = None,
 ) -> None:
     from plugin.doc.agent_undo import record_agent_turn_after
+
+    completion_meta: dict[str, Any] = {}
 
     # Extend/Edit has no Stop control; a chunk already in hand is a document write
     # and lands (session.append_chunk).
@@ -93,11 +98,20 @@ def _stream_into_session(
         if not is_thinking:
             session.append_chunk(chunk_text)
 
-    def on_done() -> None:
+    def on_done(_item: Any = None) -> None:
         try:
             warning = session.finish()
             if warning:
                 msgbox(ctx, title, warning)
+            elif (
+                preset_instruction is not None
+                and sidebar_notify is not None
+                and completion_meta.get("finish_reason") == "length"
+                and not (session.generated_text or "").strip()
+            ):
+                sidebar_notify(
+                    _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
+                )
         finally:
             record_agent_turn_after(session.doc)
 
@@ -108,7 +122,17 @@ def _stream_into_session(
         finally:
             record_agent_turn_after(session.doc)
 
-    stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
+    stream_completion(
+        ctx,
+        client,
+        prompt,
+        system_prompt,
+        max_tokens,
+        apply_chunk,
+        on_done,
+        on_error,
+        completion_out=completion_meta,
+    )
 
 
 def do_extend_selection(ctx: Any, model: Any) -> None:
@@ -163,6 +187,7 @@ def do_edit_selection(
     *,
     preset_instruction: str | None = None,
     allow_whole_document: bool = False,
+    sidebar_notify: Callable[[str], None] | None = None,
 ) -> None:
     title = _("WriterAgent: Edit Selection")
     extra_instructions = ""
@@ -217,4 +242,14 @@ def do_edit_selection(
         preserve_paragraph_breaks=preserve_paragraph_breaks,
     )
     assert client is not None
-    _stream_into_session(ctx, title, client, prompt, system_prompt, max_tokens, session)
+    _stream_into_session(
+        ctx,
+        title,
+        client,
+        prompt,
+        system_prompt,
+        max_tokens,
+        session,
+        preset_instruction=preset_instruction,
+        sidebar_notify=sidebar_notify,
+    )

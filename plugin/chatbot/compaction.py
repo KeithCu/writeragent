@@ -518,12 +518,18 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     (``context_compressor.py:3846-3884``); not a port of that method.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L3846-L3884
     """
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
+
     out = []
     i = 0
     n = len(messages)
     while i < n:
         msg = messages[i]
         if msg.get("_open_transcript"):
+            i += 1
+            continue
+
+        if msg.get(SLASH_LOCAL):
             i += 1
             continue
         if msg.get("role") == "assistant" and (msg.get("tool_calls") or []):

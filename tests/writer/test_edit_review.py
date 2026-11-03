@@ -1090,3 +1090,17 @@ def test_rewrite_session_preserves_paragraph_breaks_on_finish():
     assert cursor.setString.call_args_list[1].args[0] == "Alpha"
     assert text_obj.insertControlCharacter.call_count == 2
 
+
+def test_replace_range_collapses_doubled_newlines_between_paragraphs():
+    from plugin.writer.edit_review import _replace_range_with_paragraph_text
+
+    text_obj = MagicMock()
+    text_range = MagicMock()
+    text_range.getText.return_value = text_obj
+    cursor = MagicMock()
+    text_obj.createTextCursorByRange.return_value = cursor
+
+    _replace_range_with_paragraph_text(text_range, "Alpha\n\nBeta\n\nGamma", collapse_blank_paragraph_lines=True)
+
+    assert text_obj.insertControlCharacter.call_count == 2
+

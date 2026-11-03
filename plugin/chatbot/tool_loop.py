@@ -445,6 +445,7 @@ class ToolCallingMixin:
         skip_append_user: bool = False,
         *,
         user_transcript_text: str | None = None,
+        slash_sidebar_only: bool = False,
     ) -> None:
         # The send already called begin_send_turn. A mode click inside
         # pump_ui_idle aborts that turn and swaps the session. Do not start
@@ -485,14 +486,17 @@ class ToolCallingMixin:
             toolkit = get_toolkit(self._panel.ctx)
             if toolkit:
                 pump_ui_idle(toolkit, max_queue_items=4)
-            active_tools = get_tools().get_schemas(
-                "openai",
-                doc_type=doc_type_str,
-                uno_services_supported=getattr(self._panel, "cached_uno_services", None),
-                active_domain=active_domain,
-                ctx=self._panel.ctx,
-                doc=model,
-            )
+            if slash_sidebar_only:
+                active_tools: list[Any] = []
+            else:
+                active_tools = get_tools().get_schemas(
+                    "openai",
+                    doc_type=doc_type_str,
+                    uno_services_supported=getattr(self._panel, "cached_uno_services", None),
+                    active_domain=active_domain,
+                    ctx=self._panel.ctx,
+                    doc=model,
+                )
             log_peer_tool_on_wire(active_tools)
             execute_fn = build_tool_execute_fn(self._panel, doc_type_str, active_domain, python_tool_domain, set_active_domain)
 

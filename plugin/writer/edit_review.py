@@ -47,6 +47,7 @@ from dataclasses import dataclass
 import itertools
 import logging
 import os
+import re
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Generator
@@ -1072,7 +1073,7 @@ def strip_echoed_edit_scaffolding(text: str) -> str:
     return result
 
 
-def _replace_range_with_paragraph_text(text_range: Any, text: str) -> None:
+def _replace_range_with_paragraph_text(text_range: Any, text: str, *, collapse_blank_paragraph_lines: bool = False) -> None:
     """Write *text* into *text_range*, mapping each ``\\n`` to a real paragraph break.
 
     ``setString`` on a multi-paragraph range turns ``\\n`` into line breaks inside one
@@ -1083,7 +1084,12 @@ def _replace_range_with_paragraph_text(text_range: Any, text: str) -> None:
     cursor.setString("")
     if not text:
         return
-    parts = text.split("\n")
+    if collapse_blank_paragraph_lines:
+        # Bugfix (QA B6): the model often returns "\\n\\n" between paragraphs; split("\\n")
+        # turned each blank line into an extra empty paragraph. Collapse newline runs first.
+        parts = re.split(r"\n+", text.strip("\n"))
+    else:
+        parts = text.split("\n")
     cursor.setString(parts[0])
     for part in parts[1:]:
         cursor.gotoEnd(False)
@@ -1404,7 +1410,11 @@ class WriterStreamedRewriteSession(_WriterStreamedSessionBase):
 
             def _collapse() -> None:
                 if self.preserve_paragraph_breaks:
-                    _replace_range_with_paragraph_text(self.text_range, final_text)
+                    _replace_range_with_paragraph_text(
+                        self.text_range,
+                        final_text,
+                        collapse_blank_paragraph_lines=True,
+                    )
                 else:
                     self.text_range.setString(final_text)
 

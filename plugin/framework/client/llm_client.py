@@ -642,13 +642,13 @@ class LlmClient:
         res = self._request_json("POST", req_path, body_bytes, headers, cancel=cancel, status_callback=status_callback)
         return res.get("text", "") if isinstance(res, dict) else str(res)
 
-    def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None) -> None:
-        """Stream a chat completions response via callbacks."""
+    def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None) -> str | None:
+        """Stream a chat completions response via callbacks; returns finish_reason."""
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        self.stream_chat_response(messages, max_tokens, append_callback, append_thinking_callback, cancel=cancel, status_callback=status_callback)
+        return self.stream_chat_response(messages, max_tokens, append_callback, append_thinking_callback, cancel=cancel, status_callback=status_callback)
 
     def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None, reset_unemitted_attempt: Any = None) -> Any:
         """Common low-level streaming engine."""
@@ -972,8 +972,8 @@ class LlmClient:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
         prepend_dev_build_system_prefix: bool = True,
-    ) -> None:
-        """Stream a chat response using the messages array."""
+    ) -> str | None:
+        """Stream a chat response using the messages array; returns finish_reason."""
         method, path, body, headers = self.make_chat_request(
             messages,
             max_tokens,
@@ -982,7 +982,7 @@ class LlmClient:
             stream=True,
             prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
         )
-        self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, cancel=cancel, status_callback=status_callback)
+        return self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, cancel=cancel, status_callback=status_callback)
 
     def request_with_tools(
         self,

@@ -1293,6 +1293,7 @@ def run_stream_completion_async(
     on_status_fn: Callable[[str], None] | None = None,
     cancel: SendCancellation | None = None,
     on_stopped_fn: Callable[[], None] | None = None,
+    completion_out: dict[str, Any] | None = None,
 ) -> None:
     """High-level helper for simple non-tool streams (always chat completions)."""
     # crosshair: off
@@ -1307,7 +1308,9 @@ def run_stream_completion_async(
             "status_callback": lambda t: q.put((StreamQueueKind.STATUS, t)),
             "cancel": cancel,
         }
-        client.stream_completion(prompt, system_prompt, max_tokens, **kwargs)
+        finish_reason = client.stream_completion(prompt, system_prompt, max_tokens, **kwargs)
+        if completion_out is not None:
+            completion_out["finish_reason"] = finish_reason
         if cancel is not None and cancel.is_cancelled():
             q.put((StreamQueueKind.STOPPED, None))
 
