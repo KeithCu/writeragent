@@ -138,6 +138,9 @@ class McpModule(ModuleBase):
 
         self._registry = HttpRouteRegistry()
         self.tunnel = TunnelManager()
+        from plugin.framework.quit_hooks import register_quit_hook
+
+        register_quit_hook(self._quit_stop_tunnel)
         self._services = services
         _current_module = self
 
@@ -286,6 +289,11 @@ class McpModule(ModuleBase):
             self.server = None
         self._services.events.emit("http:server_stopped", reason="shutdown")
         self._services.events.emit("menu:update")
+
+    def _quit_stop_tunnel(self) -> None:
+        tunnel = self.tunnel
+        if tunnel is not None:
+            tunnel.stop_for_quit()
 
     def _sync_tunnel(self) -> None:
         """Start or stop the public tunnel to match MCP settings."""

@@ -1808,6 +1808,62 @@ def test_post_stop_start_failure_decrements_under_lock(monkeypatch):
     assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
 
+def test_stop_for_quit_runs_tailscale_reset_synchronously(monkeypatch, tmp_path):
+    """LibreOffice quit must run funnel off on this thread (subprocess lifecycle G1)."""
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    marker = tmp_path / "writeragent-tailscale-funnel-armed"
+    marker.write_text("armed\n", encoding="utf-8")
+    monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
+
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    timeouts: list[float] = []
+
+    def _run(cmd, **kwargs):
+        timeouts.append(kwargs.get("timeout"))
+        reset_cmds.append(list(cmd))
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    def _no_background(*args, **kwargs):
+        raise AssertionError("stop_for_quit must not schedule tunnel post_stop in the background")
+
+    with (
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=_no_background),
+    ):
+        mgr.stop_for_quit()
+        assert reset_cmds == _tailscale_reset_cmds()
+        assert timeouts == [2.0]
+        assert not marker.exists()
+
+
+def test_mcp_quit_hook_calls_stop_for_quit():
+    import plugin.mcp as mcp_mod
+
+    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
+    tunnel = MagicMock()
+    mod.tunnel = tunnel
+    mod._quit_stop_tunnel()
+    tunnel.stop_for_quit.assert_called_once()
+
+
+def test_run_quit_hooks_invokes_registered_callbacks():
+    from plugin.framework import quit_hooks
+
+    quit_hooks._hooks.clear()
+    seen: list[str] = []
+
+    def _hook() -> None:
+        seen.append("ran")
+
+    quit_hooks.register_quit_hook(_hook)
+    quit_hooks.run_quit_hooks()
+    assert seen == ["ran"]
+    quit_hooks._hooks.clear()
+
+
 def _sync_tunnel_module(monkeypatch, port, bound_port=18765):
     import plugin.mcp as mcp_mod
 

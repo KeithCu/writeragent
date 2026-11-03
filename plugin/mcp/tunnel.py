@@ -32,7 +32,7 @@ import re
 import subprocess
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol
 
 from plugin.framework.subprocess_env import get_subprocess_creationflags
 from plugin.mcp.tunnel_state import DEFAULT_MAX_RETRIES, CancelRetryTimerEffect, NotifyUrlAcquiredEffect, ScheduleRetryTimerEffect, StartProcessEffect, TerminateProcessEffect, TunnelEvent, TunnelEventKind, TunnelState, TunnelStatus, next_state
@@ -41,6 +41,9 @@ if TYPE_CHECKING:
     from plugin.framework.worker_pool import AsyncProcess
 
 log = logging.getLogger("writeragent.mcp.tunnel")
+
+# LibreOffice exit must not delegate Tailscale funnel off to a background thread.
+_QUIT_FUNNEL_RESET_TIMEOUT_SEC = 2.0
 
 DEFAULT_PROVIDER = "cloudflare"
 DEFAULT_BORE_SERVER = "bore.pub"
@@ -226,16 +229,20 @@ def parse_tailscale_url(line: str) -> Optional[str]:
     return m.group(1).rstrip("/")
 
 
+class _FunnelResetFn(Protocol):
+    def __call__(self, port: int, *, timeout: float = 5) -> bool: ...
+
+
 class FunnelReset:
     """Manages Tailscale funnel pre-spawn/post-stop resets and arm marker lifecycle."""
 
-    _reset_fn: Callable[[int], bool]
+    _reset_fn: _FunnelResetFn
     arm_filename: str
     lock: threading.Lock
     token: object
     _resets_in_flight: int
 
-    def __init__(self, reset_fn: Callable[[int], bool], arm_filename: str) -> None:
+    def __init__(self, reset_fn: _FunnelResetFn, arm_filename: str) -> None:
         self._reset_fn = reset_fn
         self.arm_filename = arm_filename
         self.lock = threading.Lock()
@@ -245,8 +252,8 @@ class FunnelReset:
     def before_spawn(self, port: int) -> None:
         self._reset_fn(port)
 
-    def after_stop(self, port: int) -> bool:
-        return self._reset_fn(port)
+    def after_stop(self, port: int, *, timeout: float = 5) -> bool:
+        return self._reset_fn(port, timeout=timeout)
 
     def arm_path(self) -> str | None:
         """Path to the funnel arm marker file beside writeragent.json (bootstrap resolves config first)."""
@@ -390,7 +397,10 @@ class TailscaleProvider(Provider):
     reset: FunnelReset | None
 
     def __init__(self) -> None:
-        self.reset = FunnelReset(self.reset_funnel, self.ARM_FILENAME)
+        self.reset = FunnelReset(
+            lambda port, timeout=5: TailscaleProvider.reset_funnel(port, timeout=timeout),
+            self.ARM_FILENAME,
+        )
 
     def build_command(self, port: int, provider_token: str = "") -> list[str]:
         return build_tailscale_command(port, provider_token)
@@ -399,12 +409,12 @@ class TailscaleProvider(Provider):
         return parse_tailscale_url(line)
 
     @staticmethod
-    def reset_funnel(port: int) -> bool:
+    def reset_funnel(port: int, *, timeout: float = 5) -> bool:
         """Clear the HTTPS/443 Funnel handler. *port* is the local MCP target, for the log only."""
         cmd = _TAILSCALE_OFF_CMD
         shown = " ".join(cmd)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, **get_subprocess_creationflags())
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **get_subprocess_creationflags())
         except Exception:
             log.exception("Tailscale funnel off failed (local MCP port %s): %s", port, shown)
             return False
@@ -491,6 +501,7 @@ class TunnelManager:
         self._session = object()
         self._pending_start = None
         self._providers = {cls.name: cls() for cls in PROVIDER_CLASSES}
+        self._quit_shutdown: bool = False
 
     @property
     def public_url(self) -> Optional[str]:
@@ -582,33 +593,38 @@ class TunnelManager:
         with self._lock:
             reset.mark_finished()
 
+    def _run_post_stop_body(self, provider_name: str, port: int, reset: FunnelReset, token: object, *, timeout: float) -> None:
+        lock = reset.lock
+        with lock:
+            with self._lock:
+                stale = not reset.current(token)
+            if stale:
+                log.info("Ignoring stale MCP tunnel post_stop for %s", provider_name)
+                return
+            ok = False
+            try:
+                ok = reset.after_stop(port, timeout=timeout) is True
+            except Exception:
+                log.exception("Tunnel post_stop failed for %s", provider_name)
+            with self._lock:
+                if ok and reset.current(token):
+                    reset.clear_armed()
+
     def _schedule_post_stop_unlocked(self, provider_name: str, port: int) -> None:
         """Run provider post_stop off the manager lock, unless a newer session started."""
         provider = self._providers.get(provider_name)
         reset = provider.reset if provider is not None else None
         if reset is None:
             return
-        reset.note_scheduled()
         token = reset.capture()
-        lock = reset.lock
+        if self._quit_shutdown:
+            self._run_post_stop_body(provider_name, port, reset, token, timeout=_QUIT_FUNNEL_RESET_TIMEOUT_SEC)
+            return
+        reset.note_scheduled()
 
         def _safe_post_stop() -> None:
             try:
-                with lock:
-                    with self._lock:
-                        stale = not reset.current(token)
-                    if stale:
-                        log.info("Ignoring stale MCP tunnel post_stop for %s", provider_name)
-                    else:
-                        ok = False
-                        try:
-                            ok = reset.after_stop(port) is True
-                        except Exception:
-                            log.exception("Tunnel post_stop failed for %s", provider_name)
-                        # Arm clears only when after_stop is True and the reset token is still current.
-                        with self._lock:
-                            if ok and reset.current(token):
-                                reset.clear_armed()
+                self._run_post_stop_body(provider_name, port, reset, token, timeout=5)
             finally:
                 self._reset_finished(reset)
 
@@ -946,6 +962,14 @@ class TunnelManager:
                 for provider in self._providers.values():
                     if provider.reset is not None and provider.reset.idle_ready():
                         self._schedule_post_stop_unlocked(provider.name, self._state.port)
+
+    def stop_for_quit(self) -> None:
+        """Stop the tunnel and run Tailscale funnel off on this thread (LibreOffice exit)."""
+        self._quit_shutdown = True
+        try:
+            self.stop()
+        finally:
+            self._quit_shutdown = False
 
 
 def tunnel_status_line(
