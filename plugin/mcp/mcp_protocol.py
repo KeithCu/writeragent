@@ -145,7 +145,7 @@ class _PreparedMcpCall:
 
 
 
-# Pointer to the on-demand manual (T4 / G2 consolidation). The full how-to — editing, editing-html,
+# On-demand manual index (editing, editing-html, …). Full how-to lives in docs/chat/.
 # review-modes, search, navigation, images, concurrency — is served per topic by get_guidance(topic), so the model
 # pulls one section when needed instead of front-loading a manual here (Claude Desktop doesn't read
 # `instructions`; Claude Code truncates it). The topic texts are the shared prompt pieces in
@@ -325,16 +325,6 @@ def _mcp_unknown_tool_result(message: str) -> dict[str, Any]:
     return wire_types.call_tool_result(json.dumps(payload, ensure_ascii=False), is_error=True)
 
 
-class _DebugHandlerAdapter:
-    """Adapter presenting a handler-like interface from GET /debug arguments."""
-
-    def __init__(self, body: Any, headers: Any):
-        self.body: Any = body
-        self.headers: Any = headers or {}
-        addr = getattr(headers, "_client_address", None) or getattr(headers, "client_address", None)
-        self.client_address: Any = addr if addr is not None else ("127.0.0.1", 0)
-
-
 class MCPProtocolHandler:
     """MCP JSON-RPC protocol — route handlers for the HTTP server."""
 
@@ -453,7 +443,7 @@ class MCPProtocolHandler:
 
     def handle_mcp_delete(self, handler: Any) -> None:
         """DELETE /mcp — not supported: one process-wide session must stay alive."""
-        # Nelson a3d69e68 / GitHub #38. Streamable HTTP lets a client DELETE
+        # Streamable HTTP: clients may DELETE /mcp to drop a session; stale ids get 404.
         # the session URL to end it. WriterAgent has one session id for the
         # whole soffice process, shared by every client. Returning 200 claimed
         # the session ended when it did not; clearing the id would cut every
@@ -552,14 +542,17 @@ class MCPProtocolHandler:
         # The transport label keeps /sse and /messages distinct in [MCP-HTTP] logs.
         self.handle_mcp_post(handler, transport="sse")
 
-    def _debug_forbidden(self, handler: Any) -> str | None:
+    def _debug_forbidden(self, headers: Any, *, client_address: Any = None) -> str | None:
         """Refuse unless peer is loopback, debug token matches, and Origin is absent."""
-        addr = getattr(handler, "client_address", None)
-        client_ip = addr[0] if (isinstance(addr, (list, tuple)) and len(addr) > 0) else getattr(handler, "client_ip", "127.0.0.1")
+        addr = client_address
+        if addr is None and isinstance(headers, dict):
+            addr = headers.get("_client_address")
+        if addr is None:
+            addr = getattr(headers, "_client_address", None)
+        client_ip = addr[0] if (isinstance(addr, (list, tuple)) and len(addr) > 0) else "127.0.0.1"
         if client_ip not in ("127.0.0.1", "::1", "localhost"):
             return "Forbidden: Debug actions restricted to localhost"
 
-        headers = getattr(handler, "headers", None)
         if headers is None:
             headers = {}
         # Reject Origin to block any cross-origin requests on /debug.
@@ -575,18 +568,10 @@ class MCPProtocolHandler:
 
     # ── Simple handlers (body, headers, query) -> (status, dict) ─────
 
-    def handle_debug_info(self, body_or_handler: Any, headers: Any = None, query: Any = None) -> tuple[int, dict[str, Any]]:
+    def handle_debug_info(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
         """GET /debug — show available debug actions."""
-        # What was wrong: GET /debug was registered as raw=True, sending protocol headers
-        # and writing JSON itself rather than using the server's non-raw JSON handler.
-        # How it happened: MCP_ROUTE_TABLE table consolidation mistakenly marked it raw=True.
-        # Why this change: return (status, dict) so HttpServer formats and sends the response.
-        if headers is None and hasattr(body_or_handler, "headers"):
-            handler = body_or_handler
-        else:
-            handler = _DebugHandlerAdapter(body_or_handler, headers)
-
-        forbidden = self._debug_forbidden(handler)
+        del body, query
+        forbidden = self._debug_forbidden(headers)
         if forbidden:
             return (403, {"error": forbidden})
 
@@ -608,7 +593,7 @@ class MCPProtocolHandler:
 
     def handle_debug_post(self, handler: Any) -> None:
         """POST /debug — execute debug actions."""
-        forbidden = self._debug_forbidden(handler)
+        forbidden = self._debug_forbidden(handler.headers, client_address=getattr(handler, "client_address", None))
         if forbidden:
             log.warning("Blocked /debug access: %s", forbidden)
             self._send_json(handler, 403, {"error": forbidden})

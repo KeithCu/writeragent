@@ -268,9 +268,8 @@ def reject_forbidden_origin(handler: Any) -> bool:
 
     Bug: CORS only omitted Access-Control-Allow-Origin for unsafe browser
     Origins; OPTIONS still returned 204 and POST still ran JSON-RPC. A
-    non-preflighted or CORS-ignoring client could mutate. Nelson ca7c2d32
-    (0.13.0) 403s any present-and-unsafe Origin with no CORS headers so
-    the request never reaches a route. WriterAgent keeps loopback +
+    non-preflighted or CORS-ignoring client could mutate. Unsafe Origins get 403
+    with no CORS headers so the request never reaches a route. WriterAgent keeps loopback +
     private/LAN defaults; only the already-unsafe set is refused.
     """
     if not origin_is_forbidden(handler):

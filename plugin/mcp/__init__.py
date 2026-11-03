@@ -50,15 +50,15 @@ def is_mcp_server_running() -> bool:
 
 _DEBUG_TOKEN_FILENAME = "writeragent_mcp_debug_token"
 
-MCP_ROUTE_TABLE: tuple[tuple[str, str, str, bool], ...] = (
-    ("POST", "/mcp", "handle_mcp_post", True),
-    ("GET", "/mcp", "handle_mcp_sse", True),
-    ("DELETE", "/mcp", "handle_mcp_delete", True),
-    ("POST", "/sse", "handle_sse_post", True),
-    ("POST", "/messages", "handle_sse_post", True),
-    ("GET", "/sse", "handle_sse_stream", True),
-    ("GET", "/debug", "handle_debug_info", False),
-    ("POST", "/debug", "handle_debug_post", True),
+MCP_ROUTE_TABLE: tuple[tuple[str, str, str], ...] = (
+    ("POST", "/mcp", "handle_mcp_post"),
+    ("GET", "/mcp", "handle_mcp_sse"),
+    ("DELETE", "/mcp", "handle_mcp_delete"),
+    ("POST", "/sse", "handle_sse_post"),
+    ("POST", "/messages", "handle_sse_post"),
+    ("GET", "/sse", "handle_sse_stream"),
+    ("GET", "/debug", "handle_debug_info"),
+    ("POST", "/debug", "handle_debug_post"),
 )
 
 _LIFECYCLE_SUFFIXES = frozenset({"mcp_enabled", "mcp_port", "tunnel_enabled", "tunnel_provider", "tunnel_provider_token", "cors_allowed_origins", "cors_allow_private_origins"})
@@ -127,7 +127,7 @@ class McpModule(ModuleBase):
     def initialize(self, services: Any) -> None:
         global _current_module
 
-        from plugin.mcp.routes import HttpRouteRegistry
+        from plugin.mcp.routes import HttpRouteRegistry, json_route
 
         self._registry = HttpRouteRegistry()
         self.tunnel = TunnelManager()
@@ -135,8 +135,8 @@ class McpModule(ModuleBase):
         _current_module = self
 
         # Built-in endpoints
-        self._registry.add("GET", "/health", self._handle_health)
-        self._registry.add("GET", "/", self._handle_info)
+        self._registry.add("GET", "/health", json_route(self._handle_health))
+        self._registry.add("GET", "/", json_route(self._handle_info))
 
         # MCP endpoints
         mcp_enabled = get_config("mcp.mcp_enabled")
@@ -337,6 +337,7 @@ class McpModule(ModuleBase):
     def _register_mcp_routes(self, services: Any) -> None:
         log.info("Registering MCP routes (SSE, /mcp, /debug)...")
         from plugin.mcp.mcp_protocol import MCPProtocolHandler
+        from plugin.mcp.routes import json_route
 
         p = MCPProtocolHandler(services)
         _write_debug_token_file(p.debug_token)
@@ -345,13 +346,16 @@ class McpModule(ModuleBase):
         # lock, so a toggle cannot expose a half-registered table or raise
         # RuntimeError while iterating it.
         with self._registry.lock:
-            for method, path, handler_name, raw in MCP_ROUTE_TABLE:
-                self._registry.add(method, path, getattr(p, handler_name), raw=raw)
+            for method, path, handler_name in MCP_ROUTE_TABLE:
+                handler = getattr(p, handler_name)
+                if handler_name == "handle_debug_info":
+                    handler = json_route(handler)
+                self._registry.add(method, path, handler)
         log.info("MCP routes registered on HTTP server")
 
     def _unregister_mcp_routes(self) -> None:
         with self._registry.lock:
-            for method, path, _handler_name, _raw in MCP_ROUTE_TABLE:
+            for method, path, _handler_name in MCP_ROUTE_TABLE:
                 self._registry.remove(method, path)
         _remove_debug_token_file()
         log.info("MCP routes unregistered from HTTP server")

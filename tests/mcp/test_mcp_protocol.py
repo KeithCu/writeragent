@@ -495,6 +495,11 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
     from plugin.mcp.mcp_protocol import MCPProtocolHandler
     from tests.mcp.test_mcp_server import MockHandler
 
+    def _get_headers(req: MockHandler) -> dict[str, Any]:
+        headers = dict(req.headers)
+        headers["_client_address"] = req.client_address
+        return headers
+
     services = MagicMock()
     handler = MCPProtocolHandler(services, debug_token="secret-token-123")
 
@@ -503,7 +508,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
         req = MockHandler({})
         req.client_address = ("127.0.0.1", 12345)
         if method == "GET":
-            status, _ = handler.handle_debug_info(req)
+            status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 403
         else:
             with patch.object(handler, "_read_body", return_value={}):
@@ -520,7 +525,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
         })
         req.client_address = ("127.0.0.1", 12345)
         if method == "GET":
-            status, _ = handler.handle_debug_info(req)
+            status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 200
         else:
             with patch.object(handler, "_read_body", return_value={}):
@@ -531,7 +536,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
         req = MockHandler({"X-WriterAgent-Debug-Token": "secret-token-123"})
         req.client_address = ("192.168.1.50", 12345)
         if method == "GET":
-            status, _ = handler.handle_debug_info(req)
+            status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 403
         else:
             with patch.object(handler, "_read_body", return_value={}):
@@ -545,7 +550,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
         })
         req.client_address = ("127.0.0.1", 12345)
         if method == "GET":
-            status, _ = handler.handle_debug_info(req)
+            status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 403
         else:
             with patch.object(handler, "_read_body", return_value={}):
@@ -617,7 +622,7 @@ def test_http_server_stop_ends_sse_keepalive():
     services.tools = MagicMock()
     protocol = MCPProtocolHandler(services)
     registry = HttpRouteRegistry()
-    registry.add("GET", "/mcp", protocol.handle_mcp_sse, raw=True)
+    registry.add("GET", "/mcp", protocol.handle_mcp_sse)
 
     srv = None
     client = None
