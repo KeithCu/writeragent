@@ -8,24 +8,18 @@ The child is a ``ManagedSubprocess`` plus the Pickle 5 handshake in
 ``_KokoroWorker``. The 20 second ready timeout covers process start and
 the import of ``plugin.framework.ipc`` only. ``run_kokoro_stdio_loop``
 writes ``{"status": "ready"}`` before ``_get_kokoro`` imports ``kokoro_onnx``;
-the model load is the first job's timeout. ``cancel_inflight`` signals on
-the caller thread and reaps with ``worker.kill`` on a background thread;
-the signal does not close stdin and does not call ``ManagedSubprocess.close``.
+the model load is the first job's timeout.
+
 ``execute`` holds ``_job_lock`` across spawn and the pipe so two callers
-cannot split a frame. ``stop_speech`` can call ``cancel_inflight`` without
-waiting for ``ManagedSubprocess.close``. This pool keeps the cancel token
-and the single lazy slot: Stop during the handshake must see the object
-before ``respawn`` blocks. Kokoro and soundfile live in the configured venv,
-not in LibreOffice's runtime.
+cannot split a frame. While a job is live it registers ``_kill_inflight`` on
+the utterance ``SendCancellation`` passed as ``cancel=``; an already-cancelled
+scope returns ``WORKER_CANCELLED`` without touching a warm idle worker.
+Kokoro and soundfile live in the configured venv, not in LibreOffice's runtime.
 
 The process stays up across sentences so CPU Kokoro does not reload ONNX and
-the voices file every clip. ``cancel_inflight`` kills it while a job is
-inside ``execute``, including the spawn handshake before the ready frame —
-``Kokoro.create`` cannot be interrupted any other way. An idle worker is left
-alone so the Send button's ``stop_speech`` (which runs before the reply
-exists) does not throw away a warm model. A ``cancel_check`` which returns
-true before a frame is sent returns ``WORKER_CANCELLED`` and does not call
-``cancel_inflight``. The reaper drops the process after
+the voices file every clip. Stop kills the in-flight child via the scope hook,
+including during the spawn handshake before the ready frame — ``Kokoro.create``
+cannot be interrupted any other way. The reaper drops the process after
 ``idle_worker_ttl_sec`` of quiet so the RAM comes back.
 """
 
@@ -37,7 +31,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import best_effort
 from plugin.framework.managed_subprocess import ManagedSubprocess
@@ -51,6 +45,9 @@ from plugin.framework.ipc import (
 )
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.sandbox import resolve_venv_python
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 log = logging.getLogger(__name__)
 
@@ -261,10 +258,8 @@ class KokoroProcessPool:
         self._worker: _KokoroWorker | None = None
         self._lock: threading.Lock = threading.Lock()
         self._job_lock: threading.Lock = threading.Lock()
-        # Identifies this execute() call. cancel() must not clear a newer
-        # call's token, and the older call's finally must not clear the newer
-        # one. In-flight means the token is not None.
-        self._exec_token: object | None = None
+        self._job_live: bool = False
+        self._abort: bool = False
         self._shutdown: bool = False
         self._last_active: float = time.monotonic()
         self._reaper_stop: threading.Event = threading.Event()
@@ -290,14 +285,14 @@ class KokoroProcessPool:
         self,
         payload: dict[str, Any],
         timeout_sec: float | None = None,
-        cancel_check: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
     ) -> dict[str, Any]:
         """Run one Kokoro job. Spawns the child on first use and after a crash.
 
-        The pool lock is not held across spawn or the job, and cancel_check is
-        not called under it.
-        cancel_check runs before the job is marked in-flight and a true result
-        leaves _worker in place. _job_lock is the pipe lock. cancel_inflight
+        The pool lock is not held across spawn or the job, and cancel hooks
+        are not run under it.
+        An already-cancelled scope returns WORKER_CANCELLED before the job is marked
+        live, leaving _worker in place. _job_lock is the pipe lock. _kill_inflight
         does not take _job_lock.
         """
         eff_timeout = float(self.job_timeout_sec if timeout_sec is None else timeout_sec)
@@ -306,27 +301,29 @@ class KokoroProcessPool:
                 if self._shutdown:
                     return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
 
-            if cancel_check is not None and cancel_check():
+            if cancel is not None and cancel.is_cancelled():
                 # What was wrong: _inflight was set first, then cancel_inflight killed
                 # the idle _worker even before a frame was sent.
                 # How it happened: Stop after _kokoro_warm_to_file's playback check and
                 # before any frame made the next sentence look in-flight.
-                # Why this fixes it: a true cancel_check returns WORKER_CANCELLED
-                # without publishing the token, leaving the warm idle worker in place.
+                # Why this fixes it: an already-cancelled scope returns WORKER_CANCELLED
+                # without marking the job live, leaving the warm idle worker in place.
                 return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
 
-            token = object()
             with self._lock:
                 if self._shutdown:
                     return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
-                self._exec_token = token
+                self._job_live = True
+                self._abort = False
                 existing = self._worker
                 # A dead slot is not warm. kill() has already dropped a child it
                 # could not reap, so is_alive() is false and this job may spawn.
                 reuse = existing is not None and existing.is_alive()
 
+            if cancel is not None:
+                cancel.register_on_cancel(self._kill_inflight)
+
             deadline = Deadline(eff_timeout)
-            token_stolen = False
             result: dict[str, Any] = {}
             spawned_worker: _KokoroWorker | None = None
             try:
@@ -360,10 +357,10 @@ class KokoroProcessPool:
                         spawn_aborted = False
                         with self._lock:
                             # Cancel during the gap before Popen: do not start the child.
-                            if self._exec_token is not token:
+                            if self._abort:
                                 spawn_aborted = True
                             else:
-                                # Visible to cancel_inflight before the ready handshake blocks.
+                                # Visible to cancel hook before the ready handshake blocks.
                                 self._worker = spawned
                         if spawn_aborted:
                             result = error_dict(WORKER_CANCELLED, "Kokoro worker spawn was cancelled.")
@@ -372,10 +369,10 @@ class KokoroProcessPool:
                             spawn_cancelled = False
                             failed = False
                             with self._lock:
-                                # Token drop means Stop or shutdown. A crashed handshake
+                                # Abort flag means Stop or shutdown. A crashed handshake
                                 # calls kill(), so a real spawn failure must stay
                                 # WORKER_SPAWN_FAILED and fall back to the one-shot clip.
-                                spawn_cancelled = self._exec_token is not token
+                                spawn_cancelled = self._abort
                                 # A handshake that could not reap has already dropped the
                                 # child, so is_alive() is false and this stays a failed spawn.
                                 failed = spawn_cancelled or not spawned.is_alive()
@@ -397,6 +394,9 @@ class KokoroProcessPool:
                 if worker is not None:
                     result = worker.execute(payload, deadline.left())
             finally:
+                if cancel is not None:
+                    cancel.unregister_on_cancel(self._kill_inflight)
+                aborted = False
                 with self._lock:
                     if (
                         spawned_worker is not None
@@ -404,17 +404,14 @@ class KokoroProcessPool:
                         and not spawned_worker.is_alive()
                     ):
                         self._worker = None
-                    # Cancel drops the token; this finally must not clear a
-                    # token cancel_inflight already cleared. A second execute
-                    # waits on _job_lock until this finally releases it, so it
-                    # cannot write the same stdin.
-                    if self._exec_token is token:
-                        self._exec_token = None
+                    self._job_live = False
+                    if not self._abort:
                         self._last_active = time.monotonic()
-                    else:
-                        token_stolen = True
+                    # A second execute waits on _job_lock until this finally runs,
+                    # so job flags cannot belong to two jobs.
+                    aborted = self._abort
 
-        if token_stolen:
+        if aborted:
             return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
         raw_warning = result.get("warning")
         if isinstance(raw_warning, str):
@@ -433,23 +430,25 @@ class KokoroProcessPool:
                     log.debug("Kokoro: %s", text)
         return result
 
-    def cancel_inflight(self, token: object | None = None) -> None:
+    def _kill_inflight(self) -> None:
         """Kill the child only when a job is running. Idle warm processes stay up.
 
-        Drop ``_exec_token`` so the spawner cannot adopt the child, and kill
-        the process if it has already been published. ``signal()`` sets
-        ``_killed`` so an in-flight ``respawn`` discards the child instead of
-        publishing it. The worker is stored before ``respawn`` so Stop
+        Pool-wide hook: kills whatever job is live. Safe because utterance scopes
+        are cancelled under ``_speech_lock`` before the next utterance can start.
+
+        Set _abort so the spawner cannot adopt the child, and kill
+        the process if it has already been published. signal() sets
+        _killed so an in-flight respawn discards the child instead of
+        publishing it. The worker is stored before respawn so Stop
         during the ready handshake still finds it.
         """
         with self._lock:
-            if self._exec_token is None:
-                return
-            if token is not None and self._exec_token is not token:
+            if not self._job_live:
                 return
             worker = self._worker
             self._worker = None
-            self._exec_token = None
+            self._job_live = False
+            self._abort = True
         if worker is not None:
             log.info("Cancelling in-flight Kokoro synthesis")
             worker.signal()
@@ -467,7 +466,7 @@ class KokoroProcessPool:
         if ttl is None or self._shutdown:
             return
         with self._lock:
-            if self._exec_token is not None or self._worker is None or not self._worker.is_alive():
+            if self._job_live or self._worker is None or not self._worker.is_alive():
                 return
             worker = self._worker
             expired = time.monotonic() - self._last_active >= ttl
@@ -486,7 +485,8 @@ class KokoroProcessPool:
             self._worker = None
             # In-flight execute treats a dropped token as cancel, so shutdown
             # does not fall through to a one-shot Kokoro clip.
-            self._exec_token = None
+            self._abort = True
+            self._job_live = False
         if worker is not None:
             worker.kill()
 
@@ -538,24 +538,3 @@ def shutdown_kokoro_pool() -> None:
         _POOL_CONFIG_VENV = None
     if pool is not None:
         pool.shutdown()
-
-
-def get_kokoro_inflight_token() -> object | None:
-    """Return an opaque token for the active job, or None."""
-    with _POOL_LOCK:
-        pool = _POOL
-    if pool is None:
-        return None
-    with pool._lock:
-        return pool._exec_token
-
-
-def cancel_kokoro_inflight(token: object | None = None) -> None:
-    """Abort the current ONNX job without dropping an idle warm worker.
-
-    If token is provided, only aborts if that specific job is still running.
-    """
-    with _POOL_LOCK:
-        pool = _POOL
-    if pool is not None:
-        pool.cancel_inflight(token)

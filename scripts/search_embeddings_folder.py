@@ -27,10 +27,10 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
 from plugin.embeddings.embeddings_cache import (  # noqa: E402
+    CorpusMeta,
     corpus_db_path,
     corpus_meta_path,
     index_is_empty,
-    read_corpus_meta,
 )
 from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL, hybrid_search, knn_search  # noqa: E402
 from plugin.embeddings.venv.embeddings_llama_index import llama_index_hybrid_search  # noqa: E402
@@ -54,7 +54,8 @@ def _clamp_k(k: int) -> int:
 def _resolve_model(meta_path: Path, model_override: str | None) -> str:
     if model_override and model_override.strip():
         return model_override.strip()
-    meta = read_corpus_meta(meta_path)
+    meta_obj = CorpusMeta.load(meta_path)
+    meta = meta_obj.data if meta_obj.is_valid else {}
     model = (meta.get("embedding_model") or "").strip()
     return model or DEFAULT_MODEL
 

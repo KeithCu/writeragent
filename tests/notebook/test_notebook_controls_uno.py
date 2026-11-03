@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.notebook.notebook_controls import _page_style, _text_area_width_units
+from plugin.notebook.layout import page_style, text_area_width_units
 from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -56,10 +56,10 @@ def test_page_style_follows_first_paragraph_not_document(ctx, doc):
     cursor.setPropertyValue("PageDescName", style_name)
     assert str(cursor.getPropertyValue("PageDescName") or "") == style_name
 
-    resolved = _page_style(doc)
+    resolved = page_style(doc)
     assert resolved is not None
     assert int(resolved.getPropertyValue("Width")) == 30000
-    area = _text_area_width_units(doc)
+    area = text_area_width_units(doc)
     expected = max(
         6000,
         int(resolved.getPropertyValue("Width"))

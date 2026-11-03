@@ -330,7 +330,7 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | **`corpus.db`** | `chunks`, FTS5 `passages`, `vec_chunks_<model_slug>`, `indexed_files`, `indexed_paragraphs`, `model_metadata` |
 | **`corpus_meta.json`** | `schema_version`, `embedding_model`, `dim`, `chunk_count`, `storage_backend`, `updated_at` |
 
-`write_corpus_meta` merges fields and publishes them with `tempfile.mkstemp` in the same `writeragent_embeddings/` directory plus `os.replace`. There is no cross-process lock; overlapping merges can still drop fields. For sqlite, an omitted `db_path` (including `index_is_empty`'s default) uses the `corpus.db` next to the meta file before checking emptiness. A missing `corpus_meta.json` beside a live `corpus.db` is an empty index (cold rebuild may delete that db). Corrupt or non-object JSON beside that db is not empty and must not be wiped. For zvec and lancedb, a populated collection with missing or corrupt meta stays not empty. `resolve_index_context` returns `corpus.db` and `corpus_meta.json` paths and does not create `writeragent_embeddings/` (probes call it on every status refresh and research search; `write_corpus_meta` and `connect_corpus_db` create the directory on write). `clear_folder_cache` deletes `corpus.db-wal` and `corpus.db-shm` with `corpus.db`.
+`CorpusMeta.save` writes the dict it loaded via `os.replace` after writing to `tempfile.mkstemp` in the same `writeragent_embeddings/` directory. There is still no cross-process lock; overlapping merges can still drop fields. For sqlite, an omitted `db_path` (including `index_is_empty`'s default) uses the `corpus.db` next to the meta file before checking emptiness. A missing `corpus_meta.json` beside a live `corpus.db` is an empty index (cold rebuild may delete that db). Corrupt or non-object JSON beside that db is not empty and must not be wiped. For zvec and lancedb, a populated collection with missing or corrupt meta stays not empty. `resolve_index_context` returns `corpus.db` and `corpus_meta.json` paths and does not create `writeragent_embeddings/` (probes call it on every status refresh and research search; `CorpusMeta.save` and `connect_corpus_db` create the directory on write). `clear_folder_cache` deletes `corpus.db-wal` and `corpus.db-shm` with `corpus.db`.
 
 Experimental backends use side-by-side stores: `writeragent_embeddings/zvec/` or `lancedb/` — `corpus.db` remains untouched when flipping modes.
 
@@ -938,7 +938,7 @@ zvec stores data in `writeragent_embeddings/zvec/` — a first-class zvec collec
 - Background indexing heartbeat, enqueue, stale detection ([`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) dispatches to `maintain_folder_zvec` when mode is `zvec`)
 - Embedding generation: same `embed_texts` / `SentenceTransformer` wrapper, batching, and L2 normalization — switching backends does not change the embedding space
 - Tool contract and hit shaping (`{doc_url, score, snippet, para_index?, content_hash?, ...}`)
-- Host: `resolve_index_context`, mode-aware empty checks ([`zvec_collection_looks_populated`](../plugin/embeddings/embeddings_cache.py)), `corpus_meta.json` updates, cache clearing, search UI
+- Host: `resolve_index_context`, consolidated folder store state ([`folder_store`](../plugin/embeddings/embeddings_cache.py)), `corpus_meta.json` updates, cache clearing, search UI
 - Sandbox allow-listing and venv diagnostics (`zvec: present` or `None` in Python Test)
 
 **What zvec owns when `folder_search_mode="zvec"`** ([`embeddings_zvec.py`](../plugin/embeddings/venv/embeddings_zvec.py)):
@@ -953,7 +953,7 @@ zvec stores data in `writeragent_embeddings/zvec/` — a first-class zvec collec
 
 **Maintain (v1):** `maintain_folder_zvec` does per-file `delete_by_filter('doc_url == "..."')`, re-extracts paragraphs, embeds, builds `Doc` objects with stable ids (`{doc_url}#{para_index}#{content_hash_prefix}`), `upsert`s, heartbeat progress. Updates `corpus_meta.json` with `storage_backend: "zvec"`. Does **not** use sqlite `indexed_files` / `indexed_paragraphs` — a folder can have a good zvec index without ever building `corpus.db`.
 
-Auto maintenance must not treat that missing `corpus.db` as an empty index. For `zvec` and `lancedb`, cold vs incremental uses `corpus_meta.json` `chunk_count` plus whether `zvec/` or `lancedb/` has files (the same signals as the Search dialog and the research tools). A false empty resolves cold, and `clear_folder_cache` deletes the collection on every tick.
+Auto maintenance must not treat that missing `corpus.db` as an empty index. For `zvec` and `lancedb`, the dialog, the research tool, and maintain ask `folder_store` whether the store is built. `zvec` and `lancedb` still use chunk count plus collection presence, and a missing `corpus.db` is still not an empty collection. A false empty resolves cold, and `clear_folder_cache` deletes the collection on every tick.
 
 **Search:** `zvec_knn_search` (semantic only) and `zvec_hybrid_search` (normal tool path) embed the query, build `Query` objects, apply reranker when configured, map through `_shape_hit` to standard hits. `doc_url_filter` becomes a query filter; `near_slop` accepted for future FTS parity.
 

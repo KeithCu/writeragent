@@ -217,9 +217,9 @@ def test_index_worker_calls_maintain_rpc():
 
 def test_resolve_search_mode_reads_config():
     ctx = MagicMock()
-    with patch("plugin.embeddings.embeddings_indexer.get_config", return_value="llama_index"):
+    with patch("plugin.embeddings.embeddings_indexer.configured_folder_search_mode", return_value="llama_index"):
         assert embeddings_indexer._resolve_search_mode(ctx) == "llama_index"
-    with patch("plugin.embeddings.embeddings_indexer.get_config", return_value="none"):
+    with patch("plugin.embeddings.embeddings_indexer.configured_folder_search_mode", return_value="none"):
         assert embeddings_indexer._resolve_search_mode(ctx) == "hybrid"
 
 

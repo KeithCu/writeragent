@@ -112,6 +112,19 @@ def test_register_on_cancel_duplicate_after_cancel_does_not_run_again():
     assert adapter.calls == 1
 
 
+def test_unregister_on_cancel_prevents_hook_execution():
+    called = []
+    scope = SendCancellation()
+
+    def hook():
+        called.append(1)
+
+    scope.register_on_cancel(hook)
+    scope.unregister_on_cancel(hook)
+    scope.cancel()
+    assert called == []
+
+
 def test_llm_client_registers_under_agent_session():
     config = {"endpoint": "http://127.0.0.1:5000", "model": "test"}
     with agent_session() as scope:
