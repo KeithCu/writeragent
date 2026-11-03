@@ -74,38 +74,6 @@ class _SharedAdmission:
     worker: BaseProcessWorker | None
     had_binding: bool
 
-    def restore_lost_marker(
-        self,
-        pool: FormulaProcessPool,
-        session_id: str,
-        *,
-        result: dict[str, Any] | None = None,
-    ) -> None:
-        """Preserve lost-session state if the cell did not run.
-
-        A cell that never reached the worker or failed before execution
-        must not consume the lost-session state, so the next sticky call
-        still reports session_reset.
-        """
-        del result
-        with pool._cond:
-            if self.had_binding:
-                sess = pool._sessions.get(session_id)
-                if sess is None:
-                    target = (
-                        self.worker
-                        if self.worker is not None and self.worker in pool.workers
-                        else (pool.workers[0] if pool.workers else None)
-                    )
-                    if target is not None:
-                        now = time.monotonic()
-                        pool._sessions[session_id] = _Session(
-                            worker=target,
-                            child=None,
-                            last_used=now,
-                            stale_since=now,
-                        )
-
 
 def decode_worker_result(res: dict[str, Any]) -> dict[str, Any]:
     """Materialize ``result_json`` for pool tests / callers that want a dict.
@@ -398,7 +366,7 @@ class FormulaProcessPool(BaseProcessPool):
         """Admit a shared session request and record admission state."""
         with self._cond:
             had_binding = session_id in self._sessions
-        target_worker = self._select_shared_worker(session_id)
+            target_worker = self._select_shared_worker(session_id)
         return _SharedAdmission(worker=target_worker, had_binding=had_binding)
 
     def _run_execution(self, leased: BaseProcessWorker, payload: dict[str, Any], clock: Deadline, req_id: str | None, decode_result: bool, expect_namespace: bool = False) -> dict[str, Any]:
@@ -533,7 +501,6 @@ class FormulaProcessPool(BaseProcessPool):
             if mode == "shared" and session_id:
                 admission = self._admit_shared_session(session_id)
                 if admission.worker is None:
-                    admission.restore_lost_marker(self, session_id)
                     return error_dict(ec.SERVICE_SHUTDOWN, "Formula compute pool is shutting down.", req_id=req_id)
                 lease_budget = max(clock.left(), 0.0)
                 leased = self.lease_specific(admission.worker, timeout_sec=lease_budget)
@@ -549,8 +516,6 @@ class FormulaProcessPool(BaseProcessPool):
                 busy_err = "All formula workers are currently busy and request timed out waiting for worker lease."
 
             if leased is None:
-                if admission is not None and session_id:
-                    admission.restore_lost_marker(self, session_id)
                 return error_dict(ec.WORKER_POOL_BUSY, busy_err, req_id=req_id)
 
             result: dict[str, Any] | None = None
@@ -569,10 +534,6 @@ class FormulaProcessPool(BaseProcessPool):
                 )
                 return result
             finally:
-                if admission is not None and session_id and (
-                    result is None or (isinstance(result, dict) and result.get("code") in _UNRUN_RESULT_CODES)
-                ):
-                    admission.restore_lost_marker(self, session_id, result=result)
                 self._finalize_session(leased, session_id, mode, result=result)
 
     @staticmethod

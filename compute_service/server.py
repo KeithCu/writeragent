@@ -752,8 +752,7 @@ def _handle_execute(environ: dict[str, Any], start_response: Any, settings: Comp
         if parts.has_session_id:
             raise ExecuteRequestError("session_id must be provided as a URL query parameter (?session_id=...), not in the request body.")
 
-        # Parse session_id directly from the request query string without stashing
-        # temporary state across environ['compute.*'] keys.
+        # Parsed here, inside the 400 mapping, so a bad session_id is a client error.
         session_id = _parse_session_id(environ)
 
         mode = canonical_execute_mode(parts.mode)
@@ -905,19 +904,16 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         start: Any,
         route_fn: Callable[[Any, _Admission], list[bytes]],
         prepare: Callable[[Any], tuple[_Admission | None, list[bytes] | None]],
-        *,
-        busy_code: str = ec.WORKER_POOL_BUSY,
-        busy_message: str = "All compute workers are currently busy.",
+        **kw: Any,
     ) -> list[bytes]:
         return _gated(
             env,
             start,
             settings,
             permits,
-            busy_code=busy_code,
-            busy_message=busy_message,
             route_fn=route_fn,
             prepare=prepare,
+            **kw,
         )
 
     def _enter_execute(env: dict[str, Any], start: Any) -> list[bytes]:
