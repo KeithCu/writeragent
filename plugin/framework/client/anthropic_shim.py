@@ -10,10 +10,9 @@ import json
 import logging
 from typing import Any
 
-from plugin.chatbot.chat_session import SNAPSHOT_HEADER
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from .shim_helpers import _dict_parts, _normalize_usage, _system_text
+from .shim_helpers import _dict_parts, _normalize_usage, _system_text, annotate_anthropic_cache
 from .base_provider_shim import (
     BaseProviderShim,
     coerce_raw_b64,
@@ -309,50 +308,6 @@ def _tool_delta(block_index: Any, *, arguments: str, indexes: dict[int, int], to
     return {"tool_calls": [call]}
 
 
-def _annotate_anthropic_cache(converted: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Apply Anthropic prompt caching markers and merge snapshot into tool_result turn."""
-    if not converted:
-        return converted
-    last_msg = converted[-1]
-    if not isinstance(last_msg, dict) or last_msg.get("role") != "user":
-        return converted
-
-    c = last_msg.get("content")
-    # Check if last_msg is snapshot only
-    snap_text: str | None = None
-    if isinstance(c, str) and c.startswith(SNAPSHOT_HEADER):
-        snap_text = c
-    elif isinstance(c, list) and len(c) == 1 and isinstance(c[0], dict) and c[0].get("type") == "text":
-        txt = c[0].get("text")
-        if isinstance(txt, str) and txt.startswith(SNAPSHOT_HEADER):
-            snap_text = txt
-
-    # Tool loop merge: previous message is user with only tool_result blocks
-    if snap_text is not None and len(converted) >= 2:
-        prev_msg = converted[-2]
-        if isinstance(prev_msg, dict) and prev_msg.get("role") == "user":
-            prev_content = prev_msg.get("content")
-            if (
-                isinstance(prev_content, list)
-                and prev_content
-                and all(isinstance(b, dict) and b.get("type") == "tool_result" for b in prev_content)
-            ):
-                converted.pop()
-                prev_content[-1]["cache_control"] = {"type": "ephemeral"}
-                prev_content.append({"type": "text", "text": snap_text})
-                return converted
-
-    # User send: content list has previous block and ends with snapshot text
-    if isinstance(c, list) and len(c) >= 2:
-        last_block = c[-1]
-        if isinstance(last_block, dict) and last_block.get("type") == "text":
-            txt = last_block.get("text")
-            if isinstance(txt, str) and txt.startswith(SNAPSHOT_HEADER):
-                c[-2]["cache_control"] = {"type": "ephemeral"}
-
-    return converted
-
-
 class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
 
@@ -366,7 +321,7 @@ class AnthropicShim(BaseProviderShim):
         if not model:
             raise NetworkError(_("Anthropic model is not set. Choose a model in Settings."), code="BAD_REQUEST")
         system_msg, converted = _convert_messages(messages)
-        converted = _annotate_anthropic_cache(converted)
+        converted = annotate_anthropic_cache(converted)
         data: dict[str, Any] = {"model": model, "messages": converted, "max_tokens": max_tokens, "stream": stream}
         if temperature is not None:
             data["temperature"] = max(0.0, min(1.0, temperature))

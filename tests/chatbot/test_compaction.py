@@ -306,14 +306,11 @@ def test_document_content_never_in_summary_or_replaced_in_view():
     assert "secret-doc" not in view[0]["content"]
     req = session.messages_for_request()
     assert "secret-doc" in req[-1]["content"][-1]["text"]
-    # Defensive strip if a caller ever passed index 0 with a legacy marker.
-    legacy_live = {"role": "system", "content": "LIVE PROMPT\n\n[DOCUMENT CONTENT]\nsecret-doc\n[END DOCUMENT]"}
-    assert "secret-doc" not in "\n".join(C._summary_lines([legacy_live]))
     assert "[DOCUMENT CONTENT]" not in "\n".join(C._summary_lines(session.messages[1:]))
 
 
 def test_token_estimates_and_keep_recent_with_snapshot():
-    from plugin.chatbot.chat_session import snapshot_text
+    from plugin.framework.client.shim_helpers import snapshot_text
 
     base_sys = {"role": "system", "content": "You are a helpful assistant."}
     session = DummySession([base_sys, _msg("user", 10)], document_context="Short doc")
@@ -327,25 +324,36 @@ def test_token_estimates_and_keep_recent_with_snapshot():
     assert C.keep_recent_tokens(4096, 2000, 0, snapshot_tokens=500) == 828
 
 
-def test_compact_session_under_gate_ignores_snapshot_changes():
-    # Session whose token count is under threshold (4096 * 0.70 = 2867)
+def test_large_document_snapshot_triggers_proactive_compaction():
+    # Session whose transcript tokens alone are under threshold (4096 * 0.70 = 2867),
+    # but a large document snapshot pushes total request tokens over threshold.
     live = {"role": "system", "content": "Base"}
     session = DummySession(
-        [live, _msg("user", 500), _msg("assistant", 500)],
-        document_context="Doc 1",
+        [
+            live,
+            _msg("user", 300),
+            _msg("assistant", 300),
+            _msg("user", 300),
+            _msg("assistant", 300),
+            _msg("user", 300),
+            _msg("assistant", 300),
+            _msg("user", 300),
+            _msg("assistant", 300),
+        ],
+        document_context="Short doc",
     )
-    client = DummyClient()
+    client = DummyClient(content="summary")
 
-    res1 = C.compact_session(session, client, window=4096)
+    res1 = C.compact_session(session, client, window=4096, force=False)
     assert res1.compacted is False
     assert res1.reason == "below_threshold"
     assert session.compaction is None
 
-    session.document_context = "Much larger doc content that would exceed gate if counted in should_compact"
-    res2 = C.compact_session(session, client, window=4096)
-    assert res2.compacted is False
-    assert res2.reason == "below_threshold"
-    assert session.compaction is None
+    # Large document context pushes total tokens over threshold to trigger compaction
+    session.document_context = "x" * 2400
+    res2 = C.compact_session(session, client, window=4096, force=False)
+    assert res2.compacted is True
+    assert session.compaction is not None
 
 
 # --- 5. Tool-pair integrity ----------------------------------------------------
@@ -857,9 +865,6 @@ def test_update_path_slices_only_new_unsummarized_turns():
     assert "<previous-summary>" in update_body
     assert "first-summary" in update_body
     assert "[DOCUMENT CONTENT]" not in update_body
-    # Already-summarized prefix is not re-sent: first user turn of the original
-    # history lived at index 1 and was in the first slice.
-    assert C.DOCUMENT_MARKERS[0] not in update_body
 
 
 # --- 14. No panel / lane import ------------------------------------------------

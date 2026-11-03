@@ -4,9 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.chat_session import (
     ChatSession,
+    strip_legacy_document_suffix,
+)
+from plugin.framework.client.shim_helpers import (
     SNAPSHOT_HEADER,
     snapshot_text,
-    strip_legacy_document_suffix,
 )
 from plugin.framework.errors import WriterAgentException
 

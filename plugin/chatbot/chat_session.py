@@ -7,14 +7,7 @@ from plugin.chatbot.history_db import get_chat_history
 
 log = logging.getLogger(__name__)
 
-SNAPSHOT_HEADER = "[DOCUMENT CONTENT — current state, not written by the user]"  # U+2014
-
-
-def snapshot_text(doc_text: str) -> str:
-    """Empty string when doc_text is empty. Else header, doc_text, then [END DOCUMENT]."""
-    if not doc_text:
-        return ""
-    return f"{SNAPSHOT_HEADER}\n{doc_text}\n[END DOCUMENT]"
+from plugin.framework.client.shim_helpers import snapshot_text
 
 
 def strip_legacy_document_suffix(content: str) -> str:

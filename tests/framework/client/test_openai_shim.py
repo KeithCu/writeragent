@@ -148,7 +148,7 @@ def test_responses_effort_uses_openrouter_vocabulary():
 
 
 def test_openrouter_prompt_caching():
-    from plugin.chatbot.chat_session import snapshot_text
+    from plugin.framework.client.shim_helpers import snapshot_text
 
     class DummyClient:
         def _get_provider(self):

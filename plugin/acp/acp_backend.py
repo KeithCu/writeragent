@@ -32,7 +32,7 @@ from typing import Any, Optional, List, Tuple, Mapping
 
 from plugin.acp.base import AgentBackend
 from plugin.acp.acp_connection import ACPConnection, ACPTimeoutError
-from plugin.chatbot.chat_session import snapshot_text
+from plugin.framework.client.shim_helpers import snapshot_text
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 from plugin.framework.stream_batch import StreamQueueKind

@@ -359,7 +359,7 @@ def test_anthropic_unset_omits_output_config() -> None:
 
 
 def test_anthropic_tool_loop_prompt_caching_and_merge():
-    from plugin.chatbot.chat_session import snapshot_text
+    from plugin.framework.client.shim_helpers import snapshot_text
 
     class DummyClient:
         def _endpoint(self):
@@ -416,7 +416,7 @@ def test_anthropic_tool_loop_prompt_caching_and_merge():
 
 
 def test_anthropic_user_send_prompt_caching():
-    from plugin.chatbot.chat_session import snapshot_text
+    from plugin.framework.client.shim_helpers import snapshot_text
 
     class DummyClient:
         def _endpoint(self):

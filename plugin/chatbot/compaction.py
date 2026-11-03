@@ -30,7 +30,8 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from plugin.chatbot.chat_session import message_text, snapshot_text
+from plugin.chatbot.chat_session import message_text
+from plugin.framework.client.shim_helpers import snapshot_text
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -62,7 +63,6 @@ IMAGE_BLOCK_TOKENS = 2000  # OpenClaw compaction.ts:278 (Hermes default is 1500)
 # https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L661
 PRUNE_MIN_CHARS = 200
 MAX_TOOL_CALL_ARGS_CHARS = 4000  # _summary_lines / _format_tool_calls assistant tool_calls cap
-DOCUMENT_MARKERS = ("[DOCUMENT CONTENT]", "[END DOCUMENT]")
 _SUMMARY_TRUNCATION_MARKER = "\n\n[Compaction summary truncated to fit budget]"
 _SUMMARIZER_TURN_TRUNCATION_MARKER = "\n[turn truncated to fit summarizer]"
 
@@ -474,16 +474,6 @@ def _format_tool_calls(msg: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def _strip_document_span(text: str) -> str:
-    if DOCUMENT_MARKERS[0] not in text:
-        return text
-    start = text.find(DOCUMENT_MARKERS[0])
-    end = text.find(DOCUMENT_MARKERS[1])
-    if end >= 0:
-        return (text[:start] + text[end + len(DOCUMENT_MARKERS[1]):]).strip()
-    return text[:start].strip()
-
-
 def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
     """ROLE: text lines. Stub role=tool bodies > PRUNE_MIN_CHARS. Session unchanged.
 
@@ -496,7 +486,6 @@ def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
     for i, msg in enumerate(messages):
         role = msg.get("role") or ""
         text, n_img, n_aud = flatten_content(msg.get("content"))
-        text = _strip_document_span(text)
         if role == "assistant":
             calls = _format_tool_calls(msg)
             if calls:
@@ -872,7 +861,7 @@ def compact_session(
         # No denominator → no remaining-budget clamp. Skip proactive *and* force.
         return CompactResult(False, "no_window", before, before)
 
-    if not force and not should_compact(gate_tokens, window):
+    if not force and not should_compact(before, window):
         return CompactResult(False, "below_threshold", before, before)
 
     system_tokens = estimate_message_tokens(messages[0])
