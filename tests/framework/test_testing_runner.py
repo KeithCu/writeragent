@@ -21,7 +21,6 @@ import plugin.testing_runner as tr
 
 from plugin.testing_runner import (
     _APPLICATION_ERROR_MARKER,
-    _run_options,
     _exit_after_summary,
     _fail_reason,
     _fail_reason_with_lifecycle,
@@ -117,8 +116,8 @@ def test_module_matches_filters_by_packet_letter(tmp_path: Path) -> None:
 
 
 def test_cli_filters_default_empty() -> None:
-    assert isinstance(_run_options.filters, list)
-    assert _run_options.filters == []
+    assert isinstance(current_office().options.filters, list)
+    assert current_office().options.filters == []
 
 
 def test_lifecycle_breadcrumb_names_previous_and_current(monkeypatch) -> None:
@@ -204,7 +203,7 @@ def test_function_name_matches_draw_tree_prefix_bleed() -> None:
     assert "test_get_draw_tree_marks_blank_and_label_hint" not in expand_soak_pair("tree-math")
 
 
-def test_note_office_stderr_line_sets_salabort_flag() -> None:
+def test_note_stderr_line_sets_salabort_flag() -> None:
     office = current_office()
     office.reset_death_signals(clear_proc=True)
     assert office.consume_application_error() is False
@@ -518,8 +517,8 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) ->
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(tr._run_options, "use_user_profile", False)
-    monkeypatch.setattr(tr._run_options, "filters", [])
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "filters", [])
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
@@ -644,9 +643,9 @@ def test_typo_filter_fails_the_run(monkeypatch, tmp_path) -> None:
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(tr._run_options, "use_user_profile", False)
-    monkeypatch.setattr(tr._run_options, "filters", ["no_such_test_zzz"])
-    monkeypatch.setattr(tr._run_options, "soak_repeat", 1)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "filters", ["no_such_test_zzz"])
+    monkeypatch.setattr(tr.current_office().options, "soak_repeat", 1)
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
@@ -666,7 +665,7 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
     plugin_dir = tmp_path / "plugin"
     plugin_dir.mkdir()
 
-    monkeypatch.setattr(tr._run_options, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
@@ -685,19 +684,19 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
 def test_parse_cli_args_visible_and_filters(monkeypatch) -> None:
     monkeypatch.delenv("WRITERAGENT_UNO_USER_PROFILE", raising=False)
     monkeypatch.delenv("WRITERAGENT_UNO_SOAK", raising=False)
-    monkeypatch.setattr(tr._run_options, "show_window", False)
+    monkeypatch.setattr(tr.current_office().options, "show_window", False)
     assert tr._parse_cli_args(["--visible", "tests/x/test_cells_uno.py", "E"]) == [
         "tests/x/test_cells_uno.py",
         "E",
     ]
-    assert tr._run_options.show_window is True
+    assert tr.current_office().options.show_window is True
 
 
 def test_parse_cli_args_repeat_forms() -> None:
     assert tr._parse_cli_args(["--repeat", "3"]) == []
-    assert tr._run_options.soak_repeat == 3
+    assert tr.current_office().options.soak_repeat == 3
     assert tr._parse_cli_args(["--repeat=3"]) == []
-    assert tr._run_options.soak_repeat == 3
+    assert tr.current_office().options.soak_repeat == 3
 
 
 def test_parse_cli_args_rejects_bad_repeat() -> None:
@@ -706,13 +705,13 @@ def test_parse_cli_args_rejects_bad_repeat() -> None:
 
 
 def test_parse_cli_args_pair_expands(monkeypatch) -> None:
-    # _parse_cli_args sets this module global; restore it so later run_module_suite tests on the same xdist worker are not filtered.
-    monkeypatch.setattr(tr._run_options, "exact_function_names", [])
+    # _parse_cli_args sets office options; restore it so later run_module_suite tests on the same xdist worker are not filtered.
+    monkeypatch.setattr(tr.current_office().options, "exact_function_names", [])
     assert tr._parse_cli_args(["--pair", "tree-math"]) == [
         "test_get_draw_tree",
         "test_insert_math_draw",
     ]
-    assert tr._run_options.exact_function_names == [
+    assert tr.current_office().options.exact_function_names == [
         "test_get_draw_tree",
         "test_insert_math_draw",
     ]
@@ -720,10 +719,20 @@ def test_parse_cli_args_pair_expands(monkeypatch) -> None:
 
 def test_parse_cli_args_user_profile_sets_env(monkeypatch) -> None:
     monkeypatch.delenv("WRITERAGENT_UNO_USER_PROFILE", raising=False)
-    monkeypatch.setattr(tr._run_options, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     tr._parse_cli_args(["--user-profile"])
-    assert tr._run_options.use_user_profile is True
+    assert tr.current_office().options.use_user_profile is True
     assert os.environ["WRITERAGENT_UNO_USER_PROFILE"] == "1"
+
+
+def test_runner_options_reach_current_office(monkeypatch) -> None:
+    """Options configured on the runner reach current_office().options."""
+    import inspect
+    from tests.testing_utils import with_native_doc
+
+    monkeypatch.setattr(tr.current_office().options, "show_window", True)
+    assert tr.current_office().options.show_window is True
+    assert inspect.signature(with_native_doc).parameters["hidden"].default is True
 
 
 @pytest.mark.parametrize(

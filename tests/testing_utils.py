@@ -2074,7 +2074,7 @@ def writer_services_tool_context(doc, ctx, *, skip_reason: str):
     return ToolContext(doc, ctx, "writer", services, "test")
 
 
-def with_native_doc(doc_type="writer", hidden=None, reuse=None):
+def with_native_doc(doc_type="writer", hidden=True, reuse=None):
     """Decorator to inject a native LibreOffice document into a test function and guarantee teardown.
 
     Writer/Calc: wipe-and-reuse pooled document by default (faster than factory+close). Pass reuse=False
@@ -2093,12 +2093,6 @@ def with_native_doc(doc_type="writer", hidden=None, reuse=None):
             if ctx is None and len(args) > 0:
                 ctx = args[0]
 
-            doc_hidden = hidden
-            if doc_hidden is None:
-                from plugin.testing_runner import current_office
-
-                doc_hidden = not current_office().options.show_window
-
             # GHA 33703959362: no TEST end after execute-done. Enter/exit here
             # splits a body hang from wipe-and-reuse teardown after return.
             log_teardown = func.__name__ == "test_insert_cell_html"
@@ -2112,7 +2106,7 @@ def with_native_doc(doc_type="writer", hidden=None, reuse=None):
                     "with_native_doc: enter name=%s doc_type=%s" % (func.__name__, doc_type)
                 )
             try:
-                with TestingFactory.native_doc(ctx, doc_type=doc_type, hidden=doc_hidden, reuse=reuse) as doc:
+                with TestingFactory.native_doc(ctx, doc_type=doc_type, hidden=hidden, reuse=reuse) as doc:
                     sig = inspect.signature(func)
                     call_kwargs = {}
                     # Inject by parameter name so ctx is never dropped when doc is added.

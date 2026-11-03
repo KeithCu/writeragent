@@ -132,8 +132,8 @@ class HarnessOffice:
         return wanted
 
 
-_run_options = RunOptions()
-_office = HarnessOffice(options=_run_options)
+# The single HarnessOffice holds the process-wide office lifecycle and options.
+_office = HarnessOffice()
 
 
 def current_office() -> HarnessOffice:
@@ -553,10 +553,10 @@ def _parse_cli_args(argv: Sequence[str]) -> list[str]:
     / ``dup-move`` expands to the two Draw tests that historically sandwich a
     URP death. See ``docs/framework/uno-test-lifecycle.md``.
     """
-    _run_options.soak_repeat = 1
-    _run_options.exact_function_names = []
-    _run_options.show_window = False
-    _run_options.use_user_profile = False
+    _office.options.soak_repeat = 1
+    _office.options.exact_function_names = []
+    _office.options.show_window = False
+    _office.options.use_user_profile = False
 
     parser = argparse.ArgumentParser(prog="plugin.testing_runner", allow_abbrev=False)
     parser.add_argument("--visible", "--show-window", action="store_true", dest="show_window")
@@ -566,30 +566,30 @@ def _parse_cli_args(argv: Sequence[str]) -> list[str]:
     known, filters = parser.parse_known_args(list(argv))
 
     if known.show_window:
-        _run_options.show_window = True
+        _office.options.show_window = True
     if known.user_profile:
-        _run_options.use_user_profile = True
-        _run_options.show_window = True
+        _office.options.use_user_profile = True
+        _office.options.show_window = True
         os.environ["WRITERAGENT_UNO_USER_PROFILE"] = "1"
     if known.repeat is not None:
-        _run_options.soak_repeat = max(1, known.repeat)
+        _office.options.soak_repeat = max(1, known.repeat)
     else:
         raw = os.environ.get("WRITERAGENT_UNO_SOAK")
         if raw:
             try:
-                _run_options.soak_repeat = max(1, int(raw))
+                _office.options.soak_repeat = max(1, int(raw))
             except ValueError:
                 pass
     if known.pair is not None:
         names = expand_soak_pair(known.pair)
         if names:
             filters.extend(names)
-            _run_options.exact_function_names = list(names)
+            _office.options.exact_function_names = list(names)
         else:
             filters.append(str(known.pair))
     if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
-        _run_options.use_user_profile = True
-        _run_options.show_window = True
+        _office.options.use_user_profile = True
+        _office.options.show_window = True
     return filters
 
 
@@ -1194,7 +1194,7 @@ def run_module_suite(
     """
     log.info(f"run_module_suite start: {name}")
     office = office or _office
-    options = options or _run_options
+    options = options or office.options
     total_passed = 0
     total_failed = 0
     suite_log = []
@@ -1426,11 +1426,7 @@ def _native_suite_save(
     original_save(patch, event_key=event_key)
 
 
-def run_all_tests(
-    ctx: Any,
-    office: HarnessOffice | None = None,
-    options: RunOptions | None = None,
-) -> str:
+def run_all_tests(ctx: Any) -> str:
     """Run all in-process WriterAgent tests and return a JSON summary string.
 
     The JSON structure is:
@@ -1451,14 +1447,10 @@ def run_all_tests(
     inside LibreOffice. External callers can parse this JSON, print a report,
     and use total_failed as an exit code condition.
     """
-    global _office, _run_options
-    if office is not None:
-        _office = office
-    if options is not None:
-        _run_options = options
+    # Office and options are owned by the singleton _office; reading directly ensures
+    # the harness has a single source of truth without hidden rebinding side effects.
     office = _office
-    options = _run_options
-    office.options = options
+    options = office.options
     office.urp_bridge_dead = False
     office.reset_lifecycle_breadcrumb()
     # Mock doc.agent_edit_review_mode during tests to default to "off"
@@ -1799,7 +1791,7 @@ def main() -> int:
         print("  (%s: %s)" % (type(exc).__name__, exc), flush=True)
         return 1
 
-    _run_options.filters = list(_parse_cli_args(sys.argv[1:]))
+    _office.options.filters = list(_parse_cli_args(sys.argv[1:]))
 
     # Suppress MCP server startup in the soffice child process; it inherits
     # this env var and McpModule.start_background() checks it.
