@@ -446,7 +446,7 @@ class DelegateToolDomains(ToolBase):
         if message:
             return self._tool_error(message, code=code or "UNKNOWN_SPECIALIZED_DOMAIN")
 
-        stop_checker = getattr(ctx, "stop_checker", None)
+        stop_checker = ctx.stop_checker
         if stop_checker is not None and stop_checker():
             return user_stopped_payload("Domain tool agent stopped by user.")
 

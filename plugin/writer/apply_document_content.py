@@ -904,7 +904,7 @@ class ApplyDocumentContent(ToolBase):
 
         # In-app chat: surface a sidebar status while we block (MCP has no sidebar -> None, no-op).
         # The callback marshals onto the chat drain queue, so it is safe from this worker thread.
-        status_cb = getattr(ctx, "status_callback", None)
+        status_cb = ctx.status_callback
         if callable(status_cb):
             try:
                 status_cb("Review the agent's changes in the document — accept or reject the tracked changes.")
@@ -913,7 +913,7 @@ class ApplyDocumentContent(ToolBase):
 
         # Stop waiting early when the review feature is toggled off mid-wait OR the user
         # cancels the chat turn (Stop button); MCP has no stop predicate -> None.
-        user_stop = getattr(ctx, "stop_checker", None)
+        user_stop = ctx.stop_checker
 
         def _stop() -> bool:
             if get_agent_edit_review_mode() != "wait":
