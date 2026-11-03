@@ -442,7 +442,7 @@ def persisted_grammar_skip_lang_detect(
     """
     if not doc_id:
         return False
-    fp = grammar_proofread_cache.sentence_identity_fp(text)
+    fp = grammar_proofread_locale.sentence_identity_fp(text)
     p = grammar_persistence.get_persistence(ctx, doc_id)
     # Do not adopt a v2/v3 row here. That probe would retag an unknown
     # locale as this chunk's CharLocale before proofreading reads it.

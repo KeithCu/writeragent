@@ -660,7 +660,7 @@ def test_persisted_grammar_skip_does_not_adopt_legacy() -> None:
     mock_p.get.return_value = []
     with (
         patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=mock_p),
-        patch("plugin.writer.locale.grammar_proofread_cache.sentence_identity_fp", return_value="fp"),
+        patch("plugin.writer.locale.grammar_proofread_locale.sentence_identity_fp", return_value="fp"),
     ):
         assert persisted_grammar_skip_lang_detect(object(), "doc", "Hello.", "en-US") is True
     mock_p.get.assert_called_once_with("fp", "en-US", adopt_legacy=False)
