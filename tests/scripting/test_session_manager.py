@@ -341,8 +341,8 @@ def test_reset_reports_init_reseed_failure() -> None:
     msgbox.assert_called_once()
     assert "init boom" in msgbox.call_args[0][1]
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:file:///wb.ods"),
-        call(ctx, "calc:file:///wb.ods:init"),
+        call("calc:file:///wb.ods"),
+        call("calc:file:///wb.ods:init"),
     ]
 
 
@@ -369,8 +369,8 @@ def test_reset_calc_reports_init_session_failure() -> None:
     assert "init session busy" in msgbox.call_args[0][1]
     mock_run_code.assert_not_called()
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:file:///wb.ods"),
-        call(ctx, "calc:file:///wb.ods:init"),
+        call("calc:file:///wb.ods"),
+        call("calc:file:///wb.ods:init"),
     ]
 
 
@@ -744,10 +744,10 @@ def test_save_as_url_resets_orphaned_unsaved_session():
     assert key == "file:///saved_doc.ods"
     mock_remove.assert_called_once()
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:unsaved:1234-uuid"),
-        call(ctx, "rps:unsaved:1234-uuid"),
-        call(ctx, "notebook:unsaved:1234-uuid"),
-        call(ctx, "ppt_master:unsaved:1234-uuid"),
+        call("calc:unsaved:1234-uuid"),
+        call("rps:unsaved:1234-uuid"),
+        call("notebook:unsaved:1234-uuid"),
+        call("ppt_master:unsaved:1234-uuid"),
     ]
 
 
@@ -848,12 +848,12 @@ def test_reset_calc_retires_unsaved_orphan_then_resets_url() -> None:
 
     mock_remove.assert_called_once()
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:unsaved:abc"),
-        call(ctx, "rps:unsaved:abc"),
-        call(ctx, "notebook:unsaved:abc"),
-        call(ctx, "ppt_master:unsaved:abc"),
-        call(ctx, "calc:file:///saved.ods"),
-        call(ctx, "calc:file:///saved.ods:init"),
+        call("calc:unsaved:abc"),
+        call("rps:unsaved:abc"),
+        call("notebook:unsaved:abc"),
+        call("ppt_master:unsaved:abc"),
+        call("calc:file:///saved.ods"),
+        call("calc:file:///saved.ods:init"),
     ]
 
 
@@ -878,8 +878,8 @@ def test_reset_calc_skips_orphan_ipc_when_property_remains() -> None:
 
     mock_remove.assert_called_once()
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:file:///saved.ods"),
-        call(ctx, "calc:file:///saved.ods:init"),
+        call("calc:file:///saved.ods"),
+        call("calc:file:///saved.ods:init"),
     ]
 
 
@@ -903,8 +903,8 @@ def test_reset_calc_unsaved_doc_does_not_quadruple_reset() -> None:
 
     mock_remove.assert_not_called()
     assert mock_reset.call_args_list == [
-        call(ctx, "calc:unsaved:abc"),
-        call(ctx, "calc:unsaved:abc:init"),
+        call("calc:unsaved:abc"),
+        call("calc:unsaved:abc:init"),
     ]
 
 

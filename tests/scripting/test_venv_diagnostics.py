@@ -18,23 +18,27 @@ from typing import Any
 
 import pytest
 
+from plugin.framework.i18n import _
 from plugin.scripting.venv_diagnostics import (
+    GroupResult,
+    ProbeReport,
     _AUDIO_OPTIONAL_KEYS,
     _AUDIO_PACKAGE_KEYS,
     _AUDIO_PROBE_SCRIPT,
     _DUCKDB_PROBE_SCRIPT,
+    _NLP_OPTIONAL_KEYS,
     _NLP_PACKAGE_KEYS,
     _NLP_PROBE_SCRIPT,
     _PROBE_JSON_PREFIX,
     _PROBE_KEY_TO_PIP,
-    _SELF_CHECK_DISPLAY_GROUP_COUNT,
+    _SANDBOX_SELF_CHECK_GROUPS,
     _UI_PACKAGE_KEYS,
     _UI_PROBE_SCRIPT,
     _VECTOR_SEARCH_PACKAGE_KEYS,
     _VECTOR_SEARCH_PROBE_SCRIPT,
+    _VISION_OPTIONAL_KEYS,
     _VISION_PACKAGE_KEYS,
     _VISION_PROBE_SCRIPT,
-    _build_probe_display,
     _import_probe_script,
     _import_try_block,
     _parse_probe_stdout,
@@ -47,6 +51,71 @@ from plugin.scripting.venv_diagnostics import (
 orig_named_probe = _run_named_json_probe
 
 
+def _report_from_legacy_data(data: dict[str, Any]) -> ProbeReport:
+    version = data.get("v", "unknown")
+    arch = data.get("arch", "")
+    packages = dict(data.get("p", {}))
+    groups: list[GroupResult] = []
+
+    if data.get("audio"):
+        groups.append(
+            GroupResult(
+                key="audio",
+                title=_("Audio Recording & Speech"),
+                packages=tuple(data["audio"]),
+                optional_keys=_AUDIO_OPTIONAL_KEYS,
+                failure=data.get("audio_probe_failure"),
+            )
+        )
+
+    for spec in _SANDBOX_SELF_CHECK_GROUPS:
+        if spec.key in data and data[spec.key]:
+            pkgs = tuple(data[spec.key])
+            failure = data.get(f"{spec.key}_probe_failure")
+            groups.append(GroupResult(key=spec.key, title=_(spec.title), packages=pkgs, failure=failure))
+
+    if data.get("nlp"):
+        groups.append(
+            GroupResult(
+                key="nlp",
+                title=_("Text / NLP Libraries"),
+                packages=tuple(data["nlp"]),
+                optional_keys=_NLP_OPTIONAL_KEYS,
+                failure=data.get("nlp_probe_failure"),
+            )
+        )
+
+    if data.get("vision"):
+        groups.append(
+            GroupResult(
+                key="vision",
+                title=_("Vision Libraries"),
+                packages=tuple(data["vision"]),
+                optional_keys=_VISION_OPTIONAL_KEYS,
+                failure=data.get("vision_probe_failure"),
+            )
+        )
+
+    if data.get("vector_search"):
+        groups.append(
+            GroupResult(
+                key="vector_search",
+                title=_("Vector Search Libraries"),
+                packages=tuple(data["vector_search"]),
+                failure=data.get("vector_search_probe_failure"),
+            )
+        )
+
+    warnings = list(data.get("probe_warnings", []))
+    return ProbeReport(
+        version=version,
+        arch=arch,
+        packages=packages,
+        groups=groups,
+        probe_warnings=warnings,
+    )
+
+
 def _format_self_check_success(data: dict[str, Any]) -> str:
     data = dict(data)
     data.setdefault("vector_search", list(_VECTOR_SEARCH_PACKAGE_KEYS))
@@ -54,11 +123,8 @@ def _format_self_check_success(data: dict[str, Any]) -> str:
     data.setdefault("audio", list(_AUDIO_PACKAGE_KEYS))
     data.setdefault("nlp", list(_NLP_PACKAGE_KEYS))
     data.setdefault("data_eng", ["pint"])
-    return _build_probe_display(
-        data,
-        completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
-        include_install_footer=True,
-    )
+    report = _report_from_legacy_data(data)
+    return report.render(include_install_footer=True)
 
 def test_probe_venv_path_with_progress_not_directory():
     shown: list[str] = []
@@ -232,7 +298,7 @@ def test_build_probe_display_includes_nlp_when_keys_present():
         "data_eng": [],
         "nlp": ["spacy", "textdescriptives", "transformers"],
     }
-    msg = _build_probe_display(data, completed_groups=8)
+    msg = _report_from_legacy_data(data).render()
     assert "Text / NLP Libraries" in msg
     assert "spacy" in msg
 
@@ -250,7 +316,7 @@ def test_build_probe_display_linux_portaudio_hint_when_sounddevice_missing():
         "vector_search": [],
         "data_eng": [],
     }
-    msg = _build_probe_display(data, completed_groups=8)
+    msg = _report_from_legacy_data(data).render()
     if sys.platform.startswith("linux"):
         assert "PortAudio" in msg
     else:
@@ -277,7 +343,7 @@ def test_build_probe_display_omits_install_footer_while_progressive():
         "vector_search": [],
         "data_eng": [],
     }
-    msg = _build_probe_display(data, completed_groups=2)
+    msg = _report_from_legacy_data(data).render()
     assert "Scientific Libraries" in msg
     assert "Missing: scipy, sklearn" in msg
     assert "To install remaining packages:" not in msg
@@ -876,7 +942,7 @@ def test_duckdb_probe_script_is_not_sandboxed():
     from plugin.scripting.venv_diagnostics import _SANDBOX_SELF_CHECK_GROUPS, _VERSION_PROBE_SCRIPT, _package_probe_script
 
     assert "import duckdb" not in _VERSION_PROBE_SCRIPT
-    sandbox_pkgs = [pkg for _title, _key, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs]
+    sandbox_pkgs = [pkg for spec in _SANDBOX_SELF_CHECK_GROUPS for pkg in spec.packages]
     assert "duckdb" not in sandbox_pkgs
     with pytest.raises(ValueError, match="unsupported probe module"):
         _package_probe_script("duckdb")
@@ -1157,22 +1223,15 @@ def test_attach_external_probes_shares_one_helper(monkeypatch):
         lambda exe, name, timeout=None: ({"sounddevice": True}, None) if name == "audio" else ({}, None),
     )
 
-    single_data: dict = {}
-    vd._attach_external_probes("/usr/bin/python", single_data, "audio")
-    assert single_data["audio"]
-    assert "ui" not in single_data
-    assert "nlp" not in single_data
-    assert "vision" not in single_data
-    assert "vector_search" not in single_data
+    single_report = vd.ProbeReport()
+    vd._attach_external_probes("/usr/bin/python", single_report, "audio", "Audio")
+    assert any(g.key == "audio" for g in single_report.groups)
+    assert not any(g.key in {"ui", "nlp", "vision", "vector_search"} for g in single_report.groups)
 
-    data: dict = {}
+    report = vd.ProbeReport()
     for group in ("audio", "ui", "nlp", "vision", "vector_search"):
-        vd._attach_external_probes("/usr/bin/python", data, group)
-    assert data["audio"]
-    assert "ui" in data
-    assert "nlp" in data
-    assert "vision" in data
-    assert "vector_search" in data
+        vd._attach_external_probes("/usr/bin/python", report, group, group)
+    assert {g.key for g in report.groups} == {"audio", "ui", "nlp", "vision", "vector_search"}
 
 
 def test_probe_key_to_pip_webview_is_pywebview():
@@ -1320,27 +1379,12 @@ def test_partial_scientific_group_uses_translated_title(monkeypatch) -> None:
     import plugin.scripting.venv_diagnostics as diag
 
     monkeypatch.setattr(diag, "_", lambda message: f"L:{message}")
-    data = {
-        "v": "3.12.0",
-        "p": {"numpy": "present"},
-        "sci": ["numpy", "pandas"],
-        "eda": [],
-        "ui": [],
-        "viz": [],
-        "cas": [],
-        "quant": [],
-        "data_eng": [],
-        "nlp": [],
-        "audio": [],
-        "vision": [],
-        "vector_search": [],
-    }
-    msg = diag._build_probe_display(
-        data,
-        completed_groups=0,
-        partial_group_keys=("numpy",),
-        partial_group_key="sci",
+    report = diag.ProbeReport(
+        version="3.12.0",
+        packages={"numpy": "present"},
+        groups=[diag.GroupResult("sci", diag._("Scientific Libraries"), packages=("numpy",))],
     )
+    msg = report.render()
     assert "L:Scientific Libraries: numpy" in msg
     assert "pandas" not in msg
 
@@ -1429,7 +1473,7 @@ def test_build_probe_display_input_device_is_not_missing():
         "vision": [],
         "vector_search": [],
     }
-    msg = _build_probe_display(data, completed_groups=8)
+    msg = _report_from_legacy_data(data).render()
     assert "No microphone input devices detected." in msg
     assert "input_device" not in msg
 

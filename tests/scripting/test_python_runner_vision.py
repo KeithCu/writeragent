@@ -10,14 +10,14 @@ import builtins
 import sys
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.python_runner import execute_and_insert_result
+from tests.scripting.python_runner_test_support import execute_and_insert_result
 from plugin.vision.vision_templates import get_vision_script_templates
 
 
 def _vision_params_for(helper: str) -> dict:
-    from plugin.scripting.helper_domain import parse_run_import_call_spec
+    from plugin.scripting.helper_domain import ScriptFacts
 
-    call_spec = parse_run_import_call_spec(get_vision_script_templates()[helper], run_name="run_vision") or {}
+    call_spec = ScriptFacts.from_source(get_vision_script_templates()[helper]).first_run_spec("run_vision") or {}
     return call_spec.get("params") if isinstance(call_spec.get("params"), dict) else {}
 
 

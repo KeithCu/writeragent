@@ -85,12 +85,11 @@ def test_handle_request_reset_session_action():
 def test_run_code_in_user_venv_forwards_session_id():
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
-    ctx = MagicMock()
     with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr:
         manager = MagicMock()
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
-        run_code_in_user_venv(ctx, "result = 1", session_id="calc:wb1")
+        run_code_in_user_venv("result = 1", session_id="calc:wb1")
         manager.execute.assert_called_once()
         assert manager.execute.call_args.kwargs.get("session_id") == "calc:wb1"
 

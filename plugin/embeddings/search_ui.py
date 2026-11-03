@@ -134,7 +134,7 @@ class SearchDialog:
 
             # Pre-warm the venv worker in the background asynchronously after the dialog is visible
             from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
-            run_in_background(warm_venv_worker, ctx, WORKER_POOL_EMBEDDINGS, name="warm-venv-worker", dedicated=True)
+            run_in_background(warm_venv_worker, WORKER_POOL_EMBEDDINGS, name="warm-venv-worker", dedicated=True)
 
         except Exception:
             log.exception("SearchDialog._open failed")

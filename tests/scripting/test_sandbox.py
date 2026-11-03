@@ -665,6 +665,22 @@ def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
     assert empty_scrubbed.get("PYTHONDONTWRITEBYTECODE") == "1"
 
 
+def test_scrub_subprocess_env_keep() -> None:
+    from plugin.scripting.sandbox import scrub_subprocess_env
+
+    base = {
+        "LD_LIBRARY_PATH": "/custom/lib",
+        "PYTHONHOME": "/opt/lo",
+        "API_KEY": "secret",
+        "USER": "alice",
+    }
+    scrubbed = scrub_subprocess_env(base, keep=("LD_LIBRARY_PATH",))
+    assert scrubbed.get("LD_LIBRARY_PATH") == "/custom/lib"
+    assert "PYTHONHOME" not in scrubbed
+    assert "API_KEY" not in scrubbed
+    assert scrubbed.get("USER") == "alice"
+
+
 def test_is_acceptable_python_basename_rejects_config() -> None:
     """python3.X-config scripts and pythonw must be rejected."""
     from plugin.scripting.sandbox import _is_acceptable_python_basename

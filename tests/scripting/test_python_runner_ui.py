@@ -432,7 +432,7 @@ def test_native_dialog_open_warms_venv_on_shared_pool():
         assert inst._open() is None
 
     assert calls["func"] is ui.warm_venv_worker
-    assert calls["args"] == (inst._ctx,)
+    assert calls["args"] == ()
     assert calls["kwargs"].get("name") == "warm-venv-worker"
     assert calls["kwargs"].get("dedicated") is False
 

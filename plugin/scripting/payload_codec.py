@@ -1868,7 +1868,6 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
 
         # Convert object array to nested Python lists with native scalars
         list_result = obj_arr.tolist()
-        # _to_py moved to module level
         return _to_py(list_result)
     except Exception:
         log.exception("payload_codec child_unpack split_grid failed for envelope %s", describe_wire_value(envelope))

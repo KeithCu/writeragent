@@ -12,8 +12,8 @@ from hypothesis import strategies as st
 
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
+    ScriptFacts,
     header_prefix,
-    parse_run_import_call_spec,
 )
 from plugin.scripting.trusted_action_registry import (
     TrustedActionWiring,
@@ -80,7 +80,7 @@ def test_trusted_action_registry_lookup(domain: str) -> None:
 
 def test_parse_run_import_call_spec_literal() -> None:
     code1 = 'run_sql({"helper": "query_folder_sql", "params": {"files": ["a.csv"]}})'
-    spec1 = parse_run_import_call_spec(code1, run_name="run_sql")
+    spec1 = ScriptFacts.from_source(code1).first_run_spec("run_sql")
     assert isinstance(spec1, dict)
     assert spec1.get("helper") == "query_folder_sql"
     assert spec1.get("params") == {"files": ["a.csv"]}
@@ -101,7 +101,7 @@ def test_pcm_energy_int16_invariants(pcm: bytes) -> None:
 
 @given(code=st.text(max_size=100), run_name=st.sampled_from(["run_sql", "run_units", "run_analysis", "invalid_run"]))
 def test_parse_run_import_call_spec_no_crash(code: str, run_name: str) -> None:
-    res = parse_run_import_call_spec(code, run_name=run_name)
+    res = ScriptFacts.from_source(code).first_run_spec(run_name)
     assert res is None or isinstance(res, dict)
 
 

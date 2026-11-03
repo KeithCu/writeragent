@@ -63,35 +63,6 @@ def _header_re(tag: str) -> re.Pattern[str]:
     )
 
 
-@deal.post(lambda result: result is None or isinstance(result, HelperScriptMeta))
-def parse_helper_script_header(
-    code: str,
-    *,
-    tag: str,
-    helper_names: Collection[str] | None = None,
-) -> HelperScriptMeta | None:
-    """Parse ``# writeragent:<tag> helper=NAME params={…}``.
-
-    *helper_names*: when set, unknown helpers return None.
-    """
-    # crosshair: off
-    prefix = header_prefix(tag)
-    if prefix not in code:
-        return None
-    match = _header_re(tag).search(code)
-    if not match:
-        return None
-    helper = match.group(1)
-    if helper_names is not None and helper not in helper_names:
-        return None
-    raw = match.group(2)
-    try:
-        params = json.loads(raw)
-    except Exception:
-        params = {}
-    return HelperScriptMeta(helper=helper, params=params if isinstance(params, dict) else {})
-
-
 _UNRESOLVED: Any = object()
 
 # Names the host injects into Run Python Script before exec.
@@ -139,23 +110,6 @@ def _bound_alias_names(aliases: list[ast.alias]) -> set[str]:
     return {alias.asname or alias.name for alias in aliases} - {"", "*"}
 
 
-def _writeragent_imported_names(tree: ast.AST) -> set[str]:
-    """Names brought in by ``from writeragent... import``.
-
-    Direct helper templates call those names (``convert_quantity(...)``). A bare
-    ``print(...)`` must not be treated as a helper spec.
-    """
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        module = node.module or ""
-        if module != "writeragent" and not module.startswith("writeragent."):
-            continue
-        names.update(_bound_alias_names(node.names))
-    return names
-
-
 # Dispatch keys for a direct units call. Same names as the template
 # positional_args and venv _dispatch_* lookups. ``from`` / ``to`` stay the
 # short keys because ``from`` is not a keyword argument and _dispatch_convert
@@ -200,45 +154,6 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
     return {"helper": helper, "params": params}
 
 
-@deal.pre(lambda code, run_name="": _deal_user_code_ok(code, run_name))
-@deal.post(lambda result: result is None or isinstance(result, dict))
-def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
-    """Return the first positional spec dict from ``run_name({...}, ...)`` or a writeragent helper call."""
-    if not code:
-        return None
-
-    try:
-        tree = ast.parse(code)
-    except (SyntaxError, TypeError, ValueError):
-        return None
-    imported = _writeragent_imported_names(tree)
-    direct_spec: dict[str, Any] | None = None
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if not isinstance(func, ast.Name):
-            continue
-        if func.id == run_name:
-            if not node.args:
-                continue
-            spec = _literal_value(node.args[0])
-            if isinstance(spec, dict):
-                return spec
-            if isinstance(spec, str):
-                return {"helper": spec, "params": {}}
-        elif (
-            direct_spec is None
-            and func.id in imported
-            and not func.id.startswith("run_")
-        ):
-            # Prefer run_name when both exist. Only imported writeragent names
-            # count: print("hi") used to become helper="print" and prepend the
-            # whole Writer document on Run Python Script.
-            direct_spec = _spec_from_direct_helper_call(node, func.id)
-    return direct_spec
-
-
 _RUN_DATA_BINDING_CALLS: frozenset[str] = frozenset({
     "run_analysis",
     "run_viz",
@@ -261,72 +176,184 @@ _IMPORT_DATA_BINDING: frozenset[str] = frozenset({
 })
 
 
-def _ast_needs_data_binding(tree: ast.AST) -> bool:
-    imported_names: set[str] = set()
-    alias_modules: set[str] = set()
-    calls: list[ast.Call] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            mod = node.module or ""
-            if mod in _IMPORT_DATA_BINDING:
-                imported_names.update(_bound_alias_names(node.names))
-            elif mod == "writeragent.scripting":
+class ScriptFacts:
+    """Parsed AST and metadata for user scripts, computed in a single pass."""
+
+    code: str
+    _tree: ast.AST | None
+    _parse_error: bool
+    _call_names: set[str]
+    _call_nodes: list[ast.Call]
+    _writeragent_imported: set[str]
+    _imports: list[tuple[str | None, str]]
+    _needs_data_binding: bool
+
+    def __init__(self, code: str, tree: ast.AST | None, parse_error: bool) -> None:
+        self.code = code
+        self._tree = tree
+        self._parse_error = parse_error
+        self._call_names = set()
+        self._call_nodes = []
+        self._writeragent_imported = set()
+        self._imports = []
+        self._needs_data_binding = False
+        if tree is not None:
+            self._analyze(tree)
+        elif parse_error and code:
+            self._analyze_fallback(code)
+
+    @classmethod
+    def from_source(cls, code: str) -> ScriptFacts:
+        if not code:
+            return cls(code="", tree=None, parse_error=False)
+        try:
+            tree = ast.parse(code)
+            return cls(code=code, tree=tree, parse_error=False)
+        except (SyntaxError, TypeError, ValueError):
+            return cls(code=code, tree=None, parse_error=True)
+
+    def _analyze(self, tree: ast.AST) -> None:
+        imported_data_binding_names: set[str] = set()
+        data_binding_alias_modules: set[str] = set()
+        data_binding_candidate_calls: list[ast.Call] = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if f"writeragent.scripting.{alias.name}" in _IMPORT_DATA_BINDING:
-                        alias_modules.add(alias.asname or alias.name)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name in _IMPORT_DATA_BINDING:
-                    alias_modules.add(alias.asname or alias.name)
-        elif isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name):
-                name: str | None = func.id
-            elif isinstance(func, ast.Attribute):
-                name = func.attr
-            else:
-                name = None
-            if name in _RUN_DATA_BINDING_CALLS or name == _SHEET_SQL_CALL:
-                return True
-            calls.append(node)
-    for node in calls:
-        func = node.func
-        if isinstance(func, ast.Name) and func.id in imported_names:
-            return True
-        if isinstance(func, ast.Attribute):
-            target = func.value
-            if isinstance(target, ast.Name) and target.id in alias_modules:
-                return True
-    return False
+                    self._imports.append((None, alias.name))
+                    if alias.name in _IMPORT_DATA_BINDING:
+                        data_binding_alias_modules.add(alias.asname or alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                for alias in node.names:
+                    self._imports.append((node.module, alias.name))
+                if mod == "writeragent" or mod.startswith("writeragent."):
+                    self._writeragent_imported.update(_bound_alias_names(node.names))
+                if mod in _IMPORT_DATA_BINDING:
+                    imported_data_binding_names.update(_bound_alias_names(node.names))
+                elif mod == "writeragent.scripting":
+                    for alias in node.names:
+                        if f"writeragent.scripting.{alias.name}" in _IMPORT_DATA_BINDING:
+                            data_binding_alias_modules.add(alias.asname or alias.name)
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name):
+                    self._call_names.add(func.id)
+                    self._call_nodes.append(node)
+                    name: str | None = func.id
+                elif isinstance(func, ast.Attribute):
+                    name = func.attr
+                else:
+                    name = None
+                if name in _RUN_DATA_BINDING_CALLS or name == _SHEET_SQL_CALL:
+                    self._needs_data_binding = True
+                else:
+                    data_binding_candidate_calls.append(node)
 
+        if not self._needs_data_binding:
+            for node in data_binding_candidate_calls:
+                func = node.func
+                if isinstance(func, ast.Name) and func.id in imported_data_binding_names:
+                    self._needs_data_binding = True
+                    break
+                if isinstance(func, ast.Attribute):
+                    target = func.value
+                    if isinstance(target, ast.Name) and target.id in data_binding_alias_modules:
+                        self._needs_data_binding = True
+                        break
 
-def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
-    """True when *code* uses a trusted helper that may bind Calc sheet data.
-
-    What was wrong: regex matched comments like ``# run_analysis(`` and string
-    literals like ``"run_analysis("``, and run_viz's old calc_only=False returned
-    true on Writer documents.
-    How: a raw-source pre-pass ran before the AST walk.
-    Why: AST call tails skip comments and strings; the toolbar binds a Calc sheet,
-    so a non-Calc doc returns false even though viz still inserts on Writer;
-    substring search runs only when ast.parse raises, same policy as
-    python_runner.script_uses_run_import.
-    """
-    # The data toolbar binds a Calc sheet range; run_viz is not post_venv_calc_only
-    # because plots insert on Writer, and that must not enable this toolbar.
-    from plugin.doc.doc_type import is_calc
-
-    if not code or not is_calc(doc):
-        return False
-    try:
-        tree = ast.parse(code)
-    except (SyntaxError, TypeError, ValueError):
+    def _analyze_fallback(self, code: str) -> None:
         for name in (*_RUN_DATA_BINDING_CALLS, _SHEET_SQL_CALL):
             if re.search(rf"\b{re.escape(name)}\s*\(", code):
-                return True
-        return any(module in code for module in _IMPORT_DATA_BINDING)
+                self._needs_data_binding = True
+                break
+        if not self._needs_data_binding:
+            self._needs_data_binding = any(module in code for module in _IMPORT_DATA_BINDING)
 
-    return _ast_needs_data_binding(tree)
+    def imports_module(self, module_name: str) -> bool:
+        """True when the script imports *module_name* (import or from-import)."""
+        if not self.code or not module_name:
+            return False
+        if self._parse_error:
+            return module_name in self.code
+        for mod, name in self._imports:
+            if mod is None:
+                if name == module_name or name.startswith(module_name + "."):
+                    return True
+            else:
+                if mod == module_name:
+                    return True
+                if module_name.startswith(mod + "."):
+                    sub = module_name[len(mod) + 1 :]
+                    if name == sub:
+                        return True
+        return False
+
+    def calls(self, name: str) -> bool:
+        """True when the script contains a call to *name*."""
+        if not self.code or not name:
+            return False
+        if self._parse_error:
+            return f"{name}(" in self.code
+        return name in self._call_names
+
+    @deal.post(lambda result: result is None or isinstance(result, dict))
+    def first_run_spec(self, run_name: str) -> dict[str, Any] | None:
+        """Return the first positional spec dict from ``run_name({...}, ...)`` or a writeragent helper call."""
+        if not self.code or self._parse_error:
+            return None
+        direct_spec: dict[str, Any] | None = None
+        for node in self._call_nodes:
+            func = node.func
+            assert isinstance(func, ast.Name)
+            if func.id == run_name:
+                if not node.args:
+                    continue
+                spec = _literal_value(node.args[0])
+                if isinstance(spec, dict):
+                    return spec
+                if isinstance(spec, str):
+                    return {"helper": spec, "params": {}}
+            elif (
+                direct_spec is None
+                and func.id in self._writeragent_imported
+                and not func.id.startswith("run_")
+            ):
+                direct_spec = _spec_from_direct_helper_call(node, func.id)
+        return direct_spec
+
+    def needs_data_binding(self, *, doc: Any = None) -> bool:
+        """True when code uses a trusted helper that may bind Calc sheet data."""
+        if doc is not None:
+            from plugin.doc.doc_type import is_calc
+
+            if not is_calc(doc):
+                return False
+        return self._needs_data_binding
+
+    @deal.post(lambda result: result is None or isinstance(result, HelperScriptMeta))
+    def header(
+        self,
+        tag: str,
+        *,
+        helper_names: Collection[str] | None = None,
+    ) -> HelperScriptMeta | None:
+        """Parse ``# writeragent:<tag> helper=NAME params={…}``."""
+        prefix = header_prefix(tag)
+        if prefix not in self.code:
+            return None
+        match = _header_re(tag).search(self.code)
+        if not match:
+            return None
+        helper = match.group(1)
+        if helper_names is not None and helper not in helper_names:
+            return None
+        raw = match.group(2)
+        try:
+            params = json.loads(raw)
+        except Exception:
+            params = {}
+        return HelperScriptMeta(helper=helper, params=params if isinstance(params, dict) else {})
 
 
 

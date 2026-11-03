@@ -153,7 +153,7 @@ def _stub_format_error_message(e: BaseException) -> str:
     return msg
 
 
-def _stub_parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
+def _stub_script_facts_first_run_spec(self, run_name: str) -> dict[str, Any] | None:
     return None
 
 
@@ -555,7 +555,7 @@ def _patch_helper_domain(module: Any) -> None:
     module._deal_user_code_ok = lambda code, run_name="": (
         str_bounded(code, 16) and ascii_bounded(run_name, 16)
     )
-    _swap_code(module.parse_run_import_call_spec, _stub_parse_run_import_call_spec)
+    _swap_code(module.ScriptFacts.first_run_spec, _stub_script_facts_first_run_spec)
     _swap_code(module._elapsed_since, _stub_elapsed_since)
 
 

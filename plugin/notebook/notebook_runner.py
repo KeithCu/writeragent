@@ -155,7 +155,6 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     def _run() -> dict[str, Any]:
         try:
             return run_code_in_user_venv(
-                ctx,
                 code,
                 session_id=session_id,
                 script_session_id=script_session_id,

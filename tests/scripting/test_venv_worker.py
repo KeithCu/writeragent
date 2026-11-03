@@ -172,12 +172,10 @@ def test_run_code_in_user_venv_passes_stop_checker():
         mock_mgr.execute.return_value = {"status": "ok"}
         mock_mgr_ctx.return_value = (mock_mgr, None)
 
-        ctx = MagicMock()
-
         def stop_fn() -> bool:
             return True
 
-        run_code_in_user_venv(ctx, code="result = 1", stop_checker=stop_fn)
+        run_code_in_user_venv(code="result = 1", stop_checker=stop_fn)
 
         mock_mgr.execute.assert_called_once()
         kwargs = mock_mgr.execute.call_args.kwargs
@@ -1226,7 +1224,6 @@ def test_exec_request_wire_sandbox_policy():
 
 
 def test_run_code_in_user_venv_reads_sandbox_policy_flags():
-    ctx = MagicMock()
     with (
         patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10),
         patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable),
@@ -1245,7 +1242,7 @@ def test_run_code_in_user_venv_reads_sandbox_policy_flags():
             return ""
 
         with patch("plugin.scripting.venv_worker.get_config", side_effect=fake_get_config):
-            run_code_in_user_venv(ctx, "result = 1")
+            run_code_in_user_venv("result = 1")
             assert mock_execute.call_args.kwargs["sandbox_policy"] == {
                 "network": False,
                 "files": True,
@@ -1256,15 +1253,15 @@ def test_run_code_in_user_venv_reads_sandbox_policy_flags():
         mock_execute.reset_mock()
 
         # Case 2: network and files on, os off
-        def fake_get_bool_net_files(key: str):
+        def fake_get_config_net_files(key: str):
             if key in ("scripting.python_allow_network", "scripting.python_allow_files"):
                 return True
             if key == "scripting.python_extra_modules":
                 return ""
             return False
 
-        with patch("plugin.scripting.venv_worker.get_config", side_effect=fake_get_bool_net_files):
-            run_code_in_user_venv(ctx, "result = 1")
+        with patch("plugin.scripting.venv_worker.get_config", side_effect=fake_get_config_net_files):
+            run_code_in_user_venv("result = 1")
             assert mock_execute.call_args.kwargs["sandbox_policy"] == {
                 "network": True,
                 "files": True,
@@ -1456,11 +1453,9 @@ def test_worker_harness_dies_with_parent(monkeypatch):
 @patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable)
 @patch("plugin.scripting.venv_worker.PythonWorkerManager.execute")
 def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mock_configured_timeout):
-    ctx = MagicMock()
-
     # Call with no timeout and verify it gets default timeout of 10s
     default_policy = {"network": False, "files": False, "os": False, "extra_modules": ""}
-    run_code_in_user_venv(ctx, "result = 1")
+    run_code_in_user_venv("result = 1")
     mock_execute.assert_called_once_with(
         "result = 1",
         data=None,
@@ -1483,7 +1478,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     mock_execute.reset_mock()
 
     # Call with a custom timeout in the allowed range (e.g. 100s) and verify it is allowed
-    run_code_in_user_venv(ctx, "result = 1", timeout_sec=100)
+    run_code_in_user_venv("result = 1", timeout_sec=100)
     mock_execute.assert_called_once_with(
         "result = 1",
         data=None,
@@ -1506,7 +1501,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     mock_execute.reset_mock()
 
     # Call with a timeout exceeding 600s (e.g. 1000s) and verify it gets capped to 600s
-    run_code_in_user_venv(ctx, "result = 1", timeout_sec=1000)
+    run_code_in_user_venv("result = 1", timeout_sec=1000)
     mock_execute.assert_called_once_with(
         "result = 1",
         data=None,
@@ -1529,7 +1524,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     mock_execute.reset_mock()
 
     # Call with 0s timeout and verify it gets set to 1s floor
-    run_code_in_user_venv(ctx, "result = 1", timeout_sec=0)
+    run_code_in_user_venv("result = 1", timeout_sec=0)
     mock_execute.assert_called_once_with(
         "result = 1",
         data=None,
@@ -1551,7 +1546,6 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
 
 
 def test_run_code_forwards_script_session_pin_apart_from_kernel_session():
-    ctx = MagicMock()
     with (
         patch("plugin.scripting.venv_worker.configured_python_exec_timeout", return_value=10),
         patch("plugin.scripting.venv_worker.get_config", return_value=""),
@@ -1559,7 +1553,7 @@ def test_run_code_forwards_script_session_pin_apart_from_kernel_session():
         patch("plugin.scripting.venv_worker.PythonWorkerManager.execute") as mock_execute,
     ):
         mock_execute.return_value = {"status": "ok", "result": 1}
-        run_code_in_user_venv(ctx, "result = 1", script_session_id="doc:pin")
+        run_code_in_user_venv("result = 1", script_session_id="doc:pin")
     assert mock_execute.call_args.kwargs["script_session_id"] == "doc:pin"
     assert mock_execute.call_args.kwargs["session_id"] is None
 
@@ -1844,8 +1838,7 @@ def test_terminate_worker_re_primes_on_next_execute():
 def test_warm_venv_worker_resolves_and_warms(mock_lo_python, mock_cfg):
 
     PythonWorkerManager.shutdown_all()
-    ctx = MagicMock()
-    warm_venv_worker(ctx)
+    warm_venv_worker()
     mgr = PythonWorkerManager.get(sys.executable, scrub_subprocess_env({"PATH": "/usr/bin:/bin"}))
     assert mgr._proc is not None and mgr._proc.poll() is None
     PythonWorkerManager.shutdown_all()
@@ -1867,11 +1860,10 @@ class TestLiveWorkerReuse:
     @patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable)
     def test_run_code_uses_manager(self, mock_lo_python, mock_cfg, warmed_worker_manager):
         del warmed_worker_manager
-        ctx = MagicMock()
-        r1 = run_code_in_user_venv(ctx, "result = 100")
+        r1 = run_code_in_user_venv("result = 100")
         assert r1["status"] == "ok"
         assert r1["result"] == 100
-        r2 = run_code_in_user_venv(ctx, "result = nope + 1")
+        r2 = run_code_in_user_venv("result = nope + 1")
         assert r2["status"] == "error"
 
     def test_manager_two_calls_same_process(self, warmed_worker_manager):
@@ -2122,13 +2114,13 @@ def test_worker_error_shape():
 
 
 def test_run_code_and_reset_session_missing_inputs_include_code():
-    empty_code = run_code_in_user_venv(MagicMock(), "   ")
+    empty_code = run_code_in_user_venv("   ")
     assert empty_code["status"] == "error"
     assert empty_code["code"] == "WORKER_IPC_ERROR"
     assert empty_code["message"] == "No code provided."
     assert "details" in empty_code
 
-    empty_sid = reset_python_session(MagicMock(), "  ")
+    empty_sid = reset_python_session("  ")
     assert empty_sid["status"] == "error"
     assert empty_sid["code"] == "WORKER_IPC_ERROR"
     assert empty_sid["message"] == "No session_id provided."
@@ -2157,7 +2149,7 @@ def test_reset_python_session_does_not_spawn_when_worker_is_dead(monkeypatch: py
     assert dead._is_worker_alive() is False
     monkeypatch.setattr(venv_worker_module, "_get_worker_manager", lambda pool="default": (dead, None))
 
-    res = reset_python_session(None, "calc:file:///closed.ods")
+    res = reset_python_session("calc:file:///closed.ods")
     assert res["status"] == "ok"
     assert calls == []
 
@@ -2165,7 +2157,7 @@ def test_reset_python_session_does_not_spawn_when_worker_is_dead(monkeypatch: py
     alive._proc = _MockProc(None)  # poll() is None -> _is_worker_alive is True
     monkeypatch.setattr(venv_worker_module, "_get_worker_manager", lambda pool="default": (alive, None))
 
-    res_live = reset_python_session(None, "calc:file:///live.ods")
+    res_live = reset_python_session("calc:file:///live.ods")
     assert res_live["status"] == "ok"
     assert calls == ["reset_session"]
 
@@ -2667,7 +2659,7 @@ def test_warm_venv_worker_embeddings_timeout(monkeypatch):
     sys.modules["plugin.scripting.config_limits"] = mod2
 
     try:
-        vw.warm_venv_worker(None, pool=WORKER_POOL_EMBEDDINGS)
+        vw.warm_venv_worker(pool=WORKER_POOL_EMBEDDINGS)
     finally:
         sys.modules.pop("plugin.embeddings.embedding_client", None)
         sys.modules.pop("plugin.scripting.config_limits", None)

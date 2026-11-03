@@ -302,8 +302,8 @@
         "tool": "deal+hypothesis",
         "functions_contracted": [
           "header_prefix",
-          "parse_helper_script_header",
-          "parse_run_import_call_spec"
+          "ScriptFacts.header",
+          "ScriptFacts.first_run_spec"
         ],
         "ci_integration": true
       },

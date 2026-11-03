@@ -242,6 +242,9 @@ def _die_with_parent() -> None:
 
 
 def main() -> None:
+    from plugin.scripting.host_tool_call import ROLE_WORKER, set_process_role
+
+    set_process_role(ROLE_WORKER)
     _die_with_parent()
     _init_logging()
     log.info("Worker process %d starting up with python %s", os.getpid(), sys.version)

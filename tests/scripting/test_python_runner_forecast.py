@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from plugin.scripting.forecast import get_forecast_template
-from plugin.scripting.python_runner import execute_and_insert_result
+from tests.scripting.python_runner_test_support import execute_and_insert_result
 
 
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
