@@ -55,7 +55,7 @@ from plugin.draw.masters import find_master, iter_masters
 from plugin.draw.otp_zip import extract_member, read_member
 from plugin.draw.shape_clone import clone_shape, copy_prop, fill_style_kind
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.uno_context import uno_same
 from plugin.framework.url_utils import path_to_file_url
 
@@ -378,7 +378,7 @@ def _clear_master_shapes(master: Any) -> int:
     try:
         count = int(master.getCount())
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return 0
     for i in range(count - 1, -1, -1):
@@ -386,7 +386,7 @@ def _clear_master_shapes(master: Any) -> int:
             master.remove(master.getByIndex(i))
             removed += 1
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("clear master shape failed index=%s", i, exc_info=True)
     return removed
@@ -399,7 +399,7 @@ def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[s
         if src_bg is None and hasattr(src_master, "getPropertyValue"):
             src_bg = src_master.getPropertyValue("Background")
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         src_bg = None
     if src_bg is None:
@@ -411,7 +411,7 @@ def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[s
             else getattr(src_bg, "FillStyle", None)
         )
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         fill_style = getattr(src_bg, "FillStyle", None)
     kind = fill_style_kind(fill_style)
@@ -423,7 +423,7 @@ def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[s
         if dest_bg is None and hasattr(dest_master, "getPropertyValue"):
             dest_bg = dest_master.getPropertyValue("Background")
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         dest_bg = None
 
@@ -465,7 +465,7 @@ def _count_graphic_shapes(container: Any) -> int:
                 total += _count_graphic_shapes(shape)
         return total
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return 0
 
@@ -504,7 +504,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         if dw and dh and float(dh) > 0:
             dest_ratio = float(dw) / float(dh)
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
 
     norm_design_id = _normalize_master_name(design_id)
@@ -517,13 +517,13 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         try:
             cand = src_masters.getByIndex(i)
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             continue
         try:
             cand_name = str(getattr(cand, "Name", "") or "")
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             cand_name = ""
         norm_cand_name = _normalize_master_name(cand_name)
@@ -541,7 +541,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 if sw and sh and float(sh) > 0:
                     cand_ratio = float(sw) / float(sh)
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 cand_ratio = 0.0
             if not cand_ratio:
@@ -581,7 +581,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         try:
             dest_master.Name = design_name
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("rename cloned master to %s failed", design_name, exc_info=True)
 
@@ -602,14 +602,14 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 dest_master.Width = int(dw)
                 dest_master.Height = int(dh)
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 log.debug("set cloned master size to dest deck failed", exc_info=True)
         _clone_master_background(dest_master, src_master, warnings)
         try:
             src_count = int(src_master.getCount())
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             src_count = 0
 
@@ -692,7 +692,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         try:
             dest_masters.remove(dest_master)
         except Exception as remove_exc:
-            if is_real_disposal(remove_exc):
+            if is_disposal(remove_exc):
                 raise
             log.debug("remove partial cloned master failed", exc_info=True)
         raise
@@ -709,7 +709,7 @@ def assign_master_to_all_slides(doc: Any, master: Any) -> int:
             pages.getByIndex(i).MasterPage = master
             updated += 1
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("assign_master_to_all_slides failed on page %s", i, exc_info=True)
     return updated
@@ -723,7 +723,7 @@ def _is_master_referenced(doc: Any, master: Any) -> bool:
             if uno_same(pages.getByIndex(i).MasterPage, master):
                 return True
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         log.debug("error checking master reference; assuming referenced", exc_info=True)
         return True
@@ -738,7 +738,7 @@ def _restore_slide_masters(snapshot: list[tuple[Any, Any]], *, swallow_disposal:
             page.MasterPage = old_master
             restored += 1
         except Exception as exc:
-            if not swallow_disposal and is_real_disposal(exc):
+            if not swallow_disposal and is_disposal(exc):
                 raise
             log.debug("restore master page failed", exc_info=True)
     return restored
@@ -762,7 +762,7 @@ def _cleanup_previous_same_named_masters(dest_doc: Any, new_master: Any, design_
         try:
             dest_doc.getMasterPages().remove(m)
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("remove old same-named master failed", exc_info=True)
 
@@ -774,12 +774,12 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     try:
         dest_doc.getDrawPages().getCount()
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
     try:
         is_ro = bool(callable(getattr(dest_doc, "isReadonly", None)) and dest_doc.isReadonly() is True)
     except Exception as ro_exc:
-        if is_real_disposal(ro_exc):
+        if is_disposal(ro_exc):
             raise
         is_ro = False
     if is_ro:
@@ -821,11 +821,11 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
                 cloned.master.Name = target_design_name
                 master_name = target_design_name
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 master_name = str(getattr(cloned.master, "Name", "") or "") or target_design_name
         except Exception as post_exc:
-            if is_real_disposal(post_exc):
+            if is_disposal(post_exc):
                 _restore_slide_masters(snapshot, swallow_disposal=True)
                 raise
             slides_restored = _restore_slide_masters(snapshot)
@@ -833,7 +833,7 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
                 try:
                     dest_doc.getMasterPages().remove(cloned.master)
                 except Exception as rem_exc:
-                    if is_real_disposal(rem_exc):
+                    if is_disposal(rem_exc):
                         raise
                     log.debug("remove rolled-back master failed", exc_info=True)
             try:
@@ -1007,7 +1007,7 @@ class ApplyDesign(ToolBase):
         try:
             return apply_design_to_current_doc(ctx.ctx, ctx.doc, entry)
         except Exception as e:
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             log.exception("current-doc apply_design failed for %s", entry.get("path"))
             return self._tool_error("Failed to apply design to the current presentation: %s" % e, reason="current_doc_import_failed", hint="Hidden .otp master clone or MasterPage assign did not complete.")

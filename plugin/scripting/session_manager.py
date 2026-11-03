@@ -113,16 +113,17 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
     # Bugfix (#411): In headless mode or when focus is outside the frame, getCurrentComponent()
     # returns None. Fall back to desktop.getComponents() enumeration so UI commands
     # (session reset) still resolve the document model. =PY() never comes here.
-    from plugin.framework.errors import check_disposed, reraise_if_disposed
+    from plugin.framework.errors import UnoObjectError, reraise_if_disposed
     from plugin.framework.thread_guard import guard_uno, _unwrap_uno
 
     desktop = get_desktop(ctx)
     doc = desktop.getCurrentComponent() if desktop else None
     if doc is not None:
         try:
-            # check_disposed is a None check; get_desktop is already @main_thread_only.
+            # None check; get_desktop is already @main_thread_only.
             # Unwrap so PropertyBag-style None tests see the real object, then re-wrap on return.
-            check_disposed(_unwrap_uno(doc))
+            if _unwrap_uno(doc) is None:
+                raise UnoObjectError("Object is null", code="UNO_NULL_OBJECT")
             ctrl = getattr(doc, "getCurrentController", lambda: None)()
             # Headless soffice returns None from getCurrentController().
             # Requiring a controller skipped the open model, so session reset

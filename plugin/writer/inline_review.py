@@ -30,7 +30,7 @@ from enum import Enum, auto
 import logging
 from typing import Any, Generator, NamedTuple
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import uno_same
 from plugin.writer import review_scan as _review_scan
@@ -746,7 +746,7 @@ def resolve_agent_change(
             return ResolveResult(ResolveStatus.NO_OP), after
         return ResolveResult(ResolveStatus.PARTIAL), after
     except Exception as exc:
-        if is_real_disposal(exc) and not dispatched:
+        if is_disposal(exc) and not dispatched:
             log.warning("inline_review: resolve_agent_change aborted on disposed document for %s", token)
             return ResolveResult(ResolveStatus.UNRELIABLE), before
         log.exception("inline_review: resolve_agent_change failed")
@@ -867,7 +867,7 @@ def _resolve_overlapping_agent_changes(
             return ResolveResult(ResolveStatus.PARTIAL, 0)
         return ResolveResult(ResolveStatus.REFUSED_FOREIGN if has_foreign else ResolveStatus.REFUSED_SIBLING, 0)
     except Exception as exc:
-        if is_real_disposal(exc) and not dispatched:
+        if is_disposal(exc) and not dispatched:
             log.warning("inline_review: overlapping resolve aborted on disposed document for %s", token)
             return ResolveResult(ResolveStatus.UNRELIABLE, 0)
         log.exception("inline_review: resolving overlapping agent changes of %s failed", token)

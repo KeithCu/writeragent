@@ -18,7 +18,7 @@ import logging
 from enum import Enum, auto
 from typing import Any, Literal
 
-from plugin.framework.errors import best_effort, safe_call, safe_uno_call
+from plugin.framework.errors import best_effort, uno_call, uno_read
 from plugin.framework.thread_guard import main_thread_only
 
 DocTypeLabel = Literal["writer", "calc", "draw", "impress", "unknown"]
@@ -84,19 +84,21 @@ def uno_services_for_document(model: Any, doc_type: str | None) -> frozenset[str
 
 
 # @main_thread_only MUST be outer so off-thread calls raise instead of
-# being swallowed by @safe_uno_call (same order as get_document_type).
+# being swallowed by uno_read (same order as get_document_type).
 @main_thread_only
-@safe_uno_call(default=frozenset())
 def get_document_uno_services(model: Any) -> frozenset[str]:
     """Return UNO service names supported by *model* (main thread only; cache in sidebar/MCP)."""
-    if model is None:
-        return frozenset()
-    found: set[str] = set()
-    for _unused_dt, row in _TYPE_ROWS.items():
-        service_name = row[0]
-        if safe_call(model.supportsService, f"Check {service_name}", service_name):
-            found.add(service_name)
-    return frozenset(found)
+    def _body() -> frozenset[str]:
+        if model is None:
+            return frozenset()
+        found: set[str] = set()
+        for _unused_dt, row in _TYPE_ROWS.items():
+            service_name = row[0]
+            if uno_call(lambda: model.supportsService(service_name), f"Check {service_name}"):
+                found.add(service_name)
+        return frozenset(found)
+
+    return uno_read(_body, frozenset())
 
 
 def doc_type_label_for_enum(doc_type: DocumentType) -> DocTypeLabel:
@@ -164,23 +166,25 @@ def agent_label_for_context(ctx: Any) -> str:
 
 # @main_thread_only MUST be the outer decorator here so off-main
 # thread calls raise thread violation errors immediately instead
-# of being swallowed by @safe_uno_call.
+# of being swallowed by uno_read.
 @main_thread_only
-@safe_uno_call(default=DocumentType.UNKNOWN)
 def get_document_type(model: Any) -> DocumentType:
     """Return the DocumentType for the given model."""
-    if model is None:
+    def _body() -> DocumentType:
+        if model is None:
+            return DocumentType.UNKNOWN
+
+        # Four supportsService calls; id(model) is reused after close so a cache
+        # keyed that way would return the wrong type for a new document.
+        # Check services in priority order
+        for dt, row in _TYPE_ROWS.items():
+            service_name = row[0]
+            if uno_call(lambda: model.supportsService(service_name), f"Check {service_name}"):
+                return dt
+
         return DocumentType.UNKNOWN
 
-    # Four supportsService calls; id(model) is reused after close so a cache
-    # keyed that way would return the wrong type for a new document.
-    # Check services in priority order
-    for dt, row in _TYPE_ROWS.items():
-        service_name = row[0]
-        if safe_call(model.supportsService, f"Check {service_name}", service_name):
-            return dt
-
-    return DocumentType.UNKNOWN
+    return uno_read(_body, DocumentType.UNKNOWN)
 
 
 def is_writer(model: Any) -> bool:

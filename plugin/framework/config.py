@@ -65,7 +65,7 @@ from typing import Any, Callable, Dict, TypeVar
 _T = TypeVar("_T", int, float)
 _S = TypeVar("_S")
 
-from plugin.framework.errors import ConfigError, ConfigValidationError, safe_call
+from plugin.framework.errors import ConfigError, ConfigValidationError, uno_call
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.json_utils import repair_json
 from plugin.framework.url_utils import normalize_endpoint_url
@@ -106,8 +106,8 @@ _config_write_lock = threading.RLock()
 
 def _resolve_config_path_from_ctx(ctx: Any) -> str:
     """Resolve writeragent.json path from a UNO component context."""
-    sm = safe_call(ctx.getServiceManager, "Get ServiceManager")
-    path_settings = safe_call(sm.createInstanceWithContext, "Create PathSettings", "com.sun.star.util.PathSettings", ctx)
+    sm = uno_call(ctx.getServiceManager, "Get ServiceManager")
+    path_settings = uno_call(lambda: sm.createInstanceWithContext("com.sun.star.util.PathSettings", ctx), "Create PathSettings")
     user_config_path = getattr(path_settings, "UserConfig", "")
     if uno and user_config_path and str(user_config_path).startswith("file://"):
         user_config_path = str(uno.fileUrlToSystemPath(user_config_path))

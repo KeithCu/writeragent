@@ -51,8 +51,8 @@ from plugin.framework.constants import (
 from plugin.framework.errors import (
     _uno_disposal_message,
     reraise_if_disposed,
-    safe_call,
     suppress_disposed,
+    uno_call,
 )
 from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import main_thread_only
@@ -355,11 +355,11 @@ def get_active_document(ctx: Any | None = None) -> Any:
         desktop = get_desktop(ctx)
         if desktop is None:
             return None
-        doc = safe_call(desktop.getCurrentComponent, "Desktop component resolution")
+        doc = uno_call(desktop.getCurrentComponent, "Desktop component resolution")
         return _guard_returned_uno(doc)
     except Exception as e:
         # DisposedException from get_desktop() is a plain Exception, so a
-        # dying desktop looks like nothing open. safe_call already re-raises
+        # dying desktop looks like nothing open. uno_call already re-raises
         # disposal from getCurrentComponent.
         reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
         log.exception("get_active_document unexpected exception")

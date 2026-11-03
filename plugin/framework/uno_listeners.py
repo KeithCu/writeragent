@@ -31,7 +31,7 @@ import functools
 import logging
 from typing import Any, Callable, NoReturn, TYPE_CHECKING
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.thread_guard import THREAD_VIOLATION_MARK
 
 log = logging.getLogger(__name__)
@@ -166,7 +166,7 @@ def listener_boundary(exc: BaseException) -> ListenerBoundary | None:
     """The one boundary for *exc*, or None when the callback may fail soft.
 
     None is an ordinary Python or UNO runtime error. Real disposal uses
-    :func:`plugin.framework.errors.is_real_disposal`, so a ``RuntimeException``
+    :func:`plugin.framework.errors.is_disposal`, so a ``RuntimeException``
     name is not disposal.
     """
     if isinstance(exc, ListenerBoundary):
@@ -176,7 +176,7 @@ def listener_boundary(exc: BaseException) -> ListenerBoundary | None:
     name = type(exc).__name__
     if "CloseVetoException" in name or "TerminationVetoException" in name:
         return ListenerBoundary("veto", exc)
-    if is_real_disposal(exc):
+    if is_disposal(exc):
         return ListenerBoundary("disposed", exc)
     return None
 
@@ -547,7 +547,7 @@ class BaseTerminateListener(BaseListener, _XTerminateListenerParent):
 
 
 def _controller_alive(controller: Any) -> bool:  # pyright: ignore[reportUnusedFunction]
-    """Pruning must never raise: uno_probe re-raises real disposal."""
+    """Pruning must never raise: uno_read re-raises real disposal."""
     try:
         return controller.getModel() is not None
     except Exception:

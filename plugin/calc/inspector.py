@@ -31,7 +31,7 @@ from plugin.calc.datetime_wire import (
     is_elapsed_format_string,
 )
 from plugin.calc.calc_utils import cell_value_and_type
-from plugin.framework.errors import CalcError, is_disposed_exception
+from plugin.framework.errors import CalcError, is_disposal
 from plugin.scripting.config_limits import configured_python_max_data_cells
 
 log = logging.getLogger(__name__)
@@ -130,7 +130,7 @@ class CellInspector:
             if date_cells is not None:
                 date_addresses = tuple(date_cells.getRangeAddresses() or ())
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             log.debug("queryContentCells(DATETIME) preflight failed", exc_info=True)
         if not date_addresses:
@@ -158,7 +158,7 @@ class CellInspector:
                     continue
                 addresses = tuple(group.getRangeAddresses())
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 log.debug("Skipping unreadable cell format group %d", group_idx, exc_info=True)
                 continue
@@ -212,7 +212,7 @@ class CellInspector:
             try:
                 self._enrich_cell_format(info, cell)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 # Format metadata must never turn a previously valid core read into an error.
                 log.exception("Date/time format enrichment failed for cell %s; returning the raw value", address)
@@ -251,7 +251,7 @@ class CellInspector:
             try:
                 format_rows, null_date = self._range_format_rows(cell_range, formula_array)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 # Some older/embedded Calc builds may not expose format-range queries.
                 # Preserve the old raw response instead of failing read_cell_range.

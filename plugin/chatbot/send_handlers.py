@@ -23,7 +23,7 @@ from plugin.framework.errors import (
     BlockingWaitStopped,
     best_effort,
     format_error_payload,
-    is_disposed_exception,
+    is_disposal,
     suppress_disposed,
 )
 from plugin.framework.config import get_config
@@ -443,7 +443,7 @@ class SendHandlersMixin:
             turn_session.refresh_document_context(model, self._panel.ctx)
             doc_context = turn_session.document_context
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 log.debug("Failed to build document context for agent backend (likely disposed): %s", e)
             else:
                 log.exception("Failed to build document context for agent backend")

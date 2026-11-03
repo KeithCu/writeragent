@@ -38,7 +38,7 @@ from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.array_formula import returns_array
 from plugin.calc.calc_utils import cell_value_and_type, resolve_sheet
 from plugin.calc.error_detector import ERROR_TYPES
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception, uno_probe
+from plugin.framework.errors import ToolExecutionError, is_disposal, uno_read
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -63,17 +63,17 @@ class _EvaluationUndoGuard:
 
     def __enter__(self) -> _EvaluationUndoGuard:
         doc = self.doc
-        self.was_modified = uno_probe(lambda: bool(doc.isModified()), False)
+        self.was_modified = uno_read(lambda: bool(doc.isModified()), False)
         if hasattr(doc, "getUndoManager"):
             self.undo_mgr = doc.getUndoManager()
         if self.undo_mgr:
-            self.was_possible = uno_probe(lambda: bool(self.undo_mgr.isUndoPossible()), False)
+            self.was_possible = uno_read(lambda: bool(self.undo_mgr.isUndoPossible()), False)
             if self.was_possible:
                 try:
                     self.undo_mgr.enterHiddenUndoContext()
                     self.hidden_context_entered = True
                 except Exception as e:
-                    if is_disposed_exception(e):
+                    if is_disposal(e):
                         raise
                     if "EmptyUndoStackException" not in type(e).__name__:
                         raise
@@ -240,7 +240,7 @@ class EvaluateFormula(ToolCalcErrorBase):
                 # A failed cleanup turns an ordinary evaluation error into a
                 # tool error. A disposed document (or a BaseException such as
                 # KeyboardInterrupt) still propagates.
-                if not cleaned and isinstance(exc, Exception) and not is_disposed_exception(exc):
+                if not cleaned and isinstance(exc, Exception) and not is_disposal(exc):
                     return self._tool_error(cleanup_msg)
                 raise
             if not _drop_eval_sheet(sheets, temp_sheet_name, undo_guard):
@@ -265,7 +265,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         try:
             cell.setFormula(formula_string)
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             return self._tool_error(f"Failed to set formula '{formula_string}' at cell '{cell_address}': {str(e)}")
 

@@ -49,7 +49,7 @@ else:
 
 from plugin.doc.text_helpers import iter_elements_limited
 from plugin.doc.visual_helpers import parse_color_to_uno_int
-from plugin.framework.errors import is_disposed_exception, reraise_if_disposed
+from plugin.framework.errors import is_disposal, reraise_if_disposed
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
 from .format import record_walk_cap
@@ -776,7 +776,7 @@ def _apply_style_updates(style: Any, updates: dict[str, Any]) -> tuple[dict[str,
             _set_style_property(style, prop_name, prop_val)
             applied[prop_name] = _schema_prop_value(prop_name, prop_val)
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             log.warning("Failed to set property %s: %s", prop_name, e, exc_info=True)
             hint = ""
@@ -1269,7 +1269,7 @@ class ApplyStyle(FrameworkToolBase):
                 if not fam.hasByName(uno_value):
                     return _missing_style_error(self, style_name, family, fam)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 pass  # can't enumerate styles (exotic doc) -> let the apply path report
 
@@ -1351,7 +1351,7 @@ class ApplyStyle(FrameworkToolBase):
                     if error is not None:
                         undone = group.rollback_if_top()
                 if error is not None:
-                    if is_disposed_exception(error):
+                    if is_disposal(error):
                         raise error
                     if undone:
                         return self._tool_error("Nothing was changed: %s" % (error,))
@@ -1489,7 +1489,7 @@ class StyleUpdate(ToolWriterStyleBase):
                 style.setParentStyle(parent_style)
                 applied["ParentStyle"] = parent_style
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 log.warning("Failed to set ParentStyle on %s: %s", style_name, e, exc_info=True)
                 failed["ParentStyle"] = str(e)
@@ -1596,7 +1596,7 @@ class StyleCreate(ToolWriterStyleBase):
             try:
                 new_style.setParentStyle(actual_parent)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 log.warning("Failed to set parent_style '%s' on new style", actual_parent, exc_info=True)
                 return self._tool_error(f"Failed to set parent_style '{actual_parent}': {e}")
@@ -1624,7 +1624,7 @@ class StyleCreate(ToolWriterStyleBase):
                     conditions.append(nv)
                 new_style.setPropertyValue("ParaStyleConditions", tuple(conditions))
             except Exception as cond_err:
-                if is_disposed_exception(cond_err):
+                if is_disposal(cond_err):
                     raise
                 log.warning("Failed to set ParaStyleConditions on new style", exc_info=True)
                 # ParaStyleConditions is read-only at the UNO level; fail loudly and rollback the created style.

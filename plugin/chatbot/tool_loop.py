@@ -27,7 +27,7 @@ from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, StreamQueue, defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_payload, is_tool_document_disposed, resolve_exception_message, suppress_disposed, UnoObjectError
+from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_payload, is_disposal, resolve_exception_message, suppress_disposed, UnoObjectError
 from plugin.framework.client.errors import (
     is_local_model_server_crash,
     local_model_overflow_message,
@@ -534,7 +534,7 @@ class ToolCallingMixin:
             self._panel._set_status("Error")
             return
         except Exception as e:
-            if is_tool_document_disposed(e, model):
+            if is_disposal(e):
                 log.debug("Document likely disposed while reading context: %s", e)
                 self._panel._append_response("\n[Document closed or unavailable.]\n")
             else:

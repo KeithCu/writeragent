@@ -1628,7 +1628,7 @@ class ClearButtonListener(BaseActionListener):
                 # How it happened: Clear runs while the sidebar is still up
                 # after the document closes. supportsService on that model
                 # raises DocumentDisposedError (doc_type.get_document_type →
-                # errors.safe_call; safe_uno_call re-raises it).
+                # errors.uno_read re-raises it).
                 # Why this fixes it: None skips supportsService and returns
                 # the same translated Writer greeting as an unknown doc.
                 greeting = get_greeting_for_document(None)

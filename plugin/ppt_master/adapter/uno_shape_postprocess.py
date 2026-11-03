@@ -13,7 +13,7 @@ import logging
 from typing import Any
 
 from plugin.draw.shape_clone import clone_shape
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ def copy_shapes_to_page(source_page: Any, target_doc: Any, target_page: Any, uno
         try:
             result = clone_shape(target_doc, target_page, src, uno_ctx=uno_ctx)
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.warning("clone_shape failed: %s", exc)
             continue

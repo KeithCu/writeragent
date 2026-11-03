@@ -29,7 +29,7 @@ import threading
 from types import SimpleNamespace
 from typing import Any, Generator
 
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.uno_listeners import BaseModifyListener
 
 log = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ def _doc_identity(doc: Any) -> str:
         return ""
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-    return str(uno_probe(lambda: _lifecycle_key(doc), "") or "")
+    return str(uno_read(lambda: _lifecycle_key(doc), "") or "")
 
 
 def _owning_calc_doc(sheet: Any) -> Any | None:
@@ -86,12 +86,12 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
         if current is None:
             return None
         supports: Any = getattr(current, "supportsService", None)
-        if callable(supports) and uno_probe(lambda: supports("com.sun.star.sheet.SpreadsheetDocument"), False) is True:
+        if callable(supports) and uno_read(lambda: supports("com.sun.star.sheet.SpreadsheetDocument"), False) is True:
             return current
         parent = getattr(current, "getParent", None)
         if not callable(parent):
             return None
-        current = uno_probe(parent, None)
+        current = uno_read(parent, None)
     return None
 
 

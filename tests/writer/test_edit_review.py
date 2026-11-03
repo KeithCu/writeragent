@@ -774,7 +774,7 @@ def test_wait_for_review_aborts_immediately_when_document_disposed():
 
     with (
         _patch.object(session, "_pending_tokens", return_value=(set(), False)),
-        _patch("plugin.framework.errors.is_document_disposed", return_value=True),
+        _patch("plugin.writer.edit_review.document_is_disposed", return_value=True),
         _patch.object(session, "_review_payload", side_effect=lambda complete, timed_out: fake_payload(complete=complete, timed_out=timed_out)),
         _patch.object(session, "cleanup") as cleanup,
     ):

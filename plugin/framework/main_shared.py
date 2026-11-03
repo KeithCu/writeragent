@@ -104,17 +104,15 @@ def report_action_failure(command: str, exc: BaseException) -> None:
 
 def open_dialog_safely(dialog_func: Callable[..., Any], error_msg: str, *args: Any, **kwargs: Any) -> None:
     """Safely open a dialog with standardized error handling and reporting."""
-    from plugin.framework.errors import UnoObjectError, is_disposed_exception
+    from plugin.framework.errors import UnoObjectError, suppress_disposed
     from plugin.framework.uno_context import get_ctx
 
     try:
-        dialog_func(get_ctx(), *args, **kwargs)
+        with suppress_disposed("dialog opening", suppress_all=False):
+            dialog_func(get_ctx(), *args, **kwargs)
     except UnoObjectError as e:
         log.warning("UNO error opening dialog: %s", e.message)
     except Exception as e:
-        if is_disposed_exception(e):
-            log.debug("Dialog opening aborted: document disposed")
-            return
         log.exception("%s", error_msg)
         # error_msg is a caller sentence, not a catalog msgid. Do not pass it through _().
         detail = f"{error_msg}: {e}"

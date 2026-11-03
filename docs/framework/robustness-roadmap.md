@@ -33,7 +33,7 @@ Current building blocks already exist in `plugin/framework/errors.py`:
 
 - `WriterAgentException` as the common base error
 - typed subclasses such as `ConfigError`, `NetworkError`, `UnoObjectError`, and `DocumentDisposedError`
-- `safe_call`, `safe_uno_call`, and `check_disposed` helpers for wrapping UNO failures
+- `uno_read`, `uno_call`, and `best_effort` helpers for wrapping UNO failures
 - `format_error_payload()` for structured tool and API errors
 - `safe_json_loads()` for defensive parsing
 

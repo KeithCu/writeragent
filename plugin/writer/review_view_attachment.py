@@ -209,9 +209,9 @@ def register_controller(controller: Any) -> None:
         refresh_review_toolbar(model)
         log.debug("review_view_attachment: registered on Writer controller")
     except Exception as exc:
-        from plugin.framework.errors import is_real_disposal
+        from plugin.framework.errors import is_disposal
 
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         log.warning("review_view_attachment: register failed", exc_info=True)
 

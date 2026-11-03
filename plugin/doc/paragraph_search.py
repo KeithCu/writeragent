@@ -13,7 +13,7 @@ import logging
 import re as re_mod
 from typing import Any
 
-from plugin.framework.errors import reraise_if_disposed, uno_probe
+from plugin.framework.errors import reraise_if_disposed, uno_read
 
 
 def compile_search_pattern(
@@ -122,7 +122,7 @@ def _anchor_contains_point(text_obj: Any, match_start: Any, element: Any) -> boo
         cmp_end = text_obj.compareRegionStarts(match_start, anchor.getEnd())
         return cmp_end >= 0
 
-    return uno_probe(_check, False)
+    return uno_read(_check, False)
 
 
 def _index_outside_paragraphs(
@@ -268,4 +268,4 @@ def _anchor_is_at_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para
             return cmp_end >= 0
         return _anchor_contains_point(text_obj, match_start, element)
 
-    return uno_probe(_test, False)
+    return uno_read(_test, False)

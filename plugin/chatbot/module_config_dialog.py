@@ -23,7 +23,7 @@ from plugin.chatbot.settings_fields import (
     populate_settings_control,
     read_settings_control,
 )
-from plugin.framework.errors import best_effort, is_disposed_exception, suppress_disposed
+from plugin.framework.errors import best_effort, is_disposal, suppress_disposed
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseTopWindowListener
@@ -92,7 +92,7 @@ class ModuleConfigDialog:
                     set_focus()
                 return existing
             except Exception as exc:
-                if not is_disposed_exception(exc):
+                if not is_disposal(exc):
                     raise
                 existing.close()
 

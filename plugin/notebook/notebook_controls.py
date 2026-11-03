@@ -34,7 +34,7 @@ import uno
 from com.sun.star.awt import Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener, BaseDocumentEventListener
@@ -767,7 +767,7 @@ def _install_doc_event_listener(ctx: Any) -> None:
                         return
 
                     if doc is not None:
-                        is_text_doc = uno_probe(
+                        is_text_doc = uno_read(
                             lambda: bool(doc.supportsService("com.sun.star.text.TextDocument")),
                             True,
                         )

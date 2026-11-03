@@ -476,7 +476,7 @@ def test_shape_upsert_execute_line_zero_height():
 
 
 class DisposedException(Exception):
-    """Type name matches is_disposed_exception."""
+    """Type name matches is_disposal."""
 
 
 def test_shape_upsert_disposed_page_is_not_invalid_index():

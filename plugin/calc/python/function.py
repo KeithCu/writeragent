@@ -36,7 +36,7 @@ from plugin.calc.datetime_wire import (
 )
 from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc, search_sheet_for_formula
 from plugin.calc.python.image_egress import insert_image_result_on_sheet
-from plugin.framework.errors import best_effort, format_error_message, uno_probe
+from plugin.framework.errors import best_effort, format_error_message, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
 
@@ -425,7 +425,7 @@ def _get_calc_doc(ctx: Any) -> Any | None:
             return guard_uno(doc)
         return None
 
-    return uno_probe(_probe, None)
+    return uno_read(_probe, None)
 
 
 def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
@@ -618,7 +618,7 @@ def _undo_lock(doc: Any) -> Generator[Any, None, None]:
     locked = False
     raw_doc = _unwrap_uno(doc)
     if hasattr(raw_doc, "getUndoManager"):
-        um = uno_probe(raw_doc.getUndoManager, None)
+        um = uno_read(raw_doc.getUndoManager, None)
         if um is not None:
             def _lock_um() -> None:
                 nonlocal hidden, locked
@@ -675,7 +675,7 @@ def _cell_matches_stored_value(sheet: Any, row: int, col: int, cell_rec: SpillCe
 def _cell_is_formula(cell: Any) -> bool:
     """True if cell contains a formula (getType() == 3 or starts with '=')."""
     return bool(
-        uno_probe(
+        uno_read(
             lambda: cell.getType() == 3 or str(cell.getFormula() or "").startswith("="),
             False,
         )
@@ -1265,7 +1265,7 @@ def _cell_is_matrix(sheet: Any, cell: Any) -> bool:
                 return (addr.EndColumn > addr.StartColumn) or (addr.EndRow > addr.StartRow)
         return False
 
-    return bool(uno_probe(_probe, False))
+    return bool(uno_read(_probe, False))
 
 
 def _selection_is_multi_cell(target_doc: Any) -> bool:
