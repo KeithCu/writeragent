@@ -72,7 +72,7 @@ def close_modeless_dialog(dlg: Any, *, toolkit_teardown: bool = False, log_label
 
 
 from plugin.framework.config import get_config, save
-from plugin.framework.errors import is_tool_document_disposed, resolve_exception_message
+from plugin.framework.errors import is_disposal, resolve_exception_message
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import (
     load_writeragent_dialog_detail,
@@ -117,7 +117,7 @@ class _ScriptSaveResult:
 def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str, doc: Any = None) -> None:
     """Show Save / Save As / Delete / New failures. Those buttons used to only log."""
     log.exception("%s failed in dialog", where)
-    text = _("The document is no longer open.") if is_tool_document_disposed(exc, doc) else resolve_exception_message(exc)
+    text = _("The document is no longer open.") if is_disposal(exc) else resolve_exception_message(exc)
     lbl = dlg.getControl("InstructionLbl")
     if lbl is not None:
         set_control_text(lbl, text)

@@ -28,7 +28,7 @@ from typing import Any, Callable
 from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework import config
-from plugin.framework.errors import DocumentDisposedError, is_disposed_exception
+from plugin.framework.errors import DocumentDisposedError, is_disposal
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import _enumeration_should_continue, get_desktop, normalize_doc_url
 from plugin.scripting.domain_registry import (
@@ -185,7 +185,7 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
     except Exception as exc:
         # A disposed document is not "read-only". Callers that swallow the
         # message used to keep writing as if the file were still open.
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         log.exception("document_scripts: failed to persist on document")
         # Same false My Scripts claim as the read-only return above.

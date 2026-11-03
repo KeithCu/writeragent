@@ -66,7 +66,7 @@ from plugin.calc.address_utils import format_range_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+from plugin.framework.errors import ToolExecutionError, is_disposal
 
 log = logging.getLogger(__name__)
 
@@ -342,7 +342,7 @@ class CreatePivotTable(ToolCalcPivotBase):
             try:
                 dpt.refresh()
             except Exception as exc:
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
                 try:
                     dp_tables.removeByName(pivot_name)

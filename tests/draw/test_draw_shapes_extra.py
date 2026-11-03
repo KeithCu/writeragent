@@ -147,7 +147,7 @@ def test_create_diagram_unknown_connection_creates_nothing():
 
 
 class DisposedException(Exception):
-    """Type name matches is_disposed_exception / is_real_disposal."""
+    """Type name matches is_disposal."""
 
 
 def _align_page(side_effect):

@@ -18,7 +18,7 @@ from typing import Any
 
 from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
 from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
-from plugin.framework.errors import best_effort, is_disposed_exception
+from plugin.framework.errors import best_effort, is_disposal
 from plugin.framework.uno_context import get_desktop
 from plugin.ppt_master.adapter.uno_shape_postprocess import copy_shapes_to_page
 from plugin.framework.queue_executor import main
@@ -93,7 +93,7 @@ def _copy_page_notes(source_page: Any, target_page: Any) -> None:
         notes_str = "" if raw is None else raw.strip()
         set_notes_text(target_page, notes_str)
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         # A non-disposed notes error (corrupt NotesShape) is logged and this
         # slide's notes are skipped so the rest of the deck still imports.

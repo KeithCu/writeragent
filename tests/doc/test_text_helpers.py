@@ -384,7 +384,6 @@ def test_get_document_length_is_the_visible_writer_text():
     model = MagicMock()
     with (
         patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.WRITER),
-        patch.object(text_helpers, "check_disposed"),
         patch.object(text_helpers, "get_string_without_tracked_deletions", return_value="ab\r\ncd") as visible,
     ):
         assert text_helpers.get_document_length(model) == 5
@@ -748,10 +747,7 @@ def test_get_document_length_non_writer_is_zero():
     from plugin.doc import text_helpers
 
     model = MagicMock()
-    with (
-        patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.CALC),
-        patch.object(text_helpers, "check_disposed"),
-    ):
+    with patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.CALC):
         assert text_helpers.get_document_length(model) == 0
     model.getText.assert_not_called()
 

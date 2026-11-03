@@ -195,7 +195,7 @@ def test_insert_table_rejects_zero_rows():
 
 
 class DisposedException(Exception):
-    """Type name matches is_real_disposal."""
+    """Type name matches is_disposal."""
 
 
 def test_insert_table_disposed_page_is_not_invalid_index():

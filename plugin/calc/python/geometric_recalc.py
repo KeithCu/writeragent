@@ -37,7 +37,7 @@ from plugin.calc.python.geometric_recalc_core import (
     compute_eval_index,
     compute_sheet_repair,
 )
-from plugin.framework.errors import best_effort, is_disposed_exception, uno_probe
+from plugin.framework.errors import best_effort, is_disposal, uno_read
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -152,7 +152,7 @@ def load_geometric_registry_for_doc(doc: Any) -> str:
                         GeometricRecord(predecessor=local_a1(pred))
                     )
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         log.exception("Failed to load geometric registry from document property")
     return workbook_key
@@ -174,7 +174,7 @@ def save_geometric_registry_for_doc(doc: Any, workbook_key: str) -> None:
             return
         set_document_property(doc, GEOMETRIC_REGISTRY_PROP, payload)
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         log.exception("Failed to save geometric registry to document property")
 
@@ -247,7 +247,7 @@ def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
         try:
             sheet = doc.getSheets().getByName(sheet_name)
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             log.warning("geometric_recalc: getByName(%s) failed", sheet_name, exc_info=True)
             return ""
@@ -259,7 +259,7 @@ def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
     try:
         return str(cell.getString() or "")
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         log.warning("geometric_recalc: read code cell failed at %s", ref, exc_info=True)
         return ""
@@ -275,7 +275,7 @@ def _resolved_code_for_discovered(doc: Any, sheet: Any, formula: str) -> str:
 
 
 def _sheet_name(sheet: Any) -> str:
-    return uno_probe(lambda: str(sheet.getName() or "") or "Sheet", "Sheet")
+    return uno_read(lambda: str(sheet.getName() or "") or "Sheet", "Sheet")
 
 
 def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell], str, bool]:
@@ -304,7 +304,7 @@ def _iter_sheets(doc: Any) -> list[Any]:
         for i in range(int(sheets.getCount())):
             out.append(sheets.getByIndex(i))
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         log.warning("geometric_recalc: sheet walk failed", exc_info=True)
     return out
@@ -312,12 +312,12 @@ def _iter_sheets(doc: Any) -> list[Any]:
 
 def _sheet_of_cell(cell: Any, doc: Any) -> Any | None:
     if cell is not None and hasattr(cell, "getSpreadsheet"):
-        sheet = uno_probe(cell.getSpreadsheet, None)
+        sheet = uno_read(cell.getSpreadsheet, None)
         if sheet is not None:
             return sheet
-    ctrl = uno_probe(doc.getCurrentController, None) if doc is not None else None
+    ctrl = uno_read(doc.getCurrentController, None) if doc is not None else None
     if ctrl is not None:
-        return uno_probe(ctrl.getActiveSheet, None)
+        return uno_read(ctrl.getActiveSheet, None)
     return None
 
 
@@ -326,7 +326,7 @@ def _cell_on_sheet(sheet: Any, address: str) -> Any | None:
     if parsed is None:
         return None
     col, row = parsed
-    return uno_probe(lambda: sheet.getCellByPosition(col, row), None)
+    return uno_read(lambda: sheet.getCellByPosition(col, row), None)
 
 
 def _apply_patches_to_sheet(sheet: Any, patches: tuple[GeometricPatch, ...]) -> set[str]:
@@ -339,7 +339,7 @@ def _apply_patches_to_sheet(sheet: Any, patches: tuple[GeometricPatch, ...]) -> 
         try:
             current = str(cell.getFormula() or "")
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             log.warning("geometric_recalc: getFormula failed at %s", patch.address, exc_info=True)
             continue
@@ -350,7 +350,7 @@ def _apply_patches_to_sheet(sheet: Any, patches: tuple[GeometricPatch, ...]) -> 
             cell.setFormula(patch.new_formula)
             applied.add(local_a1(patch.address))
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             log.warning("geometric_recalc: setFormula failed at %s", patch.address, exc_info=True)
     return applied
@@ -472,7 +472,7 @@ def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
         from plugin.framework.uno_context import get_ctx
 
         if main.is_current():
-            ctx = uno_probe(get_ctx, None)
+            ctx = uno_read(get_ctx, None)
     sheet = _sheet_of_cell(cell, doc)
     if sheet is None:
         return
@@ -481,7 +481,7 @@ def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
 
 def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
     """Load UDProp; reconcile when the flag is on. Always record Isolated session."""
-    if doc is None or not uno_probe(lambda: doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False):
+    if doc is None or not uno_read(lambda: doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False):
         return
     if geometric_flag_enabled():
         reconcile(ctx, doc)

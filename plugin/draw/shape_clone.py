@@ -11,7 +11,7 @@ import os
 import tempfile
 from typing import Any, NamedTuple
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.uno_context import create_property_value, get_service_manager
 from plugin.framework.url_utils import path_to_file_url
 
@@ -108,25 +108,25 @@ def copy_prop(dest: Any, src: Any, name: str) -> str:
     try:
         value = src.getPropertyValue(name)
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         try:
             value = getattr(src, name)
         except Exception as inner_exc:
-            if is_real_disposal(inner_exc):
+            if is_disposal(inner_exc):
                 raise
             return "missing"
     try:
         dest.setPropertyValue(name, value)
         return "copied"
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
     try:
         setattr(dest, name, value)
         return "copied"
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         if name in ("Position", "Size"):
             raise RuntimeError("Failed to set %s on cloned shape" % name)
@@ -138,13 +138,13 @@ def _assign_graphic(dest_shape: Any, graphic: Any) -> bool:
         dest_shape.setPropertyValue("Graphic", graphic)
         return True
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
     try:
         setattr(dest_shape, "Graphic", graphic)
         return True
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
     return False
 
@@ -175,7 +175,7 @@ def reimport_graphic(
         try:
             new_graphic = provider.queryGraphic((create_property_value("URL", url),))
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("GraphicProvider.queryGraphic failed url=%s", url, exc_info=True)
         if new_graphic is not None and _assign_graphic(dest_shape, new_graphic):
@@ -186,12 +186,12 @@ def reimport_graphic(
     try:
         graphic = src_shape.getPropertyValue("Graphic")
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         try:
             graphic = getattr(src_shape, "Graphic", None)
         except Exception as inner_exc:
-            if is_real_disposal(inner_exc):
+            if is_disposal(inner_exc):
                 raise
             graphic = None
     if graphic is None:
@@ -216,7 +216,7 @@ def reimport_graphic(
             if _assign_graphic(dest_shape, new_graphic):
                 return True
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("graphic reimport %s failed", mime, exc_info=True)
         finally:
@@ -247,7 +247,7 @@ def clone_shape(
                 st_val = get_st()
                 shape_type = str(st_val or "")
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 shape_type = ""
         else:
@@ -273,7 +273,7 @@ def clone_shape(
             try:
                 val = src_shape.getPropertyValue("FillStyle")
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 val = getattr(src_shape, "FillStyle", None)
             fill_kind = fill_style_kind(val)
@@ -324,14 +324,14 @@ def clone_shape(
         try:
             src_child_count = int(src_shape.getCount())
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             src_child_count = 0
         for child_idx in range(src_child_count):
             try:
                 src_child = src_shape.getByIndex(child_idx)
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 raise
             child_result = clone_shape(
@@ -358,7 +358,7 @@ def clone_shape(
         try:
             dest_child_count = int(clone.getCount())
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             dest_child_count = 0
         if src_child_count > 0 and dest_child_count == 0:
@@ -408,7 +408,7 @@ def clone_shape(
                 if callable(get_str) and callable(set_str):
                     set_str(get_str())
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
 
     # Geometry last so layout does not overwrite chrome metrics.

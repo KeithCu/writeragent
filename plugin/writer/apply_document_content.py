@@ -55,7 +55,6 @@ from plugin.framework.errors import (
     ToolExecutionError,
     format_error_payload,
     reraise_if_disposed,
-    uno_probe,
     uno_read,
 )
 from plugin.framework.json_utils import safe_json_loads
@@ -168,10 +167,10 @@ def _table_deletion_result(names: list[str], tracked: bool) -> dict[str, Any]:
 
 def _table_and_name(found: Any) -> tuple[Any, str | None]:
     """The TextTable and name for a search match, or (None, None) when not in a cell."""
-    table = uno_probe(lambda: found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable"), None)
+    table = uno_read(lambda: found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable"), None)
     if table is None:
         return None, None
-    return table, uno_probe(lambda: str(table.getName() or ""), "") or None
+    return table, uno_read(lambda: str(table.getName() or ""), "") or None
 
 
 def _range_in_cell(found: Any, cell: Any) -> bool:
@@ -191,13 +190,13 @@ def _range_in_cell(found: Any, cell: Any) -> bool:
         cell.createTextCursorByRange(found.getStart())
         return True
 
-    return uno_probe(same_text, False) or uno_probe(cursor_fits, False)
+    return uno_read(same_text, False) or uno_read(cursor_fits, False)
 
 
 def _match_is_whole_cell(found: Any, cell: Any, cell_text: str) -> bool:
     if not _range_in_cell(found, cell):
         return False
-    return uno_probe(lambda: str(found.getString() or "").strip() == cell_text, False)
+    return uno_read(lambda: str(found.getString() or "").strip() == cell_text, False)
 
 
 def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
@@ -206,17 +205,17 @@ def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
     Unreadable cells and hosted nested tables return False so the caller edits
     text instead of guessing which table to remove.
     """
-    cell_names: list[Any] = uno_probe(lambda: list(table.getCellNames()), [])
+    cell_names: list[Any] = uno_read(lambda: list(table.getCellNames()), [])
     if not cell_names:
         return False
 
     for cell_name in cell_names:
-        cell = uno_probe(lambda: table.getCellByName(cell_name), None)
+        cell = uno_read(lambda: table.getCellByName(cell_name), None)
         if cell is None or _cell_hosted_table_names(cell):
             return False
         # Raw text, pending deletions included: a cell that still holds a pending change is
         # not an empty shell, so an empty replacement must not delete the whole table.
-        text = uno_probe(lambda: cell.getString().strip(), None)
+        text = uno_read(lambda: cell.getString().strip(), None)
         if text is None:
             return False
         if not text:

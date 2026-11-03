@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSlideMastersBase
 from plugin.draw.bridge import resolve_shape_page
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -30,14 +30,14 @@ def iter_masters(doc: Any) -> list[tuple[int, Any, str]]:
     try:
         masters = doc.getMasterPages()
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return []
     result: list[tuple[int, Any, str]] = []
     try:
         count = int(masters.getCount())
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return []
     for i in range(count):
@@ -46,7 +46,7 @@ def iter_masters(doc: Any) -> list[tuple[int, Any, str]]:
             name = str(getattr(m, "Name", "") or "")
             result.append((i, m, name))
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             break
     return result

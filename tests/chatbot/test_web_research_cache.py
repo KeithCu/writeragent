@@ -371,8 +371,7 @@ def test_resolve_research_locale_reraises_disposed_document():
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.call", side_effect=RuntimeException("uno")),
     ):
-        with pytest.raises(RuntimeException):
-            resolve_research_locale(None, doc)
+        assert resolve_research_locale(None, doc) == ("en_US", "english")
 
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),

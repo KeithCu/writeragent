@@ -11,7 +11,7 @@ import contextvars
 from typing import Any, Generator, Iterator
 
 from plugin.calc.python.formula_edit import PyFormula
-from plugin.framework.errors import uno_probe
+from plugin.framework.errors import uno_read
 
 CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
 
@@ -53,7 +53,7 @@ def _resolve_ref_cell(sheet: Any, doc: Any | None, code_ref: str) -> Any | None:
             if doc is None:
                 return None
             sheets = doc.getSheets()
-            target_sheet = uno_probe(lambda: sheets.getByName(sheet_prefix), None)
+            target_sheet = uno_read(lambda: sheets.getByName(sheet_prefix), None)
             if target_sheet is None:
                 return None
         return target_sheet.getCellByPosition(col, row)
@@ -74,7 +74,7 @@ def is_matching_py_formula(formula: str, code_str: str, *, sheet: Any | None = N
         if sheet is not None and parsed.code:
             ref_cell = _resolve_ref_cell(sheet, doc, parsed.code)
             if ref_cell is not None:
-                cell_text = uno_probe(ref_cell.getString, "") if hasattr(ref_cell, "getString") else ""
+                cell_text = uno_read(ref_cell.getString, "") if hasattr(ref_cell, "getString") else ""
                 return _code_strings_match(cell_text, code_str)
         return False
     return _code_strings_match(parsed.code, code_str)
@@ -84,7 +84,7 @@ def iter_range_formula_texts(sheet: Any, cell_range: Any, *, skip_cell_errors: b
     """Yield (row, col, formula_text). getFormulaArray() runs before the first yield.
     Fallback getFormula() errors propagate unless skip_cell_errors."""
     addr = cell_range.getRangeAddress()
-    formula_matrix = uno_probe(cell_range.getFormulaArray, None) if hasattr(cell_range, "getFormulaArray") else None
+    formula_matrix = uno_read(cell_range.getFormulaArray, None) if hasattr(cell_range, "getFormulaArray") else None
     if isinstance(formula_matrix, (list, tuple)) and len(formula_matrix) > 0:
         for r_idx, row_formulas in enumerate(formula_matrix):
             row = addr.StartRow + r_idx
@@ -122,7 +122,7 @@ def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | Non
             return None
         return (addr.StartRow, addr.StartColumn)
 
-    return uno_probe(_probe, None)
+    return uno_read(_probe, None)
 
 
 def search_sheet_for_formula(sheet: Any, code_str: str, doc: Any | None = None) -> tuple[Any, int, int] | None:

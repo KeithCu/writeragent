@@ -36,7 +36,7 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> dict[str, Any] | No
     `mutate` returns an error dict or None; any dict is treated as an error.
     """
     from plugin.doc.compound_undo import WriterCompoundUndo
-    from plugin.framework.errors import is_real_disposal, reraise_if_disposed
+    from plugin.framework.errors import is_disposal, reraise_if_disposed
 
     group = WriterCompoundUndo.try_enter(doc, title)
     if group is None:
@@ -55,7 +55,7 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> dict[str, Any] | No
         try:
             left = group.close()
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 exc_cause = exc
         if not left and error is None and exc_cause is None and group.leave_error is not None:
             error = {
@@ -97,7 +97,7 @@ def commit_or_rollback_mutation(
     **extra_error: Any,
 ) -> dict[str, Any] | None:
     """Execute mutate inside an undo transaction, reporting tool errors on failure."""
-    from plugin.framework.errors import is_real_disposal
+    from plugin.framework.errors import is_disposal
 
     try:
         return commit_or_rollback(doc, undo_title, mutate)
@@ -107,7 +107,7 @@ def commit_or_rollback_mutation(
             code="UNDO_UNAVAILABLE",
         )
     except Exception as e:
-        if is_real_disposal(e):
+        if is_disposal(e):
             raise
         err = tool._tool_error(
             f"{rollback_msg} ({e}).",

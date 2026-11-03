@@ -32,7 +32,7 @@ from typing import Any
 import unohelper
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.writer import review_view_attachment as rva
 
 log = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ def _is_writer(model: Any) -> bool:
     try:
         return bool(model is not None and model.supportsService("com.sun.star.text.TextDocument"))
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return False
 

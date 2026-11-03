@@ -12,8 +12,11 @@ portions. Callers run on the UI thread: the read helper is @main_thread_only.
 """
 from typing import Any, Iterator
 
-from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions
-from plugin.framework.errors import ToolExecutionError, uno_probe
+from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.framework.errors import ToolExecutionError, uno_read
+
+# uno_read default for sites where None is a real UNO result.
+_FAILED: Any = object()
 
 
 def _service_named(obj: Any, name: str) -> bool:
@@ -23,10 +26,10 @@ def _service_named(obj: Any, name: str) -> bool:
         ss = getattr(obj, "supportsService", None)
         return bool(ss(name)) if callable(ss) else None
 
-    found = uno_probe(via_supports_service, None)
+    found = uno_read(via_supports_service, None)
     if found is not None:
         return found
-    return uno_probe(lambda: name in (obj.getSupportedServiceNames() or ()), False)
+    return uno_read(lambda: name in (obj.getSupportedServiceNames() or ()), False)
 
 
 def _is_text_table(obj: Any) -> bool:
@@ -43,17 +46,17 @@ def _container_xtext(obj: Any) -> Any | None:
     """
     if not _service_named(obj, "com.sun.star.text.TextFrame"):
         return None
-    return uno_probe(lambda: obj.getText(), None)
+    return uno_read(lambda: obj.getText(), None)
 
 
 def _safe_enumerate(obj: Any) -> Iterator[Any]:
     """Yield elements from an object's XEnumeration, re-raising disposal."""
-    enum = uno_probe(lambda: obj.createEnumeration(), None)
+    enum = uno_read(lambda: obj.createEnumeration(), None)
     if enum is None:
         return
     # Portion walks must use hasMoreElements() is True; bare "if not enum.hasMoreElements()"
     # never stops on MagicMock (AGENTS.md). A failed read ends the walk like the end does.
-    while (element := uno_probe(lambda: enum.nextElement() if enum.hasMoreElements() is True else FAILED, FAILED)) is not FAILED:
+    while (element := uno_read(lambda: enum.nextElement() if enum.hasMoreElements() is True else _FAILED, _FAILED)) is not _FAILED:
         yield element
 
 
@@ -64,7 +67,7 @@ def _iter_text_frames_in_para(para: Any) -> Iterator[Any]:
     is only Paragraph; the frame hangs off a portion.
     """
     for portion in _safe_enumerate(para):
-        frame = uno_probe(lambda: portion.getPropertyValue("TextFrame"), None)
+        frame = uno_read(lambda: portion.getPropertyValue("TextFrame"), None)
         if frame is not None:
             yield frame
 
@@ -110,7 +113,7 @@ def _cell_hosted_table_names(cell: Any) -> list[str]:
     """
     names: list[str] = []
     for table in _iter_nested_tables(cell):
-        nested_name = uno_probe(lambda: str(table.getName() or ""), "")
+        nested_name = uno_read(lambda: str(table.getName() or ""), "")
         if nested_name:
             names.append(nested_name)
     return names
@@ -122,10 +125,10 @@ def raise_if_range_hosts_nested_table(text_range: Any) -> None:
     def host_text() -> Any:
         text_obj = text_range.getText()
         cur = text_obj.createTextCursorByRange(text_range.getStart())
-        return FAILED if cur.getPropertyValue("TextTable") is None else text_obj
+        return _FAILED if cur.getPropertyValue("TextTable") is None else text_obj
 
-    text_obj = uno_probe(host_text, FAILED)
-    hosted = [] if text_obj is FAILED else _cell_hosted_table_names(text_obj)
+    text_obj = uno_read(host_text, _FAILED)
+    hosted = [] if text_obj is _FAILED else _cell_hosted_table_names(text_obj)
     if not hosted:
         return
 

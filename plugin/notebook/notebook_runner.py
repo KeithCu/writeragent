@@ -15,7 +15,8 @@ from typing import Any
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import best_effort, is_document_disposed, is_real_disposal
+from plugin.framework.errors import best_effort, is_disposal
+from plugin.framework.errors import document_is_disposed
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_active_document, process_events_to_idle
@@ -1090,13 +1091,13 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                     # LayoutIdle livelock is during execute, not this between-cell pump.
                     # Stop clicks are delivered here; check the flag before the next cell.
                     _pump_between_notebook_cells(ctx)
-                if is_document_disposed(doc) or _is_stop_requested(busy_key):
+                if document_is_disposed(doc) or _is_stop_requested(busy_key):
                     return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
                 try:
                     one = _execute_and_apply(ctx, doc, state, cell, code)
                 except Exception as exc:
                     # Tip: stop quietly only when the document is gone; a live RuntimeException propagates.
-                    if is_document_disposed(doc) or is_real_disposal(exc):
+                    if document_is_disposed(doc) or is_disposal(exc):
                         return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
                     raise
                 if one.status == "stopped":

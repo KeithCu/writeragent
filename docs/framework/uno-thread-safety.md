@@ -249,7 +249,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 | Document user properties | `plugin/doc/udprops.py` | Unwrap PropertyBag (proxy vs addProperty). Not `@main_thread_only`: `XFilter.filter()` runs on LO's Dummy-* dispatch thread during socket `loadComponentFromURL`. |
 | Package id | `plugin/framework/uno_context.py` | `set_package_extension_id` at `main.py` / `main_core.py` bootstrap; `resolve_package_extension_id` uses the cache off-main. |
 
-`check_disposed` is a **null** alias of `check_not_none` (Semgrep still matches the old name). Live disposal is `DisposedException` / `is_disposed_exception` / `safe_uno_call`. `_wrap_uno` also wraps one level of Python `list`/`tuple` elements and dict **values** when `GUARD_ON`.
+Null checks check for None. Live disposal is `DisposedException` / `is_disposal`. `_wrap_uno` also wraps one level of Python `list`/`tuple` elements and dict **values** when `GUARD_ON`.
 
 ### Intentionally Unwrapped Boundaries (By Design)
 - `MainThread._get_async_callback`: Stored context is unwrapped by `__init__` and `set_context`, and this method unwraps the service manager before creating `com.sun.star.awt.AsyncCallback` so worker bootstrap does not fire Layer A while `_init_lock` is held. Does not call `get_ctx()` (decorated) from that worker path.
@@ -285,7 +285,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
   - **Calling document from the add-in caller argument**: `=PY()` / `=PYTHON()` take LibreOffice's hidden caller argument (the `XPropertySet` first parameter in `XPythonFunction.idl`), which is the document whose cell is being calculated. That is the only document source: no front-window guess, no open-documents search, and no host-side last-active-workbook cache. A missing caller returns `Error: no calling document`. On the UI thread the shared-kernel session id, init kwargs, and `scoped_dir` are read from that document. Off-main the document is only passed through to UI-thread spill callbacks, so that evaluation runs with no shared session id and no init kwargs rather than borrowing another workbook's.
   - **Proxy Unwrapping & Fallback Resilience**: `_workbook_session_key()` unwraps `_UnoThreadGuardProxy` (`_unwrap_uno(doc)`) before accessing `getURL()` / custom document properties, avoiding nested proxy failures.
   - **Immediate Init Script & Helper Re-Seed**: `reset_workbook_python_session()` clears both the base `calc:…` and `:init` companion session in the worker sandbox, and immediately re-evaluates the init script to restore custom tools (`custom_tools`) and bindings across both shared and isolated sessions.
-  - **`safe_uno_call` Distinction**: `safe_uno_call` re-raises `DocumentDisposedError` / `DisposedException` while returning `default` for non-disposal bridge failures.
+  - **`uno_read` Distinction**: `uno_read` re-raises `DocumentDisposedError` / `DisposedException` while returning `default` for non-disposal bridge failures.
 
 ---
 

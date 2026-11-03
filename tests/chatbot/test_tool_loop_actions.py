@@ -562,7 +562,7 @@ def test_sync_disposed_payload_queues_error_for_the_spawn_document():
     def registry_execute(name, ctx, **kwargs):
         assert ctx.doc is spawn_doc
         host._active_model = LiveDoc()
-        raise RuntimeException("bridge")
+        raise DisposedException("bridge")
 
     registry.execute.side_effect = registry_execute
     started: list = []
@@ -973,7 +973,8 @@ def test_async_tool_failure_uses_model_captured_at_spawn():
         assert item[0] == expected_kind
         assert first_q.empty()
 
-    run(DisposedDoc(), LiveDoc(), StreamQueueKind.ERROR)
+    # A bare RuntimeException is never disposal, whichever document is current.
+    run(DisposedDoc(), LiveDoc(), StreamQueueKind.TOOL_DONE)
     run(LiveDoc(), DisposedDoc(), StreamQueueKind.TOOL_DONE)
 
 

@@ -21,8 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Iterator
 
-from plugin.framework.doc_type import is_impress
-from plugin.framework.errors import WriterAgentException, is_disposed_exception, uno_probe, uno_read
+from plugin.framework.errors import WriterAgentException, is_disposal, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -67,7 +66,7 @@ def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
         try:
             master = slide.MasterPage
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             raise WriterAgentException(f"Could not resolve master page for slide {page_index}: {e}", code="NO_MASTER") from e
         if master is None:
@@ -96,27 +95,56 @@ _FIELDS = (
     ("date_time_fixed", "IsDateTimeFixed", None, "fixed"),
 )
 
+# Probe-failure sentinel. None is a real shape and a real member value.
+_MISSING: Any = object()
+
+
 def _impress_master_hf_use_shapes(doc: Any, is_master_page: bool) -> bool:
-    return is_impress(doc) and is_master_page
+    return uno_read(lambda: bool(doc.supportsService("com.sun.star.presentation.PresentationDocument")), False) and is_master_page
 
 
 def _iter_shapes_on_page(page: Any) -> Iterator[Any]:
-    n = uno_read(lambda: int(page.getCount()), 0)
+    n = uno_read(lambda: int(page.getCount()), None)
+    if n is None:
+        return
     for i in range(n):
-        shape = uno_read(lambda: page.getByIndex(i), None)
-        if shape is not None:
+        # uno_read calls the lambda immediately, so i is the current index.
+        shape = uno_read(lambda: page.getByIndex(i), _MISSING)
+        if shape is not _MISSING:
             yield shape
+
+
+def _hf_shape_hit(shape: Any, svc: str, base: str, *, strict: bool) -> bool:
+    if strict:
+        st = getattr(shape, "ShapeType", None)
+        if st is None and hasattr(shape, "getShapeType"):
+            st = shape.getShapeType()
+        if st and (st == svc or str(st).endswith("." + base)):
+            return True
+        return bool(hasattr(shape, "supportsService") and shape.supportsService(svc))
+    if not hasattr(shape, "getSupportedServiceNames"):
+        return False
+    suffix = "." + base
+    for name in shape.getSupportedServiceNames():
+        nm = str(name)
+        if nm == svc or nm.endswith(suffix):
+            return True
+    return False
 
 
 def _collect_hf_shapes(page: Any) -> dict[str, Any]:
     services = (_SVC_HEADER, _SVC_FOOTER, _SVC_DATETIME, _SVC_SLIDENO)
     found: dict[str, Any] = {s: None for s in services}
-    for shape in _iter_shapes_on_page(page):
-        for svc in services:
-            if found[svc] is not None:
-                continue
-            if uno_read(lambda: bool(shape.supportsService(svc)), False) or uno_read(lambda: getattr(shape, "ShapeType", None) == svc, False):
-                found[svc] = shape
+    shapes = list(_iter_shapes_on_page(page))
+    bases = {svc: svc.rsplit(".", 1)[-1] for svc in services}
+    for strict in (True, False):
+        for shape in shapes:
+            for svc in services:
+                if found[svc] is not None:
+                    continue
+                hit = uno_read(lambda: _hf_shape_hit(shape, svc, bases[svc], strict=strict), False)
+                if hit:
+                    found[svc] = shape
     return found
 
 
@@ -124,7 +152,7 @@ def _get_text(shape: Any) -> str:
     # Call getString inside the probe. hasattr() on PyUNO raises UnknownPropertyException.
     if shape is None:
         return ""
-    return uno_probe(lambda: str(shape.getString() or ""), "")
+    return uno_read(lambda: str(shape.getString() or ""), "")
 
 
 def _write(fn: Any, what: str) -> bool:
@@ -132,22 +160,30 @@ def _write(fn: Any, what: str) -> bool:
         fn()
         return True
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         log.debug("%s failed", what, exc_info=True)
         return False
 
 
 def _set_text(shape: Any, text: str) -> bool:
+    # Resolve setString inside the probe. A missing member stays silent; the write logs.
     if shape is None:
         return False
-    return _write(lambda: shape.setString(text), "setString on header/footer shape")
+    setter = uno_read(lambda: shape.setString, _MISSING)
+    if setter is _MISSING:
+        return False
+    return _write(lambda: setter(text), "setString on header/footer shape")
 
 
 def _set_visible(shape: Any, vis: bool) -> bool:
+    # Same split as _set_text: lookup is silent, setPropertyValue logs through _write.
     if shape is None:
         return False
-    return _write(lambda: shape.setPropertyValue("Visible", vis), "set Visible on header/footer shape")
+    setter = uno_read(lambda: shape.setPropertyValue, _MISSING)
+    if setter is _MISSING:
+        return False
+    return _write(lambda: setter("Visible", vis), "set Visible on header/footer shape")
 
 
 def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:
@@ -160,14 +196,14 @@ def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:
         if hasattr(shape, "getPropertyValue"):
             return bool(shape.getPropertyValue(name))
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         if not fallback_attr:
             return False
     try:
         return bool(getattr(shape, name, False))
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         return False
 
@@ -182,7 +218,7 @@ def _read_impress_master_hf_shapes(page: Any, out: Dict[str, Any]) -> None:
         elif kind == "fixed":
             dt_shape = shapes.get(_SVC_DATETIME)
             out[uno_prop] = _get_bool(dt_shape, "IsFixed", fallback_attr=True)
-    out["DateTimeFormat"] = uno_probe(lambda: page.getPropertyValue("DateTimeFormat"), 0)
+    out["DateTimeFormat"] = uno_read(lambda: page.getPropertyValue("DateTimeFormat"), 0)
 
 
 def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> tuple[int, list[str]]:
@@ -235,7 +271,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
                 try:
                     props[prop_name] = page.getPropertyValue(prop_name)
                 except Exception as e:
-                    if is_disposed_exception(e):
+                    if is_disposal(e):
                         raise
                     log.debug("Could not read property %s: %s", prop_name, e)
 
@@ -298,7 +334,7 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
                     page.setPropertyValue(prop_name, val)
                     updated_count += 1
                 except Exception as e:
-                    if is_disposed_exception(e):
+                    if is_disposal(e):
                         raise
                     log.debug("Could not set property %s: %s", prop_name, e)
                     failed.append(schema_key)

@@ -71,7 +71,7 @@ from plugin.calc.navigation import (
     normalize_cell_address,
     register_cell_link_span,
 )
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.html_stripper import strip_html_tags
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle
@@ -178,7 +178,7 @@ def _text_table_cell_rows(table: Any) -> list[list[str]]:
     rows: list[list[str]] = []
     for row_idx in range(n_rows):
         cells: list[str] = [
-            uno_probe(lambda: table.getCellByPosition(col_idx, row_idx).getString() or "", "")
+            uno_read(lambda: table.getCellByPosition(col_idx, row_idx).getString() or "", "")
             for col_idx in range(n_cols)
         ]
         rows.append(cells)
@@ -388,7 +388,7 @@ def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: int
         def _copy(p: str = prop) -> None:
             setattr(dest_cursor, p, getattr(src_portion, p))
 
-        uno_probe(_copy, None)
+        best_effort(_copy, f"copy {prop}")
     dest_cursor.CharColor = char_color
     if bg_color is not None:
         dest_cursor.CharBackColor = bg_color

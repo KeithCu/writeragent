@@ -61,7 +61,7 @@ from plugin.framework.send_cancellation import SendCancellation, get_current_sen
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
-from plugin.framework.errors import NetworkError, WriterAgentException, is_disposed_exception
+from plugin.framework.errors import NetworkError, WriterAgentException, is_disposal
 from plugin.framework.url_utils import get_api_version_suffix, get_url_path_and_query, normalize_endpoint_url
 
 from plugin.framework.errors import format_error_message
@@ -72,6 +72,7 @@ from .errors import (
     _parse_provider_envelope,
     _path_without_query,
     append_zai_unknown_model_hint,
+    stream_error_is_overload,
     stream_error_message,
 )
 from .http_security import redact_secrets
@@ -80,7 +81,6 @@ from .request_controls import (
     RetryBudget,
     StreamOverload,
     request_model_from_body,
-    stream_error_is_overload,
 )
 from .stream_normalizer import (
     THINKING_DELTA_KEYS,
@@ -944,7 +944,7 @@ class LlmClient:
                 return "stop"
             raise
         except Exception as e:
-            if isinstance(e, WriterAgentException) or is_disposed_exception(e):
+            if isinstance(e, WriterAgentException) or is_disposal(e):
                 raise
             err_msg = format_error_message(e)
             log.exception("streaming_loop: Unexpected error")
@@ -1055,7 +1055,7 @@ class LlmClient:
             except NetworkError:
                 raise
             except Exception as e:
-                if isinstance(e, WriterAgentException) or is_disposed_exception(e):
+                if isinstance(e, WriterAgentException) or is_disposal(e):
                     raise
                 err_msg = format_error_message(e)
                 log.exception("stream_request_with_tools failed")
@@ -1125,7 +1125,7 @@ class LlmClient:
                 # in NetworkError(code="BAD_RESPONSE") so callers that handle
                 # NetworkError see them. WriterAgentException and disposal
                 # still propagate.
-                if isinstance(e, WriterAgentException) or is_disposed_exception(e):
+                if isinstance(e, WriterAgentException) or is_disposal(e):
                     raise
                 err_msg = format_error_message(e)
                 log.exception("parse_sync_response failed")

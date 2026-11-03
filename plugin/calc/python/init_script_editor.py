@@ -10,7 +10,7 @@ from typing import Any
 
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.config import get_config
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import is_disposal
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.scripting.document_scripts import (
@@ -51,7 +51,7 @@ def open_init_script_editor(ctx: Any) -> None:
     try:
         initial = get_calc_init_script(doc)
     except Exception as exc:
-        if not is_disposed_exception(exc):
+        if not is_disposal(exc):
             raise
         msgbox(ctx, title, closed_message, box_type=3)
         return
@@ -63,7 +63,7 @@ def open_init_script_editor(ctx: Any) -> None:
             try:
                 err = set_calc_init_script(doc, new_code)
             except Exception as exc:
-                if not is_disposed_exception(exc):
+                if not is_disposal(exc):
                     raise
                 return {"type": "error", "message": closed_message}
             if err is not None:

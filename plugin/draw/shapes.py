@@ -22,7 +22,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
-from plugin.framework.errors import WriterAgentException, is_disposed_exception, is_real_disposal
+from plugin.framework.errors import WriterAgentException, is_disposal
 from . import layout
 from .base import ToolDrawShapeBase
 
@@ -69,7 +69,7 @@ def _try_writer_anchor_shape_before_add(doc: Any, shape: Any) -> None:
 
         shape.setPropertyValue("AnchorType", AT_PAGE)
     except Exception as ex:
-        if is_real_disposal(ex):
+        if is_disposal(ex):
             raise
         log.warning("create_shape writer_anchor: set AnchorType failed: %s: %s", type(ex).__name__, ex)
 
@@ -94,11 +94,11 @@ def _try_writer_at_page_shape_finalize(doc: Any, shape: Any, page_idx: Any = 0) 
         try:
             log.debug("create_shape writer_at_page_finalize: readback AnchorPageNo=%r HoriOrient=%r VertOrient=%r", shape.getPropertyValue("AnchorPageNo"), shape.getPropertyValue("HoriOrient"), shape.getPropertyValue("VertOrient"))
         except Exception as ex:
-            if is_real_disposal(ex):
+            if is_disposal(ex):
                 raise
             log.debug("create_shape writer_at_page_finalize: readback failed: %s", ex)
     except Exception as ex:
-        if is_real_disposal(ex):
+        if is_disposal(ex):
             raise
         log.warning("create_shape writer_at_page_finalize: failed %s: %s", type(ex).__name__, ex)
 
@@ -112,7 +112,7 @@ def _try_writer_reapply_position_after_anchor(doc: Any, shape: Any, position: An
         shape.setSize(size)
         log.debug("create_shape writer_reapply_pos: pos=(%s,%s) size=(%sx%s)", position.X, position.Y, size.Width, size.Height)
     except Exception as ex:
-        if is_real_disposal(ex):
+        if is_disposal(ex):
             raise
         log.warning("create_shape writer_reapply_pos: %s: %s", type(ex).__name__, ex)
 
@@ -135,7 +135,7 @@ def _try_writer_invalidate_and_pump(doc: Any) -> None:
         win.invalidate(0)
         log.debug("create_shape writer_invalidate: invalidate(0)")
     except Exception as ex:
-        if is_real_disposal(ex):
+        if is_disposal(ex):
             raise
         log.debug("create_shape writer_invalidate: %s", ex)
 
@@ -159,7 +159,7 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
         log.debug("create_shape enhanced_geometry: ok type=%r engine=%r", custom_shape_type, _ENHANCED_CUSTOM_SHAPE_ENGINE)
         return True, None
     except Exception as ex:
-        if is_real_disposal(ex):
+        if is_disposal(ex):
             raise
         log.debug("create_shape enhanced_geometry: failed type=%r err=%s: %s", custom_shape_type, type(ex).__name__, ex)
         return False, f"{type(ex).__name__}: {ex}"
@@ -299,7 +299,7 @@ class DrawShapes:
             # A disposed document must reach execute_safe as DisposedException.
             # Wrapping it in DrawError made a closed document look like a
             # normal shape-creation failure.
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             raise DrawError(f"Failed to create shape: {str(e)}", code="DRAW_SHAPE_CREATION_ERROR", details={"shape_type": shape_type, "position": position, "size": size, "original_error": str(e), "error_type": type(e).__name__}) from e
 
@@ -315,7 +315,7 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
         try:
             shape.setPropertyValue(prop, value)
         except Exception as ex:
-            if is_real_disposal(ex):
+            if is_disposal(ex):
                 raise
             log.debug("setPropertyValue %s failed", prop, exc_info=True)
     if not apply_autofit:
@@ -325,14 +325,14 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
 
         shape.setPropertyValue("TextFitToSize", TextFitToSizeType.AUTOFIT)
     except Exception as ex:
-        if is_real_disposal(ex):
+        if is_disposal(ex):
             raise
         log.debug("set TextFitToSize AUTOFIT failed", exc_info=True)
 
 
 def _failed_prop(failed: list[str], name: str, exc: BaseException) -> None:
     """Record a property that did not apply; a closed document still propagates."""
-    if is_real_disposal(exc):
+    if is_disposal(exc):
         raise
     failed.append(name)
 
@@ -706,7 +706,7 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
         start_shape = page.getByIndex(start_idx)
         end_shape = page.getByIndex(end_idx)
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         return tool._tool_error(f"Failed to find shapes at given indices: {str(e)}")
 
@@ -735,7 +735,7 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
         try:
             page.remove(shape)
         except Exception as remove_exc:
-            if is_disposed_exception(remove_exc):
+            if is_disposal(remove_exc):
                 raise
         raise
 
@@ -972,7 +972,7 @@ class CreateDiagram(ToolDrawShapeBase):
                 try:
                     page.remove(shape)
                 except Exception as exc:
-                    if is_real_disposal(exc):
+                    if is_disposal(exc):
                         raise
 
         for node, box in zip(nodes, boxes):
@@ -1048,7 +1048,7 @@ class DeleteShape(_AnyDocumentShapeTool):
         try:
             parent.remove(shape)
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             return self._tool_error("Failed to delete shape at index %s: %s" % (shape_idx, exc))
         return {"status": "ok", "message": "Shape deleted"}

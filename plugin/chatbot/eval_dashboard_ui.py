@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 
 from plugin.framework.config import get_config
 from plugin.framework.client.model_fetcher import get_text_model
-from plugin.framework.errors import best_effort, is_disposed_exception, suppress_disposed
+from plugin.framework.errors import best_effort, suppress_disposed
 from plugin.framework.uno_context import get_active_document
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
@@ -199,18 +199,13 @@ class EvalRunListener(BaseActionListener):
             # call getControl. A closed window has nothing to paint.
             if self._owner._closed:
                 return
-            try:
+            with suppress_disposed("eval progress", logger=log):
                 area = self.dialog.getControl("log_area")
                 current = area.getText() if hasattr(area, "getText") else ""
                 area.setText(current + f"[{result.get('status')}] {result.get('name')}\n")
                 from plugin.framework.uno_context import process_events_to_idle
 
                 process_events_to_idle(self.ctx)
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    log.debug("eval progress skipped; dialog disposed", exc_info=True)
-                    return
-                log.debug("eval progress paint failed", exc_info=True)
 
         main.post(_paint)
 
@@ -241,14 +236,9 @@ class EvalRunListener(BaseActionListener):
         # the dialog on "Running...". A close during the suite disposes the
         # dialog before this post runs: skip the paint, still clear is_running.
         def _paint() -> None:
-            try:
+            with suppress_disposed("eval failure", logger=log):
                 self.dialog.getControl("log_area").setText(f"Benchmark failed:\n{exc}\n")
                 self.dialog.getControl("status").setText("Finished")
-            except Exception as paint_exc:
-                if is_disposed_exception(paint_exc):
-                    log.debug("eval failure skipped; dialog disposed", exc_info=True)
-                else:
-                    log.debug("eval failure status failed", exc_info=True)
 
         self._terminal_paint(_paint)
 

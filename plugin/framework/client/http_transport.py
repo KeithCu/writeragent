@@ -40,11 +40,10 @@ from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC, USER_AGENT
 from plugin.framework.errors import NetworkError, format_error_message
 
 from . import http_security
-from .errors import _format_http_error_response
+from .errors import RETRYABLE_HTTP_STATUS, _format_http_error_response
 from .provider_detection import is_openrouter_endpoint
 from .request_controls import (
     RETRY_MAX_DELAY_SEC,
-    RETRYABLE_HTTP_STATUS,
     RequestPacer,
     RetryBudget,
     backoff_delay_sec,

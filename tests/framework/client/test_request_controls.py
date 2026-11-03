@@ -5,6 +5,11 @@ import time
 from typing import Any
 from unittest.mock import patch
 
+from plugin.framework.client.errors import (
+    _structured_error_is_overload,
+    _text_is_overload,
+    stream_error_is_overload,
+)
 from plugin.framework.client import request_controls
 from plugin.framework.send_cancellation import SendCancellation
 
@@ -12,8 +17,6 @@ from plugin.framework.client.request_controls import (
     OPENROUTER_FREE_MIN_GAP_SEC,
     RequestPacer,
     _reserve_host_send_slot,
-    _structured_error_is_overload,
-    _text_is_overload,
     backoff_delay_sec,
     clear_host_gap,
     emit_retry_status,
@@ -28,7 +31,6 @@ from plugin.framework.client.request_controls import (
     reset_local_unverified_hosts_for_tests,
     retry_after_exceeds_cap,
     ssl_mode_for,
-    stream_error_is_overload,
     wait_abortable,
     wait_host_gap,
 )

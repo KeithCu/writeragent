@@ -11,9 +11,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from plugin.framework.doc_type import is_impress
-from plugin.draw.bridge import DrawBridge, set_notes_text
-from plugin.framework.errors import is_disposed_exception
+from plugin.draw.bridge import DrawBridge, find_notes_shape
+from plugin.framework.errors import is_disposal
 
 log = logging.getLogger(__name__)
 
@@ -40,15 +39,21 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
         if idx < 0 or idx >= pages.getCount():
             continue
         notes = item.get("notes")
-        if notes and is_impress(doc):
+        if notes and doc.supportsService("com.sun.star.presentation.PresentationDocument"):
+            # find_notes_shape is the NotesShape lookup the notes tools use.
+            # Header, footer, and date chrome also implement setString and can
+            # precede the notes body. Dispose propagates. applied increments
+            # only after setString returns; a miss is status error.
             try:
                 page = pages.getByIndex(idx)
-                if not set_notes_text(page, str(notes)):
+                shape = find_notes_shape(page.getNotesPage())
+                if shape is None:
                     failures.append(f"slide {idx} notes: no NotesShape")
                 else:
+                    shape.setString(str(notes))
                     applied += 1
             except Exception as exc:
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
                 failures.append(f"slide {idx} notes: {exc}")
                 log.warning("apply enhancement notes failed on slide %s: %s", idx, exc)
@@ -61,7 +66,7 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
                 applied += 1
             except Exception as exc:
                 # A dead document must not look like a successful apply.
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
                 failures.append(f"slide {idx} transition: {exc}")
                 log.warning("apply enhancement transition failed on slide %s: %s", idx, exc)

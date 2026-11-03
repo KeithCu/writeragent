@@ -13,7 +13,7 @@ from plugin.calc.base import ToolCalcCommentBase
 from plugin.calc.address_utils import format_address, parse_address
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import resolve_sheet
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -118,7 +118,7 @@ class AddCellComment(ToolCalcCommentBase):
             sheet, address = CalcBridge(ctx.doc).resolve(cell_ref, kwargs.get("sheet"))
             col, row = parse_address(address)
         except Exception as e:
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             return self._tool_error(str(e))
 
@@ -148,7 +148,7 @@ class DeleteCellComment(ToolCalcCommentBase):
             sheet, address = CalcBridge(ctx.doc).resolve(cell_ref, kwargs.get("sheet"))
             col, row = parse_address(address)
         except Exception as e:
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             return self._tool_error(str(e))
 

@@ -37,7 +37,7 @@ Clear latches `STOP_CLICKED` and wipes the widget (`plugin/chatbot/panel.py` `Cl
 
 Related, same area:
 
-- A disposed document becomes a normal tool error and the loop continues. `execute_fn`'s `except Exception` in `plugin/chatbot/tool_loop_actions.py` (around line 263) turns `DisposedException` into a JSON tool payload and queues `TOOL_DONE`. Use `is_tool_document_disposed` (not `is_disposed_exception`, which treats any `RuntimeException` as disposal). Queue `StreamQueueKind.ERROR` and let the existing error handler end the loop.
+- A disposed document becomes a normal tool error and the loop continues. `execute_fn`'s `except Exception` in `plugin/chatbot/tool_loop_actions.py` (around line 263) turns `DisposedException` into a JSON tool payload and queues `TOOL_DONE`. Use `is_disposal` (bare `RuntimeException` is not disposal). Queue `StreamQueueKind.ERROR` and let the existing error handler end the loop.
 - Web, librarian, brainstorm, writing-plan, PPT, and deep-research answers are still persisted from the `chatbot-send-handler` worker (`plugin/chatbot/send_handlers.py`, the `persist_assistant_on_turn` calls around the answer puts). The agent path was moved onto the drain because a worker write raced Clear. Put the answer on the existing `STREAM_DONE` payload and persist it in `on_stream_done`.
 - The API-error banner is widget-only (`plugin/chatbot/tool_loop.py` `_handle_stream_error`). The user row is stored and the assistant row is not, so a retry adds a second user row with a hole. `persist_assistant_on_turn` the same banner. Skip that write when `on_error` returns true (overflow respawn or audio fallback).
 - The agent user line is painted before it is in history. `spawn_effects_for_start` appends the user query, then the worker can return before `add_user_message` (disposed document, unknown backend). Append the user line in the same place as `add_user_message`, after the backend checks.
@@ -69,7 +69,7 @@ Shallow exact lookup tries the bare word key before `{lang}|{words}` (`plugin/ch
 
 Try the bare key only when `snowball_lang == "english"`. Keep the English bare-then-prefixed order. `tests/chatbot/test_web_research_cache.py` and `docs/chat/search.md` lock that order. Deep lookup already uses only `deep|{lang}|{words}`.
 
-Also: `resolve_research_locale` (`plugin/chatbot/web_research_cache.py` around line 118) treats any exception from the document, including disposal, as `("en_US", "english")`. Re-raise `is_disposed_exception`. Leave the timeout and cancel fallbacks.
+Also: `resolve_research_locale` (`plugin/chatbot/web_research_cache.py` around line 118) treats any exception from the document, including disposal, as `("en_US", "english")`. Re-raise `is_disposal`. Leave the timeout and cancel fallbacks.
 
 Embedding backfill reads missing keys, drops the cache lock, embeds, then `INSERT OR REPLACE` (`plugin/chatbot/web_research_cache.py` `store_research_cache_embeddings`). Eviction can delete the parent row in that window. The later insert does not check that `web_cache` still has the key. Orphans are not served (lookup joins `web_cache`) but nothing deletes them, and the size cap sums only `web_cache.size`. Insert only while the parent row still exists, in the same transaction.
 
@@ -162,7 +162,7 @@ These remove a second copy of a fact. None of them need a new file.
 - `run_deep_research(..., depth=)` (`plugin/chatbot/web_research_deep.py`) is unused. Production rounds come from `chatbot.deep_research_max_rounds`. The parameter only applies when `max_rounds == 3`, so it is not a real alias of `chatbot.deep_research_depth`. Delete the parameter. Keep the config key.
 - `approval_required` in `plugin/chatbot/web_research_chat.py` is deleted and ignored. Only a test still passes it.
 - `_cache_key_inputs` (`plugin/chatbot/web_research.py`) now applies the fluff filter once: one ordered-unique list, with a sorted copy for the storage key. Storage keys are sorted and embedding text keeps order, on purpose (`docs/chat/search.md`).
-- `get_optional` turns a disposed window into "control missing" (`plugin/chatbot/dialogs.py` around line 1056). Re-raise `is_disposed_exception`. Callers that must ignore teardown already have `suppress_disposed`. Keep `None` for a missing name.
+- `get_optional` turns a disposed window into "control missing" (`plugin/chatbot/dialogs.py` around line 1056). Re-raise `is_disposal`. Callers that must ignore teardown already have `suppress_disposed`. Keep `None` for a missing name.
 - `docs/chat/sidebar-implementation.md` still says the first mode follows an empty `USER.md`. The factory uses `librarian_default_mode` / `chatbot.librarian_invoked`, which matches `plugin/chatbot/AGENTS.md`. Update that sentence. Do not change the factory to match the doc.
 - A long traceback drops the bug-report environment. The cap is 7500 raw characters, applied before `urlencode` (`plugin/chatbot/bug_report.py` `_compose_issue_body`). When the exception fills the budget, version, OS, locale, Python, endpoint, and model are discarded. Reserve a short environment header and put the exception tail in what remains. Cap the encoded URL. A failed open logs the full URL. The template has no API-key field.
 - Extend/Edit from the hamburger uses the sidebar frame (`get_document_from_frame`). The menubar still calls the handler with no frame, so it edits the focused document. Writer still uses `get_string_without_tracked_deletions`.
@@ -211,7 +211,7 @@ These live outside `plugin/chatbot` and show up in the findings above.
 
 - `plugin/framework/async_stream.py` `_finish_on_stop` / `_apply_queued_display`: the stop tail is applied after Clear, and `TOOL_DONE` in that queue is dropped before `_handle_stream_stopped`.
 - `plugin/framework/client/llm_client.py` `request_with_tools`: stop still returns accumulated content. The chatbot worker ignores it. Partial `tool_calls` must not be executed.
-- `plugin/framework/errors.py`: `is_tool_document_disposed` is the tool-boundary predicate. `is_disposed_exception` is the UI heuristic and matches a bare `RuntimeException`.
+- `plugin/framework/errors.py`: `is_disposal` is the strict disposal predicate (`DocumentDisposedError` and `DisposedException` only). UI lifecycle uses `suppress_disposed` / `_looks_like_teardown` for broader bridge teardown.
 - `plugin/scripting/host_rpc.py` and `plugin/scripting/venv_worker.py`: PPT document binding and cancel. See item 6.
 - `plugin/audio/tts_service.py` `sync_tts_ui`: Together voices use the live endpoint argument. OpenRouter voice rows call `_saved_endpoint_is_openrouter()`, which reads the saved URL. Before OK, an OpenRouter choice still builds voices as if the old host were current.
 - `plugin/framework/config.py` `validate()` already runs `endpoint_from_selector_text`. Do not add a second normalizer in the settings dialog.

@@ -36,9 +36,7 @@ import logging
 import re
 from typing import Any, Iterator
 
-from plugin.draw.base import DRAW_AND_IMPRESS
-
-from plugin.framework.errors import is_disposed_exception, is_real_disposal, uno_read
+from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
@@ -114,7 +112,7 @@ def control_snapshot(model: Any) -> dict[str, Any]:
             raw = getattr(model, attr)
             info[key] = int(raw) if key == "state" else list(raw) if key in ("items", "selected") else raw
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("control snapshot %s read failed", attr, exc_info=True)
     return info
@@ -139,7 +137,7 @@ def readable_control_type(model: Any) -> str:
             if model is not None and model.supportsService(service):
                 return type_str
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("supportsService(%s) failed", service, exc_info=True)
     return "unknown"
@@ -154,7 +152,7 @@ def _safe_attr(obj: Any, name: str, default: str = "") -> str:
         # and this except turned that into a missing page / not-found result.
         # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
         # Any other failure stays on the existing missing-page path.
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return default
 
@@ -231,21 +229,21 @@ def _iter_children(xshapes: Any) -> Iterator[tuple[int, Any]]:
     """Direct ``(slot, shape)`` pairs. ``slot`` is the XShapes index, not a compacted count.
 
     Non-disposal ``getCount`` ends the walk. Non-disposal ``getByIndex`` skips that slot.
-    Re-raise the original exception when ``is_disposed_exception`` matches, bare
+    Re-raise the original exception when ``is_disposal`` matches, bare
     RuntimeException included. ``uno_read`` swallows RuntimeException and wraps
     disposal as DocumentDisposedError, so it is the wrong helper here.
     """
     try:
         count = xshapes.getCount()
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         return
     for i in range(count):
         try:
             shape = xshapes.getByIndex(i)
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             continue
         yield i, shape
@@ -256,7 +254,7 @@ def _is_group(shape: Any) -> bool:
     try:
         shape_type = shape.getShapeType()
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         return False
     return "GroupShape" in str(shape_type)
@@ -306,7 +304,7 @@ def find_shape_on_page(
                     return None, None, None, "Invalid shape index: %s" % index
                 child = curr.getByIndex(seg_idx)
             except Exception as exc:
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
                 return None, None, None, "Failed to find shape at index %s: %s" % (index, exc)
 
@@ -429,7 +427,7 @@ class GetDrawTree(ToolBase):
         "value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
-    uno_services: list[str] | None = DRAW_AND_IMPRESS
+    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
 

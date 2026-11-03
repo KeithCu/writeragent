@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.draw.base import ToolDrawShapeBase
 from plugin.draw.tree import build_shape_tree, coerce_control_state, find_shape_on_page, is_control_shape_type
-from plugin.framework.errors import is_real_disposal, uno_probe
+from plugin.framework.errors import is_disposal, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -136,16 +136,16 @@ def _write(fn: Any, ok: str, fail: str) -> tuple[bool, str]:
         fn()
         return True, ok
     except Exception as exc:
-        # is_disposed_exception matches bare RuntimeException on live documents,
+        # is_disposal matches DisposedException,
         # which would abort remaining fields; only real disposal escapes.
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return False, fail % exc
 
 
 def apply_fill_value(shape: Any, value: Any) -> tuple[bool, str]:
     """Write *value* onto a paper-form shape or ControlShape model."""
-    shape_type = uno_probe(lambda: shape.getShapeType(), "")
+    shape_type = uno_read(lambda: shape.getShapeType(), "")
 
     if is_control_shape_type(shape_type):
         return _apply_control_value(shape, value)
@@ -160,7 +160,7 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
     try:
         model = shape.Control
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return False, "ControlShape has no model: %s" % exc
     if model is None:

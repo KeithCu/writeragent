@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.draw.base import ToolDrawSpeakerNotesBase
 from plugin.draw.bridge import DrawBridge, notes_text, resolve_page_and_bridge, set_notes_text
 from plugin.doc.text_helpers import normalize_linebreaks
-from plugin.framework.errors import uno_probe
+from plugin.framework.errors import uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -54,7 +54,7 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
         if append:
             existing = notes_text(page)
             if existing is None:
-                notes_page = uno_probe(lambda: page.getNotesPage(), None)
+                notes_page = uno_read(lambda: page.getNotesPage(), None)
                 detail = "no notes page" if notes_page is None else "a notes page but no notes body (no NotesShape)"
                 return self._tool_error(
                     "Slide %d has %s." % (actual_idx, detail),
@@ -66,7 +66,7 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
             set_notes_text(page, text)
         else:
             if not set_notes_text(page, text):
-                notes_page = uno_probe(lambda: page.getNotesPage(), None)
+                notes_page = uno_read(lambda: page.getNotesPage(), None)
                 detail = "no notes page" if notes_page is None else "a notes page but no notes body (no NotesShape)"
                 return self._tool_error(
                     "Slide %d has %s." % (actual_idx, detail),
