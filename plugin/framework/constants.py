@@ -111,10 +111,9 @@ class ModelCapability(IntFlag):
 
 def folder_search_enabled() -> bool:
     """True when cross-file corpus index (FTS + embeddings) is enabled."""
-    from plugin.framework.config import get_config
+    from plugin.embeddings.embeddings_cache import configured_folder_search_mode
 
-    val = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
-    return val in ("hybrid", "llama_index", "zvec", "lancedb")
+    return configured_folder_search_mode() in ("hybrid", "llama_index", "zvec", "lancedb")
 
 
 # LlamaIndex cross-encoder rerank (Settings: embeddings.folder_rerank_enabled / folder_rerank_model).

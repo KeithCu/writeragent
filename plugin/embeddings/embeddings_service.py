@@ -9,28 +9,11 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from plugin.embeddings.embedding_client import _embedding_session_id
+from plugin.embeddings.embeddings_cache import configured_folder_search_mode, parse_search_mode
 from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
-
-
-def _folder_search_mode() -> str:
-    """Read Settings cross-file search mode for index/search RPC routing."""
-    from plugin.framework.config import get_config
-
-    return str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
-
-
-_FOLDER_SEARCH_MODES = ("hybrid", "llama_index", "fts", "embeddings", "zvec", "lancedb")
-
-
-def _resolved_folder_search_mode(search_mode: str | None) -> str:
-    """Settings mode, or an explicit override, restricted to known backends."""
-    resolved = str(search_mode or _folder_search_mode() or "hybrid").strip().lower()
-    if resolved not in _FOLDER_SEARCH_MODES:
-        return "hybrid"
-    return resolved
 
 
 def _folder_search_rerank_options(search_mode: str) -> dict[str, Any]:
@@ -72,7 +55,7 @@ def maintain_folder_index(ctx: Any, listing_root: str, *, model: str, mode: str 
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
-    resolved_mode = _resolved_folder_search_mode(search_mode)
+    resolved_mode = parse_search_mode(search_mode or configured_folder_search_mode())
     return _run_embeddings_action(ctx, "maintain_folder_index", {"listing_root": str(listing_root), "model": model_name, "mode": str(mode or "auto"), "search_mode": resolved_mode}, model=model_name or "corpus", allow_heartbeat=True, heartbeat_fn=heartbeat_fn, stop_checker=stop_checker, cancellation_scope=cancellation_scope)
 
 
@@ -83,20 +66,20 @@ def index_paragraphs(ctx: Any, db_path: str, meta_path: str, rows: list[dict[str
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
     # Pass search_mode. Without it, dispatch uses the sqlite default and a
     # configured zvec, LanceDB, or LlamaIndex backend never sees the rows.
-    resolved_mode = _resolved_folder_search_mode(search_mode)
+    resolved_mode = parse_search_mode(search_mode or configured_folder_search_mode())
     return _run_embeddings_action(ctx, "index_paragraphs", {"db_path": str(db_path), "meta_path": str(meta_path), "model": model_name, "rows": list(rows or []), "build_fts": build_fts, "build_vectors": build_vectors, "search_mode": resolved_mode}, model=model_name or "corpus", stop_checker=stop_checker, cancellation_scope=cancellation_scope)
 
 
 def delete_paragraphs(ctx: Any, db_path: str, meta_path: str, keys: list[dict[str, Any]], *, model: str, build_fts: bool = False, build_vectors: bool = True, search_mode: str | None = None, stop_checker: Callable[[], bool] | None = None, cancellation_scope: Any | None = None) -> dict[str, Any]:
     """Remove paragraph index rows via the warm venv worker."""
     model_name = (model or "").strip()
-    resolved_mode = _resolved_folder_search_mode(search_mode)
+    resolved_mode = parse_search_mode(search_mode or configured_folder_search_mode())
     return _run_embeddings_action(ctx, "delete_paragraphs", {"db_path": str(db_path), "meta_path": str(meta_path), "keys": list(keys or []), "model": model_name, "build_fts": build_fts, "build_vectors": build_vectors, "search_mode": resolved_mode}, model=model_name or "corpus", stop_checker=stop_checker, cancellation_scope=cancellation_scope)
 
 
 def hybrid_search(ctx: Any, db_path: str, query: str, k: int, *, model: str, near_slop: int = 10, doc_url_filter: str | None = None, stop_checker: Callable[[], bool] | None = None, cancellation_scope: Any | None = None) -> dict[str, Any]:
     """Hybrid FTS + semantic search over corpus.db via the warm venv worker."""
-    search_mode = _folder_search_mode()
+    search_mode = configured_folder_search_mode()
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
@@ -107,7 +90,7 @@ def hybrid_search(ctx: Any, db_path: str, query: str, k: int, *, model: str, nea
 
 def knn_search(ctx: Any, db_path: str, query: str, k: int, *, model: str, doc_url_filter: str | None = None, stop_checker: Callable[[], bool] | None = None, cancellation_scope: Any | None = None) -> dict[str, Any]:
     """Semantic search over a folder corpus.db via the warm venv worker."""
-    search_mode = _folder_search_mode()
+    search_mode = configured_folder_search_mode()
     model_name = (model or "").strip()
     if not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")

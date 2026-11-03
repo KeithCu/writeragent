@@ -13,7 +13,7 @@ import logging
 import threading
 from typing import Any
 
-from plugin.embeddings.embeddings_cache import resolve_index_context
+from plugin.embeddings.embeddings_cache import parse_search_mode, resolve_index_context
 from plugin.embeddings.embedding_client import get_embedding_model
 from plugin.embeddings.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
 from plugin.framework.config import get_config
@@ -44,10 +44,7 @@ def _clear_enqueue(folder_key: str) -> None:
 
 def _resolve_search_mode(ctx: Any) -> str:
     """Map Settings cross-file search mode to venv maintain/search backend."""
-    mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
-    if mode in ("hybrid", "llama_index", "zvec", "lancedb", "fts", "embeddings"):
-        return mode
-    return "hybrid"
+    return parse_search_mode(get_config("embeddings.folder_search_mode"))
 
 
 def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:

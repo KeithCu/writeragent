@@ -18,7 +18,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
 
@@ -386,7 +386,41 @@ def index_is_empty(
     return meta.chunk_count <= 0
 
 
-def ready_search_path(mode: str, listing_root: str | None, meta_path: Any, db_path: Any) -> str | None:
+SearchMode = Literal["fts", "embeddings", "hybrid", "llama_index", "zvec", "lancedb"]
+
+
+def configured_folder_search_mode() -> str:
+    """Settings value, lowercased. Includes "none"."""
+    from plugin.framework.config import get_config
+
+    return str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
+
+
+def parse_search_mode(raw: str | None) -> SearchMode:
+    """Worker mode. Unknown and "none" become "hybrid", matching
+    _resolved_folder_search_mode and embeddings_indexer._resolve_search_mode."""
+    mode = str(raw or "").strip().lower()
+    if mode in ("fts", "embeddings", "hybrid", "llama_index", "zvec", "lancedb"):
+        return mode  # type: ignore[return-value]
+    return "hybrid"
+
+
+@dataclass(frozen=True)
+class FolderStore:
+    mode: str
+    search_path: str | None
+    is_empty: bool
+    meta: CorpusMeta
+
+
+def ready_search_path(
+    mode: str,
+    listing_root: str | None,
+    meta_path: Any,
+    db_path: Any,
+    *,
+    meta: CorpusMeta | None = None,
+) -> str | None:
     """Path to search, or None when that store is not built yet.
 
     create_parent=True runs only after the probe says the store is populated.
@@ -406,9 +440,23 @@ def ready_search_path(mode: str, listing_root: str | None, meta_path: Any, db_pa
         if not lancedb_collection_looks_populated(probe):
             return None
         return str(lancedb_collection_path(listing_root, create_parent=True))
-    if index_is_empty(meta_path, db_path):
+    if index_is_empty(meta_path, db_path, meta=meta):
         return None
     return str(db_path)
+
+
+def folder_store(
+    listing_root: str | None,
+    meta_path: Path,
+    db_path: Path | None = None,
+    mode: str | None = None,
+) -> FolderStore:
+    """Consolidated folder store state: mode, search_path, is_empty, meta."""
+    resolved_mode = configured_folder_search_mode() if mode is None else mode
+    meta = CorpusMeta.load(meta_path)
+    empty = index_is_empty(meta_path, db_path, search_mode=resolved_mode, listing_root=listing_root, meta=meta)
+    path = ready_search_path(resolved_mode, listing_root, meta_path, db_path, meta=meta)
+    return FolderStore(mode=resolved_mode, search_path=path, is_empty=empty, meta=meta)
 
 
 def remove_stale_corpus_stores(listing_root: str) -> bool:

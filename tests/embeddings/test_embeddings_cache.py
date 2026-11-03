@@ -473,3 +473,15 @@ def test_corpus_meta_corrupt_file_handling(tmp_path):
     # Corrupt meta should not trigger cold rebuild (which would wipe live DB)
     assert not meta.needs_cold_rebuild("any-model")
 
+
+def test_folder_store_empty_zvec_does_not_create_parent(tmp_path):
+    listing = str(tmp_path / "docs")
+    meta_path = embeddings_cache.corpus_meta_path(listing, create_parent=False)
+    db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
+    cache_dir = tmp_path / "docs" / "writeragent_embeddings"
+
+    store = embeddings_cache.folder_store(listing, meta_path, db_path, mode="zvec")
+    assert store.is_empty is True
+    assert store.search_path is None
+    assert not cache_dir.exists()
+
