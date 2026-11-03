@@ -272,8 +272,7 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
             if para_chunks:
                 parts.append("".join(para_chunks))
 
-        while para_enum.hasMoreElements():
-            para = para_enum.nextElement()
+        for para in iter_elements(para_enum):
             try:
                 portion_enum = para.createEnumeration()
             except Exception as exc:
@@ -282,8 +281,7 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
             para_chunks = []
             has_non_skipped = False
             try:
-                while portion_enum.hasMoreElements():
-                    portion = portion_enum.nextElement()
+                for portion in iter_elements(portion_enum):
                     portion_type = portion.getPropertyValue("TextPortionType")
                     if portion_type == "Redline":
                         if str(portion.getPropertyValue("RedlineType")) == skip_type:
@@ -774,14 +772,13 @@ def _block_safe_for_surgical(found: Any) -> bool:
     try:
         paras = found.createEnumeration()
         seen = 0
-        while paras.hasMoreElements():
-            para = paras.nextElement()
+        for para in iter_elements(paras):
             seen += 1
             if seen > 1 or not para.supportsService("com.sun.star.text.Paragraph"):
                 return False  # multi-paragraph or a table/other node
             portions = para.createEnumeration()
-            while portions.hasMoreElements():
-                if str(portions.nextElement().TextPortionType) not in _OFFSET_SAFE_PORTION_TYPES:
+            for portion in iter_elements(portions):
+                if str(portion.TextPortionType) not in _OFFSET_SAFE_PORTION_TYPES:
                     return False  # field / footnote / ruby / redline mark -> offsets diverge
         return seen == 1
     except Exception:

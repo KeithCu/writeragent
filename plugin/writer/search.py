@@ -23,7 +23,13 @@ import re as re_mod
 from itertools import islice
 from typing import TYPE_CHECKING, Any, Iterator
 
-from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions, normalize_linebreaks, with_view_cursor_left_body_locked
+from plugin.doc.text_helpers import (
+    FAILED,
+    get_string_without_tracked_deletions,
+    iter_elements,
+    normalize_linebreaks,
+    with_view_cursor_left_body_locked,
+)
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import uno_same
@@ -1084,8 +1090,7 @@ def _build_page_map(doc: Any) -> dict[int, int]:
             text = doc.getText()
             enum = text.createEnumeration()
             idx = 0
-            while enum.hasMoreElements():
-                para = enum.nextElement()
+            for para in iter_elements(enum):
                 try:
                     vc.gotoRange(para.getStart(), False)
                     page_map[idx] = vc.getPage()
