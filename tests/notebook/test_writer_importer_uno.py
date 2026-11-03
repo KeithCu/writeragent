@@ -911,11 +911,9 @@ _MD_LISTS_QUOTES_IPYNB = (
 @with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
     """Nested * / ol start=3 / blockquotes; In style must not KeepTogether-glue."""
+    from plugin.notebook.layout import STYLE_NOTEBOOK_IN
     from plugin.notebook.notebook_runner import flush_ui_idle
-    from plugin.notebook.writer_importer import (
-        _STYLE_NOTEBOOK_IN,
-        import_ipynb_to_writer,
-    )
+    from plugin.notebook.writer_importer import import_ipynb_to_writer
 
     assert _MD_LISTS_QUOTES_IPYNB.is_file()
     import_ipynb_to_writer(doc, str(_MD_LISTS_QUOTES_IPYNB), ctx=ctx)
@@ -992,8 +990,8 @@ def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
     )
     families = doc.getStyleFamilies()
     para_styles = families.getByName("ParagraphStyles")
-    assert para_styles.hasByName(_STYLE_NOTEBOOK_IN)
-    in_style = para_styles.getByName(_STYLE_NOTEBOOK_IN)
+    assert para_styles.hasByName(STYLE_NOTEBOOK_IN)
+    in_style = para_styles.getByName(STYLE_NOTEBOOK_IN)
     info = in_style.getPropertySetInfo()
     assert info.hasPropertyByName("ParaKeepTogether")
     assert in_style.getPropertyValue("ParaKeepTogether") is False
