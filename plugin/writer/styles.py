@@ -372,8 +372,6 @@ def apply_paragraph_style_preserving_direct_char(
         report["capture_incomplete"] = True
     return report
 
-# What was wrong: StyleCreate / paragraph and character StyleClone drop the
-# createInstance proxy when the function returns. insertByName adopts that
 _STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
 
 

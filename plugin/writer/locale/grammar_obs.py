@@ -312,11 +312,8 @@ class StatusBarGrammarStatus(GrammarStatus):
                 log.debug("Failed to post status bar update to main thread", exc_info=True)
                 return
 
-            # After a status-bar post is successfully queued, post one repaint from the same _deliver.
-            # Copy the body of harper.py:942-960 (pump_main_thread_work_queue(max_items=8) then process_events_to_idle).
-            # Why, at that site: the grammar worker is blocked in harper-ls while the indicator text is only a
-            # queued callback; setText does not show until the main thread drains that queue and idles VCL.
-            # main.post only. force=False so a chat drain owner still skips PE2I.
+            # The grammar worker is blocked in harper-ls, so the queued setText paints only after main drains its queue and idles VCL.
+            # Use main.post, never main.call: a blocking main.call(timeout=2) used to raise TimeoutError and abort the lint. force=False lets a chat drain owner skip PE2I.
             def _pump() -> None:
                 pump_main_thread_work_queue(max_items=8)
                 process_events_to_idle(get_ctx(), force=False)
@@ -366,7 +363,7 @@ class StatusBarGrammarStatus(GrammarStatus):
                 self._indicator.setText(msg)
                 self._indicator.setValue(100 if phase == "failed" else 50)
         except Exception as e:
-            log.debug("[grammar] update_libreoffice_status_bar failed: %s", e)
+            log.debug("[grammar] _paint failed: %s", e)
             self._indicator = None
 
 
@@ -387,4 +384,3 @@ def set_grammar_status(sink: GrammarStatus | None) -> None:
     """Override or reset status sink (for tests and teardown)."""
     global _STATUS_SINK
     _STATUS_SINK = sink
-

@@ -1302,17 +1302,30 @@ def test_harper_try_lint_waits_for_lint_lock_and_pumps() -> None:
         harper_module.runtime.state = HarperRuntimeState.READY
 
     harper_module.runtime.lock.acquire()
+    released = threading.Event()
     try:
-        def _delayed_release() -> None:
-            time.sleep(0.05)
-            harper_module.runtime.lock.release()
+        def _gated_release() -> None:
+            released.wait(2.0)
+            if harper_module.runtime.lock.locked():
+                try:
+                    harper_module.runtime.lock.release()
+                except RuntimeError:
+                    pass
 
-        t = threading.Thread(target=_delayed_release)
-        t.start()
-        res = harper_try_lint("Hello.", "/tmp", ctx=object())
-        t.join()
+        from plugin.framework.worker_pool import run_in_background
+        handle = run_in_background(_gated_release, name="test-gated-release", dedicated=True)
+
+        def fake_wait(done: threading.Event, ctx: object, *, timeout: float) -> bool:
+            del ctx
+            released.set()
+            return done.wait(timeout)
+
+        with patch("plugin.framework.uno_context.wait_while_pumping", fake_wait):
+            res = harper_try_lint("Hello.", "/tmp", ctx=object())
+        handle.join(timeout=1.0)
         assert res == {"errors": []}
     finally:
+        released.set()
         if harper_module.runtime.lock.locked():
             try:
                 harper_module.runtime.lock.release()
@@ -1802,8 +1815,7 @@ def test_off_caller_timeout_cancels_worker_and_releases_lock() -> None:
 
     t0 = time.monotonic()
     with patch("plugin.framework.uno_context.wait_while_pumping", fake_wait):
-        with pytest.raises(TimeoutError, match="cancelled"):
-            harper_try_lint("Hi.", "/tmp", ctx=object())
+        assert harper_try_lint("Hi.", "/tmp", ctx=object()) is None
     assert time.monotonic() - t0 < 3.0
     assert harper_module.runtime.lock.acquire(timeout=0.5)
     harper_module.runtime.lock.release()
@@ -1876,8 +1888,7 @@ def test_run_lint_off_caller_thread_closes_client_on_cancel_timeout() -> None:
         patch("plugin.framework.uno_context.wait_while_pumping", fake_wait),
         patch("plugin.writer.locale.harper._HARPER_CANCEL_JOIN_SEC", 0.05),
     ):
-        with pytest.raises(TimeoutError, match="Harper LSP operation timed out"):
-            harper_try_lint("Hi.", "/tmp", ctx=object())
+        assert harper_try_lint("Hi.", "/tmp", ctx=object()) is None
 
     unblock.set()
     client.close.assert_called_once()

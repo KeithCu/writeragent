@@ -76,7 +76,7 @@ def _get_or_create_thread_llm_client(api_cfg: dict[str, Any], ctx: Any) -> Any:
     if (
         cached_client is not None
         and cached_key == cache_key
-        and not send_cancellation.is_client_stopped(cached_client)
+        and not cached_client.stopped()
     ):
         return cached_client
 
@@ -340,10 +340,7 @@ def apply_language_change(
     try:
         from plugin.framework.queue_executor import main
 
-        if main.is_current():
-            return bool(_do_update())
-        else:
-            return bool(main.call(_do_update))
+        return bool(main.run(_do_update))
     except Exception as e:
         log.warning("Failed to update language property: %s", e)
         return False

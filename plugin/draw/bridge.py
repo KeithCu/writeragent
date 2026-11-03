@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 from plugin.doc import text_helpers as _text_helpers
 from plugin.framework.doc_type import is_impress
 from plugin.framework.constants import truncate_chat_context
-from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, is_disposal, uno_call, uno_read
+from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, is_disposal, uno_call, uno_read
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import uno_same
 
@@ -981,7 +981,7 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
     """Get a Draw/Impress chat summary. max_context is a prefix cap; when the summary is longer, the prefix is returned with a blank line and "[... document truncated ...]" appended. ctx is unused and kept so document_helpers can pass the chat signature."""
     try:
         if model is None:
-            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
+            return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"
         bridge = DrawBridge(model)
         pages = bridge.get_pages()
         active_page = bridge.get_active_page()
@@ -1025,12 +1025,9 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         if active_page is not None:
             # Impress-specific: Speaker Notes
             if is_impress_doc and hasattr(active_page, "getNotesPage"):
-                try:
-                    sn = notes_text(active_page)
-                    if sn and sn.strip():
-                        ctx_str += "\nSpeaker Notes:\n%s\n" % sn.strip()
-                except UnoObjectError:
-                    pass
+                sn = notes_text(active_page)
+                if sn and sn.strip():
+                    ctx_str += "\nSpeaker Notes:\n%s\n" % sn.strip()
 
             shapes = bridge.get_shapes(active_page)
             ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress_doc else "Page", active_page_idx)
@@ -1047,6 +1044,5 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
     except DocumentDisposedError:
         raise
     except Exception:
-        # UnoObjectError is an Exception; both handlers returned the same fallback.
         log.exception("get_draw_context_for_chat error")
         return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"

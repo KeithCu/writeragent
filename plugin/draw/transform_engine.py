@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.doc.text_helpers import iter_elements, normalize_linebreaks
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.layouts import layout_id
 from plugin.draw.transform_schema import (
@@ -59,10 +59,7 @@ def _set_shape_text(shape: Any, text: str) -> bool:
                 # Ensure \n creates paragraph breaks if setString left a single paragraph.
                 if "\n" in text and hasattr(xtext, "createEnumeration") and callable(getattr(xtext, "createEnumeration", None)):
                     enum = xtext.createEnumeration()
-                    para_count = 0
-                    while enum.hasMoreElements():
-                        enum.nextElement()
-                        para_count += 1
+                    para_count = sum(1 for _unused in iter_elements(enum))
                     if para_count <= 1:
                         lines = text.split("\n")
                         xtext.setString(lines[0])

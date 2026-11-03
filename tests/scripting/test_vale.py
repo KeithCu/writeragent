@@ -15,14 +15,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.framework.worker_pool import get_subprocess_creationflags
+from plugin.framework.subprocess_env import get_subprocess_creationflags
 from plugin.scripting.sandbox import detect_sandbox, wrap_command_for_sandbox
 from plugin.scripting.venv import vale
 from plugin.scripting.venv.vale import (
     _CHECK_TIMEOUT_SEC,
     _ensure_vale_config,
     _map_alert,
-    _subprocess_creationflags,
     _wrap_vale_command,
     run_vale_check,
 )
@@ -59,13 +58,14 @@ def test_vale_spawn_matches_sandbox_inside_flatpak(monkeypatch: pytest.MonkeyPat
         detect_sandbox.cache_clear()
 
 
-def test_vale_creationflags_match_worker_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vale_creationflags_match_subprocess_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
-    assert _subprocess_creationflags() == get_subprocess_creationflags()
+    assert vale.get_subprocess_creationflags() == get_subprocess_creationflags()
+    assert get_subprocess_creationflags() == {"creationflags": 0x08000000}
 
     monkeypatch.setattr(sys, "platform", "linux")
-    assert _subprocess_creationflags() == {}
+    assert vale.get_subprocess_creationflags() == {}
     assert get_subprocess_creationflags() == {}
 
 

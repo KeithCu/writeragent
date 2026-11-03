@@ -64,7 +64,7 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> dict[str, Any] | No
                 "message": f"Could not close the undo context; the document may stay in one undo group ({group.leave_error}).",
             }
         failed = error is not None or exc_cause is not None
-        if failed and left and group._titles_before is not None:
+        if failed and left:
             group.rollback_if_top()
             if group.rollback_error is not None:
                 # Keep the original cause and use a code distinct from a clean rollback.
@@ -75,11 +75,6 @@ def commit_or_rollback(doc: Any, title: str, mutate: Any) -> dict[str, Any] | No
                     "message": f"Rollback failed; the document may be only partly edited ({group.rollback_error}). Cause: {cause}",
                 }
                 exc_cause = None
-
-    if exc_cause is not None:
-        reraise_if_disposed(exc_cause)
-        raise exc_cause
-    return error
 
     if exc_cause is not None:
         reraise_if_disposed(exc_cause)
