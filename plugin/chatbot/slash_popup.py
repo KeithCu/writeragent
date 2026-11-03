@@ -109,6 +109,35 @@ def _list_height(ctrl: Any, rows: int) -> int:
     return _overlay_height(n)
 
 
+def _hscroll_height(ctrl: Any, rows: int, entries: int, width: int) -> int:
+    """Extra height for the list's horizontal scrollbar, or 0 when none shows.
+
+    The toolkit ``listbox`` is always ``WB_AUTOHSCROLL`` (vclxtoolkit.cxx),
+    and ``CalcBlockSize(0, n)`` sizes n rows with no scrollbar. A row wider
+    than the list makes ImplListBox show an HScroll inside those n rows, so a
+    single match was half hidden (QA B7). ``CalcBlockSize(1, n)`` is one 'X'
+    wide, so it adds VCL's own ScrollBarSize (HiDPI-scaled, native theme) to
+    the height. Call after ``addItems``: the widths come from the entries.
+    Text width is read with lines > entries; with fewer lines CalcBlockSize
+    pads the width by a VScroll (by a scrollbar even at 1 of 1 rows).
+    """
+    fn = getattr(ctrl, "getMinimumSize", None)
+    if not callable(fn):
+        return 0
+    n = min(max(rows, 1), _POPUP_MAX_ROWS)
+    full = uno_read(lambda: fn(0, n), None)
+    narrow = uno_read(lambda: fn(1, n), None)
+    text = uno_read(lambda: fn(0, max(entries, n) + 1), None)
+    sizes = (getattr(text, "Width", None), getattr(full, "Height", None), getattr(narrow, "Height", None))
+    if not all(isinstance(v, int) for v in sizes):
+        return 0
+    full_w, full_h, narrow_h = (int(v or 0) for v in sizes)
+    bar = max(0, narrow_h - full_h)
+    # More matches than rows: the VScroll takes the same width from the rows.
+    avail = int(width) - (bar if entries > n else 0)
+    return bar if full_w > avail else 0
+
+
 def _printable_key_char(key_char: Any) -> str | None:
     if key_char is None:
         return None
@@ -505,8 +534,10 @@ class SlashPopupController:
         self._matches = matches
         self._selected = 0
         self._open = True
-        self.reposition()
+        # Fill before reposition: the HScroll check measures the entries.
+        # Both run before setVisible (addItems/setPosSize on a mapped host deadlock).
         self._fill_visible_list()
+        self.reposition()
         _ovlog("filled before show")
         host = self._popup_floater
         if host is not None:
@@ -647,6 +678,7 @@ class SlashPopupController:
             height = _list_height(ctrl, rows)
             one = _list_height(ctrl, 1)
             self._row_px = max(1, (height - one) // (rows - 1)) if rows > 1 else one
+            height += _hscroll_height(ctrl, rows, len(self._matches), max(20, int(qr.Width)))
             x, y, w, h = _above_ready_rect(qr, rows, status_top=status_top, height=height)
             _ovlog(
                 "reposition Ask=%sx%s@%s,%s popup_bounds=%s,%s %sx%s rows=%s toolkit=%s origin=%s",
