@@ -414,11 +414,11 @@ def init_logging(ctx: Any | None = None) -> None:
 
             logger = log
             plugin_logger = logging.getLogger("plugin")
-            # What was wrong: Logger.setLevel always calls manager._clear_cache(),
-            # taking logging._lock and invalidating every logger's level cache.
-            # When called repeatedly, every thread's next log call misses the cache
-            # and contends for logging._lock, which is the hot trigger for deadlocks
-            # with SolarMutex. Only call setLevel when the level actually changes.
+            # Logger.setLevel always calls manager._clear_cache(), even for the same level.
+            # That takes logging._lock and empties every logger's level cache.
+            # llm_client called init_logging per request on the worker, so every thread's
+            # next log call missed the cache and took _lock. Under SolarMutex that was half of
+            # the mr1_t6 deadlock. Only touch the level when it actually changes.
             if logger.level != numeric_level:
                 logger.setLevel(numeric_level)
 
