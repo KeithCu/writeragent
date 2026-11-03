@@ -1064,7 +1064,8 @@ def strip_echoed_edit_scaffolding(text: str) -> str:
         if any(stripped.startswith(prefix) for prefix in _SCAFFOLD_LINE_PREFIXES):
             continue
         kept.append(line)
-    result = "\n".join(kept).strip()
+    # Do not strip the whole result: a whitespace-only rewrite is valid edited text.
+    result = "\n".join(kept)
     for trailer in ("END OF DOCUMENT.", "END OF DOCUMENT"):
         if result.endswith(trailer):
             result = result[: -len(trailer)].rstrip()
