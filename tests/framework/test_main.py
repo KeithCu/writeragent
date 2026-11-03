@@ -1025,7 +1025,11 @@ def test_register_core_handlers_continues_after_optional_import_failure(
         )
         monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: MagicMock())
 
-        caplog.set_level(logging.DEBUG, logger="plugin.main")
+        # Bugfix: what was wrong: caplog captured logger "plugin.main" which had no records.
+        # How it happened: PR #3112 moved handler registration to plugin/menu_handlers.py,
+        # which logs under "writeragent.menu_handlers".
+        # Why this change fixes it: listening to "writeragent.menu_handlers" captures the debug log.
+        caplog.set_level(logging.DEBUG, logger="writeragent.menu_handlers")
         from plugin.main import register_core_handlers
 
         register_core_handlers()
