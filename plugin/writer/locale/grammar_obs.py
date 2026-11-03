@@ -25,6 +25,36 @@ def grammar_obs(event: str, **fields: Any) -> None:
     log.debug("[grammar] obs %s %s", event, kv)
 
 
+def slice_preview_debug(text: str, max_len: int = 72) -> str:
+    """Compact one-line preview for DEBUG logs (avoid dumping huge paragraphs)."""
+    if not text:
+        return ""
+    chars: list[str] = []
+    in_whitespace = False
+    started = False
+    limit = max_len + 1
+    for ch in text:
+        if ch.isspace():
+            if started and not in_whitespace:
+                chars.append(" ")
+                in_whitespace = True
+                if len(chars) == limit:
+                    break
+        else:
+            started = True
+            in_whitespace = False
+            chars.append(ch)
+            if len(chars) == limit:
+                break
+    if not chars:
+        return ""
+    if len(chars) > max_len:
+        return f"{''.join(chars[:max_len])}\u2026"
+    if chars[-1] == " ":
+        chars.pop()
+    return "".join(chars)
+
+
 # Per-keystroke Harper / enqueue strings. Painting these via XStatusIndicator
 # replaces the Writer status bar on every doProofreading (issue #768).
 _ROUTINE_LIBREHARPER_STATUS_RESULTS = frozenset({
@@ -210,8 +240,6 @@ class SidebarGrammarStatus(GrammarStatus):
         length_hint: int | None = None,
     ) -> None:
         try:
-            from .grammar_proofread_text import slice_preview_debug
-
             if preview_source is not None:
                 raw = preview_source.strip() or "(empty)"
                 preview = slice_preview_debug(raw, 10)

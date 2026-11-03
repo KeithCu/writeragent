@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.writer.locale import grammar_obs as go
-from plugin.writer.locale.grammar_proofread_text import slice_preview_debug
+from plugin.writer.locale.grammar_obs import slice_preview_debug
 from plugin.writer.locale.grammar_work_queue import (
     GrammarWorkItem,
     GrammarWorkQueue,
@@ -472,7 +472,7 @@ def test_update_libreoffice_status_bar_drops_dead_indicator() -> None:
 def test_routine_libreharper_status_does_not_call_slice_preview_debug() -> None:
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-        patch("plugin.writer.locale.grammar_proofread_text.slice_preview_debug") as mock_preview,
+        patch("plugin.writer.locale.grammar_obs.slice_preview_debug") as mock_preview,
     ):
         go.emit_grammar_status("request", "Some text.", result="harper check")
     mock_preview.assert_not_called()

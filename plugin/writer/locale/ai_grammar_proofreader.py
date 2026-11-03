@@ -79,13 +79,13 @@ from plugin.writer.locale.grammar_proofread_locale import (
     filter_sentence_spans_for_thresholds,
     uno_locales_for_tags,
 )
+from plugin.writer.locale.grammar_obs import slice_preview_debug
 from plugin.writer.locale.grammar_proofread_text import (
     Utf16OffsetMap,
     calculate_covered_span_end,
     candidate_sentence_spans_for_proofreading,
     reconcile_active_and_paragraph_spans,
     resolve_work_spans,
-    slice_preview_debug,
 )
 from plugin.writer.locale.grammar_work_queue import (
     emit_grammar_status,

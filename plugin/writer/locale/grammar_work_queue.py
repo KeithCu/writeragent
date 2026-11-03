@@ -59,11 +59,10 @@ from typing import Any
 from . import (
     grammar_proofread_locale,
 )
-from .grammar_obs import emit_grammar_status, grammar_obs
+from .grammar_obs import emit_grammar_status, grammar_obs, slice_preview_debug
 from .grammar_proofread_locale import (
     looks_complete_sentence,
 )
-from .grammar_proofread_text import slice_preview_debug
 
 
 

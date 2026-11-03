@@ -25,14 +25,18 @@ from typing import Any
 
 from plugin.writer.locale import grammar_settings
 from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence
-from .grammar_obs import emit_grammar_status, get_grammar_status, grammar_obs
+from .grammar_obs import (
+    emit_grammar_status,
+    get_grammar_status,
+    grammar_obs,
+    slice_preview_debug,
+)
 from plugin.framework.grammar_rule_ids import (
     bcp47_to_uno_lang_country,
     grammar_bcp47_tags_match,
     grammar_english_name_for_bcp47,
     normalize_detected_bcp47,
 )
-from .grammar_proofread_text import slice_preview_debug
 from .grammar_work_queue import (
     GrammarWorkItem,
     GrammarWorkQueue,
