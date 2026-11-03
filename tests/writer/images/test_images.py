@@ -2344,18 +2344,19 @@ def test_tools_reject_non_positive_sizes():
 
 def test_download_image_to_cache_stop_aborts(tmp_path, monkeypatch):
     import plugin.writer.images.images as images_mod
+    from plugin.framework.send_cancellation import SendCancellation
     from plugin.writer.images.images import _download_image_to_cache, _DownloadStopped
 
     monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
 
-    stopped = [False]
+    scope = SendCancellation()
 
     class _ChunkResp:
         def __init__(self):
             self.headers = {"Content-Type": "image/png"}
 
         def read(self, size=-1):
-            stopped[0] = True
+            scope.cancel()
             return b"somepngdata"
 
         def close(self):
@@ -2370,7 +2371,7 @@ def test_download_image_to_cache_stop_aborts(tmp_path, monkeypatch):
     monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _ChunkResp())
 
     with pytest.raises(_DownloadStopped):
-        _download_image_to_cache("https://example.com/test.png", cancel=lambda: stopped[0])
+        _download_image_to_cache("https://example.com/test.png", cancel=scope)
     assert list(tmp_path.iterdir()) == []
 
 
