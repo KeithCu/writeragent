@@ -577,7 +577,7 @@ def test_grep_nearby_files_invalid_regex_does_not_open_files(mock_resolve, mock_
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_runs_uno_is_current(mock_resolve, mock_search, mock_open, mock_close):
+def test_grep_nearby_files_runs_uno_only_when_current(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
         [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
         False,

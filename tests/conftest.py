@@ -33,11 +33,18 @@ def _reset_main_thread_policy_for_tests():
 
 
 @pytest.fixture(autouse=True)
-def _install_sandbox_alias_authorizer_for_tests():
+def _register_prompt_hooks_for_tests():
+    """Register prompt normalizers so config validation matches runtime."""
     from plugin.writeragent_hooks import register_writeragent_prompt_hooks
-    from plugin.scripting.sandbox import install_alias_authorizer
 
     register_writeragent_prompt_hooks()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _install_sandbox_alias_authorizer_for_tests():
+    from plugin.scripting.sandbox import install_alias_authorizer
+
     install_alias_authorizer()
     yield
 

@@ -558,7 +558,7 @@ class SendButtonListener(BaseActionListener):
             self._set_status(text)
 
         try:
-            main.post_or_run(_write, executor=self.queue_executor)
+            self.queue_executor.post_or_run(_write)
         except Exception as e:
             log.debug("_on_grammar_status failed: %s", e)
             return
@@ -576,7 +576,7 @@ class SendButtonListener(BaseActionListener):
 
     def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         """Run rich-control UI work inline on the main thread; post from workers."""
-        return main.post_or_run(fn, *args, executor=self.queue_executor, **kwargs)
+        return self.queue_executor.post_or_run(fn, *args, **kwargs)
 
     def render_session_messages(self, session: Any) -> None:
         """Draw the sidebar from ``session.messages``."""

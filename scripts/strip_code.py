@@ -497,7 +497,12 @@ def get_background_task_name() -> str | None:
 UNTAGGED_DUMMY_IS_CURRENT = False
 
 def on_python_main_thread() -> bool:
-    return threading.current_thread() is threading.main_thread()
+    from plugin.framework.queue_executor import MainThread
+
+    current = threading.current_thread()
+    if MainThread.designated is not None:
+        return current is MainThread.designated
+    return current is threading.main_thread()
 
 
 def _wrap_uno(obj: Any) -> Any:

@@ -74,7 +74,7 @@ Callers put identity on `load` (cell A1, script name, init `resource`, LaTeX obj
 ### LibreOffice parent
 
 - Pipe reader: [`run_in_background`](../../plugin/framework/worker_pool.py) (`editor-pipe-reader`).
-- **Never call UNO from the reader thread.** Use [`execute_on_main_thread`](../../plugin/framework/queue_executor.py) for `save` (setFormula, `calculateAll`).
+- **Never call UNO from the reader thread.** Use [`main.call`](../../plugin/framework/queue_executor.py) for `save` (setFormula, `calculateAll`).
 - **Monaco Run** (`action == "run"`) returns a `DeferredEditorResult`. Document prep and result insert stay on the UI thread; the venv wait uses `start_native_script_run` off that thread. The saved or error frame is sent when the run finishes. Save (`action == "save"`) stays synchronous. A second Run for the same document is refused with "A script is already running." until that run finishes; the flag is the document RuntimeUID (documents with no RuntimeUID share one key), not the `on_save` closure, so reopening the menu does not clear it; Save is still allowed; another document may Run.
 - A script-picker exception is sent as an `error` frame and must not escape the reader. Save and close already wrap their bodies. The save handler's error-frame send is guarded the same way as the picker: a second failure while sending that frame is logged and does not leave `_dispatch_incoming`. An escaping exception used to mark the reader failed and `terminate()` the child, dropping the unsaved buffer. `executor.execute` raising is caught the same way. Save and picker send one error frame and do not leave `_dispatch_incoming`. Those four `execute` calls pass `bound_scope=None` so chat Stop does not cancel them. Close and disconnect log and continue. `_dispatch_incoming` catches `Exception` from a handler. Read errors in `_read_loop` still end the reader and terminate a live child.
 - Unexpected disconnect drops `run_script_doc` and `run_script_doc_url` once no session remains. Those fields are the launch document the picker targets. Leaving them set kept the UNO reference alive. `terminate_persistent_editor` already cleared them. A replacement session that is still registered is left alone.
@@ -229,7 +229,7 @@ Session 1 proves the **pipe + subprocess + Monaco** spine. The work below is ord
 
 1. Monaco `onDidChangeModelContent` debounced (~400ms) in JS.
 2. Child sends `{"type": "validate", "code": "…"}` on stdin (GUI thread is fine for writes).
-3. LO pipe reader receives `validate` → `execute_on_main_thread(_compile_check, code)`.
+3. LO pipe reader receives `validate` → `main.call(_compile_check, code)`.
 4. `_compile_check` uses `compile(code, "<editor>", "exec")`; on `SyntaxError`, return `{type: "validate_result", ok: false, line, col, message}`; else `{ok: true}`.
 5. LO writes result to child stdin; pipe thread → `_ui_queue` → `poll_messages` → Monaco `editor.setModelMarkers` or deltaDecorations.
 
@@ -259,7 +259,7 @@ Session 1 proves the **pipe + subprocess + Monaco** spine. The work below is ord
 3. LO main thread: `GlobalCalcRangeSelector` (LibrePythonista-style modal range pick; merged-cell geometry via [`get_cell_geometry`](../../plugin/calc/calc_utils.py)), format range with [`address_utils`](../../plugin/calc/address_utils.py), reply `{"type": "range_result", "text": "A1:B10"}` or cancel.
 4. Child queues `range_result` → JS inserts at `editor.getPosition()`.
 
-**Threading:** selector and all UNO on main thread only; child blocks in API method with `threading.Event` until result (same pattern as MCP `execute_on_main_thread` with timeout). Cap wait at 120s.
+**Threading:** selector and all UNO on main thread only; child blocks in API method with `threading.Event` until result (same pattern as MCP `main.call` with timeout). Cap wait at 120s.
 
 **UX:** While picker is open, Monaco can stay open behind LO modal — document z-order quirk on Wayland.
 

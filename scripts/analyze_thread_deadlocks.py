@@ -41,34 +41,15 @@ try:
 except ImportError:
     from thread_safety_roots import SYNC_HOST_ENTRYPOINTS  # type: ignore
 
+try:
+    from scripts.lint_thread_safety import is_blocking_marshal
+except ImportError:
+    from lint_thread_safety import is_blocking_marshal  # type: ignore
+
 # Operations that block the calling thread waiting for the UI/main thread or other locks
 BLOCKING_OPERATIONS = {
     "main.call",
 }
-
-
-def _dotted_name(node: ast.AST) -> str:
-    parts: list[str] = []
-    curr: ast.AST = node
-    while isinstance(curr, ast.Attribute):
-        parts.append(curr.attr)
-        curr = curr.value
-    if isinstance(curr, ast.Name):
-        parts.append(curr.id)
-    return ".".join(reversed(parts))
-
-
-MARSHAL_RECEIVERS = {"main", "queue_executor", "qe"}
-
-
-def is_blocking_marshal_call(node: ast.Call) -> bool:
-    dotted = _dotted_name(node.func)
-    if not dotted:
-        return False
-    parts = dotted.split(".")
-    if len(parts) >= 2 and parts[-1] in {"call", "run"}:
-        return parts[-2] in MARSHAL_RECEIVERS
-    return False
 
 
 # Generic standard method names that should not be used as cross-module function edges
@@ -192,7 +173,7 @@ class CallGraphBuilder(ast.NodeVisitor):
 
     def visit_Call(self, node: ast.Call) -> None:
         if self.current_function and node.lineno not in self.suppressed_lines:
-            if is_blocking_marshal_call(node):
+            if is_blocking_marshal(node):
                 self.call_edges.append((self.current_function, "main.call", node.lineno))
             else:
                 callee = ""

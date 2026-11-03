@@ -215,8 +215,7 @@ class MainThread:
         if self.is_current():
             return fn(*args, **kwargs)
         call_kwargs: dict[str, Any] = dict(kwargs)
-        if timeout != 30.0:
-            call_kwargs["timeout"] = timeout
+        call_kwargs["timeout"] = timeout
         if bound_scope is not _SCOPE_UNSET:
             call_kwargs["bound_scope"] = bound_scope
         return self.call(fn, *args, **call_kwargs)
@@ -225,7 +224,6 @@ class MainThread:
         self,
         fn: Any,
         *args: Any,
-        executor: Any = None,
         bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
         **kwargs: Any,
     ) -> Any:
@@ -240,8 +238,7 @@ class MainThread:
 
         if self.is_current() and not get_background_task_name():
             return fn(*args, **kwargs)
-        target = executor if executor is not None else self
-        target.post(fn, *args, bound_scope=bound_scope, **kwargs)
+        self.post(fn, *args, bound_scope=bound_scope, **kwargs)
         return None
 
     def __init__(self, ctx: Any | None = None) -> None:

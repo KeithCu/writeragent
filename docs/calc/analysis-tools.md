@@ -23,7 +23,7 @@ See [specialized-toolsets.md](specialized-toolsets.md) for delegation mechanics 
 - **Ingress:** preloaded sheet/office grids fail loud at `scripting.python_max_data_cells` (table name + cell count), same as `=PY()`.
 Full plan and status: [duckdb-dev-plan.md](duckdb-dev-plan.md).
 
-**Threading:** The analysis sub-agent runs on a background worker. Tools marked `is_async` (including `analyze_data`) marshal every Calc UNO touch through `execute_on_main_thread` inside the tool body — primary analysis reads, optional sheet writes, **`auto_plot` viz data reads**, and chart insert — while only the venv IPC runs on the worker.
+**Threading:** The analysis sub-agent runs on a background worker. Tools marked `is_async` (including `analyze_data`) marshal every Calc UNO touch through `main.call` / `main.run` inside the tool body — primary analysis reads, optional sheet writes, **`auto_plot` viz data reads**, and chart insert — while only the venv IPC runs on the worker.
 
 ---
 
