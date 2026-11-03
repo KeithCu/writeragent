@@ -684,7 +684,8 @@ def test_speak_endpoint_playback_failure_uses_system_speech():
 def test_speak_endpoint_stopped_during_playback_skips_system():
     import plugin.audio.tts_service as tts
 
-    scope = tts._begin_utterance()
+    utt = tts._begin_utterance()
+    scope = utt.scope
 
     def play(path, cancel=None):
         del path, cancel

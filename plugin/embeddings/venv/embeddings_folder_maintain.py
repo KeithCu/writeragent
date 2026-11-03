@@ -56,12 +56,15 @@ def _resolve_mode(listing_root: str, embedding_model: str, mode: MaintainMode, *
     db_path = corpus_db_path(listing_root, create_parent=False)
     store = folder_store(listing_root, meta_path, db_path, mode=search_mode)
     if build_vectors and store.meta.needs_cold_rebuild(embedding_model):
+        # Model change must cold-rebuild even when the caller asked for incremental.
         return "cold"
     if mode != "auto":
         return mode
     if store.is_empty:
+        # corpus.db is absent for zvec/lancedb; folder_store probes the backend dir.
         return "cold"
     if not store.meta.is_valid:
+        # Non-object meta is not a schema mismatch (#1153); do not cold-wipe.
         return "incremental"
     if not store.meta.schema_matches():
         return "cold"
@@ -246,9 +249,8 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
 
 def maintain_folder_corpus(listing_root: str, *, embedding_model: str = "", search_mode: str = "embeddings", mode: MaintainMode = "auto", heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """Full folder corpus maintenance (ODF extract + corpus.db FTS and/or vec0)."""
-    backend = search_mode
     model = (embedding_model or "").strip()
-    build_fts, build_vectors = _build_flags(backend)
+    build_fts, build_vectors = _build_flags(search_mode)
     if build_vectors and not model:
         raise ValueError("embedding model name is required for embeddings/hybrid modes")
     root = str(listing_root or "").strip()
@@ -256,11 +258,11 @@ def maintain_folder_corpus(listing_root: str, *, embedding_model: str = "", sear
         raise ValueError("listing_root is required")
 
     maybe_upgrade_legacy_index(root)
-    resolved_mode = _resolve_mode(root, model, mode, build_vectors=build_vectors, search_mode=backend)
+    resolved_mode = _resolve_mode(root, model, mode, build_vectors=build_vectors, search_mode=search_mode)
     hb = HeartbeatThrottle(heartbeat_fn)
-    hb.emit({"phase": "start", "mode": resolved_mode, "listing_root": root, "search_mode": backend}, immediate=True)
+    hb.emit({"phase": "start", "mode": resolved_mode, "listing_root": root, "search_mode": search_mode}, immediate=True)
 
-    if backend in ("zvec", "lancedb"):
+    if search_mode in ("zvec", "lancedb"):
         # These stores ignore MaintainMode and reopen the existing collection.
         # Its vector dimension is fixed at create time. A cold resolution
         # (model change, empty collection, schema) must delete that store
@@ -268,7 +270,7 @@ def maintain_folder_corpus(listing_root: str, *, embedding_model: str = "", sear
         # corpus.db is not a cold signal: zvec and lancedb never create it.
         if resolved_mode == "cold":
             clear_folder_cache(root)
-        if backend == "zvec":
+        if search_mode == "zvec":
             from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
 
             return maintain_folder_zvec(root, model, mode=resolved_mode, heartbeat_fn=heartbeat_fn, hb=hb)
@@ -278,9 +280,9 @@ def maintain_folder_corpus(listing_root: str, *, embedding_model: str = "", sear
 
     files = guess_indexable_paths(root)
     if resolved_mode == "cold":
-        out = _cold_build(root, model, files, hb, build_fts=build_fts, build_vectors=build_vectors, search_mode=backend)
+        out = _cold_build(root, model, files, hb, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode)
     else:
-        out = _incremental_refresh(root, model, files, hb, build_fts=build_fts, build_vectors=build_vectors, search_mode=backend)
+        out = _incremental_refresh(root, model, files, hb, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode)
 
     if build_fts:
         db_path = corpus_db_path(root, create_parent=False)

@@ -129,19 +129,18 @@ def embed_texts(model_name: str, texts: list[str], *, normalize: bool = True, en
 
 def index_paragraphs(db_path: str, meta_path: str, model_name: str, rows: list[dict[str, Any]], *, build_fts: bool = False, build_vectors: bool = True, search_mode: str = "hybrid", heartbeat_fn: Any | None = None) -> dict[str, Any]:
     """Batch-embed *rows* and persist into corpus.db via the LangGraph or LlamaIndex ingest pipeline."""
-    mode = search_mode
-    if mode == "llama_index":
+    if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
 
         return llama_index_ingest(db_path, meta_path, model_name, rows, delete_keys=[], build_fts=build_fts, build_vectors=build_vectors, heartbeat_fn=heartbeat_fn)
 
-    if mode == "zvec":
+    if search_mode == "zvec":
         from plugin.embeddings.venv.embeddings_zvec import zvec_ingest_rows
 
         # For zvec the 'db_path' param from caller is actually the collection path when mode=zvec
         return zvec_ingest_rows(db_path, meta_path, model_name, rows, build_fts=build_fts, build_vectors=build_vectors, heartbeat_fn=heartbeat_fn)
 
-    if mode == "lancedb":
+    if search_mode == "lancedb":
         from plugin.embeddings.venv.embeddings_lancedb import lancedb_ingest_rows
 
         return lancedb_ingest_rows(db_path, meta_path, model_name, rows, build_fts=build_fts, build_vectors=build_vectors, heartbeat_fn=heartbeat_fn)
@@ -153,22 +152,21 @@ def index_paragraphs(db_path: str, meta_path: str, model_name: str, rows: list[d
 
 def delete_paragraphs(db_path: str, meta_path: str, keys: list[dict[str, Any]], *, model_name: str = "", build_fts: bool = False, build_vectors: bool = True, search_mode: str = "hybrid") -> dict[str, Any]:
     """Remove paragraph rows from corpus.db."""
-    mode = search_mode
-    if mode == "llama_index":
+    if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
 
         # In llama_index_ingest, we pass keys to delete_keys
         llama_index_ingest(db_path, meta_path, model_name, [], delete_keys=keys, build_fts=build_fts, build_vectors=build_vectors)
         return {"deleted": len(keys)}
 
-    if mode == "zvec":
+    if search_mode == "zvec":
         from plugin.embeddings.venv.embeddings_zvec import zvec_delete_keys
 
         # db_path here is the zvec collection path in zvec mode
         n = zvec_delete_keys(db_path, keys)
         return {"deleted": n}
 
-    if mode == "lancedb":
+    if search_mode == "lancedb":
         from plugin.embeddings.venv.embeddings_lancedb import lancedb_delete_keys
 
         n = lancedb_delete_keys(db_path, keys)
@@ -209,17 +207,16 @@ def _is_garbage_hit(hit: dict[str, Any]) -> bool:
 
 def knn_search(db_path: str, query_text: str, k: int, *, model_name: str, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None, search_mode: str = "embeddings") -> dict[str, Any]:
     """Semantic search via the LangGraph or LlamaIndex search pipeline."""
-    mode = search_mode
-    if mode == "llama_index":
+    if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_knn_search
 
         res = llama_index_knn_search(db_path, query_text, k, model_name=model_name, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
-    elif mode == "zvec":
+    elif search_mode == "zvec":
         from plugin.embeddings.venv.embeddings_zvec import zvec_knn_search
 
         # db_path is the zvec collection path when called in zvec mode
         res = zvec_knn_search(db_path, query_text, k, model_name=model_name, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
-    elif mode == "lancedb":
+    elif search_mode == "lancedb":
         from plugin.embeddings.venv.embeddings_lancedb import lancedb_knn_search
 
         res = lancedb_knn_search(db_path, query_text, k, model_name=model_name, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
@@ -235,16 +232,15 @@ def knn_search(db_path: str, query_text: str, k: int, *, model_name: str, doc_ur
 
 def hybrid_search(db_path: str, query_text: str, k: int, *, model_name: str, near_slop: int = 10, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None, search_mode: str = "hybrid") -> dict[str, Any]:
     """Hybrid FTS + vector search with reciprocal rank fusion."""
-    mode = search_mode
-    if mode == "llama_index":
+    if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_hybrid_search
 
         res = llama_index_hybrid_search(db_path, query_text, k, model_name=model_name, near_slop=near_slop, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
-    elif mode == "zvec":
+    elif search_mode == "zvec":
         from plugin.embeddings.venv.embeddings_zvec import zvec_hybrid_search
 
         res = zvec_hybrid_search(db_path, query_text, k, model_name=model_name, near_slop=near_slop, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
-    elif mode == "lancedb":
+    elif search_mode == "lancedb":
         from plugin.embeddings.venv.embeddings_lancedb import lancedb_hybrid_search
 
         res = lancedb_hybrid_search(db_path, query_text, k, model_name=model_name, near_slop=near_slop, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
@@ -252,10 +248,6 @@ def hybrid_search(db_path: str, query_text: str, k: int, *, model_name: str, nea
         from plugin.embeddings.venv.embeddings_hybrid_search import hybrid_corpus_search
 
         res = hybrid_corpus_search(db_path, query_text, k, model_name=model_name, near_slop=near_slop, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
-
-    if isinstance(res, dict) and "hits" in res:
-        res["hits"] = [h for h in res["hits"] if not _is_garbage_hit(h)]
-    return res
 
     if isinstance(res, dict) and "hits" in res:
         res["hits"] = [h for h in res["hits"] if not _is_garbage_hit(h)]

@@ -67,15 +67,32 @@ def test_pool_reuses_one_child_and_returns_wav_path(tmp_path):
         pool.shutdown()
 
 
+def test_scope_cancel_after_job_keeps_warm_worker(tmp_path):
+    script = _fake_worker_script(tmp_path)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    scope = SendCancellation()
+    try:
+        out = tmp_path / "done.wav"
+        res = pool.execute({"text": "Hi.", "out_path": str(out)}, cancel=scope)
+        assert res["status"] == "ok"
+        assert pool._worker is not None and pool._worker.is_alive()
+        scope.cancel()
+        assert scope._hooks == []
+        assert pool._worker is not None and pool._worker.is_alive()
+    finally:
+        pool.shutdown()
+
+
 def test_pool_cancel_inflight_kills_child_and_next_job_respawns(tmp_path):
     script = _fake_worker_script(tmp_path)
     pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
     try:
         blocked = tmp_path / "blocked.wav"
         result: dict[str, object] = {}
+        cancel = SendCancellation()
 
         def _run() -> None:
-            result.update(pool.execute({"text": "block", "out_path": str(blocked)}, timeout_sec=10))
+            result.update(pool.execute({"text": "block", "out_path": str(blocked)}, timeout_sec=10, cancel=cancel))
 
         thread = threading.Thread(target=_run)
         thread.start()
@@ -84,7 +101,7 @@ def test_pool_cancel_inflight_kills_child_and_next_job_respawns(tmp_path):
             time.sleep(0.02)
         assert pool._worker is not None and pool._worker.is_alive()
         time.sleep(0.15)
-        pool._kill_inflight()
+        cancel.cancel()
         thread.join(3)
         assert result.get("status") == "error"
         recovered = pool.execute({"text": "after", "out_path": str(tmp_path / "after.wav")})

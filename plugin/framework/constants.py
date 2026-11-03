@@ -109,10 +109,15 @@ class ModelCapability(IntFlag):
 # document_research cross-file index (Settings: embeddings.folder_search_mode none | hybrid).
 
 
+def configured_folder_search_mode() -> str:
+    """Settings value, lowercased. Includes "none"."""
+    from plugin.framework.config import get_config
+
+    return str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
+
+
 def folder_search_enabled() -> bool:
     """True when cross-file corpus index (FTS + embeddings) is enabled."""
-    from plugin.embeddings.embeddings_cache import configured_folder_search_mode
-
     return configured_folder_search_mode() in ("hybrid", "llama_index", "zvec", "lancedb")
 
 

@@ -99,7 +99,9 @@ class Utterance:
         self.scope: SendCancellation = scope
         self.temps: set[str] = set()
         self.ready: _ReadyQueue | None = None
+        # One probe per language per reply, not once per sentence. A cancelled install is not stored.
         self.misaki: dict[str, bool] = {}
+        # Remembered per utterance so offline/failed downloads do not retry per sentence.
         self.failed_downloads: set[str] = set()
         self.closed: bool = False
 
@@ -124,18 +126,6 @@ class Utterance:
     def misaki_ready(self, lang: str) -> bool | None:
         with _speech_lock:
             return self.misaki.get(lang)
-
-    def is_cancelled(self) -> bool:
-        return self.scope.is_cancelled()
-
-    def cancel(self) -> None:
-        self.scope.cancel()
-
-    def register_on_cancel(self, hook: Callable[[], None]) -> None:
-        self.scope.register_on_cancel(hook)
-
-    def unregister_on_cancel(self, hook: Callable[[], None]) -> None:
-        self.scope.unregister_on_cancel(hook)
 
 
 class _ReadyClip(NamedTuple):
@@ -758,7 +748,7 @@ def _speak_system(text: str, speed: float = 1.0, *, cancel: SendCancellation) ->
 
 def _notify_kokoro_g2p_fallback(
     warning: str,
-    cancel: SendCancellation,
+    utt: Utterance,
     lang: str,
     on_status: Callable[[str], None] | None,
     *,
@@ -771,7 +761,7 @@ def _notify_kokoro_g2p_fallback(
         return
     if G2P_FAILED_MARK in warning:
         notify_tts_status(_("Kokoro used English phonemes for non-English voice"), on_status)
-    elif _current is not None and _current.misaki_ready(lang) is False:
+    elif utt.misaki_ready(lang) is False:
         notify_tts_status(_("Misaki not found; Kokoro used English phonemes"), on_status)
 
 
@@ -779,23 +769,22 @@ def _prepare_kokoro_misaki(
     text: str,
     voice: str,
     on_status: Callable[[str], None] | None,
-    cancel: SendCancellation,
+    utt: Utterance,
     py_exe: str | None = None,
 ) -> bool | None:
     """Install Misaki at most once per G2P language for this reply."""
+    cancel = utt.scope
     lang = kokoro_g2p_lang(text, voice)
-    cached = _current.misaki_ready(lang) if _current is not None else None
+    cached = utt.misaki_ready(lang)
     if cached is not None:
         return cached
     if not kokoro_lang_uses_misaki(lang):
-        if _current is not None:
-            _current.remember_misaki(lang, True)
+        utt.remember_misaki(lang, True)
         return True
     if py_exe is None:
         py_exe = resolve_kokoro_python()
     if not py_exe:
-        if _current is not None:
-            _current.remember_misaki(lang, False)
+        utt.remember_misaki(lang, False)
         return False
 
     def _run_misaki_cmd(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str] | None:
@@ -819,8 +808,7 @@ def _prepare_kokoro_misaki(
     if ready is None or cancel.is_cancelled():
         return None
     _clear_tts_status(on_status)
-    if _current is not None:
-        _current.remember_misaki(lang, bool(ready))
+    utt.remember_misaki(lang, bool(ready))
     return bool(ready)
 
 
@@ -924,10 +912,11 @@ def _kokoro_warm_to_file(
     speed: float,
     model_path: str,
     voices_path: str,
-    cancel: SendCancellation,
+    utt: Utterance,
     on_status: Callable[[str], None] | None = None,
 ) -> tuple[str | None, bool]:
     """Synthesize with the keep-alive worker."""
+    cancel = utt.scope
     if cancel.is_cancelled():
         return None, False
     try:
@@ -975,7 +964,7 @@ def _kokoro_warm_to_file(
         if isinstance(warning, str) and warning.strip():
             _notify_kokoro_g2p_fallback(
                 warning,
-                cancel,
+                utt,
                 lang,
                 on_status,
                 g2p=result.get("g2p") if isinstance(result.get("g2p"), str) else None,
@@ -996,10 +985,11 @@ def _kokoro_oneshot_to_file(
     speed: float,
     model_path: str,
     voices_path: str,
-    cancel: SendCancellation,
+    utt: Utterance,
     on_status: Callable[[str], None] | None = None,
 ) -> str | None:
     """Cold Kokoro load. Used when the warm worker cannot start."""
+    cancel = utt.scope
     tmp_wav = _new_speech_temp(".wav", cancel)
     if tmp_wav is None:
         return None
@@ -1031,7 +1021,7 @@ def _kokoro_oneshot_to_file(
             log.debug("Kokoro once stdout was not JSON: %s", out_str)
     if warning.strip():
         log.warning("Kokoro: %s", warning.strip())
-    _notify_kokoro_g2p_fallback(warning, cancel, lang, on_status, g2p=g2p)
+    _notify_kokoro_g2p_fallback(warning, utt, lang, on_status, g2p=g2p)
     return wav_path
 
 
@@ -1040,7 +1030,7 @@ def _kokoro_audio_file(
     voice: str,
     speed: float,
     on_status: Callable[[str], None] | None,
-    cancel: SendCancellation,
+    utt: Utterance,
 ) -> str | None:
     """Write one Kokoro wav. Warm worker first, then kokoro_worker.py --once."""
     py_exe = resolve_kokoro_python()
@@ -1051,19 +1041,18 @@ def _kokoro_audio_file(
         return None
     model_path, voices_path = resolve_kokoro_model_files(
         on_status=on_status,
-        utt=_current,
-        cancel=cancel,
+        utt=utt,
     )
     if os.path.isfile(model_path) and os.path.isfile(voices_path):
         wav_path, allow_fallback = _kokoro_warm_to_file(
-            text, voice, speed, model_path, voices_path, cancel,
+            text, voice, speed, model_path, voices_path, utt,
             on_status=on_status,
         )
         if wav_path or not allow_fallback:
             return wav_path
     if os.path.isfile(model_path) and os.path.isfile(voices_path):
         return _kokoro_oneshot_to_file(
-            py_exe, text, voice, speed, model_path, voices_path, cancel,
+            py_exe, text, voice, speed, model_path, voices_path, utt,
             on_status=on_status,
         )
     return None
@@ -1085,17 +1074,17 @@ def _piper_audio_file(
     voice: str,
     speed: float,
     on_status: Callable[[str], None] | None,
-    cancel: SendCancellation,
+    utt: Utterance,
 ) -> str | None:
     """One Piper wav via CLI. Timeout scales with text length."""
+    cancel = utt.scope
     py_exe = resolve_kokoro_python()
     if not py_exe:
         return None
     model_file = resolve_piper_model_file(
         voice,
         on_status=on_status,
-        utt=_current,
-        cancel=cancel,
+        utt=utt,
     )
     if not model_file or not os.path.isfile(model_file):
         return None
@@ -1132,9 +1121,10 @@ def _speak_local(
     speed: float = 1.0,
     on_status: Callable[[str], None] | None = None,
     *,
-    cancel: SendCancellation,
+    utt: Utterance,
 ) -> None:
     """Synthesize with local Kokoro or Piper and play it."""
+    cancel = utt.scope
     engine = "Kokoro" if provider == "kokoro" else "Piper"
     log.info("Speaking via local %s (voice=%s, speed=%.2f)", engine, voice, speed)
     if cancel.is_cancelled():
@@ -1151,11 +1141,11 @@ def _speak_local(
     if provider == "kokoro":
         lang = kokoro_g2p_lang(text, voice)
         log.info("Kokoro G2P lang=%s for voice=%s", lang, voice)
-        if _prepare_kokoro_misaki(text, voice, on_status, cancel, py_exe=py_exe) is None:
+        if _prepare_kokoro_misaki(text, voice, on_status, utt, py_exe=py_exe) is None:
             return
-        wav_path = _kokoro_audio_file(text, voice, speed, on_status, cancel)
+        wav_path = _kokoro_audio_file(text, voice, speed, on_status, utt)
     else:
-        wav_path = _piper_audio_file(text, voice, speed, on_status, cancel)
+        wav_path = _piper_audio_file(text, voice, speed, on_status, utt)
     if _wav_played_or_blocked(wav_path, cancel):
         return
     if provider == "kokoro":
@@ -1175,14 +1165,15 @@ def _synthesize_sentence_clip(
     voice: str,
     speed: float,
     on_status: Callable[[str], None] | None,
-    cancel: SendCancellation,
+    utt: Utterance,
 ) -> _ReadyClip | None:
     """Synthesize one sentence without playing it for sentence prefetch."""
+    cancel = utt.scope
     path: str | None = None
     if provider == "kokoro":
-        path = _kokoro_audio_file(sentence, voice, speed, on_status, cancel)
+        path = _kokoro_audio_file(sentence, voice, speed, on_status, utt)
     elif provider == "piper":
-        path = _piper_audio_file(sentence, voice, speed, on_status, cancel)
+        path = _piper_audio_file(sentence, voice, speed, on_status, utt)
 
     if cancel.is_cancelled():
         _release_temp(path)
@@ -1278,10 +1269,12 @@ def _run_sentence_pipeline(
     voice: str,
     speed: float,
     on_status: Callable[[str], None] | None,
-    cancel: SendCancellation,
+    utt: Utterance,
 ) -> None:
     """Play sentences in order while synthesis keeps running ahead."""
+    cancel = utt.scope
     if provider == "kokoro" and not resolve_kokoro_python():
+        # Warn once per reply; _kokoro_audio_file does not log when the venv is missing.
         log.warning(
             "Local Kokoro TTS requires a configured Python venv. "
             "Please configure your venv path in Settings -> Python."
@@ -1289,7 +1282,7 @@ def _run_sentence_pipeline(
 
     def _synth(index: int, sentence: str) -> _ReadyClip | None:
         if provider == "kokoro" and _prepare_kokoro_misaki(
-            sentence, voice, on_status, cancel,
+            sentence, voice, on_status, utt,
         ) is None:
             return None
         return _synthesize_sentence_clip(
@@ -1298,7 +1291,7 @@ def _run_sentence_pipeline(
             voice,
             speed,
             on_status if index == 0 else None,
-            cancel,
+            utt,
         )
 
     def _produce(ready: _ReadyQueue) -> None:
@@ -1452,12 +1445,12 @@ def speak_text_async(
                     voice_name,
                     speed_val,
                     on_status,
-                    cancel,
+                    utt,
                 )
             elif provider_code in ("kokoro", "piper"):
                 _speak_local(
                     provider_code, clean, voice=voice_name, speed=speed_val,
-                    on_status=on_status, cancel=cancel,
+                    on_status=on_status, utt=utt,
                 )
             elif provider_code == "endpoint":
                 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint

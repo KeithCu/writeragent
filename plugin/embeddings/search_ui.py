@@ -352,7 +352,8 @@ class SearchDialog:
 
         def _do_rebuild() -> None:
             try:
-                from plugin.embeddings.embeddings_cache import clear_folder_cache, configured_folder_search_mode
+                from plugin.embeddings.embeddings_cache import clear_folder_cache
+                from plugin.framework.constants import configured_folder_search_mode
                 from plugin.embeddings.embedding_client import get_embedding_model
 
                 resolved = main.call(self._resolve_doc_index_context)

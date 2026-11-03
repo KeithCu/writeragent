@@ -386,11 +386,9 @@ def _download_to_inner(
 def resolve_kokoro_model_files(
     on_status: Callable[[str], None] | None = None,
     utt: Utterance | None = None,
-    cancel: SendCancellation | None = None,
 ) -> tuple[str, str]:
     """Resolve paths to Kokoro ONNX model and voices file, downloading if missing."""
-    if cancel is None and utt is not None:
-        cancel = utt.scope
+    cancel = utt.scope if utt is not None else None
     model_path, voices_path = resolve_kokoro_model_paths()
     model_s = os.fspath(model_path)
     voices_s = os.fspath(voices_path)
@@ -557,11 +555,9 @@ def resolve_piper_model_file(
     voice: str,
     on_status: Callable[[str], None] | None = None,
     utt: Utterance | None = None,
-    cancel: SendCancellation | None = None,
 ) -> str | None:
     """Resolve path to Piper ONNX model file, downloading on demand if missing."""
-    if cancel is None and utt is not None:
-        cancel = utt.scope
+    cancel = utt.scope if utt is not None else None
     from plugin.audio.tts_voices import clean_voice_name
 
     clean_v = clean_voice_name(voice)

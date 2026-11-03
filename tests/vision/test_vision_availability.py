@@ -21,7 +21,7 @@ class _Tool:
         self.name = name
 
 
-def test_vision_venv_configured_catches_config_error():
+def test_vision_venv_configured_propagates_config_error():
     # Why this change: config typos must propagate ConfigError rather than being swallowed as False.
     with patch("plugin.vision.vision_availability.get_config", side_effect=ConfigError("broken config")):
         with pytest.raises(ConfigError):

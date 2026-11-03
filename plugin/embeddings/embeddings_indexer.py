@@ -16,8 +16,7 @@ from typing import Any
 from plugin.embeddings.embeddings_cache import parse_search_mode, resolve_index_context
 from plugin.embeddings.embedding_client import get_embedding_model
 from plugin.embeddings.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
-from plugin.framework.config import get_config
-from plugin.framework.constants import folder_search_enabled
+from plugin.framework.constants import configured_folder_search_mode, folder_search_enabled
 from plugin.framework.send_cancellation import get_current_send_cancellation
 from plugin.framework.worker_pool import run_in_background
 
@@ -44,7 +43,7 @@ def _clear_enqueue(folder_key: str) -> None:
 
 def _resolve_search_mode(ctx: Any) -> str:
     """Map Settings cross-file search mode to venv maintain/search backend."""
-    return parse_search_mode(get_config("embeddings.folder_search_mode"))
+    return parse_search_mode(configured_folder_search_mode())
 
 
 def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:

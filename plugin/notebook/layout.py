@@ -25,7 +25,9 @@ log = logging.getLogger("writeragent.notebook")
 STYLE_MD_H1 = "Heading 1"
 STYLE_MD_H2 = "Heading 2"
 STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
+# Auto-created on import for Jupyter-like In [n]: gutter.
 STYLE_NOTEBOOK_OUT = "WriterAgent Notebook Output"
+# Stdout left as Text Body is a cell boundary, so a re-run would keep the old paragraph.
 PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 
 IN_PROMPT_RE = re.compile(r"^In \[[0-9 ]*\]:")

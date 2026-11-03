@@ -18,7 +18,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast, get_args
 
 from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
 
@@ -143,7 +143,7 @@ def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
     try:
         raw_text = meta_path.read_text(encoding="utf-8")
     except OSError:
-        log.debug("read_corpus_meta failed for %s", meta_path, exc_info=True)
+        log.debug("corpus_meta read failed for %s", meta_path, exc_info=True)
         return None
     # read_text is str. A non-str means the path handle did not yield a file.
     if not isinstance(raw_text, str):
@@ -151,7 +151,7 @@ def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(raw_text)
     except json.JSONDecodeError:
-        log.debug("read_corpus_meta failed for %s", meta_path, exc_info=True)
+        log.debug("corpus_meta read failed for %s", meta_path, exc_info=True)
         return None
     if not isinstance(data, dict):
         log.debug("corpus_meta %s is %s, not an object", meta_path, type(data).__name__)
@@ -387,21 +387,14 @@ def index_is_empty(
 
 
 SearchMode = Literal["fts", "embeddings", "hybrid", "llama_index", "zvec", "lancedb"]
-
-
-def configured_folder_search_mode() -> str:
-    """Settings value, lowercased. Includes "none"."""
-    from plugin.framework.config import get_config
-
-    return str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
+_MODES: tuple[SearchMode, ...] = cast("tuple[SearchMode, ...]", get_args(SearchMode))
 
 
 def parse_search_mode(raw: str | None) -> SearchMode:
-    """Worker mode. Unknown and "none" become "hybrid", matching
-    _resolved_folder_search_mode and embeddings_indexer._resolve_search_mode."""
+    """Worker mode. Unknown values and "none" map to "hybrid"."""
     mode = str(raw or "").strip().lower()
-    if mode in ("fts", "embeddings", "hybrid", "llama_index", "zvec", "lancedb"):
-        return mode  # type: ignore[return-value]
+    if mode in _MODES:
+        return cast("SearchMode", mode)
     return "hybrid"
 
 
@@ -452,11 +445,15 @@ def folder_store(
     mode: str | None = None,
 ) -> FolderStore:
     """Consolidated folder store state: mode, search_path, is_empty, meta."""
+    from plugin.framework.constants import configured_folder_search_mode
+
     resolved_mode = configured_folder_search_mode() if mode is None else mode
     meta = CorpusMeta.load(meta_path)
     empty = index_is_empty(meta_path, db_path, search_mode=resolved_mode, listing_root=listing_root, meta=meta)
-    path = ready_search_path(resolved_mode, listing_root, meta_path, db_path, meta=meta)
-    return FolderStore(mode=resolved_mode, search_path=path, is_empty=empty, meta=meta)
+    search_path = None if empty else ready_search_path(
+        resolved_mode, listing_root, meta_path, db_path, meta=meta
+    )
+    return FolderStore(mode=resolved_mode, search_path=search_path, is_empty=empty, meta=meta)
 
 
 def remove_stale_corpus_stores(listing_root: str) -> bool:

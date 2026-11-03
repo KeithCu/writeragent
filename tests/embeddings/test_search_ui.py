@@ -58,7 +58,7 @@ class TestSearchDialog:
     @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
     @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
-    @patch("plugin.embeddings.embeddings_cache.configured_folder_search_mode", return_value="llama_index")
+    @patch("plugin.framework.constants.configured_folder_search_mode", return_value="llama_index")
     def test_rebuild_action_triggered(self, mock_search_mode, mock_maintain, mock_clear, mock_resolve, mock_doc, mock_get_desktop, _mock_execute, _mock_bg, mock_get_model):
 
         # Capture the heartbeat_fn to test the exception guard
@@ -148,7 +148,7 @@ class TestSearchDialog:
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
     @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
-    @patch("plugin.embeddings.embeddings_cache.configured_folder_search_mode", return_value="llama_index")
+    @patch("plugin.framework.constants.configured_folder_search_mode", return_value="llama_index")
     def test_rebuild_untitled_doc_uses_my_documents_listing(
         self,
         mock_search_mode,
@@ -309,7 +309,7 @@ class TestSearchDialog:
                                 side_effect=lambda fn, *args, **kwargs: fn(*args),
                             ):
                                 with patch(
-                                    "plugin.embeddings.embeddings_cache.configured_folder_search_mode",
+                                    "plugin.framework.constants.configured_folder_search_mode",
                                     return_value="hybrid",
                                 ):
                                     with patch(
@@ -403,7 +403,7 @@ class TestSearchDialog:
         with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)):
             with patch("plugin.embeddings.search_ui.get_active_document", return_value=MagicMock()):
                 with patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=("key", Path("/db"), Path("/meta"), "/root")):
-                    with patch("plugin.embeddings.embeddings_cache.configured_folder_search_mode", return_value="sqlite"):
+                    with patch("plugin.framework.constants.configured_folder_search_mode", return_value="sqlite"):
                         with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
                             with patch("plugin.embeddings.embeddings_cache.CorpusMeta.load", return_value=CorpusMeta(data={"updated_at": str(two_days_ago)}, is_valid=True)):
                                 dialog._refresh_cache_status(mock_dlg)

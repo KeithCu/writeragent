@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from plugin.embeddings.embedding_client import _embedding_session_id
-from plugin.embeddings.embeddings_cache import configured_folder_search_mode, parse_search_mode
+from plugin.embeddings.embeddings_cache import parse_search_mode
+from plugin.framework.constants import configured_folder_search_mode
 from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec

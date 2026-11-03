@@ -8,24 +8,18 @@ The child is a ``ManagedSubprocess`` plus the Pickle 5 handshake in
 ``_KokoroWorker``. The 20 second ready timeout covers process start and
 the import of ``plugin.framework.ipc`` only. ``run_kokoro_stdio_loop``
 writes ``{"status": "ready"}`` before ``_get_kokoro`` imports ``kokoro_onnx``;
-the model load is the first job's timeout. ``cancel_inflight`` signals on
-the caller thread and reaps with ``worker.kill`` on a background thread;
-the signal does not close stdin and does not call ``ManagedSubprocess.close``.
+the model load is the first job's timeout.
+
 ``execute`` holds ``_job_lock`` across spawn and the pipe so two callers
-cannot split a frame. ``stop_speech`` can call ``cancel_inflight`` without
-waiting for ``ManagedSubprocess.close``. This pool keeps the cancel token
-and the single lazy slot: Stop during the handshake must see the object
-before ``respawn`` blocks. Kokoro and soundfile live in the configured venv,
-not in LibreOffice's runtime.
+cannot split a frame. While a job is live it registers ``_kill_inflight`` on
+the utterance ``SendCancellation`` passed as ``cancel=``; an already-cancelled
+scope returns ``WORKER_CANCELLED`` without touching a warm idle worker.
+Kokoro and soundfile live in the configured venv, not in LibreOffice's runtime.
 
 The process stays up across sentences so CPU Kokoro does not reload ONNX and
-the voices file every clip. ``cancel_inflight`` kills it while a job is
-inside ``execute``, including the spawn handshake before the ready frame —
-``Kokoro.create`` cannot be interrupted any other way. An idle worker is left
-alone so the Send button's ``stop_speech`` (which runs before the reply
-exists) does not throw away a warm model. A ``cancel_check`` which returns
-true before a frame is sent returns ``WORKER_CANCELLED`` and does not call
-``cancel_inflight``. The reaper drops the process after
+the voices file every clip. Stop kills the in-flight child via the scope hook,
+including during the spawn handshake before the ready frame — ``Kokoro.create``
+cannot be interrupted any other way. The reaper drops the process after
 ``idle_worker_ttl_sec`` of quiet so the RAM comes back.
 """
 
@@ -402,6 +396,7 @@ class KokoroProcessPool:
             finally:
                 if cancel is not None:
                     cancel.unregister_on_cancel(self._kill_inflight)
+                aborted = False
                 with self._lock:
                     if (
                         spawned_worker is not None
@@ -412,8 +407,11 @@ class KokoroProcessPool:
                     self._job_live = False
                     if not self._abort:
                         self._last_active = time.monotonic()
+                    # A second execute waits on _job_lock until this finally runs,
+                    # so job flags cannot belong to two jobs.
+                    aborted = self._abort
 
-        if self._abort:
+        if aborted:
             return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
         raw_warning = result.get("warning")
         if isinstance(raw_warning, str):
@@ -434,6 +432,9 @@ class KokoroProcessPool:
 
     def _kill_inflight(self) -> None:
         """Kill the child only when a job is running. Idle warm processes stay up.
+
+        Pool-wide hook: kills whatever job is live. Safe because utterance scopes
+        are cancelled under ``_speech_lock`` before the next utterance can start.
 
         Set _abort so the spawner cannot adopt the child, and kill
         the process if it has already been published. signal() sets

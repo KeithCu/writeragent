@@ -245,7 +245,7 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
 
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
-    # Do not return early when chunk_count_from_meta > 0. That skipped the
+    # Do not return early when meta chunk_count > 0. That skipped the
     # incremental mtime loop, which skips unchanged files and picks up new
     # or modified ones. row_count > 0 is not "nothing to do".
 

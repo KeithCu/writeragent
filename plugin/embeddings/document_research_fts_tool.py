@@ -145,7 +145,7 @@ class SearchNearbyFiles(ToolBase):
                     if url:
                         allowed_urls.add(url)
 
-            search_path = store.search_path or str(db_path)
+            search_path = store.search_path
 
             return {
                 "search_path": search_path,
