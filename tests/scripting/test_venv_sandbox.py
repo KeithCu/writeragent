@@ -743,7 +743,7 @@ def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
 
     exit_calls: list[int] = []
     monkeypatch.setattr(harness.os, "_exit", lambda code: exit_calls.append(code))
-    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
     req_data = pack_pickle_frame({"id": "req-timeout", "action": "execute", "code": "result = 1"})

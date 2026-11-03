@@ -187,7 +187,7 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
         del request, stdout
         raise SystemExit(3)
 
-    monkeypatch.setattr(worker_harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(worker_harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(worker_harness, "_init_logging", lambda: None)
     def _fail_exit(code: int) -> None:
         raise AssertionError(f"Unexpected os._exit({code})")

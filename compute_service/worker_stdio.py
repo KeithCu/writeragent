@@ -57,20 +57,13 @@ def unpack_restricted_pickle_frame(payload: bytes) -> Any:
 
 
 def set_pdeathsig() -> bool:
-    """Set parent death signal on Linux via prctl so child worker terminates on hard host exit.
-
-    Guarded so non-Linux platforms (macOS/Windows) safely return False without error.
-    SIGKILL is read only inside this Linux branch. Windows has no SIGKILL.
-    """
+    """Set parent death signal on Linux so the child dies if the host exits abruptly."""
     if sys.platform != "linux":
         return False
-    try:
-        import ctypes
+    from plugin.framework.child_runtime import die_with_parent
 
-        res = ctypes.CDLL(None).prctl(1, ctypes.c_ulong(signal.SIGKILL), 0, 0, 0)
-        return res == 0
-    except Exception:
-        return False
+    die_with_parent()
+    return True
 
 
 COMPUTE_THREAD_ENV_VARS: tuple[str, ...] = (

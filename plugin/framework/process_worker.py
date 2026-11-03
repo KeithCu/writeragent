@@ -449,6 +449,8 @@ class BaseProcessWorker:
         spawned: Child | None = None
         published = False
         try:
+            # Compute pools still respawn through BaseProcessWorker; WarmChild uses
+            # supervisor.spawn() on the long-lived spawner thread (step 2).
             managed.start()
             spawned = Child(managed, worker_name=self.worker_name, worker_id=self.worker_id)
             # Do not hold _lifecycle_lock across start() or the handshake read.
