@@ -246,6 +246,8 @@ class ChildSpec:
     stderr_tail_chars: int = _STDERR_LOG_CAP
     max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
     unpacker: Callable[[bytes], Any] | None = None
+    # False keeps a missing interpreter as OSError (venv systemd-run retry depends on it).
+    log_start_failure: bool = True
 
 
 @dataclass(frozen=True)
@@ -356,7 +358,7 @@ class WarmChild:
         else:
             acquired = self._io_lock.acquire(timeout=wait)
         if not acquired:
-            yield error_dict("EXECUTION_TIMEOUT", "Could not acquire warm child pipe lock.")
+            yield error_dict("PIPE_LOCK_BUSY", "Could not acquire warm child pipe lock.")
             return
         try:
             with self._lifecycle_lock:
@@ -471,20 +473,24 @@ class WarmChild:
         timeout_sec = min(self.spec.ready_timeout_sec, SPAWN_READY_TIMEOUT_SEC, spawn_for)
         managed = ManagedSubprocess(
             self.spec.argv,
-            base_env=None,
-            env=self.spec.env,
+            base_env=self.spec.env,
+            env={},
             command_wrapper=self.spec.command_wrapper,
-            scrub_env=True,
+            scrub_env=False,
             optimize_pipes=True,
             stderr_tail_chars=self.spec.stderr_tail_chars,
             stderr_name=self._stderr_name(),
             label=self.spec.name,
+            log_start_failure=self.spec.log_start_failure,
         )
         spawned: Child | None = None
         published = False
         try:
             # Do not hold _lifecycle_lock across start() or the handshake read.
-            self._supervisor.spawn(managed)
+            try:
+                self._supervisor.spawn(managed)
+            except OSError:
+                raise
             spawned = Child(
                 managed,
                 worker_name=self.spec.name,

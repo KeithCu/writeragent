@@ -97,9 +97,9 @@ def test_shared_kernel_live_cells_reset_uno(ctx, doc):
     import plugin.scripting.session_manager as sm
     from plugin.scripting.document_scripts import set_calc_init_script
     from plugin.calc.python.function import clear_python_addin_cache
-    from plugin.scripting.venv_worker import PythonWorkerManager
+    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
-    PythonWorkerManager.shutdown_all()
+    shutdown_venv_workers_for_tests()
     clear_python_addin_cache()
 
 

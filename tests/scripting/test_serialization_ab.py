@@ -36,7 +36,7 @@ def test_cython_active_if_available() -> None:
     if os.path.exists("plugin/contrib/vec_pack/pack.cpython-312-x86_64-linux-gnu.so"):
         assert fast_flatten_grid_2d is not None, "Cython 2D accelerator should be loaded"
         assert fast_flatten_grid_1d is not None, "Cython 1D accelerator should be loaded"
-from plugin.scripting.venv_worker import PythonWorkerManager
+from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 from tests.scripting.payload_codec_test_support import MIXED_WITH_ZIP, NUMERIC_4X4
 from tests.harness.vhs_budget import _SERIALIZATION_EXTENSIVE_ENV
 from tests.scripting.serialization_ab_support import (
@@ -126,7 +126,7 @@ def test_child_materialization_type(case: AbGridCase) -> None:
 def test_venv_transform_parity(case: VenvTransformCase) -> None:
     """Worker transforms must agree under force=always vs force=never."""
     if case.use_subprocess:
-        PythonWorkerManager.shutdown_all()
+        shutdown_venv_workers_for_tests()
         try:
             assert_venv_always_never_parity(
                 case.grid,
@@ -135,7 +135,7 @@ def test_venv_transform_parity(case: VenvTransformCase) -> None:
                 label=case.id,
             )
         finally:
-            PythonWorkerManager.shutdown_all()
+            shutdown_venv_workers_for_tests()
     else:
         assert_venv_always_never_parity(
             case.grid,
@@ -167,7 +167,7 @@ def test_venv_expected_value(case: VenvTransformCase) -> None:
 def test_venv_subprocess_numeric_sum() -> None:
     """Full Pickle5 IPC: sum parity always vs never."""
     pytest.importorskip("numpy")
-    PythonWorkerManager.shutdown_all()
+    shutdown_venv_workers_for_tests()
     try:
         result, _ = assert_venv_always_never_parity(
             NUMERIC_4X4,
@@ -177,14 +177,14 @@ def test_venv_subprocess_numeric_sum() -> None:
         )
         assert result == pytest.approx(264.0)
     finally:
-        PythonWorkerManager.shutdown_all()
+        shutdown_venv_workers_for_tests()
 
 
 @pytest.mark.integration
 def test_venv_subprocess_mixed_echo() -> None:
     """Full Pickle5 IPC echo: always vs never on mixed zip grid."""
     pytest.importorskip("numpy")
-    PythonWorkerManager.shutdown_all()
+    shutdown_venv_workers_for_tests()
     try:
         assert_venv_always_never_parity(
             MIXED_WITH_ZIP,
@@ -193,7 +193,7 @@ def test_venv_subprocess_mixed_echo() -> None:
             label="subprocess mixed echo",
         )
     finally:
-        PythonWorkerManager.shutdown_all()
+        shutdown_venv_workers_for_tests()
 
 
 # =============================================================================
