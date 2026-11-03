@@ -334,7 +334,7 @@ def text_analytics_payload_error(data: Any) -> str | None:
 
 def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a compact HTML report for the text analytics result (Writer)."""
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     if not is_writer(doc):
         raise ToolExecutionError("Text analytics insert requires a Writer document.", code="TEXT_ANALYTICS_ERROR")

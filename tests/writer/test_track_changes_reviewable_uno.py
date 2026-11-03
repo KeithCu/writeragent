@@ -31,8 +31,8 @@ from plugin.writer.apply_document_content import ApplyDocumentContent
 import plugin.writer.edit_review as _content
 from plugin.writer.edit_review import EditReviewSession, get_agent_edit_review_mode
 from plugin.framework.config import save, get_config
-import plugin.writer.format as fmt
-import plugin.writer.html_import as html_import
+from plugin.writer import html_import
+fmt = html_import
 from plugin.writer.edit_review import _string_skipping_redline
 from plugin.writer.inline_review import _resolve_all_agent_changes
 

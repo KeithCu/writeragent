@@ -13,6 +13,41 @@ from plugin.framework.prompts import (
     WRITER_SPECIALIZED_DELEGATION_TEMPLATE,
 )
 
+DOMAIN_LOOP_HINTS: dict[str, dict[str | None, str]] = {
+    "footnotes": {
+        None: (
+            "For footnotes_insert: if the task quotes or names the document anchor "
+            "(e.g. a sentence), pass that exact string as insert_after so the "
+            "note is placed after that text."
+        ),
+        "Writer": (
+            "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
+            "pass that exact string as insert_after so the note is placed after that text; "
+            "the task executor cannot move the view cursor."
+        ),
+        "Calc": (
+            "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
+            "pass that exact string as insert_after so the note is placed after that text; "
+            "the task executor cannot move the view cursor."
+        ),
+        "Draw": (
+            "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
+            "pass that exact string as insert_after so the note is placed after that text; "
+            "the task executor cannot move the view cursor."
+        ),
+    },
+    "charts": {
+        "Calc": "When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10').",
+        "Writer": "When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters.",
+        "Draw": "When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters.",
+        None: (
+            "For charts: in Calc you MUST pass an explicit data range (e.g. "
+            "data_range='A1:B10'); in Writer or Draw/Impress you MUST pass both the "
+            "`headers` and `rows` parameters."
+        ),
+    },
+}
+
 def _catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
 
@@ -108,5 +143,35 @@ def get_specialized_delegation_tool_hint(agent_label: str, *, ctx: Any = None) -
         "Draw": DRAW_SPECIALIZED_DELEGATION_TEMPLATE,
     }.get(agent_label, WRITER_SPECIALIZED_DELEGATION_TEMPLATE)
     return template.format(domains=domains_str)
+
+
+# Bugfix: the inner loop returned status ok for inner tool errors and for
+# max-step prose, because _compact_result never inspected either. Record
+# inner error payloads and treat a run that did not call the finish tool as
+# incomplete (same contract as DelegateToSpecializedBase).
+def normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: list[dict[str, Any]]) -> dict[str, Any]:
+    if isinstance(final_ans, dict) and final_ans.get("status") == "error":
+        return final_ans
+    payload: dict[str, Any]
+    if isinstance(final_ans, dict) and "status" in final_ans:
+        payload = dict(final_ans)
+    else:
+        payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
+    payload["domains"] = list(domains)
+    if tool_errors:
+        # Discussion #2268: the finish answer stays in answer only, not copied into message and error.
+        messages = [str(err.get("message") or err.get("error") or err) for err in tool_errors]
+        text = "; ".join(messages) or "Specialized tool error."
+        payload.update(status="error", code="SPECIALIZED_TOOL_ERROR", message=text, error=text)
+        return payload
+    if payload.get("finished") is True:
+        return payload
+    # Discussion #2262: a plain-text return sits in result; move it to message instead of copying it.
+    if isinstance(final_ans, dict):
+        text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
+    else:
+        text = payload.pop("result")
+    payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
+    return payload
 
 

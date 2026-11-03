@@ -734,7 +734,7 @@ class TableInsert(ToolWriterTableBase):
                 created_name = uno_read(lambda: str(table.getName()), "")
 
             uno_ctx = resolve_uno_context(ctx)
-            from plugin.writer.format import run_writer_mutation_with_optional_review
+            from plugin.writer.html_import import run_writer_mutation_with_optional_review
             run_writer_mutation_with_optional_review(doc, uno_ctx, _apply)
 
             return {
@@ -789,7 +789,7 @@ class TableDelete(ToolWriterTableBase):
                 # be recorded, not silently applied.
                 return bool(delete_writer_table(ctx.doc, uno_ctx, table, name, nesting))
 
-            from plugin.writer.format import run_writer_mutation_with_optional_review
+            from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
             tracked = bool(run_writer_mutation_with_optional_review(ctx.doc, uno_ctx, _apply))
             if tracked:

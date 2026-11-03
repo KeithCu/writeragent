@@ -1048,7 +1048,7 @@ def test_empty_append_finish_closes_undo():
 
     undo = MagicMock()
     doc = MagicMock()
-    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False)):
+    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)):
         session = WriterStreamedAppendSession(doc, MagicMock(), "orig")
     undo.reset_mock()
     session.finish()
@@ -1060,7 +1060,7 @@ def test_empty_rewrite_finish_closes_undo():
 
     undo = MagicMock()
     doc = MagicMock()
-    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False)):
+    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)):
         session = WriterStreamedRewriteSession(doc, MagicMock(), "orig")
     undo.reset_mock()
     session.finish()

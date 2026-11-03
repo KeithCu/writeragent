@@ -465,7 +465,7 @@ def test_insert_delegates_to_host_helper(monkeypatch):
     def forbidden_insert(*args, **kwargs):
         raise AssertionError("insert_content_at_position should not be called by dialog")
 
-    monkeypatch.setattr("plugin.writer.format.insert_content_at_position", forbidden_insert)
+    monkeypatch.setattr("plugin.writer.html_import.insert_content_at_position", forbidden_insert)
 
     recorded_insert: list[tuple[Any, Any, Any]] = []
 

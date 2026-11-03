@@ -877,7 +877,7 @@ def test_apply_style_all_matches_applies_to_each():
     ranges = [MagicMock(), MagicMock(), MagicMock()]
     with patch("plugin.writer.search.find_all_ranges", return_value=ranges), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
          patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
         res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
@@ -894,7 +894,7 @@ def test_apply_style_all_matches_does_not_abort_on_stop_checker():
 
     with patch("plugin.writer.search.find_all_ranges", return_value=ranges), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
          patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
         res = ApplyStyle().execute(_style_ctx(send_cancellation=stop_scope), style="Heading 1", target="search",
@@ -910,7 +910,7 @@ def test_apply_style_occurrence_out_of_range():
 
     with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False):
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
                                    old_content="Title", occurrence=5)
     assert res["status"] == "error" and "out of range" in res["message"]
