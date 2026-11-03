@@ -259,7 +259,6 @@ class KokoroProcessPool:
         self._lock: threading.Lock = threading.Lock()
         self._job_lock: threading.Lock = threading.Lock()
         self._job_live: bool = False
-        self._abort: bool = False
         self._shutdown: bool = False
         self._last_active: float = time.monotonic()
         self._reaper_stop: threading.Event = threading.Event()
@@ -280,6 +279,13 @@ class KokoroProcessPool:
         # dedicated: the reaper lives until shutdown and must not occupy a
         # pooled slot (see plugin.framework.worker_pool).
         run_in_background(_loop, name="kokoro-idle-reaper", dedicated=True)
+
+    def _job_stopped(self, cancel: SendCancellation | None) -> bool:
+        """True when Stop cancelled the utterance scope or the pool is shutting down.
+
+        Caller must already hold ``self._lock`` (the lock is not reentrant).
+        """
+        return self._shutdown or (cancel is not None and cancel.is_cancelled())
 
     def execute(
         self,
@@ -314,7 +320,6 @@ class KokoroProcessPool:
                 if self._shutdown:
                     return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
                 self._job_live = True
-                self._abort = False
                 existing = self._worker
                 # A dead slot is not warm. kill() has already dropped a child it
                 # could not reap, so is_alive() is false and this job may spawn.
@@ -357,7 +362,7 @@ class KokoroProcessPool:
                         spawn_aborted = False
                         with self._lock:
                             # Cancel during the gap before Popen: do not start the child.
-                            if self._abort:
+                            if self._job_stopped(cancel):
                                 spawn_aborted = True
                             else:
                                 # Visible to cancel hook before the ready handshake blocks.
@@ -369,10 +374,10 @@ class KokoroProcessPool:
                             spawn_cancelled = False
                             failed = False
                             with self._lock:
-                                # Abort flag means Stop or shutdown. A crashed handshake
+                                # Scope cancel or pool shutdown. A crashed handshake
                                 # calls kill(), so a real spawn failure must stay
                                 # WORKER_SPAWN_FAILED and fall back to the one-shot clip.
-                                spawn_cancelled = self._abort
+                                spawn_cancelled = self._job_stopped(cancel)
                                 # A handshake that could not reap has already dropped the
                                 # child, so is_alive() is false and this stays a failed spawn.
                                 failed = spawn_cancelled or not spawned.is_alive()
@@ -392,7 +397,14 @@ class KokoroProcessPool:
                                     worker = spawned
 
                 if worker is not None:
-                    result = worker.execute(payload, deadline.left())
+                    run_job = True
+                    with self._lock:
+                        if self._job_stopped(cancel):
+                            run_job = False
+                    if run_job:
+                        result = worker.execute(payload, deadline.left())
+                    else:
+                        result = error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
             finally:
                 if cancel is not None:
                     cancel.unregister_on_cancel(self._kill_inflight)
@@ -405,11 +417,11 @@ class KokoroProcessPool:
                     ):
                         self._worker = None
                     self._job_live = False
-                    if not self._abort:
+                    if not self._job_stopped(cancel):
                         self._last_active = time.monotonic()
                     # A second execute waits on _job_lock until this finally runs,
                     # so job flags cannot belong to two jobs.
-                    aborted = self._abort
+                    aborted = self._job_stopped(cancel)
 
         if aborted:
             return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
@@ -436,7 +448,8 @@ class KokoroProcessPool:
         Pool-wide hook: kills whatever job is live. Safe because utterance scopes
         are cancelled under ``_speech_lock`` before the next utterance can start.
 
-        Set _abort so the spawner cannot adopt the child, and kill
+        Stop raises the utterance scope before this hook runs; ``execute`` reads
+        ``cancel.is_cancelled()`` and ``_shutdown`` so the spawner cannot adopt the child, and kill
         the process if it has already been published. signal() sets
         _killed so an in-flight respawn discards the child instead of
         publishing it. The worker is stored before respawn so Stop
@@ -448,7 +461,6 @@ class KokoroProcessPool:
             worker = self._worker
             self._worker = None
             self._job_live = False
-            self._abort = True
         if worker is not None:
             log.info("Cancelling in-flight Kokoro synthesis")
             worker.signal()
@@ -483,9 +495,8 @@ class KokoroProcessPool:
             self._shutdown = True
             worker = self._worker
             self._worker = None
-            # In-flight execute treats a dropped token as cancel, so shutdown
+            # In-flight execute treats shutdown like cancel, so shutdown
             # does not fall through to a one-shot Kokoro clip.
-            self._abort = True
             self._job_live = False
         if worker is not None:
             worker.kill()
