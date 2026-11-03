@@ -129,6 +129,15 @@ def _ui_lines_for_handler_error(handler_type: str, err_msg: str) -> str:
     return f"\n[Operation failed: {err_msg}]\n"
 
 
+def _fail_handler(panel: Any, handler_type: str, exc: Exception) -> str:
+    panel._set_status("Error")
+    panel._terminal_status = "Error"
+    err_msg = format_error_for_display(exc)
+    append_text = _ui_lines_for_handler_error(handler_type, err_msg)
+    panel._append_response(append_text)
+    return append_text
+
+
 class SendHandlersMixin:
     _panel: Any = _PanelDescriptor()
 
@@ -149,12 +158,14 @@ class SendHandlersMixin:
     ) -> None:
         agent_parts: list[str] = []
 
+        def ended() -> bool:
+            # Once done/stopped/error, later worker/drain/Stop events are ignored (incl. chunk-after-error).
+            return status in ("done", "stopped", "error")
+
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if is_thinking and not show_thinking:
                 return
-            # Bugfix: If the handler is already stopped, late chunks arriving after Stop
-            # must not be appended to the UI.
-            if status == "stopped":
+            if ended():
                 return
             # External-agent text is persisted once on STREAM_DONE / stop.
             # Writing each chunk from the worker raced the UI drain.
@@ -189,8 +200,8 @@ class SendHandlersMixin:
                 text = "".join(agent_parts).strip()
                 if text:
                     persist_assistant_on_turn(self._panel, content=text)
-            if status not in ("error", "stopped"):
-                # Bugfix: Always emit status "Ready" on normal completion, regardless of
+            if not ended():
+                # Always emit status "Ready" on normal completion, regardless of
                 # handler_type string, so unknown/future handler types don't finish with
                 # missing status updates.
                 status = "done"
@@ -210,11 +221,7 @@ class SendHandlersMixin:
                 turn.close_stopped(self._panel, partial)
             if on_stopped_callback:
                 on_stopped_callback()
-            # Bugfix: A Stop that arrives after StreamDoneEvent rewrote a finished turn
-            # from Ready to Stopped (assigns _terminal_status), and a second Stop re-emitted
-            # that pair. "error" was already absorbing. "done" and "stopped" were not,
-            # unlike chunks and errors after Stop (#1435).
-            if status in ("done", "stopped", "error"):
+            if ended():
                 return
             status = "stopped"
             self._panel._set_status("Stopped")
@@ -225,17 +232,10 @@ class SendHandlersMixin:
             live = current_turn(self._panel)
             if isinstance(live, TurnController) and not live.alive:
                 return
-            # Bugfix: If the handler is already stopped or done, late error events arriving from
-            # background threads (or a late error after Ready) must not transition status to
-            # "error" or append error lines.
-            if status in ("stopped", "done", "error"):
+            if ended():
                 return
             status = "error"
-            self._panel._set_status("Error")
-            self._panel._terminal_status = "Error"
-            err_msg = format_error_for_display(e)
-            append_text = _ui_lines_for_handler_error(handler_type, err_msg)
-            self._panel._append_response(append_text)
+            append_text = _fail_handler(self._panel, handler_type, e)
             # Same write for web, agent, and image, using the lines
             # handle_error already shows. The tool loop stores that banner
             # with persist_assistant_on_turn. Painting the banner and storing
@@ -431,11 +431,7 @@ class SendHandlersMixin:
             return
 
         def _handle_early_error(exception_instance: Exception) -> None:
-            self._panel._set_status("Error")
-            self._panel._terminal_status = "Error"
-            err_msg = format_error_for_display(exception_instance)
-            append_text = _ui_lines_for_handler_error("agent", err_msg)
-            self._panel._append_response(append_text)
+            _fail_handler(self._panel, "agent", exception_instance)
             # Ensure turn is closed out properly, just as _do_send_direct_image does
             defer_until_drain_done(lambda: abort_turn(self._panel))
 

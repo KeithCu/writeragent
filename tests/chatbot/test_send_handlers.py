@@ -2621,10 +2621,27 @@ class TestSendHandlerDirectInlining:
         assert panel.status_history[-1] == "Error"
         assert any("Research Chat error:" in r and "network crash" in r for r in panel.responses)
 
+    def test_drain_error_then_chunk_ignored(self):
+        panel = DummyChatbotPanel()
+
+        def drain_error_then_chunk(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
+            on_error(Exception("network crash"))
+            apply_chunk("late chunk", False)
+            outcome.done = True
+
+        q = StreamQueue()
+        with patch("plugin.framework.async_stream.run_in_background", side_effect=lambda f, **kw: f()):
+            with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=drain_error_then_chunk):
+                panel._run_unified_worker_drain_loop(q, lambda: None, "web")
+
+        assert panel._terminal_status == "Error"
+        assert "late chunk" not in panel.responses
+        assert sum(1 for r in panel.responses if "Research Chat error:" in r and "network crash" in r) == 1
+
     def test_chunk_after_stop_ignored(self):
         panel = DummyChatbotPanel()
 
-        def drain_stopped_then_chunk(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+        def drain_stopped_then_chunk(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
             on_stopped()
             # Late chunk arrives after stop
             apply_chunk("late chunk", False)
@@ -2640,7 +2657,7 @@ class TestSendHandlerDirectInlining:
     def test_error_after_stop_ignored(self):
         panel = DummyChatbotPanel()
 
-        def drain_stopped_then_error(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+        def drain_stopped_then_error(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
             on_stopped()
             # Late error arrives after stop
             on_error(Exception("late error"))
@@ -2657,7 +2674,7 @@ class TestSendHandlerDirectInlining:
     def test_stop_after_done_is_noop(self):
         panel = DummyChatbotPanel()
 
-        def drain_done_then_stop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+        def drain_done_then_stop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
             on_stream_done((StreamQueueKind.STREAM_DONE, {}))
             # Late stop arrives after done
             on_stopped()
@@ -2673,7 +2690,7 @@ class TestSendHandlerDirectInlining:
     def test_error_after_done_is_noop(self):
         panel = DummyChatbotPanel()
 
-        def drain_done_then_error(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+        def drain_done_then_error(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
             on_stream_done((StreamQueueKind.STREAM_DONE, {}))
             # Late error arrives after done
             on_error(Exception("late error"))

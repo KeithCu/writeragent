@@ -381,20 +381,26 @@ The following summarizes the implemented modules and the simplified patterns we 
    - Full test coverage in `tests/chatbot/test_tool_loop_state.py`
    - **Host dual-mirrors removed:** round/pending/stop/async/max live only in `ToolLoopState` (`sidebar_state.tool_loop` via `_sm_state`). Remaining `_active_*` fields on the panel are session I/O handles (queues, client, tools, model) for the effect interpreter in `tool_loop_actions.py` — not a second control state.
 
-2. **Send Button State Machine** (`plugin/chatbot/send_state.py`)
+2. **Send Handler State Machine** (formerly plugin/chatbot/state_machine.py): removed 2026-11. It emitted terminal status as UI text, which caused round-2 regression 5; the drain callbacks in send_handlers.py now guard on one ended() latch and the orderings are tested directly in tests/chatbot/test_send_handlers.py.
+
+3. **Send Button State Machine** (`plugin/chatbot/send_state.py`)
    - Manages UI button state transitions
    - Simple enum-based events and union effects
    - Test coverage in `tests/chatbot/test_send_state.py`
 
-3. **Audio Recorder State Machine** (`plugin/chatbot/audio_recorder_state.py`)
+4. **Audio Recorder State Machine** (`plugin/chatbot/audio_recorder_state.py`)
    - Audio recording lifecycle management
    - Minimal state and effect types
    - Test coverage in `tests/chatbot/test_audio_recorder_state.py`
 
-4. **MCP Tunnel Reconnection State Machine** (`plugin/mcp/tunnel_state.py`)
+5. **MCP Tunnel Reconnection State Machine** (`plugin/mcp/tunnel_state.py`)
    - Lifecycle and exponential backoff retry management for public tunnels (`cloudflared`, `ngrok`, `bore`, `tailscale`)
    - Explicit typed effects (`StartProcessEffect`, `TerminateProcessEffect`, `ScheduleRetryTimerEffect`, `CancelRetryTimerEffect`, `NotifyUrlAcquiredEffect`)
    - Formal invariants and contracts (`@deal.ensure`) with Hypothesis test coverage in `tests/mcp/test_tunnel_state.py`
+
+### When a transition function earns an interpreter
+
+A pure transition function earns an interpreter when at least two of these hold: the state has more than one independent field that transitions read together; an invariant spans transitions (a bound, monotonicity, 'once stopped, never spawn'), so it needs sequence tests; the effect list's order or contents is the contract with a thread, timer, or subprocess; or the same event arrives from more than one source and ordering is the bug class. If the state is one enum and every transition is 'if ended, ignore, else end this way', it is a latch. Write it as a guard in the handler and test the orderings directly. The send-handler machine (state_machine.py, removed 2026-11) was a latch.
 
 ### What We Avoided (Over-Engineering Traps)
 
