@@ -785,7 +785,7 @@ def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPa
 
     exit_calls: list[int] = []
     monkeypatch.setattr(ws.os, "_exit", lambda code: exit_calls.append(code))
-    monkeypatch.setattr(ws, "set_pdeathsig", lambda: True)
+    monkeypatch.setattr("plugin.framework.child_runtime.die_with_parent", lambda: False)
 
     req_data = pack_pickle_frame({"id": "req-stdio-timeout", "code": "x = 1"})
     stdin = io.BytesIO(req_data)

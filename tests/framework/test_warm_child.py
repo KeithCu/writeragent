@@ -86,9 +86,9 @@ def test_spawn_runs_on_supervisor_spawner_thread(tmp_path: Any, monkeypatch: pyt
 
     monkeypatch.setattr(ManagedSubprocess, "start", tracked_start)
     try:
-        assert supervisor.spawner_ident is not None
         with warm.lease(Deadline(15)) as leased:
             assert not isinstance(leased, dict)
+        assert supervisor.spawner_ident is not None
         assert start_idents == [supervisor.spawner_ident]
     finally:
         warm.retire()
