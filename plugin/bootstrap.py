@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import enum
+import sys
+import types
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -19,6 +21,82 @@ class BootstrapState(enum.Enum):
     UNINITIALIZED = "uninitialized"
     BOOTSTRAPPING = "bootstrapping"
     INITIALIZED = "initialized"
+
+
+class _GlobalsOwner(types.ModuleType):
+    """ModuleType whose attrs read/write an external globals dict.
+
+    LibreOffice's pythonloader execs UNO component files into a namespace that is
+    not registered in ``sys.modules``. ``bootstrap_extension`` still needs a
+    module-like owner for ``_bootstrap_state``, and ``finish()`` updates that
+    state via ``global`` on the exec namespace — so the owner must prefer that
+    dict over its own ``__dict__`` for reads.
+    """
+
+    def __init__(self, name: str, ns: dict[str, Any]) -> None:
+        # Stash ns before super().__init__ so early setattr can write through.
+        # ``__file__`` stays in ns; __getattribute__ prefers ns so importers see it.
+        self.__dict__["_wa_ns"] = ns
+        super().__init__(name)
+
+    def __getattribute__(self, name: str) -> Any:
+        if name in ("__dict__", "__class__"):
+            return object.__getattribute__(self, name)
+        d = object.__getattribute__(self, "__dict__")
+        if name == "_wa_ns":
+            return d["_wa_ns"]
+        ns = d.get("_wa_ns")
+        # Prefer the exec namespace so finish()'s ``global _bootstrap_state`` is visible.
+        if isinstance(ns, dict) and name in ns:
+            return ns[name]
+        return object.__getattribute__(self, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_wa_ns":
+            self.__dict__[name] = value
+            return
+        ns = self.__dict__.get("_wa_ns")
+        if isinstance(ns, dict):
+            ns[name] = value
+        self.__dict__[name] = value
+
+
+def _canonical_plugin_module_name(file_path: Any) -> str | None:
+    if not isinstance(file_path, str):
+        return None
+    normalized = file_path.replace("\\", "/")
+    if normalized.endswith("/plugin/main_core.py") or normalized.endswith("plugin/main_core.py"):
+        return "plugin.main_core"
+    if normalized.endswith("/plugin/main.py") or normalized.endswith("plugin/main.py"):
+        return "plugin.main"
+    return None
+
+
+def resolve_bootstrap_owner(ns: dict[str, Any]) -> Any:
+    """Return the module (or write-through owner) that holds bootstrap state.
+
+    What was wrong: ``owner=sys.modules[__name__]`` raised ``KeyError: 'uno_component'``
+    on every OnStartApp.
+    How it happened: pythonloader execs ``plugin/main.py`` with
+    ``__name__ == 'uno_component'`` and never puts that name in ``sys.modules``
+    (see ``tests/framework/test_component_modules_no_dataclass.py``).
+    Why this change: reuse ``sys.modules[name]`` when present; otherwise bind a
+    write-through owner to the exec globals and register it so later lookups work.
+    """
+    name = ns.get("__name__")
+    if isinstance(name, str):
+        existing = sys.modules.get(name)
+        if existing is not None:
+            return existing
+
+    owner_name = name if isinstance(name, str) else "uno_component"
+    owner = _GlobalsOwner(owner_name, ns)
+    if isinstance(name, str):
+        sys.modules[name] = owner
+    canonical = _canonical_plugin_module_name(ns.get("__file__"))
+    if canonical is not None:
+        sys.modules.setdefault(canonical, owner)
+    return owner
 
 
 def bootstrap_extension(
