@@ -1577,7 +1577,9 @@ def run_all_tests(ctx: Any) -> str:
             for filename in files:
                 if not (filename.startswith("test_") and filename.endswith("_uno.py")):
                     continue
-                user_only = filename in _USER_PROFILE_ONLY_UNO
+                # Demo scenes drive the user's real profile, so they are user-profile-only
+                # too; without this, --user-profile skipped them ("No native test suites matched").
+                user_only = filename in _USER_PROFILE_ONLY_UNO or filename in _DEMO_ONLY_UNO
                 if user_only != options.use_user_profile:
                     continue
                 # Demo scenes only via make demo-video (WRITERAGENT_DEMO=1).
