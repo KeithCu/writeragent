@@ -2476,8 +2476,16 @@ class TestPanelR14Fixes:
         listener.query_control = MagicMock()
         listener.query_control.getModel.return_value = MagicMock()
 
-        def _fake_chat_with_tools(query: str, model: Any, doc_type: str) -> None:
-            listener.session.messages.append({"role": "user", "content": query})
+        def _fake_chat_with_tools(
+            query: str,
+            model: Any,
+            doc_type: str,
+            skip_append_user: bool = False,
+            *,
+            user_transcript_text: str | None = None,
+        ) -> None:
+            display = user_transcript_text if user_transcript_text else query
+            listener.session.messages.append({"role": "user", "content": display})
             raise RuntimeError("after commit")
 
         with (
