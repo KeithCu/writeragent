@@ -101,7 +101,7 @@ class _FailingFootnoteProbe(ToolWriterFootnoteBase):
 def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
     doc = MagicMock()
     doc.supportsService = lambda svc, service=service: svc == service
-    stop_checker = extra.pop("stop_checker", lambda: False)
+    send_cancellation = extra.pop("send_cancellation", None)
     services_list = (service,) if service else ()
     uno_services_supported = extra.pop("uno_services_supported", services_list)
     return ToolContext(
@@ -110,7 +110,7 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
         doc_type,
         {"tools": registry},
         caller="chat",
-        stop_checker=stop_checker,
+        send_cancellation=send_cancellation,
         uno_services_supported=uno_services_supported,
         **extra,
     )
@@ -362,7 +362,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
 
     inner_ctx = mock_build.call_args[0][0]
     assert inner_ctx.doc is parent.doc
-    assert inner_ctx.stop_checker is parent.stop_checker
+    assert inner_ctx.send_cancellation is parent.send_cancellation
     assert inner_ctx.status_callback is parent.status_callback
     assert inner_ctx.approval_callback is approval_cb
     assert inner_ctx.chat_append_callback is chat_append_cb
@@ -632,7 +632,7 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     ctx.doc.supportsService = lambda svc: svc == "com.sun.star.text.TextDocument"
     ctx.ctx = MagicMock()
     ctx.services = {"tools": registry}
-    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
     ctx.doc_type = "writer"
 
     gateway = registry.get("delegate_to_specialized_writer_toolset")

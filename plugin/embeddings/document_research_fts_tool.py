@@ -56,8 +56,9 @@ class SearchNearbyFiles(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        checker = getattr(ctx, "stop_checker", None)
-        if callable(checker) and checker() is True:
+        from plugin.framework.send_cancellation import is_cancelled
+
+        if is_cancelled(getattr(ctx, "send_cancellation", None)):
             return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import main
@@ -176,6 +177,7 @@ class SearchNearbyFiles(ToolBase):
         allowed_urls = context_result["allowed_urls"]
         model = get_embedding_model()
 
+        scope = ctx.send_cancellation
         try:
             result = hybrid_search(
                 ctx.ctx,
@@ -184,8 +186,8 @@ class SearchNearbyFiles(ToolBase):
                 k,
                 model=model,
                 near_slop=near_slop,
-                stop_checker=ctx.stop_checker,
-                cancellation_scope=ctx.send_cancellation,
+                stop_checker=scope.is_cancelled if scope is not None else None,
+                cancellation_scope=scope,
             )
             if result.get("error"):
                 return self._tool_error(result["error"], code="FOLDER_HYBRID_SEARCH_ERROR")

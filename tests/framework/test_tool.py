@@ -40,7 +40,6 @@ def test_tool_context_init():
 
     def status_cb(): pass
     def thinking_cb(): pass
-    def stop_cb(): return False
 
     tc = ToolContext(
         doc=doc,
@@ -50,7 +49,6 @@ def test_tool_context_init():
         caller=caller,
         status_callback=status_cb,
         append_thinking_callback=thinking_cb,
-        stop_checker=stop_cb
     )
 
     assert tc.doc is doc
@@ -60,14 +58,12 @@ def test_tool_context_init():
     assert tc.caller == caller
     assert tc.status_callback is status_cb
     assert tc.append_thinking_callback is thinking_cb
-    assert tc.stop_checker is stop_cb
 
 def test_tool_context_defaults():
     tc = ToolContext(doc=None, ctx=None, doc_type="calc", services=None)
     assert tc.caller == ""
     assert tc.status_callback is None
     assert tc.append_thinking_callback is None
-    assert tc.stop_checker is None
 
 
 def test_tool_context_derive():
@@ -80,7 +76,6 @@ def test_tool_context_derive():
         "active_page_index": 42,
         "status_callback": lambda s: None,
         "append_thinking_callback": lambda s: None,
-        "stop_checker": lambda: False,
         "approval_callback": lambda s: True,
         "chat_append_callback": lambda s: None,
         "set_active_domain_callback": lambda s: None,
@@ -104,7 +99,6 @@ def test_tool_context_derive():
     assert child.active_page_index == sentinels["active_page_index"]
     assert child.status_callback is sentinels["status_callback"]
     assert child.append_thinking_callback is sentinels["append_thinking_callback"]
-    assert child.stop_checker is sentinels["stop_checker"]
     assert child.approval_callback is sentinels["approval_callback"]
     assert child.chat_append_callback is sentinels["chat_append_callback"]
     assert child.set_active_domain_callback is sentinels["set_active_domain_callback"]

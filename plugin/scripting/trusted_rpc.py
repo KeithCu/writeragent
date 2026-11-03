@@ -65,10 +65,10 @@ def run_trusted_worker_action(
     cancellation_scope: Any | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action in the warm venv worker without user code strings."""
-    if stop_checker is None and ctx is not None:
-        stop_checker = getattr(ctx, "stop_checker", None)
     if cancellation_scope is None and ctx is not None:
         cancellation_scope = getattr(ctx, "send_cancellation", None)
+    if stop_checker is None and cancellation_scope is not None:
+        stop_checker = cancellation_scope.is_cancelled
 
     payload: dict[str, Any] = {
         **(additional_data or {}),

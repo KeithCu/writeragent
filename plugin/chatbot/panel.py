@@ -461,23 +461,6 @@ class SendButtonListener(BaseActionListener):
 
         assign_send_outcome(self, "" if value is None else value)
 
-    def resolve_stop_checker(self) -> Callable[[], bool]:
-        """Stop predicate bound to the scope on this panel right now.
-
-        Call this on the send thread when spawning a worker (``capture_send_stop``)
-        and close over the result. Calling it again inside the worker binds
-        whatever ``_send_cancellation`` is then. The drain clears that field
-        when it exits, and the next send stores a new scope there.
-
-        The returned callable keeps the scope object from this call, so it
-        stays true after the field is cleared. Do not pass
-        ``lambda: self.stop_requested`` alone: that property reads the live field.
-        See ``docs/framework/streaming-and-threading.md`` § Stop / cancellation.
-        """
-        from plugin.framework.send_cancellation import bind_send_stop_checker
-
-        return bind_send_stop_checker(self._send_cancellation, lambda: self._stop_requested_fallback)
-
     def set_session(self, session: Any) -> None:
         """Swap the visible session after the in-flight turn has been aborted.
 
@@ -1378,7 +1361,7 @@ class SendButtonListener(BaseActionListener):
         # Dispose can run on a later VCL turn while an event-driven drain
         # session is still open. Set the flag first so _close_turn_ui
         # does not write status or start TTS after ctx is cleared. Cancel the
-        # send scope (same object already captured by resolve_stop_checker) so
+        # send scope (same object already captured by capture_send_stop) so
         # the drain stop checker fires instead of streaming into a dead panel.
         # Match StopSendEffect: cancel the scope and latch the fallback.
         self._panel_teardown = True

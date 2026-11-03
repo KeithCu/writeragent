@@ -411,8 +411,8 @@ class DelegateToolDomains(ToolBase):
         if message:
             return self._tool_error(message, code=code or "UNKNOWN_SPECIALIZED_DOMAIN")
 
-        stop_checker = ctx.stop_checker
-        if stop_checker is not None and stop_checker():
+        scope = getattr(ctx, "send_cancellation", None)
+        if scope is not None and scope.is_cancelled():
             return user_stopped_payload("Domain tool agent stopped by user.")
 
         try:

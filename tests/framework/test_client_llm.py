@@ -3020,6 +3020,68 @@ def test_stream_abort_during_tool_call_honours_caller_cancel_without_client_stop
     assert scope.is_cancelled() is True
 
 
+def test_stop_on_unregistered_client_cancels_caller_scope_and_prevents_reconnect():
+    """LlmClient.stop() must cancel caller's scope via late hook and abort without connecting."""
+    config = {
+        "endpoint": "https://api.openai.com",
+        "api_key": "sk-test-key",
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "request_timeout": 60,
+    }
+    client = LlmClient(config, MockContext(), register_with_send=False)
+    scope = SendCancellation()
+    client.stop()
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            cancel=scope,
+        )
+
+    assert scope.is_cancelled() is True
+    assert result["finish_reason"] == "stop"
+    assert mock_https.call_count == 0
+
+
+def test_stop_after_request_return_does_not_cancel_caller_scope():
+    """LlmClient.stop() after request returns must not cancel caller's send scope."""
+    config = {
+        "endpoint": "https://api.openai.com",
+        "api_key": "sk-test-key",
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "request_timeout": 60,
+    }
+    client = LlmClient(config, MockContext(), register_with_send=False)
+    scope = SendCancellation()
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        conn = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.reason = "OK"
+        mock_resp.getheaders.return_value = [("Content-Type", "application/json")]
+        mock_resp.getheader.return_value = "application/json"
+        mock_resp.__iter__.return_value = iter([b'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n', b"data: [DONE]\n\n"])
+        mock_resp.read.return_value = b""
+        conn.getresponse.return_value = mock_resp
+        mock_https.return_value = conn
+
+        client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            cancel=scope,
+        )
+
+    assert scope.is_cancelled() is False
+    client.stop()
+    # What was wrong: late-cancel hook outlived the request, so worker cleanup stop() cancelled caller scope.
+    # Fix: unregister hook on return; stop() now latches only the client.
+    assert scope.is_cancelled() is False
+
+
 def test_stream_malformed_and_truncated_chunks_are_skipped(client):
     """Bad JSON, JSON-but-not-object, unexpected schema: skip; later valid deltas still apply."""
     lines = [

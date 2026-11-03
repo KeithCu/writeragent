@@ -31,7 +31,7 @@ from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import capture_send_stop
+from plugin.framework.send_cancellation import capture_send_stop, is_cancelled
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.state_machine import (
@@ -251,7 +251,7 @@ class SendHandlersMixin:
                 on_stream_done,
                 on_error,
                 on_status_fn=self._panel._set_status,
-                stop_checker=self._panel.resolve_stop_checker(),
+                cancel=self._panel._send_cancellation,
                 on_stopped_fn=on_stopped,
                 name="chatbot-send-handler",
                 q=q,
@@ -329,16 +329,16 @@ class SendHandlersMixin:
         with suppress_disposed("LRU update", logger=log, exc_info=True):
             update_lru_history(base_size_int, "image_base_size_lru", "")
 
-        # Spawn-time scope. The body must not call resolve_stop_checker or
-        # read _send_cancellation: Stop clears the field and the next send replaces it.
-        cancel_scope, stop_checker = capture_send_stop(self._panel)
+        # Spawn-time scope. The body must not re-read _send_cancellation:
+        # Stop clears the field and the next send replaces it.
+        cancel_scope = capture_send_stop(self._panel)
 
         def run_direct_image() -> None:
             doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
             try:
                 from plugin.main import get_tools
 
-                tctx = ToolContext(doc=model, ctx=self._panel.ctx, stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=lambda t: turn.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self._panel.ctx, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=lambda t: turn.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
 
                 # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
                 image_args: dict[str, Any] = {"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_int, "image_model": image_model_text}
@@ -347,7 +347,7 @@ class SendHandlersMixin:
                 res = get_tools().execute("image_generate", tctx, bypass_thread_guard=False, **image_args)
                 if isinstance(res, dict) and res.get("status") == "error":
                     # An ordinary user Stop is not a failure; keep it out of ERROR.
-                    if stop_checker():
+                    if is_cancelled(cancel_scope):
                         log.debug("generate_image (direct) stopped by user: %s", res.get("message"))
                     else:
                         log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
@@ -363,7 +363,7 @@ class SendHandlersMixin:
                 turn.put((StreamQueueKind.STREAM_DONE, {"assistant_content": note_line.strip()}))
             except Exception as e:
                 doc_type = getattr(self._panel, "cached_doc_type", None) or "unknown"
-                if stop_checker():
+                if is_cancelled(cancel_scope):
                     log.debug("Direct image path cancelled by Stop [doc: %s]: %s", doc_type, e)
                 else:
                     log.exception("Direct image path failed in _do_send_direct_image [doc: %s]", doc_type)
@@ -467,11 +467,11 @@ class SendHandlersMixin:
         self._panel._append_response(query_text, role="user")
 
         drain_q, turn = _send_worker_queues(self._panel)
-        # Spawn-time scope. run_agent must not call resolve_stop_checker:
+        # Spawn-time scope. run_agent must not re-read _send_cancellation:
         # Stop clears the field and the next send replaces it.
         # prepare_turn publishes this turn's id before Stop can be registered,
         # so a Stop that lands before send() aborts this turn only.
-        cancel_scope, stop_checker = capture_send_stop(self._panel)
+        cancel_scope = capture_send_stop(self._panel)
         if hasattr(adapter, "prepare_turn"):
             adapter.prepare_turn()
         if cancel_scope is not None and hasattr(adapter, "stop"):
@@ -515,7 +515,7 @@ class SendHandlersMixin:
                 def status_cb(t: str) -> None:
                     turn.put((StreamQueueKind.STATUS, t))
                 with llm_request_lane(status_callback=status_cb, resume_status=_("Thinking...")):
-                    adapter.send(queue=turn, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=stop_checker)
+                    adapter.send(queue=turn, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=cancel_scope.is_cancelled if cancel_scope is not None else None)
             except BlockingWaitStopped:
                 turn.put((StreamQueueKind.STOPPED,))
             except Exception as e:
@@ -583,9 +583,9 @@ class SendHandlersMixin:
         from plugin.chatbot.web_research_chat import format_sub_agent_conversation_history
 
         history_text = format_sub_agent_conversation_history(self._panel.session, current_query=query_text)
-        # Spawn-time scope. run_search must not call resolve_stop_checker or
-        # read _send_cancellation: Stop clears the field and the next send replaces it.
-        cancel_scope, stop_checker = capture_send_stop(self._panel)
+        # Spawn-time scope. run_search must not re-read _send_cancellation:
+        # Stop clears the field and the next send replaces it.
+        cancel_scope = capture_send_stop(self._panel)
 
         doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
 
@@ -612,7 +612,7 @@ class SendHandlersMixin:
                     turn.put((StreamQueueKind.APPROVAL_REQUIRED, query_for_engine, tool_name, event))
                     # event.wait() ignored Stop. Sidebar close latches the
                     # checker and never sets the event, so this worker parked.
-                    if not wait_for_approval(event, stop_checker):
+                    if not wait_for_approval(event, cancel_scope):
                         turn.put((StreamQueueKind.STOPPED,))
                         return (False, None)
                     if not getattr(event, "approved", False):
@@ -626,7 +626,7 @@ class SendHandlersMixin:
                 # run_search runs on the chatbot-send-handler worker;
                 # get_ctx() is main-thread-only. Panel bootstrap ctx matches
                 # tool_loop.execute_fn (async tools marshal UNO reads themselves).
-                tctx = ToolContext(doc=model, ctx=self._panel.ctx, stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self._panel.ctx, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
 
                 extra_args: dict[str, Any] = {}
                 if spec.extra_kwarg and spec.extra_attr:

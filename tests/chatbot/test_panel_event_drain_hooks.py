@@ -23,6 +23,7 @@ from plugin.chatbot.chat_session import ChatSession
 from plugin.chatbot.panel import SendButtonListener
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
+from plugin.framework.send_cancellation import SendCancellation
 from tests.chatbot.test_panel import _make_send_listener
 
 
@@ -85,7 +86,7 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
     status_ctrl = MagicMock()
     rearm = _Rearm()
     q: queue.Queue = queue.Queue()
-    stop = [False]
+    stop_scope = SendCancellation()
 
     def _start_turn() -> None:
         logging_mod.update_activity_state("do_send", status_control=status_ctrl)
@@ -97,7 +98,7 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
             on_stream_done=lambda _item: True,
             on_stopped=lambda: None,
             on_error=lambda _e: None,
-            stop_checker=lambda: stop[0],
+            cancel=stop_scope,
             rearm=rearm,
         )
         if ending == "error":
@@ -131,7 +132,7 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         drop_turn.assert_not_called()
 
         if ending == "stop":
-            stop[0] = True
+            stop_scope.cancel()
         else:
             q.put((StreamQueueKind.STREAM_DONE, "end"))
         rearm.pump()

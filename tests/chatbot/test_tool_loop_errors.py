@@ -48,6 +48,7 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.client = MagicMock()
         self.audio_wav_path = None
         self.stop_requested = False
+        self._send_cancellation = None
         self._get_document_model = MagicMock(return_value=None)
         self.responses = []
         self.statuses = []
@@ -64,9 +65,6 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         from plugin.chatbot.tool_loop_actions import assign_send_outcome
 
         assign_send_outcome(self, "" if value is None else value)
-
-    def resolve_stop_checker(self):
-        return lambda: self.stop_requested
 
     def _append_response(self, text, is_thinking=False, role="assistant"):
         self.responses.append(text)
@@ -882,7 +880,7 @@ def test_overflow_does_not_retry_when_stop_requested(test_instance):
 
 def test_overflow_does_not_retry_when_stop_checker_active(test_instance):
     _prime_active_tool_loop(test_instance)
-    test_instance.resolve_stop_checker = MagicMock(return_value=lambda: True)
+    test_instance.stop_requested = True
     test_instance._spawn_llm_worker = MagicMock()
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())

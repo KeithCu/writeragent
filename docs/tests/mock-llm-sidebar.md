@@ -300,7 +300,7 @@ Every test must satisfy:
 | **E5** | CI | `insert filler` | Send query | Paragraph appended; next turn's system prompt includes updated length (`refresh_document_context`); `next_hello_ok()` | **OK / Landed** |
 | **E6** | CI | `two tools` / `in parallel` | Send query | Both `search_in_document` and `get_document_tree` execute in one turn; single HTML summary; `next_hello_ok()` | **OK / Landed** |
 | **E7** | CI | `outline this` | Send query | Calls `delegate_to_specialized_writer_toolset`; inner discovery executes; returns canned outline; `next_hello_ok()` | **OK / Landed** |
-| **E8a** | CI | `outline this`, `delay_ms=80`, `sync_delay_ms=8000` | Call `press_stop()` during nested POST | Nested agent stops; `is_busy` becomes False; log shows `resolve_stop_checker`; `next_hello_ok()` | **OK / Landed** |
+| **E8a** | CI | `outline this`, `delay_ms=80`, `sync_delay_ms=8000` | Call `press_stop()` during nested POST | Nested agent stops; `is_busy` becomes False; log shows `SendCancellation` / `USER_STOPPED`; `next_hello_ok()` | **OK / Landed** |
 | **E8b** | CI | Same as E8a | Cancel with `press_stop_mouse()` | Same cancellation behavior via mouse listener | **Dropped** (mouse; E8a covers Stop) |
 | **E9** | CI | Prompt for web research on | Send query triggering HITL approval | Send button label becomes `Accept`; Stop label becomes `Change` / `Reject`; `is_busy` remains True | **OK / Landed** |
 | **E9a** | CI | E9 state | Call `press_accept()` | Approval clears; tool execution completes; button labels revert to Send/Stop; `next_hello_ok()` | **OK / Landed** |

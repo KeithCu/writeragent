@@ -175,7 +175,7 @@ Several compact files exist because OpenClaw runs on Node's single-threaded even
 
 - **Command-lane queueing** (`compact.queued.ts` 687, `compact.queued-execution.ts` 560) — compaction is a job that must not race other session work. WriterAgent already has `llm_request_lane` (a `threading.Lock`); the plan puts `compact_session` *inside* that existing `with` block.
 - **`worker_threads` planning** — see §3.2. WriterAgent's estimator is cheap and already off the UI thread.
-- **AbortSignal / aggregate timeout** (`compaction-timeout.ts`, `compaction-retry-aggregate-timeout.ts`, `compaction-safety-timeout.ts`) — Node cancellation tokens. WriterAgent already has `resolve_stop_checker()`.
+- **AbortSignal / aggregate timeout** (`compaction-timeout.ts`, `compaction-retry-aggregate-timeout.ts`, `compaction-safety-timeout.ts`) — Node cancellation tokens. WriterAgent already has `SendCancellation`.
 - **Plugin generation scope** (`withPluginRuntimeGenerationScope` in `compact.ts`) — hot-reload safety for a plugin host. The extension does not hot-reload chatbot code.
 - **Transcript file + SQLite session store** — OpenClaw persists a compaction *entry* into a session file (`type: "compaction"`). WriterAgent keeps originals in `session.messages` and history_db; the compacted view is a cache. That choice deletes the successor / checkpoint / transcript-writer files from the design.
 
@@ -193,7 +193,7 @@ OpenClaw's compact files keep re-solving session identity, HTTP, concurrency, st
 | Send / tool loop | `tool_loop.py` (775) + `tool_loop_state.py` (581) + `tool_loop_actions.py` (325). One spawn path: `_spawn_llm_worker` / `_spawn_final_stream` | `run/preemptive-compaction.ts`, `run/compaction-runtime.ts`, post-compaction loop guard |
 | HTTP / LLM | `LlmClient` (`llm_client.py` 1,257). Summarizer is `request_with_tools(stream=False)` on the same client | `compaction.ts` `generateSummary`, planning workers, live-model-selection, plugin providers |
 | Concurrency gate | `llm_request_lane` in `_spawn_llm_worker` | `compact.queued.ts` + command-queue admission |
-| Stop | `resolve_stop_checker()` | AbortSignal plumbing in timeout/safety files |
+| Stop | `SendCancellation` | AbortSignal plumbing in timeout/safety files |
 | Overflow vs death | `errors.py` already maps llama-server 500s; plan splits the predicates | `packages/ai/src/utils/overflow.ts` (247) + `failover/context-overflow.ts` (137) |
 | Persistence | `history_db.py` (179). v1 does **not** rewrite rows | Session transcript writer, checkpoints, successor files |
 | Config | `config_schema.py` + `get_config_bool_safe` | `DEFAULT_COMPACTION_SETTINGS` plus per-agent YAML plus plugin overrides |

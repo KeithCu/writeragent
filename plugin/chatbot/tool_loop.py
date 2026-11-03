@@ -45,7 +45,7 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import capture_send_stop, get_current_send_cancellation, send_stopped
+from plugin.framework.send_cancellation import SendCancellation, capture_send_stop, get_current_send_cancellation
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 from plugin.doc.peer_message import log_peer_tool_on_wire
@@ -172,7 +172,7 @@ def _compact_bound_session(
     *,
     tools: Any,
     max_tokens: int | None,
-    cancel: Any,
+    cancel: SendCancellation | None,
     force: bool,
     status_cb: Callable[[str], None],
 ) -> bool:
@@ -303,8 +303,8 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
 
 def _ensure_llm_client(panel: Any, api_config: dict[str, Any]) -> LlmClient:
     # contextvars (SendCancellation) do not propagate to worker threads — LlmClient
-    # picks up resolve_stop_checker() via get_current_send_cancellation when created on
-    # the UI thread; spawned workers pass stop_checker= explicitly (_spawn_llm_worker).
+    # picks up the scope via get_current_send_cancellation when created on
+    # the UI thread; spawned workers pass cancel= explicitly (_spawn_llm_worker).
     if not panel.client:
         panel.client = LlmClient(api_config, panel.ctx)
     else:
@@ -619,15 +619,15 @@ class ToolCallingMixin:
         turn = current_turn(self._panel)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if turn is not None else None
-        # Spawn-time scope. The body must not call resolve_stop_checker or
-        # read _send_cancellation: Stop clears the field and the next send replaces it.
-        bound_scope, _unused_checker = capture_send_stop(self._panel)
+        # Spawn-time scope. The body must not re-read _send_cancellation:
+        # Stop clears the field and the next send replaces it.
+        bound_scope = capture_send_stop(self._panel)
 
         def emit(item: Any) -> None:
             put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
-            return send_stopped(bound_scope, client)
+            return (bound_scope is not None and bound_scope.is_cancelled()) or client.stopped() is True
 
         return turn, bound_session, bound_scope, emit, stopped_for_this_send
 
@@ -927,8 +927,7 @@ class ToolCallingMixin:
         # is not overflow — compact-and-retry on a dead llama-server is worse
         # than today's sentence. Kill switch offs this path too.
         if get_config("chat_compaction_enabled"):
-            stop_checker = self._panel.resolve_stop_checker()
-            stopped = bool(self._panel.stop_requested or stop_checker())
+            stopped = bool(self._panel.stop_requested)
             live_turn = running_turn(self._panel)
             retry_q = spawn_queue(live_turn) if live_turn is not None else None
             if (
@@ -1057,7 +1056,7 @@ class ToolCallingMixin:
                 on_stopped=self._handle_stream_stopped,
                 on_error=self._handle_stream_error,
                 on_status_fn=self._panel._set_status,
-                stop_checker=self._panel.resolve_stop_checker(),
+                cancel=self._panel._send_cancellation,
                 show_search_thinking=show_search_thinking,
                 on_approval_required=self._on_tool_loop_approval_required,
                 flush_pending=turn.batcher.flush,

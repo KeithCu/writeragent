@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.ipc import read_pickle_frame
+from plugin.framework.send_cancellation import SendCancellation
 
 
 def test_dispatch_worker_event_only():
@@ -121,7 +122,7 @@ def test_dispatch_llm_request_threads_cancellation_scope_on_the_host():
 def test_handle_llm_request_uses_host_cancellation_scope():
     from plugin.ppt_master.venv.host_rpc import handle_llm_request
 
-    scope = object()
+    scope = SendCancellation()
     client = MagicMock()
     client._stopped = False
     client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}

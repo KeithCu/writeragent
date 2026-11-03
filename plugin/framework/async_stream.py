@@ -48,7 +48,7 @@ import threading
 import time
 import weakref
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, Protocol, cast
 
 from plugin.framework.blocking_wait import automatic_gc_suspended
 from plugin.framework.worker_pool import run_in_background
@@ -73,6 +73,9 @@ from plugin.framework.queue_executor import (
     main,
     pump_ui_idle,
 )
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 log = logging.getLogger(__name__)
 
@@ -387,14 +390,14 @@ def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None
 def _process_batch(
     state: _DrainState,
     items: list[Any],
-    stop_checker: Callable[[], bool] | None,
+    cancel: SendCancellation | None,
     flush_pending: Callable[[], None] | None = None,
 ) -> None:
     # crosshair: off
     outcome = state.outcome
     outcome.reason = None
     for index, item in enumerate(items):
-        if stop_checker and stop_checker():
+        if cancel is not None and cancel.is_cancelled():
             log.info("run_stream_drain_loop: Stop requested via checker.")
             _finish_on_stop(state, flush_pending, items[index:])
             break
@@ -639,7 +642,7 @@ class _EventDrain:
 
     _state: _DrainState
     _scheduler: DrainRearm
-    _stop_checker: Callable[[], bool] | None
+    _cancel: SendCancellation | None
     _flush_pending: Callable[[], None] | None
     _on_started: Callable[[], None] | None
     epilogues: list[Callable[[], None]]
@@ -652,14 +655,14 @@ class _EventDrain:
         self,
         state: _DrainState,
         scheduler: DrainRearm,
-        stop_checker: Callable[[], bool] | None,
+        cancel: SendCancellation | None,
         flush_pending: Callable[[], None] | None,
         on_started: Callable[[], None] | None = None,
     ) -> None:
         # crosshair: off
         self._state = state
         self._scheduler = scheduler
-        self._stop_checker = stop_checker
+        self._cancel = cancel
         self._flush_pending = flush_pending
         self._on_started = on_started
         self.epilogues = []
@@ -742,7 +745,7 @@ class _EventDrain:
         state = self._state
         t0 = time.monotonic()
         try:
-            if self._stop_checker and self._stop_checker():
+            if self._cancel is not None and self._cancel.is_cancelled():
                 log.info("run_stream_drain_loop: Stop requested via checker.")
                 _finish_on_stop(state, self._flush_pending)
                 self._finish()
@@ -750,7 +753,7 @@ class _EventDrain:
             items = _drain_ready(state.q)
             if items:
                 try:
-                    _process_batch(state, items, self._stop_checker, self._flush_pending)
+                    _process_batch(state, items, self._cancel, self._flush_pending)
                 except Exception as exc:
                     log.exception("run_stream_drain_loop batch processing failed")
                     state.outcome.done = True
@@ -846,7 +849,7 @@ def run_stream_drain_loop(
     on_status_fn: Callable[[str], None] | None = None,
     show_search_thinking: bool = False,
     on_approval_required: Callable[..., None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
     flush_pending: Callable[[], None] | None = None,
     *,
     rearm: DrainRearm | None = None,
@@ -914,12 +917,12 @@ def run_stream_drain_loop(
     clear_drain_capture()
     scheduler = rearm if rearm is not None else _make_drain_rearm()
     if scheduler is None:
-        _run_stream_drain_blocking(state, toolkit, stop_checker, flush_pending, on_drain_started=on_drain_started)
+        _run_stream_drain_blocking(state, toolkit, cancel, flush_pending, on_drain_started=on_drain_started)
         return
     try:
         # Same-name "stream" re-entry is allowed. acquire_drain_owner raises
         # NestedDrainOwnerError for a different owner (for example MCP).
-        _EventDrain(state, scheduler, stop_checker, flush_pending, on_started=on_drain_started).start()
+        _EventDrain(state, scheduler, cancel, flush_pending, on_started=on_drain_started).start()
     except Exception as exc:
         # Drop the callback the same way a finished drain does. acquire
         # raises before _held, so _finish never closes the re-arm and the
@@ -973,7 +976,7 @@ def _make_drain_rearm() -> _AsyncCallbackRearm | None:
 def _run_stream_drain_blocking(
     state: _DrainState,
     toolkit: Any,
-    stop_checker: Any,
+    cancel: SendCancellation | None,
     flush_pending: Any,
     on_drain_started: Callable[[], None] | None = None,
 ) -> None:
@@ -996,7 +999,7 @@ def _run_stream_drain_blocking(
             if on_drain_started is not None:
                 on_drain_started()
             while not outcome.done:
-                if stop_checker and stop_checker():
+                if cancel is not None and cancel.is_cancelled():
                     log.info("run_stream_drain_loop: Stop requested via checker.")
                     _finish_on_stop(state, flush_pending)
                     break
@@ -1018,7 +1021,7 @@ def _run_stream_drain_blocking(
                     continue
 
                 try:
-                    _process_batch(state, items, stop_checker, flush_pending)
+                    _process_batch(state, items, cancel, flush_pending)
                 except Exception as e:
                     _notify_drain_failure(on_error, outcome, e, "run_stream_drain_loop batch processing failed")
 
@@ -1134,7 +1137,7 @@ def run_async_worker_with_drain(
     on_done_fn: Callable[..., None] | None,
     on_error_fn: Callable[[Any], None] | None,
     on_status_fn: Callable[[str], None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
     on_stopped_fn: Callable[[], None] | None = None,
     name: str = "async-worker",
     q: Any = None,
@@ -1272,7 +1275,7 @@ def run_async_worker_with_drain(
         on_error=resolved_on_error,
         on_status_fn=on_status_fn,
         on_approval_required=on_approval_required,
-        stop_checker=stop_checker,
+        cancel=cancel,
         flush_pending=_flush,
         on_drain_started=_spawn_worker,
     )
@@ -1288,7 +1291,7 @@ def run_stream_completion_async(
     on_done_fn: Callable[..., None] | None,
     on_error_fn: Callable[[Any], None] | None,
     on_status_fn: Callable[[str], None] | None = None,
-    cancel: Any = None,
+    cancel: SendCancellation | None = None,
 ) -> None:
     """High-level helper for simple non-tool streams (always chat completions)."""
     # crosshair: off
@@ -1307,7 +1310,6 @@ def run_stream_completion_async(
         if cancel is not None and cancel.is_cancelled():
             q.put((StreamQueueKind.STOPPED, None))
 
-    stop_checker = cancel.is_cancelled if cancel is not None and hasattr(cancel, "is_cancelled") else None
     run_async_worker_with_drain(
         ctx,
         worker,
@@ -1315,7 +1317,7 @@ def run_stream_completion_async(
         on_done_fn=on_done_fn,
         on_error_fn=on_error_fn,
         on_status_fn=on_status_fn,
-        stop_checker=stop_checker,
+        cancel=cancel,
         name="stream-completion",
         q=batched,
     )
