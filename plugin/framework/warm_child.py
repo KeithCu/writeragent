@@ -22,23 +22,215 @@ from plugin.framework.ipc import (
     IpcFrameError,
     IpcPartialFrameTimeout,
     pack_pickle_frame,
-    read_pickle_frame,
-    write_packed_frame_with_timeout,
 )
 from plugin.framework.managed_subprocess import ManagedSubprocess
-from plugin.framework.process_worker import (
-    Child,
-    Deadline,
-    _SPAWN_READY_TIMEOUT_SEC,
-    _spawn_budget,
-    error_dict,
-)
 from plugin.framework.worker_pool import run_in_background
 
-log = logging.getLogger("compute_service.worker")
+log = logging.getLogger(__name__)
+_child_log = logging.getLogger("compute_service.worker")
 
-_SPAWN_STOP = object()
+SPAWN_READY_TIMEOUT_SEC = 15.0
+_STDERR_SNIPPET = 500
 _STDERR_LOG_CAP = 64 * 1024
+MIN_REQUEST_SEC = 1.0
+_MIN_SPAWN_REMAINING_SEC = 0.25
+_OMIT_ID = object()
+_SPAWN_SHUTDOWN = object()
+
+
+def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, message: str | None = None) -> dict[str, Any]:
+    """Build ``{"status": "error", "code", "error"}``."""
+    res: dict[str, Any] = {"status": "error", "code": code, "error": error}
+    if req_id is not _OMIT_ID:
+        res["id"] = req_id
+    if message is not None:
+        res["message"] = message
+    return res
+
+
+class Deadline:
+    """Accept-time budget for a pool, or the worker clock started under its lock."""
+
+    __slots__: tuple[str, ...] = ("budget_sec", "_end")
+    budget_sec: float
+    _end: float
+
+    def __init__(self, timeout_sec: float, *, end: float | None = None) -> None:
+        self.budget_sec = float(timeout_sec)
+        self._end = float(end) if end is not None else time.monotonic() + self.budget_sec
+
+    @classmethod
+    def from_absolute(cls, requested_sec: float, end: float) -> Deadline:
+        return cls(requested_sec, end=end)
+
+    def left(self) -> float:
+        return self._end - time.monotonic()
+
+    def usable(self) -> float | None:
+        remaining = self.left()
+        if remaining <= 0 or self.budget_sec < MIN_REQUEST_SEC:
+            return None
+        if self.budget_sec > MIN_REQUEST_SEC and remaining < MIN_REQUEST_SEC:
+            return None
+        return remaining
+
+    def run_for(self) -> float:
+        return max(self.left(), MIN_REQUEST_SEC)
+
+
+def spawn_budget(deadline: Deadline) -> float | None:
+    """Seconds for a new handshake, or None when a child must not start."""
+    remaining = deadline.usable()
+    if remaining is None or remaining < _MIN_SPAWN_REMAINING_SEC:
+        return None
+    return remaining
+
+
+class Child:
+    """One spawned process: pipes, stderr tail, and a single reap."""
+
+    def __init__(self, managed: ManagedSubprocess, *, worker_name: str, worker_id: int) -> None:
+        self.managed: ManagedSubprocess = managed
+        self.worker_name: str = worker_name
+        self.worker_id: int = worker_id
+        self._io_owner: int | None = None
+        self._signaled: bool = False
+        self._settled: bool = False
+        self._once: threading.Lock = threading.Lock()
+
+    def was_signaled(self) -> bool:
+        return self._signaled
+
+    def begin_io(self) -> None:
+        self._io_owner = threading.get_ident()
+
+    def end_io(self) -> bool:
+        if self._io_owner != threading.get_ident():
+            return self._settled
+        self._io_owner = None
+        if not self._signaled:
+            return False
+        return self._finish()
+
+    def signal_from(self) -> bool:
+        self._signaled = True
+        self.managed.kill_tree()
+        me = threading.get_ident()
+        owner = self._io_owner
+        if owner not in (None, me):
+            owner = self._io_owner
+            if owner not in (None, me):
+                return False
+        return self._finish()
+
+    def diagnostic_tail(self) -> str:
+        if self.managed.stderr_tail is None:
+            return ""
+        text = self.managed.stderr_text().strip()
+        if not text:
+            return ""
+        return text[-_STDERR_SNIPPET:]
+
+    def _finish(self) -> bool:
+        with self._once:
+            if self._settled:
+                return True
+            me = threading.get_ident()
+            if self._io_owner not in (None, me):
+                return False
+            self.managed.close_stdio()
+            reaped = self.managed.wait_once()
+            self._settled = True
+            if reaped:
+                self.managed.join_stderr(1.0)
+                self.managed.unregister()
+                return True
+            pid = getattr(self.managed.popen, "pid", None)
+            _child_log.warning("%s #%s pid=%s still alive after SIGKILL; abandoning", self.worker_name, self.worker_id, pid)
+            self.managed.abandon()
+            return True
+
+
+def read_ready_frame_during_io(
+    spawned: Child,
+    proc: Any,
+    timeout_sec: float,
+    *,
+    is_alive: Callable[[], bool],
+    max_payload_bytes: int,
+    unpacker: Callable[[bytes], Any] | None,
+) -> tuple[str, Any]:
+    """Read the spawn ready frame while *spawned* owns the pipes (between begin_io and end_io)."""
+    if spawned.was_signaled():
+        return ("interrupted", None)
+    ready_data: Any = None
+    if proc is not None and proc.stdout is not None:
+        try:
+            from plugin.framework import process_worker as pw
+
+            ready_data = pw.read_pickle_frame(  # pyright: ignore[reportAttributeAccessIssue]
+                proc.stdout,
+                timeout_sec,
+                is_alive=is_alive,
+                max_payload_bytes=max_payload_bytes,
+                require_dict=True,
+                unpacker=unpacker,
+            )
+        except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
+            return ("timeout", None)
+    if spawned.was_signaled():
+        return ("interrupted", None)
+    # Only status "ready" counts. EOF or any other dict would mark the worker idle,
+    # and the next execute would wait out the full timeout before EMPTY_RESPONSE.
+    if not isinstance(ready_data, dict) or ready_data.get("status") != "ready":
+        status = ready_data.get("status") if isinstance(ready_data, dict) else None
+        return ("not_ready", status)
+    return ("ready", ready_data)
+
+
+def framed_request_roundtrip(
+    stdin: IO[bytes],
+    stdout: IO[bytes],
+    frame: bytes,
+    deadline: Deadline,
+    *,
+    is_alive: Callable[[], bool],
+    max_payload_bytes: int,
+    unpacker: Callable[[bytes], Any] | None,
+    on_fail: Callable[[str, str], dict[str, Any]],
+) -> dict[str, Any]:
+    """Write one packed frame and read the response dict under *deadline*."""
+    from plugin.framework import process_worker as pw
+
+    usable = deadline.usable()
+    if usable is None:
+        return on_fail("EXECUTION_TIMEOUT", "Execution budget exhausted.")
+    try:
+        pw.write_packed_frame_with_timeout(stdin, frame, usable, is_alive=is_alive)  # pyright: ignore[reportAttributeAccessIssue]
+    except subprocess.TimeoutExpired:
+        return on_fail("EXECUTION_TIMEOUT", "Write timed out.")
+    except (OSError, TypeError, ValueError) as exc:
+        return on_fail("WORKER_PIPE_BROKEN", f"Failed to send request: {exc}")
+    remaining = deadline.left()
+    if remaining <= 0:
+        return on_fail("EXECUTION_TIMEOUT", "Execution budget exhausted.")
+    try:
+        resp = pw.read_pickle_frame(  # pyright: ignore[reportAttributeAccessIssue]
+            stdout,
+            remaining,
+            is_alive=is_alive,
+            max_payload_bytes=max_payload_bytes,
+            unpacker=unpacker,
+        )
+    except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
+        return on_fail("EXECUTION_TIMEOUT", "Read timed out.")
+    except ValueError as exc:
+        return on_fail("WORKER_IPC_ERROR", f"Invalid response frame: {exc}")
+    except Exception as exc:
+        return on_fail("WORKER_CRASHED", f"Worker error: {exc}")
+    if not isinstance(resp, dict):
+        return on_fail("EMPTY_RESPONSE", "No response returned from worker.")
+    return resp
 
 
 @dataclass(frozen=True)
@@ -92,33 +284,31 @@ class Lease:
         return self._warm.is_alive()
 
     def fail(self, code: str, msg: str) -> dict[str, Any]:
-        child = self._warm._child
-        if child is not None:
-            self._warm._killed_by_us = True
-            self._warm.kill()
-            tail = child.diagnostic_tail()
-            if tail:
-                msg = f"{msg}\n{tail}"
-        return error_dict(code, msg)
+        return self._warm.fail_lease(code, msg)
 
 
 class WarmChild:
     """One registered warm worker: spawn on the supervisor thread, framed IPC."""
 
-    def __init__(self, spec: ChildSpec, *, on_death: Callable[[Death], None] | None = None) -> None:
+    def __init__(
+        self,
+        spec: ChildSpec,
+        *,
+        supervisor: Supervisor | None = None,
+        on_death: Callable[[Death], None] | None = None,
+    ) -> None:
         self.spec: ChildSpec = spec
+        self._supervisor: Supervisor = supervisor if supervisor is not None else get_supervisor()
         self._on_death: Callable[[Death], None] | None = on_death
         self._child: Child | None = None
         self._io_lock: threading.Lock = threading.Lock()
         self._lifecycle_lock: threading.Lock = threading.Lock()
         self._generation: int = 0
         self._last_active: float = time.monotonic()
-        self._leased: bool = False
         self._retired: bool = False
         self._killed_by_us: bool = False
         self._death_hook_fired: bool = False
-        self._handshaking: bool = False
-        supervisor._register(self)
+        self._supervisor._register(self)
 
     def is_alive(self) -> bool:
         child = self._child
@@ -138,11 +328,20 @@ class WarmChild:
             return
         self._drop_child(child)
 
+    def fail_lease(self, code: str, msg: str) -> dict[str, Any]:
+        child = self._child
+        if child is not None:
+            self.kill()
+            tail = child.diagnostic_tail()
+            if tail:
+                msg = f"{msg}\n{tail}"
+        return error_dict(code, msg)
+
     def retire(self) -> None:
         with self._lifecycle_lock:
             self._retired = True
         self.kill()
-        supervisor._unregister(self)
+        self._supervisor._unregister(self)
 
     @contextmanager
     def lease(self, deadline: Deadline, *, wait: float | None = None) -> Generator[Lease | dict[str, Any], None, None]:
@@ -157,7 +356,7 @@ class WarmChild:
             yield error_dict("EXECUTION_TIMEOUT", "Could not acquire warm child pipe lock.")
             return
         try:
-            if supervisor.is_shutting_down() or self._retired:
+            if self._supervisor.is_shutting_down() or self._retired:
                 yield error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
                 return
             err = self._ensure_live(deadline)
@@ -176,7 +375,6 @@ class WarmChild:
                     f"{self.spec.name} has no stdio pipes.",
                 )
                 return
-            self._leased = True
             child.begin_io()
             try:
                 yield Lease(
@@ -187,7 +385,6 @@ class WarmChild:
                     warm=self,
                 )
             finally:
-                self._leased = False
                 if child.end_io():
                     self._drop_child(child)
                 self._last_active = time.monotonic()
@@ -198,46 +395,22 @@ class WarmChild:
         with self.lease(deadline) as leased:
             if isinstance(leased, dict):
                 return leased
-            usable = deadline.usable()
-            if usable is None:
-                return error_dict("EXECUTION_TIMEOUT", "Execution budget exhausted.")
             try:
                 frame = pack_pickle_frame(payload, max_payload_bytes=self.spec.max_payload_bytes)
             except IpcFrameError as exc:
                 return error_dict("PAYLOAD_TOO_LARGE", str(exc))
             except (pickle.PicklingError, TypeError, ValueError, RecursionError) as exc:
                 return error_dict("REQUEST_NOT_SERIALIZABLE", str(exc))
-            try:
-                write_packed_frame_with_timeout(
-                    leased.stdin,
-                    frame,
-                    usable,
-                    is_alive=self.is_alive,
-                )
-            except subprocess.TimeoutExpired:
-                return leased.fail("EXECUTION_TIMEOUT", "Write timed out.")
-            except (OSError, TypeError, ValueError) as exc:
-                return leased.fail("WORKER_PIPE_BROKEN", f"Failed to send request: {exc}")
-            remaining = deadline.left()
-            if remaining <= 0:
-                return leased.fail("EXECUTION_TIMEOUT", "Execution budget exhausted.")
-            try:
-                resp = read_pickle_frame(
-                    leased.stdout,
-                    remaining,
-                    is_alive=self.is_alive,
-                    max_payload_bytes=self.spec.max_payload_bytes,
-                    unpacker=self.spec.unpacker,
-                )
-            except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
-                return leased.fail("EXECUTION_TIMEOUT", "Read timed out.")
-            except ValueError as exc:
-                return leased.fail("WORKER_IPC_ERROR", f"Invalid response frame: {exc}")
-            except Exception as exc:
-                return leased.fail("WORKER_CRASHED", f"Worker error: {exc}")
-            if not isinstance(resp, dict):
-                return leased.fail("EMPTY_RESPONSE", "No response returned from worker.")
-            return resp
+            return framed_request_roundtrip(
+                leased.stdin,
+                leased.stdout,
+                frame,
+                deadline,
+                is_alive=self.is_alive,
+                max_payload_bytes=self.spec.max_payload_bytes,
+                unpacker=self.spec.unpacker,
+                on_fail=leased.fail,
+            )
 
     def _drop_child(self, child: Child) -> None:
         with self._lifecycle_lock:
@@ -285,12 +458,12 @@ class WarmChild:
             return None
         if self._retired:
             return error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is retired.")
-        spawn_for = _spawn_budget(deadline)
+        spawn_for = spawn_budget(deadline)
         if spawn_for is None:
             return error_dict("EXECUTION_TIMEOUT", "Insufficient time to spawn worker.")
         self._killed_by_us = False
         self._death_hook_fired = False
-        timeout_sec = min(self.spec.ready_timeout_sec, _SPAWN_READY_TIMEOUT_SEC, spawn_for)
+        timeout_sec = min(self.spec.ready_timeout_sec, SPAWN_READY_TIMEOUT_SEC, spawn_for)
         managed = ManagedSubprocess(
             self.spec.argv,
             base_env=None,
@@ -304,16 +477,17 @@ class WarmChild:
         )
         spawned: Child | None = None
         published = False
-        self._handshaking = True
         try:
-            supervisor.spawn(managed)
+            # Do not hold _lifecycle_lock across start() or the handshake read.
+            self._supervisor.spawn(managed)
             spawned = Child(
                 managed,
                 worker_name=self.spec.name,
                 worker_id=0,
             )
             with self._lifecycle_lock:
-                if self._retired or supervisor.is_shutting_down():
+                if self._retired or self._supervisor.is_shutting_down():
+                    # Only signal the unpublished child constructed in this call.
                     spawned.signal_from()
                     return error_dict("SERVICE_SHUTDOWN", f"{self.spec.name} is shutting down.")
                 if self._child is not None:
@@ -324,55 +498,47 @@ class WarmChild:
             proc = managed.popen
             spawned.begin_io()
             try:
-                ready_data: Any = None
-                if proc is not None and proc.stdout is not None:
-                    ready_data = read_pickle_frame(
-                        proc.stdout,
-                        timeout_sec,
-                        is_alive=self.is_alive,
-                        max_payload_bytes=self.spec.max_payload_bytes,
-                        require_dict=True,
-                        unpacker=self.spec.unpacker,
-                    )
-                if spawned._signaled:
+                tag, extra = read_ready_frame_during_io(
+                    spawned,
+                    proc,
+                    timeout_sec,
+                    is_alive=self.is_alive,
+                    max_payload_bytes=self.spec.max_payload_bytes,
+                    unpacker=self.spec.unpacker,
+                )
+                if tag == "interrupted":
                     self._drop_child(spawned)
                     return error_dict("WORKER_SPAWN_FAILED", f"{self.spec.name} spawn was interrupted.")
-                if not isinstance(ready_data, dict) or ready_data.get("status") != "ready":
-                    status = ready_data.get("status") if isinstance(ready_data, dict) else None
-                    self._killed_by_us = True
+                if tag == "not_ready":
                     self.kill()
+                    status = extra
                     tail = spawned.diagnostic_tail()
                     msg = f"{self.spec.name} spawn handshake was not ready (status={status!r})"
                     if tail:
                         msg = f"{msg}\n{tail}"
                     return error_dict("WORKER_SPAWN_FAILED", msg)
+                if tag == "timeout":
+                    self.kill()
+                    tail = spawned.diagnostic_tail()
+                    msg = f"{self.spec.name} spawn handshake timed out"
+                    if tail:
+                        msg = f"{msg}\n{tail}"
+                    return error_dict("EXECUTION_TIMEOUT", msg)
                 self._generation += 1
                 self._last_active = time.monotonic()
-            except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
-                self._killed_by_us = True
-                self.kill()
-                tail = spawned.diagnostic_tail() if spawned is not None else ""
-                msg = f"{self.spec.name} spawn handshake timed out"
-                if tail:
-                    msg = f"{msg}\n{tail}"
-                return error_dict("EXECUTION_TIMEOUT", msg)
             finally:
-                if spawned is not None:
-                    if spawned.end_io():
-                        self._drop_child(spawned)
+                if spawned is not None and spawned.end_io():
+                    self._drop_child(spawned)
         except Exception as exc:
             if spawned is not None and not published:
                 spawned.signal_from()
             elif published:
-                self._killed_by_us = True
                 self.kill()
             tail = spawned.diagnostic_tail() if spawned is not None else ""
             msg = f"Failed to spawn {self.spec.name}: {exc}"
             if tail:
                 msg = f"{msg}\n{tail}"
             return error_dict("WORKER_SPAWN_FAILED", msg)
-        finally:
-            self._handshaking = False
         return None
 
 
@@ -383,11 +549,11 @@ class Supervisor:
         self._registry_lock: threading.Lock = threading.Lock()
         self._registry: list[WarmChild] = []
         self._shutdown: bool = False
+        self._threads_started: bool = False
+        self._start_lock: threading.Lock = threading.Lock()
         self._spawn_queue: queue.Queue[Any] = queue.Queue()
         self._spawner_ident: int | None = None
         self._reaper_stop: threading.Event = threading.Event()
-        self._start_spawner()
-        self._start_idle_reaper()
 
     @property
     def spawner_ident(self) -> int | None:
@@ -396,7 +562,18 @@ class Supervisor:
     def is_shutting_down(self) -> bool:
         return self._shutdown
 
+    def _ensure_threads(self) -> None:
+        if self._threads_started:
+            return
+        with self._start_lock:
+            if self._threads_started:
+                return
+            self._start_spawner()
+            self._start_idle_reaper()
+            self._threads_started = True
+
     def _register(self, child: WarmChild) -> None:
+        self._ensure_threads()
         with self._registry_lock:
             self._registry.append(child)
 
@@ -407,13 +584,20 @@ class Supervisor:
             except ValueError:
                 pass
 
+    def _reaper_interval_sec(self) -> float:
+        with self._registry_lock:
+            ttls = [w.spec.idle_ttl_sec for w in self._registry if w.spec.idle_ttl_sec is not None]
+        if not ttls:
+            return 1.0
+        return max(1.0, min(ttls))
+
     def _start_spawner(self) -> None:
         def _loop() -> None:
             self._spawner_ident = threading.get_ident()
             while True:
                 item = self._spawn_queue.get()
-                if item is _SPAWN_STOP:
-                    continue
+                if item is _SPAWN_SHUTDOWN:
+                    return
                 managed, done, err_holder = item
                 try:
                     managed.start()
@@ -427,7 +611,8 @@ class Supervisor:
     def _start_idle_reaper(self) -> None:
         def _loop() -> None:
             while not self._reaper_stop.is_set():
-                if self._reaper_stop.wait(0.1):
+                wait_sec = self._reaper_interval_sec()
+                if self._reaper_stop.wait(wait_sec):
                     return
                 self._evict_idle()
 
@@ -439,19 +624,28 @@ class Supervisor:
         now = time.monotonic()
         for warm in entries:
             ttl = warm.spec.idle_ttl_sec
-            if ttl is None or warm._retired or warm._leased or warm._handshaking:
+            if ttl is None or warm._retired:
                 continue
             if not warm.is_alive():
                 continue
             if now - warm._last_active < ttl:
                 continue
-            log.info("%s idle for >%.3fs; killing warm child", warm.spec.name, ttl)
-            warm._killed_by_us = True
-            warm.kill()
+            if not warm._io_lock.acquire(blocking=False):
+                continue
+            try:
+                if warm._retired or not warm.is_alive():
+                    continue
+                if time.monotonic() - warm._last_active < ttl:
+                    continue
+                log.info("%s idle for >%.3fs; killing warm child", warm.spec.name, ttl)
+                warm.kill()
+            finally:
+                warm._io_lock.release()
 
     def spawn(self, managed: ManagedSubprocess) -> None:
         if self._shutdown:
             raise RuntimeError("Supervisor is shut down")
+        self._ensure_threads()
         done = threading.Event()
         err_holder: list[BaseException | None] = [None]
         self._spawn_queue.put((managed, done, err_holder))
@@ -461,7 +655,10 @@ class Supervisor:
 
     def shutdown_all(self) -> None:
         self._shutdown = True
+        if not self._threads_started:
+            return
         self._reaper_stop.set()
+        self._spawn_queue.put(_SPAWN_SHUTDOWN)
         with self._registry_lock:
             children = list(self._registry)
         for warm in children:
@@ -474,13 +671,37 @@ class Supervisor:
         ms_shutdown_all()
 
 
-supervisor = Supervisor()
+_module_supervisor: Supervisor | None = None
+
+
+def get_supervisor() -> Supervisor:
+    global _module_supervisor
+    if _module_supervisor is None:
+        _module_supervisor = Supervisor()
+    return _module_supervisor
+
+
+class _LazySupervisor:
+    def __getattr__(self, name: str) -> Any:
+        return getattr(get_supervisor(), name)
+
+
+supervisor = _LazySupervisor()
 
 __all__ = [
+    "Child",
     "ChildSpec",
+    "Deadline",
     "Death",
     "Lease",
+    "MIN_REQUEST_SEC",
+    "SPAWN_READY_TIMEOUT_SEC",
     "Supervisor",
     "WarmChild",
+    "error_dict",
+    "framed_request_roundtrip",
+    "get_supervisor",
+    "read_ready_frame_during_io",
+    "spawn_budget",
     "supervisor",
 ]
