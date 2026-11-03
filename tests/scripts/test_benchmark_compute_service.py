@@ -172,7 +172,9 @@ def test_managed_benchmark_server_workers_and_shutdown(mock_popen: MagicMock, mo
 
     server = ManagedBenchmarkServer(workers=3)
     cmd = server.cmd
-    assert cmd[1].endswith("compute_service/server.py")
+    server_script = Path(cmd[1])
+    assert server_script.name == "server.py"
+    assert "compute_service" in server_script.parts
     assert cmd[cmd.index("--workers") + 1] == "3"
     assert cmd[cmd.index("--port") + 1] == str(server.port)
 
