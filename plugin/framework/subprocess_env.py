@@ -2,7 +2,9 @@
 """Strip credentials and LibreOffice Python overrides from child process environments."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import subprocess
+import sys
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Container
@@ -13,6 +15,13 @@ from plugin.framework.deal_shim import (
     deal,
     inverse_ensure,
 )
+
+
+def get_subprocess_creationflags() -> dict[str, Any]:
+    """Return popen/run kwargs to hide command prompt windows on Windows."""
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
 
 # --- Subprocess environment ---
 

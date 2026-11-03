@@ -111,15 +111,6 @@ def record_walk_cap(enum: Any, seen: int, limit: int, kind: str, dest: list[str]
     return True
 
 
-# ---------------------------------------------------------------------------
-# Markup detection & format-preserving replacement
-# ---------------------------------------------------------------------------
-
-
-# Block-level HTML tags: their presence means the content defines its own
-# paragraph structure, so we must NOT force the original paragraph style onto it.
-
-
 def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) -> Any:
     """Run a Writer document mutation, optionally wrapped in EditReviewSession.
 

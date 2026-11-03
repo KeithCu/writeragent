@@ -70,8 +70,6 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
     _locale_retry_logged: bool
 
     def __init__(self, ctx: Any, *args: Any) -> None:
-        # Pin package id before base init and update check: WriterAgent may also be installed, and
-        # resolve_package_extension_id prefers the first known id with a location.
         # Profile before base init: register_live_proofreader / warmup may run doProofreading.
         self._profile = grammar_settings.GrammarProfile("harper", "harper", True)
         # Set before super(): registration can observe the instance, and a
@@ -84,6 +82,8 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
         try:
             from plugin.framework.uno_context import desktop_create_is_unsafe, set_package_extension_id
 
+            # Pin package id before base init and update check: WriterAgent may also be installed, and
+            # resolve_package_extension_id prefers the first known id with a location.
             set_package_extension_id(EXTENSION_ID_LIBREHARPER)
             skip_register_ui = desktop_create_is_unsafe()
             if not skip_register_ui:

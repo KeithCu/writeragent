@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from plugin.draw.layouts import LAYOUT_TABLE, VALID_LAYOUT_IDS, layout_id
+from plugin.draw.layouts import LAYOUT_TABLE, layout_id
 from plugin.framework.json_utils import safe_json_loads
 
 # Upstream source for TRANSFORM_PARAM_DESCRIPTION and layout name tables.
@@ -296,7 +296,7 @@ def validate_slide_commands(transform_obj: Any) -> tuple[str | None, int | None]
 
         elif key in ("ChangeLayout", "ChangeLayoutByName"):
             lid = layout_id(val)
-            if lid is None or lid not in VALID_LAYOUT_IDS:
+            if lid is None:
                 return "Unknown layout in %s" % key, idx
 
         elif cmd_kind == "SetText":

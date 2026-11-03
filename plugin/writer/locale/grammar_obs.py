@@ -33,8 +33,7 @@ _ROUTINE_LIBREHARPER_STATUS_RESULTS = frozenset({
     "queued",
 })
 _ISSUE_COUNT_RESULT = re.compile(r"^\d+ issues?$", re.IGNORECASE)
-_DONE_PHASES = ("done", "complete")
-_TERMINAL_STATUS_PHASES = _DONE_PHASES + ("failed",)
+_TERMINAL_STATUS_PHASES = ("done", "failed")
 
 
 def is_routine_libreharper_status(phase: str, result: str) -> bool:
@@ -145,7 +144,6 @@ class GrammarStatus:
         elapsed_ms: int | None = None,
         preview_source: str | None = None,
         length_hint: int | None = None,
-        phase: str = "done",
     ) -> None:
         pass
 
@@ -250,10 +248,9 @@ class SidebarGrammarStatus(GrammarStatus):
         elapsed_ms: int | None = None,
         preview_source: str | None = None,
         length_hint: int | None = None,
-        phase: str = "done",
     ) -> None:
         self._emit(
-            phase,
+            "done",
             text,
             result=result,
             elapsed_ms=elapsed_ms,
@@ -286,7 +283,7 @@ class StatusBarGrammarStatus(GrammarStatus):
             from plugin.framework.queue_executor import main
 
             try:
-                main.post(update_libreoffice_status_bar, phase, result)
+                main.post(self.update_libreoffice_status_bar, phase, result)
             except Exception:
                 log.debug("Failed to post status bar update to main thread", exc_info=True)
         except Exception as e:
@@ -297,7 +294,7 @@ class StatusBarGrammarStatus(GrammarStatus):
         routine = is_routine_libreharper_status(phase, result)
 
         msg = f"LibreHarper: {result or 'Checking...'}"
-        if phase in _DONE_PHASES:
+        if phase == "done":
             msg = "LibreHarper: Grammar check complete"
         elif phase == "failed":
             msg = f"LibreHarper: Failed ({result})" if result else "LibreHarper: Grammar check failed"
@@ -315,7 +312,7 @@ class StatusBarGrammarStatus(GrammarStatus):
             if frame is None:
                 return
 
-            if phase in _DONE_PHASES:
+            if phase == "done":
                 if self._indicator is not None:
                     self._indicator.setText(msg)
                     self._indicator.setValue(100)
@@ -353,9 +350,8 @@ class StatusBarGrammarStatus(GrammarStatus):
         elapsed_ms: int | None = None,
         preview_source: str | None = None,
         length_hint: int | None = None,
-        phase: str = "done",
     ) -> None:
-        self._post(phase, result)
+        self._post("done", result)
 
     def failed(self, text: str, *, result: str = "") -> None:
         self._post("failed", result)
@@ -402,14 +398,13 @@ def emit_grammar_status(
         sink.start(text, result=result)
     elif phase == "request":
         sink.request(text, result=result, preview_source=preview_source)
-    elif phase in _DONE_PHASES:
+    elif phase == "done":
         sink.done(
             text,
             result=result,
             elapsed_ms=elapsed_ms,
             preview_source=preview_source,
             length_hint=length_hint,
-            phase=phase,
         )
     elif phase == "failed":
         sink.failed(text, result=result)

@@ -127,8 +127,9 @@ def test_emit_grammar_status_routes_to_libreoffice_status_bar_when_libreharper()
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
-        go.emit_grammar_status("complete", "Hello world.", result="clean")
-    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "complete", "clean")
+        go.emit_grammar_status("done", "Hello world.", result="clean")
+    sink = go.get_grammar_status()
+    mock_post.assert_called_once_with(sink.update_libreoffice_status_bar, "done", "clean")
 
 
 def test_emit_grammar_status_always_posts_to_main_thread() -> None:
@@ -140,7 +141,8 @@ def test_emit_grammar_status_always_posts_to_main_thread() -> None:
         patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         go.emit_grammar_status("start", "Hello world.", result="Starting Harper…")
-    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "start", "Starting Harper…")
+    sink = go.get_grammar_status()
+    mock_post.assert_called_once_with(sink.update_libreoffice_status_bar, "start", "Starting Harper…")
 
 
 def test_is_routine_libreharper_status_covers_per_keystroke_strings() -> None:
@@ -184,7 +186,7 @@ def test_emit_grammar_status_posts_routine_done_when_indicator_active() -> None:
     go.set_grammar_status(sink)
     with patch("plugin.framework.queue_executor.main.post") as mock_post:
         go.emit_grammar_status("done", "Hello world.", result="0 issues")
-    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "done", "0 issues")
+    mock_post.assert_called_once_with(sink.update_libreoffice_status_bar, "done", "0 issues")
 
 
 def test_emit_grammar_status_paints_progress_and_failure_when_libreharper() -> None:
@@ -200,7 +202,8 @@ def test_emit_grammar_status_paints_progress_and_failure_when_libreharper() -> N
             patch("plugin.framework.queue_executor.main.post") as mock_post,
         ):
             go.emit_grammar_status(phase, "Hello world.", result=result)
-        mock_post.assert_called_once_with(go.update_libreoffice_status_bar, phase, result)
+        sink = go.get_grammar_status()
+        mock_post.assert_called_once_with(sink.update_libreoffice_status_bar, phase, result)
 
 
 def test_desktop_create_is_unsafe_for_uno_bin_helper() -> None:
@@ -442,7 +445,7 @@ def test_update_libreoffice_status_bar_lifecycle() -> None:
         mock_indicator.setValue.assert_called_with(50)
 
         # 3. Complete phase ends indicator
-        go.update_libreoffice_status_bar("complete", "done")
+        go.update_libreoffice_status_bar("done", "done")
         mock_indicator.setText.assert_called_with("LibreHarper: Grammar check complete")
         mock_indicator.end.assert_called_once()
         assert sink._indicator is None

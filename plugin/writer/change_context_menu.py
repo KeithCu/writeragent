@@ -32,7 +32,6 @@ from typing import Any
 import unohelper
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
-from plugin.framework.errors import is_disposal
 from plugin.writer import review_view_attachment as rva
 
 log = logging.getLogger(__name__)
@@ -41,17 +40,6 @@ _ACCEPT_URL = f"{EXTENSION_ID_WRITERAGENT}:writer.accept_change"
 _REJECT_URL = f"{EXTENSION_ID_WRITERAGENT}:writer.reject_change"
 
 _interceptor_cls: Any = None
-
-_registered = rva.controller_pairs
-
-
-def _is_writer(model: Any) -> bool:
-    try:
-        return bool(model is not None and model.supportsService("com.sun.star.text.TextDocument"))
-    except Exception as exc:
-        if is_disposal(exc):
-            raise
-        return False
 
 
 def _build_menu(model: Any, event: Any, ignored: Any, continue_modified: Any) -> Any:

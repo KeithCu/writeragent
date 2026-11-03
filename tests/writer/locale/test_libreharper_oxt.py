@@ -85,17 +85,17 @@ def test_harper_proofreader_identity_and_locale_check() -> None:
         assert proofreader._profile == GrammarProfile("harper", "harper", True)
 
         locale_en = SimpleNamespace(Language="en", Country="US", Variant="")
-        assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10) == "en-US"
+        assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10, proofreader._resolved_profile()) == "en-US"
 
         locale_de = SimpleNamespace(Language="de", Country="DE", Variant="")
-        assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_de, 0, 10) is None
+        assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_de, 0, 10, proofreader._resolved_profile()) is None
 
         ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED = True
         with (
             patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False),
             patch("plugin.writer.locale.ai_grammar_proofreader.grammar_obs") as mock_obs,
         ):
-            assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10) == "en-US"
+            assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10, proofreader._resolved_profile()) == "en-US"
             assert ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED is True
             entry_calls = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_entry"]
             assert len(entry_calls) == 1

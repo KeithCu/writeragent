@@ -67,6 +67,8 @@ def test_apply_slide_layout_sets_page_and_returns_canonical():
 def test_apply_slide_layout_unknown_raises():
     with pytest.raises(ValueError, match="Unknown layout"):
         apply_slide_layout(MagicMock(), "not_a_layout")
+    with pytest.raises(ValueError, match="Unknown layout"):
+        apply_slide_layout(MagicMock(), "999")
 
 
 def test_layout_name_and_available():
@@ -75,7 +77,9 @@ def test_layout_name_and_available():
     assert layout_name(0) == "title"
     assert layout_name(1) == "text"
     assert layout_name(20) == "blank"
+    assert layout_name(21) == "autolayout_notes"
     assert layout_name(99) == "unknown_99"
+    assert apply_slide_layout(MagicMock(), "21") == "autolayout_notes"
 
     avail = available_layout_names()
     assert "blank" in avail
@@ -118,13 +122,16 @@ def test_get_slide_layout_labels_autolayout_not_powerpoint_ids():
         # Old four_objects id is AUTOLAYOUT_HANDOUT2 and must not keep that label.
         page.Layout = 23
         handout = GetSlideLayout().execute(ctx, page=0)
+        page.Layout = 99
+        unknown = GetSlideLayout().execute(ctx, page=0)
     assert title_only["layout_name"] == "title_only"
     assert title_only["layout_id"] == 19
     assert blank["layout_name"] == "blank"
     assert blank["layout_id"] == 20
     assert four["layout_name"] == "four_objects"
     assert four["layout_id"] == 18
-    assert handout["layout_name"] == "unknown_23"
+    assert handout["layout_name"] == "autolayout_handout2"
+    assert unknown["layout_name"] == "unknown_99"
     assert "blank" in blank["available_layouts"]
     assert "none" in blank["available_layouts"]
     assert "title_only" in blank["available_layouts"]

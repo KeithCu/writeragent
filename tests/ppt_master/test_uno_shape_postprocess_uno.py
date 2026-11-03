@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.draw.shape_clone import clone_shape
-from plugin.ppt_master.adapter.uno_shape_postprocess import clear_page_shapes
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -32,8 +31,3 @@ def test_shape_graphic_fallback_and_clone(ctx: Any, doc: Any) -> None:
     page.add(graphic_shape)
     cloned_graphic = clone_shape(doc, page, graphic_shape, uno_ctx=None)
     assert cloned_graphic.reimported is False
-
-    # 3. clear_page_shapes removes all shapes from the page
-    assert page.getCount() >= 4
-    clear_page_shapes(page)
-    assert page.getCount() == 0

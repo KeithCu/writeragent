@@ -229,9 +229,7 @@ def _iter_children(xshapes: Any) -> Iterator[tuple[int, Any]]:
     """Direct ``(slot, shape)`` pairs. ``slot`` is the XShapes index, not a compacted count.
 
     Non-disposal ``getCount`` ends the walk. Non-disposal ``getByIndex`` skips that slot.
-    Re-raise the original exception when ``is_disposal`` matches, bare
-    RuntimeException included. ``uno_read`` swallows RuntimeException and wraps
-    disposal as DocumentDisposedError, so it is the wrong helper here.
+    Only disposal escapes; a live-document RuntimeException ends the walk or skips the slot.
     """
     try:
         count = xshapes.getCount()
