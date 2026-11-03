@@ -197,15 +197,16 @@ def _patch_config_files(ctx, mutator) -> None:
 
     from plugin.framework.config import (
         _invalidate_config_cache,
-        _load_config_dict,
         _write_config_file,
+        parse_config_json_text,
     )
     from plugin.testing_runner import _progress_verbose as _progress
 
     for path in _session_config_paths(ctx):
         data: dict = {}
         if os.path.exists(path):
-            loaded = _load_config_dict(path, persist_repair=False)
+            with open(path, encoding="utf-8") as fh:
+                loaded = parse_config_json_text(fh.read())
             if isinstance(loaded, dict):
                 data = loaded
         mutator(data)
