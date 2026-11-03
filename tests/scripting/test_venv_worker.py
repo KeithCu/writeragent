@@ -1344,6 +1344,36 @@ class TestReadResponseBytesSelect:
         decoded = pickle.loads(got)
         assert decoded['result'] == 'hello'
 
+def test_io_session_body_oserror_does_not_disable_systemd_scope():
+    """OSError after lease acquisition must propagate; it is not a systemd-run spawn failure."""
+    import contextlib
+    from plugin.framework.warm_child import Lease
+
+    mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
+    warm = MagicMock()
+    warm._io_lock = threading.Lock()
+
+    @contextlib.contextmanager
+    def fake_lease(*args: object, **kwargs: object):
+        del args, kwargs
+        proc = MagicMock()
+        proc.stdin = io.BytesIO()
+        proc.stdout = io.BytesIO()
+        yield Lease(stdin=proc.stdin, stdout=proc.stdout, pid=1, generation=1, warm=warm)
+
+    warm.lease = fake_lease
+    mgr._warm = warm
+    orig_disabled = venv_worker_module._systemd_scope_disabled
+    try:
+        venv_worker_module._systemd_scope_disabled = False
+        with patch.object(mgr, '_ensure_warmed_unlocked', return_value=None):
+            with pytest.raises(OSError, match='session body'):
+                with mgr._io_session():
+                    raise OSError('session body')
+        assert venv_worker_module._systemd_scope_disabled is False
+    finally:
+        venv_worker_module._systemd_scope_disabled = orig_disabled
+
 class TestExecuteOSErrorRetry:
     """Verify that OSError on the initial write triggers one lease retry."""
 

@@ -428,6 +428,7 @@ class PythonWorkerManager:
             command_wrapper=self._spawn_command_wrapper,
             ready_timeout_sec=float(WARM_WORKER_TIMEOUT_SEC),
             max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            # log_start_failure=False: a missing interpreter must stay OSError (systemd retry depends on it).
             log_start_failure=False,
         )
         return WarmChild(spec, on_death=self._on_worker_death)
@@ -470,6 +471,7 @@ class PythonWorkerManager:
             warm = self._get_warm()
             if warm is None:
                 raise _IoSessionUnavailable(_worker_error("WORKER_IPC_ERROR", _RETIRED_MESSAGE))
+            lease_acquired = False
             try:
                 with warm.lease(spawn_deadline, wait=wait) as leased:
                     if isinstance(leased, dict):
@@ -478,6 +480,7 @@ class PythonWorkerManager:
                                 raise _IoSessionUnavailable(_worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE))
                             continue
                         raise _IoSessionUnavailable(self._lease_error_to_worker(leased))
+                    lease_acquired = True
                     self._io_owner = threading.get_ident()
                     try:
                         if _stop_requested(stop_checker):
@@ -491,6 +494,8 @@ class PythonWorkerManager:
                         self._io_owner = None
                     return
             except OSError as exc:
+                if lease_acquired:
+                    raise
                 global _systemd_scope_disabled
                 if _systemd_scope_disabled or not _systemd_run_path(self.env):
                     raise _IoSessionUnavailable(
