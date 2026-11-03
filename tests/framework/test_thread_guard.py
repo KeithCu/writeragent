@@ -149,7 +149,7 @@ def test_main_thread_only_decorator_raises_from_bg(monkeypatch):
     monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
     monkeypatch.setattr(main, "is_current", lambda: False)
     # Skip violation popup marshal (main.call timeout=5s) — nothing pumps the queue under pytest.
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    main.install(Policy.test_inline)
     was = tg.GUARD_ON
     tg.GUARD_ON = True
     try:
@@ -258,7 +258,7 @@ def test_proxy_str_repr_raise_off_thread(monkeypatch):
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("release stub proxy does not assert on str/repr")
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    main.install(Policy.test_inline)
     real = _make_pyuno_like()
     prox = tg._UnoThreadGuardProxy(real)
     assert "UNOProxy" in repr(prox)
@@ -345,7 +345,7 @@ def test_wrap_uno_one_level_sequences(monkeypatch):
         assert isinstance(wrapped_dict["k"], tg._UnoThreadGuardProxy)
         assert list(wrapped_dict.keys()) == ["k"]
         monkeypatch.setattr(main, "is_current", lambda: False)
-        monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+        main.install(Policy.test_inline)
         with pytest.raises(RuntimeError, match="UNO thread violation"):
             _unused = wrapped_list[0].getString
     finally:
@@ -624,7 +624,7 @@ def test_proxy_dir_raises_off_thread(monkeypatch):
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("release stub proxy does not assert on dir")
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    main.install(Policy.test_inline)
     real = _make_pyuno_like()
     prox = tg._UnoThreadGuardProxy(real)
     was = tg.GUARD_ON
@@ -798,7 +798,7 @@ def test_proxy_setattr_only_target_is_local(monkeypatch):
         assert proxy._target is other
 
     skip_if_release_build("release stub proxy does not assert on setattr")
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    main.install(Policy.test_inline)
     was = tg.GUARD_ON
     tg.GUARD_ON = True
     errors: list[BaseException] = []

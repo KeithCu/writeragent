@@ -198,7 +198,7 @@ Delete and Insert as two independent rows. WriterAgent adds:
    unchanged. Menu actions `review_prev` / `review_next` call `goto_adjacent_agent_change`. Counting
    follows the count-without-previews rule: `agent_change_presence` returns this distinct-comment
    count without reading text previews with `XTextCursor.getString()`. The toolbar's per-document
-   modify listener (`review_toolbar._schedule_refresh` → `refresh_review_toolbar`) queues recount per burst with `post_to_main_thread`, which runs on a later main-loop
+   modify listener (`review_toolbar._schedule_refresh` → `refresh_review_toolbar`) queues recount per burst with `main.post`, which runs on a later main-loop
    turn so it does not walk redlines inside the modify notification.
 
 It is strictly token-scoped — only `wa-review` changes are listed or resolved.

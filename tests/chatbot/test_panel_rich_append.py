@@ -16,10 +16,15 @@ from unittest.mock import MagicMock, patch
 def _make_send_listener():
     from tests.conftest import make_mock_send_button_listener
     from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from plugin.framework.queue_executor import MainThread, main
 
     send = make_mock_send_button_listener()
     send.rich_text_widget = MagicMock()
     send.queue_executor = MagicMock()
+    send.queue_executor.is_current.side_effect = lambda: main.is_current()
+    send.queue_executor.post_or_run.side_effect = (
+        lambda fn, *a, **k: MainThread.post_or_run(send.queue_executor, fn, *a, **k)
+    )
     send.session.messages = []
     begin_send_turn(send)
     return send

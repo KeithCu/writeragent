@@ -474,9 +474,9 @@ def test_post_drops_when_no_async_from_background():
     assert len(main._pending_posts) == before
 
 
-def test_post_tagged_worker_under_testing_enqueues_not_inline(monkeypatch):
+def test_post_tagged_worker_under_testing_enqueues_not_inline():
     """WRITERAGENT_TESTING must not run a tagged worker's post() on that worker."""
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    mt.MainThread.install(mt.Policy.test_inline)
     executor = mt.MainThread()
     ran_on: list[str] = []
 
@@ -557,8 +557,8 @@ def test_post_pending_full_raises_when_callback_never_arrives(monkeypatch: pytes
     assert len(executor._pending_posts) == mt._PENDING_POST_CAP
 
 
-def test_post_tagged_worker_under_testing_drops_without_async(monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+def test_post_tagged_worker_under_testing_drops_without_async():
+    mt.MainThread.install(mt.Policy.test_inline)
     executor = mt.MainThread()
     called: list[int] = []
 
@@ -577,14 +577,56 @@ def test_post_tagged_worker_under_testing_drops_without_async(monkeypatch):
     assert executor._work_queue.empty()
 
 
-def test_post_untagged_under_testing_still_inlines(monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+def test_post_untagged_under_testing_still_inlines():
+    mt.MainThread.install(mt.Policy.test_inline)
     executor = mt.MainThread()
     called: list[str] = []
     with patch("plugin.framework.thread_guard.get_background_task_name", return_value=None):
         executor.post(lambda: called.append(threading.current_thread().name))
     assert called == ["MainThread"]
     assert executor._work_queue.empty()
+
+
+def test_call_untagged_worker_under_test_inline_inlines():
+    """Policy.test_inline allows untagged background workers to inline call() without AsyncCallback."""
+    mt.MainThread.install(mt.Policy.test_inline)
+    executor = mt.MainThread()
+    result: list[str] = []
+
+    def run_on_worker() -> None:
+        with patch("plugin.framework.thread_guard.get_background_task_name", return_value=None):
+            val = executor.call(lambda: f"done on {threading.current_thread().name}")
+            result.append(val)
+
+    worker = threading.Thread(target=run_on_worker, name="untagged-worker")
+    worker.start()
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert result == ["done on untagged-worker"]
+
+
+def test_call_tagged_worker_under_test_inline_refuses_inline():
+    """Policy.test_inline refuses to inline call() for tagged background workers."""
+    mt.MainThread.install(mt.Policy.test_inline)
+    executor = mt.MainThread()
+    errors: list[BaseException] = []
+
+    def run_on_worker() -> None:
+        with (
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value="bg-task"),
+            patch.object(executor, "_get_async_callback", return_value=None),
+        ):
+            try:
+                executor.call(lambda: "should-fail")
+            except RuntimeError as exc:
+                errors.append(exc)
+
+    worker = threading.Thread(target=run_on_worker, name="tagged-worker")
+    worker.start()
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert len(errors) == 1
+    assert "AsyncCallback unavailable from background thread" in str(errors[0])
 
 
 def test_call_success():
@@ -1602,7 +1644,7 @@ def test_main_run_marshals_when_off_main() -> None:
          patch.object(main, "call", return_value="marshaled") as mock_call:
         result = main.run(fn)
         assert result == "marshaled"
-        mock_call.assert_called_once_with(fn)
+        mock_call.assert_called_once_with(fn, timeout=30.0)
 
     with patch.object(main, "is_current", return_value=False), \
          patch.object(main, "call", return_value="marshaled") as mock_call:
@@ -1686,16 +1728,5 @@ def test_main_post_or_run_asserts_callable() -> None:
     with pytest.raises(AssertionError):
         main.post_or_run("not_callable")
 
-def test_main_post_or_run_uses_custom_executor() -> None:
-    from plugin.framework.queue_executor import main, _SCOPE_UNSET
 
-    def fn() -> None:
-        pass
-
-    custom_exec = MagicMock()
-    with patch.object(main, "is_current", return_value=False), \
-         patch("plugin.framework.thread_guard.get_background_task_name", return_value=None):
-        result = main.post_or_run(fn, "arg1", executor=custom_exec, kw="val")
-        assert result is None
-        custom_exec.post.assert_called_once_with(fn, "arg1", kw="val", bound_scope=_SCOPE_UNSET)
 

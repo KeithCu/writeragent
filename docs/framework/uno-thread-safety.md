@@ -15,7 +15,7 @@ See [`threading.md`](threading.md) and [`streaming-and-threading.md`](streaming-
 Historically, threading bugs in this codebase were uncovered only after mysterious production hangs:
 - **Timing & Doc-Size Dependent**: Race conditions often do not reproduce on a developer's machine with small documents, but reliably deadlock on large documents or slower machines under GIL contention.
 - **No Stack Traces**: When two threads deadlock, neither crashes; the process simply stops responding, leaving no stack trace or error log at the offending call site.
-- **Test Invisibility**: Standard unit tests mock UNO calls, and `MainThread` runs inline under `Policy.test_inline` (`WRITERAGENT_TESTING=1`), meaning unit tests never exercise real thread boundary crossings.
+- **Test Invisibility**: Standard unit tests mock UNO calls, and tests opting into `Policy.test_inline` run inline without `AsyncCallback`, meaning unit tests never exercise real thread boundary crossings unless tested under `Policy.test_marshal`.
 
 **The Goal**: Make any off-main-thread UNO violation and any synchronous host-dispatch deadlock fail **loudly, deterministically, and immediately** — at author time via linters, in CI via thread-affine mocks, and at runtime via viral proxies — instead of surfacing as rare production deadlocks.
 
@@ -103,7 +103,7 @@ Layer A converts what would be a silent race condition or production freeze into
 ```python
 def assert_main_thread(what: str) -> None:
     """Raise (if guard on) or log warning+stack (if guard off) when off the main thread."""
-    if on_main_thread():
+    if on_python_main_thread():
         return
     task = get_background_task_name() or threading.current_thread().name
     msg = "UNO thread violation: %r touched UNO from background task %r; marshal via main.call()." % (what, task)
@@ -116,7 +116,7 @@ def assert_main_thread(what: str) -> None:
 - One process-wide dialog: the popup is `main.post(..., bound_scope=None)` so Stop must not drop it. `WRITERAGENT_TESTING=1` still `log.error`s with `stack_info` and does not post. The flag clears only when the dialog callback finishes or the post itself fails. `set_background_task(None)` does not clear the flag.
 - **Dev Builds (`GUARD_ON=1`)**: Displays a deduplicated modal error box on the UI thread and raises `RuntimeError`.
 - **Dev Builds with Guard Disabled (`GUARD_ON=0`)**: Logs `log.warning(msg, stack_info=True)` so call sites are captured in logs without crashing user sessions.
-- **Production Release OXTs (`make release`)**: Code packaging via `scripts/strip_code.py` replaces `thread_guard.py` with a minimal zero-overhead stub (`GUARD_ON = False`, `assert_main_thread` no-op, proxy unwrapped), while keeping `sync_host_dispatch()` and `in_sync_host_dispatch()` active for deadlock prevention, and `on_main_thread()` checking `threading.current_thread() is threading.main_thread()` so secondary wait pumps off-main still marshal to the UI thread.
+- **Production Release OXTs (`make release`)**: Code packaging via `scripts/strip_code.py` replaces `thread_guard.py` with a minimal zero-overhead stub (`GUARD_ON = False`, `assert_main_thread` no-op, proxy unwrapped), while keeping `sync_host_dispatch()` and `in_sync_host_dispatch()` active for deadlock prevention, and `on_python_main_thread()` checking `threading.current_thread() is threading.main_thread()` so secondary wait pumps off-main still marshal to the UI thread.
 - **Main Thread & Dummy Upcall Affinity**: In dev builds (`thread_guard.py`), untagged `_DummyThread` (LibreOffice C++ listener upcalls under SolarMutex) is allowed; a `set_background_task` tag or the designated-main hook excludes it. The release stub stays strict (`current is threading.main_thread()`). Proofreading and the Calc add-ins tag themselves via `background_if_dummy_thread` so dev matches that strict control flow.
 
 ### A2. Thread Tagging at Birth
@@ -174,9 +174,9 @@ For fast CI tests where LibreOffice is not running:
 
 ### B4. MainThread Policies
 Thread routing is owned by `MainThread` (`plugin/framework/queue_executor.py`), governed by four explicit policies:
-- `Policy.production`: Standard runtime policy. Only the marshal thread inlines UNO; worker threads marshal via `AsyncCallback`. Default when unconfigured.
+- `Policy.production`: Standard runtime policy. Only the marshal thread inlines UNO; worker threads marshal via `AsyncCallback`. Pytest defaults to `Policy.production` (reset after each test in `conftest.py`).
 - `Policy.eval_harness`: Headless eval / benchmark suite (`scripts/run_eval.py`, `tools_lo.py`). Disables `AsyncCallback` so UNO stays exclusively on the designated `_lo_thread`.
-- `Policy.test_inline`: Unit test fast execution (`WRITERAGENT_TESTING=1`, `plugin/testing_runner.py`, `tests/conftest.py`). Inlines execution on untagged threads without `AsyncCallback`.
+- `Policy.test_inline`: Fast inlined execution on untagged threads without `AsyncCallback`. Installed in `testing_runner.py` and `plugin.main.bootstrap` (via `WRITERAGENT_TESTING=1`); unit tests opt in explicitly with `main.install(Policy.test_inline)`.
 - `Policy.test_marshal`: Thread-affinity testing (`tests/framework/thread_safety.py`). Forces queueing to synthetic test pump threads even during tests.
 
 ---

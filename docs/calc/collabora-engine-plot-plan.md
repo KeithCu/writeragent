@@ -29,7 +29,7 @@ WriterAgent / LibrePy is running in production as a desktop extension for LibreO
 4. **Lifecycle & Recalculation Replacement:**
    * Before creating a new shape, LibrePy inspects the sheet's `DrawPage` via `_shape_anchor_matches_cell`. If an existing shape is already anchored to the target formula cell, it updates the graphic on that shape in place rather than creating duplicate stacked shapes. If `image_count` is smaller than previous runs, higher plot slots are removed.
 5. **Main-Thread Marshaling:**
-   * Drawing layer mutations are marshaled to the main VCL UI thread via `post_to_main_thread` / `execute_on_main_thread`.
+   * Drawing layer mutations are marshaled to the main VCL UI thread via `main.post` / `main.call`.
 
 ### 1.2 The Collabora Online MVP Patches (Gerrit 8122 & 8123)
 The foundational Collabora Online Python integration is introduced by two patchsets:
