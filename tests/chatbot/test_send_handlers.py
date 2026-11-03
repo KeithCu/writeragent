@@ -24,6 +24,7 @@ class DummyChatbotPanel(SendHandlersMixin):
         self.ctx = MockContext()
         setattr(self.ctx, "getServiceManager", MagicMock())
         self.stop_requested = False
+        self._send_cancellation = None
         self._active_mode = ""
         self._mode_topic = ""
         self.responses = []
