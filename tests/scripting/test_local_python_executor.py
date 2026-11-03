@@ -1259,7 +1259,9 @@ def test_slice9_timeout_validation_and_unwinding():
         with TPE(max_workers=1) as pool:
             future = pool.submit(worker)
             elapsed = future.result()
-        assert elapsed < 2.0  # Returned well under 2.5s!
+        # Thread fallback: up to timeout_seconds to fire, then up to timeout_seconds
+        # draining the worker before raising (still must not wait for the 2.5s sleep).
+        assert elapsed < 2.35
     finally:
         lpe.abandoned_timeout = False
 
