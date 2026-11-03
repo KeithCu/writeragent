@@ -27,7 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 from compute_service import __version__
 from compute_service import error_codes as ec
 from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
-from compute_service.wsgi_server import HTTP_DRAIN_SEC, REQUEST_READ_TIMEOUT_SEC, REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, admission_permits, listener_thread_count
+from compute_service.wsgi_server import HTTP_DRAIN_SEC, REQUEST_READ_TIMEOUT_SEC, REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, admission_permits, listener_thread_count, request_conn
 from compute_service.worker_base import Deadline
 from compute_service.json_forward import (
     ExecuteRequestError,
@@ -191,28 +191,28 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
     bytes never parse as the next request.
     """
     if _transfer_encoding_is_chunked(environ):
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         return False
     # Already buffered: reading Content-Length again would eat the next request.
-    if isinstance(environ.get("compute.raw_body"), (bytes, bytearray)):
+    if isinstance(request_conn(environ).raw_body, (bytes, bytearray)):
         return True
     try:
         length = int(environ.get("CONTENT_LENGTH") or 0)
     except (TypeError, ValueError):
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         return False
     stream = environ.get("wsgi.input")
     cap = min(length, max_bytes)
     done = 0
     if cap > 0 and stream is not None:
-        conn = environ.get("compute.connection")
+        conn = request_conn(environ).connection
         saved: float | None = None
         try:
             saved = conn.gettimeout() if conn is not None else None
         except OSError:
             conn = None  # A timeout that cannot be read cannot be restored, so it is left alone.
         read = getattr(stream, "read1", None) or stream.read
-        deadline = min(time.monotonic() + 1.0, _accept_clock(environ.get("compute.accept_time")) + REQUEST_READ_TIMEOUT_SEC)
+        deadline = min(time.monotonic() + 1.0, _accept_clock(request_conn(environ).accept_time) + REQUEST_READ_TIMEOUT_SEC)
         try:
             while done < cap and (budget := deadline - time.monotonic()) > 0:
                 if conn is not None:
@@ -230,7 +230,7 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
                 except OSError:
                     pass
     if done < length:
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         return False
     return True
 
@@ -257,7 +257,7 @@ def _set_write_deadline(environ: dict[str, Any]) -> None:
     (REQUEST_WRITE_TIMEOUT_SEC) so that in-progress execution is not prematurely
     aborted while preparing to stream or complete the calculation.
     """
-    conn = environ.get("compute.connection")
+    conn = request_conn(environ).connection
     if conn is not None:
         try:
             conn.settimeout(REQUEST_WRITE_TIMEOUT_SEC)
@@ -314,13 +314,13 @@ def _reject_chunked(environ: dict[str, Any], start_response: Any) -> list[bytes]
     """400 when the body is chunked. ``None`` when the request may continue."""
     if not _transfer_encoding_is_chunked(environ):
         return None
-    environ["compute.close_connection"] = True
+    request_conn(environ).close_connection = True
     return _error(start_response, "400 Bad Request", "Chunked transfer encoding is not supported")
 
 
 def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[bytes | None, list[bytes] | None]:
     """Read a bounded POST body with total read deadline enforcement. Returns ``(body, None)`` or ``(None, error_body)``."""
-    cached = environ.get("compute.raw_body")
+    cached = request_conn(environ).raw_body
     if isinstance(cached, (bytes, bytearray)):
         return bytes(cached), None
     chunked = _reject_chunked(environ, start_response)
@@ -328,33 +328,33 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
         return None, chunked
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         return None, _error(start_response, "400 Bad Request", "Missing Content-Length")
     try:
         content_length = int(raw_len)
     except (TypeError, ValueError):
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         return None, _error(start_response, "400 Bad Request", "Invalid Content-Length")
     if content_length <= 0:
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         return None, _error(start_response, "400 Bad Request", "Invalid Content-Length")
     if content_length > settings.max_body_bytes:
         _drain_body_before_error(environ, max_bytes=64 * 1024)
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         return None, _error(start_response, "413 Payload Too Large", "Request body too large")
 
     wsgi_input = environ.get("wsgi.input")
     if wsgi_input is None:
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         return None, _error(start_response, "500 Internal Server Error", "Missing wsgi.input stream")
 
     def fail(status: str, msg: str) -> tuple[None, list[bytes]]:
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         _set_write_deadline(environ)
         return None, _error(start_response, status, msg)
 
-    conn = environ.get("compute.connection")
-    read_deadline = _accept_clock(environ.get("compute.accept_time")) + REQUEST_READ_TIMEOUT_SEC
+    conn = request_conn(environ).connection
+    read_deadline = _accept_clock(request_conn(environ).accept_time) + REQUEST_READ_TIMEOUT_SEC
 
     chunks: list[bytes] = []
     bytes_read = 0
@@ -393,14 +393,14 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
 
     _set_write_deadline(environ)
     if bytes_read != content_length:
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         return None, _error(start_response, "400 Bad Request", "Request body truncated")
 
     body = b"".join(chunks)
     # Admission reads the body before the permit wait. The handler must not
     # read the socket again: on a keep-alive connection that would consume
     # the next request.
-    environ["compute.raw_body"] = body
+    request_conn(environ).raw_body = body
     return body, None
 
 
@@ -489,7 +489,7 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
 
     if environ.get("HTTP_ORIGIN"):
         if _has_declared_body(environ):
-            environ["compute.close_connection"] = True
+            request_conn(environ).close_connection = True
         return _code_error(start_response, ec.CROSS_ORIGIN_REFUSED, "Cross-origin requests are forbidden in keyless mode.")
 
     # HTTP/1.0 may omit Host. No Host is not a loopback Host, so keyless
@@ -497,7 +497,7 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
     raw_host_value = environ.get("HTTP_HOST")
     if not isinstance(raw_host_value, str) or not raw_host_value.strip():
         if _has_declared_body(environ):
-            environ["compute.close_connection"] = True
+            request_conn(environ).close_connection = True
         return _code_error(start_response, ec.CROSS_ORIGIN_REFUSED, "Only loopback hosts are allowed in keyless mode.")
     raw_host = raw_host_value.lower()
     if raw_host.startswith("["):
@@ -507,7 +507,7 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
 
     if host not in ("localhost", "127.0.0.1", "[::1]"):
         if _has_declared_body(environ):
-            environ["compute.close_connection"] = True
+            request_conn(environ).close_connection = True
         return _code_error(start_response, ec.CROSS_ORIGIN_REFUSED, "Only loopback hosts are allowed in keyless mode.")
     return None
 
@@ -575,7 +575,7 @@ class _Admission:
 
 
 def _admission(environ: dict[str, Any], timeout_sec: float, parsed: Any, req_id: Any) -> _Admission:
-    end = _accept_clock(environ.get("compute.accept_time")) + timeout_sec
+    end = _accept_clock(request_conn(environ).accept_time) + timeout_sec
     return _Admission(deadline=Deadline.from_absolute(timeout_sec, end), parsed=parsed, req_id=req_id)
 
 
@@ -624,7 +624,7 @@ def _admit_vision(
     """Admit vision request, returning 501 early if vision workers are disabled."""
     if settings.ocr_workers <= 0:
         if _has_declared_body(environ):
-            environ["compute.close_connection"] = True
+            request_conn(environ).close_connection = True
         return None, _code_error(start_response, ec.VISION_SERVICE_DISABLED, "Vision / OCR service is not enabled on this instance (ocr_workers=0).")
     return _admit_body(
         environ,
@@ -705,7 +705,7 @@ def _gated(
         return res
     except Exception as e:
         log.exception("fail %s: %s", path, e)
-        environ["compute.close_connection"] = True
+        request_conn(environ).close_connection = True
         if started:
             return []
         req_id = None if admission is None else admission.req_id
@@ -968,13 +968,13 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         route = routes.get(path)
         if route is None:
             if _has_declared_body(environ):
-                environ["compute.close_connection"] = True
+                request_conn(environ).close_connection = True
             start_response("404 Not Found", [("Content-Type", "text/plain"), ("Content-Length", "9")])
             return [b"Not Found"]
 
         if method != route.method:
             if _has_declared_body(environ):
-                environ["compute.close_connection"] = True
+                request_conn(environ).close_connection = True
             body = b"Method Not Allowed"
             start_response(
                 "405 Method Not Allowed",
@@ -983,7 +983,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             return [body]
 
         if not route.is_body_route and _has_declared_body(environ):
-            environ["compute.close_connection"] = True
+            request_conn(environ).close_connection = True
 
         return route.handler(environ, start_response)
 

@@ -2135,8 +2135,10 @@ class TestSessionResetHttp:
             "CONTENT_LENGTH": str(len(body)),
             "HTTP_HOST": "127.0.0.1",
             "wsgi.input": io.BytesIO(body),
-            "compute.accept_time": time.monotonic() - 5.0,
         }
+        from compute_service.wsgi_server import request_conn
+
+        request_conn(environ).accept_time = time.monotonic() - 5.0
         out = b"".join(app(environ, start_response))
         parsed = json.loads(out.decode("utf-8"))
         assert status_holder[0].startswith("503")
@@ -3196,7 +3198,9 @@ def test_accept_time_tracked_on_connection() -> None:
         handler.rfile = io.BytesIO(b"")
         with patch.object(handler_cls, "setup"):
             environ = handler.get_environ()
-            assert environ.get("compute.accept_time") == 12345.678
+            from compute_service.wsgi_server import request_conn
+
+            assert request_conn(environ).accept_time == 12345.678
     finally:
         server.server_close()
         assert len(server.srv._accept_times) == 0
@@ -3672,6 +3676,7 @@ def test_slow_body_drip_is_408() -> None:
     """One socket timeout per large read used to let a drip outlive the body deadline."""
     from compute_service.wsgi_server import REQUEST_READ_TIMEOUT_SEC
     from compute_service.server import _read_request_body
+    from compute_service.wsgi_server import request_conn
 
     class _Drip:
         def read1(self, _n: int) -> bytes:
@@ -3690,9 +3695,8 @@ def test_slow_body_drip_is_408() -> None:
     environ = {
         "CONTENT_LENGTH": "100000",
         "wsgi.input": _Drip(),
-        "compute.accept_time": time.monotonic() - REQUEST_READ_TIMEOUT_SEC + 0.15,
-        "compute.connection": None,
     }
+    request_conn(environ).accept_time = time.monotonic() - REQUEST_READ_TIMEOUT_SEC + 0.15
     started = time.monotonic()
     body, err = _read_request_body(environ, ComputeSettings(), start_response)
     assert time.monotonic() - started < 2.0
@@ -3704,6 +3708,7 @@ def test_slow_body_drip_is_408() -> None:
 def test_body_settimeout_failure_is_408() -> None:
     """A failed settimeout must not leave the previous socket timeout in force."""
     from compute_service.server import _read_request_body
+    from compute_service.wsgi_server import request_conn
 
     class _Boom:
         def settimeout(self, _value: float) -> None:
@@ -3722,9 +3727,10 @@ def test_body_settimeout_failure_is_408() -> None:
     environ = {
         "CONTENT_LENGTH": "1000",
         "wsgi.input": _Drip(),
-        "compute.connection": _Boom(),
-        "compute.accept_time": time.monotonic(),
     }
+    rc = request_conn(environ)
+    rc.connection = _Boom()
+    rc.accept_time = time.monotonic()
     started = time.monotonic()
     body, err = _read_request_body(environ, ComputeSettings(), start_response)
     assert time.monotonic() - started < 1.0
@@ -3736,6 +3742,7 @@ def test_body_settimeout_failure_is_408() -> None:
 def test_string_accept_time_does_not_raise() -> None:
     """A non-numeric accept timestamp starts the clock now instead of HTTP 500."""
     from compute_service.server import _read_request_body
+    from compute_service.wsgi_server import request_conn
 
     payload = b'{"code":"result = 1"}'
     statuses: list[str] = []
@@ -3746,8 +3753,8 @@ def test_string_accept_time_does_not_raise() -> None:
     environ = {
         "CONTENT_LENGTH": str(len(payload)),
         "wsgi.input": io.BytesIO(payload),
-        "compute.accept_time": "not-a-float",
     }
+    request_conn(environ).accept_time = "not-a-float"
     body, err = _read_request_body(environ, ComputeSettings(), start_response)
     assert err is None
     assert body == payload
@@ -3756,6 +3763,7 @@ def test_string_accept_time_does_not_raise() -> None:
 
 def test_drain_restores_socket_timeout() -> None:
     from compute_service.server import _drain_body_before_error
+    from compute_service.wsgi_server import request_conn
 
     class _Conn:
         def __init__(self, timeout: float | None) -> None:
@@ -3785,16 +3793,22 @@ def test_drain_restores_socket_timeout() -> None:
 
     body = _Body()
     conn = _Conn(30.0)
-    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": conn, "wsgi.input": body})
+    env = {"CONTENT_LENGTH": "10", "wsgi.input": body}
+    request_conn(env).connection = conn
+    _drain_body_before_error(env)
     assert conn.timeout == 30.0
 
     # None is blocking. It must be restored, not left at the 1s drain budget.
     blocking = _Conn(None)
-    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": blocking, "wsgi.input": body})
+    env2 = {"CONTENT_LENGTH": "10", "wsgi.input": body}
+    request_conn(env2).connection = blocking
+    _drain_body_before_error(env2)
     assert blocking.timeout is None
 
     unread = _Unread()
-    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": unread, "wsgi.input": body})
+    env3 = {"CONTENT_LENGTH": "10", "wsgi.input": body}
+    request_conn(env3).connection = unread
+    _drain_body_before_error(env3)
     assert unread.set_calls == 0
     assert unread.timeout == 30.0
 
@@ -4137,6 +4151,7 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
 
 def test_drain_body_chunked_closes_connection() -> None:
     from compute_service.server import _drain_body_before_error
+    from compute_service.wsgi_server import request_conn
 
     # Chunked with no length returns False and leaves input unread.
     stream1 = io.BytesIO(b"smuggled")
@@ -4145,7 +4160,7 @@ def test_drain_body_chunked_closes_connection() -> None:
         "wsgi.input": stream1,
     }
     assert _drain_body_before_error(env1) is False
-    assert env1.get("compute.close_connection") is True
+    assert request_conn(env1).close_connection is True
     assert stream1.tell() == 0
 
     # Content-Length with chunked encoding leaves bytes unconsumed and closes socket.
@@ -4156,7 +4171,7 @@ def test_drain_body_chunked_closes_connection() -> None:
         "wsgi.input": stream2,
     }
     assert _drain_body_before_error(env2) is False
-    assert env2.get("compute.close_connection") is True
+    assert request_conn(env2).close_connection is True
     assert stream2.tell() == 0
 
     # Content-Length without chunked header drains normally.
@@ -4166,7 +4181,7 @@ def test_drain_body_chunked_closes_connection() -> None:
         "wsgi.input": stream3,
     }
     assert _drain_body_before_error(env3) is True
-    assert env3.get("compute.close_connection") is not True
+    assert request_conn(env3).close_connection is not True
     assert stream3.tell() == 5
 
 
@@ -4190,12 +4205,15 @@ def test_wsgi_chunked_401_closes_connection() -> None:
     }
     _ = b"".join(app(environ, start_response))
     assert status_holder[0].startswith("401")
-    assert environ.get("compute.close_connection") is True
+    from compute_service.wsgi_server import request_conn
+
+    assert request_conn(environ).close_connection is True
     assert stream.read() == smuggled
 
 
 def test_reset_queue_timeout_closes_connection() -> None:
     from compute_service.server import _Admission, _gated
+    from compute_service.wsgi_server import request_conn
     from compute_service.worker_base import Deadline
 
     # Gated route timing out before execution.
@@ -4212,9 +4230,9 @@ def test_reset_queue_timeout_closes_connection() -> None:
         "QUERY_STRING": "session_id=abc",
         "HTTP_TRANSFER_ENCODING": "chunked",
         "HTTP_HOST": "127.0.0.1",
-        "compute.accept_time": 0.0,
         "wsgi.input": stream,
     }
+    request_conn(env).accept_time = 0.0
     res = _gated(
         env,
         start_response,
@@ -4240,12 +4258,12 @@ def test_reset_queue_timeout_closes_connection() -> None:
         "QUERY_STRING": "session_id=abc",
         "HTTP_TRANSFER_ENCODING": "chunked",
         "HTTP_HOST": "127.0.0.1",
-        "compute.accept_time": 0.0,
         "wsgi.input": stream_app,
     }
+    request_conn(env_app).accept_time = 0.0
     _ = b"".join(app(env_app, lambda s, h: statuses_app.append(s)))
     assert statuses_app[0].startswith("400") or statuses_app[0].startswith("503")
-    assert env_app.get("compute.close_connection") is True
+    assert request_conn(env_app).close_connection is True
     assert stream_app.tell() == 0
 
 
