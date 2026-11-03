@@ -86,7 +86,7 @@ def _show_error_report(ctx: Any, detail: str, report_title: str, exc: BaseExcept
     ui = _action_error_ui
     if ui is None:
         log.exception("action error UI is not registered (%s)", report_title)
-        raise RuntimeError("action error UI is not registered")
+        return
     try:
         ui(ctx, detail, report_title, exc)
     except Exception:

@@ -433,6 +433,14 @@ def test_report_action_failure_survives_dialog_exceptions(monkeypatch):
     report_action_failure("test.action", ValueError("original problem"))
 
 
+def test_show_error_report_returns_when_ui_unregistered():
+    """_show_error_report logs and returns cleanly when error UI is not registered."""
+    from plugin.framework.main_shared import _show_error_report, set_action_error_ui
+
+    set_action_error_ui(None)
+    _show_error_report(None, "detail", "title", RuntimeError("boom"))
+
+
 # --- Bug 5 tests: DispatchHandler.dispatch catches dialog failures ---
 
 
