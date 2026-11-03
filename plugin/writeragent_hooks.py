@@ -6,21 +6,20 @@
 
 from __future__ import annotations
 
+import weakref
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from plugin.framework.tool import SchemaFilterContext, ToolRegistry
 
-_prompt_hooks_registered = False
-_tool_filters_registered_for: set[int] = set()
+_tool_filters_registered_for: weakref.WeakSet[ToolRegistry] = weakref.WeakSet()
 
 
 def register_writeragent_prompt_hooks() -> None:
-    """Prompt catalog, system blocks, python extras — WriterAgent and eval harness."""
-    global _prompt_hooks_registered
-    if _prompt_hooks_registered:
-        return
-    _prompt_hooks_registered = True
+    """Prompt catalog, system blocks, python extras — WriterAgent and eval harness.
+
+    Safe to call repeatedly: each call re-sets the same hooks.
+    """
 
     from plugin.framework import config_schema
     from plugin.framework.prompts import (
@@ -80,10 +79,10 @@ def register_writeragent_chat_tooling(tools: ToolRegistry) -> None:
 
 def register_writeragent_tool_filters(tools: ToolRegistry) -> None:
     """Production schema/tool filters on a ToolRegistry instance."""
-    reg_id = id(tools)
-    if reg_id in _tool_filters_registered_for:
+    # Keyed on the instance, not id(): a new registry can reuse a freed id.
+    if tools in _tool_filters_registered_for:
         return
-    _tool_filters_registered_for.add(reg_id)
+    _tool_filters_registered_for.add(tools)
 
     from plugin.doc.peer_message import filter_peer_message_schemas
     from plugin.doc.specialized_base import narrow_delegate_domain_enums

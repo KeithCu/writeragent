@@ -2,6 +2,11 @@
 """Strip credentials and LibreOffice Python overrides from child process environments."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Container
+
 from plugin.framework.deal_shim import (
     DEAL_MAX_ARGV,
     DEAL_MAX_TOKEN,
@@ -132,19 +137,23 @@ def _env_name_is_credential(name: str) -> bool:
     return any(token in _BLOCKED_ENV_TOKENS for token in tokens)
 
 
-@deal.pre(lambda base: _deal_scrub_env_ok(base))
+@deal.pre(lambda base, keep=None: _deal_scrub_env_ok(base))
 @deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
-@inverse_ensure(lambda base, result: all(k.upper() not in _BLOCKED_ENV_EXACT for k in result))
-@inverse_ensure(lambda base, result: all(not _env_name_is_credential(k) for k in result))
+@inverse_ensure(lambda base, result, keep=None: all(k.upper() not in _BLOCKED_ENV_EXACT or (keep is not None and k in keep) for k in result))
+@inverse_ensure(lambda base, result, keep=None: all(not _env_name_is_credential(k) for k in result))
 @deal.ensure(
-    lambda base, result: base is None
+    lambda base, result, keep=None: base is None
     or (
         result.get("PYTHONIOENCODING") == "utf-8"
         and result.get("PYTHONUTF8") == "1"
         and result.get("PYTHONDONTWRITEBYTECODE") == "1"
     )
 )
-def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
+def scrub_subprocess_env(
+    base: dict[str, str] | None,
+    *,
+    keep: Container[str] | None = None,
+) -> dict[str, str]:
     """Drop likely-secret vars and LO Python overrides from the environment passed to venv Python.
 
     Only ``base is None`` returns {}. An empty dict still receives the UTF-8
@@ -154,8 +163,10 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
         return {}
     out: dict[str, str] = {}
     for k, v in base.items():
+        if _env_name_is_credential(k):
+            continue
         ku = k.upper()
-        if ku in _BLOCKED_ENV_EXACT or _env_name_is_credential(k):
+        if ku in _BLOCKED_ENV_EXACT and (keep is None or k not in keep):
             continue
         out[k] = v
     # setdefault kept whatever the parent already had. Callers pass

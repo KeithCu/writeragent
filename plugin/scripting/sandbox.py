@@ -835,15 +835,8 @@ def resolve_venv_python(venv_dir: str) -> str | None:
     return _first_executable_python(candidates)
 
 
-_alias_authorizer_installed = False
-
-
 def install_alias_authorizer() -> None:
     """Register sandbox import checks for ``writeragent`` AliasImporter (explicit entry points only)."""
-    global _alias_authorizer_installed
-    if _alias_authorizer_installed:
-        return
-    _alias_authorizer_installed = True
     from plugin.framework.uno_bootstrap import set_alias_authorizer
 
     set_alias_authorizer(import_authorized, alias_has_authorized_child)
