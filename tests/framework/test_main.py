@@ -194,7 +194,7 @@ def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
 
 def test_bootstrap_start_background_failure_isolates_modules(monkeypatch):
     """When one module's start_background raises, later modules still start their background work."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_python_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.MainThread.on_python_main_thread", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)

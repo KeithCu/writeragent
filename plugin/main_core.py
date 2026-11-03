@@ -33,7 +33,6 @@ if TYPE_CHECKING:
 
 from plugin.framework.logging import init_logging, log as wa_log, log_exception
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
-from plugin.framework.thread_guard import on_python_main_thread
 from plugin.framework.uno_context import get_ctx, set_fallback_ctx, set_package_extension_id
 from plugin.framework.url_utils import dispatch_command_from_url
 
@@ -74,8 +73,10 @@ def bootstrap(ctx: Any | None = None) -> None:
     if _initialized:
         return
 
+    from plugin.framework.queue_executor import MainThread
+
     # A status-listener Dummy upcall is allowed to touch UNO, and it must not enter bootstrap.
-    if not on_python_main_thread():
+    if not MainThread.on_python_main_thread():
         return
     # What was wrong: a non-reentrant Lock wrapped this whole body.
     # How it happened: off-thread callers already return, so the lock excluded
