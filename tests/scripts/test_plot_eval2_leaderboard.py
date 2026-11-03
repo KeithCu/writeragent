@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent tests for scripts/plot_eval2_leaderboard.py
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Eval-2 headed scoreboard stays separate from the string-pack Pareto."""
-from __future__ import annotations
 
 import json
 import sys

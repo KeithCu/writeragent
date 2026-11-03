@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-from plugin.framework.queue_executor import execute_on_main_thread, run_on_main
+from plugin.framework.queue_executor import main
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
 from plugin.scripting.payload_codec import find_image_payloads, strip_image_payloads, write_image_payload_to_temp
 from plugin.scripting.venv_worker import run_code_in_user_venv
@@ -130,11 +130,11 @@ class RunVenvPythonScript(ToolCalcPythonBase):
             data = kwargs.get("data")
             from plugin.calc import calc_addin_data
 
-            py_data, err = run_on_main(
-                calc_addin_data._resolve_python_data,
-                ctx.doc,
-                data_range=data_range,
-                data=data,
+            _resolve = calc_addin_data._resolve_python_data
+            py_data, err = (
+                _resolve(ctx.doc, data_range=data_range, data=data)
+                if main.is_current()
+                else main.call(_resolve, ctx.doc, data_range=data_range, data=data)
             )
             if err:
                 return self._tool_error(err, code="DATA_RESOLUTION_ERROR")
@@ -199,7 +199,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     # silent return was treated as success.
                     for i, (img, path) in enumerate(zip(images, img_paths, strict=True)):
                         try:
-                            execute_on_main_thread(
+                            main.call(
                                 insert_image_result_on_sheet,
                                 ctx.ctx,
                                 img,

@@ -283,10 +283,10 @@ class StatusBarGrammarStatus(GrammarStatus):
                 return
             if desktop_create_is_unsafe():
                 return
-            from plugin.framework.queue_executor import post_to_main_thread
+            from plugin.framework.queue_executor import main
 
             try:
-                post_to_main_thread(update_libreoffice_status_bar, phase, result)
+                main.post(update_libreoffice_status_bar, phase, result)
             except Exception:
                 log.debug("Failed to post status bar update to main thread", exc_info=True)
         except Exception as e:

@@ -335,16 +335,16 @@ def execute_tool(
         )
     payload = args if isinstance(args, dict) else {}
     if tool_name in _NAMED_SCRIPT_TOOLS:
-        from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
+        from plugin.framework.queue_executor import main
+        from plugin.framework.thread_guard import in_sync_host_dispatch
 
-        # Off-main callers cannot wait on execute_on_main_thread (deadlock #402).
+        # Off-main callers cannot wait on main.call (deadlock #402).
         # =PY() recalc never reaches here: its allowlist is empty and refused above.
         # User scripts are a config dict. Document scripts need UNO.
-        if in_sync_host_dispatch() and not on_main_thread():
+        if in_sync_host_dispatch() and not main.is_current():
             return _dispatch_named_script(tool_name, payload, allow_document=False)
-        from plugin.framework.queue_executor import execute_on_main_thread
 
-        return execute_on_main_thread(lambda: _dispatch_named_script(tool_name, payload, script_session_id=script_session_id))
+        return main.call(lambda: _dispatch_named_script(tool_name, payload, script_session_id=script_session_id))
     if allowed_tools is not None and tool_name not in allowed_tools:
         raise RuntimeError(
             f"Tool {tool_name!r} is not available in this Python tool domain."
@@ -396,18 +396,18 @@ def execute_tool(
         is_async = tool is not None and tool.is_async()
         return registry, tctx, is_async
 
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import main
 
     # We keep two hops; collapsing resolve+execute into one hop changes queue semantics/races.
     # Known window: the doc in tctx is resolved in the first hop and used in the second,
     # so it can be closed in between and the tool then sees a dead UNO proxy
     # (DisposedException). That is the same risk as a doc closing mid-tool, so we accept
     # it rather than merge hops; the tool error path must report it cleanly.
-    registry, tctx, is_async = execute_on_main_thread(_run)
+    registry, tctx, is_async = main.call(_run)
 
     if is_async:
         return registry.execute(tool_name, tctx, **payload)
-    return execute_on_main_thread(lambda: registry.execute(tool_name, tctx, **payload))
+    return main.call(lambda: registry.execute(tool_name, tctx, **payload))
 
 
 def _document_script_store(script_session_id: str | None) -> dict[str, str]:

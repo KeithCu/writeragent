@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from plugin.framework.queue_executor import QueueExecutor
+    from plugin.framework.queue_executor import MainThread
 
 log = logging.getLogger(__name__)
 
@@ -60,12 +60,12 @@ class SendCancellation:
         self._cancelled: threading.Event = threading.Event()
         self._lock: threading.Lock = threading.Lock()
         self._hooks: list[Callable[[], None]] = []
-        self._executors: list[QueueExecutor] = []
+        self._executors: list[MainThread] = []
 
     def is_cancelled(self) -> bool:
         return self._cancelled.is_set()
 
-    def bind_executor(self, executor: "QueueExecutor") -> None:
+    def bind_executor(self, executor: "MainThread") -> None:
         """Track a :class:`QueueExecutor` whose pending work Stop must cancel."""
         with self._lock:
             if executor not in self._executors:
@@ -109,7 +109,7 @@ class SendCancellation:
                 hook()
             except Exception:
                 log.exception("SendCancellation: error in cancel hook")
-        # Unbound Stop only latches the flag. Falling back to default_executor
+        # Unbound Stop only latches the flag. Falling back to main
         # cancelled MCP, grammar, and peer items posted before the drain bound
         # this scope. The sidebar drain checks is_cancelled() and returns.
         for executor in executors:
@@ -189,9 +189,9 @@ def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancel
         scope = SendCancellation()
     # Bind here, not when StartSendEffect creates the scope: Stop before the
     # deferred drain must not cancel_pending_work that posted closer.
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
 
-    scope.bind_executor(default_executor)
+    scope.bind_executor(main)
     token = _current_send_cancellation.set(scope)
     with _AGENT_ACTIVE_LOCK:
         _AGENT_OPEN_SCOPES.append(scope)

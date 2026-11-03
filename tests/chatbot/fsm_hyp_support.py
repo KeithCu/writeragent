@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """Hypothesis strategies for chat / MCP pure FSMs (light in verify, deep via make vhs)."""
 
-from __future__ import annotations
 
 from hypothesis import strategies as st
 

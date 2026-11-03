@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from __future__ import annotations
 
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -337,7 +337,7 @@ def test_lifecycle_key_runtime_uid_replaces_remembered_fallback(monkeypatch: pyt
 
 def test_off_main_spill_lifecycle_key_on_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="", props={"RuntimeUID": "uid-main"})
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     assert off_main_spill_lifecycle_key(doc) == "uid-main"
 
 
@@ -345,7 +345,7 @@ def test_off_main_spill_lifecycle_key_off_main_uses_cached(monkeypatch: pytest.M
     doc = CalcDocStub(url="", props={"RuntimeUID": "uid-cached"})
     # Warm the cache on the main thread
     _lifecycle_key(doc)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     assert off_main_spill_lifecycle_key(doc) == "uid-cached"
     assert off_main_spill_lifecycle_key(None) == ""
 

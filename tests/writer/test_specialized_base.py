@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -15,7 +16,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Unit tests for shared specialized Writer helpers."""
 
-from __future__ import annotations
 
 from plugin.writer.specialized.textframes import FrameSetProperties
 from plugin.writer.specialized_base import (

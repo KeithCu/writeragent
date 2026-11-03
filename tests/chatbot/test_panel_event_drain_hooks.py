@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -11,7 +12,6 @@ error alike. #1348's ``note_activity`` must fire from each slice that
 applies streamed text or thinking.
 """
 
-from __future__ import annotations
 
 import queue
 from typing import Any
@@ -110,7 +110,7 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         patch("plugin.chatbot.tool_loop_actions.drop_turn") as drop_turn,
         patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state) as activity,
-        patch("plugin.framework.queue_executor.post_to_main_thread") as post_main,
+        patch("plugin.framework.queue_executor.main.post") as post_main,
     ):
         listener._run_send_drain()
 
@@ -191,7 +191,7 @@ def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
         patch("plugin.chatbot.tool_loop_actions.drop_turn") as drop_turn,
         patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state),
-        patch("plugin.framework.queue_executor.post_to_main_thread"),
+        patch("plugin.framework.queue_executor.main.post"),
     ):
         listener._run_send_drain()
 
@@ -231,7 +231,7 @@ def test_do_send_raises_before_drain_cleans_up() -> None:
         patch("plugin.chatbot.tool_loop_actions.drop_turn"),
         patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state),
-        patch("plugin.framework.queue_executor.post_to_main_thread"),
+        patch("plugin.framework.queue_executor.main.post"),
     ):
         listener._run_send_drain()
 

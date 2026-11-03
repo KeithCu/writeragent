@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -8,7 +9,6 @@
 
 """Unit tests for RichTextControl append path in SendButtonListener."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
@@ -29,7 +29,7 @@ class TestRichAppendResponse:
     def test_chunk_updates_the_message_list_then_paints(self):
         send = _make_send_listener()
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             send._append_response("<p>Report</p>", role="assistant")
@@ -42,7 +42,7 @@ class TestRichAppendResponse:
         send = _make_send_listener()
         send.session.messages.append({"role": "assistant", "content": "Hello", "_open_transcript": True})
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             send._append_response(" world", role="assistant")
@@ -57,7 +57,7 @@ class TestRichAppendResponse:
         send = _make_send_listener()
         send.session.messages.append({"role": "assistant", "content": "Ask the", "_open_transcript": True})
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             send._append_response(" AI", role="assistant")
@@ -68,7 +68,7 @@ class TestRichAppendResponse:
     def test_main_thread_calls_widget_directly(self):
         send = _make_send_listener()
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             send._append_response("search step", role="assistant")
@@ -78,17 +78,17 @@ class TestRichAppendResponse:
 
     def test_worker_thread_posts_to_queue_executor(self):
         send = _make_send_listener()
-        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+        with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
             send._append_response("search step", role="assistant")
 
         send.queue_executor.post.assert_called_once()
         send.rich_text_widget.paint_session.assert_not_called()
         assert send.session.messages == []
 
-    def test_background_task_name_posts_even_on_main_thread(self):
+    def test_background_task_name_posts_even_is_current(self):
         send = _make_send_listener()
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value="record-hold"),
         ):
             send._append_response("search step", role="assistant")

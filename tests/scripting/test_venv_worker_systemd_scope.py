@@ -1,5 +1,5 @@
-"""Venv worker launch in its own systemd user scope (mocked which/subprocess)."""
 from __future__ import annotations
+"""Venv worker launch in its own systemd user scope (mocked which/subprocess)."""
 
 import subprocess
 from unittest import mock

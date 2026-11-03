@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared ODS fixtures for embeddings / FTS tests."""
 
-from __future__ import annotations
 
 from pathlib import Path
 

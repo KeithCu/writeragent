@@ -1,7 +1,7 @@
+from __future__ import annotations
 # WriterAgent — unit tests for Impress .otp look tags (no headed LO)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from __future__ import annotations
 
 import struct
 import zipfile

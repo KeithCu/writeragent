@@ -1,7 +1,7 @@
+from __future__ import annotations
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for save-time ``xl("A1")`` → polymorphic ``data`` / ``data[i]`` rewrite."""
 
-from __future__ import annotations
 
 from unittest.mock import patch
 

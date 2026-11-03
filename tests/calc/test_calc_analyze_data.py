@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for Calc analyze_data tool and analysis domain wiring."""
 
-from __future__ import annotations
 
 import sys
 import types
@@ -44,7 +44,7 @@ def test_output_anchor_quoted_dotted_sheet_and_range():
 
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_output_range_quoted_sheet(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "describe_data"}
@@ -73,7 +73,7 @@ def _disposed():
 
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_sheet_write_failure_keeps_the_result(
     mock_run_trusted,
@@ -102,7 +102,7 @@ def test_analyze_data_sheet_write_failure_keeps_the_result(
 
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_sheet_write_reraises_disposed(
     mock_run_trusted,
@@ -129,7 +129,7 @@ def test_analyze_data_sheet_write_reraises_disposed(
 
 def test_write_anchor_result_records_ordinary_write_error(calc_ctx):
     with patch(
-        "plugin.framework.queue_executor.execute_on_main_thread",
+        "plugin.framework.queue_executor.main.call",
         side_effect=RuntimeError("disk full"),
     ):
         res = write_anchor_result(
@@ -145,7 +145,7 @@ def test_write_anchor_result_records_ordinary_write_error(calc_ctx):
 def test_write_anchor_result_reraises_disposed(calc_ctx):
     with (
         patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
+            "plugin.framework.queue_executor.main.call",
             side_effect=_disposed(),
         ),
         pytest.raises(DocumentDisposedError),
@@ -236,7 +236,7 @@ def test_analyze_data_requires_data_source(calc_ctx):
     assert "data_range" in result["message"].lower() or "data" in result["message"].lower()
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "describe_data", "metrics": {"row_count": 1}}
@@ -252,7 +252,7 @@ def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 
     assert result["status"] == "ok"
     assert result["helper"] == "describe_data"
-    # execute_on_main_thread is now inside run_domain for reading data only,
+    # main.call is now inside run_domain for reading data only,
     # but since run_domain is mocked entirely here, main_thread won't be called.
     mock_run_trusted.assert_called_once()
     _, kwargs = mock_run_trusted.call_args
@@ -261,8 +261,8 @@ def test_analyze_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
     assert kwargs["task_hint"] == "sales summary"
 
 
-@patch("plugin.framework.thread_guard.on_main_thread", return_value=False)
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.is_current", return_value=False)
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.client.run_analysis")
 @patch("plugin.calc.calc_addin_data._resolve_python_data")
 def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_resolve, mock_run_analysis, mock_main_thread, mock_on_main, calc_ctx):
@@ -288,7 +288,7 @@ def test_analyze_data_resolves_data_on_main_thread_before_venv(mock_resolve, moc
     assert call_order == ["main", "venv"]
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_worker_error(mock_run_trusted, mock_main_thread, calc_ctx):
     from plugin.framework.errors import ToolExecutionError

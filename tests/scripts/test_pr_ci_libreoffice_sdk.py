@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Ubuntu PR CI must ship unoidl-write so ``make rdb-core`` can run.
 
 ``make build-core`` always rebuilds ``extension-core/XPythonFunction.rdb``.
@@ -5,7 +6,6 @@ That step calls ``unoidl-write`` from the LibreOffice SDK. On Ubuntu the
 binary is in ``libreoffice-dev``, not the ``libreoffice`` metapackage.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

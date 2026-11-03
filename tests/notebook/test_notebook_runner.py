@@ -1,6 +1,6 @@
+from __future__ import annotations
 # WriterAgent - tests for notebook cell execution
 
-from __future__ import annotations
 
 import inspect
 from unittest.mock import MagicMock, patch

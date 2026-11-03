@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for fill_draw_fields resolution and value apply (no soffice)."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 

@@ -141,7 +141,7 @@ def cancel_pending_sheet_timers(identity: str) -> None:
 def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
     """Debounce: cancel the sheet's pending timer, start a new 0.1s UI-thread pass.
 
-    Same shape as ``perform_deferred_spill`` (Timer → ``post_to_main_thread``).
+    Same shape as ``perform_deferred_spill`` (Timer → ``main.post``).
     Unload cancels via the shared spill-timer registry.
     """
     if sheet is None:
@@ -165,9 +165,9 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
                         _PENDING_TIMERS.pop(pkey, None)
                         sheet_name_to_run = pkey[1]
                         break
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(lambda: run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=sheet_name_to_run))
+        main.post(lambda: run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=sheet_name_to_run))
 
     from plugin.calc.python.function import start_deferred_sheet_timer
 
@@ -270,9 +270,9 @@ def migrate_sheet_rename(
 
 def _skip_sheet_modify() -> bool:
     from plugin.calc.python.geometric_recalc import is_geometric_repairing
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    return (not on_main_thread()) or _DISPATCH_DEPTH > 0 or is_geometric_repairing()
+    return (not main.is_current()) or _DISPATCH_DEPTH > 0 or is_geometric_repairing()
 
 
 def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
@@ -320,9 +320,9 @@ def dispatch_sheet_modified(
     doc: Any = None,
 ) -> None:
     """Shared ``modified`` entry. Debounces; does not walk ``SPILL_REGISTRY``."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread() or _skip_sheet_modify():
+    if not main.is_current() or _skip_sheet_modify():
         return
     sheet = getattr(event, "Source", None)
     if sheet is None:

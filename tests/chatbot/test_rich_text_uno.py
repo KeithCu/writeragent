@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -7,7 +8,6 @@
 # (at your option) any later version.
 """Live Writer checks for plugin.chatbot.rich_text._append_rich_text_with_span."""
 
-from __future__ import annotations
 
 from typing import Any
 

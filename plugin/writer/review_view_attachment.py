@@ -77,10 +77,10 @@ def schedule_toolbar_refresh(model: Any, key: str) -> None:
         if key in _pending_refresh:
             return
         _pending_refresh.add(key)
-    from plugin.framework.queue_executor import post_to_main_thread
+    from plugin.framework.queue_executor import main
 
     try:
-        post_to_main_thread(_run_deferred_refresh, model, key)
+        main.post(_run_deferred_refresh, model, key)
     except Exception:
         with _pending_lock:
             _pending_refresh.discard(key)

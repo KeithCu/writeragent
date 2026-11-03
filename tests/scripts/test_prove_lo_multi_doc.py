@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Pass-criteria checks for the headless N-document proof. No soffice, no API."""
-from __future__ import annotations
 
 import sys
 from pathlib import Path

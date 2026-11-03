@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent — tests for scripts/fix_uno_import.py
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for UNO site-packages link resolution, probing, and atomic writing."""
 
-from __future__ import annotations
 
 import os
 from pathlib import Path

@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Speaker notes, slide transitions, and master slide tools are specialized (not default Impress schemas)."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock
 

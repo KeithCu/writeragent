@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -15,7 +16,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Unit tests for plugin.framework.html_stripper."""
 
-from __future__ import annotations
 
 
 from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK

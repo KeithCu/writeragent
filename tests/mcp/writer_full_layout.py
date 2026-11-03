@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -8,7 +9,6 @@ Extracts all Writer tools across all tiers (core, specialized, specialized_contr
 and provides verification against MCP wire format requirements.
 """
 
-from __future__ import annotations
 
 import tempfile
 from typing import Any, Dict, List, Mapping, Tuple

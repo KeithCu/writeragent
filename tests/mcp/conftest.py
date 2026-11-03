@@ -58,7 +58,7 @@ def mcp_server():
         kwargs.pop("bound_scope", None)
         return fn(*args, **kwargs)
 
-    main_thread.execute.side_effect = mock_execute
+    main_thread.call.side_effect = mock_execute
     services.main_thread = main_thread
     services.get.side_effect = lambda name: getattr(services, name, None)
 

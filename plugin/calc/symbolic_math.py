@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.framework.errors import CalcError, ToolExecutionError
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.scripting.helper_domain import run_domain
 from plugin.scripting.helper_registry import names
 from plugin.scripting.symbolic import insert_symbolic_result_into_doc
@@ -96,7 +96,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
             return result
 
         try:
-            execute_on_main_thread(insert_symbolic_result_into_doc, ctx.ctx, ctx.doc, result, display_block=display_block)
+            main.call(insert_symbolic_result_into_doc, ctx.ctx, ctx.doc, result, display_block=display_block)
             # What was wrong: out["math_inserted"] was unconditionally True, even
             # on Calc where tabular_egress writes cells instead of inserting a Math object.
             # Why this change fixes it: set math_inserted only when doc_type != "calc".

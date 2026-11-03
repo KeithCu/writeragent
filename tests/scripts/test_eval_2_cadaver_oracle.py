@@ -1,5 +1,5 @@
-# WriterAgent tests for scripts/eval_2_cadaver_oracle.py
 from __future__ import annotations
+# WriterAgent tests for scripts/eval_2_cadaver_oracle.py
 
 import re
 import sys

@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """Unit tests for sub_agent_tools (collectors, session tools, runner error handling)."""
 
-from __future__ import annotations
 
 from typing import Any
 from unittest.mock import MagicMock, patch

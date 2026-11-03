@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UNO tests for formula locator with contiguous formulas and array formulas."""
 
-from __future__ import annotations
 
 from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
 from plugin.testing_runner import native_test

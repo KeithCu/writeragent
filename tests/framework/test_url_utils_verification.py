@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -8,7 +9,6 @@
 CrossHair marked slow (excluded from default ``make test``).
 """
 
-from __future__ import annotations
 
 import re
 import shutil

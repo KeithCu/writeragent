@@ -341,7 +341,7 @@ def _insert_code_input_in_flow(  # pyright: ignore[reportUnusedFunction]
 # ensure_form_design_mode_off, prune_dead_listeners, and
 # wire_all_notebook_run_buttons must run there; decorating them breaks
 # WRITERAGENT_UNO_THREAD_GUARD=1 File Open (filter returns False → General I/O
-# error). Do not marshal with execute_on_main_thread from the filter (host
+# error). Do not marshal with main.call from the filter (host
 # waiting = deadlock #402). ApplyFormDesignMode=False must happen before the
 # filter returns. Listener methods stay undecorated (LO already invokes those
 # on the UI thread; docs/framework/uno-thread-safety.md §A4). Release OXT still
@@ -444,9 +444,9 @@ def form_run_listeners(doc: Any | None = None) -> list[Any]:
 
 def prune_dead_listeners() -> None:
     """Remove listeners whose target document is closed/gone."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return
     with _lock:
         refs = list(_listener_refs)

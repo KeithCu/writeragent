@@ -1,8 +1,8 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-from __future__ import annotations
 
 import time
 from typing import Any
@@ -295,7 +295,7 @@ def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.Monke
     monkeypatch.setattr(review_click_popup, "_DOUBLE_CLICK_SEC", 0.05)
     shown: list[tuple[int, int]] = []
     monkeypatch.setattr(review_click_popup, "_show_popup_and_resolve", lambda _m, _s, x, y: shown.append((x, y)))
-    monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", lambda fn, *a: fn(*a))
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a: fn(*a))
     handler = review_click_popup._make_handler(MagicMock())
 
     # Double-click: press/release/press/release inside the window -> no popup, nothing consumed.

@@ -1,5 +1,5 @@
-# Opengrep fixture: vendored security rules should flag these patterns.
 from __future__ import annotations
+# Opengrep fixture: vendored security rules should flag these patterns.
 
 import subprocess
 import sys

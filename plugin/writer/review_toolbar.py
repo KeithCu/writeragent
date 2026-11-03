@@ -4,7 +4,7 @@ The toolbar is declared statically in Addons.xcu and named/hidden-by-default in
 WriterWindowState.xcu. Here we flip its visibility at runtime: shown when
 ``agent_change_presence(model, stop_at_first=True)`` finds changes, hidden when it drops back to zero. All LayoutManager
 calls must run on the UNO main thread -- every caller below already does (the agent edit path is
-marshalled via execute_on_main_thread; resolve/navigate handlers and document events fire on the
+marshalled via main.call; resolve/navigate handlers and document events fire on the
 main thread).
 """
 

@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """agent_session exits in either order once sessions span VCL callbacks (#1324)."""
 
-from __future__ import annotations
 
 from plugin.framework.send_cancellation import SendCancellation, agent_session, get_current_send_cancellation, is_agent_active
 

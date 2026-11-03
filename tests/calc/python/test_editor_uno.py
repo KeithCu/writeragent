@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UNO: Edit Python in Cell follow-ref save keeps =PY($A$1) as a cell ref."""
 
-from __future__ import annotations
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc

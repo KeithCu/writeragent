@@ -5,7 +5,7 @@
 """Minimal modeless dialog for text analytics (a few buttons).
 
 The dialog extracts text on the UI thread, waits in run_in_background(..., dedicated=True),
-and applies with post_to_main_thread. Closing the dialog does not kill the shared worker.
+and applies with main.post. Closing the dialog does not kill the shared worker.
 Topics and sentiment honor Whole Document: selection is one string, whole document uses sections.
 Check Venv does not read the document. The install command comes from the worker payload.
 """
@@ -26,7 +26,7 @@ from plugin.chatbot.dialogs import get_checkbox_state, load_writeragent_dialog, 
 from plugin.framework.doc_type import is_writer
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.i18n import _
-from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_active_document, get_runtime_uid
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.client import run_text_analytics
@@ -260,7 +260,7 @@ class TextAnalyticsDialog:
         # What was wrong: worker RPC executed synchronously on the main VCL thread, freezing the UI.
         # How it happened: run_text_analytics was called directly inside _compute without thread dispatch.
         # Why this change: run the RPC in a dedicated background thread, keeping the UI responsive,
-        # and post results back to the main thread via post_to_main_thread.
+        # and post results back to the main thread via main.post.
         def _worker() -> None:
             res: dict[str, Any] | None = None
             err: Exception | None = None
@@ -276,14 +276,14 @@ class TextAnalyticsDialog:
                 err = e
 
             apply = partial(self._apply_compute_result, helper, res, err)
-            # a raised post_to_main_thread used to return after a log, so _busy stayed true and the compute buttons stayed disabled until the dialog was closed. post raises TimeoutError when AsyncCallback is missing and the pending list is full; a flush of older pending posts logs and leaves that tail queued, and it does not raise, so this closure is still enqueued when AsyncCallback exists. execute_on_main_thread is the retry that still runs _apply_compute_result on a live main thread. The flag clear is only for when that marshal also refuses, and it does not touch UNO.
+            # a raised main.post used to return after a log, so _busy stayed true and the compute buttons stayed disabled until the dialog was closed. post raises TimeoutError when AsyncCallback is missing and the pending list is full; a flush of older pending posts logs and leaves that tail queued, and it does not raise, so this closure is still enqueued when AsyncCallback exists. main.call is the retry that still runs _apply_compute_result on a live main thread. The flag clear is only for when that marshal also refuses, and it does not touch UNO.
             try:
-                post_to_main_thread(apply)
+                main.post(apply)
                 return
             except Exception:
                 log.exception("Failed to post text analytics compute result to main thread")
             try:
-                execute_on_main_thread(apply, timeout=5.0)
+                main.call(apply, timeout=5.0)
             except Exception:
                 log.exception("text analytics: could not deliver result on the main thread")
                 self._busy = False

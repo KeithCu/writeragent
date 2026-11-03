@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """deal / Hypothesis / CrossHair (FQN) for plugin.framework.subprocess_env.scrub_subprocess_env."""
 
-from __future__ import annotations
 
 import re
 import shutil

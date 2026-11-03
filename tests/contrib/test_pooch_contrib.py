@@ -1,5 +1,5 @@
-# WriterAgent - tests for vendored Pooch subset
 from __future__ import annotations
+# WriterAgent - tests for vendored Pooch subset
 
 from io import BytesIO
 from pathlib import Path

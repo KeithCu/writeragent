@@ -24,8 +24,8 @@ Concurrency: the socket accept loop runs on its **own** daemon thread
 (``run_in_background(..., dedicated=True, name="http-server")``) so it
 does not occupy the short-job pool. Incoming HTTP is **not** the
 LibreOffice UI thread. Anything that touches a document, a dialog, or
-most UNO services must be posted through ``QueueExecutor``
-(``execute_on_main_thread``). Route reads and register/unregister share
+most UNO services must be posted through ``MainThread``
+(``main.call``). Route reads and register/unregister share
 ``HttpRouteRegistry``'s lock. MCP toggle mutates the table while ``GET /``
 iterates it; the lock is what keeps that from raising ``RuntimeError``.
 """

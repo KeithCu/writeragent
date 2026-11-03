@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - Python Compute Service JSON-forward tests
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Peel + blob-forward path: raw data bytes reach the worker; host does not re-dumps results."""
 
-from __future__ import annotations
 
 import io
 import json

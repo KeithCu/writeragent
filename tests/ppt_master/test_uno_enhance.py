@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """Native enhance writes the NotesShape and does not report a failed apply as ok."""
 
-from __future__ import annotations
 
 import json
 from pathlib import Path

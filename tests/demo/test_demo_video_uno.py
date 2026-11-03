@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Scripted scenes for the WriterAgent product video (NOT a regression test).
@@ -13,7 +14,6 @@ runs inside ``make test-mock-sidebar``. Build the sample files first with
 ``python scripts/demo/make_demo_report.py``. Storyboard: docs/demo-video.md.
 """
 
-from __future__ import annotations
 
 import os
 import time

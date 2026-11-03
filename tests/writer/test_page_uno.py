@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -11,7 +12,6 @@ does not require refuse-on-set. The remaining tests pin
 ``page_set_style_properties`` refusing header/footer off while content remains.
 """
 
-from __future__ import annotations
 
 import os
 

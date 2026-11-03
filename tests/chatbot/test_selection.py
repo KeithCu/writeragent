@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Extend/Edit uses the sidebar frame when the hamburger passes one."""
 
-from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from types import SimpleNamespace
@@ -125,7 +125,7 @@ def test_stream_completion_tasks_defers_next_task():
         ctx.finish_callbacks = []
 
         with patch("plugin.chatbot.selection.stream_completion", side_effect=fake_stream_completion):
-            with patch("plugin.chatbot.selection.post_to_main_thread", side_effect=lambda fn: fn()):
+            with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()):
                 stream_completion_tasks(ctx, client, tasks, lambda t: (MagicMock(), errors.append))
 
                 # We start task 0 right away
@@ -187,7 +187,7 @@ def test_stream_completion_tasks_waits_for_existing_owner():
         ctx.finish_callbacks = []
 
         with patch("plugin.chatbot.selection.stream_completion", side_effect=fake_stream_completion):
-            with patch("plugin.chatbot.selection.post_to_main_thread", side_effect=lambda fn: fn()):
+            with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()):
                 stream_completion_tasks(ctx, client, tasks, lambda t: (MagicMock(), errors.append))
 
                 # task 1 finishes
@@ -196,7 +196,7 @@ def test_stream_completion_tasks_waits_for_existing_owner():
                 # Simulate another owner holding the pump right as task 1's cleanup finishes
                 # but before it notifies idle callbacks / runs the posted task.
                 # Actually, finish() releases the pump, so we need to hold it before we
-                # call post_to_main_thread(run_next_task), or we can simulate run_next_task
+                # call post(run_next_task), or we can simulate run_next_task
                 # executing while the pump is held.
 
                 # Instead of normal flow, we'll manually invoke on_done while the pump is held

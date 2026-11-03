@@ -70,7 +70,7 @@ from plugin.framework.async_drain_guard import (
 from plugin.framework.queue_executor import (
     _marshal_thread_tag,
     async_callback_for_drain_rearm,
-    default_executor,
+    main,
     pump_ui_idle,
 )
 
@@ -1004,11 +1004,11 @@ def _run_stream_drain_blocking(
                 items = _drain_batch(q, 0.1)
 
                 if not items:
-                    marshal_depth = default_executor.pending_work_count()
+                    marshal_depth = main.pending_work_count()
                     if toolkit:
                         pump_ui_idle(toolkit)
                     if marshal_depth > 0:
-                        remaining = default_executor.pending_work_count()
+                        remaining = main.pending_work_count()
                         # pump_ui_idle drains one item. A healthy backlog of 2+
                         # still has remaining > 0; that is not a blocked worker.
                         if remaining >= marshal_depth:

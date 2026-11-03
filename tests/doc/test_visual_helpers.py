@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Tests for shared visual UNO helper functions."""
 
-from __future__ import annotations
 
 import pytest
 from types import SimpleNamespace

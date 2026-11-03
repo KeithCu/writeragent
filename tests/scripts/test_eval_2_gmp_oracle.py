@@ -1,5 +1,5 @@
-# WriterAgent tests for scripts/eval_2_gmp_oracle.py
 from __future__ import annotations
+# WriterAgent tests for scripts/eval_2_gmp_oracle.py
 
 import sys
 import zipfile

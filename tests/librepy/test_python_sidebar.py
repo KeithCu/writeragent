@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for LibrePy Python sidebar helpers."""
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
@@ -576,7 +576,7 @@ def test_schedule_refresh_coalesces_until_posted_run():
     ctrl.refresh = mock_refresh
 
     posted = []
-    with patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=posted.append):
         ctrl._schedule_refresh(full=True)
         ctrl._schedule_refresh(full=True)
         assert len(posted) == 1
@@ -612,7 +612,7 @@ def test_scheduled_refresh_skipped_after_dispose():
     ctrl.resize_listener = None
 
     posted = []
-    with patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=posted.append):
         ctrl._schedule_refresh()
         assert len(posted) == 1
 
@@ -781,7 +781,7 @@ def test_diag_event_matching_key_does_not_scan_cells():
 
     posted = []
     with (
-        patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append),
+        patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
         patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"),
         patch("plugin.librepy.python_sidebar.list_python_cells_in_doc") as mock_scan,
     ):
@@ -802,7 +802,7 @@ def test_activation_event_scans_cells():
     ctrl.refresh = MagicMock()
 
     posted = []
-    with patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=posted.append):
         ctrl._schedule_refresh(full=True)
         assert len(posted) == 1
         posted[0]()
@@ -825,7 +825,7 @@ def test_diag_event_foreign_key_drops_early():
 
     posted = []
     with (
-        patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append),
+        patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
         patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:current"),
     ):
         ctrl._on_diag(entry)
@@ -849,7 +849,7 @@ def test_schedule_refresh_diag_then_full_coalesces_to_full():
 
     posted = []
     with (
-        patch("plugin.librepy.python_sidebar.post_to_main_thread", side_effect=posted.append),
+        patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
         patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"),
     ):
         ctrl._schedule_refresh(entry, full=False)

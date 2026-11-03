@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Threading tests for specialized delegation setup (UNO on main thread)."""
 
-from __future__ import annotations
 
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
@@ -95,7 +95,7 @@ class _DummyDocResearchTool(ToolBase):
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
     mock_get_calc_context,
@@ -147,7 +147,7 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_delegate_disposed_context_reports_document_disposed(
     mock_get_calc_context,
@@ -264,7 +264,7 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.specialized_base.format_shapes_canvas_context")
 def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
     mock_format_canvas,
@@ -313,7 +313,7 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 def test_writer_delegate_marshals_get_tools_to_main_thread(
     mock_execute_on_main,
     _mock_llm,
@@ -356,7 +356,7 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.document_research.get_open_documents")
 @patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index")
 def test_writer_delegate_marshals_document_research_scaffolding(
@@ -412,7 +412,7 @@ def test_writer_delegate_marshals_document_research_scaffolding(
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.document_research.get_open_documents")
 @patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index")
 def test_writer_delegate_disposed_open_documents_reports_document_disposed(
@@ -602,13 +602,13 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
 
 
 def test_writer_smol_adapter_marshals_sync_footnotes_tool():
-    """Sync specialized tools must cross execute_on_main_thread via SmolToolAdapter."""
+    """Sync specialized tools must cross call via SmolToolAdapter."""
     tool = _DummyFootnotesList()
     tctx = MagicMock()
     tctx.doc_type = "writer"
     adapter = SmolToolAdapter(tool, tctx, safe=True, inputs_style="specialized")
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         result = adapter.forward(note="footnote")
 
@@ -616,7 +616,7 @@ def test_writer_smol_adapter_marshals_sync_footnotes_tool():
     mock_main.assert_called_once()
 
 
-def test_writer_footnotes_list_runs_uno_only_on_main_thread():
+def test_writer_footnotes_list_runs_uno_only_is_current():
     """Regression: footnotes_list touches doc UNO; sub-agent worker must marshal before execute."""
     session = start_uno_thread_safety_session()
     try:
@@ -654,13 +654,13 @@ def test_writer_specialized_domain_base_requires_core_read_tools():
 
 
 def test_calc_sync_tool_marshals_via_smol_adapter():
-    """Sync Calc specialized tools must cross execute_on_main_thread via SmolToolAdapter."""
+    """Sync Calc specialized tools must cross call via SmolToolAdapter."""
     tool = ListSheets()
     tctx = MagicMock()
     tctx.doc_type = "calc"
     adapter = SmolToolAdapter(tool, tctx, safe=True, inputs_style="specialized")
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         result = adapter.forward()
 
@@ -668,7 +668,7 @@ def test_calc_sync_tool_marshals_via_smol_adapter():
     mock_main.assert_called_once()
 
 
-def test_calc_list_sheets_runs_uno_only_on_main_thread():
+def test_calc_list_sheets_runs_uno_only_is_current():
     """Regression: list_sheets touches doc UNO; sub-agent worker must marshal before execute."""
     session = start_uno_thread_safety_session()
     try:
@@ -719,7 +719,7 @@ def test_calc_specialized_domain_base_requires_core_read_tools():
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
     mock_get_calc_context,
@@ -816,7 +816,7 @@ def test_outer_turn_is_peer_work_probe_logs_exception_repr(caplog):
         def __str__(self):
             return ""
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=EmptyMessageError):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=EmptyMessageError):
         with caplog.at_level(logging.WARNING, logger="plugin.doc.specialized_base"):
             res = _outer_turn_is_peer_work(MagicMock())
 
@@ -840,7 +840,7 @@ def test_outer_turn_is_peer_work_active_query_text_returns_true():
 
     with patch("plugin.framework.uno_context.get_runtime_uid", return_value="doc_uid_123"), \
          patch("plugin.doc.live_panels.get_live_panel", return_value=panel), \
-         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
+         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
         res = _outer_turn_is_peer_work(ctx)
 
     assert res is True

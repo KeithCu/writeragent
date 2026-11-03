@@ -1,6 +1,6 @@
+from __future__ import annotations
 # WriterAgent - tests for notebook cell registry
 
-from __future__ import annotations
 
 from dataclasses import asdict
 import json

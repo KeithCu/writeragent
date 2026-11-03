@@ -1526,9 +1526,9 @@ def _frames_match(left: Any, right: Any) -> bool:
         return False
     if left is right:
         return True
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return False
     from plugin.framework.uno_context import uno_same
 
@@ -1724,10 +1724,10 @@ def _post_to_soffice_vcl(fn: Callable[[], None], *, sl: Any = None) -> None:
     """
     qe = getattr(sl, "queue_executor", None) if sl is not None else None
     if qe is None:
-        from plugin.framework.queue_executor import default_executor
+        from plugin.framework.queue_executor import main
 
-        qe = default_executor
-    # force_marshal skips _get_async_callback inside post(); without a prior
+        qe = main
+    # force marshal skips _get_async_callback inside post(); without a prior
     # init, _poke_main_thread is a no-op and the factory load never runs
     # (E12 2026-09-08: "poke skipped (no AsyncCallback)" after OPEN_CALC).
     init_cb = getattr(qe, "_get_async_callback", None)
@@ -1736,13 +1736,14 @@ def _post_to_soffice_vcl(fn: Callable[[], None], *, sl: Any = None) -> None:
             init_cb()
         except Exception:
             log.exception("debug_sidebar: AsyncCallback init failed")
-    from plugin.framework.queue_executor import set_force_marshal_mode
+    from plugin.framework.queue_executor import MainThread, Policy, main
 
-    set_force_marshal_mode(True)
+    saved_policy = main.policy
+    main.install(Policy.test_marshal, designated=MainThread.designated, poke=MainThread.poke)
     try:
         qe.post(fn)
     finally:
-        set_force_marshal_mode(False)
+        main.install(saved_policy, designated=MainThread.designated, poke=MainThread.poke)
 
 
 def open_calc_document(ctx: Any, *, timeout: float = 30.0) -> Any:
@@ -2123,9 +2124,9 @@ def send_listener_for_uid(uid: str) -> Any:
     sl = _panel_send_listener(sidebar_panel(uid=token))
     if sl is not None:
         return sl
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return None
     from plugin.framework.uno_context import get_runtime_uid
 

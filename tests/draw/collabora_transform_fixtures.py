@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -11,7 +12,6 @@
 #   - Navigation-only approval pattern: wsd/AIChatSession.cpp (~960-980)
 #     https://github.com/CollaboraOnline/online/blob/master/wsd/AIChatSession.cpp
 
-from __future__ import annotations
 
 import json
 from typing import Any

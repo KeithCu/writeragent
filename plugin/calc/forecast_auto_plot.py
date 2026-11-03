@@ -101,10 +101,13 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
             return {"status": "error", "message": f"No plot mapping for forecast helper {forecast_helper!r}"}
 
         from plugin.calc.calc_addin_data import _resolve_python_data
-        from plugin.framework.queue_executor import run_on_main
+        from plugin.framework.queue_executor import main
 
         # Sheet read is UNO. Viz IPC (run_domain) stays on the caller.
-        py_data, err = run_on_main(lambda: _resolve_python_data(doc, data_range=data_range, data=None))
+        def _fetch() -> tuple[Any, Any]:
+            return _resolve_python_data(doc, data_range=data_range, data=None)
+
+        py_data, err = _fetch() if main.is_current() else main.call(_fetch)
         if err:
             return {"status": "error", "message": f"Could not read forecast history: {err}"}
         if py_data is None:

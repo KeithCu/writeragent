@@ -18,7 +18,7 @@ def test_on_mcp_result_drops_stale_turn():
     listener._last_mcp_turn = {"": old_turn}
 
     with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=current_turn):
-        with patch("plugin.framework.queue_executor.post_to_main_thread") as post_mock:
+        with patch("plugin.framework.queue_executor.main.post") as post_mock:
             listener._events._on_mcp_result(tool="test_tool", result_snippet="success")
             post_mock.assert_not_called()
             assert listener._last_mcp_turn == {}
@@ -32,7 +32,7 @@ def test_on_mcp_result_drops_dead_turn():
     listener._last_mcp_turn = {"": current_turn}
 
     with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=current_turn):
-        with patch("plugin.framework.queue_executor.post_to_main_thread") as post_mock:
+        with patch("plugin.framework.queue_executor.main.post") as post_mock:
             listener._events._on_mcp_result(tool="test_tool", result_snippet="success")
             post_mock.assert_not_called()
             assert listener._last_mcp_turn == {}
@@ -46,8 +46,8 @@ def test_on_mcp_result_posts_on_valid_turn():
     listener._last_mcp_turn = {"": current_turn}
 
     with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=current_turn):
-        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+        with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
             with patch("plugin.framework.thread_guard.get_background_task_name", return_value="some_task"):
-                with patch("plugin.framework.queue_executor.default_executor.post") as post_mock:
+                with patch("plugin.framework.queue_executor.main.post") as post_mock:
                     listener._events._on_mcp_result(tool="test_tool", result_snippet="success")
                     post_mock.assert_called_once()

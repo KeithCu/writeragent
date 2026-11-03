@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Native UNO tests for notebook controls and page style resolution."""
 
-from __future__ import annotations
 
 from plugin.notebook.notebook_controls import _page_style, _text_area_width_units
 from plugin.testing_runner import native_test, show_window

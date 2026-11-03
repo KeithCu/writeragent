@@ -1,6 +1,7 @@
+from __future__ import annotations
+from plugin.framework.queue_executor import main as main_thread
 """Unit tests for plugin.main: bootstrap lifecycle, dispatch, listeners, and icon caching."""
 
-from __future__ import annotations
 
 import logging
 import os
@@ -98,7 +99,7 @@ def _isolate_main_state():
 
 def test_bootstrap_same_thread_reentry_returns(monkeypatch):
     """Re-entrant bootstrap() call on the same thread returns without deadlocking."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     fake_ctx = MagicMock()
     monkeypatch.setattr(main, "get_ctx", lambda: fake_ctx)
 
@@ -128,7 +129,7 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
 
 def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
     """When load_modules raises, _bootstrap_state resets to UNINITIALIZED so bootstrap can be retried."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
@@ -163,7 +164,7 @@ def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
 
 def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
     """When start_background raises after modules are loaded, _bootstrap_state stays INITIALIZED."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
@@ -228,7 +229,7 @@ def test_bootstrap_start_background_failure_isolates_modules(monkeypatch):
 
 def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
     """When WRITERAGENT_EVAL_HARNESS=1, bootstrap skips _install_terminate_listener."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     fake_ctx = MagicMock()
     monkeypatch.setattr(main, "get_ctx", lambda: fake_ctx)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
@@ -335,7 +336,7 @@ def test_get_tools_off_main_thread_when_initialized():
 
 def test_get_tools_and_get_services_raise_bootstrap_failed_when_registry_none(monkeypatch):
     """get_tools and get_services raise BOOTSTRAP_FAILED if bootstrap leaves them None."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._tools = None
     main._services = None
@@ -355,8 +356,8 @@ def test_get_tools_and_get_services_raise_bootstrap_failed_when_registry_none(mo
 
 
 def test_menu_update_subscriber_runs_in_background(monkeypatch):
-    """menu:update subscriber must use run_in_background, not QueueExecutor.execute."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    """menu:update subscriber must use run_in_background, not main.call."""
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
@@ -371,7 +372,7 @@ def test_menu_update_subscriber_runs_in_background(monkeypatch):
     main_calls: list[Any] = []
 
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn, *a, **kw: bg_calls.append(fn))
-    monkeypatch.setattr("plugin.framework.queue_executor.QueueExecutor.execute", lambda fn, *a, **kw: main_calls.append(fn))
+    monkeypatch.setattr(main_thread, "call", lambda fn, *a, **kw: main_calls.append(fn))
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._bootstrap_error = None
@@ -609,7 +610,7 @@ def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
         def mock_post(fn: Any, *args: Any, **kwargs: Any) -> None:
             posted.append((fn, args, kwargs))
 
-        monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", mock_post)
+        monkeypatch.setattr(main_thread, "post", mock_post)
 
         uno_same_threads: list[threading.Thread] = []
         real_uno_same = main.uno_same
@@ -692,7 +693,7 @@ def test_update_menu_icons_posts_unscoped(monkeypatch):
     def mock_post(fn: Any, *args: Any, **kwargs: Any) -> None:
         posted.append((fn, args, kwargs))
 
-    monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", mock_post)
+    monkeypatch.setattr(main_thread, "post", mock_post)
     main._update_menu_icons()
 
     assert len(posted) == 1
@@ -1039,7 +1040,7 @@ def test_bootstrap_state_enum(monkeypatch):
     assert BootstrapState.BOOTSTRAPPING.value == "bootstrapping"
     assert BootstrapState.INITIALIZED.value == "initialized"
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(main_thread, "is_current", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)

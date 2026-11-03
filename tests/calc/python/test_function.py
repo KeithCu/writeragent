@@ -1,6 +1,6 @@
+from __future__ import annotations
 # WriterAgent - =PYTHON() return coercion tests
 
-from __future__ import annotations
 
 import logging
 import math
@@ -350,7 +350,7 @@ def test_finalize_python_return_triggers_spill(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
     # Deferred spill posts to the main-thread queue; run immediately in unit tests.
     monkeypatch.setattr(
-        "plugin.framework.queue_executor.post_to_main_thread",
+        "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
     )
     python_function.LOADED_DOCUMENTS.clear()
@@ -389,7 +389,7 @@ def test_finalize_python_return_spills_on_secondary_sheet(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
     monkeypatch.setattr(
-        "plugin.framework.queue_executor.post_to_main_thread",
+        "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
     )
     python_function.LOADED_DOCUMENTS.clear()
@@ -743,7 +743,7 @@ def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pyte
 
     # When off main thread, session_key and get_python_init_kwargs must not touch UNO
     # or cause thread safety violations / recursion (Issue #402).
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     ctx = MagicMock()
     key = python_function.session_key(ctx, "print('hello')")
@@ -772,7 +772,7 @@ def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
     monkeypatch.setattr(
-        "plugin.framework.queue_executor.post_to_main_thread",
+        "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
     )
     python_function.LOADED_DOCUMENTS.clear()
@@ -813,7 +813,7 @@ def _install_immediate_spill_timer(
 
     monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
     monkeypatch.setattr(
-        "plugin.framework.queue_executor.post_to_main_thread",
+        "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
     )
 
@@ -844,7 +844,7 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
 
     on_main = {"value": False}
     monkeypatch.setattr(
-        "plugin.framework.thread_guard.on_main_thread",
+        "plugin.framework.queue_executor.main.is_current",
         lambda: on_main["value"],
     )
     # The front window is never consulted; the caller doc is the only source.
@@ -880,7 +880,7 @@ def test_finalize_python_return_spills_off_main_into_caller_doc(
 
     on_main = {"value": False}
     monkeypatch.setattr(
-        "plugin.framework.thread_guard.on_main_thread",
+        "plugin.framework.queue_executor.main.is_current",
         lambda: on_main["value"],
     )
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
@@ -910,7 +910,7 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(
 
     on_main = {"value": False}
     monkeypatch.setattr(
-        "plugin.framework.thread_guard.on_main_thread",
+        "plugin.framework.queue_executor.main.is_current",
         lambda: on_main["value"],
     )
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
@@ -942,7 +942,7 @@ def test_finalize_python_return_off_main_no_spill_without_doc(
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: doc)
     spill_started = {"n": 0}
 
@@ -1164,7 +1164,7 @@ def test_off_main_spill_timer_registers_cached_lifecycle_key(monkeypatch: pytest
     seen = calls["n"]
     assert seen >= 1
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr(python_function.threading, "Timer", _HoldSpillTimer)
     try:
         python_function._queue_off_main_auto_spill(MagicMock(), "code", [[1, 2]], doc)
@@ -1191,7 +1191,7 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
     doc_b = CalcDocStub(props={"RuntimeUID": "uid-b"})
     assert _lifecycle_key(doc_a) == "uid-a"
     assert _lifecycle_key(doc_b) == "uid-b"
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr(python_function.threading, "Timer", _HoldSpillTimer)
     try:
         python_function._queue_off_main_auto_spill(MagicMock(), "a", [[1]], doc_a)
@@ -1205,7 +1205,7 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
 
 
 def test_session_key_off_main_ignores_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     doc = MagicMock()
     doc.getURL.side_effect = AssertionError("getURL off main")
     key = python_function.session_key(MagicMock(), "print('hello')", doc=doc)
@@ -1215,7 +1215,7 @@ def test_session_key_off_main_ignores_cached_doc(monkeypatch: pytest.MonkeyPatch
 
 def test_finalize_python_return_off_main_skips_session_key_on_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
     """Spill-disabled list results must not locate the cached model off-main."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.framework.config.get_config", lambda _key: False)
     doc = MagicMock()
     doc.getURL.side_effect = AssertionError("getURL off main")
@@ -1366,7 +1366,7 @@ def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest
     doc = CalcDocStub(url="file:///spill.ods")
     sheet = doc.getSheets().getByIndex(0)
     sheet.getCellByPosition(0, 0).setFormula("=SUM(A2)")
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     python_function.perform_deferred_spill(
         "file:///spill.ods", "Sheet1", 0, 0, [["x", "y"]], doc=doc, code="result = 1"
     )
@@ -1459,11 +1459,11 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
     monkeypatch.setattr(tg, "GUARD_ON", True)
     monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda: "shared")
 
-    # Simulate execute_on_main_thread timing out because main thread is blocked in UNO dispatch
+    # Simulate main.call timing out because main thread is blocked in UNO dispatch
     def fake_execute_on_main(fn, *args, **kwargs):
         raise TimeoutError("Main-thread execution timed out")
 
-    monkeypatch.setattr("plugin.framework.queue_executor.execute_on_main_thread", fake_execute_on_main)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.call", fake_execute_on_main)
 
     ctx = _ctx_with_doc(None)
 
@@ -1739,7 +1739,7 @@ def test_get_python_init_kwargs_off_main_returns_empty_without_touching_doc(monk
     def boom(_doc: object) -> dict[str, Any]:
         raise AssertionError("must not read document scripts off-main")
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", boom)
     assert python_function.get_python_init_kwargs(MagicMock(), doc=CalcDocStub()) == {}
 
@@ -1750,7 +1750,7 @@ def test_get_python_init_kwargs_without_doc_does_not_guess(monkeypatch: pytest.M
     def boom(_ctx: object) -> object:
         raise AssertionError("must not look up the front window")
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.scripting.document_scripts.get_calc_document_from_ctx", boom)
     assert python_function.get_python_init_kwargs(MagicMock()) == {}
 
@@ -1759,7 +1759,7 @@ def test_get_python_init_kwargs_registers_unload_listener(monkeypatch: pytest.Mo
     doc = CalcDocStub(url="file:///fake_lifecycle.ods")
     calls: list[tuple] = []
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
     monkeypatch.setattr(
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
@@ -1778,7 +1778,7 @@ def test_get_python_init_kwargs_survives_listener_install_failure(monkeypatch: p
     def _boom(_ctx, _doc):
         raise RuntimeError("listener failed")
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
     monkeypatch.setattr(
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
@@ -1799,7 +1799,7 @@ def test_py_scoped_dir_bindings_off_main_skips_document_url(monkeypatch: pytest.
         called.append(1)
         raise AssertionError("must not touch UNO off-main")
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.doc.document_research.get_document_directory", boom)
     assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": None}
     assert called == []
@@ -1808,7 +1808,7 @@ def test_py_scoped_dir_bindings_off_main_skips_document_url(monkeypatch: pytest.
 def test_py_scoped_dir_bindings_on_main_uses_document_directory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr(
         "plugin.doc.document_research.get_document_directory",
         lambda doc: "/tmp/workbook-dir",
@@ -1824,7 +1824,7 @@ def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) 
         captured.update(kwargs)
         return {"status": "ok", "result": 1.0}
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr(
         "plugin.doc.document_research.get_document_directory",
         lambda doc: "/folder",
@@ -1855,7 +1855,7 @@ def test_execute_python_addin_reuses_session_key_sid(monkeypatch: pytest.MonkeyP
         session_calls += 1
         return current_sid
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
     monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
     monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
@@ -1890,7 +1890,7 @@ def test_execute_python_addin_off_main_passes_doc_through_only(monkeypatch: pyte
     def boom(*_a: object, **_k: object) -> object:
         raise AssertionError("must not derive a session off-main")
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
     monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
     monkeypatch.setattr(python_function, "workbook_session_id", boom)
@@ -1903,7 +1903,7 @@ def test_execute_python_addin_off_main_passes_doc_through_only(monkeypatch: pyte
 
 def test_perform_deferred_spill_fallback_to_passed_sheet_when_getbyname_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """When doc.getSheets().getByName(sheet_name) raises, the passed sheet object receives the spill."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     doc = CalcDocStub(url="file:///spill_rename.ods")
 
     def boom_get_by_name(name: str) -> None:
@@ -2456,7 +2456,7 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
 
     monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
     monkeypatch.setattr(
-        "plugin.framework.queue_executor.post_to_main_thread",
+        "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
     )
     doc_spill = CalcDocStub(url="file:///fake_col_addin.ods", selection="A1")
@@ -2719,7 +2719,7 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
     monkeypatch.setattr(
-        "plugin.framework.queue_executor.post_to_main_thread",
+        "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: fn(*a, **k),
     )
     python_function.LOADED_DOCUMENTS.clear()
@@ -2852,7 +2852,7 @@ def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.Mon
     with python_function._PENDING_SPILL_LOCK:
         python_function._PENDING_SPILL_TIMERS.clear()
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     val = finalize_python_return(ctx, "empty_row", [[]], doc=doc)
     assert val == ""
     assert ("file:///empty-row.ods", "Sheet1", 0, 0) not in python_function.SPILL_REGISTRY
@@ -2861,7 +2861,7 @@ def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.Mon
 
     # Repeat off the main thread
     queue_mock = MagicMock()
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.calc.python.function._queue_off_main_auto_spill", queue_mock)
     val_off = finalize_python_return(ctx, "empty_row", [[]], doc=doc)
     assert val_off == ""

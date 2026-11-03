@@ -151,13 +151,13 @@ class SmolToolAdapter(SmolTool):
                 _spec_log.debug("SmolToolAdapter executing async tool '%s' on worker", self.name)
                 result = (tool.execute_safe if self._safe else tool.execute)(ctx, **kwargs)
             else:
-                from plugin.framework.queue_executor import execute_on_main_thread
+                from plugin.framework.queue_executor import main
 
                 # Note: Even tools that do not strictly require UNO (like Librarian's MemoryTool)
                 # are marshalled to the main thread here if they are sync.
                 # This sync-default policy is intentional and the extra hop is acceptable.
                 _spec_log.debug("SmolToolAdapter executing sync tool '%s' on main thread", self.name)
-                result = execute_on_main_thread(tool.execute_safe if self._safe else tool.execute, ctx, **kwargs)
+                result = main.call(tool.execute_safe if self._safe else tool.execute, ctx, **kwargs)
             # Like ToolRegistry.execute: say which arguments were dropped instead of ignoring them silently.
             if prepared.ignored and isinstance(result, dict):
                 result.setdefault("ignored_parameters", prepared.ignored)

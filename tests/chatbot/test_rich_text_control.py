@@ -823,7 +823,7 @@ class TestRichControlListenerInit:
         root = MagicMock()
         root.getPeer.return_value = None
         listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-        with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post, \
+        with patch("plugin.framework.queue_executor.main.post") as mock_post, \
              patch.object(listener, "_begin_deferred_init") as mock_begin:
             listener.on_window_shown(MagicMock())
         mock_post.assert_not_called()
@@ -847,7 +847,7 @@ class TestRichControlListenerInit:
         root.getPeer.return_value = MagicMock()
         rtc._CONTROL_INIT_STARTED.add(id(root))
         listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-        with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post, \
+        with patch("plugin.framework.queue_executor.main.post") as mock_post, \
              patch.object(rtc.log, "warning") as mock_warn:
             listener.on_window_shown(MagicMock())
         mock_post.assert_not_called()
@@ -880,12 +880,12 @@ class TestRichControlListenerInit:
         root = MagicMock()
         root.getPeer.return_value = MagicMock()
         first = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-        with patch("plugin.framework.queue_executor.post_to_main_thread"):
+        with patch("plugin.framework.queue_executor.main.post"):
             first._begin_deferred_init()
         assert id(root) in rtc._CONTROL_INIT_STARTED
         first.disposing(MagicMock())
         second = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-        with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
+        with patch("plugin.framework.queue_executor.main.post") as mock_post:
             second._begin_deferred_init()
         mock_post.assert_called_once()
 
@@ -963,7 +963,7 @@ def test_deferred_init_failure_clears_init_flags():
 
     root = MagicMock()
     listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-    with patch("plugin.framework.queue_executor.post_to_main_thread"):
+    with patch("plugin.framework.queue_executor.main.post"):
         listener._begin_deferred_init()
     assert listener.initialized is True
     assert id(root) in rtc._CONTROL_INIT_STARTED

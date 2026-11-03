@@ -1,7 +1,7 @@
+from __future__ import annotations
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Offline DAG =PY scanning: shared-formula expansion and py_code_* bank refs."""
 
-from __future__ import annotations
 
 from pathlib import Path
 import xml.etree.ElementTree as ET

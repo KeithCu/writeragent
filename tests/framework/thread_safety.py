@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -7,8 +9,6 @@
 Opt-in via the ``uno_thread_safety`` fixture in tests/framework/conftest.py.
 See docs/framework/uno-thread-safety.md (Layer B).
 """
-
-from __future__ import annotations
 
 import threading
 from typing import Any
@@ -44,7 +44,7 @@ class ThreadAffineMock:
             return
         task = tg.get_background_task_name() or current.name
         raise AssertionError(
-            "UNO mock %r.%s touched from background task %r; marshal via execute_on_main_thread()."
+            "UNO mock %r.%s touched from background task %r; marshal via main.call()."
             % (self._name, what, task)
         )
 
@@ -88,14 +88,14 @@ def make_thread_affine_mock(
     if isinstance(target, ThreadAffineMock):
         return target
     if main_thread is None:
-        main_thread = tg.get_designated_main_thread() or threading.main_thread()
+        main_thread = qe.main.designated or threading.main_thread()
     return ThreadAffineMock(target, main_thread, name)
 
 
 class TestMainPump:
-    """Dedicated thread that drains QueueExecutor work (mirrors production marshal)."""
+    """Dedicated thread that drains MainThread work (mirrors production marshal)."""
 
-    def __init__(self, executor: qe.QueueExecutor) -> None:
+    def __init__(self, executor: qe.MainThread) -> None:
         self._executor = executor
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -118,7 +118,7 @@ class TestMainPump:
                 if self._executor._work_queue.empty():
                     break
 
-    def poke(self, _executor: qe.QueueExecutor) -> None:
+    def poke(self, _executor: qe.MainThread) -> None:
         self._wake.set()
 
     def stop(self) -> None:
@@ -131,15 +131,15 @@ class UnoThreadSafetySession:
     """Active Layer B session: pump + marshal mode + designated main thread."""
 
     def __init__(self) -> None:
-        self.pump = TestMainPump(qe.default_executor)
-        tg.set_designated_main_thread(self.pump.main_thread)
-        qe.set_force_marshal_mode(True)
-        qe.set_test_poke_handler(self.pump.poke)
+        self.pump = TestMainPump(qe.main)
+        qe.main.install(
+            qe.Policy.test_marshal,
+            designated=self.pump.main_thread,
+            poke=self.pump.poke,
+        )
 
     def close(self) -> None:
-        qe.set_force_marshal_mode(False)
-        qe.set_test_poke_handler(None)
-        tg.set_designated_main_thread(None)
+        qe.main.install(qe.Policy.production, designated=None, poke=None)
         self.pump.stop()
 
     def make_mock(self, target: Any, *, name: str = "uno") -> ThreadAffineMock:

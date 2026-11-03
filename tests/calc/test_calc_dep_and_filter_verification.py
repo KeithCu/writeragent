@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """deal / Hypothesis verification for Calc dependencies, filter criteria, and Excel ref resolution."""
 
-from __future__ import annotations
 
 import math
 

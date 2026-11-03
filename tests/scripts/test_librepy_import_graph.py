@@ -1,6 +1,6 @@
+from __future__ import annotations
 """LibrePy allowlist must cover top-level plugin imports of shipped modules."""
 
-from __future__ import annotations
 
 import ast
 import subprocess

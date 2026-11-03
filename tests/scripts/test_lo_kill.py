@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent — tests for scripts/lo_kill.py
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Profile-scoped LibreOffice kill: parsing, matching, and real processes we start ourselves."""
 
-from __future__ import annotations
 
 import os
 import subprocess

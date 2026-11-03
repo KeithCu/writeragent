@@ -5,7 +5,7 @@ rules:
     severity: ERROR
     message: >-
       UNO accessed from a background context. Marshal via
-      execute_on_main_thread()/post_to_main_thread(). See
+      main.call()/main.post(). See
       docs/framework/uno-thread-safety.md (Layer C).
     pattern-sources:
       # Explicit blue marker (module-level worker entrypoints).
@@ -92,16 +92,16 @@ rules:
           - pattern: createUnoService(...)
           - pattern: $X.createInstanceWithContext(...)
     pattern-sanitizers:
-      - pattern: execute_on_main_thread(...)
-      - pattern: post_to_main_thread(...)
+      - pattern: main.call(...)
+      - pattern: main.post(...)
       - patterns:
           - pattern-inside: |
-              if on_main_thread():
+              if main.is_current():
                 ...
           - pattern: $X
       - patterns:
           - pattern-inside: |
-              if not on_main_thread():
+              if not main.is_current():
                 ...
               ...
           - pattern: $X
@@ -342,11 +342,11 @@ rules:
     languages: [python]
     severity: ERROR
     message: >-
-      Do not call blocking execute_on_main_thread inside synchronous add-in evaluation
-      or notification callbacks (deadlock hazard #402). Use non-blocking post_to_main_thread
+      Do not call blocking main.call inside synchronous add-in evaluation
+      or notification callbacks (deadlock hazard #402). Use non-blocking main.post
       or compute without UI marshalling.
     patterns:
-      - pattern: execute_on_main_thread(...)
+      - pattern: main.call(...)
       - pattern-inside: |
           def $FN(...):
             ...

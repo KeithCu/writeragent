@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """In-process mock-LLM helpers for native sidebar tests (not shipped)."""
 
-from __future__ import annotations
 
 import os
 import threading
@@ -246,7 +246,7 @@ def open_calc_for_dual_sidebar(ctx: Any, *, timeout: float = 15.0) -> Any:
 
     Do not ``loadComponentFromURL('private:factory/scalc')`` from the URP client
     after a WriterAgent deck is visible. Show the Writer deck first so
-    ``OPEN_CALC`` can post onto that listener's ``QueueExecutor``.
+    ``OPEN_CALC`` can post onto that listener's ``MainThread``.
     """
     from plugin.chatbot.sidebar_test_hooks import open_calc_document
 

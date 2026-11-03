@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for scripts/generate_pretty_demo_spreadsheet.py."""
 
-from __future__ import annotations
 
 import re
 import zipfile

@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - LibreOffice Extension
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for SessionKey and session key helpers."""
 
-from __future__ import annotations
 
 import pytest
 

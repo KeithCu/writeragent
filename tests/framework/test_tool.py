@@ -1,3 +1,4 @@
+from plugin.framework.queue_executor import main
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2024 John Balis
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
@@ -1723,7 +1724,7 @@ def test_execute_unguarded_skips_guard() -> None:
         return fn()
 
     params = {"note": "keep"}
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
         # Same shape as tools_lo: keyword, then **params. A dict literal
         # spread is a different bytecode path and is not this contract.
         out = reg.execute_unguarded("dummy_sync", ctx, **params)
@@ -1754,7 +1755,7 @@ def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object) -> None:
     def bg():
         box["out"] = reg.execute("dummy_sync", ctx, **args)
 
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
         worker = threading.Thread(target=bg, name="tool-sync-probe")
         worker.start()
         worker.join()
@@ -1774,7 +1775,7 @@ def test_execute_dict_literal_bypass_cannot_skip_thread_guard() -> None:
         marshalled.append("marshal")
         return fn()
 
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
         out = reg.execute("dummy_sync", ctx, **{"bypass_thread_guard": True, "note": "keep"})
 
     assert marshalled == ["marshal"]
@@ -1804,7 +1805,7 @@ def test_tool_get_parameters_value_error_returns_registry_error() -> None:
 
 def test_execute_spread_colliding_names_handled() -> None:
     reg, ctx, calls, seen = _guard_probe_registry()
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+    with patch("plugin.framework.tool.main.call", side_effect=lambda fn: fn()):
         out = reg.execute(
             "dummy_sync",
             ctx,
@@ -1840,7 +1841,7 @@ def test_execute_tool_with_timeout_tool_name_run_threaded_in_schema() -> None:
     reg = ToolRegistry(MagicMock())
     reg.register(AdvancedParamsTool())
     ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+    with patch("plugin.framework.tool.main.call", side_effect=lambda fn: fn()):
         out = reg.execute("advanced_params", ctx, timeout=5, tool_name="my_name", run_threaded=True)
 
     assert out.get("status") == "ok"
@@ -1869,27 +1870,27 @@ def test_sync_tool_timeout_none_returns_ok() -> None:
     reg = ToolRegistry(MagicMock())
     reg.register(NoneTimeoutTool())
     ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+    with patch("plugin.framework.tool.main.call", side_effect=lambda fn: fn()):
         out = reg.execute("none_timeout_tool", ctx)
     assert out.get("status") == "ok"
     assert out.get("result") == 42
 
 
-def test_doc_type_probe_on_main_thread_only() -> None:
+def test_doc_type_probe_on_main_only() -> None:
     reg = ToolRegistry(MagicMock())
     doc = MagicMock()
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
+    with patch.object(main, "is_current", return_value=True), \
          patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_schemas(doc=doc)
         assert mock_probe.call_count == 1
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
+    with patch.object(main, "is_current", return_value=True), \
          patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_schemas(doc=doc, doc_type="writer")
         mock_probe.assert_not_called()
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=False), \
+    with patch.object(main, "is_current", return_value=False), \
          patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_tools(doc=doc)
         mock_probe.assert_not_called()
@@ -1901,7 +1902,7 @@ def test_get_schemas_unknown_protocol_does_not_probe() -> None:
     reg = ToolRegistry(MagicMock())
     doc = MagicMock()
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
+    with patch.object(main, "is_current", return_value=True), \
          patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe, \
          patch("plugin.framework.tool.ToolRegistry.get_tools") as mock_get_tools:
         with pytest.raises(ValueError, match="Unknown protocol: xml"):

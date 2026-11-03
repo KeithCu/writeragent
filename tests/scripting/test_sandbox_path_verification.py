@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """Verification check that sandbox filesystem walkers stay off cover-all targets."""
 
-from __future__ import annotations
 
 
 def test_sandbox_filesystem_helpers_are_off_cover_all() -> None:

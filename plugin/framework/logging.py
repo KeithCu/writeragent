@@ -612,9 +612,9 @@ def note_activity() -> None:
 
 def _post_main(fn: Any, *args: Any, fail_msg: str) -> bool:
     try:
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(fn, *args)
+        main.post(fn, *args)
     except Exception:
         log.debug(fail_msg, exc_info=True)
         return False

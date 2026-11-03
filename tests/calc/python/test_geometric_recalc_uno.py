@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -12,7 +13,6 @@ auto-spill still writes neighbors on a chained origin. Remaining §10:
 hidden undo / locked unit, re-entrancy, Isolated + flag on, flag off.
 """
 
-from __future__ import annotations
 
 import time
 import unittest

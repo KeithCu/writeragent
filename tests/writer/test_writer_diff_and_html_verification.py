@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -8,7 +9,6 @@
 Hypothesis: light under ``make verify``; deep via ``make vhs`` (capped alphabets).
 """
 
-from __future__ import annotations
 
 from hypothesis import given, settings
 from hypothesis import strategies as st

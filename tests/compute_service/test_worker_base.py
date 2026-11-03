@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent - Python Compute Service worker pool tests
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from __future__ import annotations
 
 import pickle
 import struct

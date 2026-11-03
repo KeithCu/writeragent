@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -8,7 +9,6 @@ Expected values were checked against LibreOffice Calc in this environment
 and against Excel's published DOLLARDE / EFFECT / DAYS360 examples.
 """
 
-from __future__ import annotations
 
 import datetime as dt
 import math

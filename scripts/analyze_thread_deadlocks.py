@@ -7,8 +7,8 @@
 
 Constructs a function-level call graph across the codebase to identify call
 paths starting from synchronous host dispatches (Calc add-in calculation) that
-attempt blocking waits on the main thread (execute_on_main_thread).
-Note: execute_on_main_thread is the only blocking wait modeled (there is no
+attempt blocking waits on the main thread (main.call).
+Note: main.call is the only blocking wait modeled (there is no
 lock model).
 
 Usage:
@@ -52,7 +52,7 @@ SYNC_HOST_ENTRYPOINTS = {
 
 # Operations that block the calling thread waiting for the UI/main thread or other locks
 BLOCKING_OPERATIONS = {
-    "execute_on_main_thread",
+    "call",
 }
 
 

@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Unit tests for quick_setup server detection and connection testing."""
 
-from __future__ import annotations
 
 import io
 import json

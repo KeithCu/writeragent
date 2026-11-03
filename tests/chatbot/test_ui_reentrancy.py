@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Sidebar combobox populate must not recurse via UNO listeners + config:changed.
 
 VCL fires textChanged/itemStateChanged on programmatic setText/addItems.
@@ -5,7 +6,6 @@ Without _in_refresh_controls that re-enters _refresh_controls_from_config
 on the main thread (docs/framework/uno-thread-safety.md §12).
 """
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any, cast
@@ -130,7 +130,7 @@ def test_refresh_controls_does_not_recurse_when_combo_fires_listeners():
         patch("plugin.chatbot.panel_factory.set_text_model"),
         patch("plugin.chatbot.panel_factory.set_image_model"),
         patch("plugin.chatbot.panel_factory.set_control_enabled"),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=_ENDPOINT),
         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]),
         patch("plugin.framework.config.save", side_effect=track_save),
@@ -254,7 +254,7 @@ def test_unguarded_listener_does_not_infinite_loop_because_event_bus_drops():
         patch("plugin.chatbot.panel_factory.set_text_model"),
         patch("plugin.chatbot.panel_factory.set_image_model"),
         patch("plugin.chatbot.panel_factory.set_control_enabled"),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=_ENDPOINT),
         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]),
         patch("plugin.framework.config.save", side_effect=track_save),

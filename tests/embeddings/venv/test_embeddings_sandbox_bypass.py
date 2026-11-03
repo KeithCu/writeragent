@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -8,7 +9,6 @@ Trusted index/search goes through ``run_trusted_action`` (worker harness →
 ``embeddings_index_dispatch``). User code still executes in the sandbox.
 """
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 

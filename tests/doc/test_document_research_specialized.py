@@ -1,8 +1,8 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 """Tests for document_research delegation and read-only enforcement."""
 
-from __future__ import annotations
 
 import os
 import tempfile
@@ -704,7 +704,7 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_does_not_use_delegate_gateway(
     mock_main,
     mock_resolve,
@@ -736,7 +736,7 @@ def test_delegate_read_document_does_not_use_delegate_gateway(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_closes_after_inner_error(
     mock_main,
     mock_resolve,
@@ -764,7 +764,7 @@ def test_delegate_read_document_closes_after_inner_error(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_skips_close_when_reusing_open_doc(
     mock_main,
     mock_resolve,
@@ -791,7 +791,7 @@ def test_delegate_read_document_skips_close_when_reusing_open_doc(
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "result": "42"})
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_opens_file_url_from_listing(
     mock_main,
     mock_open,
@@ -903,7 +903,7 @@ def test_document_research_delegation_includes_open_documents_context(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_unwraps_finish_answer(
     mock_main,
     mock_resolve,
@@ -941,7 +941,7 @@ def test_delegate_read_document_unwraps_finish_answer(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_passes_through_result(
     mock_main,
     mock_resolve,
@@ -973,7 +973,7 @@ def test_delegate_read_document_passes_through_result(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_length_truncated_read_is_incomplete(
     mock_main,
     mock_resolve,
@@ -1028,7 +1028,7 @@ def test_delegate_read_document_length_truncated_read_is_incomplete(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_no_answer_is_error(
     mock_main,
     mock_resolve,
@@ -1082,7 +1082,10 @@ def test_delegate_read_document_resolves_before_the_main_thread_open(
     mock_resolve.side_effect = fake_resolve
     mock_open.side_effect = fake_open
 
-    with patch("plugin.doc.document_research_specialized.run_on_main", side_effect=fake_run_on_main):
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_run_on_main),
+    ):
         r = ToolRegistry(services={})
         r.register(DelegateReadDocument())
         ctx = MagicMock()
@@ -1117,8 +1120,9 @@ def test_delegate_read_document_survives_close_post_timeout(
         return fn(*a, **k)
 
     with (
-        patch("plugin.doc.document_research_specialized.run_on_main", side_effect=fake_run_on_main),
-        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=TimeoutError("queue full")),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_run_on_main),
+        patch("plugin.framework.queue_executor.main.post", side_effect=TimeoutError("queue full")),
     ):
         r = ToolRegistry(services={})
         r.register(DelegateReadDocument())

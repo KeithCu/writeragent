@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """deal / Hypothesis security verification for sandbox_cache AST validation."""
 
-from __future__ import annotations
 
 import ast
 

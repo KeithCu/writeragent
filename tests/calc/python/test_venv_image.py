@@ -1,6 +1,6 @@
+from __future__ import annotations
 # WriterAgent - tests for run_venv_python_script image handling
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, mock_open, patch
@@ -42,7 +42,7 @@ def test_calc_image_result_inserts_on_sheet():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
         patch(
-            "plugin.calc.python.venv.execute_on_main_thread",
+            "plugin.framework.queue_executor.main.call",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ) as main_thread,
         patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
@@ -74,7 +74,7 @@ def test_stdout_and_result_survives_image_result():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value=payload),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
         patch(
-            "plugin.calc.python.venv.execute_on_main_thread",
+            "plugin.framework.queue_executor.main.call",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch("plugin.calc.python.image_egress.insert_image_result_on_sheet"),
@@ -128,7 +128,7 @@ def test_calc_image_insert_failure_is_not_success():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
         patch(
-            "plugin.calc.python.venv.execute_on_main_thread",
+            "plugin.framework.queue_executor.main.call",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch(
@@ -205,8 +205,8 @@ def test_insert_image_result_on_sheet_background_thread_marshaling():
     """When called off main thread, insert_image_result_on_sheet posts asynchronously to main thread."""
     ctx = MagicMock()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.post_to_main_thread") as post_main,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.post") as post_main,
     ):
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD)
 
@@ -709,8 +709,8 @@ def test_off_main_failure_annotates_and_does_not_raise():
     posted_calls = []
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: posted_calls.append(fn)),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: posted_calls.append(fn)),
         patch(
             "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
@@ -776,8 +776,8 @@ def test_off_main_failure_does_not_replace_user_annotation():
     posted_calls = []
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: posted_calls.append(fn)),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: posted_calls.append(fn)),
         patch(
             "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
@@ -821,8 +821,8 @@ def test_off_main_failure_updates_existing_writeragent_annotation():
     posted_calls = []
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: posted_calls.append(fn)),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: posted_calls.append(fn)),
         patch(
             "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
@@ -860,8 +860,8 @@ def test_off_main_annotation_requires_cell_address():
     posted_calls = []
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: posted_calls.append(fn)),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: posted_calls.append(fn)),
         patch(
             "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 0)),
@@ -894,8 +894,8 @@ def test_off_main_success_clears_only_writeragent_annotation():
     posted_calls = []
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: posted_calls.append(fn)),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: posted_calls.append(fn)),
         patch(
             "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (5, 2)),
@@ -1025,7 +1025,7 @@ def test_temp_images_unlinked_when_a_later_write_fails():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": [img1, img2]}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", side_effect=["/tmp/plot0.svg", OSError("second write failed")]),
         patch(
-            "plugin.calc.python.venv.execute_on_main_thread",
+            "plugin.framework.queue_executor.main.call",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as mock_insert,
@@ -1054,7 +1054,7 @@ def test_partial_insert_failure_unlinks_only_embedded_temps():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": [img1, img2]}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", side_effect=["/tmp/plot0.svg", "/tmp/plot1.svg"]),
         patch(
-            "plugin.calc.python.venv.execute_on_main_thread",
+            "plugin.framework.queue_executor.main.call",
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ),
         patch(

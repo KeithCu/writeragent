@@ -120,15 +120,15 @@ def init_config(ctx: Any | None = None) -> str:
     """Resolve and cache writeragent.json path. Idempotent; call once at bootstrap."""
     global _resolved_config_path
     if ctx is not None:
-        from plugin.framework.queue_executor import default_executor
+        from plugin.framework.queue_executor import main
 
-        default_executor.set_context(ctx)
+        main.set_context(ctx)
     if _resolved_config_path is not None:
         return _resolved_config_path
     if ctx is None:
-        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import main
 
-        if not on_main_thread():
+        if not main.is_current():
             raise ConfigError("UNO context is required to resolve config path on background thread")
         from plugin.framework.uno_context import get_ctx
 
@@ -511,10 +511,10 @@ def _emit_pending(
     event_key: str | None = None,
 ) -> None:
     """Emit one config:changed. Caller has already released the write lock."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
     from plugin.framework.uno_context import get_ctx
 
-    ctx = get_ctx() if on_main_thread() else None
+    ctx = get_ctx() if main.is_current() else None
     keys = tuple(k for k, _new, _old in effective)
     if len(effective) == 1:
         changed, value, previous = effective[0]

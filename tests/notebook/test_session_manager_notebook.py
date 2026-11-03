@@ -1,6 +1,6 @@
+from __future__ import annotations
 # WriterAgent - notebook session id tests
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 

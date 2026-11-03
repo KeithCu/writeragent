@@ -36,6 +36,7 @@ MCP HTTP thread still comes through this queue onto the UI thread.
 
 from __future__ import annotations
 
+import enum
 import logging
 import os
 import queue
@@ -55,10 +56,13 @@ from plugin.framework.send_cancellation import (
 
 log = logging.getLogger("writeragent.framework.queue_executor")
 
-# Layer B pytest: when True, execute/post always enqueue even under WRITERAGENT_TESTING=1.
-_force_marshal_mode = False
-# Optional poke handler (tests): runs process_queue on the designated main thread.
-_test_poke_handler: Callable[["QueueExecutor"], None] | None = None
+
+class Policy(enum.Enum):
+    production = "production"
+    eval_harness = "eval_harness"
+    test_inline = "test_inline"
+    test_marshal = "test_marshal"
+
 
 # Posts queued before AsyncCallback exists. Past this, wait for a flush
 # instead of dropping the callable. Same pressure signal as the grammar gate:
@@ -69,30 +73,41 @@ _PENDING_POST_WAIT_SEC = 30.0
 _UNTIMED_WAIT_SLICE_SEC = 5.0
 
 
-def set_force_marshal_mode(enabled: bool) -> None:
-    """Test hook: force cross-thread marshal via the work queue (Layer B)."""
-    global _force_marshal_mode
-    _force_marshal_mode = enabled
+def install_from_environ(
+    *,
+    designated: threading.Thread | None = None,
+    poke: Callable[[MainThread], None] | None = None,
+) -> None:
+    """Set process-wide policy from environment variables (eval harness or testing)."""
+    if os.environ.get("WRITERAGENT_EVAL_HARNESS") == "1":
+        policy = Policy.eval_harness
+    elif os.environ.get("WRITERAGENT_TESTING") == "1":
+        policy = Policy.test_inline
+    else:
+        policy = Policy.production
+    MainThread.install(policy, designated=designated, poke=poke)
 
 
-def set_test_poke_handler(handler: Callable[["QueueExecutor"], None] | None) -> None:
-    """Test hook: replace AsyncCallback poke with a synthetic main-thread pump."""
-    global _test_poke_handler
-    _test_poke_handler = handler
-
-
-def _marshal_thread_tag(executor: "QueueExecutor | None" = None) -> str:
+def _marshal_thread_tag(executor: "MainThread | None" = None) -> str:
     """One-line thread context for marshal/deadlock diagnosis (writeragent_debug.log)."""
-    from plugin.framework.thread_guard import get_background_task_name, on_main_thread
+    from plugin.framework.thread_guard import get_background_task_name
 
     cur = threading.current_thread()
     py_main = cur is threading.main_thread()
-    ex = executor or default_executor
+    ex = executor or main
     qdepth = ex.pending_work_count()
-    return "thread=%r ident=%s py_main=%s logical_main=%s bg_task=%r agent_active=%s queue_depth=%s" % (cur.name, cur.ident, py_main, on_main_thread(), get_background_task_name(), is_agent_active(), qdepth)
+    return "thread=%r ident=%s py_main=%s logical_main=%s bg_task=%r agent_active=%s queue_depth=%s" % (
+        cur.name,
+        cur.ident,
+        py_main,
+        ex.is_current(),
+        get_background_task_name(),
+        is_agent_active(),
+        qdepth,
+    )
 
 
-def _log_marshal(level: int, msg: str, *args: Any, executor: "QueueExecutor | None" = None) -> None:
+def _log_marshal(level: int, msg: str, *args: Any, executor: "MainThread | None" = None) -> None:
     """Log *msg* plus a marshal thread tag, only when *level* is enabled.
 
     ``log.debug(..., _marshal_thread_tag())`` still builds the tag when debug
@@ -126,8 +141,59 @@ class _WorkItem:
         self.scope: SendCancellation | None = scope
 
 
-class QueueExecutor:
+class MainThread:
     """Execute functions on main thread using queue system."""
+
+    _policy: ClassVar[Policy] = Policy.production
+    designated: ClassVar[threading.Thread | None] = None
+    poke: ClassVar[Callable[[MainThread], None] | None] = None
+
+    @property
+    def policy(self) -> Policy:
+        return MainThread._policy
+
+    @policy.setter
+    def policy(self, value: Policy) -> None:
+        MainThread._policy = value
+
+    @classmethod
+    def install(
+        cls,
+        policy: Policy,
+        *,
+        designated: threading.Thread | None = None,
+        poke: Callable[[MainThread], None] | None = None,
+    ) -> None:
+        cls._policy = policy
+        cls.designated = designated
+        cls.poke = poke
+
+    def is_current(self) -> bool:
+        """True on the VCL thread, designated thread, or an untagged LibreOffice upcall."""
+        current = threading.current_thread()
+        if MainThread.designated is not None:
+            return current is MainThread.designated
+        if current is threading.main_thread():
+            return True
+        from plugin.framework.thread_guard import UNTAGGED_DUMMY_IS_CURRENT, get_background_task_name
+
+        if not UNTAGGED_DUMMY_IS_CURRENT:
+            return False
+        if get_background_task_name():
+            return False
+        return isinstance(current, threading._DummyThread)
+
+    def _is_marshal_thread(self) -> bool:
+        from plugin.framework.thread_guard import get_background_task_name
+
+        if self.policy is Policy.test_marshal:
+            return False
+        if get_background_task_name():
+            return False
+        current = threading.current_thread()
+        if MainThread.designated is not None:
+            return current is MainThread.designated
+        return current is threading.main_thread()
 
     def __init__(self, ctx: Any | None = None) -> None:
         from plugin.framework.thread_guard import _unwrap_uno
@@ -230,12 +296,12 @@ class QueueExecutor:
 
     # Unwrap Layer A proxies before any UNO getattr. Creating AsyncCallback
     # from a worker is the marshal bootstrap: if the guard fires here it calls
-    # execute_on_main_thread while ``_init_lock`` is held, and the UI thread
+    # main.call while ``_init_lock`` is held, and the UI thread
     # deadlocks in set_context(). Two defenses prevent this:
     #   1. _unwrap_uno() strips the guard proxy so UNO calls below don't
     #      trigger assert_main_thread at all.
     #   2. _notify_thread_violation (thread_guard.py) bails early when
-    #      ``not default_executor.is_marshal_ready()``, which is exactly the state
+    #      ``not main.is_marshal_ready()``, which is exactly the state
     #      while this lock is held.
     # If you refactor here, preserve both or the bootstrap deadlocks.
     def _get_async_callback(self) -> Any:
@@ -245,11 +311,7 @@ class QueueExecutor:
         with self._init_lock:
             if self._initialized:
                 return self._async_callback_service
-            # Headless eval: one designated ``_lo_thread`` owns the URP bridge.
-            # DISPLAY=:9 (or any toolkit) can still create AsyncCallback; a poke
-            # from a LoLane worker would run UNO on the VCL/bridge callback path
-            # while ``_lo_thread`` is mid-call → "Binary URP bridge already disposed".
-            if os.environ.get("WRITERAGENT_EVAL_HARNESS") == "1":
+            if self.policy is Policy.eval_harness:
                 log.info("QueueExecutor: EVAL_HARNESS set — AsyncCallback disabled (UNO stays on designated thread)")
                 self._async_callback_service = None
                 self._initialized = True
@@ -384,8 +446,8 @@ class QueueExecutor:
 
     def _poke_main_thread(self) -> None:
         """Ask the VCL event loop to call our notify() callback."""
-        if _test_poke_handler is not None:
-            _test_poke_handler(self)
+        if MainThread.poke is not None:
+            MainThread.poke(self)
             return
         if self._async_callback_service is None or self._callback_instance is None:
             _log_marshal(logging.DEBUG, "poke skipped (no AsyncCallback) %s", executor=self)
@@ -506,32 +568,18 @@ class QueueExecutor:
 
         return item.result
 
-    def _may_run_marshal_inline(self) -> bool:
-        """True only when the caller is the thread that may run UNO work inline.
-
-        Do not use on_main_thread() alone: designated-main test hooks and LO embed quirks
-        can mark workers as logical main while the drain loop runs on MainThread.
-        """
-        from plugin.framework.thread_guard import get_background_task_name, get_designated_main_thread
-
-        if _force_marshal_mode:
-            return False
-        if get_background_task_name():
-            return False
-        current = threading.current_thread()
-        designated = get_designated_main_thread()
-        if designated is not None:
-            return current is designated
-        return current is threading.main_thread()
-
-    def should_run_inline(self) -> bool:
-        """Whether to skip the queue and call *fn* on the caller's thread."""
-        return not _force_marshal_mode and os.environ.get("WRITERAGENT_TESTING") == "1"
-
-    def execute(self, fn: Callable[..., Any], *args: Any, timeout: float = 30.0, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> Any:
+    def call(
+        self,
+        fn: Callable[..., Any],
+        /,
+        *args: Any,
+        timeout: float = 30.0,
+        bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
+        **kwargs: Any,
+    ) -> Any:
         """Execute function on main thread (blocking).
 
-        If already on the main thread, calls directly (avoids deadlock).
+        If already on the marshal thread, calls directly (avoids deadlock).
         Otherwise blocks the calling thread up to *timeout* seconds.
         Raises TimeoutError if the main thread doesn't process the item in time.
         Re-raises any exception thrown by *fn*.
@@ -541,43 +589,37 @@ class QueueExecutor:
         fn_label = _fn_label(fn)
         bg_task = get_background_task_name()
 
-        if self._may_run_marshal_inline():
-            _log_marshal(logging.DEBUG, "marshal route=inline_logical_main fn=%s %s", fn_label, executor=self)
+        if self.policy is not Policy.test_marshal and self._is_marshal_thread():
             return fn(*args, **kwargs)
 
         if in_sync_host_dispatch():
-            msg = "marshal refused: execute_on_main_thread called from synchronous host dispatch context (deadlock hazard #402, fn=%s)" % fn_label
+            msg = "marshal refused: main.call called from synchronous host dispatch context (deadlock hazard #402, fn=%s)" % fn_label
             _log_marshal(logging.ERROR, "%s %s", msg, executor=self)
             raise RuntimeError(msg)
 
-        # WRITERAGENT_TESTING inlines execute on any non-background thread,
-        # including Dummy-N. post() enqueues when AsyncCallback exists and the
-        # caller is not the marshal thread. Why they differ: execute blocks, and
-        # a Dummy-N UNO test waiting on VCL deadlocks (testing_runner sets the
-        # flag so that hop stays inline). post is fire-and-forget, so it can enqueue.
-        if self.should_run_inline() and not bg_task:
-            _log_marshal(logging.DEBUG, "marshal route=inline_testing fn=%s %s", fn_label, executor=self)
+        if self.policy is Policy.test_inline and not bg_task:
             return fn(*args, **kwargs)
 
-        if not _force_marshal_mode and self._get_async_callback() is None:
-            # Off the main thread with no AsyncCallback. Running fn here touches
-            # UNO on the caller. The logical-main path already returned above.
-            # Log the refusal and raise it directly. Raising RuntimeError
-            # inside try/except only to log.exception and re-raise shows a
-            # traceback for an exception this function just constructed.
+        if self.policy is not Policy.test_marshal and self._get_async_callback() is None:
             msg = "marshal refused: AsyncCallback unavailable from background thread (fn=%s)" % fn_label
             _log_marshal(logging.ERROR, "%s %s", msg, executor=self)
             raise RuntimeError(msg)
 
         self._flush_pending_posts()
-        _log_marshal(logging.DEBUG, "marshal route=enqueue fn=%s %s", fn_label, executor=self)
         item = self._enqueue_work(fn, args, kwargs, blocking=True, bound_scope=bound_scope)
         return self._wait_for_result(item, timeout)
 
-    def post(self, fn: Callable[..., Any], *args: Any, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> None:
+    def post(
+        self,
+        fn: Callable[..., Any],
+        /,
+        *args: Any,
+        bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
+        **kwargs: Any,
+    ) -> None:
         """Post function to main thread without waiting for its result.
 
-        Unlike execute, this does not return a result. Used for UI updates
+        Unlike call, this does not return a result. Used for UI updates
         from background threads. Before AsyncCallback exists, a full pending
         list waits for a flush and then raises TimeoutError. When
         AsyncCallback is already known missing, a full list raises that
@@ -588,51 +630,26 @@ class QueueExecutor:
         fn_label = _fn_label(fn)
         bg_task = get_background_task_name()
 
-        # Inline only when should_run_inline() and the caller is not a
-        # background task. execute() already required ``not bg_task`` for
-        # that path; post() inlining whenever WRITERAGENT_TESTING=1 lets a
-        # tagged worker touch UNO on itself during native tests. A tagged
-        # worker falls through to enqueue, or to the pending list when
-        # AsyncCallback is missing. Untagged threads still inline.
-        # An untagged worker (e.g. a spill timer) also queues when
-        # AsyncCallback exists; inlining there touches UNO off the main
-        # thread. With no AsyncCallback it still inlines.
-        # should_run_inline() is already False under force-marshal, so
-        # that mode needs no extra check here.
-        if self.should_run_inline() and not bg_task and (self._may_run_marshal_inline() or self._get_async_callback() is None):
-            _log_marshal(logging.DEBUG, "marshal route=post_inline_testing fn=%s %s", fn_label, executor=self)
+        if self.policy is Policy.test_inline and not bg_task and (self._is_marshal_thread() or self._get_async_callback() is None):
             fn(*args, **kwargs)
             return
 
-        if not _force_marshal_mode and self._get_async_callback() is None:
-            if self._may_run_marshal_inline():
-                _log_marshal(logging.DEBUG, "marshal route=post_inline_logical_main fn=%s %s", fn_label, executor=self)
+        if self.policy is not Policy.test_marshal and self._get_async_callback() is None:
+            if self._is_marshal_thread():
                 fn(*args, **kwargs)
                 return
-            # Wait for a flush to free a slot (grammar gate / llm lane wait,
-            # then TimeoutError). Returning after a warning drops icon and
-            # status updates from before set_context. At _PENDING_POST_CAP
-            # a logged-and-dropped callable looks like a normal return to
-            # the caller. If AsyncCallback is already known missing, waiting
-            # cannot help — fail immediately.
             with self._pending_lock:
                 if not self._await_pending_slot_locked():
-                    _log_marshal(logging.WARNING, "marshal route=post_timeout (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, executor=self)
                     raise TimeoutError("marshal post timed out: AsyncCallback unavailable and pending list is full (fn=%s)" % fn_label)
-                # ``is`` does not narrow _ScopeUnset. None is an explicit scope.
                 scope = get_current_send_cancellation() if bound_scope is _SCOPE_UNSET else cast("SendCancellation | None", bound_scope)
                 self._pending_posts.append((fn, args, kwargs, scope))
-                _log_marshal(logging.DEBUG, "marshal route=post_pending fn=%s %s", fn_label, executor=self)
                 return
 
         self._flush_pending_posts()
-        _log_marshal(logging.DEBUG, "marshal route=post_enqueue fn=%s %s", fn_label, executor=self)
         self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=bound_scope)
 
 
-# We can keep a global default instance to mimic the old main_thread behavior
-# until everything is fully DI injected.
-default_executor = QueueExecutor()
+main = MainThread()
 
 
 def async_callback_for_drain_rearm() -> Any | None:
@@ -641,94 +658,31 @@ def async_callback_for_drain_rearm() -> Any | None:
     None means the drain must keep its blocking loop (eval harness,
     force-marshal, test poke). Headless pytest forces the blocking path via
     :func:`~plugin.framework.async_stream.set_drain_scheduler_override` instead
-    of sniffing ``unittest.mock`` here. ``WRITERAGENT_TESTING`` is not a reason
-    to return None: that flag makes :meth:`QueueExecutor.post` run inline, and
-    an inline re-arm would sit on this stack again. The drain calls
-    ``addCallback`` directly so the mock-sidebar soffice (which sets the flag)
-    still returns to the VCL loop between batches.
+    of sniffing ``unittest.mock`` here.
     """
-    if os.environ.get("WRITERAGENT_EVAL_HARNESS") == "1":
+    if main.policy in (Policy.eval_harness, Policy.test_marshal):
         return None
-    if _force_marshal_mode or _test_poke_handler is not None:
-        return None
-    service = default_executor._async_callback_service
+    service = main._async_callback_service
     if service is not None:
         return service
-    ctx = default_executor._ctx
+    ctx = main._ctx
     if ctx is None:
         return None
-    return default_executor._get_async_callback()
+    return main._get_async_callback()
 
 
-def execute_on_main_thread(fn: Any, *args: Any, timeout: float = 30.0, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> Any:
-    """Legacy helper: Use default_executor.execute instead."""
-    return default_executor.execute(fn, *args, timeout=timeout, bound_scope=bound_scope, **kwargs)
-
-
-def run_on_main(fn: Any, *args: Any, timeout: float = 30.0, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> Any:
-    """Call fn now if on_main_thread() (including an untagged Dummy-N), else execute_on_main_thread.
-
-    on_main_thread() is true for the Python main thread, the designated test pump,
-    and an untagged PyUNO Dummy thread. execute() does not inline those Dummy
-    threads, and it refuses inline work under force-marshal and background-task
-    tags. This helper keeps the document-research / python-domain short-circuit.
-    Use execute_on_main_thread where that stricter predicate is required.
-    """
-    from plugin.framework.thread_guard import on_main_thread
-    if on_main_thread():
-        return fn(*args, **kwargs)
-    return execute_on_main_thread(fn, *args, timeout=timeout, bound_scope=bound_scope, **kwargs)
-
-
-def post_to_main_thread(fn: Any, *args: Any, bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET, **kwargs: Any) -> None:
-    """Legacy helper: Use default_executor.post instead."""
-    return default_executor.post(fn, *args, bound_scope=bound_scope, **kwargs)
-
-
-def on_main_thread_or_post(
-    fn: Any,
-    *args: Any,
-    executor: QueueExecutor | None = None,
-    bound_scope: SendCancellation | None | _ScopeUnset = _SCOPE_UNSET,
-    **kwargs: Any,
-) -> Any:
-    """Run fn immediately if on main thread without a background task tag, else post.
-
-    Matches the sidebar UI update idiom: paint inline on the VCL main thread,
-    but enqueue via post when called from a background thread or a task-tagged
-    worker (e.g. MCP, audio recording, grammar observer).
-    """
-    assert callable(fn), "fn must be callable"
-    from plugin.framework.thread_guard import get_background_task_name, on_main_thread
-
-    if on_main_thread() and not get_background_task_name():
-        return fn(*args, **kwargs)
-    (executor or default_executor).post(fn, *args, bound_scope=bound_scope, **kwargs)
-    return None
-
-
-def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor | None = None) -> None:
-    """Process queued UNO work on the LO main thread (call from idle/drain loops).
-
-    Async tools enqueue via :func:`execute_on_main_thread` while the chat drain loop
-    waits for them; this must run on the same thread as ``run_stream_drain_loop`` so
-    workers are not blocked on AsyncCallback alone. A caller that is not the main
-    thread (including a designated test main via `on_main_thread`) returns without
-    running items.
-    """
-    from plugin.framework.thread_guard import on_main_thread
-
-    # Off-main callers leave items queued for the UI thread.
-    if not on_main_thread():
+def pump_main_thread_work_queue(*, max_items: int = 1, executor: MainThread | None = None) -> None:
+    """Process queued UNO work on the LO main thread (call from idle/drain loops)."""
+    ex = executor or main
+    if not ex.is_current():
         return
 
-    ex = executor or default_executor
     for _unused in range(max_items):
         ex.process_queue()
 
 
-def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecutor | None = None) -> None:
-    """Idle tick for main-thread wait loops: drain QueueExecutor, then maybe pump VCL.
+def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: MainThread | None = None) -> None:
+    """Idle tick for main-thread wait loops: drain MainThread, then maybe pump VCL.
 
     Depth 0 or 1 still calls ``processEventsToIdle``; depth > 1 skips VCL and
     still drains the marshal queue. ``owner_may_pump_vcl`` is only for this
@@ -741,16 +695,12 @@ def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecu
         owner_may_pump_vcl,
     )
     from plugin.framework.vcl_pumping import pump_vcl_events
-    from plugin.framework.thread_guard import on_main_thread
 
-    if not on_main_thread():
+    ex = executor or main
+    if not ex.is_current():
         return
 
-    pump_main_thread_work_queue(max_items=max_queue_items, executor=executor)
-    # owner_may_pump_vcl (depth > 1) notes the suppression and skips VCL.
-    # The marshal queue above still runs so execute_on_main_thread is not stuck behind it.
-    # Pumping VCL on every idle tick, including when a nested stream drain
-    # (depth > 1) is already inside the outer pump, re-enters the owner.
+    pump_main_thread_work_queue(max_items=max_queue_items, executor=ex)
     if not owner_may_pump_vcl():
         note_suppressed_vcl_pump(get_drain_owner())
         return

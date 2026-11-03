@@ -1,5 +1,5 @@
-# WriterAgent tests for scripts/prompt_optimization/merge_benchmark_results.py
 from __future__ import annotations
+# WriterAgent tests for scripts/prompt_optimization/merge_benchmark_results.py
 
 import json
 import sys

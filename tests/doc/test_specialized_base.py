@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Unit tests for DelegateToSpecializedBase (domain validation and mutation lock)."""
 
-from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock
@@ -106,7 +106,7 @@ def test_delegate_status_workflow_finished_ok(
     ctx.services = {"tools": reg}
     ctx.stop_checker = lambda: False
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent") as mock_run_inner:
             mock_run_inner.return_value = {
                 "status": "ok",
@@ -153,7 +153,7 @@ def test_delegate_status_inner_tool_error(
         tool_map["failing_structural_tool"]()
         return tool_map["specialized_workflow_finished"](answer="Final attempted answer")
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
             result = writer_gateway.execute(ctx, domain="structural", task="Inspect page")
 
@@ -193,7 +193,7 @@ def test_delegate_status_incomplete_no_finish_no_tool_error(
     ctx.services = {"tools": reg}
     ctx.stop_checker = lambda: False
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", return_value="I searched but could not find the heading."):
             result = writer_gateway.execute(ctx, domain="structural", task="Find heading")
 
@@ -249,7 +249,7 @@ def test_delegate_length_truncated_reply_is_incomplete_not_finished(
     }
     ctx = _structural_registry(writer_gateway)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.chatbot.smol_agent.create_smol_model", return_value=WriterAgentSmolModel(client, max_tokens=256)), patch("plugin.chatbot.smol_agent.get_config", return_value=5):
             result = writer_gateway.execute(ctx, domain="structural", task="Build the delivery")
 
@@ -271,7 +271,7 @@ def test_delegate_plain_text_answer_appears_once(
     text = "PLAIN-" + "y" * 5000
     ctx = _structural_registry(writer_gateway)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", return_value=text):
             result = writer_gateway.execute(ctx, domain="structural", task="Summarize headings")
 
@@ -295,7 +295,7 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
         tool_map = {t.name: t for t in tools}
         return tool_map["specialized_workflow_finished"](answer=answer)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
             result = writer_gateway.execute(ctx, domain="structural", task="Deliver entries")
 
@@ -334,7 +334,7 @@ def test_delegate_status_user_stopped_left_unchanged(
     ctx.services = {"tools": reg}
     ctx.stop_checker = lambda: False
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent") as mock_run_inner:
             mock_run_inner.return_value = {
                 "status": "error",
@@ -387,7 +387,7 @@ def test_delegate_completed_message_uses_static_msgid(
         tool_map["specialized_workflow_finished"](answer="Done")
         return "All done."
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
             result = writer_gateway.execute(ctx, domain="structural", task="Inspect page")
 

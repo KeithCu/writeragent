@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent tests for eval-2 Long Writer pack writer prompt
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Native pack: no fake GDPval id; prompt stays product-internal-free."""
-from __future__ import annotations
 
 import zipfile
 from pathlib import Path

@@ -1,5 +1,5 @@
-# WriterAgent tests for scripts/benchmark.py
 from __future__ import annotations
+# WriterAgent tests for scripts/benchmark.py
 
 import sys
 from pathlib import Path

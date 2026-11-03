@@ -1,10 +1,11 @@
+from __future__ import annotations
+from plugin.framework.queue_executor import main
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Per-frame session: a second frame must not touch the first frame's listeners or panel."""
 
-from __future__ import annotations
 
 import logging
 import sys
@@ -624,7 +625,7 @@ def test_restore_focus_skips_when_the_window_probe_fails():
 def test_restore_focus_off_main_thread_makes_no_uno_calls():
     session, frame, query = _active_session()
     frame.getContainerWindow.reset_mock()
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+    with patch.object(main, "is_current", return_value=False):
         session.restore_focus()
     frame.getContainerWindow.assert_not_called()
     query.setFocus.assert_not_called()

@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -20,7 +21,6 @@ same flag) is what lets the session summary print
 worker and wedging on re-collection.
 """
 
-from __future__ import annotations
 
 import faulthandler
 import os

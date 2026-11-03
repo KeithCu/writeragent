@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for Draw tree blank detection, label hints, and control snapshots."""
 
-from __future__ import annotations
 
 import types
 from types import SimpleNamespace

@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent — tests for scripts/lo_paths.py
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """LibreOffice program discovery per platform (fake trees) and profile URLs."""
 
-from __future__ import annotations
 
 import os
 import sys

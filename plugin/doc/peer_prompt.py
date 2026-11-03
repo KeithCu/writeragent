@@ -161,9 +161,9 @@ def format_peer_outer_delegate_hint(model: Any) -> str:
 def _peer_block_on_main_thread(build: Any, fail_log: str) -> str:
     """Run a peer-catalog prompt builder on the UI thread. Empty string on failure."""
     try:
-        from plugin.framework.queue_executor import run_on_main
+        from plugin.framework.queue_executor import main
 
-        return run_on_main(build)
+        return build() if main.is_current() else main.call(build)
     except Exception:
         logging.getLogger(__name__).exception(fail_log)
         return ""

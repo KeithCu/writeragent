@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for the Ask-box slash overlay controller (no soffice)."""
 
-from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
@@ -132,13 +132,13 @@ class _StubBoxProxy:
 
 @pytest.fixture(autouse=True)
 def _inline_idle_overlay_show(monkeypatch):
-    """CI has UNO AsyncCallback so post_to_main_thread queues; unit tests need inline."""
+    """CI has UNO AsyncCallback so post queues; unit tests need inline."""
 
     def _run(fn, *args, **kwargs):
         fn(*args, **kwargs)
 
     monkeypatch.setattr("plugin.chatbot.slash_popup._create_ask_peer_listbox", _stub_create_ask_peer_listbox)
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_run):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=_run):
         yield
 
 
@@ -425,7 +425,7 @@ def test_esc_defers_hide_and_restores_send_for_slash_draft():
     popup._popup_floater = floater
     send.dispatch.reset_mock()
     posted, capture = _capture_posts()
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=capture):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=capture):
         assert popup.handle_key(KEY_ESCAPE) is True
     win.dispose.assert_not_called()
     floater.dispose.assert_not_called()
@@ -457,7 +457,7 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
     popup.control = win
     popup._popup_floater = floater
     posted, capture = _capture_posts()
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=capture):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=capture):
         assert popup.handle_key(KEY_RETURN, 0) is True
     win.dispose.assert_not_called()
     assert popup.is_open is True
@@ -476,7 +476,7 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
 
 
 def test_query_text_post_timeout_does_not_run_inline(caplog):
-    """TimeoutError from post_to_main_thread must not hide or show on this stack.
+    """TimeoutError from post must not hide or show on this stack.
 
     Ask textChanged used to catch the timeout and call hide / _show_matches
     inline, which deadlocks VCL. _defer_to_next_turn only logs.
@@ -490,7 +490,7 @@ def test_query_text_post_timeout_does_not_run_inline(caplog):
 
     with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
         with patch(
-            "plugin.framework.queue_executor.post_to_main_thread",
+            "plugin.framework.queue_executor.main.post",
             side_effect=_timeout,
         ):
             popup.on_query_text("hello")  # prefix is None → defer hide

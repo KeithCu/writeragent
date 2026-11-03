@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - Calc PY/PYTHON add-in metadata tests
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for =PY() / =PYTHON() add-in name registration (no LibreOffice)."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock
 import pytest

@@ -1,5 +1,5 @@
-# WriterAgent tests for scripts/eval_2_draw_oracle.py
 from __future__ import annotations
+# WriterAgent tests for scripts/eval_2_draw_oracle.py
 
 import sys
 from pathlib import Path

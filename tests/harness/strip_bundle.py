@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -10,7 +11,6 @@ logger ``.debug`` / ``.info`` call sites.
 ``make test-run`` uses unstripped source with deal installed. Assertions must accept both.
 """
 
-from __future__ import annotations
 
 import inspect
 from collections.abc import Callable

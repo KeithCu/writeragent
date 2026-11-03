@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for extract_sheet_layout leaf helper."""
 
-from __future__ import annotations
 
 from plugin.scripting.sheet_layout import extract_sheet_layout
 

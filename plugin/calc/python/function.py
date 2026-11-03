@@ -411,9 +411,10 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
 
 
 def _get_calc_doc(ctx: Any) -> Any | None:
-    from plugin.framework.thread_guard import guard_uno, on_main_thread
+    from plugin.framework.queue_executor import main
+    from plugin.framework.thread_guard import guard_uno
 
-    if not on_main_thread():
+    if not main.is_current():
         return None
     from plugin.framework.uno_context import get_desktop
 
@@ -433,7 +434,7 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     # Do not use getActiveSheet(): full recalc's active sheet is not the formula cell
     # (XAddIn has no calling cell). Unique locate fills sheet+origin; otherwise
     # callers must not share WorkerResultSession.
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
     # Skip UNO off the main thread. Off-main finalize hands
     # scalar_for_list_result the cached spill model (the object a deferred
@@ -441,7 +442,7 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     # None lets getURL and locate_formula_cell_in_doc touch that model from
     # a Yellow thread. The key stays ambiguous, and WorkerResultSession is
     # not shared, until the UI thread locates the cell.
-    if not on_main_thread():
+    if not main.is_current():
         return ("", "", "", code, "")
     doc_url = ""
     sheet_name = ""
@@ -701,9 +702,9 @@ class CalcSpillModifyListener(BaseModifyListener):
 
     def modified(self, aEvent: Any) -> None:
         try:
-            from plugin.framework.thread_guard import on_main_thread
+            from plugin.framework.queue_executor import main
 
-            if not on_main_thread():
+            if not main.is_current():
                 return
             sheet = aEvent.Source
             if sheet is None:
@@ -1030,9 +1031,9 @@ def perform_deferred_spill(
 ) -> None:
     """Clear old spilled cells and write new values deferred (collision check is done synchronously)."""
     try:
-        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import main
 
-        if not on_main_thread():
+        if not main.is_current():
             return
         if doc is None:
             return
@@ -1356,14 +1357,14 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
 
 def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: PreparedSpill) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
-    from plugin.framework.queue_executor import post_to_main_thread
+    from plugin.framework.queue_executor import main
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
     spill_lifecycle = _lifecycle_key(target_doc)
     token = f"{prepared.sheet_name}:{prepared.formula_row}:{prepared.formula_col}"
     start_deferred_sheet_timer(
         0.1,
-        lambda: post_to_main_thread(lambda: perform_deferred_spill(prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, lifecycle_key=spill_lifecycle)),
+        lambda: main.post(lambda: perform_deferred_spill(prepared.doc_key, prepared.sheet_name, prepared.formula_row, prepared.formula_col, grid_to_spill, doc=target_doc, sheet=prepared.sheet, code=code, lifecycle_key=spill_lifecycle)),
         lifecycle_key=spill_lifecycle,
         token=token,
     )
@@ -1376,7 +1377,7 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     only passed through to the UI-thread callback. Collision ``#SPILL!`` is too
     late to change the add-in return; the deferred path just skips the write.
     """
-    from plugin.framework.queue_executor import post_to_main_thread
+    from plugin.framework.queue_executor import main
 
     log.debug("Spill: scheduling off-main deferred locate code=%r", code)
 
@@ -1400,12 +1401,12 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     from plugin.calc.python.workbook_lifecycle import off_main_spill_lifecycle_key
 
     lkey = off_main_spill_lifecycle_key(doc)
-    start_deferred_sheet_timer(0.1, lambda: post_to_main_thread(_on_main), lifecycle_key=lkey, token=f"code:{code}")
+    start_deferred_sheet_timer(0.1, lambda: main.post(_on_main), lifecycle_key=lkey, token=f"code:{code}")
 
 
 def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any = None, worker_data: Any = None, doc: Any | None = None, data_token: str | None = None) -> float | str | bool | tuple[Any, ...]:
     """Map worker result to a single value Calc's add-in bridge accepts."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
     # Worker egress (payload_codec.child_pack_result + host_unpack_data) always yields plain
     # lists/scalars on the host — NumPy lives only in the venv subprocess, not in LO's Python.
@@ -1426,8 +1427,8 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
         from plugin.framework.config import get_config
 
         if get_config("scripting.python_auto_spill"):
-            # AST lint only treats a bare ``if on_main_thread():`` as a guard.
-            if on_main_thread():
+            # AST lint only treats a bare ``if main.is_current():`` as a guard.
+            if main.is_current():
                 try:
                     if doc is not None:
                         # Bugfix: What was wrong: UI selection check ran before formula locator; if user had selected multiple cells elsewhere on the sheet, single-cell =PY() was mistakenly treated as a matrix formula.
@@ -1453,7 +1454,7 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
             # Why this change fixes it: Skipping when the corner cell does not exist writes nothing.
             if grid_to_spill and grid_to_spill[0]:
                 try:
-                    if not on_main_thread():
+                    if not main.is_current():
                         if doc is not None:
                             _queue_off_main_auto_spill(ctx, code, grid_to_spill, doc)
                         # We return the corner as py_addin_cell_value (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
@@ -1480,7 +1481,7 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
 
         # Cached spill model is for the deferred UI write only. Passing it
         # into session_key off-main calls getURL / locate (see session_key).
-        scalar_doc = doc if on_main_thread() else None
+        scalar_doc = doc if main.is_current() else None
         return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=scalar_doc, data_token=data_token)
 
     return py_addin_cell_value(result)
@@ -1531,9 +1532,9 @@ def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
     read. Bind ``scoped_dir`` as ``None`` when no folder is known so join
     formulas do not ``NameError`` (file joins then fail loud).
     """
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if doc is not None and on_main_thread():
+    if doc is not None and main.is_current():
         try:
             from plugin.doc.document_research import get_document_directory
 
@@ -1552,9 +1553,9 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
     Off-main the doc is only passed through (its document scripts are UNO),
     and with no doc there is nothing to read: both return ``{}``.
     """
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if doc is None or not on_main_thread():
+    if doc is None or not main.is_current():
         return {}
 
     from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
@@ -1632,7 +1633,7 @@ def start_deferred_sheet_timer(delay_sec: float, callback: Any, *, lifecycle_key
     """Shared 0.1s Timer for spill writes and geometric sheet-modify repair.
 
     Lives here so Layer C allows the same ``threading.Timer`` site as
-    ``perform_deferred_spill``. The timer thread only ``post_to_main_thread``;
+    ``perform_deferred_spill``. The timer thread only ``main.post``;
     UNO writes run on the UI thread.
     """
     timer = _new_spill_timer(delay_sec, callback)
@@ -1755,12 +1756,13 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
             res = {"status": "ok", "result": cached.raw}
         else:
-            from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
+            from plugin.framework.queue_executor import main
+            from plugin.framework.thread_guard import in_sync_host_dispatch
 
             # Off-main the caller doc is only passed through: reading its URL or
             # init script is UNO. Such a call runs with no shared session id and
             # no init kwargs rather than borrowing another workbook's.
-            on_main = on_main_thread()
+            on_main = main.is_current()
             # session_key already resolved this on the main thread. "" means no shared kernel.
             session_id = (sk[2] or None) if on_main else None
             init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)
@@ -1770,7 +1772,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                 target_doc is not None,
                 session_id,
                 bool(init_kwargs),
-                on_main_thread(),
+                main.is_current(),
                 in_sync_host_dispatch(),
             )
             res = run_code_in_user_venv(

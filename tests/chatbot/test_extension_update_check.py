@@ -14,6 +14,7 @@ from plugin.chatbot.extension_update_check import (
     schedule_extension_update_check_once,
     version_tuple,
 )
+from plugin.framework.queue_executor import Policy, main
 from plugin.framework.constants import (
     EXTENSION_ID_LIBREHARPER,
     EXTENSION_ID_LIBREPY,
@@ -148,9 +149,9 @@ def test_schedule_once_skips_unknown_product():
 
 
 def test_run_extension_update_check_dialog_formatting(monkeypatch):
-    # QueueExecutor.post inlines under WRITERAGENT_TESTING; otherwise MagicMock uno
+    # MainThread.post inlines under Policy.test_inline; otherwise MagicMock uno
     # "succeeds" at AsyncCallback and the dialog callback never drains.
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    main.install(Policy.test_inline)
     ctx = MagicMock()
     with patch("plugin.framework.client.requests.sync_request", return_value=SAMPLE_XML) as mock_sync, \
          patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox, \

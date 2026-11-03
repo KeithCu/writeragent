@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - Tests for Tool Call Timing Analyzer
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for scripts/analyze_tool_call_timing.py."""
 
-from __future__ import annotations
 
 import sys
 from pathlib import Path

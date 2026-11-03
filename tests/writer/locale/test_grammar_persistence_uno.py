@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Native UNO tests for grammar persistence and language changes."""
 
-from __future__ import annotations
 
 from typing import Any
 from plugin.testing_runner import native_test

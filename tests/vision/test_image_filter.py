@@ -82,7 +82,7 @@ def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
          patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="google/gemini-3.8-flash"), \
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True), \
+         patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
          patch("plugin.framework.client.model_fetcher.run_in_background") as bg:
         names = _openai_names()
         sync.assert_not_called()
@@ -99,7 +99,7 @@ def test_catalogued_text_only_model_drops_get_image_without_fetch():
          patch("plugin.framework.client.model_fetcher.get_config", return_value={}), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="openai/gpt-oss-20b"), \
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True), \
+         patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
          patch("plugin.framework.client.model_fetcher.run_in_background"):
         names = _openai_names()
         fetch.assert_not_called()

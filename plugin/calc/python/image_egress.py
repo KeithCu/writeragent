@@ -323,11 +323,10 @@ def insert_image_result_on_sheet(
             caught and logged by QueueExecutor.process_queue when notify_cell is false.
             When notify_cell is true, a posted ImageEgressError is written to the formula
             cell's note only if that note is empty or already starts with
-            "WriterAgent image: "; any other note is left unchanged. post_to_main_thread
+            "WriterAgent image: "; any other note is left unchanged. main.post
             can still raise TimeoutError or RuntimeError to this caller.
     """
-    from plugin.framework.queue_executor import post_to_main_thread
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
     # Thread safety invariant: Drawing layer manipulation (DrawPage, GraphicObjectShape, cell geometry)
     # must run on LibreOffice's main VCL thread to prevent internal C++ state corruption and deadlocks.
@@ -346,7 +345,7 @@ def insert_image_result_on_sheet(
         if notify_cell:
             _clear_image_cell_annotation(doc, code)
 
-    if not on_main_thread():
+    if not main.is_current():
         def _off_main_wrapper() -> None:
             try:
                 _run()
@@ -356,7 +355,7 @@ def insert_image_result_on_sheet(
                 else:
                     raise
 
-        post_to_main_thread(_off_main_wrapper)
+        main.post(_off_main_wrapper)
         return
 
     _run()

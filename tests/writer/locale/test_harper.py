@@ -913,8 +913,8 @@ def test_harper_lsp_initialize_logs_exception_on_failure(
 def test_pump_grammar_status_ui_posts_not_blocking_execute() -> None:
     ctx = MagicMock()
     with (
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_execute,
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
+        patch("plugin.framework.queue_executor.main.call") as mock_execute,
     ):
         _pump_grammar_status_ui(ctx)
 
@@ -924,7 +924,7 @@ def test_pump_grammar_status_ui_posts_not_blocking_execute() -> None:
 
 def test_pump_grammar_status_ui_swallows_post_errors() -> None:
     ctx = MagicMock()
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=RuntimeError("no AsyncCallback")):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=RuntimeError("no AsyncCallback")):
         _pump_grammar_status_ui(ctx)  # must not raise
 
 
@@ -940,7 +940,7 @@ def test_run_harper_check_continues_when_pump_post_times_out() -> None:
     with (
         patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
         patch(
-            "plugin.framework.queue_executor.post_to_main_thread",
+            "plugin.framework.queue_executor.main.post",
             side_effect=TimeoutError("Main-thread execution of _pump timed out after 2.0s"),
         ),
         patch("plugin.writer.locale.harper.run_harper_lint", side_effect=_fake_lint) as mock_lint,
@@ -1350,7 +1350,7 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
         with (
             patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
             patch("plugin.writer.locale.harper._get_or_create_client", return_value=mock_client),
-            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)),
+            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
             patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
         ):
             harper_module._harper_ensure_ready_body("/tmp", "en-US")
@@ -1430,15 +1430,15 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
     The linguistic wait must still post. Draining first would hide the miss
     (stub times out at 2s, ``posts["n"]`` stays 0, lint returns empty errors).
     """
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
 
     saved: list[object] = []
     while True:
         try:
-            saved.append(default_executor._work_queue.get_nowait())
+            saved.append(main._work_queue.get_nowait())
         except queue.Empty:
             break
-    default_executor._work_queue.put(object())
+    main._work_queue.put(object())
     try:
         lint_started = threading.Event()
         release_lint = threading.Event()
@@ -1467,7 +1467,7 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
         def _run() -> None:
             with (
                 patch("plugin.framework.vcl_pumping.process_events_to_idle", side_effect=_pe2i),
-                patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_post),
+                patch("plugin.framework.queue_executor.main.post", side_effect=_post),
             ):
                 box["res"] = harper_try_lint("Hello.", "/tmp", ctx=MagicMock())
 
@@ -1481,11 +1481,11 @@ def test_harper_try_lint_linguistic_thread_posts_pe2i() -> None:
     finally:
         while True:
             try:
-                default_executor._work_queue.get_nowait()
+                main._work_queue.get_nowait()
             except queue.Empty:
                 break
         for item in saved:
-            default_executor._work_queue.put(item)
+            main._work_queue.put(item)
 
 
 def test_harper_try_lint_reenter_during_wait_asserts() -> None:

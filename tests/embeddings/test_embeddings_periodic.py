@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for plugin.embeddings.embeddings_periodic."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
@@ -63,7 +63,7 @@ def test_run_periodic_embeddings_indexer_marshals_uno_on_tick():
     with (
         patch("time.sleep", return_value=None),
         patch("plugin.framework.constants.folder_search_enabled", return_value=True),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute),
+        patch("plugin.framework.queue_executor.main.call", side_effect=mock_execute),
         patch("plugin.framework.uno_context.get_active_document", side_effect=tracking_get_active_document),
     ):
         with pytest.raises(StopLoop):

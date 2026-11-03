@@ -204,12 +204,12 @@ def run_extension_update_check(ctx: Any, extension_id: str) -> None:
             remote_ver,
             EXTENSION_VERSION,
         )
-        # A throwaway QueueExecutor is not drained by pump_ui_idle. If
+        # A throwaway MainThread is not drained by pump_ui_idle. If
         # AsyncCallback is not ready, post() parks the dialog on that
-        # executor and the object is collected. default_executor is pumped.
-        from plugin.framework.queue_executor import post_to_main_thread
+        # instance and the object is collected. main is pumped.
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(_show)
+        main.post(_show)
     except Exception as e:
         log.warning("extension update check failed (%s): %s", profile.display_name, e, exc_info=True)
     finally:

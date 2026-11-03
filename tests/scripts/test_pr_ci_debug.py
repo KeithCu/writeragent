@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """PR CI hang-diagnostics inputs stay off by default and upload artifacts."""
 
-from __future__ import annotations
 
 from pathlib import Path
 

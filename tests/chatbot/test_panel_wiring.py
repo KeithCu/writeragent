@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Annotation lock for panel_wiring leftovers (reportMissingParameterType)."""
 
-from __future__ import annotations
 
 import logging
 from typing import Any, get_type_hints

@@ -1,6 +1,6 @@
+from __future__ import annotations
 # WriterAgent - tests for notebook Writer import helpers
 
-from __future__ import annotations
 
 import inspect
 import re

@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from __future__ import annotations
 
 import io
 from unittest.mock import MagicMock, patch
@@ -126,7 +126,7 @@ def test_handle_llm_request_uses_host_cancellation_scope():
     client._stopped = False
     client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
         patch("plugin.framework.client.llm_client.LlmClient", return_value=client) as mock_llm,
@@ -175,7 +175,7 @@ def test_dispatch_llm_request_keeps_user_stopped_code():
     )
     written: list[bytes] = []
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
         patch("plugin.framework.client.llm_client.LlmClient", return_value=client),
@@ -224,7 +224,7 @@ def test_handle_llm_request_returns_user_stopped():
     client = MagicMock()
     client.request_with_tools.side_effect = ToolExecutionError("LLM request stopped by user.", code="USER_STOPPED")
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
         patch("plugin.framework.client.llm_client.LlmClient", return_value=client),
@@ -285,7 +285,7 @@ def test_handle_llm_request_returns_user_stopped_via_client_stopped():
     client.stopped.return_value = True
     client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
         patch("plugin.framework.client.llm_client.LlmClient", return_value=client),
@@ -307,7 +307,7 @@ def test_handle_llm_request_returns_user_stopped_via_stop_checker():
     client.stopped.return_value = False
     client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.config.get_api_config", return_value={"model": "m"}),
         patch("plugin.framework.client.llm_client.LlmClient", return_value=client),
@@ -324,12 +324,12 @@ def test_handle_llm_request_returns_user_stopped_via_stop_checker():
     assert out["code"] == "USER_STOPPED"
 
 
-def test_handle_llm_request_catches_execute_on_main_thread_failure():
-    """Failure during execute_on_main_thread(get_ctx) must be caught and returned as an error."""
+def test_handle_llm_request_catches_call_on_main_failure():
+    """Failure during main.call(get_ctx) must be caught and returned as an error."""
     from plugin.ppt_master.venv.host_rpc import handle_llm_request
 
     with patch(
-        "plugin.framework.queue_executor.execute_on_main_thread",
+        "plugin.framework.queue_executor.main.call",
         side_effect=RuntimeError("main thread queue failure"),
     ):
         out = handle_llm_request(
@@ -344,12 +344,12 @@ def test_handle_llm_request_catches_execute_on_main_thread_failure():
 
 
 def test_dispatch_llm_request_handles_get_ctx_failure():
-    """If get_ctx via execute_on_main_thread fails, dispatch writes an error frame instead of raising."""
+    """If get_ctx via main.call fails, dispatch writes an error frame instead of raising."""
     from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
 
     written: list[bytes] = []
     with patch(
-        "plugin.framework.queue_executor.execute_on_main_thread",
+        "plugin.framework.queue_executor.main.call",
         side_effect=RuntimeError("main thread queue failure"),
     ):
         handled = dispatch_worker_response(

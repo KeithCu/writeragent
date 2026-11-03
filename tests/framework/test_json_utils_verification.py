@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """deal / Hypothesis / CrossHair (FQN) for json_utils.safe_json_loads."""
 
-from __future__ import annotations
 
 import json
 import math

@@ -87,22 +87,22 @@ def step_c():
 @pytest.mark.parametrize(
     "value, value_2",
     [
-        # Calls dispatched via execute_on_main_thread or post_to_main_thread are safe.
+        # Calls dispatched via main.call or main.post are safe.
         pytest.param("""
 from plugin.framework.thread_guard import background
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 from mod_b import step_b
 
 @background
 def safe_job():
-    execute_on_main_thread(step_b)
+    main.call(step_b)
 """, """
 from plugin.framework.uno_context import get_active_document
 
 def step_b():
     return get_active_document()
 """, id="test_marshaled_call_is_sanitized"),
-        # A UNO call guarded by on_main_thread() check must not be flagged.
+        # A UNO call guarded by main.is_current() check must not be flagged.
         pytest.param("""
 from plugin.framework.thread_guard import background
 from mod_b import step_b
@@ -111,11 +111,11 @@ from mod_b import step_b
 def guarded_job():
     step_b()
 """, """
-from plugin.framework.thread_guard import on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_desktop
 
 def step_b():
-    if not on_main_thread():
+    if not main.is_current():
         return None
     return get_desktop()
 """, id="test_guarded_branch_is_sanitized"),

@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for vendored reciprocal_rank_fusion in hybrid_rrf."""
 
-from __future__ import annotations
 
 from plugin.embeddings.venv.hybrid_rrf import merge_hybrid_hits, reciprocal_rank_fusion
 

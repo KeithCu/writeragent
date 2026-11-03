@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Import-graph ownership tests for the sidebar factory (no UNO import)."""
 
-from __future__ import annotations
 
 import ast
 from pathlib import Path
@@ -312,7 +312,10 @@ def test_initialize_extension_paths_hops_impl_not_self():
 
     pf._paths_initialized = False
     try:
-        with patch.object(pf, "run_on_main") as hop:
+        with (
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+            patch("plugin.framework.queue_executor.main.call") as hop,
+        ):
             hop.return_value = None
             pf._initialize_extension_paths(object())
         hop.assert_called_once()
@@ -329,12 +332,12 @@ def test_initialize_extension_paths_impl_sets_flag_when_hop_inlines():
 
     pf._paths_initialized = False
     try:
-        with patch.object(
-            pf, "run_on_main", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
-        ), patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
-            pf, "init_logging"
-        ), patch(
-            "plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"
+        with (
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch.object(pf, "get_extension_path", return_value="/tmp/ext"),
+            patch.object(pf, "init_logging"),
+            patch("plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"),
         ):
             pf._initialize_extension_paths(object())
         assert pf._paths_initialized is True
@@ -343,14 +346,14 @@ def test_initialize_extension_paths_impl_sets_flag_when_hop_inlines():
 
 
 def test_initialize_extension_paths_inline_hop_does_not_recurse():
-    """TESTING=1 inlines execute_on_main_thread on Dummy-N; must not stack-overflow."""
+    """TESTING=1 inlines call on Dummy-N; must not stack-overflow."""
     from unittest.mock import patch
     from plugin.chatbot import panel_factory as pf
 
     pf._paths_initialized = False
     try:
-        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
+        with patch("plugin.framework.queue_executor.main.is_current", return_value=False), patch(
+            "plugin.framework.queue_executor.main.call",
             side_effect=lambda fn, *args, timeout=None, bound_scope=None, **kwargs: fn(*args, **kwargs),
         ), patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
             pf, "init_logging"
@@ -438,7 +441,10 @@ def test_get_real_interface_create_goes_through_main_thread_hop():
         el.toolpanel = panel
         return None
 
-    with patch("plugin.chatbot.panel_factory.run_on_main", side_effect=fake_hop):
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_hop),
+    ):
         result = el.getRealInterface()
     assert result is panel
 
@@ -454,7 +460,7 @@ def test_get_real_interface_create_runs_path_init_on_hop():
     panel = MagicMock()
 
     with patch(
-        "plugin.chatbot.panel_factory.run_on_main",
+        "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ), patch("plugin.chatbot.panel_factory._initialize_extension_paths") as init, patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
@@ -474,7 +480,7 @@ def test_get_real_interface_skips_hop_when_panel_exists():
     el = _thin_panel_element()
     existing = MagicMock()
     el.toolpanel = existing
-    with patch("plugin.chatbot.panel_factory.run_on_main") as hop:
+    with patch("plugin.framework.queue_executor.main.call") as hop:
         result = el.getRealInterface()
     hop.assert_not_called()
     assert result is existing
@@ -878,7 +884,7 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
             raise RuntimeError("first build fails")
 
     with (
-        patch("plugin.chatbot.panel_factory.run_on_main", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
         patch.object(el, "_getOrCreatePanelRootWindow", return_value=MagicMock()),
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel),
@@ -979,8 +985,8 @@ def test_queued_config_refresh_after_disposing_noops() -> None:
     el._refresh_controls_from_config()
 
     # Calling _on_config_changed while released must not post to main thread
-    with patch("plugin.framework.queue_executor.post_to_main_thread") as post_mock:
-        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+    with patch("plugin.framework.queue_executor.main.post") as post_mock:
+        with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
             el._on_config_changed()
             post_mock.assert_not_called()
 
@@ -1227,7 +1233,7 @@ def test_get_real_interface_second_queued_create_keeps_first_panel():
         fn(*args, **kwargs)
 
     with (
-        patch("plugin.chatbot.panel_factory.run_on_main", side_effect=run_twice),
+        patch("plugin.framework.queue_executor.main.call", side_effect=run_twice),
         patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
         patch.object(el, "_getOrCreatePanelRootWindow", return_value=root),
         patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel) as mock_panel,
@@ -1309,12 +1315,12 @@ def test_initialize_extension_paths_logging_failure_does_not_escape():
     pf._paths_initialized = False
     try:
         mock_init_logging = MagicMock(side_effect=RuntimeError("logging fail"))
-        with patch.object(
-            pf, "run_on_main", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
-        ), patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
-            pf, "init_logging", mock_init_logging
-        ), patch(
-            "plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"
+        with (
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch.object(pf, "get_extension_path", return_value="/tmp/ext"),
+            patch.object(pf, "init_logging", mock_init_logging),
+            patch("plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"),
         ):
             pf._initialize_extension_paths(object())
         assert pf._paths_initialized is False
@@ -1330,10 +1336,11 @@ def test_initialize_extension_paths_handler_still_inits_logging():
     pf._paths_initialized = False
     try:
         mock_init_logging = MagicMock()
-        with patch.object(
-            pf, "run_on_main", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
-        ), patch.object(pf, "get_extension_path", side_effect=RuntimeError("path fail")), patch.object(
-            pf, "init_logging", mock_init_logging
+        with (
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+            patch.object(pf, "get_extension_path", side_effect=RuntimeError("path fail")),
+            patch.object(pf, "init_logging", mock_init_logging),
         ):
             pf._initialize_extension_paths(object())
         assert pf._paths_initialized is False

@@ -81,7 +81,7 @@ from plugin.framework.uno_context import (
     set_package_extension_id,
     uno_same,
 )
-from plugin.framework.thread_guard import background, on_main_thread
+from plugin.framework.thread_guard import background
 from plugin.framework.url_utils import dispatch_command_from_url
 
 EXTENSION_ID = EXTENSION_ID_WRITERAGENT
@@ -407,7 +407,7 @@ def bootstrap(ctx: Any | None = None) -> None:
     global _services, _tools, _modules, _bootstrap_state, _bootstrap_error
 
     # Off-thread get_menu_text and _get_menu_icon depend on returning early
-    # when initialized, before the on_main_thread check raises BOOTSTRAP_OFF_THREAD.
+    # when initialized, before the on_python_main_thread check raises BOOTSTRAP_OFF_THREAD.
     if _bootstrap_state is BootstrapState.INITIALIZED:
         return
 
@@ -436,7 +436,7 @@ def bootstrap(ctx: Any | None = None) -> None:
     _bootstrap_state = BootstrapState.BOOTSTRAPPING
     try:
         # 1. Basic UNO context
-        from plugin.framework.queue_executor import default_executor
+        from plugin.framework.queue_executor import install_from_environ, main
 
         if ctx is None:
             ctx = get_ctx()
@@ -446,7 +446,8 @@ def bootstrap(ctx: Any | None = None) -> None:
             # already pins it; without it WriterAgent lookups can hit a
             # different context (no VCL, wrong package, Desktop segfault).
             set_fallback_ctx(ctx)
-            default_executor.set_context(ctx)
+            install_from_environ()
+            main.set_context(ctx)
 
         set_package_extension_id(EXTENSION_ID)
 
@@ -489,7 +490,7 @@ def bootstrap(ctx: Any | None = None) -> None:
         _services.register("tools", _tools)
 
         # 4b. Main Thread Execution Service
-        _services.register("main_thread", default_executor)
+        _services.register("main_thread", main)
 
         # Initialize i18n
         from plugin.framework.i18n import init_i18n
@@ -762,18 +763,18 @@ def notify_menu_update() -> None:
         # main thread, where the guard does not fire.
         # Why this change: post the comparison to the main thread. A direct
         # call that is already on the main thread still prunes before return.
-        # post, not execute: a blocking marshal during startup deadlocks
+        # post, not call: a blocking marshal during startup deadlocks
         # AsyncCallback lazy-init, same as _update_menu_icons.
-        if on_main_thread():
+        from plugin.framework.queue_executor import main
+
+        if main.is_current():
             _prune_failed_status_listeners(failed)
         else:
             try:
-                from plugin.framework.queue_executor import post_to_main_thread
-
                 # What was wrong: prune post defaulted to the current send scope and was cancelled if user clicked Stop.
-                # How it happened: post_to_main_thread omitted bound_scope, inheriting the worker thread's copied contextvar.
+                # How it happened: main.post omitted bound_scope, inheriting the worker thread's copied contextvar.
                 # Why this change: pass bound_scope=None because listener cleanup is UI maintenance, not send work.
-                post_to_main_thread(_prune_failed_status_listeners, list(failed), bound_scope=None)
+                main.post(_prune_failed_status_listeners, list(failed), bound_scope=None)
             except Exception:
                 # UNO boundary: notify_menu_update post to main thread
                 log.exception("notify_menu_update: failed to post listener prune")
@@ -990,12 +991,12 @@ def _update_menu_icons() -> None:
     ``set_context`` / ``init_config``, and a blocking marshal can deadlock
     with AsyncCallback lazy-init.
     """
-    from plugin.framework.queue_executor import post_to_main_thread
+    from plugin.framework.queue_executor import main
 
     # What was wrong: icon updates inherited the worker thread's send scope and were cancelled when Stop was clicked.
-    # How it happened: post_to_main_thread omitted bound_scope, binding to the active send task contextvar.
+    # How it happened: main.post omitted bound_scope, binding to the active send task contextvar.
     # Why this change: pass bound_scope=None because menu icon application is UI maintenance, not send work.
-    post_to_main_thread(_update_menu_icons_impl, bound_scope=None)
+    main.post(_update_menu_icons_impl, bound_scope=None)
 
 
 _LEGACY_FRAMEWORK_COMMANDS: dict[str, str] = {

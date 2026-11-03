@@ -521,12 +521,12 @@ def start_native_script_run(
     editor save handler. The native listener and Monaco Run both call this.
     ``data_range`` is the Monaco data-binding text; the native dialog leaves
     it empty and uses the current selection. Document prep and result insert
-    stay on the main thread (``execute_on_main_thread``). Only the venv IPC
+    stay on the main thread (``main.call``). Only the venv IPC
     wait runs in the background. ``on_complete`` is posted back to the main
     thread. After the worker is scheduled, ``on_complete`` is called exactly
     once on the main thread.
     """
-    from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
+    from plugin.framework.queue_executor import main
 
     def _native_script_run_worker() -> None:
         from plugin.scripting.session_manager import pin_script_document, release_script_document
@@ -534,26 +534,26 @@ def start_native_script_run(
         pin_token = pin_script_document(doc)
         try:
             try:
-                prepared = execute_on_main_thread(
+                prepared = main.call(
                     _prepare_rps_execution, ctx, doc, code, data_range=data_range, pin_token=pin_token
                 )
                 early = prepared.get("early_outcome")
                 if early is not None:
-                    post_to_main_thread(on_complete, early)
+                    main.post(on_complete, early)
                     return
                 try:
                     response = _run_prepared_rps(prepared)
                 except Exception as exc:
                     log.exception("native script run failed")
-                    post_to_main_thread(
+                    main.post(
                         on_complete, rps_error_outcome(str(exc), t0=prepared["t0"], traceback=exception_traceback(exc))
                     )
                     return
-                outcome = execute_on_main_thread(_finish_rps_execution, prepared, response)
-                post_to_main_thread(on_complete, outcome)
+                outcome = main.call(_finish_rps_execution, prepared, response)
+                main.post(on_complete, outcome)
             except Exception as exc:
                 log.exception("native script run failed")
-                post_to_main_thread(on_complete, {"ok": False, "message": str(exc)})
+                main.post(on_complete, {"ok": False, "message": str(exc)})
         finally:
             release_script_document(pin_token)
 

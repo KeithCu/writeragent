@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent - Tests for formula locator and array-formula origin detection
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock

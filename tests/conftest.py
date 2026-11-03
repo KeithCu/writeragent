@@ -22,9 +22,22 @@ from tests.harness.strip_bundle import asserts_stripped, requires_asserts  # noq
 
 
 @pytest.fixture(autouse=True)
+def _reset_main_thread_policy_for_tests():
+    """Ensure MainThread policy and designated thread do not leak across tests."""
+    from plugin.framework.queue_executor import Policy, main
+
+    try:
+        yield
+    finally:
+        main.install(Policy.production, designated=None, poke=None)
+
+
+@pytest.fixture(autouse=True)
 def _install_sandbox_alias_authorizer_for_tests():
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
     from plugin.scripting.sandbox import install_alias_authorizer
 
+    register_writeragent_prompt_hooks()
     install_alias_authorizer()
     yield
 

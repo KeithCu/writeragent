@@ -318,9 +318,9 @@ class McpModule(ModuleBase):
         # thread first. The probe also runs outside TunnelManager._lock so
         # stop() is not stuck behind it. dedicated so the wait does not
         # occupy the shared background pool.
-        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import main
 
-        if on_main_thread():
+        if main.is_current():
             from plugin.framework.worker_pool import run_in_background
 
             run_in_background(_start, name="mcp-tunnel-sync", dedicated=True)

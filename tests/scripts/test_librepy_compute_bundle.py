@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - Standalone Compute Service Bundle Tests
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for the isolated compute_service bundle."""
 
-from __future__ import annotations
 
 import subprocess
 import sys

@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for grammar observability helpers and C10 batch_stats counters."""
 
-from __future__ import annotations
 
 import logging
 from unittest.mock import MagicMock, patch
@@ -124,8 +124,8 @@ def test_emit_harper_worker_status_emits_request_payload() -> None:
 def test_emit_grammar_status_routes_to_libreoffice_status_bar_when_libreharper() -> None:
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         go.emit_grammar_status("complete", "Hello world.", result="clean")
     mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "complete", "clean")
@@ -135,9 +135,9 @@ def test_emit_grammar_status_always_posts_to_main_thread() -> None:
     """Linguistic workers can look like VCL; never paint XStatusIndicator inline."""
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         go.emit_grammar_status("start", "Hello world.", result="Starting Harper…")
     mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "start", "Starting Harper…")
@@ -162,7 +162,7 @@ def test_emit_grammar_status_skips_routine_libreharper_paints() -> None:
         with (
             patch("plugin.framework.uno_context.is_libreharper", return_value=True),
             patch("plugin.writer.locale.grammar_obs.update_libreoffice_status_bar") as mock_bar,
-            patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+            patch("plugin.framework.queue_executor.main.post") as mock_post,
         ):
             go.emit_grammar_status("start", "Hello world.", result=result)
         mock_bar.assert_not_called()
@@ -171,7 +171,7 @@ def test_emit_grammar_status_skips_routine_libreharper_paints() -> None:
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
         patch("plugin.writer.locale.grammar_obs.update_libreoffice_status_bar") as mock_bar,
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         go.emit_grammar_status("done", "Hello world.", result="0 issues")
     mock_bar.assert_not_called()
@@ -182,7 +182,7 @@ def test_emit_grammar_status_posts_routine_done_when_indicator_active() -> None:
     sink = go.StatusBarGrammarStatus()
     sink._indicator = MagicMock()
     go.set_grammar_status(sink)
-    with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
+    with patch("plugin.framework.queue_executor.main.post") as mock_post:
         go.emit_grammar_status("done", "Hello world.", result="0 issues")
     mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "done", "0 issues")
 
@@ -196,8 +196,8 @@ def test_emit_grammar_status_paints_progress_and_failure_when_libreharper() -> N
     for phase, result in cases:
         with (
             patch("plugin.framework.uno_context.is_libreharper", return_value=True),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-            patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+            patch("plugin.framework.queue_executor.main.post") as mock_post,
         ):
             go.emit_grammar_status(phase, "Hello world.", result=result)
         mock_post.assert_called_once_with(go.update_libreoffice_status_bar, phase, result)
@@ -245,7 +245,7 @@ def test_emit_grammar_status_skips_post_on_no_vcl_helper() -> None:
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
         patch.object(go, "desktop_create_is_unsafe", return_value=True),
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
         go.emit_grammar_status("request", "Hello world.", result="Starting Harper…")
     mock_post.assert_not_called()

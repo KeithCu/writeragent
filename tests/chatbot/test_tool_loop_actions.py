@@ -595,7 +595,7 @@ def test_execute_fn_marshals_draw_active_page_index(doc_type_str):
     try:
         with (
             patch("plugin.draw.bridge.DrawBridge") as mock_bridge_cls,
-            patch("plugin.chatbot.tool_loop_actions.execute_on_main_thread") as mock_marshal,
+            patch("plugin.framework.queue_executor.main.call") as mock_marshal,
         ):
             mock_bridge_cls.return_value.get_active_page_index.return_value = 2
             mock_marshal.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -617,7 +617,7 @@ def test_execute_fn_skips_draw_bridge_for_writer():
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     registry, old_main = _install_fake_main_registry()
     try:
-        with patch("plugin.chatbot.tool_loop_actions.execute_on_main_thread") as mock_marshal:
+        with patch("plugin.framework.queue_executor.main.call") as mock_marshal:
             execute_fn("web_search", {"query": "x"}, MagicMock(), host.ctx)
         mock_marshal.assert_not_called()
         tctx = registry.execute.call_args[0][1]
@@ -698,7 +698,7 @@ def test_execute_fn_json_bypass_thread_guard_cannot_skip_marshal(bypass):
         box["out"] = execute_fn("sync_probe", args, None, MagicMock())
 
     try:
-        with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=fake_marshal):
             thread = threading.Thread(target=worker, name="tool-sync-probe")
             thread.start()
             thread.join()

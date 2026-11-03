@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """UNO tests: Calc shape anchor reads on live document."""
 
-from __future__ import annotations
 
 from plugin.calc.python.image_egress import _cell_address_key, _shape_anchor_matches_cell
 from plugin.testing_runner import native_test

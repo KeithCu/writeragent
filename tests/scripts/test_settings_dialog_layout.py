@@ -1,5 +1,5 @@
-# WriterAgent tests for SettingsDialog XDL layout generation
 from __future__ import annotations
+# WriterAgent tests for SettingsDialog XDL layout generation
 
 import re
 import sys

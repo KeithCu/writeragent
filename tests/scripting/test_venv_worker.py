@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -7,7 +8,6 @@
 # (at your option) any later version.
 """Tests for venv_worker (paths, warm worker, run_code) via PythonWorkerManager + worker_harness."""
 
-from __future__ import annotations
 
 import io
 import logging
@@ -2251,7 +2251,7 @@ def test_python_worker_manager_sets_is_worker_env():
 
 def test_acquire_io_ui_thread_returns_busy_when_lock_held(monkeypatch):
     """The UI thread must not block on the pipe lock."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     mgr = PythonWorkerManager(sys.executable, {})
     assert mgr._io_lock.acquire(timeout=1)
     try:
@@ -2286,7 +2286,7 @@ def test_acquire_io_stops_waiting_when_holder_enters_tool_rpc(monkeypatch):
     """A waiter parked on the lock must leave once a tool RPC starts."""
     import plugin.scripting.venv_worker as venv_worker_module
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr(venv_worker_module, "_IO_LOCK_ACQUIRE_TIMEOUT_SEC", 30.0)
     mgr = PythonWorkerManager(sys.executable, {})
     assert mgr._io_lock.acquire(timeout=1)
@@ -2318,7 +2318,7 @@ def test_acquire_io_times_out_instead_of_blocking(monkeypatch):
     """A holder that never releases must not pin the waiter forever."""
     import plugin.scripting.venv_worker as venv_worker_module
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr(venv_worker_module, "_IO_LOCK_ACQUIRE_TIMEOUT_SEC", 0.15)
     mgr = PythonWorkerManager(sys.executable, {})
     assert mgr._io_lock.acquire(timeout=1)
@@ -2344,7 +2344,7 @@ def test_acquire_io_times_out_instead_of_blocking(monkeypatch):
 
 def test_acquire_io_takes_lock_after_holder_releases(monkeypatch):
     """A bounded wait still serializes a second caller once the pipe is free."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     mgr = PythonWorkerManager(sys.executable, {})
     assert mgr._io_lock.acquire(timeout=1)
     mgr._io_owner = threading.get_ident()

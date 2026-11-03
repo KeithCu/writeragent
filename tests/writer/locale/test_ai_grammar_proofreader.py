@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for the main AI grammar proofreader entry point, worker, and integration scenarios."""
 
-from __future__ import annotations
 
 import sys
 import time
@@ -148,7 +148,7 @@ from plugin.writer.locale.grammar_proofread_locale import (
 )
 from plugin.writer.locale.grammar_proofread_text import NormalizedProofError
 from plugin.writer.locale.grammar_work_queue import GrammarWorkItem, GrammarWorkQueue, enqueue_misses
-from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
+from plugin.writer.locale.grammar_worker import reset_grammar_llm_client_cache, run_llm_and_cache_batch
 
 
 def _run_llm_one(
@@ -160,6 +160,7 @@ def _run_llm_one(
     partial_sentence: bool = False,
     **kwargs: Any,
 ) -> None:
+    reset_grammar_llm_client_cache()
     item = GrammarWorkItem(
         ctx=ctx,
         text=text,
@@ -814,9 +815,9 @@ class TestTypingIntegration:
         pr = _make_proofreader()
         mock_model = MagicMock()
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
             patch(
-                "plugin.framework.queue_executor.execute_on_main_thread",
+                "plugin.framework.queue_executor.main.call",
                 side_effect=lambda fn, *args, timeout=30.0, bound_scope=None, **kwargs: fn(*args, **kwargs),
             ) as mock_exec,
             patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound", return_value=mock_model) as mock_bind,
@@ -838,9 +839,9 @@ class TestTypingIntegration:
         pr = _make_proofreader()
         model = MagicMock()
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
             patch(
-                "plugin.framework.queue_executor.execute_on_main_thread",
+                "plugin.framework.queue_executor.main.call",
                 side_effect=lambda fn, *args, timeout=30.0, bound_scope=None, **kwargs: fn(*args, **kwargs),
             ) as mock_exec,
             patch(
@@ -868,9 +869,9 @@ class TestTypingIntegration:
         """Failed bind sets a 1.5s backoff; calls inside TTL do not hop, call after deadline does."""
         pr = _make_proofreader()
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
             patch(
-                "plugin.framework.queue_executor.execute_on_main_thread",
+                "plugin.framework.queue_executor.main.call",
                 side_effect=lambda fn, *args, timeout=30.0, bound_scope=None, **kwargs: fn(*args, **kwargs),
             ) as mock_exec,
             patch("plugin.writer.locale.ai_grammar_proofreader._ensure_persistence_bound", return_value=None) as mock_bind,
@@ -912,7 +913,7 @@ def test_ensure_persistence_bound_passes_current_text_component() -> None:
     gp.grammar_registry.clear_all()
     try:
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
             patch("plugin.doc.udprops.get_document_property", return_value=None) as mock_load,
         ):
@@ -946,7 +947,7 @@ def test_ensure_persistence_bound_uses_only_open_writer() -> None:
     gp.grammar_registry.clear_all()
     try:
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
             patch("plugin.doc.udprops.get_document_property", return_value=None),
         ):
@@ -974,7 +975,7 @@ def test_ensure_persistence_bound_does_not_guess_among_writers() -> None:
     gp.grammar_registry.clear_all()
     try:
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
             patch("plugin.framework.uno_context.get_runtime_uid", return_value=""),
         ):
@@ -997,7 +998,7 @@ def test_ensure_persistence_bound_returns_when_no_writer() -> None:
     gp.grammar_registry.clear_all()
     try:
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         ):
             proofreader._ensure_persistence_bound(ctx, "9")
@@ -1033,7 +1034,7 @@ def test_broadcast_proofread_again_without_listeners_recovers_on_first_attach(
     assert pr._pending_proofread_again is True
     listener.processLinguServiceEvent.assert_not_called()
     with (
-        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
         patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=False),
     ):
         assert pr.addLinguServiceEventListener(listener) is True
@@ -1042,7 +1043,7 @@ def test_broadcast_proofread_again_without_listeners_recovers_on_first_attach(
     assert pr._pending_proofread_again is False
     extra = MagicMock()
     with (
-        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
         patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=True),
     ):
         pr._profile = GrammarProfile("harper", "harper", False)
@@ -1060,7 +1061,7 @@ def test_first_listener_while_harper_ready_triggers_one_rewalk(
     first = MagicMock()
     second = MagicMock()
     with (
-        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
         patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=True),
     ):
         assert pr.addLinguServiceEventListener(first) is True
@@ -1079,7 +1080,7 @@ def test_first_listener_while_harper_idle_does_not_rewalk(
     pr._profile = GrammarProfile("harper", "harper", False)
     listener = MagicMock()
     with (
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
         patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=False),
     ):
         assert pr.addLinguServiceEventListener(listener) is True
@@ -1095,7 +1096,7 @@ def test_first_listener_ready_rewalk_skips_non_harper_provider(
     pr = _make_proofreader()
     listener = MagicMock()
     with (
-        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
         patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=True),
     ):
         assert pr.addLinguServiceEventListener(listener) is True
@@ -1226,7 +1227,7 @@ def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component
     gp.grammar_registry.clear_all()
     try:
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
             patch("plugin.doc.udprops.get_document_property", return_value=None),
             patch("plugin.framework.uno_context.get_runtime_uid", side_effect=["other-id", "match-id"]),
@@ -1503,7 +1504,7 @@ def test_ignore_rule_resolves_doc_id_from_map(mock_config_fixture, mock_locale_f
     with (
         patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("plugin.framework.uno_context.get_runtime_uid", return_value="rt-42"),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.writer.locale.ai_grammar_proofreader._ignore_rule_on_main") as mock_ignore,
     ):
         pr.ignoreRule("test-rule", mock_locale_fixture)
@@ -1688,7 +1689,10 @@ def test_paragraph_spans_memo_is_one_tuple(mock_config_fixture, mock_locale_fixt
 
 def test_bind_timeout_backs_off() -> None:
     pr = _make_proofreader()
-    with patch("plugin.writer.locale.ai_grammar_proofreader.run_on_main", side_effect=TimeoutError()) as mock_run:
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=TimeoutError()) as mock_run,
+    ):
         pr._ensure_document_bound("doc-timeout")
         assert mock_run.call_count == 1
         assert mock_run.call_args.kwargs["timeout"] == proofreader.BIND_RETRY_SEC

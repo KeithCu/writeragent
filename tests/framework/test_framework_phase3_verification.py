@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """deal / Hypothesis / CrossHair verification for appearance, event_bus, and config_service."""
 
-from __future__ import annotations
 
 import pytest
 from hypothesis import given, settings

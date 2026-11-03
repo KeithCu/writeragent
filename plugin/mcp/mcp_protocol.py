@@ -45,7 +45,7 @@ from plugin.framework import uno_context
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
-from plugin.framework.queue_executor import QueueExecutor
+from plugin.framework.queue_executor import MainThread
 from plugin.framework.errors import resolve_exception_message, format_error_payload, make_tool_error
 import plugin.mcp.document_mutation_gate as document_mutation_gate
 import plugin.mcp.mcp_session as mcp_session
@@ -337,7 +337,7 @@ class MCPProtocolHandler:
 
     def __init__(self, services: Any, debug_token: str | None = None) -> None:
         self.services = services
-        self.queue_executor = services.get("main_thread") or QueueExecutor(ctx=services.get("uno") if services else None)
+        self.queue_executor = services.get("main_thread") or MainThread(ctx=services.get("uno") if services else None)
         self.tool_registry = services.tools
         self.event_bus = getattr(services, "events", None)
         self._cancelled_requests: set[tuple[Any, str | int]] = set()
@@ -756,7 +756,7 @@ class MCPProtocolHandler:
                 schemas = self._hide_sidebar_only(schemas, docs_by_type)
             return schemas
 
-        schemas = self.queue_executor.execute(_collect, timeout=10.0)
+        schemas = self.queue_executor.call(_collect, timeout=10.0)
 
         # find_tools is the discovery search tool, useful only in direct_discovery mode
         # (small core list + on-demand search). delegate advertises the gateway and
@@ -815,7 +815,7 @@ class MCPProtocolHandler:
         except document_mutation_gate.BusyError:
             raise
         except TimeoutError:
-            # We map TimeoutError to 504, not a tool error, because only QueueExecutor/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
+            # We map TimeoutError to 504, not a tool error, because only MainThread/gate timeouts reach here; ToolBase.execute_safe already turns a tool's own exceptions (including TimeoutError) into error dicts.
             raise
         except Exception as e:
             # Tool failures must be MCP tool results (isError), not JSON-RPC
@@ -941,7 +941,7 @@ class MCPProtocolHandler:
             from plugin.framework.send_cancellation import get_current_send_cancellation
 
             send_cancellation = get_current_send_cancellation()
-            prepared = self.queue_executor.execute(
+            prepared = self.queue_executor.call(
                 self._prepare_mcp_execution,
                 tool_name,
                 arguments,
@@ -964,7 +964,7 @@ class MCPProtocolHandler:
             if prepared.is_async:
                 return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
             with _permit():
-                return self.queue_executor.execute(
+                return self.queue_executor.call(
                     self._invoke_prepared_mcp_tool,
                     prepared,
                     tool_name,
@@ -1145,7 +1145,7 @@ class MCPProtocolHandler:
                 return {"error": "Services not initialized"}
 
             ctx = uno_context.get_ctx()
-            self.queue_executor.execute(settings_box, ctx, timeout=120.0)
+            self.queue_executor.call(settings_box, ctx, timeout=120.0)
             return "Settings dialog shown"
         return {"triggered": command, "note": "Use menu for UI commands"}
 

@@ -135,11 +135,11 @@ class CopyMcpConfigListener(BaseActionListener):
 
 def _refresh_active_snippet() -> None:
     """Push the current snippet into the open Settings dialog, if any."""
-    from plugin.framework.queue_executor import post_to_main_thread
+    from plugin.framework.queue_executor import main
 
     def _apply() -> None:
         # The tunnel worker must not close over the dialog. The UI thread can
-        # clear it before this lambda runs; QueueExecutor then swallows the
+        # clear it before this lambda runs; MainThread then swallows the
         # disposed-dialog error and the update is dropped. Re-read under the
         # same lock on the UI thread. If clear won, there is nothing to update.
         dlg = _current_settings_dialog()
@@ -147,7 +147,7 @@ def _refresh_active_snippet() -> None:
             return
         sync_mcp_config_snippet(dlg)
 
-    post_to_main_thread(_apply)
+    main.post(_apply)
 
 
 def remember_tested_tunnel_url(provider: str, url: str) -> None:
@@ -275,7 +275,7 @@ class TestTunnelListener(BaseActionListener):
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.chatbot.dialogs import msgbox
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
         from plugin.framework.worker_pool import run_in_background
         from plugin.mcp.tunnel import test_tunnel_connectivity
 
@@ -313,6 +313,6 @@ class TestTunnelListener(BaseActionListener):
                         sync_mcp_config_snippet(self._dlg)
                     msgbox(self._ctx, _("MCP Tunnel Test"), msg)
 
-            post_to_main_thread(_apply)
+            main.post(_apply)
 
         run_in_background(_worker, name="mcp-tunnel-test", dedicated=True)

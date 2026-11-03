@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - HTTP route registry tests
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Route table reads stay consistent while register/unregister mutates it."""
 
-from __future__ import annotations
 
 import threading
 

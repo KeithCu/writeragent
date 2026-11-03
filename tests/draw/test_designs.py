@@ -1,7 +1,7 @@
+from __future__ import annotations
 # WriterAgent — unit tests for Impress design enumeration and LO-wall apply
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from __future__ import annotations
 
 from pathlib import Path
 import struct

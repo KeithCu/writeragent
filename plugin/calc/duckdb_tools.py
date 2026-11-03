@@ -16,7 +16,7 @@ from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
 from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception, uno_probe
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import (
     FLAT_FILE_EXTS,
@@ -123,7 +123,6 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
 
         task_hint = str(kwargs.get("task_hint") or "") or None
 
-        from plugin.framework.thread_guard import on_main_thread
         from plugin.scripting.client import run_folder_sql
 
         def _load_sql_inputs() -> dict[str, Any]:
@@ -195,15 +194,15 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         # Hop only the UNO preload when the caller is a worker; the IPC
         # stays on this thread. One function that both reads the sheets and
         # calls run_folder_sql pushes the SQL and the venv IPC onto the UI
-        # thread via execute_on_main_thread and freezes Calc. Callers that
+        # thread via main.call and freezes Calc. Callers that
         # are already on main (tests, sync entry) run the preload inline so
         # they do not deadlock the UI thread.
         try:
-            if on_main_thread():
+            if main.is_current():
                 prepared = _load_sql_inputs()
             else:
-                # execute_on_main_thread is typed Any; _load_sql_inputs returns this dict.
-                prepared = cast("dict[str, Any]", execute_on_main_thread(_load_sql_inputs))
+                # main.call is typed Any; _load_sql_inputs returns this dict.
+                prepared = cast("dict[str, Any]", main.call(_load_sql_inputs))
         except ToolExecutionError as exc:
             return format_error_payload(exc)
 

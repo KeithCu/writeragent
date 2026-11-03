@@ -175,6 +175,7 @@ def test_flag_prompt_safe_off_designated_thread_with_guard_on(monkeypatch) -> No
     """GUARD on + LoLane-like thread must not raise on get_eval_system_prompt."""
     import threading
 
+    from plugin.framework.queue_executor import main
     import plugin.framework.thread_guard as tg
 
     monkeypatch.setattr(tg, "GUARD_ON", True)
@@ -185,7 +186,7 @@ def test_flag_prompt_safe_off_designated_thread_with_guard_on(monkeypatch) -> No
     result: list[object] = []
 
     def uno_home() -> None:
-        tg.set_designated_main_thread(threading.current_thread())
+        main.designated = threading.current_thread()
         holder.append(threading.current_thread())
         ready.set()
         done.wait(timeout=30)
@@ -206,7 +207,7 @@ def test_flag_prompt_safe_off_designated_thread_with_guard_on(monkeypatch) -> No
     worker.join(timeout=30)
     done.set()
     home.join(timeout=30)
-    tg.set_designated_main_thread(None)
+    main.designated = None
     assert worker.is_alive() is False
     assert result and isinstance(result[0], str)
     assert FLAG_HARNESS_NOTE in result[0]

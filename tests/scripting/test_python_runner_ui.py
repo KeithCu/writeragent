@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for Run Python Script native dialog UI."""
 
-from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import Any
@@ -160,14 +160,14 @@ def _deliver_posted_native_run():
     no-service inline) and drain that queue from the poke. The product still
     posts the outcome; the harness plays the UI turn that would run it.
     """
-    executor = qe.default_executor
+    executor = qe.main
     saved_init = executor._initialized
     saved_svc = executor._async_callback_service
     saved_cb = executor._callback_instance
-    saved_poke = qe._test_poke_handler
+    saved_poke = qe.MainThread.poke
     draining = False
 
-    def _poke(ex: qe.QueueExecutor) -> None:
+    def _poke(ex: qe.MainThread) -> None:
         nonlocal draining
         # process_queue pokes again while items remain. The flag keeps that
         # re-poke from nesting; the loop drains the rest.
@@ -181,16 +181,16 @@ def _deliver_posted_native_run():
             draining = False
 
     # CI's real service takes this branch. A MagicMock is enough: the poke
-    # handler replaces addCallback, and execute() still inlines on this thread.
+    # handler replaces addCallback, and call() still inlines on this thread.
     executor._initialized = True
     executor._async_callback_service = MagicMock()
     executor._callback_instance = MagicMock()
-    qe.set_test_poke_handler(_poke)
+    qe.MainThread.poke = _poke
     try:
         yield
     finally:
         _poke(executor)
-        qe.set_test_poke_handler(saved_poke)
+        qe.MainThread.poke = saved_poke
         executor._initialized = saved_init
         executor._async_callback_service = saved_svc
         executor._callback_instance = saved_cb
@@ -343,7 +343,7 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
         patch.object(pr, "run_in_background", side_effect=_inline),
         patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:leak"),
         patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
+            "plugin.framework.queue_executor.main.call",
             side_effect=[
                 prepared,
                 TimeoutError("Main-thread execution of _finish_rps_execution timed out after 30.0s"),
@@ -372,7 +372,7 @@ def test_start_native_script_run_prepare_timeout_releases_pin():
         _deliver_posted_native_run(),
         patch.object(pr, "run_in_background", side_effect=_inline),
         patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=TimeoutError("prepare")),
+        patch("plugin.framework.queue_executor.main.call", side_effect=TimeoutError("prepare")),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
     ):
         pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)

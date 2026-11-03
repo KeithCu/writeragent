@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Collabora pythoncompute OriginalName → LibrePy =PY() prefix rewrite."""
 
-from __future__ import annotations
 
 from plugin.calc.python.cell_discovery import is_py_formula_text
 from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix

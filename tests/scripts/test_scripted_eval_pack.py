@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Replay --student scripted on the full ALL_EXAMPLES pack (no API key)."""
-from __future__ import annotations
 
 import os
 import shutil
@@ -131,10 +131,10 @@ def _lo_eval_available() -> str | None:
     """Return a skip reason, or None if headless LO eval can run.
 
     Probe a fresh interpreter so tests/conftest.py's mocked ``uno`` is not used.
-    Never set WRITERAGENT_TESTING=1 (QueueExecutor on the wrong thread).
+    Never set WRITERAGENT_TESTING=1 (MainThread on the wrong thread).
     """
     if os.environ.get("WRITERAGENT_TESTING") == "1":
-        return "WRITERAGENT_TESTING=1 uses QueueExecutor; unset it for LO eval"
+        return "WRITERAGENT_TESTING=1 uses MainThread; unset it for LO eval"
     if not shutil.which("soffice"):
         return f"soffice not on PATH. Local: {_LO_CMD}"
     if not (_REPO / "plugin" / "_manifest.py").is_file():

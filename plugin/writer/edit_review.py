@@ -698,7 +698,7 @@ class EditReviewSession:
 
         Thread placement: poll from a background/HTTP thread so the main thread stays free for
         the user's accept/reject clicks. UNO is not thread-safe, so callers off the main thread
-        pass ``uno_runner`` (e.g. ``execute_on_main_thread``) and every document read/cleanup in
+        pass ``uno_runner`` (e.g. ``main.call``) and every document read/cleanup in
         the loop is marshalled through it; the sleep itself stays on the calling thread.
         """
         run = uno_runner if uno_runner is not None else (lambda fn: fn())

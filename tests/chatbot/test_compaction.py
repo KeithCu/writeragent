@@ -1,6 +1,6 @@
+from __future__ import annotations
 """Unit tests for plugin.chatbot.compaction (PR1; no soffice, no ChatSession)."""
 
-from __future__ import annotations
 
 import ast
 import inspect

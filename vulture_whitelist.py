@@ -413,7 +413,6 @@ _.reset_suppressed_vcl_pump_count  # function: plugin/framework/async_drain_guar
 _.set_drain_scheduler_override  # function: plugin/framework/async_stream.py:1145
 _.set_fake_vision  # function: plugin/chatbot/sidebar_test_hooks.py:3075
 _.set_late_transcript_delay  # function: plugin/chatbot/sidebar_test_hooks.py:331
-_.set_test_poke_handler  # function: plugin/framework/queue_executor.py:72
 _.show_window  # variable: plugin/testing_runner.py:647
 _.sidebar_deck_names  # function: plugin/chatbot/sidebar_test_hooks.py:1719
 _.slash_popup_state  # function: plugin/chatbot/sidebar_test_hooks.py:2412

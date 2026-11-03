@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """deal / Hypothesis / CrossHair verification for openrouter_model_id and ast_stmt_edit."""
 
-from __future__ import annotations
 
 import ast
 import datetime as dt

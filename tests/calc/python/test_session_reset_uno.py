@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Native UNO test for Calc shared-kernel session reset (Issue #411 / Packet C2.2)."""
 
-from __future__ import annotations
 
 import math
 import struct

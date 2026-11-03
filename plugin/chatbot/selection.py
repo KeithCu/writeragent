@@ -23,7 +23,7 @@ from typing import Any, Callable
 from plugin.framework.model_lru import update_lru_history
 from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.async_drain_guard import add_drain_idle_callback, get_drain_owner, remove_drain_idle_callback
-from plugin.framework.queue_executor import post_to_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.errors import format_error_message
 from plugin.framework.client.llm_client import LlmClient
@@ -120,7 +120,7 @@ def stream_completion_tasks(
                 # It is possible this is running from _notify_drain_idle traversing the list,
                 # meaning it's still in the list when it runs. We remove it so it's gone for good.
                 remove_drain_idle_callback(_once)
-                post_to_main_thread(run_next_task)
+                main.post(run_next_task)
 
         add_drain_idle_callback(_once)
 

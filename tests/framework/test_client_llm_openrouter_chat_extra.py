@@ -1,6 +1,6 @@
+from __future__ import annotations
 # Tests for OpenRouter chat body extras and external editor resolution.
 
-from __future__ import annotations
 
 
 from plugin.framework.client.base_provider_shim import (

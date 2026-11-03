@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for plugin.scripting.venv.calc_functions_a_c."""
 
-from __future__ import annotations
 
 import datetime as dt
 import inspect

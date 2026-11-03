@@ -1,14 +1,15 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """LOBackend pins: fallback ctx on start, caller document at each queued call. No soffice."""
-from __future__ import annotations
 
 import os
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -21,7 +22,7 @@ for _p in (_PO, _REPO):
 
 import plugin.framework.uno_context as uno_context  # noqa: E402
 import tools_lo as tl  # noqa: E402
-from plugin.framework.thread_guard import get_designated_main_thread, set_designated_main_thread  # noqa: E402
+from plugin.framework.queue_executor import MainThread, main  # noqa: E402
 from plugin.framework.uno_context import get_ctx, set_fallback_ctx  # noqa: E402
 
 
@@ -39,12 +40,13 @@ def _boot(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
     return mock_ctx, mock_desktop
 
 
-def _shutdown(prev_designated: threading.Thread | None, prev_harness: str | None) -> None:
+def _shutdown(prev_designated: threading.Thread | None, prev_harness: str | None, prev_policy: Any) -> None:
     tl._lo_docs.clear()
     tl._lo_kinds.clear()
     if tl._lo_thread is not None:
         tl.LOBackend.stop()
-    set_designated_main_thread(prev_designated)
+    main.designated = prev_designated
+    MainThread.install(prev_policy, designated=prev_designated)
     if prev_harness is None:
         os.environ.pop("WRITERAGENT_EVAL_HARNESS", None)
     else:
@@ -53,13 +55,14 @@ def _shutdown(prev_designated: threading.Thread | None, prev_harness: str | None
 
 @pytest.fixture
 def lo_env():
-    prev_designated = get_designated_main_thread()
+    prev_designated = main.designated
+    prev_policy = MainThread.policy
     prev_harness = os.environ.get("WRITERAGENT_EVAL_HARNESS")
     prev_fallback = uno_context._fallback_ctx
     try:
         yield
     finally:
-        _shutdown(prev_designated, prev_harness)
+        _shutdown(prev_designated, prev_harness, prev_policy)
         # stop() restores the fallback captured at start. If start never ran,
         # put back whatever this test found.
         if tl._lo_saved_fallback is tl._FALLBACK_UNSET and uno_context._fallback_ctx is not prev_fallback:
@@ -162,9 +165,10 @@ def test_call_fails_fast_when_soffice_already_exited(monkeypatch: pytest.MonkeyP
 def test_eval_harness_disables_async_callback(monkeypatch: pytest.MonkeyPatch, lo_env: None) -> None:
     del lo_env
     monkeypatch.setenv("WRITERAGENT_EVAL_HARNESS", "1")
-    from plugin.framework.queue_executor import QueueExecutor
+    from plugin.framework.queue_executor import MainThread, install_from_environ
 
-    ex = QueueExecutor()
+    install_from_environ()
+    ex = MainThread()
     ex.set_context(MagicMock(name="ctx"))
     # Force lazy init path
     assert ex._get_async_callback() is None

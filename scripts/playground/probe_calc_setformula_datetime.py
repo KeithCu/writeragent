@@ -18,6 +18,9 @@ import tempfile
 from pathlib import Path
 
 os.environ.setdefault("WRITERAGENT_TESTING", "1")
+from plugin.framework.queue_executor import install_from_environ
+
+install_from_environ()
 
 # com.sun.star.util.NumberFormat (IDL)
 _DEFINED = 1

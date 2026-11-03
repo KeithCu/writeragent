@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent - Tests for Python Compute Service
 # Copyright (c) 2026 KeithCu
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared fixtures and utilities for compute service tests."""
 
-from __future__ import annotations
 
 import socket
 

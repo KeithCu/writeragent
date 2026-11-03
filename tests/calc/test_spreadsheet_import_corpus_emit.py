@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Corpus-style emission checks (no LibreOffice required)."""
 
-from __future__ import annotations
 
 from plugin.calc.spreadsheet_import.emit import build_converted_output_model, emit_py_formula
 from plugin.calc.spreadsheet_import.ingest import ingest_from_arrays

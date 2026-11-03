@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -7,7 +8,6 @@
 # (at your option) any later version.
 """Tests for scripting config limits (timeout, max data cells)."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 

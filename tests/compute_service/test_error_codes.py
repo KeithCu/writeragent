@@ -1,6 +1,6 @@
+from __future__ import annotations
 """The README HTTP status table lists every error code in the row of its status."""
 
-from __future__ import annotations
 
 import re
 from pathlib import Path

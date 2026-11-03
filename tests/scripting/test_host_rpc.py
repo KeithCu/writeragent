@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for venv → LibreOffice tool RPC (host side)."""
 
-from __future__ import annotations
 
 import io
 import os
@@ -275,7 +275,7 @@ def test_execute_tool_prefers_script_session_document():
     registry._services = {}
     registry.execute.return_value = {"status": "ok"}
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
@@ -306,7 +306,7 @@ def test_execute_tool_uses_pinned_document_not_front_window():
     token = pin_script_document(bound)
     try:
         with (
-            patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
             patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
             patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
             patch("plugin.scripting.session_manager.get_desktop") as mock_desktop,
@@ -548,7 +548,7 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
 
     # We simulate ToolRegistry.execute's thread behavior loosely for tests,
     # but more importantly we test that host_rpc does not wrap the final `registry.execute`
-    # in `execute_on_main_thread` directly anymore since we split it.
+    # in `main.call` directly anymore since we split it.
 
     # ToolRegistry.execute is actually what executes. Let's make sure it receives ToolContext properly.
     def mock_registry_execute(tool_name, tctx, **kwargs):
@@ -561,7 +561,7 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
     bound = MagicMock()
 
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()) as mock_exec_main,
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()) as mock_exec_main,
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
@@ -576,7 +576,7 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
     assert res["caller_tctx"] == "test_caller"
     registry.execute.assert_called_once()
 
-    # execute_on_main_thread should only be called once, for `_run`
+    # main.call should only be called once, for `_run`
     mock_exec_main.assert_called_once()
     assert mock_exec_main.call_args[0][0].__name__ == "_run"
 
@@ -734,7 +734,7 @@ def test_execute_tool_copies_stop_onto_tool_context():
 
     sentinel = object()
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),

@@ -8,9 +8,9 @@ Headless LibreOffice backend for prompt_optimization eval.
 One soffice process; all UNO runs on ``_lo_thread`` via ``LOBackend.call``
 (``-j`` is ThreadPoolExecutor in this process — do not ProcessPool one soffice).
 Eval tools use ``bypass_thread_guard=True`` because ``_lo_thread`` is not
-``threading.main_thread()``. Do not route through ``execute_on_main_thread``
+``threading.main_thread()``. Do not route through ``main.call``
 (no VCL pump here → deadlock, same family as issue #402). Do not set
-``WRITERAGENT_TESTING=1`` (QueueExecutor would go inline on the wrong thread).
+``WRITERAGENT_TESTING=1`` (MainThread would go inline on the wrong thread).
 
 ``get_ctx()`` is pinned to the remote office context for the life of the
 backend (``set_fallback_ctx``). Each queued ``call`` activates that caller's
@@ -245,11 +245,11 @@ class LOBackend:
         _lo_thread = threading.Thread(target=cls._worker_loop, daemon=True)
         _lo_thread.start()
         # Eval UNO lives on _lo_thread, not threading.main_thread(). Designate it
-        # so the thread guard and QueueExecutor treat it as the UNO home thread
-        # (inline on this thread — not execute_on_main_thread / VCL, not TESTING=1).
-        from plugin.framework.thread_guard import set_designated_main_thread
+        # so the thread guard and MainThread treat it as the UNO home thread
+        # (inline on this thread — not main.call / VCL, not TESTING=1).
+        from plugin.framework.queue_executor import Policy, main
 
-        set_designated_main_thread(_lo_thread)
+        main.install(Policy.eval_harness, designated=_lo_thread)
 
     @classmethod
     def stop(cls):
@@ -260,9 +260,9 @@ class LOBackend:
         _lo_queue.put(None)
         _lo_thread.join()
         _lo_thread = None
-        from plugin.framework.thread_guard import set_designated_main_thread
+        from plugin.framework.queue_executor import Policy, main
 
-        set_designated_main_thread(None)
+        main.install(Policy.production, designated=None)
         # Remote context is gone with the pipe. Put get_ctx() back.
         _restore_eval_fallback_ctx()
         if _lo_user_dir:

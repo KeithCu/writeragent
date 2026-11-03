@@ -1,6 +1,6 @@
+from __future__ import annotations
 # Tests for scripts/mock_llm_server.py
 
-from __future__ import annotations
 
 import json
 import threading

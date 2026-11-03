@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -11,7 +12,6 @@ Every parity test compares the results of the same operation with the Cython
 accelerator enabled versus disabled (Pure Python).
 """
 
-from __future__ import annotations
 
 from typing import Any
 

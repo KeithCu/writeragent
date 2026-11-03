@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -13,7 +14,6 @@ does not flip Send → Stop Rec (same class as E8b). Do not skip the packet
 because the runner is URP-only or because ``DISPLAY`` is set (xvfb sets it).
 """
 
-from __future__ import annotations
 
 import os
 import time

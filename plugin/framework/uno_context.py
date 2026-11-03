@@ -54,7 +54,8 @@ from plugin.framework.errors import (
     safe_call,
     suppress_disposed,
 )
-from plugin.framework.thread_guard import main_thread_only, on_main_thread
+from plugin.framework.queue_executor import main
+from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.vcl_pumping import (
     focus_preserved as focus_preserved,
     process_events_to_idle as process_events_to_idle,
@@ -203,7 +204,7 @@ def resolve_package_extension_id(ctx: Any | None = None) -> str:
     if _package_extension_id:
         return _package_extension_id
 
-    if not on_main_thread():
+    if not main.is_current():
         return EXTENSION_ID_WRITERAGENT
 
     pip = get_package_info(ctx)
@@ -679,7 +680,7 @@ def document_id_for_frame(frame: Any) -> str:
     """
     if frame is None:
         return ""
-    if not on_main_thread():
+    if not main.is_current():
         return ""
     model = get_document_from_frame(frame)
     if model is None:

@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -5,7 +6,6 @@
 
 """Hammer Stop across threads before/after client cancellation refactor."""
 
-from __future__ import annotations
 
 import json
 import threading

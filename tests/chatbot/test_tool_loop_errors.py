@@ -1001,7 +1001,7 @@ def test_ui_thread_send_never_calls_fetch_for_cold_model(test_instance, mock_get
         "chat_max_tool_rounds": 1,
     }
     with (
-        patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
         patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
         patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
@@ -1059,7 +1059,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
     ):
         # UI thread: cold model, no HTTP, the selection is captured.
         with (
-            patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.client.model_fetcher.run_in_background"),
             patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
             patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
@@ -1075,7 +1075,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
 
         # Send worker, round 0: resolves the cold model before building the request.
         with (
-            patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
             patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
             patch("plugin.chatbot.tool_loop.llm_request_lane", side_effect=_Lane),
             patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),

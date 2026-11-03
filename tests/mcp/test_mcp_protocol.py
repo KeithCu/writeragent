@@ -94,7 +94,7 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
             return {"status": "ok"}
 
     class _FakeMainThread:
-        def execute(self, fn, *args, **kwargs):
+        def call(self, fn, *args, **kwargs):
             kwargs.pop("timeout", None)
             kwargs.pop("bound_scope", None)
             return fn(*args, **kwargs)
@@ -168,7 +168,7 @@ class _DocSvc:
 
 
 class _InlineMain:
-    def execute(self, fn, *args, **kwargs):
+    def call(self, fn, *args, **kwargs):
         kwargs.pop("timeout", None)
         kwargs.pop("bound_scope", None)
         return fn(*args, **kwargs)
@@ -363,7 +363,7 @@ def test_tools_call_keeps_real_arguments_when_stripping_bypass():
 
 
 def _extract_runner(fn):
-    """Extract the underlying runner callable from the closure passed to execute_on_main_thread."""
+    """Extract the underlying runner callable from the closure passed to call."""
     if not hasattr(fn, "__closure__") or not fn.__closure__:
         return None
     free = dict(zip(fn.__code__.co_freevars, (cell.cell_contents for cell in fn.__closure__)))
@@ -398,7 +398,7 @@ def test_long_running_bypass_still_marshals_to_the_main_thread():
     def worker():
         box["result"] = handler._mcp_tools_call({"name": "sync_probe", "arguments": {"bypass_thread_guard": True, "note": "keep"}})
 
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=fake_marshal):
         thread = threading.Thread(target=worker, name="http-worker")
         thread.start()
         thread.join()
@@ -429,7 +429,7 @@ def test_backpressure_and_debug_bypass_still_marshals_to_the_main_thread():
         box["debug"] = handler._debug_call_tool("sync_probe", {"bypass_thread_guard": True, "note": "keep"}, document_url="file:///live.odt")
         box["direct"] = handler._run_tool("sync_probe", {"bypass_thread_guard": True}, document_url="file:///live.odt")
 
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=fake_marshal):
         thread = threading.Thread(target=worker, name="http-worker")
         thread.start()
         thread.join()
@@ -715,10 +715,10 @@ def test_sse_keepalive_readable_socket_uses_plain_recv():
 
 def test_mcp_run_tool_captures_send_cancellation() -> None:
     from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
-    from plugin.framework.queue_executor import QueueExecutor
+    from plugin.framework.queue_executor import MainThread
     from plugin.framework.send_cancellation import SendCancellation
 
-    executor = MagicMock(spec=QueueExecutor)
+    executor = MagicMock(spec=MainThread)
     # mock _PreparedMcpCall so it bypasses isinstance check and we don't need real docs
     prepared = MagicMock(spec=_PreparedMcpCall)
     prepared.doc_key = "test_key"
@@ -726,7 +726,7 @@ def test_mcp_run_tool_captures_send_cancellation() -> None:
     prepared.is_async = False
 
     # execute returns prepared then something else
-    executor.execute.side_effect = [prepared, "final_result"]
+    executor.call.side_effect = [prepared, "final_result"]
 
     services = MagicMock()
     handler = MCPProtocolHandler(services)
@@ -740,10 +740,10 @@ def test_mcp_run_tool_captures_send_cancellation() -> None:
         res = handler._run_tool("my_tool", {})
 
     assert res == "final_result"
-    assert executor.execute.call_count == 2
+    assert executor.call.call_count == 2
 
     # first call should be _prepare_mcp_execution with bound_scope=scope and send_cancellation=scope
-    prepare_call = executor.execute.call_args_list[0]
+    prepare_call = executor.call.call_args_list[0]
     assert prepare_call.args[0] == handler._prepare_mcp_execution
     assert prepare_call.kwargs.get("bound_scope") is scope
     assert prepare_call.kwargs.get("send_cancellation") is scope
@@ -780,7 +780,7 @@ def test_async_long_running_uses_execute_safe_without_bypass_keyword():
         marshalled.append(fn)
         raise AssertionError("is_async MCP tool must not be marshalled to the main thread")
 
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fail_marshal):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=fail_marshal):
         result = handler._run_tool("async_probe", {"bypass_thread_guard": False, "note": "keep"}, document_url="file:///live.odt")
 
     assert marshalled == []

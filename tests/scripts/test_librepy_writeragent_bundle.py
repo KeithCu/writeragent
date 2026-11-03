@@ -1,6 +1,6 @@
+from __future__ import annotations
 """LibrePy bundle includes writeragent namespace stub, not full tool API."""
 
-from __future__ import annotations
 
 import sys
 from pathlib import Path

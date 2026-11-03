@@ -493,19 +493,7 @@ def set_background_task(name: str | None) -> None:
 def get_background_task_name() -> str | None:
     return getattr(_bg, "task_name", None)
 
-def set_designated_main_thread(thread: Any) -> None:
-    pass
-
-def get_designated_main_thread() -> Any:
-    return None
-
-# Bugfix: on_main_thread() previously returned True unconditionally.
-# This caused background threads (e.g. Writer linguistic worker Dummy-21) calling
-# wait_while_pumping to falsely believe they were on the main thread and skip
-# posting PE2I events to the main thread. Checking threading.current_thread()
-# is threading.main_thread() correctly identifies background worker threads in release bundles.
-def on_main_thread() -> bool:
-    return threading.current_thread() is threading.main_thread()
+UNTAGGED_DUMMY_IS_CURRENT = False
 
 def on_python_main_thread() -> bool:
     return threading.current_thread() is threading.main_thread()
@@ -562,10 +550,8 @@ __all__ = [
     "in_sync_host_dispatch",
     "set_background_task",
     "get_background_task_name",
-    "set_designated_main_thread",
-    "get_designated_main_thread",
-    "on_main_thread",
     "on_python_main_thread",
+    "UNTAGGED_DUMMY_IS_CURRENT",
     "_wrap_uno",
     "_unwrap_uno",
     "GUARD_ON",

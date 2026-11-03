@@ -751,7 +751,7 @@ def _child_env_without_runner_python(*, uno_thread_guard: bool | None = None) ->
     for key in _SOFFICE_STRIP_ENV:
         env.pop(key, None)
     # URP dispatch of WriterAgentDeck runs getRealInterface off the VCL thread.
-    # Product ChatPanel hops path init / get_extension_url via execute_on_main_thread.
+    # Product ChatPanel hops path init / get_extension_url via main.call.
     # WRITERAGENT_TESTING=1 still inlines that hop, so this child keeps the official
     # opt-out: Dummy-N create would otherwise abort under @main_thread_only.
     if uno_thread_guard is False:

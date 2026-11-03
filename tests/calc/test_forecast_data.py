@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for Calc forecast_data tool and analysis domain wiring."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
@@ -47,7 +47,7 @@ def test_forecast_data_requires_data_source(calc_ctx):
     assert "data_range" in result["message"].lower() or "data" in result["message"].lower()
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "forecast_time_series", "metrics": {"periods": 6}}
@@ -70,7 +70,7 @@ def test_forecast_data_happy_path(mock_run_trusted, mock_main_thread, calc_ctx):
 
 
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     inside = {"flag": False}
@@ -83,7 +83,7 @@ def test_forecast_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
             inside["flag"] = False
 
     def run(*_args, **_kwargs):
-        assert not inside["flag"], "forecast IPC must not run inside execute_on_main_thread"
+        assert not inside["flag"], "forecast IPC must not run inside main.call"
         return {"status": "ok", "helper": "forecast_time_series"}
 
     def write(*_args, **_kwargs):
@@ -111,7 +111,7 @@ def test_forecast_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
 
 
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_data_output_range_keeps_sheet_prefix(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "forecast_time_series"}
@@ -185,8 +185,8 @@ def test_insert_forecast_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_
 
 @patch("plugin.scripting.client.run_forecast")
 @patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["Date", "Value"], ["2024-01-01", 1.0]], None))
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.framework.thread_guard.on_main_thread", return_value=False)
+@patch("plugin.framework.queue_executor.main.call")
+@patch("plugin.framework.queue_executor.main.is_current", return_value=False)
 def test_run_trusted_forecast_resolves_on_main_and_runs_client_off_main(mock_on_main, mock_main_thread, _mock_resolve, mock_client):
     del mock_on_main
     inside = {"flag": False}
@@ -230,7 +230,7 @@ def test_forecast_data_rejects_raw_data_in_analysis_domain(calc_ctx):
 
 @patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast", return_value=None)
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc", side_effect=RuntimeError("disk full"))
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_forecast_sheet_write_failure_keeps_the_result(
     mock_run_trusted, mock_main_thread, mock_insert, mock_auto_plot, calc_ctx

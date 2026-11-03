@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for Calc optimize_data threading."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
@@ -23,7 +23,7 @@ def calc_ctx():
 
 
 @patch("plugin.calc.optimize.insert_optimize_result_into_calc")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.optimize.run_domain")
 def test_optimize_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     inside = {"flag": False}
@@ -36,7 +36,7 @@ def test_optimize_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
             inside["flag"] = False
 
     def run(*_args, **_kwargs):
-        assert not inside["flag"], "optimize IPC must not run inside execute_on_main_thread"
+        assert not inside["flag"], "optimize IPC must not run inside main.call"
         return {"status": "ok", "helper": "linear_programming"}
 
     def write(*_args, **_kwargs):
@@ -63,7 +63,7 @@ def test_optimize_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
     mock_main_thread.assert_called_once()
 
 @patch("plugin.calc.optimize.insert_optimize_result_into_calc")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.optimize.run_domain")
 def test_optimize_data_handles_complex_output_range(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "linear_programming"}
@@ -149,7 +149,7 @@ def test_optimize_data_describes_parameters():
 
 
 @patch("plugin.calc.optimize.insert_optimize_result_into_calc", side_effect=RuntimeError("disk full"))
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.optimize.run_domain")
 def test_optimize_sheet_write_failure_keeps_the_result(
     mock_run_trusted, mock_main_thread, mock_insert, calc_ctx

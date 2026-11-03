@@ -1,7 +1,7 @@
+from __future__ import annotations
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Import-closure tests for plugin.scripting.session_manager."""
 
-from __future__ import annotations
 
 import ast
 from pathlib import Path
@@ -99,7 +99,7 @@ def test_workbook_session_id_with_explicit_doc() -> None:
     with (
         patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
         patch("plugin.scripting.session_manager.is_calc", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
     ):
         sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
         assert sid == "calc:file:///custom_sheet.ods"
@@ -778,8 +778,8 @@ def test_reset_off_main_marshals_body_once() -> None:
 
     ctx = MagicMock()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False) as mock_main,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_exec,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False) as mock_main,
+        patch("plugin.framework.queue_executor.main.call") as mock_exec,
     ):
         session_manager.reset_workbook_python_session(ctx)
     mock_main.assert_called_once()
@@ -796,8 +796,8 @@ def test_reset_off_main_runs_body_when_hop_lands_on_main() -> None:
     desktop.getCurrentComponent.return_value = non_target_doc
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", side_effect=[False, True]),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)) as mock_exec,
+        patch("plugin.framework.queue_executor.main.is_current", side_effect=[False, True]),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)) as mock_exec,
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_writer", return_value=False),
         patch("plugin.scripting.session_manager.is_draw", return_value=False),

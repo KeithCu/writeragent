@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for the Calc initialization script editor launcher."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
@@ -18,7 +18,7 @@ class _DisposedException(Exception):
 def test_open_init_script_editor_no_calc_doc():
     ctx = MagicMock()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=None),
         patch("plugin.calc.python.init_script_editor.msgbox") as mock_box,
     ):
@@ -31,7 +31,7 @@ def test_open_init_script_editor_force_internal():
     ctx = MagicMock()
     doc = MagicMock()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=(None, False)),
         patch("plugin.calc.python.init_script_editor.get_config", side_effect=lambda k: k == "scripting.force_internal_script_editor"),
@@ -46,7 +46,7 @@ def test_open_init_script_editor_no_venv():
     ctx = MagicMock()
     doc = MagicMock()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=(None, False)),
         patch("plugin.calc.python.init_script_editor.get_config", return_value=False),
@@ -62,7 +62,7 @@ def test_open_init_script_editor_webview_failure():
     ctx = MagicMock()
     doc = MagicMock()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=("/bin/python", False)),
         patch("plugin.calc.python.init_script_editor.get_config", return_value=False),
@@ -85,7 +85,7 @@ def test_open_init_script_editor_success_and_on_save():
         return True
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=("/bin/python", True)),
         patch("plugin.calc.python.init_script_editor.get_calc_init_script", return_value="# init script"),
@@ -139,7 +139,7 @@ def test_open_init_script_editor_disposed_save_returns_error_frame():
         return True
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=("/bin/python", True)),
         patch("plugin.calc.python.init_script_editor.get_calc_init_script", return_value="# init script"),
@@ -161,7 +161,7 @@ def test_open_init_script_editor_disposed_at_open_shows_message():
     ctx = MagicMock()
     doc = MagicMock()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=("/bin/python", True)),
         patch("plugin.calc.python.init_script_editor.get_calc_init_script", side_effect=_DisposedException("gone")),

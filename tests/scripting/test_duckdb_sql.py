@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for plugin.scripting.venv.duckdb_sql (Phase A folder SQL path guard + execution)."""
 
-from __future__ import annotations
 
 import textwrap
 from pathlib import Path

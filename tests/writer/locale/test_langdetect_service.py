@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for plugin.writer.locale.langdetect_service."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 

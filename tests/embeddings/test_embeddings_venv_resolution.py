@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
@@ -7,7 +8,6 @@
 # (at your option) any later version.
 """Tests for strict embeddings-pool venv resolution (no LO fallback)."""
 
-from __future__ import annotations
 
 import stat
 import sys

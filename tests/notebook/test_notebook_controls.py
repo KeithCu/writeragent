@@ -1,6 +1,6 @@
+from __future__ import annotations
 # WriterAgent - tests for notebook run button wiring
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
@@ -25,7 +25,7 @@ def setup_function() -> None:
 
 def test_wire_all_ok_off_main_thread(monkeypatch):
     """File Open XFilter is Dummy-2, not threading.main_thread()."""
-    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     was = tg.GUARD_ON
     tg.GUARD_ON = True
@@ -49,7 +49,7 @@ def test_wire_all_with_registry_off_main_thread_does_not_raise(monkeypatch):
     when the guard is on and the caller is not the main thread; filter()
     then returns False and loadComponentFromURL returns None.
     """
-    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     was = tg.GUARD_ON
     tg.GUARD_ON = True
@@ -452,7 +452,7 @@ def test_prune_keeps_container_listener():
 
 def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
     """doc listener retry must not call guarded get_runtime_uid."""
-    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     was = tg.GUARD_ON
     tg.GUARD_ON = True
@@ -487,7 +487,7 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
 def test_prune_dead_listeners_off_main_thread_keeps_listeners(monkeypatch):
     """prune_dead_listeners off-main thread (e.g., File Open filter) must not drop listeners just because get_active_document raises RuntimeError."""
     # Simulate off main thread
-    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     ctx = MagicMock()
     doc = MagicMock()

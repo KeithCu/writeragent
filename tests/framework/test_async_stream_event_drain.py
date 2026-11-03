@@ -301,18 +301,19 @@ def test_async_callback_for_drain_rearm_keeps_testing_flag(monkeypatch: pytest.M
     from plugin.framework import queue_executor as qe
 
     sentinel = object()
-    executor = qe.default_executor
+    executor = qe.main
     previous_service = executor._async_callback_service
     previous_ctx = executor._ctx
     executor._async_callback_service = sentinel
     try:
         monkeypatch.setenv("WRITERAGENT_TESTING", "1")
         assert qe.async_callback_for_drain_rearm() is sentinel
-        qe.set_force_marshal_mode(True)
+        saved_policy = qe.main.policy
+        qe.main.install(qe.Policy.test_marshal)
         try:
             assert qe.async_callback_for_drain_rearm() is None
         finally:
-            qe.set_force_marshal_mode(False)
+            qe.main.install(saved_policy)
     finally:
         executor._async_callback_service = previous_service
         executor._ctx = previous_ctx
@@ -343,7 +344,7 @@ def test_drain_scheduler_override_none_uses_blocking_path(monkeypatch: pytest.Mo
     What was wrong: this asserted ``toolkit.idle_calls >= 1`` and failed in CI
     (run 37510062234) with ``0 >= 1`` while the chunk and STREAM_DONE were
     applied. ``pump_ui_idle`` skips VCL whenever the process-wide drain depth
-    is above 1, and it runs work other tests left in ``default_executor``. On
+    is above 1, and it runs work other tests left in ``main``. On
     an xdist worker both are shared with every earlier test, so the count
     measured leftover state, not the scheduler choice. The silent
     ``on_error`` also hid any crash inside the pump.
@@ -363,7 +364,7 @@ def test_drain_scheduler_override_none_uses_blocking_path(monkeypatch: pytest.Mo
         blocking_calls.append(toolkit_arg)
         return real_blocking(state, toolkit_arg, stop_checker, flush_pending, *args, **kwargs)
 
-    private_executor = qe.QueueExecutor()
+    private_executor = qe.MainThread()
     pumps: list[object] = []
     real_pump = stream_mod.pump_ui_idle
 

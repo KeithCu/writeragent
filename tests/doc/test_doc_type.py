@@ -199,7 +199,7 @@ def test_uno_services_for_document_fallback_and_off_main() -> None:
     assert uno_services_for_document(empty_model, "writer") == frozenset({_TEXT_SERVICE})
 
     # Off main thread -> uses label map instead of supportsService
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
         assert uno_services_for_document(calc_model, "writer") == frozenset({_TEXT_SERVICE})
 
 

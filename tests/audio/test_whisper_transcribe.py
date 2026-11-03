@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for faster-whisper transcription invocation."""
 
-from __future__ import annotations
 
 import sys
 from types import ModuleType, SimpleNamespace

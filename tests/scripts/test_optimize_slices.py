@@ -1,9 +1,9 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Named-slice injection for the live MIPROv2 student (no OpenRouter)."""
-from __future__ import annotations
 
 import sys
 from pathlib import Path

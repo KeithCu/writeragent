@@ -1,3 +1,4 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
@@ -8,7 +9,6 @@ Wrong root (e.g. ``plugin/modules/``) yields zero YAML files and drops ~50 setti
 strings from the POT; see ``_walk_module_yamls`` implementation.
 """
 
-from __future__ import annotations
 
 import os
 

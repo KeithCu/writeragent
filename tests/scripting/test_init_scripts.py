@@ -1,10 +1,10 @@
+from __future__ import annotations
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc workbook initialization scripts (persistence + sandbox execution)."""
 
-from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
@@ -345,7 +345,7 @@ def test_workbook_session_id_recursion_off_main_thread(monkeypatch: pytest.Monke
     from plugin.scripting.session_manager import workbook_session_id
 
     # No caller doc: None without a desktop lookup or deadlock (#402)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda: "shared")
 
     doc = MagicMock()
