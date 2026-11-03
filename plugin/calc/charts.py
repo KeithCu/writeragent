@@ -793,7 +793,12 @@ def _find_calc_chart_and_sheet(doc: Any, chart_name: str, sheet_name: str | None
     return None, None
 
 
-def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> Iterator[tuple[Any, Any, str | None]]:
+def _iter_page_shapes(
+    container: Any,
+    doc: Any = None,
+    parent: Any = None,
+    on_probe_error: Callable[[int, Exception], None] | None = None,
+) -> Iterator[tuple[Any, Any, str | None]]:
     """Yield (shape, parent, shape_type) for shapes in a draw page or group shape, descending into nested groups."""
     # Tip: a disposed shape on a live page is skipped so later shapes still list; on a closed
     # document re-raise, or list_charts would return status ok with a partial list.
@@ -826,12 +831,18 @@ def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> It
                     raise
                 continue
             log.debug("_iter_page_shapes getShapeType failed: %s", exc)
+            # What was wrong: dropping the exception caused list_charts to silently skip
+            # broken shapes and return status: ok with a partial chart list.
+            # Why this change: notify on_probe_error callback (if provided) so list_charts records
+            # the per-shape error, while keeping shape_type as str | None (no tri-state).
+            if on_probe_error is not None:
+                on_probe_error(i, exc)
             shape_type = None
 
         yield shape, current_parent, shape_type
 
         if shape_type and "GroupShape" in str(shape_type):
-            yield from _iter_page_shapes(shape, doc, parent=shape)
+            yield from _iter_page_shapes(shape, doc, parent=shape, on_probe_error=on_probe_error)
 
 
 def _collect_page_shape_names(page: Any, doc: Any, existing: set[str], skip: Any = None) -> None:
@@ -1076,7 +1087,13 @@ class WriterEmbeds:
                     _chart_list_failure(self.doc, exc, errors, source="embedded", name=name)
         try:
             page = self.doc.getDrawPage()
-            for j, (shape, _parent, shape_type) in enumerate(_iter_page_shapes(page, self.doc)):
+
+            def _on_writer_probe_error(idx: int, exc: Exception) -> None:
+                _chart_list_failure(self.doc, exc, errors, source="draw_page", index=idx)
+
+            for j, (shape, _parent, shape_type) in enumerate(
+                _iter_page_shapes(page, self.doc, on_probe_error=_on_writer_probe_error)
+            ):
                 try:
                     if not _is_chart_shape(shape, shape_type):
                         continue
@@ -1321,7 +1338,14 @@ class DrawPage:
                 _chart_list_failure(self.doc, exc, errors, page=i)
                 continue
             try:
-                for j, (shape, _parent, shape_type) in enumerate(_iter_page_shapes(page, self.doc)):
+                page_idx = i
+
+                def _on_draw_probe_error(idx: int, exc: Exception) -> None:
+                    _chart_list_failure(self.doc, exc, errors, page=page_idx, index=idx)
+
+                for j, (shape, _parent, shape_type) in enumerate(
+                    _iter_page_shapes(page, self.doc, on_probe_error=_on_draw_probe_error)
+                ):
                     try:
                         if not _is_chart_shape(shape, shape_type):
                             continue

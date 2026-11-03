@@ -281,7 +281,7 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
 
     messages = coalesced_messages
 
-    # Non-chat callers never see the chat tail, so the date is dated here.
+    # Non-chat callers never see the chat tail, so the date is injected here.
     today = datetime.date.today().strftime("%A, %Y-%m-%d")
     date_msg = f"Today's date is {today}."
     system_message: Any = None

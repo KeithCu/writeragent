@@ -564,7 +564,10 @@ def test_list_charts_draw_per_shape_error_keeps_later_chart():
 
     assert result["status"] == "ok"
     assert [entry["name"] for entry in result["charts"]] == ["Chart_2"]
-    assert "errors" not in result or len(result["errors"]) == 0
+    assert len(result.get("errors", [])) == 1
+    assert result["errors"][0]["index"] == 0
+    assert result["errors"][0]["page"] == 0
+    assert "bad shape" in result["errors"][0]["message"]
 
 
 def test_list_charts_draw_closed_mid_scan_raises():

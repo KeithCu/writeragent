@@ -41,14 +41,9 @@ def _stub_draw() -> Any:
 
 def ensure_eval_prompt_hooks() -> None:
     """Idempotent WriterAgent prompt catalog/blocks registration for eval harness entry points."""
-    from plugin.main import get_tools
-    from plugin.writeragent_hooks import (
-        register_writeragent_prompt_hooks,
-        register_writeragent_tool_filters,
-    )
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
 
     register_writeragent_prompt_hooks()
-    register_writeragent_tool_filters(get_tools())
 
 
 def _prompt_for_kind(kind: str, note: str | None = None) -> str:
@@ -91,6 +86,8 @@ def get_draw_eval_chat_system_prompt() -> str:
 
 
 def get_eval_system_prompt(task_id: str = "") -> str:
+    # Callers like tests/scripts/test_eval_prompts.py import this module as
+    # scripts.prompt_optimization.eval_prompts when scripts/prompt_optimization is not on sys.path.
     try:
         from dataset import task_kind
     except ImportError:

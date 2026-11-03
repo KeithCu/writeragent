@@ -676,22 +676,16 @@ def set_combo_items(ctrl: Any, items: Sequence[str], selected: str = "") -> None
     if not ctrl:
         return
     labels = tuple(items)
-    # ComboBox and ListBox controls support removeItems/addItems.
-    # Controls that only expose model.StringItemList (e.g. settings dialog controls) use the fallback branch.
-    if hasattr(ctrl, "removeItems") and hasattr(ctrl, "addItems"):
-        count = ctrl.getItemCount() if hasattr(ctrl, "getItemCount") else 0
-        if count:
-            ctrl.removeItems(0, count)
-        if labels:
-            ctrl.addItems(labels, 0)
-    else:
-        model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-        if model is not None and hasattr(model, "StringItemList"):
-            model.StringItemList = labels
+    # Real UNO ComboBox and ListBox controls expose removeItems and addItems via XComboBox / XListBox.
+    count = ctrl.getItemCount()
+    if count:
+        ctrl.removeItems(0, count)
+    if labels:
+        ctrl.addItems(labels, 0)
 
     if selected:
         set_control_text(ctrl, selected)
-    elif hasattr(ctrl, "getItemCount") and ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
+    elif ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
         ctrl.setText("")
 
 

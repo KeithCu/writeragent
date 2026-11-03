@@ -180,7 +180,7 @@ class ChatSession:
             return view[:-1] + [new_last]
 
         if role == "tool" and tail:
-            # Folding the snapshot into the last tool result avoids runaway edit loops.
+            # A user turn after a tool result reads as a new request (gpt-oss-20b re-edited in a loop); folding the snapshot into the tool result keeps the model in tool-response state.
             content = last.get("content")
             new_content: Any
             if isinstance(content, str):
