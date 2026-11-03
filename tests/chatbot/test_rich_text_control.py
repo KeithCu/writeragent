@@ -817,6 +817,11 @@ class TestRichControlListenerInit:
 
         rtc._CONTROL_INIT_STARTED.clear()
 
+    def teardown_method(self):
+        import plugin.chatbot.rich_text_control as rtc
+
+        rtc._CONTROL_INIT_STARTED.clear()
+
     def test_window_shown_no_peer_does_not_init(self):
         from plugin.chatbot.rich_text_control import RichTextControlListener
 
@@ -961,6 +966,7 @@ def test_deferred_init_failure_clears_init_flags():
     import plugin.chatbot.rich_text_control as rtc
     from plugin.chatbot.rich_text_control import RichTextControlListener
 
+    rtc._CONTROL_INIT_STARTED.clear()
     root = MagicMock()
     listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
     with patch("plugin.framework.queue_executor.main.post"):
