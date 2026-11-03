@@ -42,6 +42,11 @@ except ImportError:
             "warning", "error",
         }
 
+try:
+    from scripts.thread_safety_roots import SYNC_HOST_ENTRYPOINTS
+except ImportError:
+    from thread_safety_roots import SYNC_HOST_ENTRYPOINTS  # type: ignore
+
 RED_UNO_FACTORY_GETTERS = {
     "get_desktop",
     "get_ctx",
@@ -94,18 +99,6 @@ RED_UNO_SINKS = {
     "replace_preserving_format",
     "apply_paragraph_style_preserving_direct_char",
     "createUnoService",
-}
-
-SYNC_ADDIN_FUNCTIONS = {
-    "execute_python_addin",
-    "_execute_python_addin_impl",
-    "execute_prompt_addin",
-    "_execute_prompt_addin_impl",
-    "_notify_thread_violation",
-    "session_key",
-    "py",
-    "python",
-    "prompt",
 }
 
 BLOCKING_MARSHAL_FUNCS = {
@@ -282,7 +275,7 @@ class ThreadSafetyASTVisitor(ast.NodeVisitor):
 
         # Rule 1: Unguarded UNO access in addin/scripting files
         if func_name in RED_UNO_FACTORY_GETTERS and not is_guarded:
-            if current_fn in SYNC_ADDIN_FUNCTIONS or "calc/python" in str(self.file_path):
+            if current_fn in SYNC_HOST_ENTRYPOINTS or "calc/python" in str(self.file_path):
                 self.findings.append(
                     Finding(
                         file=self.file_path,
@@ -295,7 +288,7 @@ class ThreadSafetyASTVisitor(ast.NodeVisitor):
 
         # Rule 2: Blocking marshal in synchronous dispatch
         if func_name in BLOCKING_MARSHAL_FUNCS:
-            if current_fn in SYNC_ADDIN_FUNCTIONS:
+            if current_fn in SYNC_HOST_ENTRYPOINTS:
                 self.findings.append(
                     Finding(
                         file=self.file_path,

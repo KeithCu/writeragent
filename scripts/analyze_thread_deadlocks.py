@@ -36,19 +36,10 @@ from typing import NamedTuple
 # Sandbox venvs, third-party and test trees are not host dispatch code
 EXCLUDED_DIR_NAMES = {"contrib", "site-packages", "tests", "venv"}
 
-# Functions executed synchronously while holding a host/bridge dispatch context (Yellow context)
-SYNC_HOST_ENTRYPOINTS = {
-    # Add-in and Scripting Calculation Roots (wrapped with sync_host_dispatch)
-    "execute_python_addin",
-    "_execute_python_addin_impl",
-    "execute_prompt_addin",
-    "_execute_prompt_addin_impl",
-    "py",
-    "python",
-    "prompt",
-    "session_key",
-    "_notify_thread_violation",
-}
+try:
+    from scripts.thread_safety_roots import SYNC_HOST_ENTRYPOINTS
+except ImportError:
+    from thread_safety_roots import SYNC_HOST_ENTRYPOINTS  # type: ignore
 
 # Operations that block the calling thread waiting for the UI/main thread or other locks
 BLOCKING_OPERATIONS = {
