@@ -771,7 +771,7 @@ def _summarize_bounded(
     window: int,
     max_out: int,
     previous_summary: str,
-    stop_checker: Callable[[], bool] | None,
+    cancel: Any,
     stale: Callable[[], bool],
 ) -> tuple[str | None, str]:
     lines = _summary_lines(slice_messages)
@@ -782,7 +782,7 @@ def _summarize_bounded(
     idx = 0
 
     while idx < len(lines):
-        if (stop_checker and stop_checker()) or stale():
+        if (cancel is not None and cancel.is_cancelled()) or stale():
             return None, "aborted"
 
         next_chunk = _next_summary_chunk(
@@ -807,14 +807,14 @@ def _summarize_bounded(
                 max_tokens=max_out,
                 tools=None,
                 stream=False,
-                stop_checker=stop_checker,
+                cancel=cancel,
                 prepend_dev_build_system_prefix=False,
             )
         except Exception:
             log.exception("Compaction failed")
             return None, "failed"
 
-        if stop_checker and stop_checker():
+        if cancel is not None and cancel.is_cancelled():
             return None, "aborted"
 
         content = (result or {}).get("content") or ""
@@ -834,7 +834,7 @@ def compact_session(
     window: int | None,
     tools: Any = None,
     max_tokens: int | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: Any = None,
     force: bool = False,
     status_callback: Callable[[str], None] | None = None,
 ) -> CompactResult:
@@ -892,7 +892,7 @@ def compact_session(
         window=window,
         max_out=max_out,
         previous_summary=previous,
-        stop_checker=stop_checker,
+        cancel=cancel,
         stale=lambda: session.messages is not messages,
     )
     if summary is None:

@@ -5,8 +5,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.client.http_transport import LlmHttpTransport
+from plugin.framework.send_cancellation import SendCancellation
+
 from plugin.framework.client.request_controls import enable_local_unverified, reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +57,7 @@ def test_exchange_malformed_bracket_redirect_is_network_error():
     """
     transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         response = MagicMock()
         response.status = 302
         response.reason = "Found"
@@ -67,7 +75,7 @@ def test_exchange_stops_after_bounded_redirects():
     transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
     calls = {"n": 0}
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         calls["n"] += 1
         response = MagicMock()
         response.status = 302
@@ -148,7 +156,7 @@ def test_transport_stop_checker_suppresses_retry():
         path="/v1/chat/completions",
         retries_left=1,
         retry_log_message="retry",
-        stop_checker=lambda: True,
+        cancel=_cancelled_scope(),
     )
 
     assert action == "stop"
@@ -179,7 +187,7 @@ def test_transport_stop_before_retry_does_not_emit_status():
         path="/v1/chat/completions",
         retries_left=1,
         retry_log_message="retry",
-        stop_checker=lambda: True,
+        cancel=_cancelled_scope(),
         status_callback=statuses.append,
     )
     assert action == "stop"
@@ -225,7 +233,7 @@ def test_transport_send_stop_already_set_does_not_open_or_send():
             "/v1/chat/completions",
             b"{}",
             headers={"Content-Type": "application/json"},
-            stop_checker=lambda: True,
+            cancel=_cancelled_scope(),
         )
     assert err.value.code == "STOPPED"
     mock_conn.connect.assert_not_called()
@@ -249,11 +257,11 @@ def test_transport_stop_during_connect_does_not_wait_or_send():
         mock_conn.sock = MagicMock()
 
     mock_conn.connect.side_effect = _connect
-    stop = {"on": False}
+    scope = SendCancellation()
 
     def _stop_later() -> None:
         assert started.wait(2)
-        stop["on"] = True
+        scope.cancel()
 
     threading.Thread(target=_stop_later, daemon=True).start()
     t0 = time.monotonic()
@@ -265,7 +273,7 @@ def test_transport_stop_during_connect_does_not_wait_or_send():
                 "/v1/chat/completions",
                 b"{}",
                 headers={"Content-Type": "application/json"},
-                stop_checker=lambda: stop["on"],
+                cancel=scope,
             )
         assert err.value.code == "STOPPED"
         assert time.monotonic() - t0 < 2
@@ -318,7 +326,7 @@ def test_transport_send_stop_on_open_socket_does_not_reconnect():
             "/v1/chat/completions",
             b"{}",
             headers={"User-Agent": "test"},
-            stop_checker=lambda: True,
+            cancel=_cancelled_scope(),
         )
     assert err.value.code == "STOPPED"
     mock_conn.connect.assert_not_called()
@@ -576,7 +584,7 @@ def _exchange_sender(script: list):
     calls = {"n": 0}
     steps = list(script)
 
-    def _sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def _sender(method, path, body, headers, *, cancel=None, status_callback=None):
         calls["n"] += 1
         if calls["n"] > len(steps):
             raise AssertionError("exchange kept sending after the script ended")
@@ -862,10 +870,10 @@ def test_reused_socket_broken_pipe_raises_immediately_when_stop_requested():
     sock = _open_socket()
     conn = MagicMock()
     conn.sock = sock
-    stopped = [False]
+    scope = SendCancellation()
 
     def raise_broken_pipe(*a, **k):
-        stopped[0] = True
+        scope.cancel()
         raise BrokenPipeError("broken pipe")
 
     conn.request.side_effect = raise_broken_pipe
@@ -877,7 +885,7 @@ def test_reused_socket_broken_pipe_raises_immediately_when_stop_requested():
                 "/v1/chat/completions",
                 b"{}",
                 {"User-Agent": "test"},
-                stop_checker=lambda: stopped[0],
+                cancel=scope,
             )
         assert conn.request.call_count == 1
     finally:
@@ -895,7 +903,7 @@ def test_handle_connection_error_downgrades_to_debug_on_stop(caplog):
             path="/v1/chat/completions",
             retries_left=2,
             retry_log_message="retrying",
-            stop_checker=lambda: True,
+            cancel=_cancelled_scope(),
         )
     assert action == "stop"
     assert not any(r.levelno >= logging.ERROR for r in caplog.records)
@@ -970,7 +978,7 @@ def test_exchange_omitting_max_bytes_uses_single_read():
     response.read.return_value = b"entire-body"
     response.getheader.return_value = None
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         return response
 
     result = transport.exchange("GET", "/test", None, {}, sender=sender, parse_json=False)
@@ -986,7 +994,7 @@ def test_exchange_with_max_bytes_uses_chunked_read():
     response.read.side_effect = [b"chunk1", b"chunk2", b""]
     response.getheader.return_value = None
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         return response
 
     result = transport.exchange("GET", "/test", None, {}, sender=sender, parse_json=False, max_bytes=1000)
@@ -1002,7 +1010,7 @@ def test_exchange_with_max_bytes_exceeded_raises_network_error():
     response.read.side_effect = [b"x" * 50, b"x" * 60]
     response.getheader.return_value = None
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         return response
 
     with pytest.raises(NetworkError) as exc_info:
@@ -1018,7 +1026,7 @@ def test_exchange_content_length_over_max_bytes_closes_connection():
     response.reason = "OK"
     response.getheader.return_value = "5000"
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         return response
 
     with patch.object(transport, "close") as close:

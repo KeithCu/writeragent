@@ -153,13 +153,29 @@ def capture_send_stop(host: Any) -> tuple[Any, Callable[[], bool]]:
     return scope, checker
 
 
-def send_stopped(bound_scope: Any, stop_checker: Callable[[], bool], client: Any) -> bool:
-    """True when send cancellation was requested via scope, stop_checker callback, or client latch."""
-    if bound_scope is not None and bound_scope.is_cancelled():
-        return True
-    if stop_checker():
-        return True
-    return bool(getattr(client, "_stopped", False))
+def is_cancelled(scope: Any) -> bool:
+    """Return True if *scope* is a SendCancellation (or duck-typed scope) that is cancelled."""
+    if scope is None:
+        return False
+    checker = getattr(scope, "is_cancelled", None)
+    if callable(checker):
+        return checker() is True
+    return False
+
+
+def is_client_stopped(client: Any) -> bool:
+    """Return True if *client* has stopped() returning True."""
+    if client is None:
+        return False
+    stopped = getattr(client, "stopped", None)
+    if callable(stopped):
+        return stopped() is True
+    return False
+
+
+def send_stopped(bound_scope: Any, client: Any) -> bool:
+    """True when send cancellation was requested via scope or client latch."""
+    return is_cancelled(bound_scope) or is_client_stopped(client)
 
 
 @contextmanager

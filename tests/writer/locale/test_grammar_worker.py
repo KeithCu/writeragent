@@ -822,7 +822,7 @@ def test_thread_llm_client_cached_across_batches() -> None:
     api_cfg = {"endpoint": "https://api.example.com", "api_key": "k1", "request_timeout": 30}
     with patch("plugin.framework.client.llm_client.LlmClient") as mock_cls:
         mock_instance = MagicMock()
-        mock_instance._stopped = False
+        mock_instance.stopped.return_value = False
         mock_cls.return_value = mock_instance
 
         c1 = _get_or_create_thread_llm_client(api_cfg, ctx)
@@ -841,9 +841,9 @@ def test_thread_llm_client_rebuilds_on_endpoint_change() -> None:
     cfg2 = {"endpoint": "https://api2.example.com", "api_key": "k1", "request_timeout": 30}
     with patch("plugin.framework.client.llm_client.LlmClient") as mock_cls:
         inst1 = MagicMock()
-        inst1._stopped = False
+        inst1.stopped.return_value = False
         inst2 = MagicMock()
-        inst2._stopped = False
+        inst2.stopped.return_value = False
         mock_cls.side_effect = [inst1, inst2]
 
         c1 = _get_or_create_thread_llm_client(cfg1, ctx)
@@ -863,7 +863,7 @@ def test_thread_llm_client_separate_per_thread() -> None:
     api_cfg = {"endpoint": "https://api.example.com", "api_key": "k1", "request_timeout": 30}
     results: list[Any] = []
 
-    with patch("plugin.framework.client.llm_client.LlmClient", side_effect=lambda *args, **kwargs: MagicMock(_stopped=False)):
+    with patch("plugin.framework.client.llm_client.LlmClient", side_effect=lambda *args, **kwargs: MagicMock(stopped=MagicMock(return_value=False))):
         def worker():
             results.append(_get_or_create_thread_llm_client(api_cfg, ctx))
 
@@ -885,15 +885,16 @@ def test_thread_llm_client_not_reused_when_stopped() -> None:
     api_cfg = {"endpoint": "https://api.example.com", "api_key": "k1", "request_timeout": 30}
     with patch("plugin.framework.client.llm_client.LlmClient") as mock_cls:
         inst1 = MagicMock()
-        inst1._stopped = False
+        inst1.stopped.return_value = False
         inst2 = MagicMock()
-        inst2._stopped = False
+        inst2.stopped.return_value = False
         mock_cls.side_effect = [inst1, inst2]
 
         c1 = _get_or_create_thread_llm_client(api_cfg, ctx)
         assert c1 is inst1
 
         inst1._stopped = True
+        inst1.stopped.return_value = True
 
         c2 = _get_or_create_thread_llm_client(api_cfg, ctx)
         assert c2 is inst2

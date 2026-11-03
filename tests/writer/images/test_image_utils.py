@@ -1,6 +1,8 @@
 import pytest
 import sys
 from plugin.framework.constants import get_plugin_dir
+from plugin.framework.send_cancellation import SendCancellation
+
 import os
 import json
 import base64
@@ -46,7 +48,7 @@ class TestEndpointImageProvider:
             include_meta=True,
             timeout=get_config("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
-            stop_checker=None,
+            cancel=None,
             status_callback=None,
         )
         os.unlink(paths[0])
@@ -109,7 +111,7 @@ class TestEndpointImageProvider:
             include_meta=True,
             timeout=get_config("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
-            stop_checker=None,
+            cancel=None,
             status_callback=None,
         )
         os.unlink(paths[0])
@@ -270,7 +272,7 @@ class TestEndpointImageProvider:
 
         with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
             with pytest.raises(ToolExecutionError) as exc_info:
-                provider.generate("test prompt", stop_checker=lambda: True)
+                provider.generate("test prompt", cancel=_cancelled_scope())
             assert exc_info.value.code == "USER_STOPPED"
 
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
@@ -292,7 +294,7 @@ class TestEndpointImageProvider:
 
         with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
             with pytest.raises(ToolExecutionError) as exc_info:
-                provider_or.generate("test prompt", stop_checker=lambda: True)
+                provider_or.generate("test prompt", cancel=_cancelled_scope())
             assert exc_info.value.code == "USER_STOPPED"
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
 
@@ -311,7 +313,7 @@ class TestEndpointImageProvider:
         with patch("plugin.writer.images.image_utils.sync_request", side_effect=NetworkError("aborted", code="STOPPED")):
             with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
                 with pytest.raises(ToolExecutionError) as exc_info:
-                    provider_fb.generate("test prompt", stop_checker=lambda: True)
+                    provider_fb.generate("test prompt", cancel=_cancelled_scope())
                 assert exc_info.value.code == "USER_STOPPED"
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
 
@@ -725,6 +727,14 @@ class TestCanonicalAspectRatio:
         assert (canonical_resolution(2048, 2048, family="imagen")) == ("2K")
         assert (canonical_resolution(4096, 4096, family="imagen")) == ("2K")
         assert (canonical_resolution(0, 512)) is None
+
+
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
 
 
 def test_resolve_generation_size_enums():

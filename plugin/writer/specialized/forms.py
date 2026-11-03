@@ -618,7 +618,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             content = client.chat_completion_sync(
                 messages,
                 max_tokens=2048,
-                stop_checker=ctx.stop_checker,
+                cancel=ctx.send_cancellation,
                 status_callback=ctx.status_callback,
             )
 

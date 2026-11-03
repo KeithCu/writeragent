@@ -16,6 +16,7 @@ import pytest
 
 from plugin.tests.testing_utils import TestingFactory
 
+
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.doc.document_research_tools import ListNearbyFiles
 from plugin.doc.visual_helpers import anchor_type_index
@@ -157,9 +158,11 @@ def test_image_generate_default_base_size_is_1024():
 
 
 def test_image_generate_forwards_stop_checker():
+    from plugin.framework.send_cancellation import SendCancellation
+
     ctx = TestingFactory.create_context(doc_type="writer")
-    stop_checker = MagicMock(return_value=False)
-    ctx.stop_checker = stop_checker
+    scope = SendCancellation()
+    ctx.send_cancellation = scope
 
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/new.png"], None)
@@ -177,13 +180,16 @@ def test_image_generate_forwards_stop_checker():
     ):
         res = ImageGenerate().execute(ctx, prompt="a stop checked cat")
     assert res["status"] == "ok"
-    assert svc.generate_image.call_args.kwargs.get("stop_checker") is stop_checker
+    assert svc.generate_image.call_args.kwargs.get("cancel") is scope
 
 
 def test_image_generate_inserts_even_if_stopped_after_download():
+    from plugin.framework.send_cancellation import SendCancellation
+
     ctx = TestingFactory.create_context(doc_type="writer")
-    stop_checker = MagicMock(return_value=True)
-    ctx.stop_checker = stop_checker
+    scope = SendCancellation()
+    scope.cancel()
+    ctx.send_cancellation = scope
 
     svc = MagicMock()
     svc.generate_image.return_value = (["/tmp/new.png"], None)
@@ -2364,7 +2370,7 @@ def test_download_image_to_cache_stop_aborts(tmp_path, monkeypatch):
     monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _ChunkResp())
 
     with pytest.raises(_DownloadStopped):
-        _download_image_to_cache("https://example.com/test.png", stop_checker=lambda: stopped[0])
+        _download_image_to_cache("https://example.com/test.png", cancel=lambda: stopped[0])
     assert list(tmp_path.iterdir()) == []
 
 

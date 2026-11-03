@@ -33,6 +33,7 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
 
     from plugin.framework.errors import ToolExecutionError
     from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.send_cancellation import send_stopped
 
     # Build the client on the send cancellation scope so sidebar Stop closes
     # this call too. The scope registers the live client and must not be
@@ -48,25 +49,21 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         if max_tokens is None:
             max_tokens = get_config("chat_max_tokens")
 
-        client = LlmClient(get_api_config(), ctx, cancellation_scope=cancellation_scope)
+        client = LlmClient(get_api_config(), ctx, cancel=cancellation_scope)
         result = client.request_with_tools(
             messages,
             max_tokens=int(max_tokens),
             tools=tools if tools else None,
             model=model,
             prepend_dev_build_system_prefix=False,
-            stop_checker=stop_checker,
+            cancel=cancellation_scope,
         )
         if not isinstance(result, dict):
             raise TypeError("LLM response is not a dictionary")
 
-        is_stopped = client._stopped
-        if not is_stopped and stop_checker is not None:
-            try:
-                is_stopped = stop_checker()
-            except Exception:
-                log.exception("stop_checker raised in ppt_master handle_llm_request")
-                return {"status": "error", "message": "stop_checker raised exception"}
+        is_stopped = send_stopped(cancellation_scope, client)
+        if stop_checker is not None and stop_checker():
+            is_stopped = True
 
         if is_stopped:
             return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}

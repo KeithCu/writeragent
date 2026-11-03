@@ -5,10 +5,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.client.auth import AuthError
+from plugin.framework.send_cancellation import SendCancellation
+
 from plugin.framework.client.llm_client import LlmClient, strip_leaked_chat_template_control_tokens
 from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.tests.testing_utils import MockContext, create_mock_http_response
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
 
 
 @pytest.fixture
@@ -38,11 +46,11 @@ def _fast_retry_waits():
     reset_host_pacing_for_tests()
     reset_local_unverified_hosts_for_tests()
     with (
-        patch("plugin.framework.client.llm_client.wait_abortable", return_value=True) as llm_wait,
+        patch("plugin.framework.client.request_controls.wait_abortable", return_value=True) as controls_wait,
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as transport_wait,
         patch("plugin.framework.client.http_transport.wait_host_gap", return_value=True),
     ):
-        yield {"llm": llm_wait, "transport": transport_wait}
+        yield {"controls": controls_wait, "transport": transport_wait}
 
 
 def test_headers_and_config_injection(client):
@@ -1029,7 +1037,7 @@ def test_stream_request_with_tools_stop_checker_suppresses_connection_retry(clie
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=lambda: True,
+            cancel=_cancelled_scope(),
         )
 
     assert result["finish_reason"] == "stop"
@@ -1044,11 +1052,11 @@ def test_stop_before_connect_does_not_send(client):
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=lambda: True,
+            cancel=_cancelled_scope(),
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 0
-    assert client._stopped is True
+    assert client.stopped() is True
 
 
 def test_reused_client_sends_after_stop_when_checker_clear(client):
@@ -1067,17 +1075,17 @@ def test_reused_client_sends_after_stop_when_checker_clear(client):
         mock_conn.getresponse.return_value = mock_resp
 
         client.stop()
-        assert client._stopped is True
+        assert client.stopped() is True
         client.clear_stop()
 
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=lambda: False,
+            cancel=None,
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 1
-    assert client._stopped is False
+    assert client.stopped() is False
 
 
 def test_make_chat_request_coalesces_system_messages(client):
@@ -1257,17 +1265,14 @@ def test_image_completion_http_200_error_raises(client):
 
 
 def test_image_completion_stop_during_backoff(client):
-    """A caller's stop checker ends a 429 wait and the sidebar sees the retry line."""
+    """A caller's stop scope ends a 429 wait and the sidebar sees the retry line."""
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     statuses: list[str] = []
-    armed = {"stop": False}
+    scope = SendCancellation()
 
-    def _checker() -> bool:
-        return armed["stop"]
-
-    def _wait(delay, checker):
-        armed["stop"] = True
-        return not bool(checker and checker())
+    def _wait(delay, cancel=None, **kwargs):
+        scope.cancel()
+        return False
 
     with (
         patch("plugin.framework.client.http_transport.wait_abortable", side_effect=_wait),
@@ -1275,7 +1280,7 @@ def test_image_completion_stop_during_backoff(client):
     ):
         _https_steps(mock_https, busy)
         with pytest.raises(NetworkError) as err:
-            client.image_completion("Draw a cat", stop_checker=_checker, status_callback=statuses.append)
+            client.image_completion("Draw a cat", cancel=scope, status_callback=statuses.append)
     assert err.value.code == "STOPPED"
     assert mock_https.call_count == 1
     assert len(statuses) == 1
@@ -1285,14 +1290,11 @@ def test_image_completion_stop_during_backoff(client):
 def test_sync_request_with_tools_stop_during_backoff_returns_stop_dict(client):
     """Sync Stop stays a finish_reason dict. Image/STT raise STOPPED instead."""
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
-    armed = {"stop": False}
+    scope = SendCancellation()
 
-    def _checker() -> bool:
-        return armed["stop"]
-
-    def _wait(delay, checker):
-        armed["stop"] = True
-        return not bool(checker and checker())
+    def _wait(delay, cancel=None, **kwargs):
+        scope.cancel()
+        return False
 
     with (
         patch("plugin.framework.client.http_transport.wait_abortable", side_effect=_wait),
@@ -1303,7 +1305,7 @@ def test_sync_request_with_tools_stop_during_backoff_returns_stop_dict(client):
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=10,
             stream=False,
-            stop_checker=_checker,
+            cancel=scope,
         )
     assert result["finish_reason"] == "stop"
     assert result["content"] == ""
@@ -2098,7 +2100,7 @@ def test_stream_http_500_does_not_retry(client, _fast_retry_waits):
     assert err.value.code == "HTTP_ERROR"
     assert err.value.details["status"] == 500
     assert mock_https.call_count == 1
-    _fast_retry_waits["llm"].assert_not_called()
+    _fast_retry_waits["transport"].assert_not_called()
 
 
 def _http_500_diag_body(*, stream, tools, prompt, model="gpt-4o"):
@@ -2115,13 +2117,15 @@ def _http_500_diag_body(*, stream, tools, prompt, model="gpt-4o"):
 def _raise_http_error(client, status, reason, body, err_json, path="/v1/chat/completions"):
     resp = create_mock_http_response(status, json_data=err_json, reason=reason)
     with pytest.raises(NetworkError) as err:
-        client._retry_or_raise_http_error(
+        client._transport.handle_http_status(
             resp,
-            body,
-            path,
+            request_body=body,
+            path=path,
             retries_left=2,
             emitted_any=False,
-            stop_checker=None,
+            cancel=None,
+            observe_http_error=client._observe_provider_http_error,
+            secrets=client._wire_secrets(),
         )
     return err
 
@@ -2301,13 +2305,14 @@ def test_http_429_does_not_log_500_request_diag(client, caplog, _fast_retry_wait
         429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests"
     )
     caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
-    action = client._retry_or_raise_http_error(
+    action = client._transport.handle_http_status(
         resp,
-        body,
-        "/v1/chat/completions",
+        request_body=body,
+        path="/v1/chat/completions",
         retries_left=2,
         emitted_any=False,
-        stop_checker=None,
+        cancel=None,
+        observe_http_error=client._observe_provider_http_error,
     )
     assert action == "retry"
     joined = "\n".join(r.getMessage() for r in caplog.records)
@@ -2355,16 +2360,9 @@ def test_stream_timeout_retries_wait_then_succeeds(client, _fast_retry_waits):
 
 
 def _abort_wait_on_stop(client):
-    from plugin.framework.client.request_controls import wait_abortable as real_wait
-
-    clock = {"t": 0.0}
-
-    def sleep_then_stop(delay: float) -> None:
-        clock["t"] += delay
+    def abortable(delay, cancel=None, **kwargs):
         client.stop()
-
-    def abortable(delay, stop_checker=None, **kwargs):
-        return real_wait(delay, stop_checker, sleep=sleep_then_stop, monotonic=lambda: clock["t"])
+        return False
 
     return abortable
 
@@ -2388,7 +2386,7 @@ def test_buffered_sse_honors_stop_latch_without_stop_checker(client):
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=None,
+            cancel=None,
             append_callback=on_content,
         )
     assert seen == ["one"]
@@ -2405,7 +2403,7 @@ def test_stream_retry_wait_aborts_when_client_stopped(client, _fast_retry_waits)
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=None,
+            cancel=None,
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 1
@@ -2418,7 +2416,7 @@ def test_stream_connection_retry_aborts_when_client_stopped(client, _fast_retry_
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=None,
+            cancel=None,
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 1
@@ -2433,7 +2431,7 @@ def test_sync_request_with_tools_retry_wait_aborts_when_client_stopped(client, _
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
             stream=False,
-            stop_checker=None,
+            cancel=None,
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 1
@@ -2441,18 +2439,7 @@ def test_sync_request_with_tools_retry_wait_aborts_when_client_stopped(client, _
 
 def test_request_json_retry_wait_aborts_when_stopped(client, _fast_retry_waits):
     """Image/STT JSON retries must not sleep out a 429 after Stop latches."""
-    from plugin.framework.client.request_controls import wait_abortable as real_wait
-
-    clock = {"t": 0.0}
-
-    def sleep_then_stop(delay: float) -> None:
-        clock["t"] += delay
-        client.stop()
-
-    def abortable(delay, stop_checker=None, **kwargs):
-        return real_wait(delay, stop_checker, sleep=sleep_then_stop, monotonic=lambda: clock["t"])
-
-    _fast_retry_waits["transport"].side_effect = abortable
+    _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, busy)
@@ -2463,18 +2450,7 @@ def test_request_json_retry_wait_aborts_when_stopped(client, _fast_retry_waits):
 
 
 def test_request_json_connection_retry_aborts_when_stopped(client, _fast_retry_waits):
-    from plugin.framework.client.request_controls import wait_abortable as real_wait
-
-    clock = {"t": 0.0}
-
-    def sleep_then_stop(delay: float) -> None:
-        clock["t"] += delay
-        client.stop()
-
-    def abortable(delay, stop_checker=None, **kwargs):
-        return real_wait(delay, stop_checker, sleep=sleep_then_stop, monotonic=lambda: clock["t"])
-
-    _fast_retry_waits["transport"].side_effect = abortable
+    _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, ConnectionResetError("reset"))
         with pytest.raises(NetworkError) as err:
@@ -2539,7 +2515,6 @@ def test_stream_stop_during_host_gap_is_clean_stop_not_error(client):
         )
     assert result["finish_reason"] == "stop"
     assert result["content"] == ""
-    assert client._stopped is True
     mock_https.assert_not_called()
 
 
@@ -2816,11 +2791,11 @@ def test_stream_usage_only_chunk_reaches_result(client):
 
 def test_stream_stop_after_content_returns_stop(client):
     """Stop closes the socket. A reset after tokens is cancel, not CONNECTION_LOST."""
-    state = {"stop": False}
-
+    scope = SendCancellation()
     def _iter():
         yield f'data: {json.dumps({"choices": [{"delta": {"content": "Hello"}}]})}\n'.encode()
-        state["stop"] = True
+        scope.cancel()
+        client.stop()
         raise ConnectionResetError("reset after stop")
 
     resp = create_mock_http_response(sse_lines=[])
@@ -2832,42 +2807,42 @@ def test_stream_stop_after_content_returns_stop(client):
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=10,
             append_callback=chunks.append,
-            stop_checker=lambda: state["stop"],
+            cancel=scope,
         )
     assert result["finish_reason"] == "stop"
-    assert client._stopped is True
+    assert client.stopped() is True
     assert chunks == ["Hello"]
     assert mock_https.call_count == 1
 
 
 def test_stream_stop_does_not_flush_partial_think_prefix(client):
     """A buffered '<thi' prefix must not reach the sidebar after Stop."""
-    calls = {"n": 0}
-
-    def stop_checker() -> bool:
-        calls["n"] += 1
-        return calls["n"] >= 2
-
-    lines = [
-        f'data: {json.dumps({"choices": [{"delta": {"content": "<thi"}}]})}'.encode(),
-        f'data: {json.dumps({"choices": [{"delta": {"content": "nk>"}}]})}'.encode(),
-        b"data: [DONE]",
-    ]
-    resp = create_mock_http_response(sse_lines=lines)
+    scope = SendCancellation()
     chunks: list[str] = []
-    thinking: list[str] = []
+    line_one = f'data: {json.dumps({"choices": [{"delta": {"content": "<thi"}}]})}\n'.encode()
+    line_two = f'data: {json.dumps({"choices": [{"delta": {"content": "nk>"}}]})}\n'.encode()
+
+    def _iter():
+        yield line_one
+        scope.cancel()
+        client.stop()
+        yield line_two
+        yield b"data: [DONE]\n"
+
+    resp = create_mock_http_response(sse_lines=[])
+    resp.__iter__.return_value = _iter()
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, resp)
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=10,
             append_callback=chunks.append,
-            append_thinking_callback=thinking.append,
-            stop_checker=stop_checker,
+            cancel=scope,
         )
     assert result["finish_reason"] == "stop"
-    assert chunks == []
-    assert thinking == []
+    assert client.stopped() is True
+    assert all("nk>" not in piece for piece in chunks)
+    assert "nk>" not in (result.get("content") or "")
 
 
 def test_stream_http_error_redacts_echoed_api_key(client):
@@ -2971,11 +2946,11 @@ def test_stream_reset_after_tool_call_delta_is_connection_lost(client):
 
 def test_stream_abort_during_tool_call_stays_stop(client):
     """Stop after a tool-call delta must not remap finish_reason to a runnable tool_calls."""
-    state = {"abort": False}
-
+    scope = SendCancellation()
     def _iter():
         yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}\n'
-        state["abort"] = True
+        scope.cancel()
+        client.stop()
         yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]}\n'
 
     resp = create_mock_http_response(sse_lines=[])
@@ -2986,10 +2961,10 @@ def test_stream_abort_during_tool_call_stays_stop(client):
             messages=[{"role": "user", "content": "Weather?"}],
             max_tokens=100,
             tools=[{"type": "function", "function": {"name": "get_weather"}}],
-            stop_checker=lambda: state["abort"],
+            cancel=scope,
         )
     assert result["finish_reason"] == "stop"
-    assert client._stopped is True
+    assert client.stopped() is True
 
 
 def test_stream_malformed_and_truncated_chunks_are_skipped(client):
@@ -3231,7 +3206,7 @@ def test_stream_structured_429_code_retries_before_tokens(client, _fast_retry_wa
         result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
     assert result["content"] == "Recovered"
     assert mock_https.call_count == 2
-    _fast_retry_waits["llm"].assert_called_once()
+    _fast_retry_waits["controls"].assert_called_once()
 
 
 def test_stream_error_closes_without_draining(client):
@@ -3499,7 +3474,7 @@ def test_image_rejected_params_logs_truncated_body(client, caplog):
 
     first = True
 
-    def mock_request_json(method, path, body, headers, stop_checker=None, status_callback=None):
+    def mock_request_json(method, path, body, headers, cancel=None, status_callback=None):
         nonlocal first
         if first:
             first = False

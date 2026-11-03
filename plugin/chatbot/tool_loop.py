@@ -173,7 +173,7 @@ def _compact_bound_session(
     *,
     tools: Any,
     max_tokens: int | None,
-    stop_checker: Callable[[], bool] | None,
+    cancel: Any,
     force: bool,
     status_cb: Callable[[str], None],
 ) -> bool:
@@ -189,7 +189,7 @@ def _compact_bound_session(
         window=resolve_context_window(client),
         tools=tools,
         max_tokens=max_tokens,
-        stop_checker=stop_checker,
+        cancel=cancel,
         force=force,
         status_callback=status_cb,
     )
@@ -318,7 +318,7 @@ def _ensure_llm_client(panel: Any, api_config: dict[str, Any]) -> LlmClient:
     scope = get_current_send_cancellation()
     if scope is not None:
         scope.register_client(client)
-        if scope.is_cancelled() and not client._stopped:
+        if scope.is_cancelled():
             client.stop()
     return client
 
@@ -616,25 +616,25 @@ class ToolCallingMixin:
 
     def _bind_spawn(
         self, client: LlmClient
-    ) -> tuple[TurnController | None, Any, Callable[[], bool], Callable[[Any], None], Callable[[], bool]]:
+    ) -> tuple[TurnController | None, Any, Any, Callable[[Any], None], Callable[[], bool]]:
         turn = current_turn(self._panel)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if turn is not None else None
         # Spawn-time scope. The body must not call resolve_stop_checker or
         # read _send_cancellation: Stop clears the field and the next send replaces it.
-        bound_scope, stop_checker = capture_send_stop(self._panel)
+        bound_scope, _unused_checker = capture_send_stop(self._panel)
 
         def emit(item: Any) -> None:
             put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
-            return send_stopped(bound_scope, stop_checker, client)
+            return send_stopped(bound_scope, client)
 
-        return turn, bound_session, stop_checker, emit, stopped_for_this_send
+        return turn, bound_session, bound_scope, emit, stopped_for_this_send
 
     def _run_stream_worker(
         self,
-        bound_spawn: tuple[TurnController | None, Any, Callable[[], bool], Callable[[Any], None], Callable[[], bool]],
+        bound_spawn: tuple[TurnController | None, Any, Any, Callable[[Any], None], Callable[[], bool]],
         *,
         batched: BatchingStreamQueue,
         client: LlmClient,
@@ -642,13 +642,13 @@ class ToolCallingMixin:
         tools: list[dict[str, Any]] | None = None,
         force: bool = False,
         resume_status: str,
-        stream_call: Callable[[Any, Callable[[str], None], Callable[[str], None], Callable[[str], None], Callable[[], bool]], Any],
+        stream_call: Callable[[Any, Callable[[str], None], Callable[[str], None], Callable[[str], None], Any], Any],
         done_kind: StreamQueueKind,
         on_success: Callable[[], None] | None = None,
         error_log_msg: str,
         strip_round_0_image: bool = False,
     ) -> None:
-        turn, session, stop_checker, emit, stopped_for_this_send = bound_spawn
+        turn, session, bound_scope, emit, stopped_for_this_send = bound_spawn
         if turn is None or not turn.alive or session is None:
             emit((StreamQueueKind.STOPPED,))
             return
@@ -681,13 +681,13 @@ class ToolCallingMixin:
                     turn,
                     tools=tools,
                     max_tokens=max_tokens,
-                    stop_checker=stop_checker,
+                    cancel=bound_scope,
                     force=force,
                     status_cb=status_cb,
                 ):
                     emit((StreamQueueKind.STOPPED,))
                     return
-                response = stream_call(session, content_cb, thinking_cb, status_cb, stop_checker)
+                response = stream_call(session, content_cb, thinking_cb, status_cb, bound_scope)
             # Stop during pre-send host-gap wait returns finish_reason "stop"
             # without raising. The captured scope stays cancelled after the
             # next send clears the panel field and calls clear_stop() on
@@ -718,13 +718,13 @@ class ToolCallingMixin:
 
         bound_spawn = self._bind_spawn(client)
 
-        def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, stop_chk: Any) -> Any:
+        def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, scope: Any) -> Any:
             payload = messages_for_llm(sess)
             return client.stream_request_with_tools(
                 payload, max_tokens, tools=tools,
                 append_callback=content_cb,
                 append_thinking_callback=thinking_cb,
-                stop_checker=stop_chk,
+                cancel=scope,
                 status_callback=status_cb,
             )
 
@@ -754,7 +754,7 @@ class ToolCallingMixin:
 
         bound_spawn = self._bind_spawn(client)
 
-        def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, stop_chk: Any) -> Any:
+        def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, scope: Any) -> Any:
             last_streamed: list[str] = []
 
             def append_c(c: str) -> None:
@@ -763,7 +763,7 @@ class ToolCallingMixin:
 
             client.stream_chat_response(
                 messages_for_llm(sess), max_tokens, append_c, thinking_cb,
-                stop_checker=stop_chk,
+                cancel=scope,
                 status_callback=status_cb,
             )
             return "".join(last_streamed)

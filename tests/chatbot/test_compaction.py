@@ -13,6 +13,17 @@ import pytest
 
 from plugin.chatbot import compaction as C
 from plugin.framework.client import model_fetcher as MF
+from plugin.framework.send_cancellation import SendCancellation
+
+
+class _CancelWhen:
+    """Duck-typed cancel scope for tests with dynamic ``is_cancelled``."""
+
+    def __init__(self, predicate):
+        self._predicate = predicate
+
+    def is_cancelled(self):
+        return self._predicate()
 
 
 class DummySession:
@@ -1051,8 +1062,10 @@ def test_status_callback_only_when_summarizer_runs():
 def test_stop_checker_aborts_without_mutating():
     session = DummySession(_history_3x1000())
     client = DummyClient()
+    scope = SendCancellation()
+    scope.cancel()
     result = C.compact_session(
-        session, client, window=4096, stop_checker=lambda: True
+        session, client, window=4096, cancel=scope
     )
     assert result.reason == "aborted"
     assert session.compaction is None
@@ -1141,7 +1154,7 @@ def test_stop_checker_after_http_returns_aborts():
         # False on first call (preflight check), True on second call (after client.request_with_tools)
         return calls["n"] > 1
 
-    result = C.compact_session(session, client, window=4096, stop_checker=_checker)
+    result = C.compact_session(session, client, window=4096, cancel=_CancelWhen(_checker))
     assert result.reason == "aborted"
     assert result.compacted is False
     assert session.compaction is None
@@ -1449,9 +1462,6 @@ def test_summarizer_second_chunk_failure_does_not_publish():
 def test_summarizer_stop_between_chunks_aborts():
     calls_count = 0
 
-    def stop_checker():
-        return calls_count >= 1
-
     class CountingClient(DummyClient):
         def request_with_tools(self, messages, **kwargs):
             nonlocal calls_count
@@ -1469,7 +1479,9 @@ def test_summarizer_stop_between_chunks_aborts():
     ]
     session = DummySession(msgs)
     client = CountingClient(content="test-summary")
-    result = C.compact_session(session, client, window=4096, force=True, stop_checker=stop_checker)
+    result = C.compact_session(
+        session, client, window=4096, force=True, cancel=_CancelWhen(lambda: calls_count >= 1)
+    )
 
     assert result.reason == "aborted"
     assert session.compaction is None

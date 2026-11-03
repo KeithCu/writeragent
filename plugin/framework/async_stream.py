@@ -1288,7 +1288,7 @@ def run_stream_completion_async(
     on_done_fn: Callable[..., None] | None,
     on_error_fn: Callable[[Any], None] | None,
     on_status_fn: Callable[[str], None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: Any = None,
 ) -> None:
     """High-level helper for simple non-tool streams (always chat completions)."""
     # crosshair: off
@@ -1301,12 +1301,13 @@ def run_stream_completion_async(
             "append_callback": lambda t: q.put((StreamQueueKind.CHUNK, t)),
             "append_thinking_callback": lambda t: q.put((StreamQueueKind.THINKING, t)),
             "status_callback": lambda t: q.put((StreamQueueKind.STATUS, t)),
-            "stop_checker": stop_checker,
+            "cancel": cancel,
         }
         client.stream_completion(prompt, system_prompt, max_tokens, **kwargs)
-        if stop_checker and stop_checker():
+        if cancel is not None and cancel.is_cancelled():
             q.put((StreamQueueKind.STOPPED, None))
 
+    stop_checker = cancel.is_cancelled if cancel is not None and hasattr(cancel, "is_cancelled") else None
     run_async_worker_with_drain(
         ctx,
         worker,
