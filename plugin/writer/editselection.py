@@ -24,7 +24,7 @@ is the chat system prompt and is not read here.
 
 from typing import Any
 
-from plugin.framework.config import get_config_int, get_config_str, get_current_endpoint
+from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model
 from plugin.framework.model_lru import update_lru_history
 from plugin.framework.errors import format_error_message
@@ -107,8 +107,8 @@ def do_extend_selection(ctx: Any, model: Any) -> None:
         return
 
     update_lru_history(get_text_model(), "model_lru", get_current_endpoint())
-    system_prompt = get_config_str("extend_selection_system_prompt")
-    max_tokens = get_config_int("extend_selection_max_tokens")
+    system_prompt = get_config("extend_selection_system_prompt")
+    max_tokens = get_config("chatbot.extend_selection_max_tokens")
 
     session = WriterStreamedAppendSession(
         model, text_range, original_text,
@@ -135,8 +135,8 @@ def do_edit_selection(ctx: Any, model: Any) -> None:
 
     update_lru_history(get_text_model(), "model_lru", get_current_endpoint())
     prompt = build_writer_rewrite_prompt(original_text, user_input)
-    system_prompt = extra_instructions or get_config_str("edit_selection_system_prompt")
-    max_tokens = len(original_text) + get_config_int("edit_selection_max_new_tokens")
+    system_prompt = extra_instructions or get_config("edit_selection_system_prompt")
+    max_tokens = len(original_text) + get_config("chatbot.edit_selection_max_new_tokens")
 
     session = WriterStreamedRewriteSession(
         model, text_range, original_text,

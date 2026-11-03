@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.draw.masters import GetSlideMaster, ListMasterSlides, SetSlideMaster
+from plugin.draw.masters import GetSlideMaster, ListMasterSlides, SetSlideMaster, find_master, iter_masters
 from plugin.framework.errors import DocumentDisposedError
 
 
@@ -197,4 +197,24 @@ def test_set_slide_master_disposal_propagates():
     ctx = SimpleNamespace(doc=doc, active_page_index=0)
     with pytest.raises(DocumentDisposedError):
         SetSlideMaster().execute(ctx, page=0, master="Default")
+
+
+def test_iter_masters_and_find_master():
+    m0 = _Master("Default")
+    m1 = _Master("Sunset")
+    doc = _Doc(_Masters([m0, m1]), _Masters([]))
+
+    entries = iter_masters(doc)
+    assert len(entries) == 2
+    assert entries[0] == (0, m0, "Default")
+    assert entries[1] == (1, m1, "Sunset")
+
+    assert find_master(doc, name="Sunset") is m1
+    assert find_master(doc, name="Nonexistent") is None
+    assert find_master(doc, index=0) is m0
+    assert find_master(doc, index=5) is None
+    assert find_master(doc) is None
+
+    assert iter_masters(None) == []
+    assert iter_masters(object()) == []
 

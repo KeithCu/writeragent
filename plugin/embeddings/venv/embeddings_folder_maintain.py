@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Callable, Literal
 
 from plugin.embeddings.embeddings_cache import _load_meta_object, clear_folder_cache, corpus_db_path, corpus_meta_path, ensure_corpus_meta, index_is_empty, maybe_upgrade_legacy_index, needs_cold_rebuild, write_row_count_meta
@@ -16,16 +17,16 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     connect_corpus_db,
     corpus_chunk_count,
     delete_paragraph_keys,
-    diff_chunk_rows,
+    diff_chunk_rows_in_db,
     ensure_schema,
-    file_is_stale,
-    get_all_indexed_urls,
+    file_is_stale_in_db,
+    get_all_indexed_urls_in_db,
     insert_paragraph_rows,
-    mark_file_indexed,
+    mark_file_indexed_in_db,
     model_slug,
     rebuild_fts_corpus_index,
-    remove_file_from_index,
-    sync_file_paragraph_state,
+    remove_file_from_index_in_db,
+    sync_file_paragraph_state_in_db,
 )
 from plugin.embeddings.venv.heartbeat_throttle import HeartbeatThrottle
 from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION
@@ -112,38 +113,33 @@ def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileE
     indexed = 0
     upserted = 0
     total = len(files)
-
-    for index, entry in enumerate(files):
-        hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "cold"})
-        try:
-            paragraph_count, chunks = _extract_file_chunks(entry)
-        except Exception:
-            log.warning("Extraction failed for %s", entry.name, exc_info=True)
-            continue
-        if chunks is None:
-            continue
-        rows = [chunk_to_index_row(chunk) for chunk in chunks]
-        hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "cold"})
-        if not rows:
-            # Empty files still record paragraph/chunk state so subsequent incremental scans know they are up to date.
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
-            continue
-        phase = "embed" if build_vectors else "index"
-        result = _ingest_rows(listing_root, embedding_model, rows, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=hb.force)
-        file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
-        hb.force({"phase": phase, "file": entry.name, "paragraphs": paragraph_count, "chunks": file_upserted, "upserted": file_upserted, "mode": "cold"})
-        sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
-        indexed += len(rows)
-        upserted += file_upserted
-
-    db_path = corpus_db_path(listing_root, create_parent=False)
-    row_count = 0
-    if db_path.is_file():
-        conn = connect_corpus_db(db_path)
-        try:
-            row_count = corpus_chunk_count(conn)
-        finally:
-            conn.close()
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn, with_fts=build_fts, with_vec=False)
+        for index, entry in enumerate(files):
+            hb.emit({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "cold"}, immediate=True)
+            try:
+                paragraph_count, chunks = _extract_file_chunks(entry)
+            except Exception:
+                log.warning("Extraction failed for %s", entry.name, exc_info=True)
+                continue
+            if chunks is None:
+                continue
+            rows = [chunk_to_index_row(chunk) for chunk in chunks]
+            hb.emit({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "cold"}, immediate=True)
+            if not rows:
+                sync_file_paragraph_state_in_db(conn, entry.url, chunks, entry.modified, indexed_at=time.time())
+                continue
+            phase = "embed" if build_vectors else "index"
+            result = _ingest_rows(listing_root, embedding_model, rows, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=lambda p: hb.emit(p, immediate=True))
+            file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
+            hb.emit({"phase": phase, "file": entry.name, "paragraphs": paragraph_count, "chunks": file_upserted, "upserted": file_upserted, "mode": "cold"}, immediate=True)
+            sync_file_paragraph_state_in_db(conn, entry.url, chunks, entry.modified, indexed_at=time.time())
+            indexed += len(rows)
+            upserted += file_upserted
+        row_count = corpus_chunk_count(conn)
+    finally:
+        conn.close()
     write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
 
     return {"mode": "cold", "indexed_paragraphs": indexed, "files": total, "upserted": upserted, "row_count": row_count}
@@ -157,58 +153,66 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
     total = len(files)
 
     current_urls = {entry.url for entry in files}
-    indexed_urls = get_all_indexed_urls(db_path)
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn, with_fts=build_fts, with_vec=False)
+        indexed_urls = get_all_indexed_urls_in_db(conn)
 
-    for url in indexed_urls:
-        if url in current_urls:
-            continue
-        to_index, to_delete = diff_chunk_rows(db_path, url, [])
-        if to_delete:
-            file_name = url.split("/")[-1] if "/" in url else url
-            hb.force({"phase": "delete", "file": file_name, "keys": len(to_delete)})
-            _ingest_rows(listing_root, embedding_model, [], delete_keys=to_delete, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=hb.force)
-            deleted += len(to_delete)
-        remove_file_from_index(db_path, url)
-        files_touched += 1
-
-    for index, entry in enumerate(files):
-        hb.ping({"phase": "scan", "file": entry.name, "index": index, "total": total})
-        if not file_is_stale(db_path, entry.url, entry.modified):
-            continue
-        hb.force({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"})
-        try:
-            paragraph_count, chunks = _extract_file_chunks(entry)
-        except Exception:
-            log.warning("Extraction failed for %s", entry.name, exc_info=True)
-            continue
-        if chunks is None:
-            continue
-        to_index, to_delete = diff_chunk_rows(db_path, entry.url, chunks)
-        hb.force(
-            {
-                "phase": "extract",
-                "file": entry.name,
-                "paragraphs": paragraph_count,
-                "chunks": len(chunks),
-                "mode": "incremental",
-            }
-        )
-        if to_delete or to_index:
+        for url in indexed_urls:
+            if url in current_urls:
+                continue
+            _to_index, to_delete = diff_chunk_rows_in_db(conn, url, [])
             if to_delete:
-                hb.force({"phase": "delete", "file": entry.name, "keys": len(to_delete)})
+                file_name = url.split("/")[-1] if "/" in url else url
+                hb.emit({"phase": "delete", "file": file_name, "keys": len(to_delete)}, immediate=True)
+                _ingest_rows(listing_root, embedding_model, [], delete_keys=to_delete, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=lambda p: hb.emit(p, immediate=True))
                 deleted += len(to_delete)
+            remove_file_from_index_in_db(conn, url)
+            files_touched += 1
 
-            phase = "embed" if build_vectors and to_index else "index"
-            result = _ingest_rows(listing_root, embedding_model, to_index, delete_keys=to_delete, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=hb.force)
-            if to_index:
-                file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
-                hb.force({"phase": phase, "file": entry.name, "paragraphs": paragraph_count, "chunks": file_upserted, "upserted": file_upserted, "mode": "incremental"})
-                indexed += len(to_index)
-            files_touched += 1
-            sync_file_paragraph_state(db_path, entry.url, chunks, entry.modified)
-        else:
-            mark_file_indexed(db_path, entry.url, entry.modified)
-            files_touched += 1
+        for index, entry in enumerate(files):
+            hb.emit({"phase": "scan", "file": entry.name, "index": index, "total": total})
+            if not file_is_stale_in_db(conn, entry.url, entry.modified):
+                continue
+            hb.emit({"phase": "extract", "file": entry.name, "index": index, "total": total, "mode": "incremental"}, immediate=True)
+            try:
+                paragraph_count, chunks = _extract_file_chunks(entry)
+            except Exception:
+                log.warning("Extraction failed for %s", entry.name, exc_info=True)
+                continue
+            if chunks is None:
+                continue
+            to_index, to_delete = diff_chunk_rows_in_db(conn, entry.url, chunks)
+            hb.emit(
+                {
+                    "phase": "extract",
+                    "file": entry.name,
+                    "paragraphs": paragraph_count,
+                    "chunks": len(chunks),
+                    "mode": "incremental",
+                },
+                immediate=True,
+            )
+            if to_delete or to_index:
+                if to_delete:
+                    hb.emit({"phase": "delete", "file": entry.name, "keys": len(to_delete)}, immediate=True)
+                    deleted += len(to_delete)
+
+                phase = "embed" if build_vectors and to_index else "index"
+                result = _ingest_rows(listing_root, embedding_model, to_index, delete_keys=to_delete, build_fts=build_fts, build_vectors=build_vectors, search_mode=search_mode, heartbeat_fn=lambda p: hb.emit(p, immediate=True))
+                if to_index:
+                    file_upserted = int(result.get("upserted") or result.get("indexed") or 0)
+                    hb.emit({"phase": phase, "file": entry.name, "paragraphs": paragraph_count, "chunks": file_upserted, "upserted": file_upserted, "mode": "incremental"}, immediate=True)
+                    indexed += len(to_index)
+                files_touched += 1
+                sync_file_paragraph_state_in_db(conn, entry.url, chunks, entry.modified, indexed_at=time.time())
+            else:
+                mark_file_indexed_in_db(conn, entry.url, entry.modified, indexed_at=time.time())
+                files_touched += 1
+
+        row_count = corpus_chunk_count(conn)
+    finally:
+        conn.close()
 
     # Same-model gaps only. A different embedding model never reaches here:
     # _resolve_mode cold-rebuilds so search does not query a wrong-dim table.
@@ -236,18 +240,8 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
             conn.close()
 
         if has_missing:
-            # Empty rows alone never reach the embedder. fill_vector_gaps
-            # loads chunks that have no vector for this model and embeds them.
-            _ingest_rows(listing_root, embedding_model, [], build_fts=False, build_vectors=True, search_mode=search_mode, fill_vector_gaps=True, heartbeat_fn=hb.force)
+            _ingest_rows(listing_root, embedding_model, [], build_fts=False, build_vectors=True, search_mode=search_mode, fill_vector_gaps=True, heartbeat_fn=lambda p: hb.emit(p, immediate=True))
 
-    db_path_final = corpus_db_path(listing_root, create_parent=False)
-    row_count = 0
-    if db_path_final.is_file():
-        conn = connect_corpus_db(db_path_final)
-        try:
-            row_count = corpus_chunk_count(conn)
-        finally:
-            conn.close()
     write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
 
     return {"mode": "incremental", "indexed_paragraphs": indexed, "deleted_paragraphs": deleted, "files_touched": files_touched, "files": total, "row_count": row_count}
@@ -266,7 +260,7 @@ def maintain_folder_corpus(listing_root: str, *, embedding_model: str = "", sear
     maybe_upgrade_legacy_index(root)
     resolved_mode = _resolve_mode(root, model, mode, build_vectors=build_vectors, search_mode=search_mode)
     hb = HeartbeatThrottle(heartbeat_fn)
-    hb.force({"phase": "start", "mode": resolved_mode, "listing_root": root, "search_mode": search_mode})
+    hb.emit({"phase": "start", "mode": resolved_mode, "listing_root": root, "search_mode": search_mode}, immediate=True)
 
     backend = str(search_mode or "").strip().lower()
     if backend in ("zvec", "lancedb"):
@@ -300,7 +294,7 @@ def maintain_folder_corpus(listing_root: str, *, embedding_model: str = "", sear
             finally:
                 conn.close()
 
-    hb.force({"phase": "done", **out})
+    hb.emit({"phase": "done", **out}, immediate=True)
     log.info("Corpus maintain %s (%s) for %s: %s", resolved_mode, search_mode, root, out)
     return out
 

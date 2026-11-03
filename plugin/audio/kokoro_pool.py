@@ -497,9 +497,9 @@ _POOL_CONFIG_VENV: str | None = None
 
 def resolve_kokoro_python() -> str | None:
     """Venv interpreter that has kokoro-onnx, or None when Python is not configured."""
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
 
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return None
     return resolve_venv_python(venv_dir)
@@ -508,9 +508,9 @@ def resolve_kokoro_python() -> str | None:
 def get_kokoro_pool() -> KokoroProcessPool | None:
     """Lazy singleton. None when no venv Python is configured."""
     global _POOL, _POOL_CONFIG_VENV
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
 
-    venv_str = get_config_str("scripting.python_venv_path").strip()
+    venv_str = str(get_config("scripting.python_venv_path") or "").strip()
     with _POOL_LOCK:
         # Same configured path: reuse without re-resolving the interpreter.
         if venv_str and _POOL is not None and _POOL_CONFIG_VENV == venv_str:

@@ -409,7 +409,7 @@ def test_open_librepy_settings_ok_writes_one_batch() -> None:
         patch("plugin.librepy.settings.get_optional", return_value=MagicMock()),
         patch("plugin.librepy.settings.read_settings_control", side_effect=fake_read),
         patch("plugin.chatbot.settings_fields.get_config", return_value={}),
-        patch("plugin.chatbot.settings_fields.set_configs") as mock_set,
+        patch("plugin.chatbot.settings_fields.save") as mock_set,
     ):
         open_librepy_settings(MagicMock())
 

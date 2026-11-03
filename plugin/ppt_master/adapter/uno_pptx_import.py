@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
-from plugin.draw.bridge import DrawBridge, find_notes_shape
+from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
 from plugin.framework.errors import best_effort, is_disposed_exception
 from plugin.framework.uno_context import get_desktop
 from plugin.ppt_master.adapter.uno_shape_postprocess import copy_shapes_to_page
@@ -87,27 +87,11 @@ def _drop_page(pages: Any, page: Any) -> None:
 
 
 def _copy_page_notes(source_page: Any, target_page: Any) -> None:
-    """Copy the source NotesShape onto the target NotesShape, including "".
-
-    find_notes_shape is the NotesShape lookup the notes tools use. Header,
-    footer, and date fields also implement getString/setString and can
-    precede the NotesShape. clear_page_shapes only removes slide shapes, so
-    write the notes shape even when the text is empty; otherwise a re-import
-    of empty notes leaves the previous text (or writes chrome into the first
-    setString shape).
-    """
+    """Copy the source NotesShape onto the target NotesShape, including ""."""
     try:
-        src_shape = find_notes_shape(source_page.getNotesPage())
-        # No NotesShape means the source has no speaker-notes body. hasattr
-        # is the wrong probe: a PyUNO method can be callable and still fail
-        # hasattr, and that false miss would look like empty notes.
-        notes_text = ""
-        if src_shape is not None:
-            notes_text = str(src_shape.getString() or "").strip()
-        tgt_shape = find_notes_shape(target_page.getNotesPage())
-        if tgt_shape is None:
-            return
-        tgt_shape.setString(notes_text)
+        raw = notes_text(source_page)
+        notes_str = "" if raw is None else raw.strip()
+        set_notes_text(target_page, notes_str)
     except Exception as exc:
         if is_disposed_exception(exc):
             raise

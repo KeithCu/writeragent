@@ -800,7 +800,7 @@ def test_get_kokoro_pool_caches_for_configured_venv(monkeypatch):
             shutdowns.append(self)
 
     config_val = {"path": "/venv1"}
-    monkeypatch.setattr("plugin.framework.config.get_config_str", lambda key: config_val["path"])
+    monkeypatch.setattr("plugin.framework.config.get_config", lambda key: config_val["path"])
     resolve_calls: list[str] = []
 
     def fake_resolve(path: str) -> str:

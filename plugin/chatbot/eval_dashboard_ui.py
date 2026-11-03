@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable, cast
 
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.client.model_fetcher import get_text_model
 from plugin.framework.errors import best_effort, is_disposed_exception, suppress_disposed
 from plugin.framework.uno_context import get_active_document
@@ -52,11 +52,11 @@ class EvalDashboard:
     def _populate(self) -> None:
         assert self._dlg is not None
         endpoint_ctrl = self._dlg.getControl("endpoint")
-        set_control_text(endpoint_ctrl, get_config_str("endpoint"))
+        set_control_text(endpoint_ctrl, get_config("endpoint"))
 
         model_ctrl = self._dlg.getControl("models")
         current_model = str(get_text_model())
-        current_endpoint = get_config_str("endpoint").strip()
+        current_endpoint = str(get_config("endpoint") or "").strip()
         # Same freeze as Settings: fetch_available_models before execute()
         # blocked the UI on a dead endpoint. LRU now; the worker fills the list.
         populate_combobox_with_lru(

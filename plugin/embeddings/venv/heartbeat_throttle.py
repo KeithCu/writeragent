@@ -21,17 +21,11 @@ class HeartbeatThrottle:
         self._fn = heartbeat_fn
         self._last = float("-inf")
 
-    def ping(self, payload: dict[str, Any]) -> None:
+    def emit(self, payload: dict[str, Any], *, immediate: bool = False) -> None:
         if self._fn is None:
             return
         now = time.monotonic()
-        if now - self._last < EMBEDDINGS_HEARTBEAT_INTERVAL_S:
+        if not immediate and now - self._last < EMBEDDINGS_HEARTBEAT_INTERVAL_S:
             return
         self._last = now
-        self._fn(payload)
-
-    def force(self, payload: dict[str, Any]) -> None:
-        if self._fn is None:
-            return
-        self._last = time.monotonic()
         self._fn(payload)

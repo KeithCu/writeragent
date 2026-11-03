@@ -86,7 +86,7 @@ def _is_draw_doc(doc: Any) -> bool:
     )
 
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 # Chart CLSID: classic OLE chart (Calc sheet charts, Writer TextEmbeddedObject)
 # Uppercase is often more compatible with older OLE registries

@@ -12,7 +12,7 @@ import struct
 from collections import deque
 from dataclasses import dataclass
 
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, UNDER_CROSSHAIR, deal
+from plugin.framework.deal_shim import deal
 
 
 def _deal_pcm_ok_pytest(pcm: object) -> bool:
@@ -21,11 +21,7 @@ def _deal_pcm_ok_pytest(pcm: object) -> bool:
     return isinstance(pcm, (bytes, bytearray))
 
 
-def _deal_pcm_ok_crosshair(pcm: object) -> bool:
-    return isinstance(pcm, (bytes, bytearray)) and len(pcm) <= DEAL_MAX_ARGV
-
-
-_deal_pcm_ok = _deal_pcm_ok_crosshair if UNDER_CROSSHAIR else _deal_pcm_ok_pytest
+_deal_pcm_ok = _deal_pcm_ok_pytest
 
 log = logging.getLogger(__name__)
 
@@ -84,12 +80,11 @@ def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
 
 def load_silence_detector_config() -> SilenceDetectorConfig:
     """Build detector settings from writeragent.json. 0 = manual Stop Rec only."""
-    from plugin.framework.config import get_config_dict
+    from plugin.framework.config import get_config
 
-    raw = get_config_dict()
     try:
-        stop_ms = max(0, int(raw.get("chatbot.audio_silence_stop_ms", DEFAULT_SILENCE_STOP_MS)))
-    except (TypeError, ValueError):
+        stop_ms = max(0, int(get_config("chatbot.audio_silence_stop_ms")))
+    except (TypeError, ValueError, Exception):
         stop_ms = DEFAULT_SILENCE_STOP_MS
     if stop_ms == 0:
         log.info("audio VAD: auto-stop disabled (silence_stop_ms=0)")

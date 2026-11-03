@@ -819,7 +819,7 @@ def make_mock_send_button_listener(
     if ctx is None:
         ctx = MagicMock()
 
-    with patch("plugin.framework.config.get_config_str", return_value=""), \
+    with patch("plugin.framework.config.get_config", return_value=""), \
          patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), \
          patch("plugin.chatbot.panel.is_audio_recording_supported", return_value=True), \
          patch.object(PanelEventsController, "_subscribe_mcp_events", lambda self: None):

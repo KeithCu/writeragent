@@ -22,7 +22,7 @@ from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry, lookup_cached_
 from plugin.framework.errors import ToolExecutionError
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
-from plugin.writer.format import create_property_value
+from plugin.framework.uno_context import create_property_value
 
 
 def _fill_offset_table(doc) -> None:

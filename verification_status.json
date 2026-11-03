@@ -184,16 +184,6 @@
       ],
       "ci_integration": true
     },
-    "config_service.py": {
-      "status": "verified",
-      "priority": "high",
-      "tool": "deal+hypothesis",
-      "functions_contracted": [
-        "ConfigService._check_read_access",
-        "ConfigService._check_write_access"
-      ],
-      "ci_integration": true
-    },
     "client/stream_normalizer.py": {
       "status": "verified",
       "priority": "high",

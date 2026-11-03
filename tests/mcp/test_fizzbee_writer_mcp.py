@@ -58,6 +58,7 @@ def writer_mcp_setup():
     services, tool_reg = get_writer_tool_registry(services)
 
     handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: config_dict.get("mcp.tool_exposure_mode", config_dict.get("tool_exposure_mode", "delegate"))
     return {
         "services": services,
         "tools": tool_reg,

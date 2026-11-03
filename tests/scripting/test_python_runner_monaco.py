@@ -40,7 +40,7 @@ def test_run_python_dialog_uses_monaco_when_available():
             with patch.object(pr, "is_writer", return_value=True):
                 with patch.object(pr, "is_calc", return_value=False):
                     with patch.object(pr, "is_draw", return_value=False):
-                        with patch.object(pr, "get_config_str", return_value="print('hi')"):
+                        with patch.object(pr, "get_config", return_value="print('hi')"):
                             with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
                                 with patch.object(pr, "_run_python_monaco", return_value=True) as mock_monaco:
                                     with patch.object(pr, "show_python_input_dialog") as mock_native:
@@ -61,7 +61,7 @@ def test_run_python_dialog_falls_back_to_native_dialog():
             with patch.object(pr, "is_writer", return_value=True):
                 with patch.object(pr, "is_calc", return_value=False):
                     with patch.object(pr, "is_draw", return_value=False):
-                        with patch.object(pr, "get_config_str", return_value="x = 1"):
+                        with patch.object(pr, "get_config", return_value="x = 1"):
                             with patch.object(pr, "monaco_editor_available", return_value=(None, False)):
                                 with patch.object(pr, "_run_python_monaco") as mock_monaco:
                                     with patch.object(pr, "show_python_input_dialog") as mock_native:
@@ -371,7 +371,7 @@ def test_run_python_monaco_on_save_persists_and_executes():
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch("plugin.scripting.document_scripts.save_user_script", return_value=None) as mock_save:
             with patch.object(pr, "start_native_script_run") as mock_execute:
-                with patch.object(pr, "get_config_str", return_value="Prime Numbers"):
+                with patch.object(pr, "get_config", return_value="Prime Numbers"):
                     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Prime Numbers": "print(1)"}):
                         ok = pr._run_python_monaco(
                             ctx,
@@ -440,7 +440,7 @@ def test_run_python_monaco_reopen_refuses_second_run():
         ):
             with patch("plugin.scripting.document_scripts.save_user_script", return_value=None):
                 with patch.object(pr, "start_native_script_run") as mock_execute:
-                    with patch.object(pr, "get_config_str", return_value="Prime Numbers"):
+                    with patch.object(pr, "get_config", return_value="Prime Numbers"):
                         with patch(
                             "plugin.scripting.document_scripts.get_user_scripts",
                             return_value={"Prime Numbers": "print(1)"},
@@ -523,7 +523,7 @@ def test_run_python_monaco_other_document_can_run():
             pr, "get_runtime_uid", side_effect=_get_uid
         ):
             with patch("plugin.scripting.document_scripts.save_user_script", return_value=None):
-                with patch.object(pr, "get_config_str", return_value="Prime Numbers"):
+                with patch.object(pr, "get_config", return_value="Prime Numbers"):
                     with patch(
                         "plugin.scripting.document_scripts.get_user_scripts",
                         return_value={"Prime Numbers": "print(1)"},
@@ -570,7 +570,7 @@ def test_run_python_monaco_empty_name_save_errors_run_still_starts(empty_name):
 
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch("plugin.scripting.python_runner.save_selected_script") as mock_save_selected:
-            with patch.object(pr, "get_config_str", return_value=empty_name):
+            with patch.object(pr, "get_config", return_value=empty_name):
                 ok = pr._run_python_monaco(
                     ctx,
                     doc,
@@ -618,7 +618,7 @@ def test_run_python_monaco_on_save_does_not_upsert_unknown_user_name(return_valu
         with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
             with patch("plugin.scripting.document_scripts.save_document_script") as mock_doc_save:
                 with patch.object(pr, "start_native_script_run", return_value={"ok": True}):
-                    with patch.object(pr, "get_config_str", return_value=return_value):
+                    with patch.object(pr, "get_config", return_value=return_value):
                         with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
                             with patch("plugin.scripting.document_scripts._load_document_script_map", return_value=({"Regional": "old"}, None)):
                                 pr._run_python_monaco(
@@ -646,7 +646,7 @@ def test_run_python_monaco_on_save_errors_when_script_was_deleted():
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
             with patch("plugin.scripting.document_scripts.save_document_script") as mock_doc_save:
-                with patch.object(pr, "get_config_str", return_value="Gone"):
+                with patch.object(pr, "get_config", return_value="Gone"):
                     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
                         with patch("plugin.scripting.document_scripts._load_document_script_map", return_value=({}, None)):
                             pr._run_python_monaco(
@@ -678,7 +678,7 @@ def test_run_python_monaco_on_save_builtin_still_runs():
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
             with patch.object(pr, "start_native_script_run") as mock_execute:
-                with patch.object(pr, "get_config_str", return_value="[Vision] extract_text"):
+                with patch.object(pr, "get_config", return_value="[Vision] extract_text"):
                     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
                         with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}):
                             pr._run_python_monaco(
@@ -769,10 +769,10 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
 
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modal_native():
-            with patch.object(ui, "set_config") as mock_set:
+            with patch.object(ui, "save") as mock_set:
                 with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 0"}):
                     with patch.object(ui, "save_user_script") as mock_save:
-                        with patch.object(ui, "get_config_str", return_value=""):
+                        with patch.object(ui, "get_config", return_value=""):
                             scheduled = {}
 
                             def _capture_background(func, *args, **kwargs):
@@ -794,7 +794,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
 
                                 dlg.endDialog.assert_not_called()
                                 dlg.setVisible.assert_not_called()
-                                mock_set.assert_any_call("last_python_script_name_writer", "Universal Sample")
+                                mock_set.assert_any_call({"last_python_script_name_writer": "Universal Sample"})
                                 mock_save.assert_called_with("Universal Sample", "result = 42")
                                 # Run returns before the venv wait. The dialog event
                                 # thread must not call execute_and_insert_result.
@@ -858,10 +858,10 @@ def test_show_python_input_dialog_save_button():
 
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modal_native():
-            with patch.object(ui, "set_config"):
+            with patch.object(ui, "save"):
                 with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "print('hello')"}):
                     with patch.object(ui, "save_user_script") as mock_save:
-                        with patch.object(ui, "get_config_str", return_value=""):
+                        with patch.object(ui, "get_config", return_value=""):
                             def fake_execute():
                                 listeners[0].actionPerformed(MagicMock())
                             dlg.execute.side_effect = fake_execute
@@ -885,31 +885,32 @@ def test_persistent_editor_dispatches_script_actions():
     def _get_config(key):
         if key == "saved_python_scripts":
             return dict(user_scripts)
+        if key == "last_python_script_name_writer":
+            return "MyScript"
         return None
 
-    def _set_config(key, value):
-        if key == "saved_python_scripts":
+    def _save(patch):
+        if "saved_python_scripts" in patch:
             user_scripts.clear()
-            user_scripts.update(value)
+            user_scripts.update(patch["saved_python_scripts"])
 
     with patch("plugin.framework.config.get_config", side_effect=_get_config) as mock_get:
-        with patch("plugin.framework.config.get_config_str", return_value="MyScript"):
-            with patch("plugin.framework.config.set_config", side_effect=_set_config) as mock_set:
-                pe._dispatch_incoming({"type": "request_scripts"})
-                mock_get.assert_any_call("saved_python_scripts")
-                sent = pe.send.call_args[0][0]
-                assert sent["type"] == "scripts_list"
-                assert sent["sections"][0]["scripts"] == {"MyScript": "print(123)"}
-                assert sent["selected_script_name"] == "MyScript"
+        with patch("plugin.framework.config.save", side_effect=_save) as mock_set:
+            pe._dispatch_incoming({"type": "request_scripts"})
+            mock_get.assert_any_call("saved_python_scripts")
+            sent = pe.send.call_args[0][0]
+            assert sent["type"] == "scripts_list"
+            assert sent["sections"][0]["scripts"] == {"MyScript": "print(123)"}
+            assert sent["selected_script_name"] == "MyScript"
 
-                pe._dispatch_incoming({"type": "select_script", "name": "MyScript"})
-                mock_set.assert_called_with("last_python_script_name_writer", "MyScript")
+            pe._dispatch_incoming({"type": "select_script", "name": "MyScript"})
+            mock_set.assert_called_with({"last_python_script_name_writer": "MyScript"})
 
-                pe._dispatch_incoming({"type": "save_script", "name": "NewScript", "code": "x = 1", "origin": SCRIPT_ORIGIN_USER})
-                assert user_scripts == {"MyScript": "print(123)", "NewScript": "x = 1"}
+            pe._dispatch_incoming({"type": "save_script", "name": "NewScript", "code": "x = 1", "origin": SCRIPT_ORIGIN_USER})
+            assert user_scripts == {"MyScript": "print(123)", "NewScript": "x = 1"}
 
-                pe._dispatch_incoming({"type": "delete_script", "name": "MyScript", "origin": SCRIPT_ORIGIN_USER})
-                assert user_scripts == {"NewScript": "x = 1"}
+            pe._dispatch_incoming({"type": "delete_script", "name": "MyScript", "origin": SCRIPT_ORIGIN_USER})
+            assert user_scripts == {"NewScript": "x = 1"}
 
     with patch("plugin.scripting.document_scripts.save_document_script", return_value=None) as mock_save_doc:
         pe.set_run_script_document(doc)
@@ -977,8 +978,8 @@ def test_show_python_input_dialog_save_as_button():
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modal_native():
             with patch.object(ui, "get_user_scripts", return_value={}):
-                with patch.object(ui, "get_config_str", return_value=""):
-                    with patch.object(ui, "set_config"):
+                with patch.object(ui, "get_config", return_value=""):
+                    with patch.object(ui, "save"):
                         with patch.object(ui, "save_user_script") as mock_save:
                             with patch.object(ui, "show_new_script_dialog", return_value=("scriptk", False)) as mock_input:
                                 def fake_execute():
@@ -1045,8 +1046,8 @@ def test_native_dialog_btn_new_action_creates_script():
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modal_native():
             with patch.object(ui, "get_user_scripts", return_value={}):
-                with patch.object(ui, "get_config_str", return_value=""):
-                    with patch.object(ui, "set_config"):
+                with patch.object(ui, "get_config", return_value=""):
+                    with patch.object(ui, "save"):
                         with patch.object(ui, "save_user_script") as mock_save:
                             with patch.object(ui, "show_new_script_dialog", return_value=("BrandNewScript", False)) as mock_new_dlg:
                                 def fake_execute():
@@ -1102,8 +1103,8 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modeless_native():
             with patch.object(ui, "get_user_scripts", return_value={}):
-                with patch.object(ui, "get_config_str", return_value=""):
-                    with patch.object(ui, "set_config"):
+                with patch.object(ui, "get_config", return_value=""):
+                    with patch.object(ui, "save"):
                         ui.show_python_input_dialog(ctx)
 
     dlg.execute.assert_not_called()
@@ -1180,7 +1181,7 @@ def test_save_script_on_builtin_template():
         with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}):
             with patch("plugin.scripting.document_scripts.is_picker_template_name", return_value=True):
                 with patch("plugin.scripting.python_runner.launch_monaco_editor") as mock_launch:
-                    with patch("plugin.framework.config.get_config_str", return_value="[Vision] extract_text"):
+                    with patch("plugin.framework.config.get_config", return_value="[Vision] extract_text"):
                         pr._run_python_monaco(
                             ctx=ctx,
                             doc=doc,
@@ -1205,7 +1206,7 @@ def test_run_python_monaco_on_save_reports_save_user_script_failure():
             with patch("plugin.scripting.document_scripts.save_user_script", return_value="Permission denied"):
                 with patch("plugin.scripting.document_scripts.is_picker_template_name", return_value=False):
                     with patch("plugin.scripting.python_runner.launch_monaco_editor") as mock_launch:
-                        with patch.object(pr, "get_config_str", return_value="My Script"):
+                        with patch.object(pr, "get_config", return_value="My Script"):
                             pr._run_python_monaco(
                                 ctx=ctx,
                                 doc=doc,

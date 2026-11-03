@@ -28,12 +28,12 @@ The plugin runs an embedded HTTP server to provide a local API and support the M
 
 #### MCP tool execution paths
 
-MCP `tools/call` routes to one of two handlers in [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py), when `is_async()` returns exactly `True`. `long_running = True` alone stays on `_execute_with_backpressure`:
+MCP `tools/call` executes tools via `_run_tool` in [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py), which checks `is_async()` on `_PreparedMcpCall`:
 
-| Path | Method | Tool body | Global limit | Per-document gate |
-|------|--------|-----------|--------------|-------------------|
-| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only; acquired on the HTTP worker after the semaphore is released |
-| Long-running | `_execute_long_running` | HTTP worker (UNO marshalled) | None (by design) | Mutating tools only; acquired on the HTTP worker |
+| Mode | Body execution | Global limit | Per-document gate |
+|------|----------------|--------------|-------------------|
+| Backpressure (sync) | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only; acquired on the HTTP worker after the semaphore is released |
+| Long-running (async) | HTTP worker (UNO marshalled) | None (by design) | Mutating tools only; acquired on the HTTP worker |
 
 ```mermaid
 flowchart TB

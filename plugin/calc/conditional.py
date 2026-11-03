@@ -28,8 +28,7 @@ from plugin.framework.uno_context import create_property_value
 from plugin.calc.address_utils import format_range
 from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import query_interface as _query_interface
-from plugin.calc.cells import _range_args
+from plugin.calc.calc_utils import query_interface as _query_interface, range_args
 
 from com.sun.star.lang import IllegalArgumentException
 from com.sun.star.table import CellAddress
@@ -37,7 +36,7 @@ from com.sun.star.table import CellAddress
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 _OPS: list[str] = [
     "NONE",
@@ -104,7 +103,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        ranges = _range_args(kwargs.get("range"))
+        ranges = range_args(kwargs.get("range"))
         if len(ranges) > 1:
             return self._tool_error("Pass exactly one range.")
 
@@ -159,7 +158,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        ranges = _range_args(kwargs.get("range"))
+        ranges = range_args(kwargs.get("range"))
         if len(ranges) != 1:
             return self._tool_error("Pass exactly one range.")
         range_str = ranges[0]
@@ -228,7 +227,7 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        ranges = _range_args(kwargs.get("range"))
+        ranges = range_args(kwargs.get("range"))
         if len(ranges) != 1:
             return self._tool_error("Pass exactly one range.")
         range_str = ranges[0]

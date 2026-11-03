@@ -140,7 +140,7 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
         patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
         patch("plugin.chatbot.panel_wiring.get_event_bus"),
         patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
-        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.framework.config.get_config", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
         _wireControls(host, root)
@@ -221,7 +221,7 @@ def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
         patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
         patch("plugin.chatbot.panel_wiring.get_event_bus"),
         patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
-        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.framework.config.get_config", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
         _wireControls(host, root)
@@ -341,7 +341,7 @@ def test_wire_controls_installs_frame_session_when_rich_text_disabled() -> None:
         patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
         patch("plugin.chatbot.panel_wiring.get_event_bus"),
         patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
-        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.framework.config.get_config", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
         _wireControls(host, root)

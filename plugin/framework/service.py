@@ -96,11 +96,11 @@ class ServiceRegistry:
 
         services = ServiceRegistry()
         services.register("document", my_document_service)
-        services.register("config", my_config_service)
+        services.register("events", my_event_bus)
 
         # Access by name:
         services.document.build_heading_tree(doc)
-        services.config.get("mcp.port")
+        services.events.emit("sample:event")
 
         # Or explicit:
         services.get("document")

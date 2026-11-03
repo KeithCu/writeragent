@@ -5,38 +5,37 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.draw.transform_schema import AUTOLAYOUT_BY_NAME, AUTOLAYOUT_ID
+from plugin.draw.layouts import LAYOUT_TABLE, layout_id, layout_name
 from plugin.draw.transitions import (
     GetSlideLayout,
     GetSlideTransition,
     SetSlideLayout,
     SetSlideTransition,
     _FADE_EFFECTS,
-    _LAYOUTS,
     apply_slide_layout,
-    layout_id,
 )
 
 
 def test_layout_ids_match_libreoffice_autolayout():
     """Friendly names must be AutoLayout ids, not PpSlideLayout minus one."""
-    assert layout_id("title") == AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE"] == 0
-    assert layout_id("text") == AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_CONTENT"] == 1
-    assert layout_id("two_column_text") == AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_2CONTENT"] == 3
-    assert layout_id("title_only") == AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_ONLY"] == 19
-    assert layout_id("blank") == AUTOLAYOUT_BY_NAME["AUTOLAYOUT_NONE"] == 20
-    assert layout_id("four_objects") == AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_4CONTENT"] == 18
-    assert layout_id("vertical_text") == AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_VCONTENT"] == 29
-    assert layout_id("six_objects") == AUTOLAYOUT_BY_NAME["AUTOLAYOUT_TITLE_6CONTENT"] == 34
-    assert layout_id("chart") == AUTOLAYOUT_ID["AUTOLAYOUT_CHART"] == 2
-    assert layout_id("table") == AUTOLAYOUT_ID["AUTOLAYOUT_TAB"] == 8
-    assert layout_id("object") == AUTOLAYOUT_ID["AUTOLAYOUT_OBJ"] == 11
+    assert layout_id("title") == 0
+    assert layout_id("text") == 1
+    assert layout_id("two_column_text") == 3
+    assert layout_id("title_only") == 19
+    assert layout_id("blank") == 20
+    assert layout_id("four_objects") == 18
+    assert layout_id("vertical_text") == 29
+    assert layout_id("six_objects") == 34
+    assert layout_id("chart") == 2
+    assert layout_id("table") == 8
+    assert layout_id("object") == 11
     # The old VBA table wrote these onto page.Layout and picked another layout.
     assert layout_id("title_only") != 10
     assert layout_id("blank") != 11
     assert layout_id("two_column_text") != 2
     assert layout_id("four_objects") != 23
-    assert len(set(_LAYOUTS.values())) == len(_LAYOUTS)
+    friendly_entries = [row[0] for row in LAYOUT_TABLE if row[0] is not None]
+    assert len(set(friendly_entries)) == len(friendly_entries)
 
 
 def test_layout_id_blank_and_none_alias():
@@ -68,6 +67,21 @@ def test_apply_slide_layout_sets_page_and_returns_canonical():
 def test_apply_slide_layout_unknown_raises():
     with pytest.raises(ValueError, match="Unknown layout"):
         apply_slide_layout(MagicMock(), "not_a_layout")
+
+
+def test_layout_name_and_available():
+    from plugin.draw.layouts import available_layout_names
+
+    assert layout_name(0) == "title"
+    assert layout_name(1) == "text"
+    assert layout_name(20) == "blank"
+    assert layout_name(99) == "unknown_99"
+
+    avail = available_layout_names()
+    assert "blank" in avail
+    assert "none" in avail
+    assert "text" in avail
+    assert "two_objects" in avail
 
 
 def test_set_slide_layout_uses_shared_helper():

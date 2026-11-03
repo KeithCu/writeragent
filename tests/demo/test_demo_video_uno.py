@@ -41,7 +41,7 @@ _saved: dict[str, Any] = {}
 def _setup(ctx):
     if os.environ.get("WRITERAGENT_DEMO") != "1":
         raise unittest.SkipTest("demo scenes only run via make demo-video")
-    from plugin.framework.config import get_config, init_config
+        from plugin.framework.config import get_config, init_config
 
     init_config(ctx)
     from plugin.chatbot.chat_sidebar_mode import mark_librarian_invoked
@@ -56,10 +56,10 @@ def _setup(ctx):
 @teardown
 def _teardown(ctx):
     # Put the user's real settings back; documents stay open for re-takes.
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     for key, val in _saved.items():
-        set_config(key, val)
+        save({key: val})
 
 
 def _open(ctx, name: str):
@@ -132,9 +132,9 @@ def _type_into_document(doc, text: str) -> None:
 @native_test
 def test_scene1_hook(ctx):
     """Before/after: a rough executive summary becomes crisp, formatting intact."""
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
-    set_config("text_model", CHAT_MODEL)
+    save({"text_model": CHAT_MODEL})
     doc = _open(ctx, REPORT)
     time.sleep(2.0)  # hold on the "before" for the viewer
     _ask(ctx, doc, "Rewrite the Executive Summary so it is crisp and executive-ready. Keep the bold revenue figure and the formatting.")
@@ -143,11 +143,11 @@ def test_scene1_hook(ctx):
 @native_test
 def test_scene2_grammar(ctx):
     """Local/online LLM grammar checker catches a logic error no rule engine can."""
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     # "llm" uses grammar_proofreader_model, or the chat model when empty.
-    set_config("doc.grammar_proofreader_enabled", "llm")
-    set_config("doc.grammar_proofreader_model", "")
+    save({"doc.grammar_proofreader_enabled": "llm"})
+    save({"doc.grammar_proofreader_model": ""})
     doc = _open(ctx, REPORT)
     time.sleep(3.0)  # let the checker underline the subject-verb slip already in the summary
     _type_into_document(doc, LOGIC_SENTENCE)
@@ -157,8 +157,8 @@ def test_scene2_grammar(ctx):
 @native_test
 def test_scene3_chat_edit(ctx):
     """Chat edit: shorten the rambling paragraph, keep the table."""
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
-    set_config("text_model", CHAT_MODEL)
+    save({"text_model": CHAT_MODEL})
     doc = _open(ctx, REPORT)
     _ask(ctx, doc, "Make the Product Categories paragraph about half as long. Keep the table.")

@@ -28,6 +28,26 @@ from plugin.scripting.venv_worker import warm_venv_worker
 
 log = logging.getLogger(__name__)
 
+
+def format_index_heartbeat_line(
+    filename: str,
+    *,
+    paragraphs: int,
+    chunks: int,
+    elapsed_sec: float,
+) -> str:
+    """Format one per-file rebuild progress line (native paragraphs + embed chunks)."""
+    para_label = "paragraph" if int(paragraphs) == 1 else "paragraphs"
+    chunk_label = "chunk" if int(chunks) == 1 else "chunks"
+    return f"{filename}: {int(paragraphs)} {para_label}, {int(chunks)} {chunk_label}, {elapsed_sec:.2f}s"
+
+
+def heartbeat_counts_from_payload(payload: dict[str, Any]) -> tuple[int, int]:
+    """Return (paragraphs, chunks) from a maintain heartbeat payload."""
+    paragraphs = int(payload.get("paragraphs") or 0)
+    chunks = int(payload.get("upserted") or payload.get("chunks") or paragraphs)
+    return paragraphs, chunks
+
 # UNO Key.RETURN (same code as chat sidebar; single-line edits have no newline use for Shift+Enter)
 _SEARCH_KEY_RETURN = 1280
 
@@ -345,7 +365,6 @@ class SearchDialog:
         def _do_rebuild() -> None:
             try:
                 from plugin.embeddings.embeddings_cache import clear_folder_cache
-                from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
                 from plugin.embeddings.embedding_client import get_embedding_model
                 from plugin.embeddings.embeddings_service import _folder_search_mode
 

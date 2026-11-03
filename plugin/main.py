@@ -265,11 +265,9 @@ def bootstrap(ctx: Any | None = None) -> None:
             _install_terminate_listener(ctx)
 
         # 3. Core Services (Framework)
-        from plugin.framework.config_service import ConfigService
         from plugin.doc.document_helpers import DocumentService
         from plugin.framework.event_bus import get_event_bus
 
-        _services.register("config", ConfigService())
         _services.register("document", DocumentService())
         _services.register("events", get_event_bus())
 
@@ -472,7 +470,7 @@ def get_menu_text(command: str) -> str | None:
 def _command_from_dispatch_url(url: Any) -> str:
     """Extract command from a WriterAgent dispatch URL.
 
-    Packet G: ``org.extension.writeragent:chatbot.debug_sidebar?RECORD_CLICKED``.
+    Debug sidebar record URL: ``org.extension.writeragent:chatbot.debug_sidebar?RECORD_CLICKED``.
     LO may put the debug op in ``Query``, or in ``Path`` as ``chatbot.debug_sidebar?OP``.
     """
     # What was wrong: dispatch command extraction read url.Path directly, ignoring Complete-only URLs and double-appending queries.

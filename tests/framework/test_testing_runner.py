@@ -21,14 +21,14 @@ import plugin.testing_runner as tr
 
 from plugin.testing_runner import (
     _APPLICATION_ERROR_MARKER,
-    _cli_filters,
+    _run_options,
     _exit_after_summary,
     _fail_reason,
     _fail_reason_with_lifecycle,
     _function_name_matches,
     _is_case_id,
     _module_matches_filters,
-    _native_suite_set_config,
+    _native_suite_save,
     _native_suite_sort_key,
     _test_function_filters,
     collect_post_test_death,
@@ -123,7 +123,8 @@ def test_module_matches_filters_by_packet_letter(tmp_path: Path) -> None:
 
 
 def test_cli_filters_default_empty() -> None:
-    assert isinstance(_cli_filters, list)
+    assert isinstance(_run_options.filters, list)
+    assert _run_options.filters == []
 
 
 def test_lifecycle_breadcrumb_names_previous_and_current(monkeypatch) -> None:
@@ -241,7 +242,7 @@ def test_collect_post_test_death_soffice_exit() -> None:
 
     reset_lifecycle_breadcrumb()
     reset_office_death_signals(clear_proc=True)
-    tr._soffice_proc = _DeadProc()
+    tr._office.soffice_proc = _DeadProc()
     assert soffice_exit_code() == 1
     reason = collect_post_test_death(None)
     assert reason is not None
@@ -426,38 +427,37 @@ def test_exit_after_summary_minus_m_uses_helper() -> None:
     assert "raise SystemExit(main())" not in text
 
 
-def test_native_suite_set_config_forwards_text_model_event_key(monkeypatch) -> None:
+def test_native_suite_save_forwards_text_model_event_key(monkeypatch) -> None:
     """Sidebar setup calls set_text_model, which always passes event_key."""
     from plugin.framework.client.model_fetcher import set_text_model
 
-    captured: list[tuple[str, str, str | None]] = []
+    captured: list[tuple[dict[str, object], str | None]] = []
 
-    def original(key: str, value: object, *, event_key: str | None = None) -> None:
-        captured.append((key, str(value), event_key))
+    def original(patch: dict[str, object], *, event_key: str | None = None) -> None:
+        captured.append((patch, event_key))
 
     override: dict[str, object] = {}
 
-    def wrapper(key: str, value: object, *, event_key: str | None = None) -> None:
-        _native_suite_set_config(
-            key,
-            value,
+    def wrapper(patch: dict[str, object], *, event_key: str | None = None) -> None:
+        _native_suite_save(
+            patch,
             event_key=event_key,
             ctx=object(),
             review_mode_override=override,
-            original_set_config=original,
+            original_save=original,
         )
 
     monkeypatch.setattr("plugin.framework.client.model_fetcher.get_config", lambda key: "")
-    monkeypatch.setattr("plugin.framework.client.model_fetcher.set_config", wrapper)
+    monkeypatch.setattr("plugin.framework.client.model_fetcher.save", wrapper)
 
     set_text_model("mock-model", update_lru=False)
-    assert captured == [("text_model", "mock-model", None)]
+    assert captured == [({"text_model": "mock-model"}, None)]
 
     set_text_model("mapped-model", update_lru=False, event_key="ai.text_model")
-    assert captured[-1] == ("text_model", "mapped-model", "ai.text_model")
+    assert captured[-1] == ({"text_model": "mapped-model"}, "ai.text_model")
 
 
-def test_native_suite_set_config_review_mode_keeps_mapped_event_key(monkeypatch) -> None:
+def test_native_suite_save_review_mode_keeps_mapped_event_key(monkeypatch) -> None:
     emitted: list[tuple[str, dict[str, object]]] = []
 
     def emit(event: str, **data: object) -> None:
@@ -467,27 +467,25 @@ def test_native_suite_set_config_review_mode_keeps_mapped_event_key(monkeypatch)
     override: dict[str, object] = {}
     ctx = object()
 
-    def original(key: str, value: object, *, event_key: str | None = None) -> None:
+    def original(patch: dict[str, object], *, event_key: str | None = None) -> None:
         raise AssertionError("review mode stays in memory")
 
-    _native_suite_set_config(
-        "doc.agent_edit_review_mode",
-        "record",
+    _native_suite_save(
+        {"doc.agent_edit_review_mode": "record"},
         event_key=None,
         ctx=ctx,
         review_mode_override=override,
-        original_set_config=original,
+        original_save=original,
     )
     assert override["doc.agent_edit_review_mode"] == "record"
     assert emitted == [("config:changed", {"ctx": ctx})]
 
-    _native_suite_set_config(
-        "doc.agent_edit_review_mode",
-        "wait",
+    _native_suite_save(
+        {"doc.agent_edit_review_mode": "wait"},
         event_key="ai.review",
         ctx=ctx,
         review_mode_override=override,
-        original_set_config=original,
+        original_save=original,
     )
     assert override["doc.agent_edit_review_mode"] == "wait"
     assert emitted[-1] == ("config:changed", {"key": "ai.review", "value": "wait", "ctx": ctx})
@@ -525,7 +523,7 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) ->
     )
 
     monkeypatch.setattr(tr, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_cli_filters", [])
+    monkeypatch.setattr(tr._run_options, "filters", [])
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
@@ -533,7 +531,7 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) ->
     monkeypatch.setattr("plugin.main.bootstrap", lambda ctx=None: None)
     monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx=None: None)
 
-    saved = (config_mod.get_config, config_mod.set_config, config_mod.get_config_dict)
+    saved = (config_mod.get_config, config_mod.save, config_mod.get_config_dict)
     leaked = (
         "plugin.tests.test_r48_import_fail_uno",
         "plugin.tests.test_r48_syntax_uno",
@@ -542,7 +540,7 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) ->
     try:
         summary = json.loads(tr.run_all_tests(object()))
     finally:
-        config_mod.get_config, config_mod.set_config, config_mod.get_config_dict = saved
+        config_mod.get_config, config_mod.save, config_mod.get_config_dict = saved
         for key in leaked:
             sys.modules.pop(key, None)
 
@@ -566,9 +564,9 @@ def test_mark_urp_dead_prints_office_log_tail(monkeypatch, tmp_path):
     cfg.mkdir(parents=True)
     (cfg / "writeragent_debug.log").write_text("\n".join("line %d" % i for i in range(50)) + "\n", encoding="utf-8")
     seen: list[str] = []
-    monkeypatch.setattr(tr, "_throwaway_profile_dir", tmp_path)
+    monkeypatch.setattr(tr._office, "throwaway_profile_dir", tmp_path)
     monkeypatch.setattr(tr, "_progress", seen.append)
-    monkeypatch.setattr(tr, "_urp_bridge_dead", False)
+    monkeypatch.setattr(tr._office, "urp_bridge_dead", False)
     tr._mark_urp_dead(RuntimeError("gone"), "t")
     tail = [s for s in seen if s.startswith("OFFICE LOG | ")]
     assert tail[0] == "OFFICE LOG | line 10"
@@ -614,7 +612,7 @@ def test_dead_office_still_probes_pids(monkeypatch) -> None:
         def poll(self):
             return 1
 
-    monkeypatch.setattr(tr, "_soffice_proc", DeadProc())
+    monkeypatch.setattr(tr._office, "soffice_proc", DeadProc())
     reason = collect_post_test_death(None)
     assert reason is not None
     assert len(calls) > 0
@@ -651,8 +649,8 @@ def test_typo_filter_fails_the_run(monkeypatch, tmp_path) -> None:
     )
 
     monkeypatch.setattr(tr, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_cli_filters", ["no_such_test_zzz"])
-    monkeypatch.setattr(tr, "_soak_repeat", 1)
+    monkeypatch.setattr(tr._run_options, "filters", ["no_such_test_zzz"])
+    monkeypatch.setattr(tr._run_options, "soak_repeat", 1)
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
@@ -701,9 +699,9 @@ def test_parse_cli_args_visible_and_filters(monkeypatch) -> None:
 
 def test_parse_cli_args_repeat_forms() -> None:
     assert tr._parse_cli_args(["--repeat", "3"]) == []
-    assert tr._soak_repeat == 3
+    assert tr._run_options.soak_repeat == 3
     assert tr._parse_cli_args(["--repeat=3"]) == []
-    assert tr._soak_repeat == 3
+    assert tr._run_options.soak_repeat == 3
 
 
 def test_parse_cli_args_rejects_bad_repeat() -> None:
@@ -713,12 +711,12 @@ def test_parse_cli_args_rejects_bad_repeat() -> None:
 
 def test_parse_cli_args_pair_expands(monkeypatch) -> None:
     # _parse_cli_args sets this module global; restore it so later run_module_suite tests on the same xdist worker are not filtered.
-    monkeypatch.setattr(tr, "_cli_exact_function_names", [])
+    monkeypatch.setattr(tr._run_options, "exact_function_names", [])
     assert tr._parse_cli_args(["--pair", "tree-math"]) == [
         "test_get_draw_tree",
         "test_insert_math_draw",
     ]
-    assert tr._cli_exact_function_names == [
+    assert tr._run_options.exact_function_names == [
         "test_get_draw_tree",
         "test_insert_math_draw",
     ]

@@ -138,9 +138,6 @@ def test_execute_no_registry_errors():
 def _handler(mode, schemas):
     services = MagicMock()
     services.tools.get_schemas.return_value = list(schemas)
-    services.config.get.side_effect = (
-        lambda key, default=None: mode if key == "mcp.tool_exposure_mode" else default
-    )
     services.get.side_effect = lambda name: getattr(services, name, None)
 
     def _inline(fn, *a, **k):
@@ -149,7 +146,9 @@ def _handler(mode, schemas):
 
     services.main_thread.execute.side_effect = _inline
     services.document.get_active_document.return_value = MagicMock()
-    return MCPProtocolHandler(services)
+    handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: mode
+    return handler
 
 
 def _list_names(mode):
@@ -193,15 +192,14 @@ def test_tools_list_filters_on_main_thread():
         return [{"name": "insert_footnote", "description": "f", "inputSchema": {}}]
 
     services = MagicMock()
-    services.config.get.side_effect = (
-        lambda key, default=None: "delegate" if key == "mcp.tool_exposure_mode" else default
-    )
     services.get.side_effect = lambda name: getattr(services, name, None)
     services.main_thread.execute.side_effect = _exec
     services.tools.get_schemas.side_effect = _get_schemas
     services.document.get_active_document.return_value = MagicMock()  # a document is open
 
-    result = MCPProtocolHandler(services)._mcp_tools_list({})
+    handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: "delegate"
+    result = handler._mcp_tools_list({})
     assert any(t["name"] == "insert_footnote" for t in result["tools"])
     services.tools.get_schemas.assert_called()  # the thread assertion only fires if get_schemas ran
 
@@ -231,16 +229,15 @@ def test_tools_list_direct_flat_filters_sidebar_on_main_thread():
         return frozenset()
 
     services = MagicMock()
-    services.config.get.side_effect = (
-        lambda key, default=None: "direct_flat" if key == "mcp.tool_exposure_mode" else default
-    )
     services.get.side_effect = lambda name: getattr(services, name, None)
     services.main_thread.execute.side_effect = _exec
     services.tools.get_schemas.side_effect = _get_schemas
     services.document.get_active_document.return_value = MagicMock()  # a document is open
 
+    handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: "direct_flat"
     with patch("plugin.doc.find_tools_tool.sidebar_only_tool_names", _sidebar):
-        result = MCPProtocolHandler(services)._mcp_tools_list({})
+        result = handler._mcp_tools_list({})
     assert any(t["name"] == "create_chart" for t in result["tools"])
     services.tools.get_schemas.assert_called()
 
@@ -364,9 +361,6 @@ def _ctx_real(registry):
 def _handler_real(mode, registry):
     services = MagicMock()
     services.tools = registry
-    services.config.get.side_effect = (
-        lambda key, default=None: mode if key == "mcp.tool_exposure_mode" else default
-    )
     services.get.side_effect = lambda name: getattr(services, name, None)
 
     def _inline(fn, *a, **k):
@@ -375,7 +369,9 @@ def _handler_real(mode, registry):
 
     services.main_thread.execute.side_effect = _inline
     services.document.get_active_document.return_value = None
-    return MCPProtocolHandler(services)
+    handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: mode
+    return handler
 
 
 def test_execute_domain_real_registry():

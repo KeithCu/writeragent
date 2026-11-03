@@ -1042,28 +1042,6 @@ def test_kokoro_oneshot_times_out_and_reaps(tmp_path):
     mock_proc.wait.assert_called()
     release.assert_called_with(str(wav))
 
-
-def test_kokoro_cli_rejects_bad_exit_and_skips_flag_text(tmp_path):
-    from plugin.audio.tts_service import _kokoro_cli_to_file
-
-    wav = tmp_path / "out.wav"
-    wav.write_bytes(b"RIFF")
-    mock_proc = MagicMock()
-    mock_proc.communicate.return_value = ("", "nope")
-    mock_proc.returncode = 2
-    with patch("plugin.audio.tts_service._new_speech_temp", return_value=str(wav)), \
-         patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc) as popen, \
-         patch("plugin.audio.tts_service._release_temp"):
-        assert _kokoro_cli_to_file("/bin/kokoro", "hello", "af_sky", 1.0, tts._speech_generation) is None
-    popen.assert_called_once()
-
-    with patch("plugin.audio.tts_service._popen_for_speech") as popen_flag, \
-         patch("plugin.audio.tts_service._new_speech_temp") as new_temp:
-        assert _kokoro_cli_to_file("/bin/kokoro", "-n hello", "af_sky", 1.0, tts._speech_generation) is None
-    popen_flag.assert_not_called()
-    new_temp.assert_not_called()
-
-
 def test_kokoro_warm_exception_allows_fallback(tmp_path):
     from plugin.audio.tts_service import _kokoro_warm_to_file
 

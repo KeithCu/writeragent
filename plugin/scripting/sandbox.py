@@ -24,7 +24,6 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
     DEAL_MAX_PATH,
     DEAL_MAX_TOKEN,
-    UNDER_CROSSHAIR,
     deal,
     inverse_ensure,
     ascii_bounded, str_bounded,
@@ -590,9 +589,9 @@ _BLOCKED_ENV_EXACT = {
 
 
 # scrub_subprocess_env: keep pytest wide.
-_DEAL_SCRUB_DICT = 1 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
-_DEAL_SCRUB_KEY = 2 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
-_DEAL_SCRUB_VAL = 4 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
+_DEAL_SCRUB_DICT = DEAL_MAX_ARGV
+_DEAL_SCRUB_KEY = DEAL_MAX_TOKEN
+_DEAL_SCRUB_VAL = DEAL_MAX_ARGV
 
 
 def _deal_scrub_env_ok_pytest(base: object) -> bool:
@@ -605,21 +604,7 @@ def _deal_scrub_env_ok_pytest(base: object) -> bool:
     return isinstance(base, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in base.items())
 
 
-def _deal_scrub_env_ok_crosshair(base: object) -> bool:
-    return base is None or (
-        isinstance(base, dict)
-        and len(base) <= _DEAL_SCRUB_DICT
-        and all(
-            isinstance(k, str)
-            and str_bounded(k, _DEAL_SCRUB_KEY)
-            and isinstance(v, str)
-            and str_bounded(v, _DEAL_SCRUB_VAL)
-            for k, v in base.items()
-        )
-    )
-
-
-_deal_scrub_env_ok = _deal_scrub_env_ok_crosshair if UNDER_CROSSHAIR else _deal_scrub_env_ok_pytest
+_deal_scrub_env_ok = _deal_scrub_env_ok_pytest
 
 
 def _deal_path_ok_pytest(path: object) -> bool:
@@ -628,14 +613,10 @@ def _deal_path_ok_pytest(path: object) -> bool:
     return isinstance(path, str)
 
 
-def _deal_path_ok_crosshair(path: object) -> bool:
-    return str_bounded(path, DEAL_MAX_PATH)
-
-
-_deal_path_ok = _deal_path_ok_crosshair if UNDER_CROSSHAIR else _deal_path_ok_pytest
+_deal_path_ok = _deal_path_ok_pytest
 
 # basename: ASCII short under CrossHair.
-_DEAL_BASENAME_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_PATH
+_DEAL_BASENAME_LEN = DEAL_MAX_PATH
 
 
 def _env_name_is_credential(name: str) -> bool:

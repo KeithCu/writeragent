@@ -16,11 +16,12 @@ def test_mcp_protocol_short_circuits_if_stopped_after_gate():
         doc=MagicMock(),
         doc_key="file:///test.odt",
         needs_gate=True,
-        echo=None
+        echo=None,
+        is_async=True,
     )
 
     protocol.queue_executor.execute.return_value = prepared
-    result = protocol._execute_long_running("test_tool", {})
+    result = protocol._run_tool("test_tool", {})
     assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
 
 

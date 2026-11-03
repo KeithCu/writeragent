@@ -1423,9 +1423,9 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
     # through there). No doc means no spill: the corner value is returned.
     is_matrix = False
     if isinstance(result, (list, tuple)) and index_arg is None and len(result) > 0:
-        from plugin.framework.config import get_config_bool
+        from plugin.framework.config import get_config
 
-        if get_config_bool("scripting.python_auto_spill"):
+        if get_config("scripting.python_auto_spill"):
             # AST lint only treats a bare ``if on_main_thread():`` as a guard.
             if on_main_thread():
                 try:

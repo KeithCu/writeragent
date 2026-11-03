@@ -12,11 +12,8 @@ portions. Callers run on the UI thread: the read helper is @main_thread_only.
 """
 from typing import Any, Iterator
 
-from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions
 from plugin.framework.errors import ToolExecutionError, uno_probe
-
-# uno_probe default for sites where None is a real UNO result.
-_FAILED: Any = object()
 
 
 def _service_named(obj: Any, name: str) -> bool:
@@ -56,7 +53,7 @@ def _safe_enumerate(obj: Any) -> Iterator[Any]:
         return
     # Portion walks must use hasMoreElements() is True; bare "if not enum.hasMoreElements()"
     # never stops on MagicMock (AGENTS.md). A failed read ends the walk like the end does.
-    while (element := uno_probe(lambda: enum.nextElement() if enum.hasMoreElements() is True else _FAILED, _FAILED)) is not _FAILED:
+    while (element := uno_probe(lambda: enum.nextElement() if enum.hasMoreElements() is True else FAILED, FAILED)) is not FAILED:
         yield element
 
 
@@ -125,10 +122,10 @@ def raise_if_range_hosts_nested_table(text_range: Any) -> None:
     def host_text() -> Any:
         text_obj = text_range.getText()
         cur = text_obj.createTextCursorByRange(text_range.getStart())
-        return _FAILED if cur.getPropertyValue("TextTable") is None else text_obj
+        return FAILED if cur.getPropertyValue("TextTable") is None else text_obj
 
-    text_obj = uno_probe(host_text, _FAILED)
-    hosted = [] if text_obj is _FAILED else _cell_hosted_table_names(text_obj)
+    text_obj = uno_probe(host_text, FAILED)
+    hosted = [] if text_obj is FAILED else _cell_hosted_table_names(text_obj)
     if not hosted:
         return
 

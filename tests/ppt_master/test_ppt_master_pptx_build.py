@@ -41,7 +41,7 @@ def test_find_project_pptx_missing_exports(tmp_path: Path):
 
 @patch("plugin.ppt_master.pptx_build.subprocess.run")
 @patch("plugin.ppt_master.pptx_build.resolve_venv_python")
-@patch("plugin.ppt_master.pptx_build.get_config_str")
+@patch("plugin.ppt_master.pptx_build.get_config")
 def test_build_project_pptx_success(mock_cfg, mock_resolve, mock_run, tmp_path: Path):
     mock_cfg.return_value = "/venv"
     mock_resolve.return_value = "/venv/bin/python"
@@ -61,7 +61,7 @@ def test_build_project_pptx_success(mock_cfg, mock_resolve, mock_run, tmp_path: 
     assert mock_run.call_args.args[0][0] == "/venv/bin/python"
 
 
-@patch("plugin.ppt_master.pptx_build.get_config_str")
+@patch("plugin.ppt_master.pptx_build.get_config")
 def test_build_project_pptx_requires_venv(mock_cfg, tmp_path: Path):
     mock_cfg.return_value = ""
     path, err = build_project_pptx(None, tmp_path, tmp_path)

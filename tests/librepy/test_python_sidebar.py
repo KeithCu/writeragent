@@ -63,7 +63,7 @@ def test_format_runtime_status_isolated_embedded():
     ctx = MagicMock()
     with (
         patch("plugin.librepy.python_sidebar.python_session_mode", return_value="isolated"),
-        patch("plugin.librepy.python_sidebar.get_config_str", return_value=""),
+        patch("plugin.librepy.python_sidebar.get_config", return_value=""),
     ):
         text = format_runtime_status(ctx)
     assert "Isolated" in text
@@ -74,7 +74,7 @@ def test_format_runtime_status_shared_with_venv():
     ctx = MagicMock()
     with (
         patch("plugin.librepy.python_sidebar.python_session_mode", return_value="shared"),
-        patch("plugin.librepy.python_sidebar.get_config_str", return_value="/tmp/myvenv"),
+        patch("plugin.librepy.python_sidebar.get_config", return_value="/tmp/myvenv"),
         patch("plugin.librepy.python_sidebar.resolve_venv_python", return_value="/tmp/myvenv/bin/python"),
     ):
         text = format_runtime_status(ctx)

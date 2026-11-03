@@ -11,7 +11,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from plugin.draw.bridge import DrawBridge, find_notes_shape
+from plugin.doc.doc_type import is_impress
+from plugin.draw.bridge import DrawBridge, set_notes_text
 from plugin.framework.errors import is_disposed_exception
 
 log = logging.getLogger(__name__)
@@ -39,18 +40,12 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
         if idx < 0 or idx >= pages.getCount():
             continue
         notes = item.get("notes")
-        if notes and doc.supportsService("com.sun.star.presentation.PresentationDocument"):
-            # find_notes_shape is the NotesShape lookup the notes tools use.
-            # Header, footer, and date chrome also implement setString and can
-            # precede the notes body. Dispose propagates. applied increments
-            # only after setString returns; a miss is status error.
+        if notes and is_impress(doc):
             try:
                 page = pages.getByIndex(idx)
-                shape = find_notes_shape(page.getNotesPage())
-                if shape is None:
+                if not set_notes_text(page, str(notes)):
                     failures.append(f"slide {idx} notes: no NotesShape")
                 else:
-                    shape.setString(str(notes))
                     applied += 1
             except Exception as exc:
                 if is_disposed_exception(exc):

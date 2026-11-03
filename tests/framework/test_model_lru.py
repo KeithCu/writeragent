@@ -48,11 +48,11 @@ class TestModelLru:
         def mock_get_config(key):
             return config_data.get(key, "")
 
-        def mock_set_config(key, value):
-            config_data[key] = value
+        def mock_save(data):
+            config_data.update(data)
 
         with patch("plugin.framework.model_lru.get_config", side_effect=mock_get_config), \
-             patch("plugin.framework.model_lru.set_config", side_effect=mock_set_config) as mock_set:
+             patch("plugin.framework.model_lru.save", side_effect=mock_save) as mock_set:
             update_lru_history("m1", "model_lru", "http://localhost")
             assert config_data["model_lru@http://localhost"] == ["m1"]
 
@@ -67,11 +67,11 @@ class TestModelLru:
         def mock_get_config(key):
             return config_data.get(key, "")
 
-        def mock_set_config(key, value):
-            config_data[key] = value
+        def mock_save(data):
+            config_data.update(data)
 
         with patch("plugin.framework.model_lru.get_config", side_effect=mock_get_config), \
-             patch("plugin.framework.model_lru.set_config", side_effect=mock_set_config):
+             patch("plugin.framework.model_lru.save", side_effect=mock_save):
             update_lru_history("item1", "model_lru", "http://localhost")
             assert config_data.get("model_lru@http://localhost") == ["item1"]
             update_lru_history("item2", "prompt_lru", "")
@@ -88,10 +88,10 @@ class TestModelLru:
         def mock_get_config(key):
             return config_data.get(key, "")
 
-        def mock_set_config(key, value):
-            config_data[key] = value
+        def mock_save(data):
+            config_data.update(data)
 
         with patch("plugin.framework.model_lru.get_config", side_effect=mock_get_config), \
-             patch("plugin.framework.model_lru.set_config", side_effect=mock_set_config) as mock_set:
+             patch("plugin.framework.model_lru.save", side_effect=mock_save) as mock_set:
             update_lru_history("first", "prompt_lru", "")
             mock_set.assert_not_called()

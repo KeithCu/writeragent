@@ -400,7 +400,7 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
     """Save As ODS to *dest* (atomic replace via a ``.partial`` sibling)."""
     import uno
 
-    from plugin.writer.format import create_property_value
+    from plugin.framework.uno_context import create_property_value
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Unique per writer: a fixed ".partial" name let two cache writes unlink
@@ -427,9 +427,9 @@ def _resolve_sibling_open_path(ctx: Any, full_path: str) -> tuple[str, bool, Ods
     Cache only ``.xlsx``/``.xls`` that are not already open. Native ``.ods``
     and the live workbook always open the source path.
     """
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    if not is_cacheable_office_source(full_path) or not get_config_bool_safe("calc.ods_cache_enabled"):
+    if not is_cacheable_office_source(full_path) or not get_config("calc.ods_cache_enabled"):
         return full_path, False, None
     if _source_is_open_workbook(ctx, full_path):
         return full_path, False, None

@@ -1434,12 +1434,12 @@ def _setup_mock_config(monkeypatch: Any) -> tuple[dict[str, Any], dict[str, Any]
     def fake_get_config(key: str, default: Any = None) -> Any:
         return store.get(key, default)
 
-    def fake_set_config(key: str, value: Any) -> None:
-        store[key] = value
-        recorded[key] = value
+    def fake_save(patch: dict[str, Any]) -> None:
+        store.update(patch)
+        recorded.update(patch)
 
     monkeypatch.setattr("plugin.framework.config.get_config", fake_get_config)
-    monkeypatch.setattr("plugin.framework.config.set_config", fake_set_config)
+    monkeypatch.setattr("plugin.framework.config.save", fake_save)
     return store, recorded
 
 

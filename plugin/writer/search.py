@@ -23,7 +23,7 @@ import re as re_mod
 from itertools import islice
 from typing import TYPE_CHECKING, Any, Iterator
 
-from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks, with_view_cursor_left_body_locked
+from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions, normalize_linebreaks, with_view_cursor_left_body_locked
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import uno_same
@@ -35,8 +35,6 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger("writeragent.writer")
-# uno_read default where None is a real UNO result.
-_FAILED: Any = object()
 
 MAX_SEARCH_REPLACEMENTS = 200
 DEFAULT_SEARCH_RESULTS = 20
@@ -534,15 +532,15 @@ def find_occurrence_range(
 
 
 def _safe_name(obj: Any) -> str:
-    name = uno_read(lambda: obj.getName(), _FAILED)
-    if name is not _FAILED:
+    name = uno_read(lambda: obj.getName(), FAILED)
+    if name is not FAILED:
         return name
     return uno_read(lambda: getattr(obj, "Name", "") or "", "")
 
 
 def _prop(obj: Any, name: str) -> Any:
-    value = uno_read(lambda: obj.getPropertyValue(name), _FAILED)
-    return getattr(obj, name, None) if value is _FAILED else value
+    value = uno_read(lambda: obj.getPropertyValue(name), FAILED)
+    return getattr(obj, name, None) if value is FAILED else value
 
 
 def _cell_name(cur: Any, text: Any) -> str:
@@ -656,15 +654,15 @@ def enclosing_paragraph_text(found: Any) -> str:
         cur.gotoEndOfParagraph(True)
         return get_string_without_tracked_deletions(cur)
 
-    para = uno_read(paragraph, _FAILED)
-    if para is not _FAILED:
+    para = uno_read(paragraph, FAILED)
+    if para is not FAILED:
         return para
     return uno_read(lambda: found.getString(), "")
 
 
 def iter_draw_shapes(container: Any) -> Iterator[Any]:
-    n = uno_read(lambda: int(container.getCount()), _FAILED)
-    if n is _FAILED:
+    n = uno_read(lambda: int(container.getCount()), FAILED)
+    if n is FAILED:
         return
     for i in range(n):
         try:
@@ -800,17 +798,12 @@ def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: boo
 
 
 def iter_comment_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[str, str, str]]:
-    fields = uno_read(lambda: doc.getTextFields().createEnumeration(), _FAILED)
-    if fields is _FAILED:
+    from plugin.doc.text_helpers import iter_elements
+
+    fields = uno_read(lambda: doc.getTextFields().createEnumeration(), FAILED)
+    if fields is FAILED:
         return
-    while True:
-        try:
-            if not fields.hasMoreElements():
-                return
-            field = fields.nextElement()
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            return
+    for field in iter_elements(fields):
         try:
             if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                 continue

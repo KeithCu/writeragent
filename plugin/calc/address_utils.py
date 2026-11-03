@@ -289,6 +289,24 @@ def format_range_address(addr: Any, *, collapse_single: bool = False) -> str:
     )
 
 
+def _canonical(ref: str, *, casefold_sheet: bool = False) -> str:
+    s = (ref or "").strip()
+    if not s:
+        return ""
+    sheet, cell = split_sheet_prefix(s)
+    cell_part = cell.replace("$", "").upper()
+    if sheet is None:
+        return cell_part
+    sep = "!" if "!" in s else "."
+    clean_s = s.lstrip("$")
+    target_sheet = sheet.casefold() if casefold_sheet else sheet
+    if clean_s.startswith("'") or quote_sheet_name(target_sheet) != target_sheet:
+        sheet_part = "'" + target_sheet.replace("'", "''") + "'"
+    else:
+        sheet_part = target_sheet
+    return f"{sheet_part}{sep}{cell_part}"
+
+
 def canonical(ref: str) -> str:
     """Canonicalize a cell or range address: strip $, uppercase cell part, preserve sheet case and quotes.
 
@@ -305,20 +323,28 @@ def canonical(ref: str) -> str:
     >>> canonical("'O''Brien'.a1")
     \"'O''Brien'.A1\"
     """
-    s = (ref or "").strip()
-    if not s:
-        return ""
-    sheet, cell = split_sheet_prefix(s)
-    cell_part = cell.replace("$", "").upper()
-    if sheet is None:
-        return cell_part
-    sep = "!" if "!" in s else "."
-    clean_s = s.lstrip("$")
-    if clean_s.startswith("'") or quote_sheet_name(sheet) != sheet:
-        sheet_part = "'" + sheet.replace("'", "''") + "'"
-    else:
-        sheet_part = sheet
-    return f"{sheet_part}{sep}{cell_part}"
+    return _canonical(ref, casefold_sheet=False)
+
+
+def canonical_key(ref: str) -> str:
+    """Canonical deduplication/lookup key: cell uppercased, sheet name casefolded.
+
+    LibreOffice sheet names are case-insensitive, so addresses referring to
+    the same cell with different sheet casing ('Sheet1.A1' vs 'SHEET1.A1')
+    must produce the same key for deduplication and dictionary lookups,
+    while display/emitted addresses preserve the original/first-seen casing.
+    Quoted sheet names keep quotes and casefold their contents.
+
+    >>> canonical_key("Sheet1.A1")
+    'sheet1.A1'
+    >>> canonical_key("SHEET1.A1")
+    'sheet1.A1'
+    >>> canonical_key("'My Sheet'.A1")
+    \"'my sheet'.A1\"
+    >>> canonical_key("'MY SHEET'.A1")
+    \"'my sheet'.A1\"
+    """
+    return _canonical(ref, casefold_sheet=True)
 
 
 _CELL_TOKEN_RE = re.compile(r"^\$?([A-Za-z]{1,3})\$?([0-9]{1,7})$")

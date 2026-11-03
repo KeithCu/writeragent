@@ -124,8 +124,8 @@ def test_check_endpoint_connection_openwebui_uses_catalog_url(mock_urlopen):
     mock_urlopen.return_value = mock_resp
 
     with (
-        patch("plugin.chatbot.quick_setup.get_config_bool_safe", side_effect=lambda key: key == "is_openwebui"),
-        patch("plugin.framework.client.model_fetcher.get_config_bool_safe", side_effect=lambda key: key == "is_openwebui"),
+        patch("plugin.chatbot.quick_setup.get_config", side_effect=lambda key: key == "is_openwebui"),
+        patch("plugin.framework.client.model_fetcher.get_config", side_effect=lambda key: key == "is_openwebui"),
     ):
         ok, msg, models = check_endpoint_connection("https://chat.example.com")
         assert ok is True

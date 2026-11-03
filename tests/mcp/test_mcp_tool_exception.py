@@ -19,7 +19,7 @@ def _handler():
 def test_unexpected_tool_exception_is_tool_execution_error_with_full_message():
     handler = _handler()
     boom = RuntimeError("max index out of range in table cell")
-    with patch.object(handler, "_execute_with_backpressure", side_effect=boom):
+    with patch.object(handler, "_run_tool", side_effect=boom):
         result = handler._mcp_tools_call(
             {"name": "apply_style", "arguments": {"style": "Heading 1"}},
             document_url=None,
@@ -39,7 +39,7 @@ def test_writeragent_exception_is_tool_result_not_jsonrpc_internal():
 
     handler = _handler()
     boom = ToolExecutionError("max index out of range in table cell")
-    with patch.object(handler, "_execute_with_backpressure", side_effect=boom):
+    with patch.object(handler, "_run_tool", side_effect=boom):
         status, body = handler._process_jsonrpc({
             "jsonrpc": "2.0",
             "id": 1,
@@ -69,7 +69,7 @@ def test_busy_error_stays_http_429():
     from plugin.mcp import wire_types
 
     handler = _handler()
-    with patch.object(handler, "_execute_with_backpressure", side_effect=BusyError("busy")):
+    with patch.object(handler, "_run_tool", side_effect=BusyError("busy")):
         status, body = _tools_call(handler)
     assert status == 429
     assert body["error"]["code"] == wire_types.SERVER_BUSY
@@ -80,7 +80,7 @@ def test_timeout_error_stays_http_504():
     from plugin.mcp import wire_types
 
     handler = _handler()
-    with patch.object(handler, "_execute_with_backpressure", side_effect=TimeoutError("slow")):
+    with patch.object(handler, "_run_tool", side_effect=TimeoutError("slow")):
         status, body = _tools_call(handler)
     assert status == 504
     assert body["error"]["code"] == wire_types.EXECUTION_TIMEOUT
@@ -92,7 +92,7 @@ def test_writeragent_internal_error_code_is_remapped():
 
     handler = _handler()
     boom = WriterAgentException("max index out of range in table cell", code="INTERNAL_ERROR")
-    with patch.object(handler, "_execute_with_backpressure", side_effect=boom):
+    with patch.object(handler, "_run_tool", side_effect=boom):
         status, body = _tools_call(handler)
     assert status == 200
     payload = json.loads(body["result"]["content"][0]["text"])

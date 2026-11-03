@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 from plugin.calc.address_utils import format_range, index_to_column, quote_sheet_name, range_shape, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.base import ToolCalcRangeBase
+from plugin.calc.calc_utils import range_args
 from plugin.calc.inspector import CellInspector
 from plugin.calc.manipulator import CellManipulator, _parse_formula_or_values_string, _values_length_mismatch_message
 from plugin.doc.compound_undo import WriterCompoundUndo
@@ -62,7 +63,7 @@ _DISTINCT_PEEK_MAX_ROWS = 2000
 _DISTINCT_PEEK_LIST_CAP = 12
 _DISTINCT_PEEK_HIGH_CARDINALITY = 40
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 
 def _opt_bool(kwargs: dict[str, Any], key: str, *, default: bool | None = None) -> tuple[bool | None, str | None]:
@@ -138,16 +139,8 @@ def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
     return ""
 
 
-def _range_args(raw: Any) -> list[Any]:
-    if not raw:
-        return []
-    if isinstance(raw, str):
-        return [raw]
-    return list(raw)
-
-
 def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipulator, list[Any]]:
-    return CellManipulator(CalcBridge(ctx.doc)), _range_args(range_arg)
+    return CellManipulator(CalcBridge(ctx.doc)), range_args(range_arg)
 
 
 def _undo_action_count(doc: Any) -> int:
@@ -373,7 +366,7 @@ class ReadCellRange(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
-        rn = _range_args(kwargs["range"])
+        rn = range_args(kwargs["range"])
 
         if len(rn) == 0:
             return self._tool_error("range is required")

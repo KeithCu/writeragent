@@ -73,7 +73,7 @@ def test_resolve_data_root_uses_configured_path(tmp_path: Path, monkeypatch) -> 
     (skill / "templates").mkdir()
     import plugin.framework.config as config_mod
 
-    monkeypatch.setattr(config_mod, "get_config_str", lambda key: str(skill) if key == "scripting.ppt_master_data_path" else "")
+    monkeypatch.setattr(config_mod, "get_config", lambda key: str(skill) if key == "scripting.ppt_master_data_path" else "")
     assert _configured_data_root() == skill
     assert resolve_data_root() == skill
 
@@ -93,7 +93,7 @@ def test_configured_data_root_accepts_outer_clone_path(tmp_path: Path, monkeypat
     outer, inner = _make_outer_clone_layout(tmp_path)
     import plugin.framework.config as config_mod
 
-    monkeypatch.setattr(config_mod, "get_config_str", lambda key: str(outer) if key == "scripting.ppt_master_data_path" else "")
+    monkeypatch.setattr(config_mod, "get_config", lambda key: str(outer) if key == "scripting.ppt_master_data_path" else "")
     assert _configured_data_root() == inner
     assert resolve_data_root() == inner
 
@@ -110,7 +110,7 @@ def test_resolve_data_root_env_accepts_outer_clone_path(tmp_path: Path, monkeypa
     outer, inner = _make_outer_clone_layout(tmp_path)
     import plugin.framework.config as config_mod
 
-    monkeypatch.setattr(config_mod, "get_config_str", lambda key: "")
+    monkeypatch.setattr(config_mod, "get_config", lambda key: "")
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", str(outer))
     assert resolve_data_root() == inner
 

@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import DocumentDisposedError, UnoObjectError
+from plugin.calc.calc_utils import range_args
 from plugin.calc.sheet_filter import (
     ApplySheetFilter,
     ClearSheetFilter,
@@ -20,7 +21,6 @@ from plugin.calc.sheet_filter import (
     _build_filter_fields2,
     _connection_name,
     _field_to_dict,
-    _first_range_name,
 )
 
 
@@ -171,17 +171,17 @@ def test_connection_name_decoding():
     assert _connection_name(None) == "AND"
 
 
-def test_first_range_name_validation():
+def test_range_args_exactly_one_validation():
     with pytest.raises(UnoObjectError, match="Pass exactly one range."):
-        _first_range_name({"range": []})
+        range_args([], exactly_one=True)
 
     with pytest.raises(UnoObjectError, match="Pass exactly one range."):
-        _first_range_name({"range": ["A1:B2", "C1:D2"]})
+        range_args(["A1:B2", "C1:D2"], exactly_one=True)
 
     with pytest.raises(UnoObjectError, match="Pass exactly one range."):
-        _first_range_name({"range": ["   "]})
+        range_args(["   "], exactly_one=True)
 
-    assert _first_range_name({"range": ["A1:B2"]}) == "A1:B2"
+    assert range_args(["A1:B2"], exactly_one=True) == ["A1:B2"]
 
 
 def test_contains_header_fails_loudly_when_property_set_missing():

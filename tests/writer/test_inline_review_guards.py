@@ -23,6 +23,7 @@ import pytest
 from plugin.writer.inline_review import (
     RedlineRow,
     RedlineView,
+    ResolvePolicy,
     ResolveResult,
     ResolveStatus,
     _build_bounds_from_view,
@@ -399,7 +400,7 @@ def test_other_agent_fails_closed_on_error():
 
 # --------------------------------------------------------- resolve targets exactly the change
 
-def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_sets=None):
+def _resolve(token, token_sets, policy=ResolvePolicy.EXACT_THEN_PARAGRAPH, foreign_sets=None):
     """Run resolve_agent_change with snapshots driven through scan_redline_view."""
     model = MagicMock()
     token_side = [t if isinstance(t, tuple) else (set(t), True) for t in token_sets]
@@ -440,8 +441,7 @@ def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_
 
     with patch("plugin.writer.inline_review.scan_redline_view", side_effect=_fake_scan), \
          patch("plugin.writer.inline_review._execute_dispatch"):
-        res, _view = resolve_agent_change(model, MagicMock(), token, True,
-                                          refuse_sibling_agent=refuse_sibling, prefer_exact=prefer_exact)
+        res, _view = resolve_agent_change(model, MagicMock(), token, True, policy=policy)
         return res.status
 
 

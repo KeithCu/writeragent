@@ -36,7 +36,7 @@ except ImportError:
 
     RESULT_ERROR = cast("Any", 4)
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 # Cap per call, matching the other large-result caps.
 _MAX_EXPLAINED_ERRORS = 50

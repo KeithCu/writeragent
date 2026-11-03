@@ -61,7 +61,7 @@ class EventBus:
 
     Re-entrant ``emit`` of the *same* event on the same thread is dropped
     (warning logged). That stops the sidebar config-refresh loop where
-    ``config:changed`` → control ``setText`` → listener → ``set_config`` →
+    ``config:changed`` → control ``setText`` → listener → ``save`` →
     ``config:changed`` for the same key. A nested change of a different key
     still runs. Nested *different* events still run. Concurrent
     emits of the same name on *other* threads are not dropped (thread-local

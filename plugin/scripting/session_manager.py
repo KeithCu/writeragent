@@ -16,7 +16,7 @@ from typing import Any
 
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_desktop, iter_open_models
 from plugin.scripting.session_key import (
@@ -82,7 +82,7 @@ _SESSION_MODE_KEY = "scripting.python_session_mode"
 
 def python_session_mode() -> str:
     """Return ``isolated`` or ``shared`` from config (default ``isolated``)."""
-    raw = (get_config_str(_SESSION_MODE_KEY) or "isolated").strip().lower()
+    raw = str(get_config(_SESSION_MODE_KEY) or "isolated").strip().lower()
     return "shared" if raw == "shared" else "isolated"
 
 

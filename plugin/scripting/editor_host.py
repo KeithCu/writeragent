@@ -90,9 +90,9 @@ EDITOR_BACKENDS = ("monaco", "codemirror")
 
 def selected_editor_backend() -> str:
     """Return the configured web editor (scripting.python_editor): "monaco" or "codemirror"."""
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
 
-    value = get_config_str("scripting.python_editor").strip().lower()
+    value = str(get_config("scripting.python_editor") or "").strip().lower()
     return value if value in EDITOR_BACKENDS else "monaco"
 
 
@@ -115,9 +115,9 @@ def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
 
 def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
     """Return (venv python executable, error message). Monaco requires a user venv."""
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
 
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return (
             None,

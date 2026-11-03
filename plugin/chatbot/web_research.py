@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
+from plugin.framework.config_schema import as_bool
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.chatbot.tool_loop_state import as_dict
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
@@ -550,7 +551,7 @@ def _run_deep_web_research(
     cache write.
     """
     from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
-    from plugin.framework.config import get_config_int, get_config_int_safe
+    from plugin.framework.config import get_config
     from plugin.chatbot.web_research_deep import run_deep_research
     from plugin.framework.client.llm_client import LlmClient
 
@@ -571,7 +572,7 @@ def _run_deep_web_research(
         return chat
 
     visited = _VisitedUrls()
-    sub_steps = get_config_int_safe("chatbot.deep_research_sub_agent_steps")
+    sub_steps = get_config("chatbot.deep_research_sub_agent_steps")
     if sub_steps > 0:
         run_max_steps = sub_steps
     elif agent_params.max_steps > 0:
@@ -646,7 +647,7 @@ def _run_deep_web_research(
     if agent_params.status_callback:
         agent_params.status_callback("Deep research: starting...")
 
-    max_rounds = get_config_int_safe("chatbot.deep_research_max_rounds")
+    max_rounds = get_config("chatbot.deep_research_max_rounds")
 
     researched = run_deep_research(
         query_str,
@@ -654,11 +655,11 @@ def _run_deep_web_research(
         worker_factory=worker_factory,
         stop_checker=agent_params.stop_checker,
         status_callback=agent_params.status_callback,
-        breadth=get_config_int("chatbot.deep_research_breadth"),
+        breadth=get_config("chatbot.deep_research_breadth"),
         max_rounds=max_rounds,
-        concurrency=get_config_int("chatbot.deep_research_concurrency"),
-        max_sub_queries=get_config_int("chatbot.deep_research_max_sub_queries"),
-        quality_threshold=get_config_int("chatbot.deep_research_quality_threshold"),
+        concurrency=get_config("chatbot.deep_research_concurrency"),
+        max_sub_queries=get_config("chatbot.deep_research_max_sub_queries"),
+        quality_threshold=get_config("chatbot.deep_research_quality_threshold"),
         plain_text_format=WEB_RESEARCH_PLAIN_TEXT_FORMAT,
         initial_search_snippet=initial_snippet,
     )
@@ -689,17 +690,17 @@ class WebResearchTool(ToolBase):
         stem_lang = resolve_research_locale(ctx.ctx, ctx.doc)[1]
         unique_key, embedding_text = _cache_key_inputs(query_str, stem_lang)
 
-        from plugin.framework.config import get_config_bool_safe, get_config_int, user_config_dir
-        cache_enabled = get_config_bool_safe("web_research_cache_enabled")
+        from plugin.framework.config import get_config, user_config_dir
+        cache_enabled = get_config("chatbot.web_research_cache_enabled")
         udir = user_config_dir()
-        raw_mb = get_config_int("web_cache_max_mb")
+        raw_mb = get_config("chatbot.web_cache_max_mb")
         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
         # web_cache_max_mb 0 disables the shared web cache. Page and search
         # tools skip both the read and the write. Research used to look up
         # whenever the db file existed and only drop the path before the
         # write, so a disabled cache still served a stale report.
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if (udir and cache_max_mb > 0) else None
-        cache_max_age_days = get_config_int("web_cache_validity_days")
+        cache_max_age_days = get_config("chatbot.web_cache_validity_days")
 
         from plugin.framework.prompts import get_research_completion_instruction
 
@@ -715,9 +716,9 @@ class WebResearchTool(ToolBase):
             try:
                 from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill, lookup_research_cache
 
-                jaccard_percent = get_config_int("web_research_cache_jaccard_percent")
-                embedding_percent = get_config_int("web_research_cache_embedding_percent")
-                min_overlap = get_config_int("web_research_cache_min_overlap")
+                jaccard_percent = get_config("chatbot.web_research_cache_jaccard_percent")
+                embedding_percent = get_config("chatbot.web_research_cache_embedding_percent")
+                min_overlap = get_config("chatbot.web_research_cache_min_overlap")
                 enqueue_research_cache_embedding_backfill(ctx.ctx, cache_path, cache_max_age_days)
                 hit = lookup_research_cache(
                     cache_path,
@@ -761,10 +762,9 @@ class WebResearchTool(ToolBase):
 
         from plugin.chatbot.smol_agent import create_smol_model
 
-        max_steps = get_config_int("chatbot.max_tool_rounds")
+        max_steps = get_config("chatbot.max_tool_rounds")
 
         from plugin.framework.config import get_config
-        from plugin.framework.config_schema import as_bool
 
         browser_type = get_config("chatbot.web_research_browser")
         cdp_enabled = browser_type in ("chrome", "firefox", "chromium")

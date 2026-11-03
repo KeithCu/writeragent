@@ -134,12 +134,12 @@ def run_forecast(
 
 def _resolve_vision_timeout_sec(params: dict[str, Any]) -> int:
     """Vision uses the long budget, with some engine-specific tuning + user override."""
-    # Read vision.worker_timeout_sec via get_config_int_safe for both engines.
+    # Read vision.worker_timeout_sec via get_config for both engines.
     # A hardcoded 120s for Paddle ignored the user override, and swallowing
     # the lookup hid config errors.
-    from plugin.framework.config import get_config_int_safe
+    from plugin.framework.config import get_config
 
-    custom = get_config_int_safe("vision.worker_timeout_sec")
+    custom = get_config("vision.worker_timeout_sec")
     # DOCLING_WORKER_TIMEOUT_SEC (300) is the schema default in module.yaml.
     # An explicit override (custom != 300 and custom > 0) overrides both engines.
     if custom > 0 and custom != DOCLING_WORKER_TIMEOUT_SEC:
@@ -226,9 +226,9 @@ def run_text_analytics(
     For sentiment: uses transformers + a multilingual model (default: XLM-RoBERTa based).
     Requires `spacy` + `textdescriptives` for other helpers; `transformers` + `torch` (CPU) for sentiment.
     """
-    from plugin.framework.config import get_config_dict
+    from plugin.framework.config import get_config
 
-    model = get_config_dict().get("text_analytics_sentiment_model") or None
+    model = get_config("text_analytics_sentiment_model") or None
 
     helper, params = _split_spec(spec)
     if model:

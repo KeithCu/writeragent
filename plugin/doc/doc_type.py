@@ -199,6 +199,13 @@ def is_draw(model: Any) -> bool:
     return doc_type in (DocumentType.DRAW, DocumentType.IMPRESS)
 
 
+def is_impress(model: Any) -> bool:
+    """Return True if model is an Impress document."""
+    if model is None or not hasattr(model, "supportsService"):
+        return False
+    return bool(model.supportsService(IMPRESS_DOCUMENT_SERVICE))
+
+
 def doc_type_of(doc: Any) -> str | None:
     """'writer' / 'calc' / 'draw' for a document model, or None when there is no document."""
     if doc is None:

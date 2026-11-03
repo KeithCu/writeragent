@@ -2,11 +2,11 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for plugin.embeddings.embeddings_heartbeat."""
+"""Tests for Search dialog rebuild heartbeat formatting."""
 
 from __future__ import annotations
 
-from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
+from plugin.embeddings.search_ui import format_index_heartbeat_line, heartbeat_counts_from_payload
 import pytest
 
 

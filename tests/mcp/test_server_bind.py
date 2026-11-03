@@ -14,7 +14,7 @@ from plugin.framework.http_server import (
     format_bind_failure,
     is_port_in_use_error,
 )
-from plugin.mcp.server import HttpServer
+from plugin.mcp.server import HttpServer, SseRegistry
 
 
 def _free_port() -> int:
@@ -100,15 +100,17 @@ def test_start_server_stashes_last_start_error(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
 
     services = MagicMock()
-    proxy = MagicMock()
-    proxy.get.side_effect = lambda k, d=None: {
-        "mcp_port": 18765,
-        "host": "localhost",
-        "use_ssl": False,
-        "ssl_cert": "",
-        "ssl_key": "",
-    }.get(k, d)
-    services.config.proxy_for.return_value = proxy
+    monkeypatch.setattr(
+        mcp_mod,
+        "get_config",
+        lambda k: {
+            "mcp.mcp_port": 18765,
+            "mcp.host": "localhost",
+            "mcp.use_ssl": False,
+            "mcp.ssl_cert": "",
+            "mcp.ssl_key": "",
+        }.get(k),
+    )
     services.events = None
 
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
@@ -127,13 +129,13 @@ def test_start_server_stashes_last_start_error(monkeypatch):
         def stop(self):
             pass
 
-    monkeypatch.setattr(mcp_mod, "_shared_http_server", None)
-    monkeypatch.setattr(mcp_mod, "_last_start_failure", None)
+    mod.server = None
+    mod._last_start_failure = None
     monkeypatch.setattr("plugin.mcp.server.HttpServer", _FailingServer)
     monkeypatch.setattr("plugin.mcp.reload_cors_policy_from_config", lambda *_a, **_k: None)
 
     assert mod._start_server(services) is False
-    assert mcp_mod._last_start_failure is not None and mcp_mod._last_start_failure[2] is boom
+    assert mod._last_start_failure is not None and mod._last_start_failure[2] is boom
     detail = mod._formatted_start_failure()
     assert "localhost:18765" in detail
     assert _PORT_IN_USE_GUIDANCE in detail
@@ -148,10 +150,7 @@ def test_mcp_module_does_not_register_api_config(monkeypatch):
     import plugin.mcp as mcp_mod
     from plugin.mcp.routes import HttpRouteRegistry
 
-    with mcp_mod._http_peer_lock:
-        mcp_mod._primary_http_module = None
-        mcp_mod._shared_http_server = None
-        mcp_mod._shared_tunnel = None
+    mcp_mod._current_module = None
 
     services = MagicMock()
     services.config.proxy_for.return_value = {
@@ -229,7 +228,7 @@ def _module_with_listener(monkeypatch, listener, cfg_values, *, fail_start: Base
 
     services = MagicMock()
     cfg = _Cfg(cfg_values)
-    services.config.proxy_for.return_value = cfg
+    monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg.values.get(k.removeprefix("mcp."), cfg.values.get(k)))
     services.events = MagicMock()
 
     mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
@@ -237,13 +236,13 @@ def _module_with_listener(monkeypatch, listener, cfg_values, *, fail_start: Base
     mod._services = services
     mod._registry = MagicMock()
     mod._mcp_protocol = None
+    mod.server = listener
+    mod.tunnel = None
+    mod._last_start_failure = None
     dialogs: list = []
     mod._show_start_failure_dialog = lambda ctx=None: dialogs.append(ctx)
 
-    monkeypatch.setattr(mcp_mod, "_shared_http_server", listener)
-    monkeypatch.setattr(mcp_mod, "_shared_tunnel", None)
-    monkeypatch.setattr(mcp_mod, "_primary_http_module", mod)
-    monkeypatch.setattr(mcp_mod, "_last_start_failure", None)
+    monkeypatch.setattr(mcp_mod, "_current_module", mod)
     monkeypatch.setattr("plugin.mcp.server.HttpServer", _factory)
     monkeypatch.setattr("plugin.mcp.reload_cors_policy_from_config", lambda *_a, **_k: None)
     return mod, cfg, created, dialogs
@@ -264,9 +263,8 @@ def test_mcp_port_only_change_rebinds_running_server(monkeypatch):
     assert len(created) == 1
     assert created[0].port == 19000
     assert created[0].is_running()
-    import plugin.mcp as mcp_mod
 
-    assert mcp_mod._shared_http_server is created[0]
+    assert mod.server is created[0]
     assert dialogs == []
     assert cfg.get("mcp_port") == 19000
 
@@ -334,9 +332,8 @@ def test_mcp_port_change_while_disabled_does_not_start(monkeypatch):
     mod._on_config_changed(key="mcp.mcp_port", value=19000)
     assert created == []
     assert dialogs == []
-    import plugin.mcp as mcp_mod
 
-    assert mcp_mod._shared_http_server is None
+    assert mod.server is None
 
 
 def test_mcp_port_change_starts_when_enabled_but_stopped(monkeypatch):
@@ -367,16 +364,16 @@ def test_mcp_port_rebind_failure_stops_old_listener_and_reports(monkeypatch):
     assert old.is_running() is False
     assert len(created) == 1
     assert created[0].is_running() is False
-    import plugin.mcp as mcp_mod
 
-    assert mcp_mod._shared_http_server is None
+    assert mod.server is None
     assert dialogs == ["settings-ctx"]
-    assert mcp_mod._last_start_failure is not None and mcp_mod._last_start_failure[2] is boom
+    assert mod._last_start_failure is not None and mod._last_start_failure[2] is boom
 
 
 def _open_listener():
     """Real bound HTTPServer whose server_close is the stdlib one, counted."""
     httpd = HTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
+    httpd.sse_registry = SseRegistry()
     httpd.server_closes = 0
     httpd.shutdowns = 0
     real_close = httpd.server_close
@@ -421,7 +418,7 @@ def test_accept_loop_exit_closes_listen_socket():
         assert not server.is_running()
         assert httpd.server_closes == 1
         assert httpd.socket.fileno() == -1
-        assert httpd._sse_stop.is_set()
+        assert httpd.sse_registry.stop_event.is_set()
         # If stop() called shutdown() after the loop had already returned,
         # the real shutdown() would wait forever on an unset event.
         stop_thread = threading.Thread(target=server.stop, name="http-stop-after-exit", daemon=True)

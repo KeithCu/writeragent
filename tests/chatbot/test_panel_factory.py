@@ -580,7 +580,7 @@ def test_refresh_controls_syncs_chk_voice_from_tts_enabled():
         "plugin.chatbot.panel_factory.get_optional_control",
         side_effect=get_optional,
     ), patch(
-        "plugin.framework.config.get_config_bool_safe",
+        "plugin.framework.config.get_config",
         side_effect=lambda key: True if key == "audio.tts_enabled" else False,
     ):
         el._refresh_controls_from_config()
@@ -618,7 +618,7 @@ def test_refresh_controls_skips_chk_voice_setstate_when_already_matched():
         "plugin.chatbot.panel_factory.get_optional_control",
         side_effect=get_optional,
     ), patch(
-        "plugin.framework.config.get_config_bool_safe",
+        "plugin.framework.config.get_config",
         side_effect=lambda key: True if key == "audio.tts_enabled" else False,
     ):
         el._refresh_controls_from_config()
@@ -1092,7 +1092,7 @@ def test_refresh_controls_continues_after_model_read_failure():
         "plugin.chatbot.panel_factory.get_optional_control",
         side_effect=get_optional,
     ), patch(
-        "plugin.framework.config.get_config_bool_safe",
+        "plugin.framework.config.get_config",
         side_effect=lambda key: True if key == "audio.tts_enabled" else False,
     ):
         el._refresh_controls_from_config()

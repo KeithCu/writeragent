@@ -1084,7 +1084,7 @@ def test_target_switch_with_active_session_calls_on_closed():
 
 
 def test_resolve_editor_python_missing_venv_mentions_settings():
-    with patch("plugin.framework.config.get_config_str", return_value=""):
+    with patch("plugin.framework.config.get_config", return_value=""):
         exe, err = launch_mod.resolve_editor_python(MagicMock())
     assert exe is None
     assert "Settings → Python" in err
@@ -2116,15 +2116,15 @@ def test_error_frame():
 
 
 def test_selected_editor_backend_default_codemirror_garbage():
-    with patch("plugin.framework.config.get_config_str", return_value=""):
+    with patch("plugin.framework.config.get_config", return_value=""):
         assert launch_mod.selected_editor_backend() == "monaco"
-    with patch("plugin.framework.config.get_config_str", return_value="monaco"):
+    with patch("plugin.framework.config.get_config", return_value="monaco"):
         assert launch_mod.selected_editor_backend() == "monaco"
-    with patch("plugin.framework.config.get_config_str", return_value="codemirror"):
+    with patch("plugin.framework.config.get_config", return_value="codemirror"):
         assert launch_mod.selected_editor_backend() == "codemirror"
-    with patch("plugin.framework.config.get_config_str", return_value="  CodeMirror  "):
+    with patch("plugin.framework.config.get_config", return_value="  CodeMirror  "):
         assert launch_mod.selected_editor_backend() == "codemirror"
-    with patch("plugin.framework.config.get_config_str", return_value="sublime"):
+    with patch("plugin.framework.config.get_config", return_value="sublime"):
         assert launch_mod.selected_editor_backend() == "monaco"
 
 

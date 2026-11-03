@@ -17,8 +17,8 @@ from plugin.chatbot.dialogs import (
     set_combo_items,
     set_control_text,
 )
-from plugin.framework.config import get_config, set_configs
-from plugin.framework.config_schema import as_bool, coerce_config_value
+from plugin.framework.config import get_config, save
+from plugin.framework.config_schema import as_bool, validate
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
 
@@ -292,7 +292,7 @@ def changed_config_values(pending: dict[str, Any], read: Any) -> dict[str, Any]:
     key is omitted, is not a change. The default itself must not become a
     write. ``read`` is ``get_config`` from the caller so a test patch of
     that name is the disk this compare sees. This does not touch the config
-    lock or the per-key writer; the caller makes one ``set_configs`` of
+    lock or the per-key writer; the caller makes one ``save`` of
     what remains.
     """
     changed: dict[str, Any] = {}
@@ -315,7 +315,7 @@ def _config_assignment_matches(
 ) -> bool:
     """True when *proposed* would not change *current* after the same coerce OK uses.
 
-    An invalid value does not match, so ``set_configs`` still raises it.
+    An invalid value does not match, so ``save`` still raises it.
     Endpoint text may be a preset label; both sides go through the selector
     normalizer before compare. Dict values (the API-key map) compare equal
     as maps, not as rewritten blobs.
@@ -331,7 +331,7 @@ def _config_assignment_matches(
     if isinstance(proposed, dict) or isinstance(current, dict):
         return proposed == current
     try:
-        coerced = coerce_config_value(key, proposed, fallback_value=current, strict=True)
+        coerced = validate({key: proposed})[key]
     except (ConfigError, ConfigValidationError):
         return False
     return coerced == current
@@ -344,8 +344,8 @@ def spec_save_key(spec: dict[str, Any], name: str) -> str:
 def apply_field_specs_result(result: dict[str, Any], field_specs: list[dict[str, Any]]) -> None:
     """Persist dialog values using each spec's ``config_key`` (or name with ``__`` → ``.``).
 
-    ``set_configs`` writes once and emits only when something changed, so
-    this function must not emit. Per-key ``set_config`` rewrites the file
+    ``save`` writes once and emits only when something changed, so
+    this function must not emit. Per-key ``save`` rewrites the file
     and emits ``config:changed`` again, including when every value already
     matched.
     """
@@ -360,4 +360,4 @@ def apply_field_specs_result(result: dict[str, Any], field_specs: list[dict[str,
     # One write, and only keys that differ from disk or from an omitted default.
     pending = changed_config_values(pending, get_config)
     if pending:
-        set_configs(pending)
+        save(pending)

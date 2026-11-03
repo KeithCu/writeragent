@@ -135,10 +135,10 @@ def resolve_python_exec_timeout(
 
 def _configured_int(key: str, fallback: Callable[[], int]) -> int:
     """Read one settings int; a failed read uses the schema default, not the clamp floor."""
-    from plugin.framework.config import get_config_int
+    from plugin.framework.config import get_config
 
     try:
-        return get_config_int(key)
+        return int(get_config(key))
     except Exception:
         return fallback()
 

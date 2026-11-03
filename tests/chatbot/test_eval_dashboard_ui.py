@@ -62,7 +62,7 @@ def test_eval_populate_does_not_fetch_models_on_the_caller() -> None:
         posted.append(fn)
 
     with patch("plugin.chatbot.eval_dashboard_ui.populate_combobox_with_lru") as mock_pop, \
-         patch("plugin.chatbot.eval_dashboard_ui.get_config_str", return_value="http://localhost:11434"), \
+         patch("plugin.chatbot.eval_dashboard_ui.get_config", return_value="http://localhost:11434"), \
          patch("plugin.chatbot.eval_dashboard_ui.get_text_model", return_value="llama3"), \
          patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_worker), \
          patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_capture_post), \
@@ -97,7 +97,7 @@ def test_opening_eval_does_not_fetch_a_catalog_already_in_memory() -> None:
         dialog = MagicMock()
         dash._dlg = dialog
         with patch("plugin.chatbot.eval_dashboard_ui.populate_combobox_with_lru") as mock_pop, \
-             patch("plugin.chatbot.eval_dashboard_ui.get_config_str", return_value=endpoint), \
+             patch("plugin.chatbot.eval_dashboard_ui.get_config", return_value=endpoint), \
              patch("plugin.chatbot.eval_dashboard_ui.get_text_model", return_value="llama3"), \
              patch("plugin.framework.client.model_fetcher.fetch_available_models") as mock_fetch, \
              patch("plugin.framework.client.requests.sync_request") as mock_sync:

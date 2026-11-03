@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.deal_shim import UNDER_CROSSHAIR, deal
+from plugin.framework.deal_shim import deal
 from plugin.framework.uno_context import get_desktop
 
 log = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def _container_window(frame: Any) -> Any | None:
 
 
 def _window_from_doc(doc: Any) -> Any | None:
-    if UNDER_CROSSHAIR or doc is None:
+    if doc is None:
         return None
     try:
         controller = doc.getCurrentController()
@@ -50,7 +50,7 @@ def _window_from_doc(doc: Any) -> Any | None:
 
 
 def _window_from_desktop(ctx: Any) -> Any | None:
-    if UNDER_CROSSHAIR or ctx is None:
+    if ctx is None:
         return None
     try:
         desktop = get_desktop(ctx)
@@ -80,12 +80,10 @@ def get_style_window(doc: Any = None, style_window: Any = None, ctx: Any = None)
 
 # CrossHair: two RGB samples. Pytest keeps 0.94 — light _resolve_style uses it.
 _DEAL_THEME_COLORS = (0, 0xFFFFFF)
-_DEAL_DARKEN_FACTORS = (0.0, 1.0) if UNDER_CROSSHAIR else (0.0, 0.5, 0.94, 1.0)
+_DEAL_DARKEN_FACTORS = (0.0, 0.5, 0.94, 1.0)
 
 
 def _deal_theme_color_ok(color: object) -> bool:
-    if UNDER_CROSSHAIR:
-        return type(color) is int and color in _DEAL_THEME_COLORS
     return type(color) is int and 0 <= color <= 0xFFFFFF
 
 
@@ -111,7 +109,7 @@ def _darken(color: int, factor: float) -> int:
 
 def _resolve_style(win: Any) -> tuple[bool, int]:
     """Return (is_dark, bg) from VCL StyleSettings, or fallback light gray."""
-    if UNDER_CROSSHAIR or win is None or not hasattr(win, "StyleSettings"):
+    if win is None or not hasattr(win, "StyleSettings"):
         return False, _FALLBACK_BG
     style_settings = win.StyleSettings
     if not style_settings:

@@ -11,6 +11,15 @@ and its registry entry leak, and a later document that reuses the RuntimeUID wou
 from unittest.mock import MagicMock, patch
 
 import plugin.writer.review_toolbar as rt
+from plugin.writer import review_view_attachment as rva
+
+
+def _doc_key(uid: str) -> str:
+    return "uid:%s" % uid
+
+
+def _clear_registry() -> None:
+    rva.reset_all()
 
 
 class FakeModel:
@@ -29,84 +38,81 @@ class FakeModel:
 
 
 def test_disposing_drops_registry_entry():
-    # The crash / force-close path: UNO calls disposing() on the listener; the entry must go.
-    rt._modify_listeners.clear()
+    _clear_registry()
     model = FakeModel("uid-1")
     rt._register_modify_listener(model)
-    assert "uid-1" in rt._modify_listeners
-    listener = rt._modify_listeners["uid-1"]
+    key = _doc_key("uid-1")
+    assert key in rva.modify_listener_map()
+    listener = rva.modify_listener_map()[key]
     assert listener in model.listeners
 
     listener.disposing(MagicMock())
-    assert "uid-1" not in rt._modify_listeners
+    assert key not in rva.modify_listener_map()
 
 
 def test_unregister_removes_listener_and_entry():
-    # The clean OnUnload path still works.
-    rt._modify_listeners.clear()
+    _clear_registry()
     model = FakeModel("uid-2")
     rt._register_modify_listener(model)
     rt._unregister_modify_listener(model)
-    assert "uid-2" not in rt._modify_listeners
+    assert _doc_key("uid-2") not in rva.modify_listener_map()
     assert model.listeners == []
 
 
 def test_disposing_is_idempotent_and_safe():
-    # disposing() for a uid that's already gone (e.g. OnUnload ran first) must not raise.
-    rt._modify_listeners.clear()
-    listener = rt._ReviewModifyListener("uid-3")
+    _clear_registry()
+    listener = rt._ReviewModifyListener(_doc_key("uid-3"))
     listener.disposing(MagicMock())
-    assert "uid-3" not in rt._modify_listeners
+    assert _doc_key("uid-3") not in rva.modify_listener_map()
 
 
 def test_disposing_does_not_evict_a_recycled_uid_entry():
-    # If the RuntimeUID was recycled for a newer document, a late disposing() from the OLD listener
-    # must not evict the NEW listener's entry (which would disable auto-hide on the new doc).
-    rt._modify_listeners.clear()
-    old = rt._ReviewModifyListener("uid-R")
-    rt._modify_listeners["uid-R"] = old
-    new = rt._ReviewModifyListener("uid-R")
-    rt._modify_listeners["uid-R"] = new  # uid recycled -> new owner
+    _clear_registry()
+    key = _doc_key("uid-R")
+    old = rt._ReviewModifyListener(key)
+    rva.seed_modify_listener(key, old)
+    new = rt._ReviewModifyListener(key)
+    rva.seed_modify_listener(key, new)
     old.disposing(MagicMock())
-    assert rt._modify_listeners["uid-R"] is new
+    assert rva.modify_listener_map()[key] is new
 
 
 def test_register_dedups_by_uid():
-    rt._modify_listeners.clear()
+    _clear_registry()
     model = FakeModel("uid-4")
     rt._register_modify_listener(model)
-    first = rt._modify_listeners["uid-4"]
-    rt._register_modify_listener(model)  # second call -> dedup, no duplicate listener
-    assert rt._modify_listeners["uid-4"] is first
+    key = _doc_key("uid-4")
+    first = rva.modify_listener_map()[key]
+    rt._register_modify_listener(model)
+    assert rva.modify_listener_map()[key] is first
     assert len(model.listeners) == 1
 
 
 def test_toolbar_docks_once_per_document():
-    # dock on first appearance only; cycling pending 0->N->0->N must not re-dock and override a
-    # user who has since moved/floated the toolbar.
-    rt._modify_listeners.clear()
-    rt._docked_uids.clear()
+    _clear_registry()
     model = MagicMock()
     model.getRuntimeUID.return_value = "uid-D"
+    key = _doc_key("uid-D")
+    rva._get_or_create(model)
     with patch("plugin.writer.review_toolbar._layout_manager", return_value=MagicMock()), \
          patch("plugin.writer.review_toolbar._dock_top") as dock, \
          patch("plugin.writer.review_scan.agent_change_presence", side_effect=[(1, True), (0, True), (1, True)]):
-        rt.refresh_review_toolbar(model)   # 0 -> 1 : show + dock
-        rt.refresh_review_toolbar(model)   #   -> 0 : hide
-        rt.refresh_review_toolbar(model)   # 0 -> 1 : show, NO re-dock
+        rt.refresh_review_toolbar(model)
+        rt.refresh_review_toolbar(model)
+        rt.refresh_review_toolbar(model)
     assert dock.call_count == 1
-    assert "uid-D" in rt._docked_uids
+    assert rva._attachments[key].toolbar_docked is True
 
 
 def test_disposing_clears_docked_state():
-    rt._modify_listeners.clear()
-    rt._docked_uids.clear()
-    listener = rt._ReviewModifyListener("uid-E")
-    rt._modify_listeners["uid-E"] = listener
-    rt._docked_uids.add("uid-E")
+    _clear_registry()
+    key = _doc_key("uid-E")
+    listener = rt._ReviewModifyListener(key)
+    rva.seed_modify_listener(key, listener)
+    rva._attachments[key].toolbar_docked = True
     listener.disposing(MagicMock())
-    assert "uid-E" not in rt._modify_listeners
-    assert "uid-E" not in rt._docked_uids
+    assert key not in rva.modify_listener_map()
+    assert key not in rva._attachments
 
 
 # --- modified() must never recount inside the modify notification ------------
@@ -135,8 +141,7 @@ def _reset_pending():
 
 def _reset():
     _reset_pending()
-    rt._modify_listeners.clear()
-    rt._docked_uids.clear()
+    _clear_registry()
 
 
 def _capture_posts():
@@ -147,7 +152,7 @@ def _capture_posts():
 
 def test_modified_does_not_recount_synchronously():
     _reset_pending()
-    listener = rt._ReviewModifyListener("uid-sync")
+    listener = rt._ReviewModifyListener(_doc_key("uid-sync"))
     posted, post_patch = _capture_posts()
     with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
         listener.modified(_event(FakeModel("uid-sync")))
@@ -158,7 +163,7 @@ def test_modified_does_not_recount_synchronously():
 
 def test_keystroke_burst_collapses_into_one_queued_recount():
     _reset_pending()
-    listener = rt._ReviewModifyListener("uid-burst")
+    listener = rt._ReviewModifyListener(_doc_key("uid-burst"))
     model = FakeModel("uid-burst")
     posted, post_patch = _capture_posts()
     with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar"):
@@ -170,7 +175,7 @@ def test_keystroke_burst_collapses_into_one_queued_recount():
 
 def test_normal_typing_without_a_review_queues_nothing():
     _reset_pending()
-    listener = rt._ReviewModifyListener("uid-idle")
+    listener = rt._ReviewModifyListener(_doc_key("uid-idle"))
     posted, post_patch = _capture_posts()
     with _visible_toolbar_patch(False), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
         listener.modified(_event(FakeModel("uid-idle")))
@@ -204,12 +209,13 @@ def test_deferred_recount_rechecks_visibility():
 
 def test_closing_the_document_cancels_a_queued_recount():
     _reset_pending()
-    rt._modify_listeners.clear()
+    _clear_registry()
     model = FakeModel("uid-close")
     rt._register_modify_listener(model)
+    key = _doc_key("uid-close")
     posted, post_patch = _capture_posts()
     with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
-        rt._modify_listeners["uid-close"].modified(_event(model))
+        rva.modify_listener_map()[key].modified(_event(model))
         rt._unregister_modify_listener(model)
         fn, args = posted[0]
         fn(*args)  # the queued run arrives after the close
@@ -226,19 +232,18 @@ def test_a_failed_queue_does_not_block_later_recounts():
 
 
 def test_non_writer_unload_does_not_ask_disposed_controller():
-    # Impress close: Event.Source is the Impress model and its DrawController is already
-    # disposed. The listener used to call getCurrentController() and log an ERROR.
     broadcaster = MagicMock()
     ctx = MagicMock()
     ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
-    with patch.object(rt, "_doc_listener", None), patch("plugin.framework.uno_context.get_desktop", return_value=None):
+    rva.reset_all()
+    with patch("plugin.framework.uno_context.get_desktop", return_value=None):
         rt.install_review_toolbar(ctx)
         listener = broadcaster.addDocumentEventListener.call_args.args[0]
     impress = MagicMock()
     impress.supportsService.return_value = False
     impress.getCurrentController.side_effect = RuntimeError("DrawController object has already been disposed")
     event = MagicMock(EventName="OnUnload", ViewController=None, Source=impress)
-    with patch.object(rt, "_unregister_modify_listener") as unreg:
+    with patch.object(rva, "release_document") as unreg:
         listener.on_document_event(event)
     impress.getCurrentController.assert_not_called()
     unreg.assert_not_called()
@@ -247,17 +252,18 @@ def test_non_writer_unload_does_not_ask_disposed_controller():
 def test_dock_failure_is_retried_on_the_next_show():
     _reset()
     model = FakeModel("uid-dock")
+    key = _doc_key("uid-dock")
     lm = MagicMock()
     with patch.object(rt, "_layout_manager", return_value=lm), \
          patch.object(rt, "_dock_top", side_effect=[False, True]) as dock, \
          patch("plugin.writer.review_scan.agent_change_presence",
                side_effect=[(1, True), (0, True), (1, True)]):
         rt.refresh_review_toolbar(model)
-        assert "uid-dock" not in rt._docked_uids
-        rt.refresh_review_toolbar(model)   # hide
-        rt.refresh_review_toolbar(model)   # show again -> retry
+        assert not rva._attachments.get(key, rva.ReviewViewAttachment(key, model)).toolbar_docked
+        rt.refresh_review_toolbar(model)
+        rt.refresh_review_toolbar(model)
     assert dock.call_count == 2
-    assert "uid-dock" in rt._docked_uids
+    assert rva._attachments[key].toolbar_docked is True
     _reset()
 
 
@@ -297,19 +303,19 @@ def test_refresh_review_toolbar_show_hide_unreliable():
 def test_install_review_toolbar_warns_on_sweep_failure():
     ctx = MagicMock()
     ctx.getServiceManager.return_value.createInstanceWithContext.return_value = MagicMock()
-    with patch.object(rt, "_doc_listener", None), \
-         patch("plugin.framework.uno_context.get_desktop", side_effect=RuntimeError("sweep error")), \
-         patch.object(rt.log, "warning") as warn:
+    rva.reset_all()
+    with patch("plugin.framework.uno_context.get_desktop", side_effect=RuntimeError("sweep error")), \
+         patch.object(rva.log, "warning") as warn:
         rt.install_review_toolbar(ctx)
-        warn.assert_any_call("review_toolbar: initial sweep failed", exc_info=True)
+        warn.assert_any_call("review_view_attachment: initial sweep failed", exc_info=True)
 
 
 def test_install_review_toolbar_warns_on_listener_install_failure():
     ctx = MagicMock()
     ctx.getServiceManager.return_value.createInstanceWithContext.side_effect = RuntimeError("service error")
-    with patch.object(rt, "_doc_listener", None), \
-         patch("plugin.framework.uno_context.get_desktop", return_value=None), \
-         patch.object(rt.log, "warning") as warn:
+    rva.reset_all()
+    with patch("plugin.framework.uno_context.get_desktop", return_value=None), \
+         patch("plugin.framework.uno_listeners.log.warning") as warn:
         rt.install_review_toolbar(ctx)
-        warn.assert_any_call("review_toolbar: listener install failed", exc_info=True)
+        warn.assert_any_call("%s: doc-event listener install failed", "review_view_attachment", exc_info=True)
 

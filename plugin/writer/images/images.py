@@ -51,7 +51,7 @@ from .image_utils import (
     validated_image_suffix,
 )
 from . import image_mark, image_tools
-from plugin.framework.config import get_config_int, get_config_bool, get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, closest_aspect_label
 from plugin.framework.client.model_fetcher import get_image_model
@@ -243,9 +243,9 @@ class ImageGenerate(ToolWriterImageBase):
 
         status_callback = getattr(ctx, "status_callback", None)
         stop_checker = getattr(ctx, "stop_checker", None)
-        mt_timeout = float(get_config_int("request_timeout"))
-        add_to_gallery = get_config_bool("image_auto_gallery")
-        add_frame = get_config_bool("image_insert_frame")
+        mt_timeout = float(get_config("request_timeout"))
+        add_to_gallery = bool(get_config("image_auto_gallery"))
+        add_frame = bool(get_config("image_insert_frame"))
 
         source_image = args.get("source_image")
         if isinstance(source_image, str):
@@ -323,7 +323,7 @@ class ImageGenerate(ToolWriterImageBase):
         if source_image is not None and tag != "ok":
             return self._tool_error("No image selected. Please select an image in the document first.", code="NO_SELECTION", action="edit_image")
         is_edit = tag == "ok"
-        base_size = args.get("base_size", get_config_int("image_base_size"))
+        base_size = args.get("base_size", get_config("image_base_size"))
         gen_kwargs: dict[str, Any] = {}
         image_model = args.get("image_model")
         if image_model:
@@ -345,7 +345,7 @@ class ImageGenerate(ToolWriterImageBase):
                     args.get("width"), args.get("height"), edit_width, edit_height
                 )
         else:
-            aspect = args.get("aspect_ratio") or get_config_str("image_default_aspect")
+            aspect = args.get("aspect_ratio") or get_config("image_default_aspect")
             width, height, wire_ratio = resolve_generation_size(
                 base_size,
                 aspect,
@@ -424,7 +424,7 @@ class ImageGenerate(ToolWriterImageBase):
 
         image_model_used = str(args.get("image_model") or get_image_model() or "").strip()
         if image_model_used:
-            endpoint = get_config_str("endpoint").strip()
+            endpoint = str(get_config("endpoint") or "").strip()
             update_lru_history(image_model_used, "image_model_lru", endpoint)
 
         return {"status": "ok", "message": msg}
@@ -1526,7 +1526,7 @@ IMAGE_CACHE_MAX_BYTES = 256 * 1024 * 1024
 
 def _unlink_stale_partials(cache_dir: str) -> None:
     now = time.time()
-    cutoff_age = max(600, get_config_int("request_timeout") + 30)
+    cutoff_age = max(600, int(get_config("request_timeout") or 0) + 30)
     try:
         for entry in os.scandir(cache_dir):
             if entry.is_file() and entry.name.endswith(".partial"):
@@ -1677,7 +1677,7 @@ def _download_image_to_cache(
     # Runs off the UI thread but stays bounded: socket by request_timeout, body by the
     # byte cap, and local_path is replaced only after the full body is on a temp file
     # (a truncated file would look like a cache hit).
-    timeout = get_config_int("request_timeout")
+    timeout = get_config("request_timeout")
     fd, partial_path = tempfile.mkstemp(dir=cache_dir, prefix="img-", suffix=".partial")
     try:
         with os.fdopen(fd, "wb") as fh:

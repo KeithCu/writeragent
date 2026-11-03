@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from plugin.draw.layouts import LAYOUT_TABLE, VALID_LAYOUT_IDS, layout_id
 from plugin.framework.json_utils import safe_json_loads
 
 # Upstream source for TRANSFORM_PARAM_DESCRIPTION and layout name tables.
@@ -40,51 +41,8 @@ SET_TEXT_RE = re.compile(r"^SetText\.(\d+)$", re.I)
 EDIT_TEXT_RE = re.compile(r"^EditTextObject\.(\d+)$", re.I)
 MOVE_SLIDE_RE = re.compile(r"^MoveSlide\.(\d+)$", re.I)
 
-# Impress ``page.Layout`` ids from include/xmloff/autolayout.hxx.
-# Deprecated names (CHART, TAB, TEXTOBJ, …) keep their historic numbers.
-# The header notes that enum/text/chart/org/clip were merged into content
-# placeholders; those ids still round-trip, but several no longer grow a
-# chart, table, or clip shape. Notes and handout ids are not slide layouts.
-AUTOLAYOUT_ID: dict[str, int] = {
-    "AUTOLAYOUT_TITLE": 0,
-    "AUTOLAYOUT_TITLE_CONTENT": 1,
-    "AUTOLAYOUT_CHART": 2,
-    "AUTOLAYOUT_TITLE_2CONTENT": 3,
-    "AUTOLAYOUT_TEXTCHART": 4,
-    "AUTOLAYOUT_ORG": 5,
-    "AUTOLAYOUT_TEXTCLIP": 6,
-    "AUTOLAYOUT_CHARTTEXT": 7,
-    "AUTOLAYOUT_TAB": 8,
-    "AUTOLAYOUT_CLIPTEXT": 9,
-    "AUTOLAYOUT_TEXTOBJ": 10,
-    "AUTOLAYOUT_OBJ": 11,
-    "AUTOLAYOUT_TITLE_CONTENT_2CONTENT": 12,
-    "AUTOLAYOUT_OBJTEXT": 13,
-    "AUTOLAYOUT_TITLE_CONTENT_OVER_CONTENT": 14,
-    "AUTOLAYOUT_TITLE_2CONTENT_CONTENT": 15,
-    "AUTOLAYOUT_TITLE_2CONTENT_OVER_CONTENT": 16,
-    "AUTOLAYOUT_TEXTOVEROBJ": 17,
-    "AUTOLAYOUT_TITLE_4CONTENT": 18,
-    "AUTOLAYOUT_TITLE_ONLY": 19,
-    "AUTOLAYOUT_NONE": 20,
-    "AUTOLAYOUT_NOTES": 21,
-    "AUTOLAYOUT_HANDOUT1": 22,
-    "AUTOLAYOUT_HANDOUT2": 23,
-    "AUTOLAYOUT_HANDOUT3": 24,
-    "AUTOLAYOUT_HANDOUT4": 25,
-    "AUTOLAYOUT_HANDOUT6": 26,
-    "AUTOLAYOUT_VTITLE_VCONTENT_OVER_VCONTENT": 27,
-    "AUTOLAYOUT_VTITLE_VCONTENT": 28,
-    "AUTOLAYOUT_TITLE_VCONTENT": 29,
-    "AUTOLAYOUT_TITLE_2VTEXT": 30,
-    "AUTOLAYOUT_HANDOUT9": 31,
-    "AUTOLAYOUT_ONLY_TEXT": 32,
-    "AUTOLAYOUT_4CLIPART": 33,
-    "AUTOLAYOUT_TITLE_6CONTENT": 34,
-}
-
 # Collabora AUTOLAYOUT_* names the transform DSL documents
-# (DocumentToolDescriptions.hpp). Values are the shared AutoLayout ids above.
+# (DocumentToolDescriptions.hpp). Values are the shared AutoLayout ids in layouts.py.
 _COLLABORA_AUTOLAYOUT_NAMES = (
     "AUTOLAYOUT_TITLE",
     "AUTOLAYOUT_TITLE_CONTENT",
@@ -103,15 +61,9 @@ _COLLABORA_AUTOLAYOUT_NAMES = (
     "AUTOLAYOUT_TITLE_VCONTENT",
     "AUTOLAYOUT_TITLE_2VTEXT",
 )
-AUTOLAYOUT_BY_NAME: dict[str, int] = {name: AUTOLAYOUT_ID[name] for name in _COLLABORA_AUTOLAYOUT_NAMES}
-
-_LAYOUT_BLURBS = {
-    "AUTOLAYOUT_TITLE": "title + subtitle",
-    "AUTOLAYOUT_TITLE_CONTENT": "title + one content area",
-    "AUTOLAYOUT_TITLE_2CONTENT": "title + two content areas side by side",
-}
+_BLURB_BY_AUTO = {auto: blurb for _friendly, auto, _id, _aliases, blurb in LAYOUT_TABLE if blurb}
 _LAYOUT_BULLETS = "\n".join(
-    f"- {name} (id={AUTOLAYOUT_ID[name]})" + (f" - {_LAYOUT_BLURBS[name]}" if name in _LAYOUT_BLURBS else "")
+    f"- {name} (id={layout_id(name)})" + (f" - {_BLURB_BY_AUTO[name]}" if name in _BLURB_BY_AUTO else "")
     for name in _COLLABORA_AUTOLAYOUT_NAMES
 )
 
@@ -160,27 +112,6 @@ Full DSL reference: """
 
 _DEFERRED_PREFIXES = ("GenerateImage.", "InsertImageAt.", "InsertImage.", "ContentControls.")
 _DEFERRED_EXACT = frozenset({"MarkObject", "UnMarkObject"})
-
-
-def resolve_layout_id(name_or_id: Any) -> int | None:
-    """Resolve a Collabora AUTOLAYOUT name or a numeric Impress page.Layout id.
-
-    Friendly names (``blank``, ``title_only``, …) are resolved by
-    ``plugin.draw.transitions.layout_id``, which reads ``AUTOLAYOUT_ID``.
-    This helper stays on the transform vocabulary (``AUTOLAYOUT_*`` or a raw id).
-    """
-    if isinstance(name_or_id, str):
-        key = name_or_id.strip()
-        if not key:
-            return None
-        upper = key.upper()
-        if upper in AUTOLAYOUT_BY_NAME:
-            return AUTOLAYOUT_BY_NAME[upper]
-        try:
-            return int(key)
-        except ValueError:
-            return None
-    return coerce_int(name_or_id)
 
 
 def is_deferred_command_key(key: str) -> bool:
@@ -364,8 +295,8 @@ def validate_slide_commands(transform_obj: Any) -> tuple[str | None, int | None]
                 return "Invalid %s index: %r" % (key, val), idx
 
         elif key in ("ChangeLayout", "ChangeLayoutByName"):
-            lid = resolve_layout_id(val)
-            if lid is None or lid not in AUTOLAYOUT_ID.values():
+            lid = layout_id(val)
+            if lid is None or lid not in VALID_LAYOUT_IDS:
                 return "Unknown layout in %s" % key, idx
 
         elif cmd_kind == "SetText":

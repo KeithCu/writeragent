@@ -122,8 +122,8 @@ def test_sandboxed_code_resolves_writeragent_imports():
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     code = (
-        "from writeragent.scripting.analysis import coerce_to_dataframe\n"
-        "result = callable(coerce_to_dataframe)\n"
+        "from writeragent.scripting.analysis import grid_to_dataframe\n"
+        "result = callable(grid_to_dataframe)\n"
     )
     # The function itself cannot cross the pickle boundary. callable() proves the import bound.
     response = run_sandboxed_code(code)
@@ -247,8 +247,8 @@ def test_sandboxed_code_writeragent_analysis_without_api():
 
     _clear_writeragent_modules()
     code = (
-        "from writeragent.scripting.analysis import coerce_to_dataframe\n"
-        "result = callable(coerce_to_dataframe)\n"
+        "from writeragent.scripting.analysis import grid_to_dataframe\n"
+        "result = callable(grid_to_dataframe)\n"
     )
     with patch("importlib.util.find_spec", side_effect=_find_spec_without_writeragent_api):
         register_alias_importer()

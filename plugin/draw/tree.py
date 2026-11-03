@@ -36,6 +36,8 @@ import logging
 import re
 from typing import Any, Iterator
 
+from plugin.draw.base import DRAW_AND_IMPRESS
+
 from plugin.framework.errors import is_disposed_exception, is_real_disposal, uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -427,7 +429,7 @@ class GetDrawTree(ToolBase):
         "value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
 

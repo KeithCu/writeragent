@@ -58,7 +58,7 @@ from plugin.framework.stream_batch import (
     StreamQueueKind,
     split_stream_item,
 )
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
 from plugin.framework.async_drain_guard import (
     NestedDrainOwnerError,
@@ -85,9 +85,7 @@ def _format_agent_tool_stream_line(prefix: str, data: Any) -> str:
     # data: Any (json.dumps / str) is an unbounded payload; prefix is already capped.
     # crosshair: off
     try:
-        if UNDER_CROSSHAIR:
-            body = str(data)
-        elif isinstance(data, (dict, list)):
+        if isinstance(data, (dict, list)):
             body = json.dumps(data, ensure_ascii=False)
         else:
             body = str(data) if data is not None else ""

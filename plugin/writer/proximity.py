@@ -27,6 +27,7 @@ import logging
 from typing import Any
 
 from plugin.doc.paragraph_search import paragraph_entries
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import uno_same
@@ -312,9 +313,8 @@ class ProximityService(ServiceBase):
             try:
                 fields = doc.getTextFields()
                 enum = fields.createEnumeration()
-                while enum.hasMoreElements() is True:
+                for field in iter_elements(enum):
                     try:
-                        field = enum.nextElement()
                         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                             continue
                         pi = anchored(field.getAnchor())

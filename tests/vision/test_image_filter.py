@@ -78,7 +78,7 @@ def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
             mf._catalog_memos.pop(key, None)
     with patch("plugin.framework.client.requests.sync_request") as sync, \
          patch("plugin.framework.client.model_fetcher.get_config", return_value={}), \
-         patch("plugin.framework.client.model_fetcher.set_config"), \
+         patch("plugin.framework.client.model_fetcher.save"), \
          patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="google/gemini-3.8-flash"), \
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \

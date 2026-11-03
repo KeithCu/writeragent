@@ -70,6 +70,22 @@ def _safe_get_constant(name: str) -> Any:
 setattr(uno_mod, "getConstantByName", MagicMock(side_effect=_safe_get_constant))
 setattr(uno_mod, "getComponentContext", MagicMock())
 
+
+def _proofreader_get_config_side_effect(
+    key: str,
+    *,
+    enabled: str = "llm",
+    pause: bool = False,
+) -> Any:
+    if key == "doc.grammar_proofreader_enabled":
+        return enabled
+    if key == "doc.grammar_proofreader_pause_during_agent":
+        return pause
+    if key in ("additional_instructions", "doc.grammar_proofreader_custom_prompt"):
+        return ""
+    return 0
+
+
 class FakeBI:
     def getWordBoundary(self, text, pos, locale, wordType, bDirection):
         import re
@@ -169,7 +185,11 @@ def test_uno_setup_teardown_preserves_string_grammar_provider() -> None:
 
     with (
         patch.object(uno_tests, "get_config", side_effect=lambda requested: "harper" if requested == key else None),
-        patch.object(uno_tests, "set_config", side_effect=lambda requested, value: set_calls.append((requested, value))),
+        patch.object(
+            uno_tests,
+            "save",
+            side_effect=lambda patch, **kwargs: [set_calls.append((k, v)) for k, v in patch.items()],
+        ),
         patch.object(uno_tests.gc.grammar_registry, "clear_all"),
         patch.object(uno_tests.gc, "ignore_rules_clear"),
     ):
@@ -180,24 +200,11 @@ def test_uno_setup_teardown_preserves_string_grammar_provider() -> None:
 
 
 def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
-    def _get_config(key: str):
-        if key == "doc.grammar_proofreader_enabled":
-            return "llm"
-        if key == "doc.grammar_proofreader_pause_during_agent":
-            return True
-        return None
-
-    def _get_config_bool(key: str) -> bool:
-        if key == "doc.grammar_proofreader_enabled":
-            return True
-        if key == "doc.grammar_proofreader_pause_during_agent":
-            return True
-        raise AssertionError(f"unexpected key: {key}")
-
     with (
-        patch("plugin.framework.config.get_config", side_effect=_get_config),
-        patch("plugin.framework.config.get_config_int", return_value=0),
-        patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
+        patch(
+            "plugin.framework.config.get_config",
+            side_effect=lambda key: _proofreader_get_config_side_effect(key, pause=True),
+        ),
         patch("plugin.framework.send_cancellation.is_agent_active", return_value=True),
         patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
     ):
@@ -214,24 +221,11 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
 def test_worker_does_not_pause_local_provider_when_agent_active() -> None:
     """Harper / LanguageTool / Vale keep checking while chat runs; pause is LLM-only."""
 
-    def _get_config(key: str):
-        if key == "doc.grammar_proofreader_enabled":
-            return "harper"
-        if key == "doc.grammar_proofreader_pause_during_agent":
-            return True
-        return None
-
-    def _get_config_bool(key: str) -> bool:
-        if key == "doc.grammar_proofreader_enabled":
-            return True
-        if key == "doc.grammar_proofreader_pause_during_agent":
-            return True
-        raise AssertionError(f"unexpected key: {key}")
-
     with (
-        patch("plugin.framework.config.get_config", side_effect=_get_config),
-        patch("plugin.framework.config.get_config_int", return_value=0),
-        patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
+        patch(
+            "plugin.framework.config.get_config",
+            side_effect=lambda key: _proofreader_get_config_side_effect(key, enabled="harper", pause=True),
+        ),
         patch("plugin.framework.send_cancellation.is_agent_active", return_value=True),
         patch("plugin.writer.locale.grammar_worker.run_grammar_check") as run_check,
         patch(
@@ -366,19 +360,12 @@ def test_sentence_terminators_cover_multilingual_cases() -> None:
     assert not looks_complete_sentence("incomplete clause")
 
 def test_run_llm_skips_split_when_item_text_set() -> None:
-    def _get_config(key: str):
-        if key == "doc.grammar_proofreader_enabled": return "llm"
-        if key == "doc.grammar_proofreader_pause_during_agent": return False
-        return None
-    def _get_config_bool(key: str) -> bool:
-        if key == "doc.grammar_proofreader_enabled": return True
-        if key == "doc.grammar_proofreader_pause_during_agent": return False
-        raise AssertionError(f"unexpected key: {key}")
     def _split_must_not_run(*_a, **_k): raise AssertionError("split_into_sentences must not run")
     with (
-        patch("plugin.framework.config.get_config", side_effect=_get_config),
-        patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
-        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch(
+            "plugin.framework.config.get_config",
+            side_effect=_proofreader_get_config_side_effect,
+        ),
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"),
         patch("plugin.framework.config.get_api_config", return_value={}),
         patch("plugin.framework.send_cancellation.is_agent_active", return_value=False),
@@ -395,18 +382,11 @@ def test_run_llm_skips_split_when_item_text_set() -> None:
         _run_llm_one(None, "Hello.", 1, "d|en", "en-US")
 
 def test_partial_sentence_adds_prompt_note() -> None:
-    def _get_config(key: str):
-        if key == "doc.grammar_proofreader_enabled": return "llm"
-        if key == "doc.grammar_proofreader_pause_during_agent": return False
-        return None
-    def _get_config_bool(key: str) -> bool:
-        if key == "doc.grammar_proofreader_enabled": return True
-        if key == "doc.grammar_proofreader_pause_during_agent": return False
-        raise AssertionError(f"unexpected key: {key}")
     with (
-        patch("plugin.framework.config.get_config", side_effect=_get_config),
-        patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
-        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch(
+            "plugin.framework.config.get_config",
+            side_effect=_proofreader_get_config_side_effect,
+        ),
         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"),
         patch("plugin.framework.config.get_api_config", return_value={}),
         patch("plugin.framework.send_cancellation.is_agent_active", return_value=False),
@@ -432,24 +412,12 @@ def test_partial_sentence_adds_prompt_note() -> None:
 def mock_config_fixture():
     with (
         patch("plugin.framework.config.get_config") as mock_get_config,
-        patch("plugin.framework.config.get_config_bool") as mock_get_bool,
-        patch("plugin.framework.config.get_config_str") as mock_get_str,
-        patch("plugin.framework.config.get_config_int") as mock_get_int,
         patch("plugin.framework.client.model_fetcher.get_text_model") as mock_get_model,
         patch("plugin.framework.config.get_api_config") as mock_get_api,
         patch("plugin.framework.logging.init_logging"),
         patch.object(proofreader, "uno_mod", uno_mod),
     ):
-        mock_get_config.side_effect = lambda key: {
-            "doc.grammar_proofreader_enabled": "llm",
-            "doc.grammar_proofreader_pause_during_agent": False,
-        }.get(key, None)
-        mock_get_bool.side_effect = lambda key: {
-            "doc.grammar_proofreader_enabled": True,
-            "doc.grammar_proofreader_pause_during_agent": False,
-        }.get(key, False)
-        mock_get_str.return_value = ""
-        mock_get_int.return_value = 0
+        mock_get_config.side_effect = _proofreader_get_config_side_effect
         mock_get_model.return_value = "test-model"
         mock_get_api.return_value = {}
         yield

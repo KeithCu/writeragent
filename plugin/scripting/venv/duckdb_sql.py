@@ -695,7 +695,7 @@ def _validate_files(scoped_dir: str, files: list[str] | None) -> list[str]:
 def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
     if not preloaded:
         return
-    from plugin.scripting.venv.coerce import coerce_to_dataframe
+    from plugin.scripting.venv.coerce import resolve_df
 
     registered_stems: set[str] = set()
     for orig_name, data in preloaded.items():
@@ -709,9 +709,9 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
             if isinstance(data, dict) and "grid" in data:
                 g = data["grid"]
                 h = bool(data.get("headers", True))
-                coerced = coerce_to_dataframe(g, headers=h, sheet_hint=orig_name)
+                coerced = resolve_df(g, headers=h, sheet_hint=orig_name)
             else:
-                coerced = coerce_to_dataframe(data, headers=True, sheet_hint=orig_name)
+                coerced = resolve_df(data, headers=True, sheet_hint=orig_name)
             _register_relation(con, orig_name, coerced.df)
             stem = os.path.splitext(orig_name)[0]
             if stem and stem != orig_name:
@@ -916,51 +916,38 @@ def _handle_sql_error(exc: Exception, helper: str) -> dict[str, Any]:
     return _error_result("DUCKDB_ERROR", str(exc), helper=helper)
 
 
-def run_sql(
+def query_folder_df(
     sql: str,
-    con: Any | None = None,
     files: list[str] | dict[str, str] | None = None,
     scoped_dir: str | None = None,
     *,
-    session_id: str | None = None,
     preloaded: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> Any:
-    """Guarded SQL for ``=PY()`` — honesty dict, or a DataFrame for folder joins.
+    """Run read-only SQL against folder files or preloaded tables, returning a DataFrame.
 
-    Prefer this from ``=PY()`` / shared-kernel cells instead of raw
-    ``import duckdb``.
-
-    * Execute: ``run_sql(sql)`` and ``run_sql(sql, con)`` return the honesty
-      dict (``truncated`` / ``warning`` / ``flags``, 200-row cap) and turn
-      ``SqlError`` into an error dict. No ``con`` uses ``_acquire_duckdb``.
-      A ``scoped_dir`` by itself does not change this, including the folder
-      ``=PY()`` always passes in.
-    * Folder join: folder mode is a dict second argument, or ``preloaded=``,
-      or ``files=`` (including an empty list). That path returns the full
-      DataFrame and raises ``SqlError``. It acquires the session connection
-      and does not use ``con``.
+    Raises SqlError on failure.
     """
+    helper = "query_folder_df"
+    df, _used = _execute(
+        scoped_dir,
+        sql,
+        files=files,
+        preloaded=preloaded,
+        session_id=session_id,
+        helper=helper,
+    )
+    return df
+
+
+def run_sql(
+    sql: str,
+    con: Any | None = None,
+    *,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """Guarded SQL for ``=PY()`` — returns honesty dict (200-row cap); converts SqlError to error dict."""
     helper = "run_sql"
-    folder_preloaded = preloaded
-    if isinstance(con, dict):
-        folder_preloaded = con
-        con = None
-
-    if folder_preloaded is not None or files is not None:
-        # A saved-doc cell always has scoped_dir set by run_sql_bound, so keying
-        # off scoped_dir is not None returned a DataFrame and dropped con. Folder
-        # reads are files / preloaded. The host folder is only the directory
-        # those reads resolve under.
-        df, _used = _execute(
-            scoped_dir,
-            sql,
-            files=files,
-            preloaded=folder_preloaded,
-            session_id=session_id,
-            helper=helper,
-        )
-        return df
-
     _require_duckdb(helper)
 
     if not sql or not str(sql).strip():

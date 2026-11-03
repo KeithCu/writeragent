@@ -72,7 +72,7 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
         patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
         patch("plugin.calc.rich_html.format_support") as mock_fmt,
         patch("plugin.calc.rich_html.clear_writer_body", side_effect=_record_clear) as mock_clear,
-        caplog.at_level(logging.INFO, logger="writeragent.calc"),
+        caplog.at_level(logging.INFO, logger="plugin.calc.rich_html"),
     ):
         mock_bridge = mock_bridge_cls.return_value
         sheet = MagicMock()

@@ -20,7 +20,7 @@ from plugin.doc.document_research_specialized import (
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
-from tests.chatbot.test_tool_loop import _mock_get_config_int_for_sub_agent
+from tests.chatbot.test_tool_loop import _mock_get_config_for_sub_agent
 from plugin.writer.specialized_base import DelegateToSpecializedWriter, SpecializedWorkflowFinished
 from plugin.embeddings.document_research_fts_tool import SearchNearbyFiles
 from plugin.doc.document_research_grep_tool import GrepNearbyFiles
@@ -146,8 +146,8 @@ def test_read_only_target_blocks_mutation_in_registry():
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -158,7 +158,7 @@ def test_document_research_outer_delegation_gets_document_research_tools(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     r = ToolRegistry(services={})
     r.register(ListNearbyFiles())
@@ -193,8 +193,8 @@ def test_document_research_outer_delegation_gets_document_research_tools(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -205,7 +205,7 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     from plugin.doc.peer_message import SendPeerResult, SendPeerWork
 
@@ -253,8 +253,8 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -267,7 +267,7 @@ def test_document_research_chat_append_on_delegate_read_document(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     captured: list[str] = []
 
@@ -330,8 +330,8 @@ def _run_registered_peer_tool(mock_agent_class, tool_name: str, result: dict) ->
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -344,7 +344,7 @@ def test_document_research_return_idles_outer_after_peer_send(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     """Host appends idle-after-send when an inner peer send was accepted."""
     from plugin.doc.peer_message import SendPeerWork
@@ -398,8 +398,8 @@ def test_document_research_return_idles_outer_after_peer_send(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -414,7 +414,7 @@ def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     """Nested ranges finish on a Peer-work turn must not look like peer delivery."""
     from plugin.calc.cells import SortRange
@@ -449,8 +449,8 @@ def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -465,7 +465,7 @@ def test_document_research_send_peer_result_skips_delivery_pending(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     """Accepted send_peer_result on a Peer-work turn keeps idle-after-send, not delivery-pending."""
     from plugin.doc.peer_message import SendPeerResult
@@ -534,8 +534,8 @@ _PEER_SEND_FAILURE_CODES = (
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -550,7 +550,7 @@ def test_document_research_failed_send_peer_result_does_not_stamp_idle(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     """A failed send_peer_result is not delivery and must not idle-after-send.
 
@@ -841,7 +841,7 @@ def test_get_open_documents():
         assert docs[0]["doc_type"] == "calc"
 
 
-@patch("plugin.chatbot.smol_agent.get_config_int", side_effect=_mock_get_config_int_for_sub_agent)
+@patch("plugin.chatbot.smol_agent.get_config", side_effect=_mock_get_config_for_sub_agent)
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
@@ -851,7 +851,7 @@ def test_document_research_delegation_includes_open_documents_context(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     r = ToolRegistry(services={})
     r.register(ListNearbyFiles())
@@ -1004,7 +1004,7 @@ def test_delegate_read_document_length_truncated_read_is_incomplete(
 
     with (
         patch("plugin.chatbot.smol_agent.create_smol_model", return_value=WriterAgentSmolModel(client, max_tokens=256)),
-        patch("plugin.chatbot.smol_agent.get_config_int", return_value=5),
+        patch("plugin.chatbot.smol_agent.get_config", return_value=5),
     ):
         result = r.get("delegate_read_document").execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
 

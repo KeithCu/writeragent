@@ -185,9 +185,9 @@ def _voice_checkboxes() -> list[Any]:
 
 def _tts_snapshot_fields() -> dict[str, Any]:
     """Sidebar Voice checkbox vs config (Settings → Speech audio.tts_enabled)."""
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    enabled = bool(get_config_bool_safe("audio.tts_enabled"))
+    enabled = bool(get_config("audio.tts_enabled"))
     chk_state: int | None = None
     panels = _all_live_panels()
     for chk in _voice_checkboxes():
@@ -499,10 +499,10 @@ def set_late_transcript_delay(delay: float) -> None:
 
 
 def _restore_saved_config(saved: dict[str, Any]) -> None:
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
-    for key, value in saved.items():
-        set_config(key, value)
+    if saved:
+        save(saved)
 
 
 def _clear_fake_stt_in_process() -> None:
@@ -626,7 +626,7 @@ def _apply_fake_stt(mode: str) -> None:
             }
 
         # Keep existing config for STT provider to allow testing both local and endpoint.
-        # set_config("audio.stt_provider", "local")
+        # save("audio.stt_provider", "local")
 
         _FAKE_STT_MODE = mode
         _FAKE_STT_STATE = _fresh_or_update_fake_state(_FAKE_STT_STATE, mode, _FAKE_STT_SAVED)
@@ -874,7 +874,7 @@ def _apply_fake_tts(mode: str) -> None:
         _clear_fake_tts_in_process()
         return
 
-    from plugin.framework.config import get_config, set_config
+    from plugin.framework.config import get_config, save
     import plugin.audio.tts_service as tts_service
 
     global _FAKE_TTS_MODE, _FAKE_TTS_SAVED, _FAKE_TTS_ORIG, _FAKE_TTS_STATE
@@ -887,9 +887,11 @@ def _apply_fake_tts(mode: str) -> None:
                 "audio.tts_sentence_mode": get_config("audio.tts_sentence_mode"),
             }
 
-        set_config("audio.tts_enabled", True)
-        set_config("audio.tts_provider", "system")
-        set_config("audio.tts_sentence_mode", False)
+        save({
+            "audio.tts_enabled": True,
+            "audio.tts_provider": "system",
+            "audio.tts_sentence_mode": False,
+        })
 
         _FAKE_TTS_MODE = mode
         _FAKE_TTS_STATE = _fresh_or_update_fake_state(
@@ -1185,18 +1187,18 @@ def handle_debug_sidebar_command(command: str) -> None:
         _post_to_soffice_vcl(kick_pending_peer_starts, sl=sl)
         _write_debug_snapshot(sl)
         return
-    # Packet I5: a short request_timeout read by the soffice sidebar (URP set_config is
+    # Packet I5: a short request_timeout read by the soffice sidebar (URP save is
     # not seen there); RESTORE puts back the value SHORT replaced.
     if op in ("REQUEST_TIMEOUT_SHORT", "REQUEST_TIMEOUT_RESTORE"):
         global _SAVED_REQUEST_TIMEOUT
-        from plugin.framework.config import get_config, set_config
+        from plugin.framework.config import get_config, save
 
         if op == "REQUEST_TIMEOUT_SHORT":
             if _SAVED_REQUEST_TIMEOUT is None:
                 _SAVED_REQUEST_TIMEOUT = get_config("request_timeout")
-            set_config("request_timeout", 5)
+            save({"request_timeout": 5})
         elif _SAVED_REQUEST_TIMEOUT is not None:
-            set_config("request_timeout", _SAVED_REQUEST_TIMEOUT)
+            save({"request_timeout": _SAVED_REQUEST_TIMEOUT})
             _SAVED_REQUEST_TIMEOUT = None
         _write_debug_snapshot(sl)
         return
@@ -1209,15 +1211,15 @@ def handle_debug_sidebar_command(command: str) -> None:
         "SET_TTS_OFF": ("audio.tts_enabled", False),
     }
     if op in config_ops:
-        from plugin.framework.config import set_config
+        from plugin.framework.config import save
 
         key, val = config_ops[op]
-        set_config(key, val)
+        save({key: val})
         _write_debug_snapshot(sl)
         return
     if op == "TOGGLE_SIDEBAR_TTS":
         # Drive the sidebar Voice checkbox (reverse of Settings→sidebar).
-        from plugin.framework.config import set_config
+        from plugin.framework.config import save
 
         for chk in _voice_checkboxes():
             if not hasattr(chk, "getState") or not hasattr(chk, "setState"):
@@ -1227,7 +1229,7 @@ def handle_debug_sidebar_command(command: str) -> None:
                 want = 0 if cur else 1
                 chk.setState(want)
                 # Ensure config matches even if ItemEvent.Selected was missing.
-                set_config("audio.tts_enabled", bool(want))
+                save({"audio.tts_enabled": bool(want)})
             except Exception:
                 log.exception("TOGGLE_SIDEBAR_TTS setState failed")
             break

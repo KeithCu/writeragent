@@ -4,7 +4,7 @@ UI population helpers for LibreOffice dialogs and Settings.
 from typing import Any
 from plugin.framework.config import (
     get_config,
-    set_configs,
+    save,
     get_current_endpoint,
     get_api_key_for_endpoint,
     get_reasoning_effort_for_endpoint,
@@ -331,7 +331,7 @@ def _sync_sidebar_model(
             patch[lru_key] = updated
 
     if patch:
-        set_configs(patch)
+        save(patch)
     return txt
 
 

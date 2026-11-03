@@ -50,7 +50,7 @@ class ModuleBase(ABC):
 
         Args:
             services: ServiceRegistry with attribute access to all
-                      registered services (services.config, services.events …).
+                      registered services (services.document, services.events …).
         """
 
     def start_background(self, services: Any) -> None:

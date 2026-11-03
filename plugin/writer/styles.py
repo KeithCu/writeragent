@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections import deque
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, TypedDict, cast
 
 if TYPE_CHECKING:
     import uno
@@ -47,17 +47,330 @@ else:
                 self.Name = Name
                 self.Value = Value
 
+from plugin.doc.text_helpers import iter_elements_limited
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 from plugin.framework.errors import is_disposed_exception, reraise_if_disposed
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
-from .format import CLEARABLE_PARA_PROPERTIES, FONT_SLANT_TO_INT, ParagraphStyleApplyReport, apply_paragraph_style_preserving_direct_char
+from .format import record_walk_cap
 from .page import get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
 from .target_resolver import cursor_spanning_range, resolve_target_cursor
 
 
 log = logging.getLogger("writeragent.writer")
+
+STYLE_GOVERNED_CHAR_PROPERTIES = (
+    "CharFontName", "CharFontNameAsian", "CharFontNameComplex",
+    "CharHeight", "CharHeightAsian", "CharHeightComplex",
+)
+
+CLEARABLE_PARA_PROPERTIES = (
+    "ParaTopMargin", "ParaBottomMargin", "ParaLeftMargin", "ParaRightMargin",
+    "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaKeepTogether", "ParaSplit",
+)
+
+REPORTED_CHAR_PROPERTIES = (
+    "CharFontName", "CharFontNameAsian", "CharFontNameComplex",
+    "CharHeight", "CharHeightAsian", "CharHeightComplex",
+    "CharWeight", "CharPosture", "CharColor",
+)
+
+_CAPTURE_PARA_LIMIT = 200000
+_CAPTURE_PORTION_LIMIT = 50000
+
+_STYLE_PROP_FAILED = object()
+_CHAR_PROPS_FAILED = object()
+_CHAR_PROPS_KEY = "__writable_char_props__"
+FONT_SLANT_TO_INT: dict[str, int] = {
+    "none": 0,
+    "oblique": 1,
+    "italic": 2,
+}
+
+
+def _reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
+    """Drop *names* as direct attributes on *cursor* so they fall back to the paragraph style."""
+    names = tuple(names)
+    if not names:
+        return []
+    try:
+        cursor.setPropertiesToDefault(names)
+        return list(names)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        pass  # no XMultiPropertyStates on this range — fall back to one at a time
+    cleared = []
+    for name in names:
+        try:
+            cursor.setPropertyToDefault(name)
+            cleared.append(name)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            continue
+    return cleared
+
+
+def _summarize_char_overrides(overrides: Any) -> dict[str, Any]:
+    """Flat, JSON-safe {prop: value} of the captured direct Char* overrides (first portion wins)."""
+    summary = {}
+    for _pc, props in overrides:
+        for name in REPORTED_CHAR_PROPERTIES:
+            if name in props and name not in summary:
+                val = props[name]
+                if getattr(type(val), "__module__", None) in ("uno", "pyuno"):
+                    inner = getattr(val, "value", None)
+                    if inner is not None:
+                        val = inner
+                if name == "CharPosture" and isinstance(val, str):
+                    low = val.strip().lower()
+                    if low in FONT_SLANT_TO_INT:
+                        val = FONT_SLANT_TO_INT[low]
+                if isinstance(val, (str, int, float, bool)):
+                    summary[name] = val
+    return summary
+
+
+class ParagraphStyleApplyReport(TypedDict, total=False):
+    direct_formatting: str
+    clear_direct: str
+    preserved_char_overrides: dict[str, Any]
+    removed_char_overrides: dict[str, Any]
+    cleared_char_properties: list[str]
+    cleared_paragraph_properties: list[str]
+    warning: str
+    capture_incomplete: bool
+
+
+def apply_paragraph_style_preserving_direct_char(
+    doc: Any,
+    cursor: Any,
+    style_name: str,
+    clear_direct: Literal["none", "style_props", "all"] = "none",
+    style_cache: dict[Any, Any] | None = None,
+) -> ParagraphStyleApplyReport:
+    """Set *cursor*'s ParaStyleName to *style_name*, deciding what happens to direct formatting.
+
+    Setting ParaStyleName to a DIFFERENT style resets hand-set Char* properties to that style's
+    defaults — across the WHOLE paragraph, even for a sub-range cursor — which is what the capture
+    below exists to undo. Re-applying the style a paragraph already has does not reset Char*
+    (LibreOffice 26.2). It *does* drop the paragraph's direct Para* (margins, alignment, first-line
+    indent) — so re-applying Standard does not keep a hand-set quote indent. Clearing a Char*
+    override is never a side effect to rely on; see _reset_properties_to_default.
+    ``getPropertyState`` is unreliable at the text-portion level, so overrides are
+    detected by VALUE (Char* differs from the paragraph's current style default).
+
+    *clear_direct* decides what happens to those captured overrides. The helper default is
+    ``"none"`` so HTML import / style-restore callers keep inline fonts; ``apply_style``
+    defaults to ``"style_props"`` so a house-font update is visible without a retry:
+      ``"style_props"`` restores everything except STYLE_GOVERNED_CHAR_PROPERTIES and clears
+      CLEARABLE_PARA_PROPERTIES, so font/size/indent obey the style and bold/italic/colour survive;
+      ``"none"`` restores all captured Char* — keeps a hand-set font (the style can look like a
+      no-op). Does not restore Para*; LibreOffice already dropped those when ParaStyleName was set;
+      ``"all"`` restores nothing and clears the paragraph properties too (Ctrl+M semantics).
+
+    A result with a ``warning`` and ``capture_incomplete=True`` means later runs were not read
+    back, so the override dict may be short. A warning without ``capture_incomplete`` means
+    some captured overrides could not be re-applied; the style still applied.
+
+    Returns a report dict so callers can tell the agent what actually happened.
+
+    KNOWN LIMITATION: a direct override whose value equals the old style default is not
+    captured; applying a style with a different default can change that property visibly.
+    """
+    walk_notes: list[str] = []
+    capture_failures = 0
+    restore_failures = 0
+    if style_cache is None:
+        style_cache = {}
+
+    def _expand_to_full_paragraphs(cur: Any) -> Any:
+        text = cur.getText()
+        start = text.createTextCursorByRange(cur.getStart())
+        end = text.createTextCursorByRange(cur.getEnd())
+        start.gotoStartOfParagraph(False)
+        end.gotoEndOfParagraph(True)
+        expanded = text.createTextCursorByRange(start.getStart())
+        expanded.gotoRange(end.getEnd(), True)
+        return expanded
+
+    def _capture_direct_char_overrides(capture_cursor: Any) -> list[Any]:
+        nonlocal capture_failures
+        overrides: list[Any] = []
+        try:
+            para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            capture_failures += 1
+            return overrides
+
+        READONLY = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.READONLY")
+        if not isinstance(READONLY, int):
+            READONLY = 16
+        try:
+            para_enum = capture_cursor.createEnumeration()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            capture_failures += 1
+            return overrides
+
+        _paras = 0
+        for para in iter_elements_limited(para_enum, _CAPTURE_PARA_LIMIT):
+            _paras += 1
+            if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
+                continue
+
+            try:
+                cur_style_name = para.getPropertyValue("ParaStyleName")
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                capture_failures += 1
+                continue
+
+            if cur_style_name in style_cache:
+                old_style = style_cache[cur_style_name]
+            else:
+                try:
+                    old_style = para_styles.getByName(cur_style_name)
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    capture_failures += 1
+                    old_style = None
+                style_cache[cur_style_name] = old_style
+
+            if old_style is None:
+                continue
+
+            try:
+                portion_enum = para.createEnumeration()
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                capture_failures += 1
+                continue
+
+            _portions = 0
+            for portion in iter_elements_limited(portion_enum, _CAPTURE_PORTION_LIMIT):
+                _portions += 1
+
+                try:
+                    portion_type = portion.getPropertyValue("TextPortionType")
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    capture_failures += 1
+                    continue
+                if portion_type != "Text":
+                    continue
+
+                if _CHAR_PROPS_KEY not in style_cache:
+                    try:
+                        info = portion.getPropertySetInfo()
+                        if info is None:
+                            style_cache[_CHAR_PROPS_KEY] = _CHAR_PROPS_FAILED
+                        else:
+                            style_cache[_CHAR_PROPS_KEY] = [
+                                p.Name for p in info.getProperties()
+                                if p.Name.startswith("Char") and not (getattr(p, "Attributes", 0) & READONLY)
+                            ]
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        style_cache[_CHAR_PROPS_KEY] = _CHAR_PROPS_FAILED
+
+                char_names = style_cache[_CHAR_PROPS_KEY]
+                if char_names is _CHAR_PROPS_FAILED:
+                    capture_failures += 1
+                    continue
+                if not char_names:
+                    continue
+
+                props = {}
+                for name in char_names:
+                    try:
+                        val = portion.getPropertyValue(name)
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        capture_failures += 1
+                        continue
+
+                    cache_key = (cur_style_name, name)
+                    if cache_key in style_cache:
+                        style_val = style_cache[cache_key]
+                    else:
+                        try:
+                            style_val = old_style.getPropertyValue(name)
+                        except Exception as exc:
+                            reraise_if_disposed(exc)
+                            capture_failures += 1
+                            style_val = _STYLE_PROP_FAILED
+                        style_cache[cache_key] = style_val
+
+                    if style_val is _STYLE_PROP_FAILED:
+                        continue
+                    if val == style_val:
+                        continue
+                    props[name] = val
+
+                if props:
+                    try:
+                        pc = portion.getText().createTextCursorByRange(portion.getStart())
+                        pc.gotoRange(portion.getEnd(), True)
+                        overrides.append((pc, props))
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        capture_failures += 1
+                        continue
+
+            record_walk_cap(portion_enum, _portions, _CAPTURE_PORTION_LIMIT, "text portions", walk_notes)
+        record_walk_cap(para_enum, _paras, _CAPTURE_PARA_LIMIT, "paragraphs", walk_notes)
+        return overrides
+
+    capture_cursor = _expand_to_full_paragraphs(cursor)
+    overrides = _capture_direct_char_overrides(capture_cursor)
+    found = _summarize_char_overrides(overrides)
+    try:
+        cursor.setPropertyValue("ParaStyleName", style_name)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise
+
+    skip = STYLE_GOVERNED_CHAR_PROPERTIES if clear_direct == "style_props" else ()
+    if clear_direct != "all":
+        for pc, props in overrides:
+            for name, val in props.items():
+                if name in skip:
+                    continue
+                try:
+                    pc.setPropertyValue(name, val)
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    restore_failures += 1
+
+    report: ParagraphStyleApplyReport = {
+        "direct_formatting": "preserved" if clear_direct == "none" else "cleared",
+        "clear_direct": clear_direct,
+    }
+    if clear_direct == "none":
+        if found:
+            report["preserved_char_overrides"] = found
+    else:
+        removed = {k: v for k, v in found.items() if clear_direct == "all" or k in skip}
+        if removed:
+            report["removed_char_overrides"] = removed
+        char_targets = (
+            STYLE_GOVERNED_CHAR_PROPERTIES if clear_direct == "style_props"
+            else sorted({n for _pc, props in overrides for n in props})
+        )
+        report["cleared_char_properties"] = _reset_properties_to_default(capture_cursor, char_targets)
+        report["cleared_paragraph_properties"] = _reset_properties_to_default(capture_cursor, CLEARABLE_PARA_PROPERTIES)
+
+    if capture_failures > 0:
+        walk_notes.append("Some direct formatting overrides could not be read; the capture may be incomplete.")
+    if restore_failures > 0:
+        walk_notes.append("Some direct formatting overrides could not be re-applied.")
+    if walk_notes:
+        report["warning"] = " ".join(walk_notes)
+    if capture_failures > 0:
+        report["capture_incomplete"] = True
+    return report
 
 # What was wrong: StyleCreate / paragraph and character StyleClone drop the
 # createInstance proxy when the function returns. insertByName adopts that

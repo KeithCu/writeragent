@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE
 from plugin.scripting.editor_errors import (
     editor_error_markers,
     exception_traceback,
@@ -65,12 +65,6 @@ def test_failure_detail_formats_exception_under_deal():
     try:
         raise RuntimeError("boom")
     except RuntimeError as e:
-        if UNDER_CROSSHAIR:
-            import deal
-
-            with pytest.raises(deal.PreContractError):
-                failure_detail(detail="stderr line", exc=e)
-            return
         detail = failure_detail(detail="stderr line", exc=e)
         msg = failure_message("Summary", detail=None, exc=e)
         tb = exception_traceback(e)
