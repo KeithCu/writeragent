@@ -47,9 +47,12 @@ def tool_ctx():
 
 
 def _registry_with_vision_tool() -> ToolRegistry:
+    from tests.tool_registry_filters import append_production_tool_registry_filters
+
     services = ServiceRegistry()
     registry = ToolRegistry(services)
     registry.register(ExtractStructureFromImage())
+    append_production_tool_registry_filters(registry)
     return registry
 
 
@@ -216,7 +219,7 @@ def test_extract_structure_rejects_unsupported_doc(tool_ctx):
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
-    from plugin.framework.prompts import get_vision_core_directive
+    from plugin.vision.vision_availability import get_vision_core_directive
 
     assert get_vision_core_directive(MagicMock(), MagicMock()) == ""
 
@@ -267,7 +270,7 @@ def test_delegate_vision_requires_document_lock_when_sub_agent():
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 def test_get_vision_core_directive_when_available(_mock_avail, writer_doc):
-    from plugin.framework.prompts import get_vision_core_directive
+    from plugin.vision.vision_availability import get_vision_core_directive
 
     text = get_vision_core_directive(writer_doc, MagicMock())
     assert "domain=\"vision\"" in text

@@ -72,21 +72,6 @@ from plugin.framework.url_utils import normalize_endpoint_url
 
 from plugin.framework import config_schema as _config_schema
 
-
-def _normalize_configured_endpoint_with_selector(endpoint_str: str, is_openwebui: bool) -> str:
-    """WriterAgent Settings may store a preset label; LibrePy omits chatbot helpers."""
-    try:
-        from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
-
-        return endpoint_from_selector_text(endpoint_str)
-    except ImportError:
-        return normalize_endpoint_url(endpoint_str, is_openwebui=is_openwebui)
-
-
-# Overlay after schema import so WriterAgentConfig.validate() keeps preset labels
-# without config_schema importing chatbot (LibrePy / one-way import).
-_config_schema.set_endpoint_normalizer(_normalize_configured_endpoint_with_selector)
-
 # Comment header written above the JSON object. Not a config key.
 CONFIG_SCHEMA_COMMENT = (
     "// Only settings that differ from defaults are stored here.\n"

@@ -129,6 +129,37 @@ def user_profile_exists() -> bool:
     return not user_memory_is_blank(val)
 
 
+_PROFILE_DATA_OPEN = "<<<profile>>>"
+_PROFILE_DATA_CLOSE = "<<<</profile>>>"
+
+
+def _cap_injected_prompt_blob(text: str) -> str:
+    body = text.strip()
+    if len(body) <= CHAT_DOCUMENT_CONTEXT_MAX_CHARS:
+        return body
+    return body[:CHAT_DOCUMENT_CONTEXT_MAX_CHARS].rstrip() + "\n" + "[truncated]"
+
+
+def _profile_data_block(heading: str, body: str) -> str:
+    safe = body.replace(_PROFILE_DATA_CLOSE, "<<< </profile>>>").replace(_PROFILE_DATA_OPEN, "<<< profile>>>")
+    return f"\n\n{heading}\n{_PROFILE_DATA_OPEN}\n{safe}\n{_PROFILE_DATA_CLOSE}\n"
+
+
+def format_user_memory_prompt_block() -> str:
+    """Read MemoryStore and return a fenced, capped user profile block, or empty string."""
+    import logging
+
+    try:
+        store = MemoryStore()
+        user_mem = store.read()
+        if user_memory_is_blank(user_mem):
+            return ""
+        return _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to read user memory for prompt")
+    return ""
+
+
 # Chat preview when upsert_memory runs (sidebar / librarian); value truncated for huge strings.
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 

@@ -44,9 +44,9 @@ def test_inject_markers_into_excerpt_selection_inside(value, value_2, expected):
 
 @patch("plugin.doc.text_helpers._read_writer_text_slice")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=20000)
-@patch("plugin.doc.doc_type.get_document_type")
+@patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_reads_slices_not_full_doc(mock_doc_type, mock_char_count, mock_read_slice):
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     mock_doc_type.return_value = DocumentType.WRITER
     mock_read_slice.side_effect = lambda _model, start, length: f"slice:{start}:{length}"
@@ -60,9 +60,9 @@ def test_get_document_context_reads_slices_not_full_doc(mock_doc_type, mock_char
 
 @patch("plugin.doc.text_helpers._read_writer_text_slice")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=100)
-@patch("plugin.doc.doc_type.get_document_type")
+@patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_short_doc_single_slice(mock_doc_type, mock_char_count, mock_read_slice):
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     mock_doc_type.return_value = DocumentType.WRITER
     mock_read_slice.return_value = "short doc text"
@@ -77,9 +77,9 @@ def test_get_document_context_short_doc_single_slice(mock_doc_type, mock_char_co
 @patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=True)
 @patch("plugin.doc.text_helpers._read_writer_text_slice", return_value="short doc text")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=100)
-@patch("plugin.doc.doc_type.get_document_type")
+@patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_hints_math_ole(mock_doc_type, mock_char_count, mock_read_slice, mock_math):
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     mock_doc_type.return_value = DocumentType.WRITER
     out = get_document_context_for_chat(MagicMock(), max_context=8000, include_selection=False)
@@ -90,13 +90,13 @@ def test_get_document_context_hints_math_ole(mock_doc_type, mock_char_count, moc
 
 @patch("plugin.doc.text_helpers._read_writer_text_slice")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=8)
-@patch("plugin.doc.doc_type.get_document_type")
+@patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_fitting_doc_is_one_slice(mock_doc_type, mock_char_count, mock_read_slice):
     """A document longer than half the budget but still within it is one slice.
 
     The old half-budget split overlapped the head and tail and repeated the middle.
     """
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     mock_doc_type.return_value = DocumentType.WRITER
     body = "abcdefgh"
@@ -113,9 +113,9 @@ def test_get_document_context_fitting_doc_is_one_slice(mock_doc_type, mock_char_
 
 @patch("plugin.doc.text_helpers._read_writer_text_slice")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=10)
-@patch("plugin.doc.doc_type.get_document_type")
+@patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_exact_budget_is_one_slice(mock_doc_type, mock_char_count, mock_read_slice):
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     mock_doc_type.return_value = DocumentType.WRITER
     mock_read_slice.return_value = "0123456789"
@@ -130,9 +130,9 @@ def test_get_document_context_exact_budget_is_one_slice(mock_doc_type, mock_char
 
 @patch("plugin.doc.text_helpers._read_writer_text_slice")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=16)
-@patch("plugin.doc.doc_type.get_document_type")
+@patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_splits_only_past_budget(mock_doc_type, mock_char_count, mock_read_slice):
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     mock_doc_type.return_value = DocumentType.WRITER
     body = "0123456789abcdef"
@@ -188,9 +188,9 @@ def test_writer_selection_overlaps_windows_false_when_before_excerpt():
 
 
 @patch("plugin.draw.bridge.get_draw_context_for_chat", return_value="impress summary")
-@patch("plugin.doc.doc_type.get_document_type")
+@patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_draw_uses_bridge(mock_doc_type, mock_draw):
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     mock_doc_type.return_value = DocumentType.IMPRESS
     model = MagicMock()
@@ -202,11 +202,11 @@ def test_get_document_context_draw_uses_bridge(mock_doc_type, mock_draw):
 @patch("plugin.doc.text_helpers.get_document_length", return_value=2439)
 @patch("plugin.doc.text_helpers._read_writer_text_slice", return_value="short doc text")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=3405)
-@patch("plugin.doc.doc_type.get_document_type")
+@patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_shows_the_visible_length(mock_doc_type, mock_char_count, mock_read_slice, mock_len):
     """The excerpt windows use cursor steps, but the header shows the visible length that
     get_document_content reports as document_length (they disagreed in review mode)."""
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     mock_doc_type.return_value = DocumentType.WRITER
     model = MagicMock()
@@ -233,7 +233,7 @@ def test_inject_selection_markers_uses_visible_offsets():
 
 
 def test_get_document_context_for_chat_selection_markers_use_visible_offsets():
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     visible = "Hello World"
 
@@ -244,7 +244,7 @@ def test_get_document_context_for_chat_selection_markers_use_visible_offsets():
         return visible[cursor_to_visible(start) : cursor_to_visible(start + length)]
 
     with (
-        patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         patch("plugin.doc.text_helpers._writer_char_count", return_value=14),
         patch("plugin.doc.text_helpers.get_document_length", return_value=11),
         patch("plugin.doc.text_helpers._read_writer_text_slice", side_effect=read_slice),

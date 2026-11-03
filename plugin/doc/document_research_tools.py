@@ -18,7 +18,7 @@ from plugin.chatbot.agent_manual import (
     normalize_topic,
     writer_topic_list_text,
 )
-from plugin.doc.doc_type import doc_type_of
+from plugin.framework.doc_type import doc_type_of
 from plugin.doc.document_research import get_open_documents, list_nearby_files
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.queue_executor import run_on_main

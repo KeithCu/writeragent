@@ -78,7 +78,7 @@ def test_handle_request_maintain_heartbeat_without_stub_code(mock_dispatch) -> N
     return_value={"large": "x" * 17_000_000},
 )
 def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_frame(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
     from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
@@ -112,7 +112,7 @@ def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_
     side_effect=RuntimeError("Index corrupt"),
 )
 def test_handle_request_trusted_action_heartbeat_exception_writes_error_frame(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
     from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
@@ -175,7 +175,7 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
     What was wrong: the harness only caught Exception. raise SystemExit
     killed the process with no terminal frame, and the host refused replay.
     """
-    from plugin.scripting.ipc import EXEC_STARTED, read_pickle_frame, write_pickle_frame
+    from plugin.framework.ipc import EXEC_STARTED, read_pickle_frame, write_pickle_frame
     from plugin.scripting.venv import worker_harness
 
     stdin = BytesIO()
@@ -216,7 +216,7 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
     return_value={"helper": "describe_data"},
 )
 def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
     from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
@@ -252,7 +252,7 @@ def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
     side_effect=RuntimeError("bad spec"),
 )
 def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
     from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
@@ -281,7 +281,7 @@ def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
 
 
 def test_allow_heartbeat_frames_unknown_domain() -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
     from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     stdout = BytesIO()
@@ -342,7 +342,7 @@ def test_harness_library_import_does_not_claim_or_load_sandbox() -> None:
 
     child_code = (
         "import sys\n"
-        "import plugin.scripting.ipc as ipc\n"
+        "import plugin.framework.ipc as ipc\n"
         "initial_stream = ipc._child_ipc_stream\n"
         "import plugin.scripting.venv.worker_harness\n"
         "if ipc._child_ipc_stream is not initial_stream:\n"
@@ -366,7 +366,7 @@ def test_harness_library_import_does_not_claim_or_load_sandbox() -> None:
 
 
 def test_heartbeat_result_id_beats_resp_id() -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
     from plugin.scripting.venv_worker import parse_worker_stdout_frame
 
     fake_err = {"id": "from-exception", "status": "error", "message": "boom", "traceback": "tb"}

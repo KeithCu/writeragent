@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 from plugin.chatbot.agent_manual import writer_topic_list_text
-from plugin.doc.doc_type import uno_services_for_document
+from plugin.framework.doc_type import uno_services_for_document
 from plugin.framework import uno_context
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION

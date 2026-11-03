@@ -52,9 +52,9 @@ _IMPORT_NOTE_MARKER = _RESULT_NOTE + " "
 
 def _with_import_note(text: str) -> str:
     """Insert the sandbox import policy when the tool schema is built."""
-    from plugin.framework import prompts
+    from plugin.scripting import import_policy
 
-    note = prompts.PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
+    note = import_policy.python_venv_auto_imports_note()
     if _IMPORT_NOTE_MARKER in text:
         return text.replace(_IMPORT_NOTE_MARKER, _IMPORT_NOTE_MARKER + note, 1)
     return text

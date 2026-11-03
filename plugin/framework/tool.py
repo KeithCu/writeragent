@@ -187,9 +187,9 @@ class ToolContext:
         if uno_services_supported is not None:
             self.uno_services_supported = uno_services_supported
         else:
-            from plugin.doc.doc_type import uno_services_for_doc_type_label
+            from plugin.framework import doc_type as _doc_type
 
-            self.uno_services_supported = uno_services_for_doc_type_label(doc_type)
+            self.uno_services_supported = _doc_type.uno_services_for_doc_type_label(doc_type)
         if send_cancellation is not None and stop_checker is None:
             self.stop_checker = send_cancellation.is_cancelled
 
@@ -491,8 +491,8 @@ def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services
 
     services = uno_services_supported
     if not services and doc_type:
-        from plugin.doc.doc_type import uno_services_for_doc_type_label
-        services = uno_services_for_doc_type_label(doc_type)
+        from plugin.framework import doc_type as _doc_type
+        services = _doc_type.uno_services_for_doc_type_label(doc_type)
 
     if tool.uno_services is not None and services:
         if any(svc in services for svc in tool.uno_services):
@@ -566,6 +566,18 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
     return PreparedToolCall(kwargs, ignored, common_details, None)
 
 
+class SchemaFilterContext(NamedTuple):
+    """Inputs for application-registered ``ToolRegistry.schema_filters``."""
+
+    protocol: str
+    active_domain: str | None
+    doc: Any
+    doc_type: str | None
+    ctx: Any
+    uno_services: frozenset[str]
+    tools: list[Any]
+
+
 class ToolRegistry:
     """Registers and dispatches tools.
 
@@ -577,6 +589,8 @@ class ToolRegistry:
     def __init__(self, services: Any) -> None:
         self._services = services
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
+        self.schema_filters: list[Callable[[list[dict[str, Any]], SchemaFilterContext], list[dict[str, Any]]]] = []
+        self.tool_filters: list[Callable[[list[Any], Any], list[Any]]] = []
         # Shared names (shape_upsert / manage_charts) last-wins the instance but
         # must keep the union of required_core_tools. ClassVar cannot be set on
         # the instance, so store the merge here.
@@ -692,14 +706,14 @@ class ToolRegistry:
         # In release builds @main_thread_only logs and continues rather than raising,
         # so off-thread callers must avoid probing UNO directly.
         if doc_type is None and doc is not None and filter_doc_type and on_main_thread():
-            from plugin.doc.doc_type import doc_type_str_from_doc
+            from plugin.framework import doc_type as _doc_type
 
-            doc_type = doc_type_str_from_doc(doc)
+            doc_type = _doc_type.doc_type_str_from_doc(doc)
         if uno_services_supported is None and doc is not None and filter_doc_type:
-            from plugin.doc.doc_type import get_document_uno_services
+            from plugin.framework import doc_type as _doc_type
 
             if on_main_thread():
-                uno_services_supported = get_document_uno_services(doc)
+                uno_services_supported = _doc_type.get_document_uno_services(doc)
 
         tools = [
             t for t in tools
@@ -745,9 +759,10 @@ class ToolRegistry:
         if names is not None:
             tools = [t for t in tools if t.name in names]
         if ctx is not None:
-            from plugin.vision.vision_availability import filter_vision_specialized_tools
-
-            tools = filter_vision_specialized_tools(list(tools), ctx)
+            filtered = list(tools)
+            for filt in self.tool_filters:
+                filtered = filt(filtered, ctx)
+            tools = filtered
         return list(tools)
 
     def get_schemas(self, protocol: str = "openai", active_domain: str | None = None, **kwargs: Any) -> list[dict[str, Any]]:
@@ -769,19 +784,17 @@ class ToolRegistry:
         doc = kwargs.get("doc")
         doc_type = kwargs.get("doc_type")
         if doc_type is None and doc is not None and on_main_thread():
-            from plugin.doc.doc_type import doc_type_str_from_doc
+            from plugin.framework import doc_type as _doc_type
 
-            doc_type = doc_type_str_from_doc(doc)
+            doc_type = _doc_type.doc_type_str_from_doc(doc)
 
         if doc_type is not None:
             kwargs["doc_type"] = doc_type
 
         tools = self.get_tools(active_domain=active_domain, **kwargs)
-        # Probed services tell Impress (PresentationDocument) from Draw; both carry doc_type "draw".
-        from plugin.doc.doc_type import uno_services_for_document
-        from plugin.doc.specialized_base import narrow_delegate_domain_enums
+        from plugin.framework import doc_type as _doc_type
 
-        uno_services = kwargs.get("uno_services_supported") or uno_services_for_document(doc, doc_type)
+        uno_services = kwargs.get("uno_services_supported") or _doc_type.uno_services_for_document(doc, doc_type)
         if protocol == "openai":
             from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
 
@@ -789,22 +802,23 @@ class ToolRegistry:
             if has_native_vision(get_text_model(), get_current_endpoint()) is False:
                 tools = [t for t in tools if t.name != "get_image"]
             convert = to_openai_schema
-            peer_domain: str | None = active_domain
         else:
             convert = to_mcp_schema
-            peer_domain = None
 
-        schemas = narrow_delegate_domain_enums(
-            [convert(t, doc_type=doc_type) for t in tools], tools, uno_services
-        )
+        schemas = [convert(t, doc_type=doc_type) for t in tools]
         ctx = kwargs.get("ctx")
-        if protocol == "openai" and ctx is not None:
-            from plugin.vision.vision_availability import filter_vision_delegate_schemas
-
-            schemas = filter_vision_delegate_schemas(schemas, ctx)
-        from plugin.doc.peer_message import filter_peer_message_schemas
-
-        return filter_peer_message_schemas(schemas, ctx, doc=doc, active_domain=peer_domain)
+        filter_ctx = SchemaFilterContext(
+            protocol=protocol,
+            active_domain=active_domain,
+            doc=doc,
+            doc_type=doc_type,
+            ctx=ctx,
+            uno_services=uno_services,
+            tools=list(tools),
+        )
+        for filt in self.schema_filters:
+            schemas = filt(schemas, filter_ctx)
+        return schemas
 
     def get(self, name: str) -> ToolBase | None:
         """Get a tool by name, or None."""

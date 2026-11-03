@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
 
 from plugin.chatbot.dialogs import get_checkbox_state, load_writeragent_dialog, msgbox, set_control_enabled
-from plugin.doc.doc_type import is_writer
+from plugin.framework.doc_type import is_writer
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread

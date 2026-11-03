@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from plugin.scripting.config_limits import WARM_WORKER_TIMEOUT_SEC
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     FRAME_HEARTBEAT,
     IpcFrameError,
@@ -34,7 +34,7 @@ from plugin.scripting.ipc import (
     unpack_pickle_frame,
 )
 import plugin.scripting.venv_worker as venv_worker_module
-from plugin.scripting.sandbox import scrub_subprocess_env
+from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.session_key import SessionKey
 from plugin.scripting.venv_worker import (
     FailedAfterStart,
@@ -1009,7 +1009,7 @@ def test_partial_frame_timeout_does_not_replay():
     read timeout, a partial exec_started left may_have_run false and the
     outer handler ran the request again.
     """
-    from plugin.scripting.ipc import IpcPartialFrameTimeout
+    from plugin.framework.ipc import IpcPartialFrameTimeout
 
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
@@ -1049,7 +1049,10 @@ def test_win32_partial_frame_timeout_with_stop_is_cancelled(monkeypatch: pytest.
         del args, kwargs
         raise IpcPartialFrameTimeout("timeout mid-frame")
 
-    monkeypatch.setattr("plugin.scripting.ipc._poll_pipe", _boom)
+    from plugin.scripting import venv_worker as venv_worker_mod
+
+    ipc_module = sys.modules[venv_worker_mod.read_frame_payload.__module__]
+    monkeypatch.setattr(ipc_module, "_poll_pipe", _boom)
     res = mgr._read_frame_bytes(_Stdout(), 1.0, stop_checker=lambda: True)
     assert isinstance(res, FailedAfterStart)
     assert res.kind == "cancel"
@@ -2710,7 +2713,7 @@ def test_terminate_worker_race_condition(monkeypatch: pytest.MonkeyPatch):
             return b""
 
     with monkeypatch.context() as m:
-        m.setattr("plugin.scripting.ipc.select.select", mocked_select)
+        m.setattr("plugin.framework.ipc.select.select", mocked_select)
         try:
             mgr._read_response_bytes(MockStdout(), timeout_sec=1)
         except (subprocess.TimeoutExpired, EOFError):
@@ -2720,7 +2723,7 @@ def test_terminate_worker_race_condition(monkeypatch: pytest.MonkeyPatch):
 
 def test_read_response_with_heartbeats_swallows_callback_exceptions():
     from plugin.scripting.venv_worker import PythonWorkerManager
-    from plugin.scripting.ipc import FRAME_HEARTBEAT, FRAME_RESULT
+    from plugin.framework.ipc import FRAME_HEARTBEAT, FRAME_RESULT
     import io
 
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
@@ -2905,7 +2908,7 @@ def test_read_response_with_heartbeats_stop_checker() -> None:
 def test_host_pack_oversize_returns_error_without_terminate(monkeypatch):
     """An oversize request fails before any write; the warm worker must survive."""
     import plugin.scripting.venv_worker as venv_worker_module
-    from plugin.scripting.ipc import IpcFrameError
+    from plugin.framework.ipc import IpcFrameError
 
     def _pack(*args, **kwargs):
         raise IpcFrameError("payload too large")
@@ -2995,7 +2998,7 @@ class _FakeStdStream:
 
 def test_harness_main_value_error_in_handle_request_returns_traceback(monkeypatch):
     import io
-    from plugin.scripting.ipc import read_pickle_frame
+    from plugin.framework.ipc import read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
 
     req_data = pack_pickle_frame({"id": "req-ve", "action": "execute", "code": "result = 1"})
@@ -3030,7 +3033,7 @@ def test_harness_main_value_error_in_handle_request_returns_traceback(monkeypatc
 def test_harness_main_value_error_in_read_stage_returns_invalid_pickle_request(monkeypatch):
     import io
     import struct
-    from plugin.scripting.ipc import read_pickle_frame
+    from plugin.framework.ipc import read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
 
     # Pickle of a list ([1, 2, 3]), which violates require_dict=True in read_pickle_frame
@@ -3098,7 +3101,7 @@ def test_harness_main_truncated_frame_breaks_without_response(monkeypatch, caplo
 
 def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
     import io
-    from plugin.scripting.ipc import IpcFrameReadError, read_pickle_frame
+    from plugin.framework.ipc import IpcFrameReadError, read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
 
     req_data = pack_pickle_frame({"id": "req-desync", "action": "execute", "code": "result = 1"})
@@ -3127,7 +3130,7 @@ def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
 
 def test_harness_main_pack_size_error_during_handle_request_writes_error_frame(monkeypatch):
     import io
-    from plugin.scripting.ipc import IpcPayloadSizeError, read_pickle_frame
+    from plugin.framework.ipc import IpcPayloadSizeError, read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
 
     req_data = pack_pickle_frame({"id": "req-pack-err", "action": "execute", "code": "result = 1"})
@@ -3160,7 +3163,7 @@ def test_harness_main_pack_size_error_during_handle_request_writes_error_frame(m
 
 def test_harness_main_user_stopped_writes_user_stopped_frame(monkeypatch):
     import io
-    from plugin.scripting.ipc import UserStopped, read_pickle_frame
+    from plugin.framework.ipc import UserStopped, read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
 
     req_data = pack_pickle_frame({"id": "req-stop", "action": "execute", "code": "result = 1"})
@@ -3193,7 +3196,7 @@ def test_harness_main_user_stopped_writes_user_stopped_frame(monkeypatch):
 
 def test_harness_main_reads_claimed_stdin(monkeypatch):
     import io
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
 
     req_data = pack_pickle_frame({"id": "req-claim-in", "action": "execute", "code": "result = 1"})
@@ -3282,7 +3285,7 @@ def test_heartbeat_then_stall_uses_grace():
 
 
 def test_read_response_non_dict_raises_once():
-    from plugin.scripting.ipc import pack_pickle_frame, read_frame_payload, unpack_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_frame_payload, unpack_pickle_frame
 
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = "python"
@@ -3305,7 +3308,7 @@ def test_read_response_non_dict_raises_once():
 
 
 def test_read_response_empty_dict_is_terminal():
-    from plugin.scripting.ipc import pack_pickle_frame, read_frame_payload, unpack_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_frame_payload, unpack_pickle_frame
 
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = "python"

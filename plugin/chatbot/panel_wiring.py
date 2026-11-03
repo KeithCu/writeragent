@@ -227,7 +227,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
     extra_instructions = ""
     model = self._get_document_model()
     try:
-        from plugin.doc.doc_type import (
+        from plugin.framework.doc_type import (
             doc_type_label_for_enum,
             doc_type_title_for_label,
             get_document_type,

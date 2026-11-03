@@ -466,7 +466,7 @@ def test_uno_same_off_thread_raises_on_thread_issame_still_works(monkeypatch):
 
 def test_uno_boundaries_import_guard_uno_at_the_return():
     """Patching thread_guard.guard_uno must see boundary returns (not import-time _wrap_uno)."""
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
     from plugin.framework import uno_context as uc
 
     seen: list[object] = []
@@ -507,7 +507,7 @@ def test_uno_boundaries_import_guard_uno_at_the_return():
             patch("plugin.framework.thread_guard.guard_uno", side_effect=_guard),
             patch.object(sys, "argv", ["soffice"]),
             patch("plugin.framework.uno_context._linux_process_tokens", return_value=("soffice.bin", "soffice.bin", [])),
-            patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
+            patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         ):
             assert uc.get_ctx() is ctx
             assert uc.get_desktop(ctx) is desktop

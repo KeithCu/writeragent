@@ -39,6 +39,13 @@ def _stub_draw() -> Any:
     return _stub_doc("com.sun.star.drawing.DrawingDocument")
 
 
+def ensure_eval_prompt_hooks() -> None:
+    """Idempotent WriterAgent prompt catalog/blocks registration for eval harness entry points."""
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
+
+
 def _prompt_for_kind(kind: str, note: str | None = None) -> str:
     """Same assembly as production chat, keyed by kind — no MagicMock / get_document_type.
 
@@ -46,6 +53,7 @@ def _prompt_for_kind(kind: str, note: str | None = None) -> str:
     entered ``@main_thread_only`` ``get_document_type`` (GUARD on → raise;
     GUARD off → warn while real UNO may be in flight on the shared bridge).
     """
+    ensure_eval_prompt_hooks()
     from plugin.framework.prompts import get_chat_system_prompt_for_kind
 
     return get_chat_system_prompt_for_kind(

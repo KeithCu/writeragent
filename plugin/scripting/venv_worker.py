@@ -44,7 +44,7 @@ from plugin.scripting.config_limits import (
     python_exec_timeout_default,
     resolve_python_exec_timeout,
 )
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     _stop_requested,
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
@@ -57,11 +57,11 @@ from plugin.scripting.ipc import (
 )
 from plugin.scripting.session_key import SessionKey
 from plugin.scripting.payload_codec import _HOST_UNPACK_ERRORS, host_unpack_data
+from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.sandbox import (
     detect_sandbox,
     resolve_libreoffice_python,
     resolve_venv_python,
-    scrub_subprocess_env,
     wrap_command_for_sandbox,
 )
 
@@ -1257,7 +1257,7 @@ class PythonWorkerManager:
         stop_checker: Callable[[], bool] | None = None,
         absolute_cap_sec: float | None = None,
     ) -> dict[str, Any] | None | FailedAfterStart:
-        from plugin.scripting.ipc import FRAME_HEARTBEAT, FRAME_RESULT
+        from plugin.framework.ipc import FRAME_HEARTBEAT, FRAME_RESULT
 
         # Each heartbeat used to set the deadline to now+grace with no end.
         # Trusted actions do not use the sandbox alarm, so a loop that kept

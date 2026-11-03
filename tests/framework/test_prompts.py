@@ -29,6 +29,13 @@ from plugin.framework.prompts import (
 # sidebar embeds them, get_guidance serves them per topic, full_manual() feeds the agent backend).
 
 
+@pytest.fixture(autouse=True)
+def _register_prompt_hooks_for_tests():
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
+
+
 def test_get_greeting_for_document_writer():
     model = MagicMock()
     model.supportsService.return_value = False
@@ -466,14 +473,15 @@ def test_insert_cell_html_description_keeps_border_guidance():
 
 
 def test_calc_formula_syntax_sheet_dot_not_excel_bang():
-    from plugin.framework.prompts import CALC_FORMULA_SYNTAX
+    from plugin.framework.prompts import CALC_FORMULA_SYNTAX_TEMPLATE
 
-    assert "never Excel bang" in CALC_FORMULA_SYNTAX
-    assert "Orders.A1:H500" in CALC_FORMULA_SYNTAX
-    assert "#NAME?" in CALC_FORMULA_SYNTAX
-    assert "=PY(\"result = …\"; Orders.A1:H500)" in CALC_FORMULA_SYNTAX
-    assert "always 2D" in CALC_FORMULA_SYNTAX
-    assert "not builtin sum" in CALC_FORMULA_SYNTAX
+    syntax = CALC_FORMULA_SYNTAX_TEMPLATE.replace("{venv_policy}", "")
+    assert "never Excel bang" in syntax
+    assert "Orders.A1:H500" in syntax
+    assert "#NAME?" in syntax
+    assert "=PY(\"result = …\"; Orders.A1:H500)" in syntax
+    assert "always 2D" in syntax
+    assert "not builtin sum" in syntax
 
 
 def test_calc_cell_links_use_calc_dot():
@@ -796,11 +804,12 @@ def test_discovery_merge_shows_calc_only_hidden_domain():
     python is also registered on Writer and Draw, so the merge still listed it
     when the Calc branch dropped for_discovery. This probe exists only on Calc.
     """
-    import plugin.framework.prompts as prompts
+    import plugin.doc.specialized_catalog as specialized_catalog
     from plugin.calc.base import ToolCalcSpecialBase
+    from plugin.framework.prompts import CALC_HIDDEN_SPECIALIZED_DOMAINS
 
     probe = "calc_only_hidden_probe"
-    hidden = frozenset(set(prompts.CALC_HIDDEN_SPECIALIZED_DOMAINS) | {probe})
+    hidden = frozenset(set(CALC_HIDDEN_SPECIALIZED_DOMAINS) | {probe})
 
     class _CalcOnlyHidden(ToolCalcSpecialBase):
         specialized_domain = probe
@@ -808,14 +817,14 @@ def test_discovery_merge_shows_calc_only_hidden_domain():
 
     probe_ref = weakref.ref(_CalcOnlyHidden)
     try:
-        with patch.object(prompts, "CALC_HIDDEN_SPECIALIZED_DOMAINS", hidden):
+        with patch("plugin.doc.specialized_catalog.CALC_HIDDEN_SPECIALIZED_DOMAINS", hidden):
             normal = {
                 entry["domain"]
-                for entry in prompts.get_specialized_domain_catalog(agent_label=None, ctx=None)
+                for entry in specialized_catalog.get_specialized_domain_catalog(agent_label=None, ctx=None)
             }
             discovery = {
                 entry["domain"]
-                for entry in prompts.get_specialized_domain_catalog(
+                for entry in specialized_catalog.get_specialized_domain_catalog(
                     agent_label=None, ctx=None, for_discovery=True
                 )
             }
@@ -886,11 +895,11 @@ def test_calc_chat_prompt_includes_formula_syntax_section():
     """The Calc sidebar prompt must carry the FORMULA SYNTAX block (semicolons, Sheet.A1)."""
     import plugin.framework.prompts as prompts
 
-    assert prompts.CALC_FORMULA_SYNTAX.startswith("FORMULA SYNTAX:")
-    assert prompts.CALC_FORMULA_SYNTAX in prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
+    assert prompts.CALC_FORMULA_SYNTAX_TEMPLATE.startswith("FORMULA SYNTAX:")
+    assert "{calc_formula_syntax}" in prompts.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
     text = prompts.get_chat_system_prompt_for_kind("calc")
     assert "FORMULA SYNTAX" in text
-    assert prompts.CALC_FORMULA_SYNTAX in text
+    assert "Orders.A1:H500" in text
 
 
 def test_sheets_create_completion_instruction_forwards_inner_tool_instruction():

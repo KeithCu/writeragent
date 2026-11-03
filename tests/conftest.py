@@ -22,6 +22,14 @@ from tests.harness.strip_bundle import asserts_stripped, requires_asserts  # noq
 
 
 @pytest.fixture(autouse=True)
+def _install_sandbox_alias_authorizer_for_tests():
+    from plugin.scripting.sandbox import install_alias_authorizer
+
+    install_alias_authorizer()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _drain_scheduler_override_for_tests():
     from plugin.framework.async_stream import set_drain_scheduler_override
     previous = set_drain_scheduler_override(lambda: None)

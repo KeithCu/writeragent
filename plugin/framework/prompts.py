@@ -29,10 +29,10 @@ Other important prompts (not assembled here):
 - scripts/prompt_optimization/ (Writer eval harness)
 """
 
-import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # Generic
@@ -259,11 +259,16 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         )
     else:
         data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
-    policy = format_venv_import_policy_for_prompt(compact=False)
-
-    plot_hint = format_matplotlib_plot_hint(doc_type=agent_label.lower())
+    if (
+        _python_sub_agent_policy is None
+        or _python_sub_agent_plot_hint is None
+        or _python_sub_agent_units_hint is None
+    ):
+        raise RuntimeError("python sub-agent prompt helpers are not registered")
+    policy = _python_sub_agent_policy()
+    plot_hint = _python_sub_agent_plot_hint(agent_label.lower())
     plot_suffix = f" {plot_hint}" if plot_hint else ""
-    units_hint = format_units_helper_hint()
+    units_hint = _python_sub_agent_units_hint()
     if agent_label == "Calc":
         domain_examples = "sheets, ranges, charts"
     elif agent_label == "Draw":
@@ -325,7 +330,7 @@ def get_document_research_workflow_hint(ctx: Any | None = None, doc: Any | None 
         "If search_nearby_files returns status indexing, retry after the background index finishes.\n"
     )
     hint = common + (index_hint if folder_search_enabled() else grep_hint)
-    peer = get_peer_inner_choice_block(ctx, doc)
+    peer = _call_system_prompt_block("peer_inner", ctx, doc) if ctx is not None else ""
     if peer:
         hint = hint + "\n" + peer
     return hint
@@ -560,23 +565,16 @@ CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
 )
 
 
-from plugin.scripting.import_policy import (
-    format_matplotlib_plot_hint,
-    format_units_helper_hint,
-    format_venv_import_policy_for_prompt,
-)
-
-_COMPACT_VENV_POLICY = format_venv_import_policy_for_prompt(compact=True)
-PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = _COMPACT_VENV_POLICY + " "
-CALC_FORMULA_SYNTAX = (
-    f"""FORMULA SYNTAX: LibreOffice formulas use semicolon (;) between arguments, not comma.
+CALC_FORMULA_SYNTAX_TEMPLATE = (
+    """FORMULA SYNTAX: LibreOffice formulas use semicolon (;) between arguments, not comma.
 Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1), =PY("result = …"; Orders.A1:H500)
 - Wrong: =IF(A1>0,"Yes","No"), Orders!A1
 - =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
-{_COMPACT_VENV_POLICY}
+{venv_policy}
 - Example: =PY("result = np.sum(data)"; Orders.A1:H500).
-- For tables with headers, use data.to_pandas() instead of pd.DataFrame(data) so row 0 becomes column headers rather than synthetic numeric columns (0..N).\n"""
+- For tables with headers, use data.to_pandas() instead of pd.DataFrame(data) so row 0 becomes column headers rather than synthetic numeric columns (0..N).
+"""
     # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]).
     "- `data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows → TypeError int+list)."
 )
@@ -590,7 +588,7 @@ Do not explain, do the operation directly using tools. Perform as many steps as 
 
 {CALC_WORKFLOW}
 
-{CALC_FORMULA_SYNTAX}
+{{calc_formula_syntax}}
 
 CSV DATA: Use comma (,) for write_formula_range.
 
@@ -630,144 +628,6 @@ DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
     "When the user needs those, call delegate_to_specialized_draw_toolset with: domain one of: {domains} "
     "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
     f"{SPECIALIZED_TASK_RULES}"
-)
-
-
-# Host suffix + outer DO: after an inner peer send, idle on this loop (do not wait
-# inside document_research — that deadlocks the peer). Also used on specialize return.
-PEER_OUTER_IDLE_AFTER_SEND = "Stop tool use and Ready. Why: the peer reply arrives as a later user turn; more document_research, python, or query tools in this turn race the peer."
-
-# Outer main chat only — no send_peer_work / send_peer_result on this loop.
-# {delegate} is the Writer/Calc/Draw specialized gateway. Shown when a v1 peer is open.
-PEER_OUTER_DELEGATE_HINT = (
-    'Do {delegate}(domain="document_research") for sibling Writer/Calc/Draw work. '
-    "Why: the inner agent chooses a silent read vs asking the peer sidebar; this loop must not invent the other app's tools.\n"
-    "After that inner result means a peer message was sent/accepted, or the answer says waiting for a peer reply: "
-    f"{PEER_OUTER_IDLE_AFTER_SEND} "
-    "A short chat line that the peer was asked is OK.\n"
-    "When this turn is a [Peer work from: …] envelope: do the local work with your tools "
-    "(nested domains such as ranges, sheets, charts, … are fine for that local work); "
-    'finishing those specializes is not delivery — you MUST still Do {delegate}(domain="document_research") '
-    "to deliver via send_peer_result "
-    "(one string: envelope uid or url, and the HTML or result — not a JSON array). "
-    "Why: only that inner agent can deliver the peer result; finishing with only a local sidebar answer never reaches the asking peer.\n"
-    "When this turn is a [Peer result from: …] envelope: it is information for the requester. Use it to answer the user; insert it into the document only if the user asked for that. Then stop. Do not delegate an ack specialize. "
-    "Why: this is the answer to your earlier work request, not a new work request."
-)
-
-# Inner answer / tool-result text that means the outer should idle (not keep researching).
-_PEER_WAIT_OUTCOME_MARKERS = ("waiting for a peer reply", "waiting for peer", "peer message was sent", "message sent to the peer", '"accepted": true', "'accepted': true", "accepted: true")
-
-
-# Outer must keep going after a nested specialize on a Peer-work receiving turn.
-# ranges/sheets/charts/… finishing (or document_research without send_peer_result)
-# is local work only — not peer delivery.
-PEER_OUTER_DELIVERY_STILL_REQUIRED = (
-    'Peer delivery still required: you MUST Do domain="document_research" to deliver via send_peer_result. Why: finishing a nested specialize (ranges/sheets/charts/…) or research without send_peer_result is not peer delivery; Ready here leaves the asking peer waiting.'
-)
-
-def looks_like_peer_work_envelope(text: str | None) -> bool:
-    """True when *text* is (or starts as) a [Peer work from:…] turn envelope."""
-    if not text:
-        return False
-    return str(text).lstrip().startswith("[Peer work from:")
-
-
-def _append_peer_note(payload: dict[str, Any], text: str) -> dict[str, Any]:
-    """Copy payload and append *text* to message, and to result when it is non-empty."""
-    out = dict(payload)
-    message = str(out.get("message") or "")
-    out["message"] = (message + " " + text).strip()
-    result = str(out.get("result") or "")
-    if result:
-        out["result"] = result + "\n" + text
-    return out
-
-
-def annotate_outer_peer_wait(payload: dict[str, Any], *, peer_send_invoked: bool = False) -> dict[str, Any]:
-    """Append idle-after-send on an ok document_research payload when a peer was asked.
-
-    The outer model otherwise treats “Message sent to the peer…” as unfinished work
-    and starts another document_research / query in the same turn.
-    """
-    if payload.get("status") != "ok":
-        return payload
-    blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer"))
-    blob_lower = blob.lower()
-    if not (peer_send_invoked or any(marker in blob_lower for marker in _PEER_WAIT_OUTCOME_MARKERS)):
-        return payload
-    if PEER_OUTER_IDLE_AFTER_SEND in blob:
-        return payload
-    return _append_peer_note(payload, PEER_OUTER_IDLE_AFTER_SEND)
-
-
-def annotate_outer_peer_delivery_pending(payload: dict[str, Any]) -> dict[str, Any]:
-    """Stamp still-required peer delivery on an ok specialize return during Peer work.
-
-    Nested domains can finish successfully while the outer still owes
-    ``document_research`` → ``send_peer_result``. Sets ``instruction`` and appends
-    the same line on ``message`` / ``result`` so the outer cannot treat the hop as done.
-    """
-    if payload.get("status") != "ok":
-        return payload
-    blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer", "instruction"))
-    if PEER_OUTER_DELIVERY_STILL_REQUIRED in blob:
-        return payload
-    out = _append_peer_note(payload, PEER_OUTER_DELIVERY_STILL_REQUIRED)
-    existing = out.get("instruction")
-    if isinstance(existing, str) and existing.strip():
-        out["instruction"] = (existing.rstrip() + " " + PEER_OUTER_DELIVERY_STILL_REQUIRED).strip()
-    else:
-        out["instruction"] = PEER_OUTER_DELIVERY_STILL_REQUIRED
-    return out
-
-
-# document_research specialized only. Short DO+why; catalog is appended when peers exist.
-# Hard fork ASK vs REPLY by whether the task contains a [Peer work from: …] envelope.
-# Ask path (no envelope): matching Open peers → send_peer_work only, then finish.
-# Never delegate_read_document on that open peer; never send_peer_result from the asker.
-# Soft "change/compute/write vs file fact" let the inner reopen a live peer (wasted
-# work, races the peer reply). Ask polarity: do not request a content dump so you
-# can fill elsewhere — the live sidebar owns the write tools.
-# Reply path (envelope present): send_peer_result is a side effect. Outer already
-# stuffed the HTML/result into task, so the smol "answer from the task alone →
-# finish" rule otherwise skips the send and the peer sidebar never sees the reply.
-# Naming "send_peer_result" / "reply back" in an *ask* task does NOT flip polarity —
-# only a [Peer work from: …] envelope in the task does.
-PEER_INNER_CHOICE_RULES = (
-    "ASK vs REPLY: The reply path is only when the task contains a [Peer work from: …] "
-    "envelope. Mentioning send_peer_result, reply back, or delivering a result in an ask "
-    "task does not make this the reply path — only that envelope does.\n"
-    "ASK PATH (task is about an Open peer file; no [Peer work from: …] in the task): "
-    "Do send_peer_work(document_url=<peer uid, URL, or unique name>, "
-    "message=<task; say the answer must come back as a peer result>), "
-    "then specialized_workflow_finished. "
-    "NEVER delegate_read_document on that open peer. "
-    "NEVER send_peer_result from the asker. "
-    "Why: that sidebar is live and will send_peer_result back; silent reopen only peeks, "
-    "duplicates work, and races the peer reply; send_peer_result here stamps [Peer result "
-    "from: …] onto the peer instead of waiting for their reply.\n"
-    "When sending to an Open peer about that peer's own document and the task needs a "
-    "change, fill, or write, Do ask that peer in message to perform the edit/fill and "
-    "include the values/facts to write. "
-    "Why: that live sidebar owns the write tools for that file; asking only for a dump of "
-    "blank/current content so you can fill it elsewhere skips the peer write path.\n"
-    "Do delegate_read_document only when the file is not in Open peers (nearby on disk / "
-    "no live sidebar). "
-    "Why: there is no live sidebar to ask.\n"
-    "REPLY PATH (task is to reply to a [Peer work from: …] envelope — outer stuffed "
-    "uid/url + HTML/result): you MUST send_peer_result("
-    "document_url=<uid or url from the envelope>, message=<one HTML/result string>) "
-    "before specialized_workflow_finished — that tool stamps [Peer result from: …]. "
-    "Why: putting the reply only in answer stays inside this loop — the peer sidebar "
-    "never sees it.\n"
-    "On the reply path only: HTML, table, or other result text in the task is the "
-    "message argument to send_peer_result, not a final answer. "
-    "Why: the outer already did the local work; your job is deliver via the tool.\n"
-    "Do send_peer_result on a peer-reply task even when you can answer from the task alone. "
-    "Why: that rule is for silent research finishes; peer delivery is a tool side effect.\n"
-    "After ok/accepted (ask or reply) you MUST call specialized_workflow_finished immediately. "
-    "Why: the peer runs after this loop exits; waiting deadlocks the reply."
 )
 
 
@@ -818,79 +678,6 @@ WRITE:
 {{core_directives}}"""
 
 
-# ---------------------------------------------------------------------------
-# Assembly (dispatch)
-# ---------------------------------------------------------------------------
-
-def _agent_for_model(model: Any) -> str:
-    # Unknown and None stay Writer, same as the previous else branches.
-    from plugin.doc.doc_type import is_calc, is_draw
-
-    if is_calc(model):
-        return "Calc"
-    if is_draw(model):
-        return "Draw"
-    return "Writer"
-
-
-def format_peer_outer_delegate_hint(model: Any) -> str:
-    """Outer DO+why with the matching specialized gateway name."""
-    delegate = f"delegate_to_specialized_{_agent_for_model(model).lower()}_toolset"
-    return PEER_OUTER_DELEGATE_HINT.format(delegate=delegate)
-
-
-def _peer_block_on_main_thread(build: Any, fail_log: str) -> str:
-    """Run a peer-catalog prompt builder on the UI thread. Empty string on failure."""
-    try:
-        from plugin.framework.queue_executor import run_on_main
-
-        return run_on_main(build)
-    except Exception:
-        logging.getLogger(__name__).exception(fail_log)
-        return ""
-
-
-def get_peer_messaging_prompt_block(model: Any, ctx: Any) -> str:
-    """Thin outer pointer when a v1 peer is open. No send_peer_work/result on this loop.
-
-    ``list_v1_peers`` touches UNO (RuntimeUID / desktop catalog). Chat refresh can
-    run off-main; marshal like ``get_peer_inner_choice_block`` so the hint is not
-    silently dropped when assert_main_thread fails.
-    """
-    if ctx is None or model is None:
-        return ""
-
-    def _build() -> str:
-        from plugin.doc.peer_message import list_v1_peers
-
-        peers = list_v1_peers(ctx, model)
-        if not peers:
-            return ""
-        return format_peer_outer_delegate_hint(model)
-
-    return _peer_block_on_main_thread(_build, "peer messaging prompt block failed")
-
-
-def get_peer_inner_choice_block(uno_ctx: Any, doc: Any) -> str:
-    """Short inner read-vs-peer rules plus catalog. Empty when no v1 peer is open.
-
-    ``list_v1_peers`` reads RuntimeUID and the desktop catalog (UNO). Specialized
-    execute runs on a tool-async worker, so this marshals when called off-main.
-    """
-    if uno_ctx is None:
-        return ""
-
-    def _build() -> str:
-        from plugin.doc.peer_message import format_peer_catalog, list_v1_peers
-
-        peers = list_v1_peers(uno_ctx, doc)
-        if not peers:
-            return ""
-        return PEER_INNER_CHOICE_RULES + "\n" + format_peer_catalog(peers)
-
-    return _peer_block_on_main_thread(_build, "peer inner choice prompt block failed")
-
-
 def get_core_directives_for_type(doc_type: str | None) -> str:
     """Core directives from a cached doc-type label (no UNO / no document model)."""
     label = (doc_type or "writer").strip().lower()
@@ -901,101 +688,14 @@ def get_core_directives_for_type(doc_type: str | None) -> str:
     return WRITER_CORE_DIRECTIVES
 
 
-def _catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
-    """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
+def _agent_for_model(model: Any) -> str:
+    from plugin.framework import doc_type as _doc_type
 
-    ``for_discovery`` skips the exclusions that only shape a chat prompt. CALC_HIDDEN_SPECIALIZED_
-    DOMAINS keeps Python delegation out of the Calc sidebar's suggestions, but the MCP tool list
-    exposes those tools regardless — so applying it to find_tools made them callable and
-    undiscoverable at once. The sidebar-only domains stay excluded either way: the flat tool list
-    drops them too, so both modes agree without help.
-    """
-    base_cls = _special_base(agent_label)
-    entries: list[dict[str, str]] = []
-    for cls in base_cls.__subclasses__():
-        domain = getattr(cls, "specialized_domain", None)
-        desc = getattr(cls, "specialized_domain_description", None)
-        if not domain:
-            continue
-        if agent_label == "Calc" and domain in CALC_HIDDEN_SPECIALIZED_DOMAINS and not for_discovery:
-            continue
-        if agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
-            continue
-        if agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
-            continue
-        if ctx is not None:
-            from plugin.vision.vision_availability import specialized_domain_available
-
-            if not specialized_domain_available(str(domain), ctx):
-                continue
-        entries.append({"domain": str(domain), "description": str(desc or "")})
-    return entries
-
-
-def _special_base(agent_label: str | None) -> Any:
-    if agent_label == "Calc":
-        from plugin.calc.base import ToolCalcSpecialBase
-        return ToolCalcSpecialBase
-    if agent_label == "Draw":
-        from plugin.draw.base import ToolDrawSpecialBase
-        return ToolDrawSpecialBase
-    from plugin.writer.specialized_base import ToolWriterSpecialBase
-    return ToolWriterSpecialBase
-
-
-def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
-    """Full specialized domain catalog — same entries as sidebar/delegate domain hints.
-
-    ``agent_label`` is ``Writer`` / ``Calc`` / ``Draw`` for one app, or ``None`` to merge
-    all three (e.g. MCP ``find_tools`` with no document open).
-
-    ``for_discovery`` is set by MCP ``find_tools``: it keeps the domains whose exclusion only
-    shapes a chat prompt, so discovery covers everything the flat tool list exposes. The
-    no-document merge uses the same flag as the per-app branches.
-    """
-    labels = (agent_label,) if agent_label in ("Writer", "Calc", "Draw") else ("Writer", "Calc", "Draw")
-    seen: dict[str, str] = {}
-    # for_discovery must be forwarded. python is hidden on Calc chat only.
-    for label in labels:
-        for entry in _catalog_entries_from_base(
-            agent_label=label, ctx=ctx, for_discovery=for_discovery,
-        ):
-            dom = entry["domain"]
-            desc = entry["description"]
-            if dom not in seen or len(desc) > len(seen[dom]):
-                seen[dom] = desc
-    return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
-
-
-def _get_specialized_domains_str(*, agent_label: str | None = None, ctx: Any = None) -> str:
-    """Build a compact domain list for delegation hints and MCP schemas."""
-    parts = []
-    for entry in sorted(_catalog_entries_from_base(agent_label=agent_label, ctx=ctx), key=lambda e: e["domain"]):
-        if entry["description"]:
-            parts.append(f"{entry['domain']}: {entry['description']}")
-        else:
-            parts.append(entry["domain"])
-    return "; ".join(parts)
-
-
-def format_specialized_domains_description(*, agent_label: str | None = None, ctx: Any = None) -> str:
-    """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
-    domains = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx)
-    if not domains:
-        return "The specialized domain to activate."
-    # Compact form for the enum property description to reduce bloat in MCP schema
-    compact = domains.replace("; ", ", ")
-    return f"domain one of: {compact}"
-
-
-def get_specialized_delegation_tool_hint(agent_label: str, *, ctx: Any = None) -> str:
-    """Full specialized-delegation guidance (sidebar system prompt and MCP ``tools/list``)."""
-    domains_str = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx)
-    template = {
-        "Calc": CALC_SPECIALIZED_DELEGATION_TEMPLATE,
-        "Draw": DRAW_SPECIALIZED_DELEGATION_TEMPLATE,
-    }.get(agent_label, WRITER_SPECIALIZED_DELEGATION_TEMPLATE)
-    return template.format(domains=domains_str)
+    if _doc_type.is_calc(model):
+        return "Calc"
+    if _doc_type.is_draw(model):
+        return "Draw"
+    return "Writer"
 
 
 def _apply_draw_get_image_tool_line(prompt: str) -> str:
@@ -1008,23 +708,8 @@ def _apply_draw_get_image_tool_line(prompt: str) -> str:
     return prompt.replace(line + "\n", "")
 
 
-def get_vision_core_directive(model: Any, ctx: Any) -> str:
-    """OCR delegation hint when local vision stack is configured (Writer/Calc only)."""
-    if ctx is None:
-        return ""
-    from plugin.doc.doc_type import is_calc, is_writer
-    from plugin.vision.vision_availability import vision_venv_configured
-
-    if not vision_venv_configured(ctx):
-        return ""
-    if not (is_writer(model) or is_calc(model)):
-        return ""
-    delegate = "delegate_to_specialized_calc_toolset" if is_calc(model) else "delegate_to_specialized_writer_toolset"
-    return (
-        f'When the user wants OCR or content from an embedded image, {delegate}(domain="vision", task=""). That extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no sub-agent; task is ignored). You must use this call to perform OCR.'
-    )
-
-
+# Host suffix + outer DO: after an inner peer send, idle on this loop (do not wait
+# inside document_research — that deadlocks the peer). Also used on specialize return.
 def get_greeting_for_document(model: Any) -> str:
     """Return a greeting relevant to the document type.
 
@@ -1086,51 +771,6 @@ def _profile_data_block(heading: str, body: str) -> str:
     return f"\n\n{heading}\n{_PROFILE_DATA_OPEN}\n{safe}\n{_PROFILE_DATA_CLOSE}\n"
 
 
-def format_user_memory_prompt_block() -> str:
-    """Read MemoryStore and return a fenced, capped user profile block, or empty string."""
-    try:
-        from plugin.chatbot.memory import MemoryStore, user_memory_is_blank
-
-        store = MemoryStore()
-        user_mem = store.read()
-        if user_memory_is_blank(user_mem):
-            return ""
-        return _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
-    except Exception:
-        # A broken USER.md still builds the prompt. Log it the same way as
-        # a peer-block failure (exception + traceback); debug alone drops
-        # the profile with no traceback.
-        logging.getLogger(__name__).exception("Failed to read user memory for prompt")
-    return ""
-
-
-def format_humanizer_guidance_prompt_block() -> str:
-    """Return fenced humanizer guidance if enabled in settings, else empty string.
-
-    Humanizer skill (minimal addition, re-uses the exact same injection pattern as memory above).
-    When enabled, the model receives the rules as ambient context for any prose it generates
-    or revises. This is the primary delivery mechanism — cheap, always-on when active,
-    and automatically benefits main chat + all writing/brainstorming sub-agents.
-    User can turn it off in Settings or override the rules by editing the SKILL.md file.
-    Defined in plugin/chatbot/module.yaml so it appears as a checkbox in the sidebar Settings.
-    """
-    try:
-        from plugin.chatbot.skills import SkillStore
-        from plugin.framework.config import get_config
-
-        if get_config("chatbot.humanizer_enabled"):
-            hstore = SkillStore()
-            hguidance = hstore.get_humanizer_guidance()
-            if hguidance:
-                body = _cap_injected_prompt_blob(hguidance)
-                return _profile_data_block("[HUMANIZER GUIDANCE — apply when generating or revising prose]", body)
-    except Exception:
-        # Same as the memory except above: a broken skill store must not
-        # swallow the guidance at debug, and must not abort the prompt.
-        logging.getLogger(__name__).exception("Failed to inject humanizer guidance")
-    return ""
-
-
 def _finish_chat_system_prompt(base: str, additional_instructions: str) -> str:
     text = str(additional_instructions or "").strip()
     if text:
@@ -1150,7 +790,19 @@ def _assemble_chat_prompt(agent: str, ctx: Any = None) -> str:
     }.get(label, DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE)
     core = get_core_directives_for_type(label)
     delegation = get_specialized_delegation_tool_hint(agent, ctx=ctx)
-    base = template.replace("{specialized_delegation}", delegation).replace("{core_directives}", core)
+    venv_policy = ""
+    if label == "calc":
+        if _python_prompt_extras is None:
+            raise RuntimeError("python prompt extras are not registered")
+        venv_policy = _python_prompt_extras(agent)
+    calc_formula_syntax = ""
+    if label == "calc":
+        calc_formula_syntax = CALC_FORMULA_SYNTAX_TEMPLATE.replace("{venv_policy}", venv_policy)
+    base = (
+        template.replace("{specialized_delegation}", delegation)
+        .replace("{core_directives}", core)
+        .replace("{calc_formula_syntax}", calc_formula_syntax)
+    )
     if label == "draw":
         base = _apply_draw_get_image_tool_line(base)
     return base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions())
@@ -1165,24 +817,11 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
     Same Writer/Calc/Draw assembly as ``get_chat_system_prompt_for_document`` with
     ``ctx=None`` (no vision / peer / memory injection).
     """
-    from plugin.doc.doc_type import agent_label_for_doc_type
+    from plugin.framework import doc_type as _doc_type
 
-    agent = agent_label_for_doc_type(kind) or "Writer"
+    agent = _doc_type.agent_label_for_doc_type(kind) or "Writer"
     base = _assemble_chat_prompt(agent, ctx=ctx)
     return _finish_chat_system_prompt(base, additional_instructions)
-
-
-def _cap_injected_prompt_blob(text: str) -> str:
-    """Cap one USER.md or humanizer blob to the chat document-excerpt size.
-
-    Each send appended the whole file, so a long profile crowded out the
-    document. Same cap as ``CHAT_DOCUMENT_CONTEXT_MAX_CHARS``. Callers read
-    the file on every send — do not cache the profile across turns.
-    """
-    body = text.strip()
-    if len(body) <= CHAT_DOCUMENT_CONTEXT_MAX_CHARS:
-        return body
-    return body[:CHAT_DOCUMENT_CONTEXT_MAX_CHARS].rstrip() + "\n" + "[truncated]"
 
 
 def get_chat_system_prompt_for_document(model: Any, additional_instructions: str = "", ctx: Any = None) -> str:
@@ -1192,21 +831,92 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
     agent = _agent_for_model(model)
     base = _assemble_chat_prompt(agent, ctx=ctx)
 
-    vision_directive = get_vision_core_directive(model, ctx)
-    if vision_directive:
-        base += "\n\n" + vision_directive
+    if ctx is not None:
+        vision_directive = _call_system_prompt_block("vision", model, ctx)
+        if vision_directive:
+            base += "\n\n" + vision_directive
 
-    peer_block = get_peer_messaging_prompt_block(model, ctx)
-    if peer_block:
-        base += "\n\n" + peer_block
+        peer_block = _call_system_prompt_block("peer_outer", model, ctx)
+        if peer_block:
+            base += "\n\n" + peer_block
 
-    if ctx:
-        base += format_user_memory_prompt_block()
-
-        # Humanizer skill: when enabled, injected as ambient guidance into main chat
-        # and writing/brainstorming/deep research sub-agents (librarian excluded).
-        base += format_humanizer_guidance_prompt_block()
+        base += _call_system_prompt_block("memory")
+        base += _call_system_prompt_block("humanizer")
 
     # After custom instructions so those stay intact and the reminder is last.
     return _finish_chat_system_prompt(base, additional_instructions)
+
+# --- Application hooks (registered from plugin.main bootstrap) ---
+
+_prompt_catalog_entries: Callable[..., list[dict[str, str]]] | None = None
+_prompt_catalog_delegation_hint: Callable[..., str] | None = None
+_prompt_catalog_domain_description: Callable[..., str] | None = None
+_system_prompt_blocks: dict[str, Callable[..., str]] = {}
+_python_prompt_extras: Callable[[str], str] | None = None
+_python_sub_agent_policy: Callable[[], str] | None = None
+_python_sub_agent_plot_hint: Callable[[str], str] | None = None
+_python_sub_agent_units_hint: Callable[[], str] | None = None
+
+
+def set_prompt_catalog(
+    entries: Callable[..., list[dict[str, str]]],
+    delegation_hint: Callable[..., str],
+    domain_description: Callable[..., str],
+) -> None:
+    global _prompt_catalog_entries, _prompt_catalog_delegation_hint, _prompt_catalog_domain_description
+    _prompt_catalog_entries = entries
+    _prompt_catalog_delegation_hint = delegation_hint
+    _prompt_catalog_domain_description = domain_description
+
+
+def set_system_prompt_block(name: str, fn: Callable[..., str]) -> None:
+    _system_prompt_blocks[name] = fn
+
+
+def set_python_prompt_extras(fn: Callable[[str], str] | None) -> None:
+    global _python_prompt_extras
+    _python_prompt_extras = fn
+
+
+def set_python_sub_agent_prompt_helpers(
+    policy_fn: Callable[[], str],
+    plot_hint_fn: Callable[[str], str],
+    units_hint_fn: Callable[[], str],
+) -> None:
+    global _python_sub_agent_policy, _python_sub_agent_plot_hint, _python_sub_agent_units_hint
+    _python_sub_agent_policy = policy_fn
+    _python_sub_agent_plot_hint = plot_hint_fn
+    _python_sub_agent_units_hint = units_hint_fn
+
+
+def _require_prompt_catalog() -> tuple[
+    Callable[..., list[dict[str, str]]],
+    Callable[..., str],
+    Callable[..., str],
+]:
+    if _prompt_catalog_entries is None or _prompt_catalog_delegation_hint is None or _prompt_catalog_domain_description is None:
+        raise RuntimeError("prompt catalog is not registered")
+    return _prompt_catalog_entries, _prompt_catalog_delegation_hint, _prompt_catalog_domain_description
+
+
+def _call_system_prompt_block(name: str, *args: Any, **kwargs: Any) -> str:
+    fn = _system_prompt_blocks.get(name)
+    if fn is None:
+        raise RuntimeError(f"system prompt block {name!r} is not registered")
+    return fn(*args, **kwargs)
+
+
+def get_specialized_domain_catalog(*args: Any, **kwargs: Any) -> list[dict[str, str]]:
+    entries, _unused_hint, _unused_desc = _require_prompt_catalog()
+    return entries(*args, **kwargs)
+
+
+def get_specialized_delegation_tool_hint(*args: Any, **kwargs: Any) -> str:
+    _unused_entries, delegation_hint, _unused_desc = _require_prompt_catalog()
+    return delegation_hint(*args, **kwargs)
+
+
+def format_specialized_domains_description(*args: Any, **kwargs: Any) -> str:
+    _unused_entries, _unused_hint, domain_description = _require_prompt_catalog()
+    return domain_description(*args, **kwargs)
 

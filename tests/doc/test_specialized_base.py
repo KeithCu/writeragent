@@ -399,7 +399,7 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     """Impress and Draw both carry doc_type "draw"; only PresentationDocument keeps slide domains."""
     import plugin.draw.headers_footers  # noqa: F401
     import plugin.draw.notes  # noqa: F401
-    from plugin.doc.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
     from plugin.doc.specialized_base import narrow_delegate_domain_enums
     from plugin.draw.specialized import DelegateToSpecializedDraw
     from plugin.framework.tool_schema import to_mcp_schema, to_openai_schema

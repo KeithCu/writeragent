@@ -37,7 +37,9 @@ def _find_spec_without_writeragent_api(name: str, package=None):
 def test_alias_importer_refuses_config_and_llm_client():
     """Unauthorized writeragent aliases must not resolve, even if find_spec would."""
     from plugin.framework.uno_bootstrap import AliasImporter
+    from plugin.scripting.sandbox import install_alias_authorizer
 
+    install_alias_authorizer()
     importer = AliasImporter()
     with patch("importlib.util.find_spec") as mock_find:
         assert importer.find_spec("writeragent.framework.config") is None
@@ -48,7 +50,9 @@ def test_alias_importer_refuses_config_and_llm_client():
 def test_alias_importer_ignores_blanket_writeragent_star():
     """Re-adding writeragent.* to the list must not reopen the config import."""
     from plugin.framework.uno_bootstrap import AliasImporter
+    from plugin.scripting.sandbox import install_alias_authorizer
 
+    install_alias_authorizer()
     importer = AliasImporter()
     starred = ("writeragent.*", "duckdb", "duckdb.*", "plugin.scripting.analysis")
     with patch("plugin.scripting.sandbox.VENV_AUTHORIZED_IMPORTS", starred), patch(
@@ -137,7 +141,7 @@ def test_writeragent_api_in_process_rpc():
     with patch("plugin.main.get_tools") as mock_get_tools, \
          patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, \
          patch("plugin.framework.uno_context.get_active_document") as mock_get_doc, \
-         patch("plugin.doc.doc_type.is_calc") as mock_is_calc:
+         patch("plugin.framework.doc_type.is_calc") as mock_is_calc:
 
         mock_registry = MagicMock()
         mock_get_tools.return_value = mock_registry
@@ -171,9 +175,9 @@ def test_venv_worker_bidirectional_tool_call():
     with patch("plugin.main.get_tools") as mock_get_tools, \
          patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, \
          patch("plugin.framework.uno_context.get_active_document") as mock_get_doc, \
-         patch("plugin.doc.doc_type.is_calc") as mock_is_calc, \
-         patch("plugin.doc.doc_type.is_writer") as mock_is_writer, \
-         patch("plugin.doc.doc_type.is_draw") as mock_is_draw:
+         patch("plugin.framework.doc_type.is_calc") as mock_is_calc, \
+         patch("plugin.framework.doc_type.is_writer") as mock_is_writer, \
+         patch("plugin.framework.doc_type.is_draw") as mock_is_draw:
 
         mock_registry = MagicMock()
         mock_get_tools.return_value = mock_registry

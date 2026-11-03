@@ -53,7 +53,10 @@ _bootstrap_plugin_import_path()
 
 try:
     from plugin.framework.uno_bootstrap import register_alias_importer
+    from plugin.scripting.sandbox import install_alias_authorizer
+
     register_alias_importer()
+    install_alias_authorizer()
 except Exception as e:
     log.warning("Could not register alias importer in editor child process: %s", e)
 
@@ -609,7 +612,7 @@ def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
 
 def main() -> None:
     global _ipc_stream
-    from plugin.scripting.ipc import claim_ipc_channel
+    from plugin.framework.ipc import claim_ipc_channel
     _ipc_stream = claim_ipc_channel()
 
     logging.basicConfig(level=logging.INFO)

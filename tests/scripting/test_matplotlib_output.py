@@ -405,7 +405,7 @@ def test_serialize_result_timedelta64_ndarray_is_fractional_days():
     import io
 
     np = pytest.importorskip("numpy")
-    from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+    from plugin.framework.ipc import read_pickle_frame, write_pickle_frame
     from plugin.scripting.payload_codec import BINARY_MIN_CELLS, host_unpack_data, is_split_grid
     from plugin.scripting.venv.venv_sandbox import serialize_result
 
@@ -439,7 +439,7 @@ def test_serialize_result_small_object_ndarray_is_host_pickleable():
     import io
 
     np = pytest.importorskip("numpy")
-    from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+    from plugin.framework.ipc import read_pickle_frame, write_pickle_frame
     from plugin.scripting.payload_codec import BINARY_MIN_CELLS, host_unpack_data, is_split_grid
     from plugin.scripting.venv.venv_sandbox import serialize_result
 

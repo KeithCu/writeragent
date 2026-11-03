@@ -17,6 +17,23 @@ import pytest
 import plugin.framework.thread_guard as tg
 
 
+@pytest.fixture(autouse=True)
+def _register_thread_violation_ui_for_tests() -> None:
+    def _ui(ctx: Any, title: str, full_msg: str) -> None:
+        from plugin.chatbot.dialogs import msgbox_with_report
+
+        msgbox_with_report(
+            ctx,
+            title,
+            full_msg,
+            reportable=True,
+            report_title="UNO thread violation",
+            report_extra=full_msg,
+        )
+
+    tg.set_thread_violation_ui(_ui)
+
+
 def _reload_thread_guard():
     """Re-read GUARD_ON from the environment (see tests/conftest.py setdefault)."""
     importlib.reload(tg)

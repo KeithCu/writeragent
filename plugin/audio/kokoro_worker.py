@@ -34,7 +34,7 @@ _ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from plugin.scripting.ipc import (  # noqa: E402
+from plugin.framework.ipc import (  # noqa: E402
     claim_ipc_channel,
     read_pickle_frame,
     write_pickle_frame,

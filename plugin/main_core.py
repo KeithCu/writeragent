@@ -45,12 +45,19 @@ _bootstrapping = False
 
 from plugin.framework.main_shared import (
     ExtensionProtocolHandler,
-    register_action_handler,
     get_action_handler,
     open_dialog_safely,
-    register_common_handlers,
+    register_action_handler,
     report_action_failure,
 )
+from plugin.menu_handlers import register_common_handlers
+
+
+def _register_librepy_framework_hooks() -> None:
+    from plugin.bootstrap_ui_hooks import register_framework_ui_hooks
+
+    register_framework_ui_hooks()
+
 
 def _register_librepy_handlers() -> None:
     def _open_settings() -> None:
@@ -87,6 +94,7 @@ def bootstrap(ctx: Any | None = None) -> None:
             from plugin.framework.queue_executor import default_executor
 
             default_executor.set_context(ctx)
+        _register_librepy_framework_hooks()
         from plugin.framework.config import init_config
 
         init_config(ctx)

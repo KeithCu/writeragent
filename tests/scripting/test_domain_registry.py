@@ -267,9 +267,9 @@ def test_picker_supports_matches_post_venv_calc_only():
     for row in PICKER_WIRING:
         assert row.origin in by_id
         if by_id[row.origin].post_venv_calc_only:
-            assert row.supports_ref == "plugin.doc.doc_type:is_calc"
+            assert row.supports_ref == "plugin.framework.doc_type:is_calc"
         else:
-            assert row.supports_ref != "plugin.doc.doc_type:is_calc"
+            assert row.supports_ref != "plugin.framework.doc_type:is_calc"
             assert row.supports_ref.count(":") == 1
     assert set(by_id) - {row.origin for row in PICKER_WIRING} == {"text"}
 
@@ -278,7 +278,7 @@ def test_quant_picker_is_calc_only():
     quant_spec = next(d for d in PICKER_WIRING if d.origin == "quant")
     calc_doc = object()
     writer_doc = object()
-    with patch("plugin.doc.doc_type.is_calc", side_effect=lambda doc: doc is calc_doc):
+    with patch("plugin.framework.doc_type.is_calc", side_effect=lambda doc: doc is calc_doc):
         assert quant_spec.supports(calc_doc) is True
         assert quant_spec.supports(writer_doc) is False
         assert quant_spec.supports(None) is False

@@ -46,7 +46,7 @@ def call_host_tool(tool_name: str, **kwargs: Any) -> Any:
     if role == ROLE_COMPUTE:
         raise RuntimeError("WriterAgent document tools are not available in the Python compute service.")
     if role == ROLE_WORKER:
-        from plugin.scripting.ipc import exchange_tool_call
+        from plugin.framework.ipc import exchange_tool_call
 
         return exchange_tool_call(tool_name, kwargs)
 

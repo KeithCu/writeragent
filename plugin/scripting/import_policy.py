@@ -13,7 +13,7 @@ Derived from ``DANGEROUS_MODULES``, ``NETWORK_BLOCKED_MODULES``, and
 
 from __future__ import annotations
 
-from plugin.framework.constants import AUTO_IMPORTS
+from plugin.framework.constants import auto_imports
 from plugin.scripting.sandbox import (
     DANGEROUS_MODULES,
     FILE_BLOCKED_MODULES,
@@ -40,7 +40,7 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     """Sandbox context prefix first, then import rules for LLM prompts."""
     aliases: list[str] = []
     modules: list[str] = []
-    for module_name, import_stmt in AUTO_IMPORTS.items():
+    for module_name, import_stmt in auto_imports().items():
         marker = " as "
         if marker in import_stmt:
             aliases.append(import_stmt.rsplit(marker, 1)[-1].strip())
@@ -49,7 +49,7 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         modules.append(module_name)
     alias_list = ", ".join(aliases)
     do_not_import = ", ".join(modules[:-1]) + f", or {modules[-1]}"
-    auto_imports = (
+    auto_imports_blurb = (
         f"Pre-imported (do not write import lines): {alias_list}. "
         "When =PY has data range args, xl(\"%Pn%\") is also injected (binding-only Excel bridge; not a live sheet read). "
         f"DO NOT import {do_not_import}. "
@@ -67,7 +67,7 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     networking = ", ".join(NETWORK_BLOCKED_MODULES)
     file_writes = ", ".join(FILE_BLOCKED_MODULES)
 
-    parts = [PYTHON_VENV_SANDBOX_CONTEXT_PREFIX, auto_imports]
+    parts = [PYTHON_VENV_SANDBOX_CONTEXT_PREFIX, auto_imports_blurb]
 
     if compact:
         parts.append(
@@ -120,3 +120,8 @@ def format_units_helper_hint() -> str:
         "For unit conversion and dimensional analysis, use Run Python Script Units Helpers "
         "or the run_units helper."
     )
+
+
+def python_venv_auto_imports_note() -> str:
+    """Compact venv import policy for Calc tool notes (filled at call time, not import)."""
+    return format_venv_import_policy_for_prompt(compact=True) + " "

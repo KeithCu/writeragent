@@ -1571,7 +1571,7 @@ def test_agent_backend_worker_does_not_call_get_document_type():
         patch("plugin.chatbot.send_handlers.get_config", side_effect=cfg),
         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
         patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker),
-        patch("plugin.doc.doc_type.get_document_type") as mock_gdt,
+        patch("plugin.framework.doc_type.get_document_type") as mock_gdt,
     ):
         panel._execute_agent_backend_effect("hi", model, "writer")
 

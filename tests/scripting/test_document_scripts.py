@@ -651,7 +651,7 @@ def test_build_scripts_list_untitled_save_is_not_stale():
 def test_build_scripts_list_includes_analysis_section_for_calc():
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.doc.doc_type.is_calc", return_value=True
+        "plugin.framework.doc_type.is_calc", return_value=True
     ), patch(
         "plugin.scripting.document_scripts.is_calc", return_value=True
     ):

@@ -631,8 +631,8 @@ def test_header_third_button_is_writer_latex_calc_python_else_hidden():
 
     from plugin.chatbot.panel_factory import header_third_button_kind
 
-    with patch("plugin.doc.doc_type.is_calc", side_effect=lambda model: model == "calc"), patch(
-        "plugin.doc.doc_type.is_writer", side_effect=lambda model: model == "writer"
+    with patch("plugin.framework.doc_type.is_calc", side_effect=lambda model: model == "calc"), patch(
+        "plugin.framework.doc_type.is_writer", side_effect=lambda model: model == "writer"
     ):
         assert header_third_button_kind("writer") == "latex"
         assert header_third_button_kind("calc") == "python_cell"
@@ -797,10 +797,10 @@ def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
         patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
         patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
         patch("plugin.doc.live_panels.register_live_panel"),
-        patch("plugin.doc.doc_type.get_document_type", return_value=MagicMock()),
-        patch("plugin.doc.doc_type.doc_type_label_for_enum", return_value="writer"),
-        patch("plugin.doc.doc_type.doc_type_title_for_label", return_value="Writer"),
-        patch("plugin.doc.doc_type.get_document_uno_services", return_value=frozenset()),
+        patch("plugin.framework.doc_type.get_document_type", return_value=MagicMock()),
+        patch("plugin.framework.doc_type.doc_type_label_for_enum", return_value="writer"),
+        patch("plugin.framework.doc_type.doc_type_title_for_label", return_value="Writer"),
+        patch("plugin.framework.doc_type.get_document_uno_services", return_value=frozenset()),
         patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
     ):
@@ -1039,7 +1039,7 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
         patch("plugin.chatbot.panel.SendButtonListener", return_value=sentinel),
         patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
         patch("plugin.doc.live_panels.register_live_panel"),
-        patch("plugin.doc.doc_type.get_document_type", side_effect=RuntimeError("probe failed")),
+        patch("plugin.framework.doc_type.get_document_type", side_effect=RuntimeError("probe failed")),
         patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
     ):
@@ -1288,10 +1288,10 @@ def test_wire_buttons_send_constructor_failure_clears_stale_listener():
         patch("plugin.chatbot.panel.SendButtonListener", side_effect=RuntimeError("constructor fail")),
         patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
         patch("plugin.doc.live_panels.register_live_panel"),
-        patch("plugin.doc.doc_type.get_document_type", return_value=MagicMock()),
-        patch("plugin.doc.doc_type.doc_type_label_for_enum", return_value="writer"),
-        patch("plugin.doc.doc_type.doc_type_title_for_label", return_value="Writer"),
-        patch("plugin.doc.doc_type.get_document_uno_services", return_value=frozenset()),
+        patch("plugin.framework.doc_type.get_document_type", return_value=MagicMock()),
+        patch("plugin.framework.doc_type.doc_type_label_for_enum", return_value="writer"),
+        patch("plugin.framework.doc_type.doc_type_title_for_label", return_value="Writer"),
+        patch("plugin.framework.doc_type.get_document_uno_services", return_value=frozenset()),
         patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
         patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
         pytest.raises(RuntimeError, match="constructor fail"),

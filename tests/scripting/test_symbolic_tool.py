@@ -103,7 +103,7 @@ def test_symbolic_math_keeps_ipc_off_main_thread(mock_run, mock_main_thread, moc
 
 
 def test_symbolic_math_not_offered_on_draw():
-    from plugin.doc.doc_type import uno_services_for_doc_type_label
+    from plugin.framework.doc_type import uno_services_for_doc_type_label
     from plugin.framework.tool import tool_supports_document
 
     tool = SymbolicMathTool()

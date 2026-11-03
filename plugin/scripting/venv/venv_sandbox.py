@@ -59,19 +59,22 @@ from plugin.scripting.payload_codec import (
 )
 from plugin.scripting.venv.to_wire import _figure_to_image_payload, to_wire
 from plugin.scripting.config_limits import python_exec_timeout_default
-from plugin.scripting.ipc import UserStopped
-from plugin.framework.constants import AUTO_IMPORTS
+from plugin.framework.ipc import UserStopped
+from plugin.framework.constants import auto_imports
 from plugin.scripting.venv.results import error_result
 from plugin.scripting.sandbox import (
     SANDBOX_BLOCKED_MODULES,
     SANDBOX_EXTRA_MODULES,
     SandboxPolicy,
     build_sandbox_policy,
+    install_alias_authorizer,
     parse_extra_modules,
     policy_allowlist,
     policy_blocked_imports,
     policy_relaxed_roots,
 )
+
+install_alias_authorizer()
 
 # Shared-kernel executors keyed by workbook session_id (calc:…). Cleared on reset_session,
 # document OnUnload (workbook_lifecycle), or worker process exit.
@@ -332,7 +335,7 @@ def apply_auto_imports(code: str) -> tuple[str, int]:
     scanned = _scan_user_code(code)
     bound: set[str] = scanned[0] if scanned is not None else set()
     prepended_lines: list[str] = []
-    for module_name, import_stmt in AUTO_IMPORTS.items():
+    for module_name, import_stmt in auto_imports().items():
         if _auto_import_alias(module_name, import_stmt) in bound:
             continue
         imported_already = (
@@ -409,7 +412,7 @@ def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
     bound_names: set[str] = scanned[0] if scanned is not None else set()
     imported: set[str] | None = None if scanned is None else scanned[1]
     bindings: dict[str, Any] = {}
-    for module_name, import_stmt in AUTO_IMPORTS.items():
+    for module_name, import_stmt in auto_imports().items():
         alias = _auto_import_alias(module_name, import_stmt)
         if alias in bound_names or alias in executor.state:
             continue

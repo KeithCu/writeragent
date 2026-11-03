@@ -33,7 +33,7 @@ import logging
 from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
-from plugin.doc.doc_type import agent_label_for_context
+from plugin.framework.doc_type import agent_label_for_context
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.queue_executor import run_on_main
 from plugin.framework.tool import ToolBase, ToolContext
@@ -57,7 +57,7 @@ def allowed_specialized_domains(agent_label: str, uno_ctx: Any = None) -> frozen
     ``python`` is omitted: the outer agent already has that toolset, and nesting
     it would expose ``delegate_tool_domains`` again.
     """
-    from plugin.framework.prompts import get_specialized_domain_catalog
+    from plugin.doc.specialized_catalog import get_specialized_domain_catalog
 
     catalog = get_specialized_domain_catalog(agent_label=agent_label, ctx=uno_ctx)
     return frozenset(entry["domain"] for entry in catalog if entry["domain"] != _PYTHON_DOMAIN)
