@@ -32,6 +32,7 @@ from typing import Any, Optional, List, Tuple, Mapping
 
 from plugin.acp.base import AgentBackend
 from plugin.acp.acp_connection import ACPConnection, ACPTimeoutError
+from plugin.framework.client.shim_helpers import snapshot_text
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 from plugin.framework.stream_batch import StreamQueueKind
@@ -666,14 +667,16 @@ class ACPBackend(AgentBackend):
             if include_system and system_prompt:
                 prompt_blocks.append({"type": "text", "text": system_prompt})
                 included_manual = True
-            # Add document context if provided
-            if document_context:
-                prompt_blocks.append({"type": "text", "text": f"[DOCUMENT CONTENT]\n{document_context}"})
             # Add document URL if provided
             if document_url:
                 prompt_blocks.append({"type": "text", "text": f"Document URL: {document_url}"})
-            # Always add the user message last
+            # User message
             prompt_blocks.append({"type": "text", "text": user_message})
+            # Add document snapshot last if provided
+            if document_context:
+                snap = snapshot_text(document_context)
+                if snap:
+                    prompt_blocks.append({"type": "text", "text": snap})
 
         return prompt_blocks, included_manual
 

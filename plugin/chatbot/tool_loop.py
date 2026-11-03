@@ -81,7 +81,6 @@ from plugin.chatbot.tool_loop_state import (
 from plugin.chatbot.compaction import (
     compact_session,
     is_context_overflow_error,
-    messages_for_llm,
     should_retry_overflow,
 )
 
@@ -719,7 +718,7 @@ class ToolCallingMixin:
         bound_spawn = self._bind_spawn(client)
 
         def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, scope: Any) -> Any:
-            payload = messages_for_llm(sess)
+            payload = sess.messages_for_request()
             return client.stream_request_with_tools(
                 payload, max_tokens, tools=tools,
                 append_callback=content_cb,
@@ -762,7 +761,7 @@ class ToolCallingMixin:
                 last_streamed.append(c)
 
             client.stream_chat_response(
-                messages_for_llm(sess), max_tokens, append_c, thinking_cb,
+                sess.messages_for_request(), max_tokens, append_c, thinking_cb,
                 cancel=scope,
                 status_callback=status_cb,
             )

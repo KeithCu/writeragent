@@ -93,6 +93,7 @@ from .stream_normalizer import (
     strip_think_tags,
 )
 from .provider_detection import is_openrouter_endpoint
+from .shim_helpers import cache_read_count
 
 log = logging.getLogger(__name__)
 
@@ -271,15 +272,20 @@ class LlmClient:
         # A leftover ``?key=`` on the path must not land in the log. Strip the
         # query and redact any echoed secret before logging.
         safe_path = redact_secrets(_path_without_query(path), [api_key])
-        log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, redact_secrets(err_body, [api_key]), self._get_provider(), safe_path, request_model)
+        st_raw = getattr(response, "status", 500)
+        try:
+            st = int(st_raw)
+        except (TypeError, ValueError):
+            st = 500
+        log.error("Provider API Error %s: %s (provider=%s path=%s request_model=%r)", str(st_raw), redact_secrets(str(err_body), [api_key]), self._get_provider(), safe_path, request_model)
         n_ctx = None
-        if response.status == 500:
+        if st == 500:
             from .model_fetcher import peek_live_ollama_num_ctx
 
             n_ctx = peek_live_ollama_num_ctx(self)
-        if response.status == 500:
+        if st == 500:
             _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
-        err_msg = _format_http_error_response(response.status, response.reason, err_body, context_window=n_ctx)
+        err_msg = _format_http_error_response(st, str(getattr(response, "reason", "") or ""), str(err_body), context_window=n_ctx)
         return append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
 
     def _wire_secrets(self) -> list[str]:
@@ -679,6 +685,7 @@ class LlmClient:
                 requested_model = request_model_from_body(body)
                 used_model = None
                 stream_state: dict[str, Any] = {}
+                last_usage_obj: dict[str, Any] | None = None
 
                 for payload in iterate_sse(response):
                     if payload == "[DONE]":
@@ -823,6 +830,14 @@ class LlmClient:
                     if usage_obj and not (isinstance(shim_usage, dict) and shim_usage):
                         outgoing = dict(outgoing or {})
                         outgoing["usage"] = usage_obj
+                    cur_usage = outgoing.get("usage") if isinstance(outgoing, dict) else None
+                    if not isinstance(cur_usage, dict):
+                        cur_usage = usage_obj
+                    if isinstance(cur_usage, dict):
+                        if last_usage_obj is None:
+                            last_usage_obj = dict(cur_usage)
+                        else:
+                            last_usage_obj.update(cur_usage)
                     if outgoing and on_delta:
                         # on_delta receives this normalized delta; do not normalize twice.
                         normalize_delta(outgoing)
@@ -855,11 +870,12 @@ class LlmClient:
                         raise ConnectionResetError("Stream truncated without [DONE] or finish_reason")
 
                 log.info(
-                    "LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s",
+                    "LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s cache_read=%s",
                     self._get_provider(),
                     requested_model,
                     used_model or requested_model,
                     last_finish_reason,
+                    cache_read_count(last_usage_obj),
                 )
 
                 # Flush any trailing buffered text from the think tag splitter
@@ -1064,7 +1080,6 @@ class LlmClient:
                 log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
 
             used_model = str(result.get("model") or requested_model) if isinstance(result, dict) else requested_model
-            log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
 
             # Use unified extraction for shims/native providers
             try:
@@ -1082,6 +1097,8 @@ class LlmClient:
                 err_msg = format_error_message(e)
                 log.exception("parse_sync_response failed")
                 raise NetworkError(err_msg, code="BAD_RESPONSE", details={"url": path}) from e
+
+            log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r cache_read=%s", self._get_provider(), requested_model, used_model, cache_read_count(usage))
             content, extracted_thinking = strip_think_tags(raw_parsed_content)
             if extracted_thinking and "reasoning" not in message:
                 message["reasoning"] = extracted_thinking
