@@ -189,7 +189,7 @@ Debug test hooks live in [`plugin/chatbot/sidebar_test_hooks.py`](../../plugin/c
 | `MockLLMConfig.open_streams` | SSE responses the mock is still writing; drops to 0 only when the stream ends or the client hangs up | M7 / M8 |
 | `install_fake_tts(mode)` / `clear_fake_tts()` | Fake TTS backend lifecycle via state file (`writeragent_fake_tts.json`) and debug ops `FAKE_TTS_HOLD`, `FAKE_TTS_CRASH`, `FAKE_TTS_MISSING`, `FAKE_TTS_OFF`. Test-hook only; production `tts_service` does not read this file | Packet T |
 
-Fake hold/stop still restores `_speech_cancel` so the in-flight worker's `on_complete` runs. The restore is published under `_FAKE_TTS_LOCK` before that lock is released, and the hooked `_end_utterance` takes the same lock. Otherwise `stop_speech` cancels the scope and kills the child first, the worker treats the utterance as superseded, and `on_complete` never runs. Production `stop_speech` does not restore; playback-only Stop disables the button itself.
+Fake hold/stop still restores `_current` so the in-flight worker's `on_complete` runs. The restore is published under `_FAKE_TTS_LOCK` before that lock is released, and the hooked `_end_utterance` takes the same lock. Otherwise `stop_speech` cancels the scope and kills the child first, the worker treats the utterance as superseded, and `on_complete` never runs. Production `stop_speech` does not restore; playback-only Stop disables the button itself.
 
 ### 2.5. Universal Invariants & Pass/Fail Criteria
 

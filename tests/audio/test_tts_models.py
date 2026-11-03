@@ -22,15 +22,12 @@ from plugin.audio.tts_models import (
     _clear_tts_status,
     _download_piper_pair,
     _download_to,
-    _failed_model_downloads,
-    clear_scope_downloads,
     DownloadOutcome,
-    is_download_failed,
     notify_tts_status,
-    remember_download_failed,
     resolve_kokoro_model_files,
     resolve_piper_model_file,
 )
+from plugin.audio.tts_service import Utterance
 from plugin.framework.send_cancellation import SendCancellation
 
 
@@ -289,39 +286,30 @@ def test_download_failure_remembered_per_generation():
     """Bug 1: Failed model downloads are remembered per generation and not retried every sentence."""
     import plugin.audio.tts_service as tts
 
-    scope1 = SendCancellation()
-    scope2 = SendCancellation()
-    tts._speech_cancel = scope1
+    utt1 = Utterance(SendCancellation())
+    utt2 = Utterance(SendCancellation())
+    tts._current = utt1
     try:
-        clear_scope_downloads(scope1)
-        clear_scope_downloads(scope2)
-
-        assert not is_download_failed(scope1, "kokoro")
-        remember_download_failed(scope1, "kokoro")
-        assert is_download_failed(scope1, "kokoro")
-        assert not is_download_failed(scope2, "kokoro")
-
-        clear_scope_downloads(scope1)
-        assert not is_download_failed(scope1, "kokoro")
+        assert not utt1.download_failed("kokoro")
+        utt1.note_download_failed("kokoro")
+        assert utt1.download_failed("kokoro")
+        assert not utt2.download_failed("kokoro")
     finally:
-        tts._speech_cancel = None
-        clear_scope_downloads(scope1)
-        clear_scope_downloads(scope2)
+        tts._current = None
 
 
 def test_remember_download_failed_ignores_stale_generation():
     import plugin.audio.tts_service as tts
 
-    scope = tts._begin_utterance()
+    utt = tts._begin_utterance()
     try:
-        remember_download_failed(scope, "kokoro")
-        assert is_download_failed(scope, "kokoro")
+        utt.note_download_failed("kokoro")
+        assert utt.download_failed("kokoro")
         tts.stop_speech()
-        remember_download_failed(scope, "kokoro")
-        assert scope not in _failed_model_downloads
+        utt.note_download_failed("piper")
+        assert not utt.download_failed("piper")
     finally:
         tts.stop_speech()
-        clear_scope_downloads(scope)
 
 
 def test_notify_tts_status_progress_prefers_progress_method():
@@ -613,30 +601,28 @@ def test_is_download_failed_takes_speech_lock_clear_does_not():
             return real_lock.__exit__(exc_type, exc_val, exc_tb)
 
     setattr(tts, "_speech_lock", LockWrapper())
-    scope = tts._begin_utterance()
+    utt = tts._begin_utterance()
     try:
-        remember_download_failed(scope, "kokoro")
         before = lock_count
-        assert is_download_failed(scope, "kokoro") is True
+        utt.note_download_failed("kokoro")
         assert lock_count == before + 1
         before = lock_count
-        clear_scope_downloads(scope)
-        assert lock_count == before
+        assert utt.download_failed("kokoro") is True
+        assert lock_count == before + 1
     finally:
         tts._speech_lock = real_lock
         tts.stop_speech()
-        clear_scope_downloads(scope)
 
 
 def test_resolve_kokoro_model_files_cancelled_during_voices(tmp_path, monkeypatch):
     messages: list[str] = []
     _kokoro_cache(tmp_path, monkeypatch)
-    cancel = SendCancellation()
+    utt = Utterance(SendCancellation())
 
     with patch("plugin.audio.tts_models._download_to", return_value=DownloadOutcome.CANCELLED):
-        resolve_kokoro_model_files(on_status=messages.append, cancel=cancel)
+        resolve_kokoro_model_files(on_status=messages.append, utt=utt)
 
-    assert not is_download_failed(cancel, "kokoro")
+    assert not utt.download_failed("kokoro")
     assert not any("using OS speech" in m for m in messages)
 
 
@@ -645,25 +631,25 @@ def test_resolve_kokoro_model_files_cancelled_during_model(tmp_path, monkeypatch
     cache_dir = _kokoro_cache(tmp_path, monkeypatch)
     cache_dir.mkdir(parents=True)
     (cache_dir / KOKORO_VOICES_FILENAME).write_bytes(b"x" * 20_000_000)
-    cancel = SendCancellation()
+    utt = Utterance(SendCancellation())
 
     with patch("plugin.audio.tts_models._download_to", return_value=DownloadOutcome.CANCELLED):
-        resolve_kokoro_model_files(on_status=messages.append, cancel=cancel)
+        resolve_kokoro_model_files(on_status=messages.append, utt=utt)
 
-    assert not is_download_failed(cancel, "kokoro")
+    assert not utt.download_failed("kokoro")
     assert not any("using OS speech" in m for m in messages)
 
 
 def test_resolve_piper_model_file_cancelled_during_download(tmp_path, monkeypatch):
     messages: list[str] = []
     _piper_cache(tmp_path, monkeypatch)
-    cancel = SendCancellation()
+    utt = Utterance(SendCancellation())
 
     with patch("plugin.audio.tts_models._download_to", return_value=DownloadOutcome.CANCELLED):
-        res = resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, cancel=cancel)
+        res = resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, utt=utt)
 
     assert res is None
-    assert not is_download_failed(cancel, "de_DE-thorsten-medium")
+    assert not utt.download_failed("de_DE-thorsten-medium")
     assert not any("using OS speech" in m for m in messages)
     assert not any("using Lessac" in m for m in messages)
 
@@ -673,11 +659,12 @@ def test_resolve_piper_model_file_cancelled_before_download(tmp_path, monkeypatc
     _piper_cache(tmp_path, monkeypatch)
     cancel = SendCancellation()
     cancel.cancel()
+    utt = Utterance(cancel)
 
-    res = resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, cancel=cancel)
+    res = resolve_piper_model_file("de_DE-thorsten-medium", on_status=messages.append, utt=utt)
     assert res is None
     assert not any("Downloading Piper" in m for m in messages)
-    assert not is_download_failed(cancel, "de_DE-thorsten-medium")
+    assert not utt.download_failed("de_DE-thorsten-medium")
 
 
 def test_piper_cancelled_attempt_does_not_delete_other_files(tmp_path, monkeypatch):
@@ -883,18 +870,17 @@ def test_disk_space_below_floor_emits_status_and_remembers_failure(tmp_path, mon
 
     mock_usage = MagicMock(free=100)
 
-    scope = tts._begin_utterance()
+    utt = tts._begin_utterance()
     try:
         with patch("shutil.disk_usage", return_value=mock_usage), \
              patch("urllib.request.urlopen") as mock_url:
-            resolve_kokoro_model_files(on_status=messages.append, cancel=scope)
+            resolve_kokoro_model_files(on_status=messages.append, utt=utt)
 
         mock_url.assert_not_called()
-        assert is_download_failed(scope, "kokoro")
+        assert utt.download_failed("kokoro")
         assert any("Not enough disk space" in m for m in messages)
     finally:
         tts.stop_speech()
-        clear_scope_downloads(scope)
 
 
 def test_percent_callbacks_throttled_and_stops_on_cancel(tmp_path):

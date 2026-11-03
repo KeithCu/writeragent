@@ -963,10 +963,10 @@ def _apply_fake_tts(mode: str) -> None:
 
             setattr(fake_popen, "_writeragent_fake_tts", True)
 
-            def fake_end_utterance(cancel: Any) -> bool:
+            def fake_end_utterance(utt: Any) -> bool:
                 # Paired with fake_stop_speech: the check must not run until the scope restore is published.
                 with _FAKE_TTS_LOCK:
-                    return orig_end_utterance(cancel)
+                    return orig_end_utterance(utt)
 
             setattr(fake_end_utterance, "_writeragent_fake_tts", True)
 
@@ -980,10 +980,10 @@ def _apply_fake_tts(mode: str) -> None:
                 # fake_end_utterance takes the same lock, so the worker observes the restored scope.
                 with _FAKE_TTS_LOCK:
                     try:
-                        cur_cancel = getattr(tts_service, "_speech_cancel", None)
+                        cur_utt = getattr(tts_service, "_current", None)
                         orig_stop_speech(*args, **kwargs)
-                        if cur_cancel is not None:
-                            tts_service._speech_cancel = cur_cancel
+                        if cur_utt is not None:
+                            tts_service._current = cur_utt
                     finally:
                         for p in _FAKE_TTS_PROCS.values():
                             if p.poll() is None:

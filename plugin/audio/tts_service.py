@@ -34,7 +34,6 @@ from plugin.audio.kokoro_pool import (
 from plugin.audio.tts_endpoint import download_endpoint_speech
 from plugin.audio.tts_models import (
     _clear_tts_status,
-    clear_scope_downloads,
     notify_tts_status,
     resolve_kokoro_model_files,
     resolve_piper_model_file,
@@ -80,17 +79,63 @@ _CHUNK_BREAK_RE = re.compile(r"[.!?。！？](?:\s+|$)")
 _procs: list[subprocess.Popen[Any]] = []
 _speech_active: bool = False
 _speech_lock = threading.Lock()
-_speech_cancel: "SendCancellation | None" = None
-_tracked_temps: set[str] = set()
-_ready_queue: "_ReadyQueue | None" = None
-# cancel -> {g2p lang: install succeeded}. One probe per language per
-# reply, not once per sentence. A cancelled install is not stored.
-_reply_misaki_ready: dict[SendCancellation, dict[str, bool]] = {}
+_current: Utterance | None = None
 
 # Six clips is enough that a one-word sentence can be playing while the next
 # long sentence (and a few after it) are already synthesized.
 SPEECH_READY_MAX_CLIPS = 6
 SPEECH_READY_MAX_BYTES = 32 * 1024 * 1024
+
+
+class Utterance:
+    """Per-utterance speech state.
+
+    Groups the cancellation scope, temporary files, prefetch ready queue,
+    misaki availability cache, and failed model download tracking for a single
+    assistant reply or speech output call.
+    """
+
+    def __init__(self, scope: SendCancellation) -> None:
+        self.scope: SendCancellation = scope
+        self.temps: set[str] = set()
+        self.ready: _ReadyQueue | None = None
+        self.misaki: dict[str, bool] = {}
+        self.failed_downloads: set[str] = set()
+        self.closed: bool = False
+
+    def note_download_failed(self, key: str) -> None:
+        with _speech_lock:
+            if self.closed or self is not _current:
+                return
+            self.failed_downloads.add(key)
+
+    def download_failed(self, key: str) -> bool:
+        with _speech_lock:
+            return key in self.failed_downloads
+
+    def remember_misaki(self, lang: str, ready: bool) -> None:
+        # Stop sets closed under _speech_lock, so a late prefetch write must not
+        # record on the utterance that just ended.
+        with _speech_lock:
+            if self.closed or self is not _current:
+                return
+            self.misaki[lang] = ready
+
+    def misaki_ready(self, lang: str) -> bool | None:
+        with _speech_lock:
+            return self.misaki.get(lang)
+
+    def is_cancelled(self) -> bool:
+        return self.scope.is_cancelled()
+
+    def cancel(self) -> None:
+        self.scope.cancel()
+
+    def register_on_cancel(self, hook: Callable[[], None]) -> None:
+        self.scope.register_on_cancel(hook)
+
+    def unregister_on_cancel(self, hook: Callable[[], None]) -> None:
+        self.scope.unregister_on_cancel(hook)
 
 
 class _ReadyClip(NamedTuple):
@@ -324,23 +369,28 @@ def _cleanup_stopped(
 
 
 def _swap_scope_locked(
-    new: SendCancellation | None,
+    new: Utterance | None,
     active: bool,
 ) -> tuple[list[subprocess.Popen[Any]], _ReadyQueue | None, list[str]]:
-    """Swap the active scope and drain per-utterance state under _speech_lock."""
-    global _speech_active, _speech_cancel, _ready_queue
-    if _speech_cancel is not None:
-        _speech_cancel.cancel()
-        clear_scope_downloads(_speech_cancel)
-    _speech_cancel = new
+    """Swap the active utterance and drain per-utterance state under _speech_lock."""
+    global _speech_active, _current
+    old = _current
+    queue_ref: _ReadyQueue | None = None
+    temps: list[str] = []
+    if old is not None:
+        old.scope.cancel()
+        old.closed = True
+        # Do not call note_download_failed here: _speech_lock is already held
+        # and is not reentrant.
+        queue_ref = old.ready
+        old.ready = None
+        temps = list(old.temps)
+        old.temps.clear()
+        # old.misaki dies with the object.
+    _current = new
     _speech_active = active
     procs = list(_procs)
     _procs.clear()
-    queue_ref = _ready_queue
-    _ready_queue = None
-    temps = list(_tracked_temps)
-    _tracked_temps.clear()
-    _reply_misaki_ready.clear()
     return procs, queue_ref, temps
 
 
@@ -356,25 +406,23 @@ def stop_speech() -> None:
     _cleanup_stopped(procs, queue_ref, temps)
 
 
-def _begin_utterance() -> SendCancellation:
-    """Create the scope, cancel the previous one, and publish the new one under a single lock hold."""
-    scope = SendCancellation()
+def _begin_utterance() -> Utterance:
+    """Create the utterance, cancel the previous one, and publish the new one under a single lock hold."""
+    utt = Utterance(SendCancellation())
     with _speech_lock:
-        procs, queue_ref, temps = _swap_scope_locked(scope, True)
+        procs, queue_ref, temps = _swap_scope_locked(utt, True)
 
     _cleanup_stopped(procs, queue_ref, temps)
-    return scope
+    return utt
 
 
-def _end_utterance(cancel: SendCancellation) -> bool:
+def _end_utterance(utt: Utterance) -> bool:
     """Tear down per-reply state when the worker thread finishes."""
     global _speech_active
     with _speech_lock:
-        if cancel is not _speech_cancel:
+        if utt is not _current:
             return False
         _speech_active = False
-        _reply_misaki_ready.pop(cancel, None)
-        clear_scope_downloads(cancel)
         return True
 
 
@@ -385,7 +433,8 @@ def _new_speech_temp(suffix: str, cancel: SendCancellation) -> str | None:
             return None
         fd, path = tempfile.mkstemp(prefix="writeragent_speech_", suffix=suffix)
         os.close(fd)
-        _tracked_temps.add(path)
+        if _current is not None:
+            _current.temps.add(path)
         return path
 
 
@@ -393,7 +442,8 @@ def _release_temp(path: str | None) -> None:
     if not path:
         return
     with _speech_lock:
-        _tracked_temps.discard(path)
+        if _current is not None:
+            _current.temps.discard(path)
     _unlink_quiet(path)
 
 
@@ -721,26 +771,8 @@ def _notify_kokoro_g2p_fallback(
         return
     if G2P_FAILED_MARK in warning:
         notify_tts_status(_("Kokoro used English phonemes for non-English voice"), on_status)
-    elif _cached_misaki_ready(cancel, lang) is False:
+    elif _current is not None and _current.misaki_ready(lang) is False:
         notify_tts_status(_("Misaki not found; Kokoro used English phonemes"), on_status)
-
-
-def _remember_misaki_ready(cancel: SendCancellation, lang: str, ready: bool) -> None:
-    with _speech_lock:
-        # stop_speech() clears this map under the same lock. A late write from
-        # the prefetch thread used to setdefault a new entry for the scope
-        # that had just been cancelled.
-        if cancel is not _speech_cancel:
-            return
-        _reply_misaki_ready.setdefault(cancel, {})[lang] = ready
-
-
-def _cached_misaki_ready(cancel: SendCancellation, lang: str) -> bool | None:
-    with _speech_lock:
-        table = _reply_misaki_ready.get(cancel)
-        if table is None:
-            return None
-        return table.get(lang)
 
 
 def _prepare_kokoro_misaki(
@@ -752,16 +784,18 @@ def _prepare_kokoro_misaki(
 ) -> bool | None:
     """Install Misaki at most once per G2P language for this reply."""
     lang = kokoro_g2p_lang(text, voice)
-    cached = _cached_misaki_ready(cancel, lang)
+    cached = _current.misaki_ready(lang) if _current is not None else None
     if cached is not None:
         return cached
     if not kokoro_lang_uses_misaki(lang):
-        _remember_misaki_ready(cancel, lang, True)
+        if _current is not None:
+            _current.remember_misaki(lang, True)
         return True
     if py_exe is None:
         py_exe = resolve_kokoro_python()
     if not py_exe:
-        _remember_misaki_ready(cancel, lang, False)
+        if _current is not None:
+            _current.remember_misaki(lang, False)
         return False
 
     def _run_misaki_cmd(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str] | None:
@@ -785,7 +819,8 @@ def _prepare_kokoro_misaki(
     if ready is None or cancel.is_cancelled():
         return None
     _clear_tts_status(on_status)
-    _remember_misaki_ready(cancel, lang, bool(ready))
+    if _current is not None:
+        _current.remember_misaki(lang, bool(ready))
     return bool(ready)
 
 
@@ -1016,6 +1051,7 @@ def _kokoro_audio_file(
         return None
     model_path, voices_path = resolve_kokoro_model_files(
         on_status=on_status,
+        utt=_current,
         cancel=cancel,
     )
     if os.path.isfile(model_path) and os.path.isfile(voices_path):
@@ -1058,6 +1094,7 @@ def _piper_audio_file(
     model_file = resolve_piper_model_file(
         voice,
         on_status=on_status,
+        utt=_current,
         cancel=cancel,
     )
     if not model_file or not os.path.isfile(model_file):
@@ -1162,7 +1199,6 @@ def _play_ready_queue(
     speed: float,
 ) -> None:
     """Play queued clips in order, then drop anything still buffered."""
-    global _ready_queue
     try:
         while True:
             clip = ready.get(cancel)
@@ -1178,8 +1214,8 @@ def _play_ready_queue(
         for path in ready.drain():
             _unlink_quiet(path)
         with _speech_lock:
-            if _ready_queue is ready:
-                _ready_queue = None
+            if _current is not None and _current.ready is ready:
+                _current.ready = None
 
 
 def _prefetch(
@@ -1219,12 +1255,12 @@ def _run_ready_playback(
     thread_name: str,
 ) -> None:
     """Register the queue, fill it on a background thread, play it on this thread."""
-    global _ready_queue
     ready = _ReadyQueue()
     with _speech_lock:
         if cancel.is_cancelled():
             return
-        _ready_queue = ready
+        if _current is not None:
+            _current.ready = ready
 
     def _run() -> None:
         try:
@@ -1371,7 +1407,8 @@ def speak_text_async(
             log.debug("speak_text_async: sentence split produced nothing to say")
             return
 
-    cancel = _begin_utterance()
+    utt = _begin_utterance()
+    cancel = utt.scope
     log.info(
         "speak_text_async: queued speech for %d chars (%s)",
         len(clean),
@@ -1442,7 +1479,7 @@ def speak_text_async(
         except Exception as exc:
             log.exception("speak_text_async worker error: %s", exc)
         finally:
-            if _end_utterance(cancel) and on_complete:
+            if _end_utterance(utt) and on_complete:
                 best_effort(on_complete, "on_complete callback error")
 
     try:
@@ -1453,5 +1490,5 @@ def speak_text_async(
         # thread). The worker finally never runs, so is_speaking() stayed true
         # and the sidebar Stop control stayed enabled.
         log.exception("speak_text_async: failed to start speech worker")
-        _end_utterance(cancel)
+        _end_utterance(utt)
         raise

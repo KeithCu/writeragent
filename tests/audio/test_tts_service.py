@@ -1027,7 +1027,7 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path, max_clips)
         thread.join(1)
         assert not thread.is_alive()
         assert list(tmp_path.glob("*.wav")) == []
-        assert tts._ready_queue is None
+        assert tts._current is None or tts._current.ready is None
     finally:
         tts.stop_speech()
 
@@ -1069,13 +1069,15 @@ def test_kokoro_warm_exception_allows_fallback(tmp_path):
 def test_remember_misaki_ready_ignores_stale_generation():
     import plugin.audio.tts_service as tts
 
-    cancel = tts._begin_utterance()
+    utt = tts._begin_utterance()
     try:
-        tts._remember_misaki_ready(cancel, "ja", True)
-        assert tts._cached_misaki_ready(cancel, "ja") is True
+        utt.remember_misaki("ja", True)
+        assert utt.misaki_ready("ja") is True
         tts.stop_speech()
-        tts._remember_misaki_ready(cancel, "ja", True)
-        assert cancel not in tts._reply_misaki_ready
+        utt.remember_misaki("ja", True)
+        assert "ja" in utt.misaki
+        utt.remember_misaki("es", True)
+        assert utt.misaki_ready("es") is None
     finally:
         tts.stop_speech()
 
@@ -1452,16 +1454,17 @@ def test_spd_say_killed_by_stop_does_not_warn(caplog: pytest.LogCaptureFixture) 
 def test_stop_speech_reaps_inline_when_cleanup_thread_fails(tmp_path: Any) -> None:
     import plugin.audio.tts_service as tts
 
+    utt = tts._begin_utterance()
     clip = tmp_path / "clip.wav"
     clip.write_bytes(b"RIFF")
     clip_str = str(clip)
-    tts._tracked_temps.add(clip_str)
+    utt.temps.add(clip_str)
     patcher = patch.object(tts, "run_in_background", side_effect=RuntimeError("no thread"))
     patcher.start()
     try:
         tts.stop_speech()
         assert not clip.exists()
-        assert clip_str not in tts._tracked_temps
+        assert clip_str not in utt.temps
     finally:
         patcher.stop()
         tts.stop_speech()
@@ -1472,16 +1475,15 @@ def test_notify_kokoro_g2p_fallback():
     from plugin.audio.tts_service import (
         _begin_utterance,
         _notify_kokoro_g2p_fallback,
-        _remember_misaki_ready,
     )
 
     messages: list[str] = []
-    scope = _begin_utterance()
+    utt = _begin_utterance()
 
     # warning with voice substitute, misaki_ready=False, g2p="misaki" -> list stays empty
     _notify_kokoro_g2p_fallback(
         "Kokoro voice 'jf_x' is not in /v; using af_sky",
-        scope,
+        utt.scope,
         "ja",
         messages.append,
         g2p="misaki",
@@ -1490,15 +1492,15 @@ def test_notify_kokoro_g2p_fallback():
 
     # warning with G2P_FAILED_MARK, misaki_ready=False, g2p="espeak" -> English-phonemes line
     warn = g2p_fallback_warning("ja", RuntimeError("boom"))
-    _notify_kokoro_g2p_fallback(warn, scope, "ja", messages.append, g2p="espeak")
+    _notify_kokoro_g2p_fallback(warn, utt.scope, "ja", messages.append, g2p="espeak")
     assert len(messages) == 1
     assert "Kokoro used English phonemes for non-English voice" in messages[0]
     assert "Misaki not found" not in messages[0]
 
     # warning="", misaki_ready=False, g2p=None -> "Misaki not found" line
     messages.clear()
-    _remember_misaki_ready(scope, "ja", False)
-    _notify_kokoro_g2p_fallback("", scope, "ja", messages.append, g2p=None)
+    utt.remember_misaki("ja", False)
+    _notify_kokoro_g2p_fallback("", utt.scope, "ja", messages.append, g2p=None)
     assert len(messages) == 1
     assert "Misaki not found; Kokoro used English phonemes" in messages[0]
 
@@ -1579,20 +1581,20 @@ def test_new_speak_supersedes_old_one():
     """Calling _begin_utterance() cancels the previous utterance's scope and activates the new one."""
     import plugin.audio.tts_service as tts
 
-    scope1 = tts._begin_utterance()
-    assert not scope1.is_cancelled()
-    assert tts._speech_cancel is scope1
+    utt1 = tts._begin_utterance()
+    assert not utt1.scope.is_cancelled()
+    assert tts._current is utt1
     assert tts.is_speaking() is True
 
-    scope2 = tts._begin_utterance()
-    assert scope1.is_cancelled()
-    assert not scope2.is_cancelled()
-    assert tts._speech_cancel is scope2
+    utt2 = tts._begin_utterance()
+    assert utt1.scope.is_cancelled()
+    assert not utt2.scope.is_cancelled()
+    assert tts._current is utt2
     assert tts.is_speaking() is True
 
     tts.stop_speech()
-    assert scope2.is_cancelled()
-    assert tts._speech_cancel is None
+    assert utt2.scope.is_cancelled()
+    assert tts._current is None
     assert tts.is_speaking() is False
 
 
@@ -1601,21 +1603,21 @@ def test_capped_ready_queue_put_wakes_on_stop():
     import plugin.audio.tts_service as tts
     from plugin.audio.tts_service import _ReadyClip, _ReadyQueue
 
-    scope = tts._begin_utterance()
+    utt = tts._begin_utterance()
     ready = _ReadyQueue()
     with tts._speech_lock:
-        tts._ready_queue = ready
+        utt.ready = ready
 
     try:
         # Fill queue to cap
         for idx in range(tts.SPEECH_READY_MAX_CLIPS):
-            assert ready.put(_ReadyClip(None, f"clip{idx}", 10), scope) is True
+            assert ready.put(_ReadyClip(None, f"clip{idx}", 10), utt.scope) is True
 
         put_result: list[bool] = []
         put_done = threading.Event()
 
         def block_in_put():
-            res = ready.put(_ReadyClip(None, "overflow", 10), scope)
+            res = ready.put(_ReadyClip(None, "overflow", 10), utt.scope)
             put_result.append(res)
             put_done.set()
 

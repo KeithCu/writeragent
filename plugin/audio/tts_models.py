@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Callable
 from plugin.framework.errors import best_effort
 
 if TYPE_CHECKING:
+    from plugin.audio.tts_service import Utterance
     from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.audio.model_cache_paths import (
@@ -73,39 +74,6 @@ class _DownloadSlot:
 
 _download_slots: dict[str, _DownloadSlot] = {}
 _download_slots_lock = threading.Lock()
-
-# cancel -> set of failed model download keys.
-# Remembered per utterance scope so offline/failed downloads do not retry per sentence.
-_failed_model_downloads: dict[SendCancellation, set[str]] = {}
-
-
-def remember_download_failed(cancel: SendCancellation | None, key: str) -> None:
-    """Record a failed download key for the current speech scope."""
-    if cancel is None:
-        return
-    from plugin.audio.tts_service import _speech_cancel, _speech_lock
-
-    with _speech_lock:
-        if cancel is not _speech_cancel:
-            return
-        _failed_model_downloads.setdefault(cancel, set()).add(key)
-
-
-def is_download_failed(cancel: SendCancellation | None, key: str) -> bool:
-    """True if key already failed to download during this speech scope."""
-    if cancel is None:
-        return False
-    from plugin.audio.tts_service import _speech_lock
-
-    with _speech_lock:
-        return key in _failed_model_downloads.get(cancel, set())
-
-
-def clear_scope_downloads(cancel: SendCancellation) -> None:
-    """Drop remembered download failures for one utterance; the caller must hold
-    tts_service._speech_lock; _swap_scope_locked (via stop_speech and _begin_utterance)
-    and _end_utterance do; the lock is not taken here because it is not reentrant."""
-    _failed_model_downloads.pop(cancel, None)
 
 
 def notify_tts_status(
@@ -417,9 +385,12 @@ def _download_to_inner(
 
 def resolve_kokoro_model_files(
     on_status: Callable[[str], None] | None = None,
+    utt: Utterance | None = None,
     cancel: SendCancellation | None = None,
 ) -> tuple[str, str]:
     """Resolve paths to Kokoro ONNX model and voices file, downloading if missing."""
+    if cancel is None and utt is not None:
+        cancel = utt.scope
     model_path, voices_path = resolve_kokoro_model_paths()
     model_s = os.fspath(model_path)
     voices_s = os.fspath(voices_path)
@@ -440,7 +411,7 @@ def resolve_kokoro_model_files(
     if model_ok and voices_ok:
         return model_s, voices_s
 
-    if is_download_failed(cancel, "kokoro") or (cancel is not None and cancel.is_cancelled()):
+    if (utt is not None and utt.download_failed("kokoro")) or (cancel is not None and cancel.is_cancelled()):
         return model_s, voices_s
 
     needs_voices = (not voices_ok and not is_env_v) or kokoro_should_download(voices_path, "KOKORO_VOICES_PATH")
@@ -452,7 +423,8 @@ def resolve_kokoro_model_files(
     needed_disk = (KOKORO_VOICES_MIN_BYTES if needs_voices else 0) + (KOKORO_ONNX_MIN_BYTES if needs_model else 0)
     target_dest = voices_s if needs_voices else model_s
     if needed_disk > 1 and not _check_disk_space(target_dest, needed_disk):
-        remember_download_failed(cancel, "kokoro")
+        if utt is not None:
+            utt.note_download_failed("kokoro")
         notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
         _clear_tts_status(on_status)
         return model_s, voices_s
@@ -497,7 +469,8 @@ def resolve_kokoro_model_files(
             failed = True
 
     if failed:
-        remember_download_failed(cancel, "kokoro")
+        if utt is not None:
+            utt.note_download_failed("kokoro")
         notify_tts_status(_("Couldn't download Kokoro; using OS speech"), on_status, progress=True)
         _clear_tts_status(on_status)
     else:
@@ -583,9 +556,12 @@ def _download_piper_pair(
 def resolve_piper_model_file(
     voice: str,
     on_status: Callable[[str], None] | None = None,
+    utt: Utterance | None = None,
     cancel: SendCancellation | None = None,
 ) -> str | None:
     """Resolve path to Piper ONNX model file, downloading on demand if missing."""
+    if cancel is None and utt is not None:
+        cancel = utt.scope
     from plugin.audio.tts_voices import clean_voice_name
 
     clean_v = clean_voice_name(voice)
@@ -613,9 +589,10 @@ def resolve_piper_model_file(
     download_failed = False
     short = voice_short_name(clean_v)
 
-    if clean_v in PIPER_VOICE_MODELS and not is_download_failed(cancel, clean_v):
+    if clean_v in PIPER_VOICE_MODELS and not (utt is not None and utt.download_failed(clean_v)):
         if not _check_disk_space(voice_s, PIPER_ONNX_MIN_BYTES + PIPER_JSON_MIN_BYTES):
-            remember_download_failed(cancel, clean_v)
+            if utt is not None:
+                utt.note_download_failed(clean_v)
             notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
             _clear_tts_status(on_status)
             return None
@@ -631,7 +608,8 @@ def resolve_piper_model_file(
             return None
 
         download_failed = True
-        remember_download_failed(cancel, clean_v)
+        if utt is not None:
+            utt.note_download_failed(clean_v)
         log.warning("Could not auto-download Piper voice '%s'", clean_v)
 
     default_voice_file, default_json = resolve_piper_voice_paths(PIPER_FALLBACK_VOICE)
@@ -651,11 +629,12 @@ def resolve_piper_model_file(
             _clear_tts_status(on_status)
         return default_voice_s
 
-    if not is_download_failed(cancel, PIPER_FALLBACK_VOICE):
+    if not (utt is not None and utt.download_failed(PIPER_FALLBACK_VOICE)):
         if cancel is not None and cancel.is_cancelled():
             return None
         if not _check_disk_space(default_voice_s, PIPER_ONNX_MIN_BYTES + PIPER_JSON_MIN_BYTES):
-            remember_download_failed(cancel, PIPER_FALLBACK_VOICE)
+            if utt is not None:
+                utt.note_download_failed(PIPER_FALLBACK_VOICE)
             notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
             _clear_tts_status(on_status)
             return None
@@ -675,7 +654,8 @@ def resolve_piper_model_file(
             _clear_tts_status(on_status)
             return None
 
-        remember_download_failed(cancel, PIPER_FALLBACK_VOICE)
+        if utt is not None:
+            utt.note_download_failed(PIPER_FALLBACK_VOICE)
         log.warning("Could not auto-download Piper default voice model")
 
     failed_name = short if download_failed else voice_short_name(PIPER_FALLBACK_VOICE)
