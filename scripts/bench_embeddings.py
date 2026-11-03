@@ -22,10 +22,10 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
+from plugin.framework.subprocess_env import scrub_subprocess_env  # noqa: E402
 from plugin.scripting.sandbox import (  # noqa: E402
     resolve_libreoffice_python,
     resolve_venv_python,
-    scrub_subprocess_env,
 )
 from plugin.scripting.venv_worker import PythonWorkerManager  # noqa: E402
 

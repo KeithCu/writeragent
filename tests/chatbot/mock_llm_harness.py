@@ -218,7 +218,7 @@ def _iter_office_docs(ctx: Any) -> list[Any]:
 
 
 def find_open_calc(ctx: Any) -> Any:
-    from plugin.doc.doc_type import is_calc
+    from plugin.framework.doc_type import is_calc
 
     for doc in _iter_office_docs(ctx):
         try:
@@ -230,7 +230,7 @@ def find_open_calc(ctx: Any) -> Any:
 
 
 def find_open_writer(ctx: Any) -> Any:
-    from plugin.doc.doc_type import is_writer
+    from plugin.framework.doc_type import is_writer
 
     for doc in _iter_office_docs(ctx):
         try:

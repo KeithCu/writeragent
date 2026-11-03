@@ -3079,7 +3079,7 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     assert (vision / "vision_common.py").is_file()
     assert (vision / "__init__.py").is_file()
     doc = app / "plugin" / "doc"
-    assert (doc / "doc_type.py").is_file()
+    assert (framework / "doc_type.py").is_file()
     assert (doc / "__init__.py").is_file()
     assert not (doc / "common_module.py").exists()
 

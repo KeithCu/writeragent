@@ -70,6 +70,8 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/worker_pool.py",
     # harper.py imports ManagedSubprocess at load; the LibreHarper import-closure test requires this file.
     "plugin/framework/managed_subprocess.py",
+    # managed_subprocess.py imports scrub_subprocess_env at load time.
+    "plugin/framework/subprocess_env.py",
     "plugin/framework/async_drain_guard.py",
     "plugin/framework/queue_executor.py",
     "plugin/framework/send_cancellation.py",

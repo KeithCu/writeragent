@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 from weakref import WeakKeyDictionary
 
-from plugin.doc.doc_type import (
+from plugin.framework.doc_type import (
     DOCUMENT_SERVICES,
     DocumentType,
     doc_type_label_for_enum,

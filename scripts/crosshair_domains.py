@@ -577,13 +577,15 @@ def _patch_payload_codec(module: Any) -> None:
     )
 
 
-def _patch_sandbox(module: Any) -> None:
+def _patch_subprocess_env(module: Any) -> None:
     module._DEAL_SCRUB_DICT = 1
     module._DEAL_SCRUB_KEY = 2
     module._DEAL_SCRUB_VAL = 4
-    module._DEAL_BASENAME_LEN = 8
-    module._deal_path_ok = lambda path: isinstance(path, str) and len(path) <= 32
     module._deal_scrub_env_ok = _stub_deal_scrub_env_ok_crosshair
+
+
+def _patch_sandbox(module: Any) -> None:
+    module._DEAL_BASENAME_LEN = 8
 
 
 def _patch_sandbox_cache(module: Any) -> None:
@@ -658,6 +660,7 @@ _PATCHERS: dict[str, Callable[[Any], None]] = {
     "plugin.scripting.helper_domain": _patch_helper_domain,
     "plugin.scripting.payload_codec": _patch_payload_codec,
     "plugin.scripting.sandbox": _patch_sandbox,
+    "plugin.framework.subprocess_env": _patch_subprocess_env,
     "plugin.scripting.sandbox_cache": _patch_sandbox_cache,
     "plugin.writer.word_diff_split": _patch_word_diff_split,
     "plugin.embeddings.embeddings_split": _patch_embeddings_split,

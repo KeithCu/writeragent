@@ -21,6 +21,7 @@ import pytest
 import threading
 import time
 import types
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
@@ -1879,17 +1880,17 @@ def test_doc_type_probe_on_main_thread_only() -> None:
     doc = MagicMock()
 
     with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_schemas(doc=doc)
         assert mock_probe.call_count == 1
 
     with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_schemas(doc=doc, doc_type="writer")
         mock_probe.assert_not_called()
 
     with patch("plugin.framework.tool.on_main_thread", return_value=False), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_tools(doc=doc)
         mock_probe.assert_not_called()
         reg.get_schemas(doc=doc)
@@ -1901,7 +1902,7 @@ def test_get_schemas_unknown_protocol_does_not_probe() -> None:
     doc = MagicMock()
 
     with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe, \
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe, \
          patch("plugin.framework.tool.ToolRegistry.get_tools") as mock_get_tools:
         with pytest.raises(ValueError, match="Unknown protocol: xml"):
             reg.get_schemas("xml", doc=doc)
@@ -1956,12 +1957,20 @@ def test_specialized_domain_flag() -> None:
 
 
 def test_get_tools_signature_and_ctx() -> None:
+    from tests.tool_registry_filters import append_production_tool_registry_filters
+
     reg = ToolRegistry(MagicMock())
     with pytest.raises(TypeError):
         reg.get_tools(doc_typo="writer")  # type: ignore[call-arg]
 
+    append_production_tool_registry_filters(reg)
     sentinel_ctx = object()
-    with patch("plugin.vision.vision_availability.filter_vision_specialized_tools", side_effect=lambda tools, ctx: tools) as mock_filter:
-        reg.get_tools(ctx=sentinel_ctx)
-        mock_filter.assert_called_once()
-        assert mock_filter.call_args[0][1] is sentinel_ctx
+    seen: list[Any] = []
+
+    def _track(tools: list[Any], ctx: Any = None) -> list[Any]:
+        seen.append(ctx)
+        return tools
+
+    reg.tool_filters = [_track]
+    reg.get_tools(ctx=sentinel_ctx)
+    assert seen == [sentinel_ctx]

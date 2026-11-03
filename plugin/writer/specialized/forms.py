@@ -29,7 +29,7 @@ from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from ..specialized_base import ToolWriterFormBase, enum_param, index_error
-from plugin.doc.doc_type import is_calc, is_draw
+from plugin.framework.doc_type import is_calc, is_draw
 from plugin.doc.text_helpers import clone_text_range
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state, control_snapshot, readable_control_type

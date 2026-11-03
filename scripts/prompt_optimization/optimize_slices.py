@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from eval_prompts import (
+    ensure_eval_prompt_hooks,
     get_eval_system_prompt,
     replace_prompt_slice,
 )
@@ -103,6 +104,7 @@ def _tool_baseline(tool_name: str, param_name: str = "") -> str:
 
 def get_slice_baseline(name: str, *, prompt_task_id: str = "") -> str:
     """Current production text for this slice (MIPROv2 seed / length baseline)."""
+    ensure_eval_prompt_hooks()
     spec = get_slice_spec(name)
     if spec.kind == "prompt_fragment":
         return _prompt_constant(spec.prompt_attr)
@@ -135,6 +137,7 @@ def apply_named_slice(
     Prompt assembly stays ``get_eval_system_prompt`` (same as run_eval_multi).
     Tool slices leave the prompt alone and only rewrite advertised schemas.
     """
+    ensure_eval_prompt_hooks()
     spec = get_slice_spec(slice_name)
     if spec.kind == "full_prompt":
         return slice_text, None

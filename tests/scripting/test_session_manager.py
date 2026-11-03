@@ -23,7 +23,7 @@ def test_session_manager_module_avoids_document_helpers_and_dialogs() -> None:
     assert "plugin.calc.analyzer" not in mods
     assert "plugin.chatbot.dialogs" not in mods
     assert "plugin.scripting.venv_worker" not in mods
-    assert "plugin.doc.doc_type" in mods
+    assert "plugin.framework.doc_type" in mods
     assert "plugin.doc.udprops" in mods
 
 

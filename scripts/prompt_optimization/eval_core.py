@@ -646,7 +646,9 @@ def run_eval_on_examples_llm(
       description-density knobs (see ``eval_catalog``). Defaults keep the
       full production catalog.
     """
-    from eval_prompts import get_eval_system_prompt
+    from eval_prompts import ensure_eval_prompt_hooks, get_eval_system_prompt
+
+    ensure_eval_prompt_hooks()
 
     from llm_chat_eval import run_llm_chat_eval
 

@@ -332,7 +332,8 @@ def test_append_wav_missing_file_returns_false():
 
 def test_spawn_recording_process_uses_managed_text_pipes(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
-    from plugin.scripting.sandbox import scrub_subprocess_env, wrap_command_for_sandbox
+    from plugin.framework.subprocess_env import scrub_subprocess_env
+    from plugin.scripting.sandbox import wrap_command_for_sandbox
     from plugin.scripting.audio_recorder_service import (
         _AUDIO_RECORD_MAIN,
         spawn_recording_process,

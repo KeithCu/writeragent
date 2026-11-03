@@ -627,7 +627,7 @@ def test_rpc_named_librepy_fallback_uses_exchange_tool_call():
         # COMPUTE_WORKER is set by importing compute_service.formula_worker;
         # force it off so this test does not depend on what ran earlier.
         patch.dict("os.environ", {"WRITERAGENT_IS_WORKER": "1", "WRITERAGENT_COMPUTE_WORKER": "0"}),
-        patch("plugin.scripting.ipc.exchange_tool_call", return_value={"body": "x"}) as mock_exchange,
+        patch("plugin.framework.ipc.exchange_tool_call", return_value={"body": "x"}) as mock_exchange,
     ):
         result = call_host_tool("get_named_python_script", name="Hello", missing=None)
 
@@ -640,7 +640,7 @@ def test_rpc_named_fails_closed_in_compute_worker():
 
     with (
         patch.dict("os.environ", {"WRITERAGENT_COMPUTE_WORKER": "1"}),
-        patch("plugin.scripting.ipc.exchange_tool_call") as mock_exchange,
+        patch("plugin.framework.ipc.exchange_tool_call") as mock_exchange,
     ):
         with pytest.raises(RuntimeError, match="compute service"):
             call_host_tool("get_named_python_script", name="Hello")

@@ -13,7 +13,7 @@ import logging
 from collections import Counter
 from typing import Any
 
-from plugin.doc.doc_type import is_writer
+from plugin.framework.doc_type import is_writer
 from plugin.doc.text_helpers import (
     build_heading_tree,
     get_string_without_tracked_deletions,

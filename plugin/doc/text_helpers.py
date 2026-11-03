@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 import uno
 
-from plugin.doc import doc_type as _doc_type
+from plugin.framework import doc_type as _doc_type
 from plugin.framework.errors import (
     DocumentDisposedError,
     UnoObjectError,

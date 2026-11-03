@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Iterator
 
-from plugin.doc.doc_type import is_impress
+from plugin.framework.doc_type import is_impress
 from plugin.framework.errors import WriterAgentException, is_disposed_exception, uno_probe, uno_read
 
 if TYPE_CHECKING:

@@ -128,11 +128,11 @@ def test_direct_affine_access_from_run_in_background_fails(uno_thread_safety):
 
 def test_guarded_getter_from_background_fails_with_marshal_fixture(uno_thread_safety, monkeypatch):
     """doc_type entrypoints call assert_main_thread even on mocks."""
-    from plugin.doc import doc_type
+    from plugin.framework import doc_type
     from plugin.framework.errors import UnoObjectError
 
     # What was wrong (GHA 34423268523, Windows xdist gw2): the worker did
-    # ``from plugin.doc import doc_type`` after ``run_in_background`` started.
+    # ``from plugin.framework import doc_type`` after ``run_in_background`` started.
     # ``join(timeout=3)`` returned with ``err`` still None; captured log had
     # only worker_pool "Starting task" — no completion, no violation. How:
     # first import of ``plugin.doc`` (package ``__init__`` → CommonModule) ran

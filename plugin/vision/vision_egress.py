@@ -192,7 +192,7 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
 
 def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> None:
     """Insert vision output into Writer or Calc."""
-    from plugin.doc.doc_type import is_calc, is_writer
+    from plugin.framework.doc_type import is_calc, is_writer
 
     if is_writer(doc):
         insert_vision_result_into_writer(ctx, doc, result, params=params)

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.doc.doc_type import is_calc, is_draw, is_writer
+from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler
@@ -102,8 +102,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         pos = add_item(popup, _("Settings"), "main.settings", pos, menu_icon_filename("gear", ctx=ctx))
         pos = add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos)
 
-        from plugin.framework.main_shared import tests_bundled
-        from plugin.main import _get_menu_icon, get_menu_text
+        from plugin.main import _get_menu_icon, get_menu_text, tests_bundled
 
         mcp_toggle_text = best_effort(lambda: get_menu_text("mcp.toggle_server"), "mcp toggle menu text") or _("Toggle MCP Server")
         pos = add_item(popup, mcp_toggle_text, "mcp.toggle_server", pos)

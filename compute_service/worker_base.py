@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 from compute_service.worker_stdio import COMPUTE_THREAD_ENV_VARS, RestrictedUnpickler, configure_compute_worker_env, run_compute_worker, run_worker_stdio_loop, set_pdeathsig, unpack_restricted_pickle_frame
 from plugin.framework.process_worker import MIN_REQUEST_SEC, BaseProcessWorker, Child, Deadline, error_dict
 from plugin.framework.worker_pool import run_in_background
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES
 
 
 def install_image_pkgs(project_root: str) -> None:

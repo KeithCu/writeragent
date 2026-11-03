@@ -626,7 +626,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
     """
     if not url or not str(url).strip():
         return (None, None)
-    from plugin.doc import doc_type as _doc_type
+    from plugin.framework import doc_type as _doc_type
 
     target = _doc_identity_url(url)
     try:

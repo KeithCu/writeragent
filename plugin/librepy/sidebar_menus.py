@@ -14,7 +14,7 @@ import inspect
 import logging
 from typing import Any, Callable
 
-from plugin.doc.doc_type import is_calc, is_writer
+from plugin.framework.doc_type import is_calc, is_writer
 from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler

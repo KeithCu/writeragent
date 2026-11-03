@@ -35,10 +35,10 @@ def test_rewrite_import_from_exclusive():
     out = rewrite_import_from(
         src,
         "plugin.doc.document_helpers",
-        "plugin.doc.doc_type",
+        "plugin.framework.doc_type",
         frozenset({"is_calc", "is_writer", "is_draw"}),
     )
-    assert out == "from plugin.doc.doc_type import is_calc, is_writer\n"
+    assert out == "from plugin.framework.doc_type import is_calc, is_writer\n"
 
 
 def test_rewrite_import_from_mixed_split():
@@ -49,11 +49,11 @@ def test_rewrite_import_from_mixed_split():
     out = rewrite_import_from(
         src,
         "plugin.doc.document_helpers",
-        "plugin.doc.doc_type",
+        "plugin.framework.doc_type",
         frozenset({"is_calc", "is_writer"}),
     )
     assert out is not None
-    assert "from plugin.doc.doc_type import is_calc, is_writer\n" in out
+    assert "from plugin.framework.doc_type import is_calc, is_writer\n" in out
     assert "from plugin.doc.document_helpers import get_document_property\n" in out
     assert "x = 1\n" in out
 
@@ -63,10 +63,10 @@ def test_rewrite_import_from_preserves_alias():
     out = rewrite_import_from(
         src,
         "plugin.doc.document_helpers",
-        "plugin.doc.doc_type",
+        "plugin.framework.doc_type",
         frozenset({"is_calc"}),
     )
-    assert out == "from plugin.doc.doc_type import is_calc as _is_calc\n"
+    assert out == "from plugin.framework.doc_type import is_calc as _is_calc\n"
 
 
 def test_rewrite_import_from_noop_when_no_matching_names():
@@ -75,7 +75,7 @@ def test_rewrite_import_from_noop_when_no_matching_names():
         rewrite_import_from(
             src,
             "plugin.doc.document_helpers",
-            "plugin.doc.doc_type",
+            "plugin.framework.doc_type",
             frozenset({"is_calc"}),
         )
         is None
@@ -87,7 +87,7 @@ def test_rewrite_import_from_string_literal():
     out = rewrite_import_from(
         src,
         "plugin.doc.document_helpers",
-        "plugin.doc.doc_type",
+        "plugin.framework.doc_type",
         frozenset({"is_calc", "is_writer", "is_draw"}),
     )
-    assert out == '    "from plugin.doc.doc_type import is_calc, is_writer, is_draw",\n'
+    assert out == '    "from plugin.framework.doc_type import is_calc, is_writer, is_draw",\n'

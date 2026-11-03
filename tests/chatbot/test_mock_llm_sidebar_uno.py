@@ -35,7 +35,7 @@ WELCOME_BODY = "Welcome to WriterAgent."
 
 def _ensure_writer_doc(ctx) -> None:
     from plugin.chatbot.sidebar_test_hooks import current_component, desktop_from_ctx
-    from plugin.doc.doc_type import is_writer
+    from plugin.framework.doc_type import is_writer
 
     doc = current_component(ctx)
     if doc is not None and is_writer(doc):

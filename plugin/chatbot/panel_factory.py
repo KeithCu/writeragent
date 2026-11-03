@@ -348,7 +348,7 @@ def header_third_button_kind(model: Any) -> str:
     special-cased Calc. The hamburger already shows Insert LaTeX for Writer
     only, so other documents hide the button instead of opening that dialog.
     """
-    from plugin.doc.doc_type import is_calc, is_writer
+    from plugin.framework.doc_type import is_calc, is_writer
 
     if is_calc(model):
         return "python_cell"

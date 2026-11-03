@@ -6,7 +6,7 @@
 
 The child is a ``ManagedSubprocess`` plus the Pickle 5 handshake in
 ``_KokoroWorker``. The 20 second ready timeout covers process start and
-the import of ``plugin.scripting.ipc`` only. ``run_kokoro_stdio_loop``
+the import of ``plugin.framework.ipc`` only. ``run_kokoro_stdio_loop``
 writes ``{"status": "ready"}`` before ``_get_kokoro`` imports ``kokoro_onnx``;
 the model load is the first job's timeout. ``cancel_inflight`` signals on
 the caller thread and reaps with ``worker.kill`` on a background thread;
@@ -43,13 +43,14 @@ from plugin.framework.errors import best_effort
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.process_worker import Deadline, error_dict
 from plugin.framework.worker_pool import run_in_background
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     IpcPartialFrameTimeout,
     pack_pickle_frame,
     read_pickle_frame,
     write_packed_frame_with_timeout,
 )
-from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env
+from plugin.framework.subprocess_env import scrub_subprocess_env
+from plugin.scripting.sandbox import resolve_venv_python
 
 log = logging.getLogger(__name__)
 

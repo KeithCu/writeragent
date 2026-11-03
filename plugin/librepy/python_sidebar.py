@@ -20,7 +20,7 @@ from plugin.framework.main_shared import get_action_handler
 from plugin.framework.queue_executor import post_to_main_thread
 from plugin.framework.thread_guard import guard_uno
 from plugin.framework.uno_listeners import BaseActionListener, BaseActivationEventListener, BaseItemListener, BaseWindowListener
-from plugin.doc.doc_type import is_calc
+from plugin.framework.doc_type import is_calc
 from plugin.scripting.sandbox import resolve_venv_python
 from plugin.librepy.sidebar_menus import HEADER_BUTTON_IDS, invoke_action_handler, wire_sidebar_header_buttons
 from plugin.scripting.session_manager import existing_calc_session_id, python_session_mode

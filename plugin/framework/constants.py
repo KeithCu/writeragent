@@ -164,8 +164,14 @@ AUTO_IMPORTS: dict[str, str] = {
     "itertools": "import itertools",
     "json": "import json",
     "csv": "import csv",
-    "plugin.scripting.calc_functions": "import plugin.scripting.calc_functions as calc",
 }
+
+
+def auto_imports() -> dict[str, str]:
+    """Sandbox prepends plus Calc ``calc_functions`` (WriterAgent-only)."""
+    merged = dict(AUTO_IMPORTS)
+    merged["plugin.scripting.calc_functions"] = "import plugin.scripting.calc_functions as calc"
+    return merged
 
 
 # -------------------------------------------------

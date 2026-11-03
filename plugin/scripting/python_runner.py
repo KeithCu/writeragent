@@ -31,7 +31,7 @@ from plugin.scripting.venv_worker import run_code_in_user_venv
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.python_runner_ui import show_python_input_dialog
 from plugin.writer.format import insert_content_at_position
-from plugin.doc.doc_type import is_calc, is_writer, is_draw
+from plugin.framework.doc_type import is_calc, is_writer, is_draw
 from plugin.calc.address_utils import index_to_column
 from plugin.scripting.payload_codec import is_dataframe_payload
 from plugin.scripting.document_scripts import (

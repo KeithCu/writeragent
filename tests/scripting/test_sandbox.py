@@ -442,7 +442,7 @@ def test_wrap_does_not_mutate_original():
 def test_scrub_env_accepts_long_values() -> None:
     """PATH and workspace paths are longer than the old deal caps."""
     from plugin.framework.deal_shim import DEAL_MAX_ARGV
-    from plugin.scripting.sandbox import scrub_subprocess_env
+    from plugin.framework.subprocess_env import scrub_subprocess_env
 
     env = scrub_subprocess_env({"PATH": "p" * (DEAL_MAX_ARGV + 1), "HOME": "/tmp"})
     assert env["PATH"] == "p" * (DEAL_MAX_ARGV + 1)
@@ -547,7 +547,7 @@ def test_import_authorized_ignores_bare_star_and_allows_future_and_collections_a
 
 def test_env_name_is_credential_matches_suffixes_and_dsn() -> None:
     """Tokens ending with blocked words, DATABASE_URL, and *_DSN must be detected while keeping KEYBOARD/XAUTHORITY."""
-    from plugin.scripting.sandbox import _env_name_is_credential
+    from plugin.framework.subprocess_env import _env_name_is_credential
 
     assert _env_name_is_credential("OPENAI_APIKEY") is True
     assert _env_name_is_credential("GITHUB_APITOKEN") is True
@@ -590,7 +590,7 @@ def test_env_name_is_credential_matches_suffixes_and_dsn() -> None:
 
 
 def test_scrub_drops_dyld_and_python_executable() -> None:
-    from plugin.scripting.sandbox import _BLOCKED_ENV_EXACT, scrub_subprocess_env
+    from plugin.framework.subprocess_env import _BLOCKED_ENV_EXACT, scrub_subprocess_env
 
     for var in (
         "DYLD_LIBRARY_PATH",
@@ -626,7 +626,7 @@ def test_scrub_drops_dyld_and_python_executable() -> None:
 
 def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
     """PYTHONSTARTUP, PYTHONUSERBASE, PYTHONBREAKPOINT, PYTHONINSPECT are blocked, and empty dict gets overrides."""
-    from plugin.scripting.sandbox import _BLOCKED_ENV_EXACT, scrub_subprocess_env
+    from plugin.framework.subprocess_env import _BLOCKED_ENV_EXACT, scrub_subprocess_env
 
     for var in ("PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONBREAKPOINT", "PYTHONINSPECT", "DATABASE_URL", "WRITERAGENT_COMPUTE_WORKER"):
         assert var in _BLOCKED_ENV_EXACT
@@ -666,7 +666,7 @@ def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
 
 
 def test_scrub_subprocess_env_keep() -> None:
-    from plugin.scripting.sandbox import scrub_subprocess_env
+    from plugin.framework.subprocess_env import scrub_subprocess_env
 
     base = {
         "LD_LIBRARY_PATH": "/custom/lib",
