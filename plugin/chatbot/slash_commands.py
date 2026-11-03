@@ -629,8 +629,13 @@ def run_slash_compact_sync(
     session: Any,
     ctx: Any,
     cancel: Any,
+    tools: list[Any],
 ) -> str:
-    """Run ``compact_session(force=True)`` off-thread; return one status line."""
+    """Run ``compact_session(force=True)`` off-thread; return one status line.
+
+    ``tools`` must be resolved on the UI thread (see ``run_slash_compact``); this
+    worker must not touch UNO or the document.
+    """
     from plugin.chatbot.compaction import compact_session
     from plugin.chatbot.selection import create_validated_client
     from plugin.framework.config import get_config
@@ -644,8 +649,6 @@ def run_slash_compact_sync(
 
     if not get_config("chat_compaction_enabled"):
         return "\n" + _("Chat compaction is disabled in settings.") + "\n"
-
-    tools = tool_schemas_for_slash_compact(host, ctx, session)
 
     def status_cb(text: str) -> None:
         log.debug("slash compact status: %s", text)

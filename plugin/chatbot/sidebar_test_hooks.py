@@ -2451,7 +2451,7 @@ class _UrpSlashHost:
         self.append_output("\n" + instruction + "\n")
 
     def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
-        from plugin.chatbot.slash_commands import run_slash_compact_sync
+        from plugin.chatbot.slash_commands import run_slash_compact_sync, tool_schemas_for_slash_compact
         from plugin.framework.blocking_wait import run_blocking_in_thread
         from plugin.framework.i18n import _
 
@@ -2461,6 +2461,7 @@ class _UrpSlashHost:
             self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
             return
         self._set_status(_("Thinking..."))
+        tools = tool_schemas_for_slash_compact(self, self.ctx, self.session)
 
         def worker() -> str:
             return run_slash_compact_sync(
@@ -2469,6 +2470,7 @@ class _UrpSlashHost:
                 session=self.session,
                 ctx=self.ctx,
                 cancel=cancel,
+                tools=tools,
             )
 
         line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)

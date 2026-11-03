@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -452,10 +453,17 @@ def test_run_compact_sync_passes_tool_schema_list():
                         with patch("plugin.framework.llm_lanes.llm_request_lane"):
                             from plugin.chatbot.slash_commands import run_slash_compact_sync
 
-                            run_slash_compact_sync(host, focus="", session=session, ctx=ctx, cancel=cancel)
+                            run_slash_compact_sync(
+                                host,
+                                focus="",
+                                session=session,
+                                ctx=ctx,
+                                cancel=cancel,
+                                tools=schema_list,
+                            )
     assert compact_mod.call_args.kwargs.get("cancel") is cancel
     assert compact_mod.call_args.kwargs.get("tools") == schema_list
-    registry.get_schemas.assert_called_once()
+    host.slash_document_model.assert_not_called()
 
 
 def test_run_compact_sync_passes_cancel():
@@ -479,8 +487,67 @@ def test_run_compact_sync_passes_cancel():
                         with patch("plugin.framework.llm_lanes.llm_request_lane"):
                             from plugin.chatbot.slash_commands import run_slash_compact_sync
 
-                            run_slash_compact_sync(host, focus="", session=session, ctx=ctx, cancel=cancel)
+                            run_slash_compact_sync(
+                                host,
+                                focus="",
+                                session=session,
+                                ctx=ctx,
+                                cancel=cancel,
+                                tools=[],
+                            )
     assert compact_mod.call_args.kwargs.get("cancel") is cancel
+
+
+def test_run_slash_compact_resolves_document_on_main_thread_only():
+    """Regression (B3/N5): /compact must not call UNO from run_blocking_in_thread's worker."""
+    from plugin.chatbot.panel import SendButtonListener
+    from plugin.framework.send_cancellation import SendCancellation
+
+    main = threading.main_thread()
+    model_threads: list[threading.Thread] = []
+
+    def slash_document_model() -> object:
+        model_threads.append(threading.current_thread())
+        if threading.current_thread() is not main:
+            raise AssertionError("slash_document_model must run on the main thread")
+        return object()
+
+    cancel = SendCancellation()
+    listener = MagicMock(spec=SendButtonListener)
+    listener.sidebar_state = SimpleNamespace(tool_loop=None)
+    listener.session = MagicMock()
+    listener.ctx = object()
+    listener._send_cancellation = cancel
+    listener._set_status = MagicMock()
+    listener.append_output = MagicMock()
+    listener.cached_doc_type = "writer"
+    listener.cached_uno_services = None
+    listener.slash_document_model = slash_document_model
+
+    schema_list = [{"name": "read_cell_range"}]
+    registry = MagicMock()
+    registry.get_schemas.return_value = schema_list
+
+    with patch("plugin.framework.uno_context.get_toolkit", side_effect=RuntimeError("no uno")):
+        with patch("plugin.chatbot.selection.create_validated_client", return_value=MagicMock()):
+            with patch("plugin.framework.config.get_config", return_value=True):
+                with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
+                    compact_mod.return_value = MagicMock(compacted=True, reason="ok")
+                    with patch("plugin.main.get_tools", return_value=registry):
+                        with patch(
+                            "plugin.framework.client.model_fetcher.resolve_context_window",
+                            return_value=4096,
+                        ):
+                            with patch("plugin.framework.llm_lanes.llm_request_lane"):
+                                listener.run_slash_compact = SendButtonListener.run_slash_compact.__get__(
+                                    listener,
+                                    SendButtonListener,
+                                )
+                                listener.run_slash_compact("focus", cancel=cancel)
+
+    assert model_threads == [main]
+    assert compact_mod.call_args.kwargs.get("tools") == schema_list
+    listener.append_output.assert_called_once()
 
 
 def test_run_remember_writes_user_md(tmp_path, monkeypatch):
