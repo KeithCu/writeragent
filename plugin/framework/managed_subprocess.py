@@ -26,11 +26,13 @@ from typing import IO, Any, Callable, cast
 
 from plugin.framework.worker_pool import (
     StderrTail,
-    get_subprocess_creationflags,
     start_stderr_drain,
     run_in_background,
 )
-from plugin.framework.subprocess_env import scrub_subprocess_env
+from plugin.framework.subprocess_env import (
+    get_subprocess_creationflags,
+    scrub_subprocess_env,
+)
 
 log = logging.getLogger(__name__)
 
