@@ -972,7 +972,7 @@ def _apply_fake_tts(mode: str) -> None:
 
             def fake_stop_speech(*args: Any, **kwargs: Any) -> None:
                 # What was wrong: on_complete was skipped after a fake hold/stop even though the child was reaped.
-                # How it happened: stop_speech cancels _speech_cancel and SIGKILLs before it returns.
+                # How it happened: stop_speech cancels Utterance.scope and SIGKILLs before it returns.
                 # The tts-speak thread wakes from communicate/wait, _end_utterance sees the cancelled scope,
                 # returns False, and never calls on_complete. The restore below that call ran too late. A slow
                 # tts-cleanup thread start (CI xdist) makes the window likely. The 2s wait cannot help.
