@@ -32,21 +32,6 @@ def _sanitize_checker_identity(identity: str) -> str:
     return identity.replace("|", "/")
 
 
-def ignore_rules_clear() -> None:
-    with grammar_registry.lock:
-        grammar_registry.ignored_rules.clear()
-
-
-def ignore_rule_add(rule_id: str) -> None:
-    with grammar_registry.lock:
-        grammar_registry.ignored_rules.add(str(rule_id))
-
-
-def ignored_rules_snapshot() -> set[str]:
-    with grammar_registry.lock:
-        return set(grammar_registry.ignored_rules)
-
-
 def sentence_cache_key_prefix(locale_key: str, checker_identity: str | None = None) -> str:
     """Prefix for every sentence-cache OrderedDict key: ``sent|<locale>|<identity>|``."""
     ident_raw = grammar_settings.checker_identity() if checker_identity is None else checker_identity

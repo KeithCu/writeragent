@@ -209,7 +209,7 @@ def test_grammar_check_equivalent_tags_no_locale_change() -> None:
          patch("plugin.writer.locale.grammar_worker.call_grammar_llm", return_value=([[]], 50)), \
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()), \
-         patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()), \
+         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()), \
          patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"), \
          patch("plugin.writer.locale.grammar_worker.apply_language_change") as mock_apply:
@@ -358,7 +358,7 @@ def test_run_llm_and_cache_batch_success() -> None:
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put, \
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text") as mock_norm, \
-         patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()):
+         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()):
 
         mock_client = mock_client_cls.return_value
         # Mock LLM response with 2 results
@@ -411,7 +411,7 @@ def test_run_llm_and_cache_batch_size_1() -> None:
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put, \
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status"), \
          patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text") as mock_norm, \
-         patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()):
+         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()):
 
         mock_client = mock_client_cls.return_value
         mock_client.chat_completion_sync.return_value = '{"errors": []}'
@@ -614,7 +614,7 @@ def test_grammar_empty_single_response_caches_clean() -> None:
          patch("plugin.writer.locale.grammar_worker.emit_grammar_status") as mock_status, \
          patch("plugin.writer.locale.grammar_worker.requeue_individual_item") as mock_requeue, \
          patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()), \
-         patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()), \
+         patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()), \
          patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]), \
          patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence") as mock_put:
         run_grammar_check(chunk, "en-US", "en-US", ec)

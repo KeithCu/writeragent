@@ -69,7 +69,8 @@ except ImportError:
 _GRAMMAR_DISABLED_NOTICE_LOCK = threading.Lock()
 _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
-from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear
+from plugin.writer.locale.grammar_ignore_rules import ignore_rule_add, ignore_rules_clear
+from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence
 from plugin.framework.grammar_rule_ids import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     normalize_uno_locale_to_bcp47,

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 from unittest.mock import MagicMock, patch
+from plugin.writer.locale import grammar_ignore_rules as gir
 from plugin.writer.locale import grammar_proofread_cache as gc
 from plugin.writer.locale import grammar_settings
 from plugin.writer.locale.grammar_proofread_locale import (
@@ -19,10 +20,10 @@ from plugin.writer.locale.grammar_proofread_locale import (
 @pytest.fixture(autouse=True)
 def clear_cache():
     gc.grammar_registry.clear_all()
-    gc.ignore_rules_clear()
+    gir.ignore_rules_clear()
     yield
     gc.grammar_registry.clear_all()
-    gc.ignore_rules_clear()
+    gir.ignore_rules_clear()
 
 def test_sentence_cache_roundtrip() -> None:
     from plugin.writer.locale.grammar_persistence import SentenceCacheEntry, grammar_registry
@@ -176,10 +177,10 @@ def test_sentence_cache_different_first_terminator_no_cross_hit() -> None:
     assert gc.cache_get_sentence("en-US", "Done.") is not None
 
 def test_ignore_rules_snapshot() -> None:
-    gc.ignore_rule_add("rule_a")
-    assert "rule_a" in gc.ignored_rules_snapshot()
-    gc.ignore_rules_clear()
-    assert gc.ignored_rules_snapshot() == set()
+    gir.ignore_rule_add("rule_a")
+    assert "rule_a" in gir.ignored_rules_snapshot()
+    gir.ignore_rules_clear()
+    assert gir.ignored_rules_snapshot() == set()
 
 def test_sentence_cache_incomplete_prefix_compaction() -> None:
     """Incomplete growing prefixes collapse to one LRU entry (newest wins)."""
