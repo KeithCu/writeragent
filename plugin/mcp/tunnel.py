@@ -42,7 +42,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("writeragent.mcp.tunnel")
 
-# LibreOffice exit must not delegate Tailscale funnel off to a background thread.
+_DeferredPostStopList = list[tuple[str, int, "FunnelReset", object]]
+
+# soffice exits right after notifyTermination returns, so a dedicated post_stop thread
+# would be killed before `funnel off` runs; 2 s bounds the quit delay.
 _QUIT_FUNNEL_RESET_TIMEOUT_SEC = 2.0
 
 DEFAULT_PROVIDER = "cloudflare"
@@ -397,10 +400,7 @@ class TailscaleProvider(Provider):
     reset: FunnelReset | None
 
     def __init__(self) -> None:
-        self.reset = FunnelReset(
-            lambda port, timeout=5: TailscaleProvider.reset_funnel(port, timeout=timeout),
-            self.ARM_FILENAME,
-        )
+        self.reset = FunnelReset(self.reset_funnel, self.ARM_FILENAME)
 
     def build_command(self, port: int, provider_token: str = "") -> list[str]:
         return build_tailscale_command(port, provider_token)
@@ -501,7 +501,6 @@ class TunnelManager:
         self._session = object()
         self._pending_start = None
         self._providers = {cls.name: cls() for cls in PROVIDER_CLASSES}
-        self._quit_shutdown: bool = False
 
     @property
     def public_url(self) -> Optional[str]:
@@ -543,13 +542,13 @@ class TunnelManager:
         self._session = object()
         return self._session
 
-    def _dispatch_unlocked(self, event: TunnelEvent) -> StartProcessEffect | None:
+    def _dispatch_unlocked(self, event: TunnelEvent, *, defer_resets: _DeferredPostStopList | None = None) -> StartProcessEffect | None:
         previous_provider = self._state.provider
         previous_url = self._state.public_url
         previous_status = self._state.status
         transition = next_state(self._state, event)
         self._state = transition.state
-        pending = self._apply_effects_unlocked(transition.effects, previous_status)
+        pending = self._apply_effects_unlocked(transition.effects, previous_status, defer_resets=defer_resets)
         self._retire_snippet_url_if_not_live(previous_provider, previous_url, previous_status)
         return pending
 
@@ -593,9 +592,28 @@ class TunnelManager:
         with self._lock:
             reset.mark_finished()
 
-    def _run_post_stop_body(self, provider_name: str, port: int, reset: FunnelReset, token: object, *, timeout: float) -> None:
+    def _run_post_stop_body(
+        self,
+        provider_name: str,
+        port: int,
+        reset: FunnelReset,
+        token: object,
+        *,
+        timeout: float,
+        lock_timeout: float | None = None,
+    ) -> None:
+        """Caller must NOT hold ``self._lock``; lock order is ``reset.lock`` → ``self._lock``."""
         lock = reset.lock
-        with lock:
+        if lock_timeout is not None:
+            if not lock.acquire(timeout=lock_timeout):
+                log.info(
+                    "Skipping MCP tunnel post_stop for %s; reset lock held by background work",
+                    provider_name,
+                )
+                return
+        else:
+            lock.acquire()
+        try:
             with self._lock:
                 stale = not reset.current(token)
             if stale:
@@ -607,18 +625,21 @@ class TunnelManager:
             except Exception:
                 log.exception("Tunnel post_stop failed for %s", provider_name)
             with self._lock:
+                # Arm clears only when after_stop is True and the reset token is still current.
                 if ok and reset.current(token):
                     reset.clear_armed()
+        finally:
+            lock.release()
 
-    def _schedule_post_stop_unlocked(self, provider_name: str, port: int) -> None:
-        """Run provider post_stop off the manager lock, unless a newer session started."""
+    def _schedule_post_stop_unlocked(self, provider_name: str, port: int, *, defer_resets: _DeferredPostStopList | None = None) -> None:
+        """Queue provider post_stop without holding the manager lock (unless deferring for quit)."""
         provider = self._providers.get(provider_name)
         reset = provider.reset if provider is not None else None
         if reset is None:
             return
         token = reset.capture()
-        if self._quit_shutdown:
-            self._run_post_stop_body(provider_name, port, reset, token, timeout=_QUIT_FUNNEL_RESET_TIMEOUT_SEC)
+        if defer_resets is not None:
+            defer_resets.append((provider_name, port, reset, token))
             return
         reset.note_scheduled()
 
@@ -736,7 +757,7 @@ class TunnelManager:
                 log.exception("Failed to start MCP tunnel (%s)", provider_name)
                 self._dispatch_unlocked(TunnelEvent(TunnelEventKind.PROCESS_EXITED, {"rc": 1, "auth_error": "failed to start %s tunnel" % provider_name}))
 
-    def _apply_effects_unlocked(self, effects: list[Any], previous_status: TunnelStatus) -> StartProcessEffect | None:
+    def _apply_effects_unlocked(self, effects: list[Any], previous_status: TunnelStatus, *, defer_resets: _DeferredPostStopList | None = None) -> StartProcessEffect | None:
         pending = None
         for effect in effects:
             if isinstance(effect, CancelRetryTimerEffect):
@@ -771,7 +792,7 @@ class TunnelManager:
                 # A crash marker is the exception, handled in stop().
                 leaving_live_session = proc is not None or previous_status != TunnelStatus.STOPPED
                 if leaving_live_session:
-                    self._schedule_post_stop_unlocked(provider, port)
+                    self._schedule_post_stop_unlocked(provider, port, defer_resets=defer_resets)
 
             elif isinstance(effect, StartProcessEffect):
                 provider_obj = self._providers[effect.provider]
@@ -937,7 +958,7 @@ class TunnelManager:
             # return True for a failed start.
             return self._state.status != TunnelStatus.FAILED
 
-    def stop(self) -> None:
+    def stop(self, *, defer_resets: _DeferredPostStopList | None = None) -> None:
         with self._lock:
             # Invalidate an in-flight or merely queued binary probe so it
             # cannot start afterwards.
@@ -945,7 +966,7 @@ class TunnelManager:
             self._pending_start = None
             # Captured before STOP_REQUESTED moves every state to STOPPED.
             idle = self._state.status == TunnelStatus.STOPPED and self._process is None
-            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
+            self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED), defer_resets=defer_resets)
             # LibreOffice killed while Funnel was armed leaves tailscaled
             # forwarding the MCP port. The new process is STOPPED and its
             # provider defaults to cloudflare, so the terminate effect does
@@ -961,15 +982,21 @@ class TunnelManager:
             if idle:
                 for provider in self._providers.values():
                     if provider.reset is not None and provider.reset.idle_ready():
-                        self._schedule_post_stop_unlocked(provider.name, self._state.port)
+                        self._schedule_post_stop_unlocked(provider.name, self._state.port, defer_resets=defer_resets)
 
     def stop_for_quit(self) -> None:
         """Stop the tunnel and run Tailscale funnel off on this thread (LibreOffice exit)."""
-        self._quit_shutdown = True
-        try:
-            self.stop()
-        finally:
-            self._quit_shutdown = False
+        deferred: _DeferredPostStopList = []
+        self.stop(defer_resets=deferred)
+        for provider_name, port, reset, token in deferred:
+            self._run_post_stop_body(
+                provider_name,
+                port,
+                reset,
+                token,
+                timeout=_QUIT_FUNNEL_RESET_TIMEOUT_SEC,
+                lock_timeout=_QUIT_FUNNEL_RESET_TIMEOUT_SEC,
+            )
 
 
 def tunnel_status_line(

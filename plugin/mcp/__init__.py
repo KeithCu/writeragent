@@ -292,8 +292,8 @@ class McpModule(ModuleBase):
 
     def _quit_stop_tunnel(self) -> None:
         tunnel = self.tunnel
-        if tunnel is not None:
-            tunnel.stop_for_quit()
+        assert tunnel is not None
+        tunnel.stop_for_quit()
 
     def _sync_tunnel(self) -> None:
         """Start or stop the public tunnel to match MCP settings."""
