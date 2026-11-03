@@ -1261,9 +1261,9 @@ def handle_debug_sidebar_command(command: str) -> None:
         with venv_worker._registry_lock:
             managers = list(venv_worker._instances.values())
         for mgr in managers:
-            proc = mgr._proc
-            if proc is not None and proc.poll() is None:
-                proc.kill()
+            warm = mgr._warm
+            if warm is not None and warm.is_alive():
+                warm.kill()
                 _VENV_WORKER_KILLS += 1
         _write_debug_snapshot(sl)
         return

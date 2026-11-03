@@ -246,8 +246,8 @@ class ChildSpec:
     stderr_tail_chars: int = _STDERR_LOG_CAP
     max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
     unpacker: Callable[[bytes], Any] | None = None
+    # False keeps a missing interpreter as OSError (venv systemd-run retry depends on it).
     log_start_failure: bool = True
-    scrub_env: bool = True
 
 
 @dataclass(frozen=True)
@@ -355,7 +355,7 @@ class WarmChild:
         else:
             acquired = self._io_lock.acquire(timeout=wait)
         if not acquired:
-            yield error_dict("EXECUTION_TIMEOUT", "Could not acquire warm child pipe lock.")
+            yield error_dict("PIPE_LOCK_BUSY", "Could not acquire warm child pipe lock.")
             return
         try:
             if self._supervisor.is_shutting_down() or self._retired:
@@ -471,7 +471,7 @@ class WarmChild:
             base_env=self.spec.env,
             env={},
             command_wrapper=self.spec.command_wrapper,
-            scrub_env=self.spec.scrub_env,
+            scrub_env=False,
             optimize_pipes=True,
             stderr_tail_chars=self.spec.stderr_tail_chars,
             stderr_name=self._stderr_name(),
@@ -482,7 +482,10 @@ class WarmChild:
         published = False
         try:
             # Do not hold _lifecycle_lock across start() or the handshake read.
-            self._supervisor.spawn(managed)
+            try:
+                self._supervisor.spawn(managed)
+            except OSError:
+                raise
             spawned = Child(
                 managed,
                 worker_name=self.spec.name,
@@ -532,8 +535,6 @@ class WarmChild:
             finally:
                 if spawned is not None and spawned.end_io():
                     self._drop_child(spawned)
-        except OSError:
-            raise
         except Exception as exc:
             if spawned is not None and not published:
                 spawned.signal_from()

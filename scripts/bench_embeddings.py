@@ -27,7 +27,7 @@ from plugin.scripting.sandbox import (  # noqa: E402
     resolve_libreoffice_python,
     resolve_venv_python,
 )
-from plugin.scripting.venv_worker import PythonWorkerManager  # noqa: E402
+from plugin.scripting.venv_worker import PythonWorkerManager, shutdown_venv_workers_for_tests  # noqa: E402
 
 TEXT_NS = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
 DEFAULT_ODT = project_root / "scripts" / "longdocsample.odt"
@@ -283,7 +283,10 @@ def main() -> int:
             )
             print_row(model, stats)
     finally:
-        PythonWorkerManager.shutdown_all()
+        from plugin.framework.warm_child import get_supervisor
+
+        get_supervisor().shutdown_all()
+        shutdown_venv_workers_for_tests()
 
     return 0
 

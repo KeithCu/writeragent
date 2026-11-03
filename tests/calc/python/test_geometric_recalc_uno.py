@@ -321,9 +321,9 @@ def _flush(ctx, doc, sheet) -> None:
 def _cold_kernel() -> None:
     """Drop this process's worker. Soffice's worker is a different process."""
     from plugin.calc.python.function import clear_python_addin_cache
-    from plugin.scripting.venv_worker import PythonWorkerManager
+    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
-    PythonWorkerManager.shutdown_all()
+    shutdown_venv_workers_for_tests()
     clear_python_addin_cache()
 
 

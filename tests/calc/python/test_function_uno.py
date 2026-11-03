@@ -260,7 +260,7 @@ def test_py_multi_document_spill_and_plot(ctx):
     import glob
     import json
     from plugin.framework.config import _resolve_config_path_from_ctx
-    from plugin.scripting.venv_worker import PythonWorkerManager
+    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
     repo_venv = _project_venv()
     profile_cfgs = set(glob.glob("/tmp/writeragent-lo-test-profile-*/user/config/writeragent.json"))
@@ -281,7 +281,7 @@ def test_py_multi_document_spill_and_plot(ctx):
                     json.dump(d, f, indent=2)
             except Exception:
                 pass
-    PythonWorkerManager.shutdown_all()
+    shutdown_venv_workers_for_tests()
 
     desktop = get_desktop(ctx)
     doc_blank = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
@@ -351,7 +351,7 @@ def test_py_multi_document_spill_and_plot(ctx):
                     json.dump(old_d, f, indent=2)
             except Exception:
                 pass
-        PythonWorkerManager.shutdown_all()
+        shutdown_venv_workers_for_tests()
 
 
 @native_test
