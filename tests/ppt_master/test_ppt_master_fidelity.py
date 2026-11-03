@@ -334,3 +334,4 @@ def test_soffice_convert_to_pdf_timeout_returns_none(monkeypatch, tmp_path: Path
     assert fidelity.soffice_convert_to_pdf("soffice", source, out_dir, timeout_sec=1) is None
     assert len(calls) == 1
     assert calls[0][1]["timeout"] == 1
+    assert calls[0][1]["kill_tree"] is True

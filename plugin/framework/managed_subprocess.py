@@ -514,27 +514,9 @@ class ManagedSubprocess:
             if stdout is not None or stderr is not None:
                 raise ValueError("stdout and stderr arguments may not be used with capture_output.")
         if not kill_tree:
-            # Pass creationflags to subprocess.run.
-            if capture_output:
-                run_kwargs: dict[str, Any] = {
-                    "capture_output": True,
-                    "env": env,
-                    "cwd": cwd,
-                    "text": text,
-                    "encoding": encoding,
-                    "errors": errors,
-                    "timeout": timeout,
-                    "check": check,
-                    **get_subprocess_creationflags(),
-                }
-                if stdin is not None:
-                    run_kwargs["stdin"] = stdin
-                return subprocess.run(
-                    args,
-                    **run_kwargs,
-                )
             return subprocess.run(
                 args,
+                capture_output=capture_output,
                 stdin=stdin,
                 stdout=stdout,
                 stderr=stderr,
@@ -578,17 +560,11 @@ class ManagedSubprocess:
                 kill_process_tree(proc)
                 out, err = exc.output, exc.stderr
                 try:
-                    out2, err2 = proc.communicate(timeout=_REAP_WAIT_SEC)
-                    if out2:
-                        out = out2
-                    if err2:
-                        err = err2
+                    out, err = proc.communicate(timeout=_REAP_WAIT_SEC)
                 except subprocess.TimeoutExpired as exc2:
-                    # Grandchild outside the session group can hold the pipe open.
-                    if exc2.output:
-                        out = exc2.output
-                    if exc2.stderr is not None:
-                        err = exc2.stderr
+                    # Grandchild outside the session group can hold the pipe open;
+                    # output may be bytes here.
+                    out, err = exc2.output, exc2.stderr
                 raise subprocess.TimeoutExpired(
                     exc.cmd,
                     exc.timeout,

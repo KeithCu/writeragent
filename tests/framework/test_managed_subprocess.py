@@ -1312,6 +1312,7 @@ def test_managed_subprocess_run_is_subprocess_run(
     assert res.returncode == 0
     assert captured_args[0] == (["spd-say", "-S"],)
     expected = {
+        "capture_output": False,
         "stdin": None,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
@@ -1664,15 +1665,15 @@ def test_managed_subprocess_run_capture_output(monkeypatch: pytest.MonkeyPatch) 
     assert recorded_kwargs["env"] is env
     assert recorded_kwargs["text"] is True
 
+    assert recorded_kwargs["stdin"] is None
+    assert recorded_kwargs["stdout"] is None
+    assert recorded_kwargs["stderr"] is None
     absent_keys = (
         "input",
         "shell",
         "start_new_session",
         "bufsize",
         "preexec_fn",
-        "stdin",
-        "stdout",
-        "stderr",
     )
     for key in absent_keys:
         assert key not in recorded_kwargs

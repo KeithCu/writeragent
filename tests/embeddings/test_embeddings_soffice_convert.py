@@ -53,9 +53,11 @@ def test_convert_legacy_wraps_flatpak_with_watch_bus(tmp_path: Path):
     source = tmp_path / "legacy.doc"
     source.write_bytes(b"binary")
     captured: list[list[str]] = []
+    run_kwargs: list[dict[str, object]] = []
 
     def fake_run(cmd, **kwargs):
         captured.append(list(cmd))
+        run_kwargs.append(dict(kwargs))
         return type("Proc", (), {"returncode": 1, "stdout": "", "stderr": ""})()
 
     with patch.object(convert, "resolve_soffice_executable", return_value="/usr/bin/soffice"):
@@ -67,3 +69,4 @@ def test_convert_legacy_wraps_flatpak_with_watch_bus(tmp_path: Path):
                 convert.convert_legacy_to_odf(str(source))
     assert captured, "ManagedSubprocess.run was not called"
     assert "--watch-bus" in captured[0]
+    assert run_kwargs[0]["kill_tree"] is True
