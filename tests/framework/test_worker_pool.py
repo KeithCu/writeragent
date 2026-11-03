@@ -186,8 +186,9 @@ def test_async_process_start_reader_spawn_failure_kills_child(monkeypatch: pytes
         assert ap._stderr_thread is None
         assert ap._wait_thread is None
         assert not on_exit_called
-        assert len(captured) == 1
-        assert captured[0].poll() is not None
+        child_procs = [p for p in captured if p.args and p.args[0] == sys.executable]
+        assert len(child_procs) == 1
+        assert child_procs[0].poll() is not None
     finally:
         for proc in captured:
             if proc.poll() is None:
@@ -233,8 +234,9 @@ def test_async_process_start_wait_spawn_failure_kills_child_and_clears_handles(m
         assert ap._stderr_thread is None
         assert ap._wait_thread is None
         assert not on_exit_called
-        assert len(captured) == 1
-        assert captured[0].poll() is not None
+        child_procs = [p for p in captured if p.args and p.args[0] == sys.executable]
+        assert len(child_procs) == 1
+        assert child_procs[0].poll() is not None
     finally:
         for proc in captured:
             if proc.poll() is None:

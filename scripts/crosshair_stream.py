@@ -414,10 +414,10 @@ def find_crosshair() -> str:
     path = shutil.which("crosshair")
     if path:
         return path
-    venv = Path(".venv/bin/crosshair")
-    if venv.exists():
-        return str(venv)
-    raise SystemExit("crosshair not found on PATH or in .venv/bin/")
+    for venv in (Path(".venv/bin/crosshair"), Path(".venv/Scripts/crosshair.exe")):
+        if venv.exists():
+            return str(venv)
+    raise SystemExit("crosshair not found on PATH or in .venv/bin/ or .venv/Scripts/")
 
 
 def discover_deal_plugin_files(plugin_root: Path | None = None) -> list[Path]:

@@ -1482,6 +1482,7 @@ def test_style_list_reraises_disposed_on_category_and_parent():
         StyleList().execute(ctx, family="CharacterStyles")
 
 
+@pytest.mark.xdist_group("styles_disposed_helpers")
 def test_read_helpers_reraise_disposed():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.styles import _get_style_prop, _missing_style_error, _struct_to_json

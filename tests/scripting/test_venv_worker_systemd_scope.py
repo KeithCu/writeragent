@@ -100,6 +100,7 @@ def test_probe_oserror_falls_back(tmp_path):
     assert out == CMD
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="systemd scope spawn retry is Linux-only")
 def test_spawn_retries_plain_when_scoped_start_raises(monkeypatch):
     mgr = vw.PythonWorkerManager(sys.executable, {"XDG_RUNTIME_DIR": "/run/user/1000", "PATH": "/usr/bin"})
     vw._systemd_run_for_worker[("/usr/bin/systemd-run", "/run/user/1000")] = "/usr/bin/systemd-run"

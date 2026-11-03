@@ -546,7 +546,8 @@ def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | No
         "/scripts_manager.js",
         "/style.css",
     ):
-        return os.path.join(assets, url_path.lstrip("/"))
+        rel = url_path.lstrip("/").replace("/", os.sep)
+        return os.path.join(assets, rel)
     if not url_path.startswith("/vs/"):
         return None
     # ImportError passes an empty root. realpath("") is the cwd, which would
