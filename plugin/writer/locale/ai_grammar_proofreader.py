@@ -569,11 +569,10 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         a_locale: Any,
         n_start: int,
         n_suggested_end: int,
-        profile: grammar_settings.GrammarProfile | None = None,
+        profile: grammar_settings.GrammarProfile,
     ) -> str | None:
         """Return BCP47 locale if grammar checking is enabled and locale is supported, else None."""
-        prof = profile if profile is not None else self._resolved_profile()
-        if prof.always_enabled:
+        if profile.always_enabled:
             loc_raw = getattr(a_locale, "Language", "") or ""
         else:
             loc_raw = f"{a_locale.Language}_{a_locale.Country}_{a_locale.Variant}"
