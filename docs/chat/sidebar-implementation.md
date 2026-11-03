@@ -6,7 +6,7 @@
 
 **Current state:** The sidebar panel is **working**. "Chat with Document" appears in the WriterAgent deck in Writer's sidebar with Response area, Ask field, and Send button. The menu item can remain as fallback.
 
-In-chat `/` **popup** is a toolkit listbox window parented to the Ask peer (prefix filter, LRU, Esc/arrows/Tab/Enter) — not an in-dialog combo in the transcript. Commands are still mostly stubs. The consider-list (Aider-based, including new WriterAgent features) lives in [slash-commands.md](slash-commands.md).
+In-chat `/` **popup** is a toolkit listbox window parented to the Ask peer (prefix filter, LRU, Esc/arrows/Tab/Enter) — parked behind `ENABLE_SLASH = False`. Tier 1 presets run on Send via `slash_commands.py` (rewrite / answer / local router). `/undo` and `/formula` are next. Full list: [slash-commands.md](slash-commands.md).
 
 ### Main chat: sidebar reply vs document edit
 

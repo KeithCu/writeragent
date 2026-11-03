@@ -117,9 +117,50 @@ def do_extend_selection(ctx: Any, model: Any) -> None:
     _stream_into_session(ctx, title, client, original_text, system_prompt, max_tokens, session)
 
 
-def do_edit_selection(ctx: Any, model: Any) -> None:
+def _whole_body_target(ctx: Any, model: Any, title: str) -> tuple[Any, str] | None:
+    """Writer body range and text when slash rewrite has no selection."""
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks
+    from plugin.writer.edit_review import refuse_tracked_insert_or_delete, TrackedChangesInSelection
+
+    body = model.getText()
+    cursor = body.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEnd(True)
+    try:
+        refuse_tracked_insert_or_delete(cursor)
+    except TrackedChangesInSelection:
+        msgbox(ctx, title, _(TRACKED_SELECTION_MESSAGE))
+        return None
+    original_text = normalize_linebreaks(get_string_without_tracked_deletions(cursor))
+    if not original_text.strip():
+        msgbox(ctx, title, _("The document is empty."))
+        return None
+    return cursor, original_text
+
+
+def do_edit_selection(
+    ctx: Any,
+    model: Any,
+    *,
+    preset_instruction: str | None = None,
+    allow_whole_document: bool = False,
+) -> None:
     title = _("WriterAgent: Edit Selection")
-    target = _selection_target(ctx, model, title)
+    if preset_instruction is not None:
+        user_input = preset_instruction
+        extra_instructions = ""
+        target = _selection_target(ctx, model, title)
+        if target is None and allow_whole_document:
+            target = _whole_body_target(ctx, model, title)
+    else:
+        target = _selection_target(ctx, model, title)
+        if target is None:
+            return
+        edit_request = prompt_for_edit_instructions(ctx, title)
+        if edit_request is None:
+            return
+        user_input, extra_instructions = edit_request
+
     if target is None:
         return
     text_range, original_text = target
@@ -127,11 +168,6 @@ def do_edit_selection(ctx: Any, model: Any) -> None:
     client = create_validated_client(ctx, title)
     if client is None:
         return
-
-    edit_request = prompt_for_edit_instructions(ctx, title)
-    if edit_request is None:
-        return
-    user_input, extra_instructions = edit_request
 
     update_lru_history(get_text_model(), "model_lru", get_current_endpoint())
     prompt = build_writer_rewrite_prompt(original_text, user_input)

@@ -236,7 +236,7 @@ def test_slash_descriptions_are_translated_at_display_time(monkeypatch):
 
     assert slash.SLASH_COMMANDS[0].description == "Print the command list"
     monkeypatch.setattr(slash, "_", lambda msg: "T:" + msg)
-    assert slash.format_slash_item(slash.SLASH_COMMANDS[0]) == "/help — T:Print the command list"
+    assert slash.format_slash_item(slash.SLASH_COMMANDS[0]) == "/help — T:Print the command list (/help)"
     assert "/help — T:Print the command list" in slash.format_help_text()
 
 
@@ -246,11 +246,138 @@ def test_mock_commands_not_registered_outside_harness(monkeypatch):
     import plugin.chatbot.slash_commands as slash
 
     monkeypatch.setattr(slash, "_mock_commands_enabled", False)
-    assert [c.name for c in slash.registered_slash_commands()] == ["help", "clear", "stop"]
+    names = [c.name for c in slash.registered_slash_commands()]
+    assert names[0] == "help"
+    assert "summarize" in names
+    assert "compact" in names
+    assert "mock-bravo" not in names
     assert "[mock]" not in format_help_text()
     host = MagicMock()
     assert run_slash_command("mock-bravo", host) is False
     host.append_output.assert_not_called()
+
+
+def test_parse_slash_text_known_and_unknown():
+    from plugin.chatbot.slash_commands import parse_slash_text
+
+    parsed = parse_slash_text("/tone friendly")
+    assert parsed is not None
+    cmd, arg = parsed
+    assert cmd.name == "tone"
+    assert arg == "friendly"
+    assert parse_slash_text("/not-a-command foo") is None
+    assert parse_slash_text("hello /tone") is None
+
+
+def test_tier1_commands_are_in_product_table():
+    names = {c.name for c in registered_slash_commands()}
+    for name in (
+        "summarize",
+        "proofread",
+        "shorten",
+        "expand",
+        "tone",
+        "translate",
+        "explain",
+        "remember",
+        "compact",
+    ):
+        assert name in names
+
+
+def test_missing_required_arg_prints_usage():
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("tone", host, "") is True
+    assert "Usage:" in host.append_output.call_args[0][0]
+    host.clear_ask.assert_not_called()
+
+
+def test_popup_accept_completes_draft_for_preset():
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
+        query_control=SimpleNamespace(),
+        dispatch=MagicMock(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+            assert run_slash_command("tone", host, from_popup=True) is True
+            set_text.assert_called_once_with(host.query_control, "/tone ")
+    host.clear_ask.assert_not_called()
+    host.dispatch.assert_called_once()
+
+
+def test_summarizer_user_body_includes_focus():
+    from plugin.chatbot import compaction as compaction_mod
+
+    body = compaction_mod._summarizer_user_body("line", "", focus="budget")
+    assert "Keep details about: budget" in body
+
+
+def test_run_answer_routes_to_host_send():
+    host = MagicMock()
+    host.hide_popup = MagicMock()
+    host.clear_ask = MagicMock()
+    model = object()
+    host.slash_document_model.return_value = model
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.slash_commands.build_slash_answer_query", return_value="Q"):
+            assert run_slash_command("summarize", host, "meetings") is True
+    host.slash_send_answer.assert_called_once_with("Q")
+
+
+def test_run_rewrite_routes_to_host():
+    host = MagicMock()
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("proofread", host) is True
+    host.slash_run_rewrite.assert_called_once()
+
+
+def test_run_compact_delegates_to_host():
+    host = MagicMock()
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command("compact", host, "budget") is True
+    host.run_slash_compact.assert_called_once_with("budget")
+
+
+def test_do_edit_selection_skips_dialog_with_preset():
+    from plugin.writer import editselection as es
+
+    ctx = object()
+    model = MagicMock()
+    model.getCurrentController.return_value = MagicMock()
+    with patch.object(es, "_selection_target", return_value=(MagicMock(), "text")):
+        with patch.object(es, "create_validated_client", return_value=MagicMock()):
+            with patch.object(es, "prompt_for_edit_instructions") as prompt:
+                with patch.object(es, "_stream_into_session"):
+                    with patch.object(es, "update_lru_history"):
+                            with patch("plugin.writer.editselection.review_recording_enabled", return_value=False):
+                                with patch("plugin.writer.editselection.get_config", return_value=100):
+                                    es.do_edit_selection(ctx, model, preset_instruction="Fix typos")
+    prompt.assert_not_called()
+
+
+def test_run_remember_upserts_memory():
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
+    )
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.memory.MemoryStore") as store_cls:
+            store_cls.return_value.upsert.return_value = {"status": "ok"}
+            assert run_slash_command("remember", host, "British spelling") is True
+    store_cls.return_value.upsert.assert_called_once()
+    key, content = store_cls.return_value.upsert.call_args[0]
+    assert content == "British spelling"
+    assert key.startswith("slash.")
+    assert "Saved to memory" in host.append_output.call_args[0][0]
 
 
 def test_enable_mock_slash_commands_adds_stubs(monkeypatch):

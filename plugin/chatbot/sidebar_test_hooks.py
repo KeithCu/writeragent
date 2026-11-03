@@ -2436,6 +2436,20 @@ class _UrpSlashHost:
         if self._stop is not None:
             uno_click(self._stop)
 
+    def slash_document_model(self) -> Any:
+        return None
+
+    def slash_send_answer(self, query_text: str) -> None:
+        self.append_output("\n" + query_text + "\n")
+
+    def slash_run_rewrite(self, instruction: str) -> None:
+        self.append_output("\n" + instruction + "\n")
+
+    def run_slash_compact(self, focus: str) -> None:
+        from plugin.chatbot.slash_commands import run_slash_compact_worker
+
+        run_slash_compact_worker(self, focus=focus, session=getattr(self, "session", None), ctx=self.ctx)
+
 
 def _urp_slash_controller() -> Any:
     """Bind ``SlashPopupController`` to the live sidebar ListBox over URP."""

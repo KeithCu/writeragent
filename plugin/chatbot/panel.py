@@ -269,6 +269,7 @@ class SendButtonListener(BaseActionListener):
     _acp_backend_id: str | None
     _approval_event: Any
     slash_popup: Any
+    _slash_compact_allowed: bool
     clear_listener: Any
     rich_text_widget: Any
     _rich_plain_fallback_warned: bool
@@ -360,6 +361,7 @@ class SendButtonListener(BaseActionListener):
         self._stop_mouse_listener = None
         self._record_mouse_listener = None
         self.slash_popup = None
+        self._slash_compact_allowed = False
         self.clear_listener = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
@@ -512,6 +514,45 @@ class SendButtonListener(BaseActionListener):
 
     def stop_in_flight(self) -> None:
         StopButtonListener(self).on_action_performed(None)
+
+    def slash_document_model(self) -> Any:
+        return self._get_document_model(log_failure=False)
+
+    def slash_send_answer(self, query_text: str) -> None:
+        """Start a normal chat turn for a slash answer preset (send already begun)."""
+        model = self._get_document_model(log_failure=True)
+        if not model or self.cached_doc_type is None:
+            from plugin.framework.i18n import _
+
+            self._fail_send(_("[No compatible LibreOffice document found.]"), set_status_text=False)
+            return
+        self._tool_calling._do_send_chat_with_tools(query_text, model, self.cached_doc_type)
+
+    def slash_run_rewrite(self, instruction: str) -> None:
+        """Edit Selection with a preset instruction (sidebar frame document)."""
+        from plugin.chatbot.selection import do_selection_action_for_document
+        from plugin.framework.i18n import _
+
+        model = self._get_document_model(log_failure=True)
+        if not model:
+            self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
+            return
+        do_selection_action_for_document(
+            self.ctx,
+            model,
+            True,
+            preset_instruction=instruction,
+            allow_whole_document=True,
+        )
+
+    def run_slash_compact(self, focus: str) -> None:
+        from plugin.chatbot.slash_commands import run_slash_compact_worker
+        from plugin.framework.i18n import _
+
+        if self.sidebar_state.send.is_busy and not getattr(self, "_slash_compact_allowed", False):
+            self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
+            return
+        run_slash_compact_worker(self, focus=focus, session=self.session, ctx=self.ctx)
 
     def _set_status(self, text: str) -> None:
         """Update the status field in the sidebar (read-only TextField).
@@ -1224,6 +1265,29 @@ class SendButtonListener(BaseActionListener):
         query_text = self._read_and_clear_query()
         if query_text is None:
             return
+
+        from plugin.chatbot.slash_commands import (
+            format_usage_line,
+            parse_slash_text,
+            run_slash_command,
+            slash_command_continues_chat_turn,
+        )
+
+        parsed = parse_slash_text(query_text)
+        if parsed is not None:
+            cmd, arg = parsed
+            if cmd.requires_arg and not arg.strip():
+                self.append_output("\n" + format_usage_line(cmd) + "\n")
+                self._terminal_status = "Ready"
+                return
+            self._slash_compact_allowed = cmd.name == "compact"
+            try:
+                if run_slash_command(cmd.name, self, arg, from_popup=False):
+                    if not slash_command_continues_chat_turn(cmd):
+                        self._terminal_status = "Ready"
+                    return
+            finally:
+                self._slash_compact_allowed = False
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
