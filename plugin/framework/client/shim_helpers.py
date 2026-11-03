@@ -153,6 +153,8 @@ def annotate_anthropic_cache(messages: list[dict[str, Any]]) -> list[dict[str, A
 
     return messages
 
+    return messages
+
 
 def _dict_parts(content: Any) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
     """Content blocks that are dicts. Null, a string, or a non-dict part is skipped.

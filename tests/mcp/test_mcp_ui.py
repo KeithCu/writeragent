@@ -8,6 +8,8 @@ import threading
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.mcp import mcp_ui
 from plugin.mcp.mcp_ui import (
     CopyMcpConfigListener,
@@ -19,6 +21,14 @@ from plugin.mcp.mcp_ui import (
     sync_mcp_config_snippet,
 )
 from plugin.mcp.tunnel import TunnelManager
+
+
+@pytest.fixture(autouse=True)
+def _isolate_snippet_cache_from_loaded_mcp_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_tested_tunnel_urls() prefers the live McpModule tunnel; pin the standalone path so these tests do not depend on other tests' module lifecycle."""
+    import plugin.mcp as mcp_mod
+
+    monkeypatch.setattr(mcp_mod, "_current_module", None)
 
 
 class TestMcpUi:

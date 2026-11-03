@@ -26,6 +26,7 @@ from plugin.audio.kokoro_g2p import (
     misaki_frontend,
 )
 from plugin.audio.voice_catalog import KOKORO_CATALOG_ITEMS
+from plugin.framework.send_cancellation import SendCancellation
 
 
 @pytest.fixture(autouse=True)
@@ -212,8 +213,10 @@ def test_ensure_kokoro_misaki_cached_success_cancelled():
     assert ensure_kokoro_misaki("/venv/bin/python", "ja", run_cmd=fake_run) is True
     assert len(calls) == 1
 
+    cancel = SendCancellation()
+    cancel.cancel()
     res = ensure_kokoro_misaki(
-        "/venv/bin/python", "ja", cancelled=lambda: True, run_cmd=fake_run
+        "/venv/bin/python", "ja", cancel=cancel, run_cmd=fake_run
     )
     assert res is None
     assert len(calls) == 1
@@ -503,8 +506,10 @@ def test_ensure_kokoro_misaki_cancelled_skips_install():
         calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
+    cancel = SendCancellation()
+    cancel.cancel()
     ready = ensure_kokoro_misaki(
-        "/venv/bin/python", "ja", cancelled=lambda: True, run_cmd=fake_run
+        "/venv/bin/python", "ja", cancel=cancel, run_cmd=fake_run
     )
     assert ready is None
     assert calls == []

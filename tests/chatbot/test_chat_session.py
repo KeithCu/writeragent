@@ -331,8 +331,6 @@ def test_messages_for_request_never_has_adjacent_user_messages():
     req4 = s2.messages_for_request()
     assert_no_adjacent_user(req4)
     assert [m["role"] for m in req4] == ["system", "user"]
-
-
 def test_messages_for_request_tool_loop_stable_prefix():
     mock_db = MagicMock()
     mock_db.get_messages.return_value = []
@@ -342,6 +340,7 @@ def test_messages_for_request_tool_loop_stable_prefix():
 
     session.add_user_message("Do math")
     session.document_context = "Doc 1"
+    assert session.messages_for_request()
 
     # Append assistant tool call and tool result
     session.add_assistant_message(tool_calls=[{"id": "c1", "function": {"name": "calc"}}])
@@ -367,6 +366,8 @@ def test_messages_for_request_tool_loop_stable_prefix():
     assert req_tool2[-1]["role"] == "user"
     assert isinstance(req_tool2[-1]["content"], str)
     assert snapshot_text("Doc 3") in req_tool2[-1]["content"]
+    # The payload with the snapshot message removed extends the previous payload with snapshot removed
+    assert req_tool2[:-1] == req_tool1[:-1] + session.messages[len(req_tool1) - 1 :]
     # Shared prefix is byte-identical across rounds
     assert req_tool2[: len(req_tool1) - 1] == req_tool1[:-1]
 

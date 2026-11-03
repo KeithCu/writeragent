@@ -58,7 +58,7 @@ Network behavior in `plugin/framework/client/` and `plugin/mcp/` includes a matu
   - OpenClaw `packages/retry` delay math port: jittered exponential backoff (`backoff_delay_sec`) bounded by `RETRY_MIN_DELAY_SEC` (0.3s) and `RETRY_MAX_DELAY_SEC` (30.0s).
   - Both symmetric and positive jitter modes (`_apply_jitter_ms`).
   - `parse_retry_after` and `parse_retry_after_ms`: parses delta-seconds, RFC HTTP-date, and fallback `retry-after-ms` formats; treats `Retry-After` within the 30s cap as a lower bound. Delays above 30s fail the attempt immediately with the server's wait in the error and remember a 30s gap.
-  - Abortable sleep (`wait_abortable`): sleeps in small (0.05s) chunks checking `stop_checker`, so user Stop immediately terminates the retry wait without UI hang.
+  - Abortable sleep (`wait_abortable`): sleeps in small (0.05s) chunks checking `SendCancellation` (or duck-typed `is_cancelled`), so user Stop immediately terminates the retry wait without UI hang.
   - Sidebar status emission (`format_retry_wait_status`, `emit_retry_status`): displays real-time localized feedback (e.g. `"Provider busy, retrying in 3s…"`) in the sidebar.
   - Learned per-host pacing (`remember_host_gap`, `clear_host_gap`, `wait_host_gap`): caches backoff per `host:port` (brackets around IPv6) across separate requests to avoid stampeding busy backends; Stop during `wait_host_gap` rolls back the unconsumed slot reservation.
   - Dedicated OpenRouter free-tier pacing (`OPENROUTER_FREE_MIN_GAP_SEC = 3.0` for `:free` and `openrouter/free` models on OpenRouter endpoints, keyed as `{host}:{port}:free`).
@@ -197,7 +197,7 @@ Retries are valuable when they are narrow, explicit, bounded, and abortable.
 1. **Outbound LLM Requests (`plugin/framework/client/`)**:
    - **Delay calculation (`request_controls.py`)**: Port of OpenClaw `packages/retry` delay math. Exponential backoff with jitter (`backoff_delay_sec`), clamped between `RETRY_MIN_DELAY_SEC` (0.3s) and `RETRY_MAX_DELAY_SEC` (30.0s).
    - **`Retry-After` header parsing**: Handles delta-seconds and RFC HTTP-date strings via `parse_retry_after()`, falling back to `parse_retry_after_ms()`; honors delays up to 30s as a lower bound with positive jitter. Delays above 30s fail immediately with a descriptive error and remember a 30s gap.
-   - **Immediate abortability (`wait_abortable`)**: Sleeps in 50ms chunks, continuously checking `stop_checker`. If the user clicks Stop in the sidebar, the sleep terminates immediately without hanging the UI.
+   - **Immediate abortability (`wait_abortable`)**: Sleeps in 50ms chunks, continuously checking send cancellation (`SendCancellation` / `is_cancelled`). If the user clicks Stop in the sidebar, the sleep terminates immediately without hanging the UI.
    - **Live UI status**: Emits real-time retry notices (e.g. `"Provider busy, retrying in 3s…"`) to the sidebar via `emit_retry_status`.
    - **Learned host cooldown (`remember_host_gap`, `wait_host_gap`)**: Process-wide gap cache keyed by `host:port` (brackets around IPv6) so subsequent or parallel requests space themselves rather than immediately hitting a busy host; Stop during `wait_host_gap` rolls back an unconsumed slot reservation.
    - **OpenRouter free-tier pacing**: Enforces a 3.0s minimum gap (`OPENROUTER_FREE_MIN_GAP_SEC`) keyed as `{host}:{port}:free`, applied only when the endpoint is OpenRouter.
@@ -409,7 +409,7 @@ This section should guide actual work and triage.
 - [ ] Improve stale-object recovery where reacquisition is safe and obvious (reacquiring active document model on disposal in sidebar chat)
 - [x] Extend `deal` contract coverage and invariant checks to high-value pure logic paths (57+ modules)
 - [ ] Expand lightweight health checks and diagnostics (session failure counters, guided recovery hints in sidebar)
-- [x] Ensure stop/cancel behavior remains correct when retries are introduced (`wait_abortable` with chunked sleep and `stop_checker`)
+- [x] Ensure stop/cancel behavior remains correct when retries are introduced (`wait_abortable` with chunked sleep and `SendCancellation`)
 - [x] Add targeted tests for fallback behavior, retry math, and recovery decisions (`test_request_controls.py`, `test_http_transport.py`, `test_client_llm.py`)
 
 ### Phase 3: Adversarial Verification

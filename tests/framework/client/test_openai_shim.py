@@ -220,7 +220,6 @@ def test_openrouter_prompt_caching():
     assert [m["role"] for m in msgs3] == ["assistant", "tool", "tool", "user"]
     body3_str = json.dumps(data3)
     assert "cache_control" not in body3_str
-
     # 4. User send: folded messages to anthropic/* mark the block before the tail
     user_send_messages = [
         {"role": "user", "content": [

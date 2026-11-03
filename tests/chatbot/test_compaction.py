@@ -339,7 +339,6 @@ def test_compaction_counts_tail_tokens_without_document():
     view = C.messages_for_llm(session_no_doc)
     assert res.tokens_before == C.estimate_tokens(view)
 
-
 def test_large_document_snapshot_triggers_proactive_compaction():
     # Session whose transcript tokens alone are under threshold (4096 * 0.70 = 2867),
     # but a large document snapshot pushes total request tokens over threshold.

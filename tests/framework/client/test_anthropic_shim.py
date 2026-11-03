@@ -428,8 +428,13 @@ def test_anthropic_user_send_prompt_caching():
     shim = AnthropicShim(DummyClient())
     snap = snapshot_text("Document snapshot")
     messages = [
-        {"role": "user", "content": "Please summarize this document."},
-        {"role": "user", "content": snap},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Please summarize this document."},
+                {"type": "text", "text": snap},
+            ],
+        }
     ]
 
     _m, _p, body, _h = shim.build_chat_request(
@@ -443,8 +448,11 @@ def test_anthropic_user_send_prompt_caching():
     user_msg = converted_messages[0]
     parts = user_msg["content"]
     assert len(parts) == 2
-    assert parts[0] == {"type": "text", "text": "Please summarize this document.", "cache_control": {"type": "ephemeral"}}
-    assert parts[1] == {"type": "text", "text": snap}
+    assert parts[0]["text"] == "Please summarize this document."
+    assert parts[0].get("cache_control") == {"type": "ephemeral"}
+
+    assert parts[1]["text"] == snap
+    assert "cache_control" not in parts[1]
 
     # The same user string on a later message list, with no tail, is that same first block without cache_control and without the tail.
     later_messages = [

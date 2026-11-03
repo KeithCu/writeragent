@@ -21,7 +21,6 @@ def strip_legacy_document_suffix(content: str) -> str:
             return content[:idx]
     return content
 
-
 def request_tail(session: Any) -> str:
     """Return dynamic per-request context (such as the document snapshot).
 
@@ -34,7 +33,6 @@ def request_tail(session: Any) -> str:
         if snap:
             return snap
     return ""
-
 
 # ---------------------------------------------------------------------------
 # ChatSession - holds conversation history for multi-turn chat
