@@ -3069,7 +3069,7 @@ def test_stop_after_request_return_does_not_cancel_caller_scope():
         conn.getresponse.return_value = mock_resp
         mock_https.return_value = conn
 
-        result = client.stream_request_with_tools(
+        client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
             cancel=scope,
