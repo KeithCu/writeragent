@@ -40,6 +40,7 @@ from typing import Optional, Callable, Any, ClassVar, IO, Iterator
 
 from plugin.framework.constants import BACKGROUND_POOL_MAX_WORKERS
 from plugin.framework.errors import ToolExecutionError, WorkerPoolError
+from plugin.framework.subprocess_env import get_subprocess_creationflags as _get_subprocess_creationflags
 
 # Thread-safety guard (Layer A): tag threads born here so assert_main_thread
 # can name the offending background task in diagnostics.
@@ -259,13 +260,6 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
 
     fut = _get_pool().submit(_run_in_caller_context)
     return BackgroundHandle(future=fut)
-
-
-def get_subprocess_creationflags() -> dict[str, Any]:
-    """Return popen/run kwargs to hide command prompt windows on Windows."""
-    if sys.platform == "win32":
-        return {"creationflags": subprocess.CREATE_NO_WINDOW}
-    return {}
 
 
 class StderrTail:
@@ -533,7 +527,7 @@ class AsyncProcess:
 
         # Copy: setdefault must not mutate the caller's dict.
         self._popen_kwargs: dict[str, Any] = dict(popen_kwargs)
-        for key, value in get_subprocess_creationflags().items():
+        for key, value in _get_subprocess_creationflags().items():
             self._popen_kwargs.setdefault(key, value)
         self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
         self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
