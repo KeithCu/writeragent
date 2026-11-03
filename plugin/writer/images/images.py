@@ -242,8 +242,8 @@ class ImageGenerate(ToolWriterImageBase):
         if dim_err:
             return dim_err
 
-        status_callback = getattr(ctx, "status_callback", None)
-        cancel = getattr(ctx, "send_cancellation", None)
+        status_callback = ctx.status_callback
+        cancel = ctx.send_cancellation
         mt_timeout = float(get_config("request_timeout"))
         add_to_gallery = bool(get_config("image_auto_gallery"))
         add_frame = bool(get_config("image_insert_frame"))
@@ -1193,7 +1193,7 @@ class ImageDownload(ToolWriterImageBase):
         if verify_ssl is None:
             verify_ssl = True
         force = kwargs.get("force", False)
-        cancel = getattr(ctx, "send_cancellation", None)
+        cancel = ctx.send_cancellation
 
         dl_result = _download_for_tool(self, url, verify_ssl=verify_ssl, force=force, cancel=cancel)
         if isinstance(dl_result, dict):
@@ -1294,7 +1294,7 @@ class ImageInsert(ToolWriterImageBase):
         target = kwargs.get("target", "body")
         style_name = kwargs.get("style", "Standard")
 
-        cancel = getattr(ctx, "send_cancellation", None)
+        cancel = ctx.send_cancellation
         local_path = _local_image_path(self, image_path, cancel)
         if isinstance(local_path, dict):
             return local_path
@@ -1490,7 +1490,7 @@ class ImageReplace(ToolWriterImageBase):
             err = main.run(_probe, timeout=60.0)
             if err is not None:
                 return err
-            local_path = _local_image_path(self, new_image_path, getattr(ctx, "send_cancellation", None))
+            local_path = _local_image_path(self, new_image_path, ctx.send_cancellation)
             if isinstance(local_path, dict):
                 return local_path
             new_image_path = local_path
@@ -1604,10 +1604,6 @@ def _response_socket(response: Any) -> Any | None:
     return sock if sock is not None and hasattr(sock, "settimeout") else None
 
 
-def _send_cancelled(cancel: SendCancellation | None) -> bool:
-    return is_cancelled(cancel)
-
-
 def _set_read_timeout(response: Any, seconds: float) -> bool:
     """Shorten the per-read socket timeout so Stop is checked between chunks.
 
@@ -1711,12 +1707,12 @@ def _download_image_to_cache(
                 initial_bytes = b""
                 deadline = time.monotonic() + timeout
                 while True:
-                    if _send_cancelled(cancel):
+                    if is_cancelled(cancel):
                         raise _DownloadStopped()
                     try:
                         chunk = response.read(_IMAGE_DOWNLOAD_CHUNK)
                     except (TimeoutError, socket.timeout):
-                        if time.monotonic() > deadline and not _send_cancelled(cancel):
+                        if time.monotonic() > deadline and not is_cancelled(cancel):
                             raise TimeoutError("image download timed out")
                         continue
 

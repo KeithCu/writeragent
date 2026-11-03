@@ -12,6 +12,7 @@
 import hashlib
 from typing import Any
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_disposal, reraise_if_disposed
 
@@ -68,8 +69,7 @@ def _iter_body_field_identity(doc: Any, hasher: Any) -> Any:
     enum = fields.createEnumeration()
     labeler = LocationLabeler(doc)
     count = 0
-    while enum.hasMoreElements():
-        field = enum.nextElement()
+    for field in iter_elements(enum):
         if _is_annotation(field):
             continue
         count += 1
@@ -101,8 +101,7 @@ class FieldsUpdateAll(ToolWriterFieldBase):
 
         enum = fields.createEnumeration()
         count = 0
-        while enum.hasMoreElements():
-            enum.nextElement()
+        for _field in iter_elements(enum):
             count += 1
 
         return {"status": "ok", "fields_refreshed": count}

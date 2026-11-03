@@ -31,8 +31,8 @@ def test_corpus_db_path_beside_documents(tmp_path):
 
 def test_ensure_corpus_meta_writes_json(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
-    embeddings_cache.ensure_corpus_meta(meta_path, embedding_model="all-MiniLM-L6-v2", dim=384, chunk_count=10)
-    meta = embeddings_cache.read_corpus_meta(meta_path)
+    embeddings_cache.CorpusMeta.ensure(meta_path, embedding_model="all-MiniLM-L6-v2", dim=384, chunk_count=10)
+    meta = embeddings_cache.CorpusMeta.load(meta_path).data
     assert meta["schema_version"] == embeddings_cache.SCHEMA_VERSION
     assert meta["embedding_model"] == "all-MiniLM-L6-v2"
     assert meta["dim"] == "384"
@@ -43,9 +43,9 @@ def test_ensure_corpus_meta_writes_json(tmp_path):
 def test_write_row_count_meta(tmp_path):
     listing = tmp_path / "project"
     listing.mkdir()
-    embeddings_cache.write_row_count_meta(str(listing), 42, embedding_model="all-MiniLM-L6-v2", dim=384)
+    embeddings_cache.CorpusMeta.write_row_count(str(listing), 42, embedding_model="all-MiniLM-L6-v2", dim=384)
     meta_path = embeddings_cache.corpus_meta_path(str(listing))
-    meta = embeddings_cache.read_corpus_meta(meta_path)
+    meta = embeddings_cache.CorpusMeta.load(meta_path).data
     assert meta["schema_version"] == embeddings_cache.SCHEMA_VERSION
     assert meta["storage_backend"] == "sqlite_vec"
     assert meta["row_count"] == "42"
@@ -59,15 +59,19 @@ def test_write_corpus_meta_atomic_behavior(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
 
     # Write once
-    embeddings_cache.write_corpus_meta(meta_path, foo="bar")
+    embeddings_cache.CorpusMeta.load(meta_path).update(foo="bar").save(meta_path)
     assert meta_path.is_file()
     assert not meta_path.with_suffix(".tmp").exists()
 
-    # Overwrite
-    embeddings_cache.write_corpus_meta(meta_path, baz="qux")
-    meta = embeddings_cache.read_corpus_meta(meta_path)
-    assert meta["foo"] == "bar"
-    assert meta["baz"] == "qux"
+    # Overwrite without re-reading destination disk file
+    meta_obj = embeddings_cache.CorpusMeta.load(meta_path).update(baz="qux")
+    with patch.object(Path, "read_text", side_effect=AssertionError("save re-read disk")), \
+         patch("json.loads", side_effect=AssertionError("save called json.loads")):
+        meta_obj.save(meta_path)
+
+    reloaded = embeddings_cache.CorpusMeta.load(meta_path)
+    assert reloaded.data["foo"] == "bar"
+    assert reloaded.data["baz"] == "qux"
 
 
 def test_write_corpus_meta_does_not_clobber_fixed_tmp_name(tmp_path):
@@ -75,9 +79,9 @@ def test_write_corpus_meta_does_not_clobber_fixed_tmp_name(tmp_path):
     fixed_tmp = meta_path.with_suffix(".tmp")
     fixed_tmp.write_text("PARTIAL", encoding="utf-8")
 
-    embeddings_cache.write_corpus_meta(meta_path, foo="bar")
+    embeddings_cache.CorpusMeta.load(meta_path).update(foo="bar").save(meta_path)
 
-    assert embeddings_cache.read_corpus_meta(meta_path)["foo"] == "bar"
+    assert embeddings_cache.CorpusMeta.load(meta_path).data["foo"] == "bar"
     assert fixed_tmp.read_text(encoding="utf-8") == "PARTIAL"
     assert set(tmp_path.iterdir()) == {meta_path, fixed_tmp}
 
@@ -129,10 +133,10 @@ def test_index_is_empty_missing_and_populated(tmp_path):
     db_path = tmp_path / "corpus.db"
     assert embeddings_cache.index_is_empty(meta_path, db_path) is True
 
-    embeddings_cache.write_corpus_meta(meta_path, chunk_count="0")
+    embeddings_cache.CorpusMeta.load(meta_path).update(chunk_count="0").save(meta_path)
     assert embeddings_cache.index_is_empty(meta_path, db_path) is True
 
-    embeddings_cache.write_corpus_meta(meta_path, chunk_count="3")
+    embeddings_cache.CorpusMeta.load(meta_path).update(chunk_count="3").save(meta_path)
     db_path.write_text("", encoding="utf-8")
     assert embeddings_cache.index_is_empty(meta_path, db_path) is False
 
@@ -142,7 +146,7 @@ def test_index_is_empty_zvec_ignores_missing_corpus_db(tmp_path):
     listing = str(tmp_path / "docs")
     meta_path = embeddings_cache.corpus_meta_path(listing)
     db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
-    embeddings_cache.write_corpus_meta(meta_path, chunk_count="3", embedding_model="m")
+    embeddings_cache.CorpusMeta.load(meta_path).update(chunk_count="3", embedding_model="m").save(meta_path)
     store = embeddings_cache.zvec_collection_path(listing, create_parent=False)
     store.mkdir()
     (store / "segment").write_text("rows", encoding="utf-8")
@@ -152,7 +156,7 @@ def test_index_is_empty_zvec_ignores_missing_corpus_db(tmp_path):
     assert embeddings_cache.index_is_empty(meta_path, db_path) is True
     assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="zvec", listing_root=listing) is False
 
-    embeddings_cache.write_corpus_meta(meta_path, chunk_count="0")
+    embeddings_cache.CorpusMeta.load(meta_path).update(chunk_count="0").save(meta_path)
     assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="zvec", listing_root=listing) is True
 
 
@@ -160,7 +164,7 @@ def test_index_is_empty_lancedb_needs_collection_and_chunks(tmp_path):
     listing = str(tmp_path / "docs")
     meta_path = embeddings_cache.corpus_meta_path(listing)
     db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
-    embeddings_cache.write_corpus_meta(meta_path, chunk_count="2")
+    embeddings_cache.CorpusMeta.load(meta_path).update(chunk_count="2").save(meta_path)
     assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="lancedb", listing_root=listing) is True
 
     store = embeddings_cache.lancedb_collection_path(listing, create_parent=False)
@@ -222,28 +226,29 @@ def test_needs_cold_rebuild_with_corrupt_meta(tmp_path):
     meta_path.write_text("{ corrupt", encoding="utf-8")
 
     # Should not trigger a wipe
-    assert embeddings_cache.needs_cold_rebuild(meta_path, "all-MiniLM-L6-v2") is False
+    assert embeddings_cache.CorpusMeta.load(meta_path).needs_cold_rebuild("all-MiniLM-L6-v2") is False
 
 
 def test_needs_cold_rebuild_on_embedding_model_change(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
-    embeddings_cache.write_corpus_meta(
-        meta_path,
+    embeddings_cache.CorpusMeta.load(meta_path).update(
         schema_version=embeddings_cache.SCHEMA_VERSION,
         embedding_model="model-a",
         chunk_count="4",
         dim="384",
-    )
-    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-a") is False
-    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-b") is True
-    assert embeddings_cache.query_blocked_for_model(meta_path, "model-b") is True
-    assert embeddings_cache.query_blocked_for_model(meta_path, "model-a") is False
+    ).save(meta_path)
+    meta = embeddings_cache.CorpusMeta.load(meta_path)
+    assert meta.needs_cold_rebuild("model-a") is False
+    assert meta.needs_cold_rebuild("model-b") is True
+    assert meta.query_blocked_for_model("model-b") is True
+    assert meta.query_blocked_for_model("model-a") is False
 
 
 def test_query_blocked_missing_meta_is_not_a_model_mismatch(tmp_path):
     meta_path = tmp_path / "missing.json"
-    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-a") is True
-    assert embeddings_cache.query_blocked_for_model(meta_path, "model-a") is False
+    meta = embeddings_cache.CorpusMeta.load(meta_path)
+    assert meta.needs_cold_rebuild("model-a") is True
+    assert meta.query_blocked_for_model("model-a") is False
 
 
 def test_non_dict_corpus_meta_does_not_look_empty_or_cold(tmp_path):
@@ -252,10 +257,11 @@ def test_non_dict_corpus_meta_does_not_look_empty_or_cold(tmp_path):
     db_path.write_text("sqlite", encoding="utf-8")
     meta_path.write_text('["not", "a", "dict"]', encoding="utf-8")
 
-    assert embeddings_cache.read_corpus_meta(meta_path) == {}
+    meta = embeddings_cache.CorpusMeta.load(meta_path)
+    assert meta.data == {}
     assert embeddings_cache.index_is_empty(meta_path, db_path) is False
-    assert embeddings_cache.needs_cold_rebuild(meta_path, "model-a") is False
-    assert embeddings_cache.query_blocked_for_model(meta_path, "model-a") is False
+    assert meta.needs_cold_rebuild("model-a") is False
+    assert meta.query_blocked_for_model("model-a") is False
 
     listing = str(tmp_path / "project")
     Path(listing).mkdir()
@@ -312,14 +318,14 @@ def test_resolve_index_context_untitled_uses_work_directory(tmp_path):
 def test_model_matches_index(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
     # When stored model is specified
-    embeddings_cache.write_corpus_meta(meta_path, embedding_model="model-a")
-    assert embeddings_cache.model_matches_index(meta_path, "model-a") is True
-    assert embeddings_cache.model_matches_index(meta_path, "model-b") is False
+    embeddings_cache.CorpusMeta.load(meta_path).update(embedding_model="model-a").save(meta_path)
+    assert embeddings_cache.CorpusMeta.load(meta_path).model_matches_index("model-a") is True
+    assert embeddings_cache.CorpusMeta.load(meta_path).model_matches_index("model-b") is False
 
     # When stored model is empty
-    embeddings_cache.write_corpus_meta(meta_path, embedding_model="")
-    assert embeddings_cache.model_matches_index(meta_path, "model-a") is False
-    assert embeddings_cache.model_matches_index(meta_path, "") is True
+    embeddings_cache.CorpusMeta.load(meta_path).update(embedding_model="").save(meta_path)
+    assert embeddings_cache.CorpusMeta.load(meta_path).model_matches_index("model-a") is False
+    assert embeddings_cache.CorpusMeta.load(meta_path).model_matches_index("") is True
 
 
 def test_remove_stale_corpus_stores_db(tmp_path):
@@ -413,9 +419,11 @@ def test_file_index_state_and_diff(tmp_path):
 def test_dim_from_meta_path_ignores_non_dict(tmp_path):
     meta = tmp_path / "corpus_meta.json"
     meta.write_text("[]", encoding="utf-8")
-    assert embeddings_cache.dim_from_meta_path(str(meta)) is None
+    m = embeddings_cache.CorpusMeta.load(str(meta))
+    assert (m.dim if (m.is_valid and m.dim > 0) else None) is None
     meta.write_text('{"dim": "384"}', encoding="utf-8")
-    assert embeddings_cache.dim_from_meta_path(str(meta)) == 384
+    m = embeddings_cache.CorpusMeta.load(str(meta))
+    assert (m.dim if (m.is_valid and m.dim > 0) else None) == 384
 
 
 def test_corpus_meta_load_update_save_and_predicates(tmp_path):
@@ -440,7 +448,7 @@ def test_corpus_meta_load_update_save_and_predicates(tmp_path):
     assert loaded.dim == 256
     assert loaded.chunk_count == 10
     assert loaded.storage_backend == "sqlite_vec"
-    assert loaded.extra.get("host_flag") == "yes"
+    assert loaded.data.get("host_flag") == "yes"
 
     assert loaded.schema_matches()
     assert loaded.model_matches_index("model-x")
@@ -452,7 +460,7 @@ def test_corpus_meta_load_update_save_and_predicates(tmp_path):
     loaded.update(chunk_count=20).save()
     reloaded = embeddings_cache.CorpusMeta.load(meta_path)
     assert reloaded.chunk_count == 20
-    assert reloaded.extra.get("host_flag") == "yes"
+    assert reloaded.data.get("host_flag") == "yes"
     assert reloaded.embedding_model == "model-x"
 
 
@@ -464,4 +472,16 @@ def test_corpus_meta_corrupt_file_handling(tmp_path):
     assert not meta.schema_matches()
     # Corrupt meta should not trigger cold rebuild (which would wipe live DB)
     assert not meta.needs_cold_rebuild("any-model")
+
+
+def test_folder_store_empty_zvec_does_not_create_parent(tmp_path):
+    listing = str(tmp_path / "docs")
+    meta_path = embeddings_cache.corpus_meta_path(listing, create_parent=False)
+    db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
+    cache_dir = tmp_path / "docs" / "writeragent_embeddings"
+
+    store = embeddings_cache.folder_store(listing, meta_path, db_path, mode="zvec")
+    assert store.is_empty is True
+    assert store.search_path is None
+    assert not cache_dir.exists()
 

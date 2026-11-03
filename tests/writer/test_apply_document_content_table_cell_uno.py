@@ -442,7 +442,7 @@ def test_apply_document_content_table_failure_reported_uno(ctx, doc):
     """Tip: tool must report failure honestly if a table insert produces no table."""
     skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from unittest.mock import patch
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
 
     text = doc.getText()
     cur = text.createTextCursor()

@@ -34,6 +34,7 @@ from plugin.chatbot.chat_session import message_text, request_tail
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from plugin.framework.send_cancellation import SendCancellation
 
 
 log = logging.getLogger(__name__)
@@ -766,7 +767,7 @@ def _summarize_bounded(
     window: int,
     max_out: int,
     previous_summary: str,
-    cancel: Any,
+    cancel: SendCancellation | None,
     stale: Callable[[], bool],
 ) -> tuple[str | None, str]:
     lines = _summary_lines(slice_messages)
@@ -829,7 +830,7 @@ def compact_session(
     window: int | None,
     tools: Any = None,
     max_tokens: int | None = None,
-    cancel: Any = None,
+    cancel: SendCancellation | None = None,
     force: bool = False,
     status_callback: Callable[[str], None] | None = None,
 ) -> CompactResult:

@@ -11,6 +11,7 @@ import pytest
 
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
+from plugin.framework.send_cancellation import SendCancellation
 from tests.framework.stream_test_helpers import DummyToolkit
 
 
@@ -206,11 +207,14 @@ def test_stop_tail_empty_item_does_not_call_on_error():
     stopped: list[bool] = []
     errors: list[object] = []
     outcome = DrainOutcome()
+    cancel = SendCancellation()
 
-    def stop_checker() -> bool:
+    def is_cancelled() -> bool:
         # The blocking loop checks once before the batch, then again per item.
         calls[0] += 1
         return calls[0] > 1
+
+    cancel.is_cancelled = is_cancelled  # type: ignore
 
     run_stream_drain_loop(
         q,
@@ -220,7 +224,7 @@ def test_stop_tail_empty_item_does_not_call_on_error():
         on_stream_done=lambda _item: True,
         on_stopped=lambda: stopped.append(True),
         on_error=lambda payload: errors.append(payload),
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
     assert outcome.done is True
     assert stopped == [True]

@@ -25,14 +25,17 @@ from typing import Any
 
 from plugin.writer.locale import grammar_settings
 from . import grammar_proofread_cache, grammar_proofread_json, grammar_proofread_locale, grammar_persistence
-from .grammar_obs import emit_grammar_status, get_grammar_status, grammar_obs
+from .grammar_obs import (
+    get_grammar_status,
+    grammar_obs,
+    slice_preview_debug,
+)
 from plugin.framework.grammar_rule_ids import (
     bcp47_to_uno_lang_country,
     grammar_bcp47_tags_match,
     grammar_english_name_for_bcp47,
     normalize_detected_bcp47,
 )
-from .grammar_proofread_text import slice_preview_debug
 from .grammar_work_queue import (
     GrammarWorkItem,
     GrammarWorkQueue,
@@ -73,7 +76,7 @@ def _get_or_create_thread_llm_client(api_cfg: dict[str, Any], ctx: Any) -> Any:
     if (
         cached_client is not None
         and cached_key == cache_key
-        and not send_cancellation.is_client_stopped(cached_client)
+        and not cached_client.stopped()
     ):
         return cached_client
 
@@ -194,7 +197,7 @@ def run_single_sentence_provider(
     for item, text in chunk:
         try:
             if spec.emit_request_status:
-                emit_grammar_status("request", text, result=f"{spec.name} check")
+                get_grammar_status().request(text, result=f"{spec.name} check")
             request_start = time.monotonic()
             res = spec.run(ec.ctx, text, bcp47, cfg_dir)
             elapsed_ms = int((time.monotonic() - request_start) * 1000)
@@ -204,7 +207,7 @@ def run_single_sentence_provider(
             grammar_obs(spec.obs_event, chunk_len=1, results_len=len(errors), elapsed_ms=elapsed_ms, bcp47=bcp47)
         except Exception as ex:
             log.exception("[grammar] %s check failed", spec.name)
-            emit_grammar_status("failed", f"{spec.name} check", result=str(ex))
+            get_grammar_status().failed(f"{spec.name} check", result=str(ex))
 
 
 @dataclass(frozen=True)
@@ -337,10 +340,7 @@ def apply_language_change(
     try:
         from plugin.framework.queue_executor import main
 
-        if main.is_current():
-            return bool(_do_update())
-        else:
-            return bool(main.call(_do_update))
+        return bool(main.run(_do_update))
     except Exception as e:
         log.warning("Failed to update language property: %s", e)
         return False
@@ -402,7 +402,7 @@ def run_grammar_check(
                     len(chunk),
                     ec.model or "",
                 )
-                emit_grammar_status("failed", "Grammar check", result="Empty LLM response")
+                get_grammar_status().failed("Grammar check", result="Empty LLM response")
                 return
             log.warning(
                 "[grammar] LLM batch result count mismatch for chunk: expected %s, got %s. Requeuing items.",
@@ -421,7 +421,7 @@ def run_grammar_check(
 
     except Exception as e:
         log.exception("[grammar] Grammar check failed")
-        emit_grammar_status("failed", "Grammar check", result=str(e))
+        get_grammar_status().failed("Grammar check", result=str(e))
 
 
 def persisted_grammar_skip_lang_detect(
@@ -438,7 +438,7 @@ def persisted_grammar_skip_lang_detect(
     """
     if not doc_id:
         return False
-    fp = grammar_proofread_cache.sentence_identity_fp(text)
+    fp = grammar_proofread_locale.sentence_identity_fp(text)
     p = grammar_persistence.get_persistence(ctx, doc_id)
     # Do not adopt a v2/v3 row here. That probe would retag an unknown
     # locale as this chunk's CharLocale before proofreading reads it.
@@ -515,12 +515,12 @@ def call_grammar_llm(
         user_content = "\n".join(f"{idx+1}. {text}" for idx, (_it, text) in enumerate(chunk))
         messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_content}]
         grammar_obs("worker_llm_batch_request", item_count=len(chunk), total_len=len(user_content))
-        emit_grammar_status("request", f"Batch of {len(chunk)}", result="LLM batch request")
+        get_grammar_status().request(f"Batch of {len(chunk)}", result="LLM batch request")
     else:
         item, text = chunk[0]
         messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": text}]
         grammar_obs("worker_llm_request_prepare", enqueue_seq=item.enqueue_seq, llm_text_len=len(text), llm_preview=slice_preview_debug(text, 96))
-        emit_grammar_status("request", text, result="LLM request")
+        get_grammar_status().request(text, result="LLM request")
 
     request_start = time.monotonic()
     with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight()):
@@ -600,9 +600,9 @@ def _detect_languages_via_langdetect(
     if len(pending) == 1:
         idx = pending[0]
         text = chunk[idx][1]
-        emit_grammar_status("request", text, result="Detecting language")
+        get_grammar_status().request(text, result="Detecting language")
     else:
-        emit_grammar_status("request", f"Batch of {len(pending)}", result="Detecting language")
+        get_grammar_status().request(f"Batch of {len(pending)}", result="Detecting language")
 
     pending_texts = [chunk[idx][1] for idx in pending]
     batch_results = detect_languages(ec.ctx, pending_texts)
@@ -630,7 +630,7 @@ def _detect_via_llm_batch(
     detect_messages = [{"role": "system", "content": detect_prompt}, {"role": "user", "content": user_content}]
     detect_max_tok = grammar_proofread_locale.GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_PER_BATCH_ITEM * len(texts)
 
-    emit_grammar_status("request", f"Batch of {len(texts)}", result="Detecting language")
+    get_grammar_status().request(f"Batch of {len(texts)}", result="Detecting language")
     with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight()):
         detect_content = language_detect_llm_sync(ec, detect_messages, detect_max_tok)
 
@@ -664,7 +664,7 @@ def _detect_via_llm_single(
     )
     detect_messages = [{"role": "system", "content": detect_prompt}, {"role": "user", "content": text}]
 
-    emit_grammar_status("request", text, result="Detecting language")
+    get_grammar_status().request(text, result="Detecting language")
     with llm_lanes.grammar_llm_request_gate(grammar_proofread_locale.grammar_max_in_flight()):
         detect_content = language_detect_llm_sync(
             ec,
@@ -945,7 +945,7 @@ def run_llm_and_cache_batch(
 
     except Exception as e:
         log.exception("[grammar] worker batch failed")
-        emit_grammar_status("failed", "Batch processing", result=type(e).__name__)
+        get_grammar_status().failed("Batch processing", result=type(e).__name__)
     finally:
         if status_cycle_started:
             get_grammar_status().end_status_cycle()

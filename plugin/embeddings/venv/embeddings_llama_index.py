@@ -483,7 +483,7 @@ def llama_index_ingest(
     from llama_index.core import VectorStoreIndex  # type: ignore
     from llama_index.core.schema import TextNode  # type: ignore
 
-    from plugin.embeddings.embeddings_cache import dim_from_meta_path
+    from plugin.embeddings.embeddings_cache import CorpusMeta
     from plugin.embeddings.venv.embeddings_sqlite import (
         connect_corpus_db,
         corpus_chunk_count,
@@ -494,7 +494,8 @@ def llama_index_ingest(
 
     conn = connect_corpus_db(db_path)
     try:
-        dim = dim_from_meta_path(meta_path)
+        meta = CorpusMeta.load(meta_path)
+        dim = meta.dim if (meta.is_valid and meta.dim > 0) else None
         ensure_schema(conn, dim=dim, with_fts=build_fts, with_vec=build_vectors and dim is not None)
 
         if delete_keys:

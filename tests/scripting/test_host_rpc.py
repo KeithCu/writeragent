@@ -750,7 +750,6 @@ def test_execute_tool_copies_stop_onto_tool_context():
             send_cancellation=sentinel,
         )
     tctx = registry.execute.call_args.args[1]
-    assert tctx.stop_checker is checker
     assert tctx.send_cancellation is sentinel
 
 

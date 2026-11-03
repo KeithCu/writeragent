@@ -358,8 +358,7 @@ class TestEndpointImageProvider:
         assert after_files == before_files
 
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_make_image_request_body_includes_image_url_when_source_image(self, mock_init):
+    def test_make_image_request_body_includes_image_url_when_source_image(self):
         """Non-OpenRouter image requests keep OpenAI-style image_url for source_image."""
         config = {"endpoint": "https://api.example.com", "model": "test-model"}
         client = LlmClient(config, MockContext())
@@ -368,8 +367,7 @@ class TestEndpointImageProvider:
         assert ("image_url") in (data)
         assert (data["image_url"]) == ("data:image/png;base64,b64data")
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_openrouter_image_request_uses_input_references_for_edit(self, mock_init):
+    def test_openrouter_image_request_uses_input_references_for_edit(self):
         """OpenRouter /images img2img must send input_references, not top-level image_url.
 
         OpenRouter ignores image_url on POST /api/v1/images (HTTP 200, no input image
@@ -383,8 +381,7 @@ class TestEndpointImageProvider:
         assert ("image_url") not in (data)
         assert (data["input_references"]) == ([{"type": "image_url", "image_url": {"url": "data:image/png;base64,b64data"}}])
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_openai_image_request_uses_images_edits_for_edit(self, mock_init):
+    def test_openai_image_request_uses_images_edits_for_edit(self):
         """Official OpenAI img2img is POST /images/edits JSON images[].image_url, not generations image_url."""
         config = {"endpoint": "https://api.openai.com", "model": "gpt-image-2", "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
@@ -408,8 +405,7 @@ class TestEndpointImageProvider:
         assert "response_format" not in data
         assert (data["model"]) == ("gpt-image-2")
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_openai_dalle3_rejects_edit(self, mock_init):
+    def test_openai_dalle3_rejects_edit(self):
         """dall-e-3 is generations-only; refuse rather than replace the selected graphic."""
         config = {"endpoint": "https://api.openai.com", "model": "dall-e-3", "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
@@ -420,8 +416,7 @@ class TestEndpointImageProvider:
         assert ("cannot edit") in (str(raised.value).lower())
         assert ("or dall-e-2") not in (str(raised.value).lower())
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_openai_dalle2_rejects_edit(self, mock_init):
+    def test_openai_dalle2_rejects_edit(self):
         """dall-e-2 edits were multipart. This client sends JSON, so refuse."""
         config = {"endpoint": "https://api.openai.com", "model": "dall-e-2", "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
@@ -432,8 +427,7 @@ class TestEndpointImageProvider:
         assert ("cannot edit") in (str(raised.value).lower())
         assert ("or dall-e-2") not in (str(raised.value).lower())
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_together_image_request_uses_reference_images_for_edit(self, mock_init):
+    def test_together_image_request_uses_reference_images_for_edit(self):
         """Together default image models (Flash Image / FLUX.2) want reference_images, not image_url."""
         config = {"endpoint": "https://api.together.xyz", "model": "google/flash-image-2.5"}
         client = LlmClient(config, MockContext())
@@ -461,8 +455,7 @@ class TestEndpointImageProvider:
         assert ("image_url") not in (data)
         assert (data["reference_images"]) == (["data:image/png;base64,b64data"])
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_together_kontext_image_request_uses_image_url_for_edit(self, mock_init):
+    def test_together_kontext_image_request_uses_image_url_for_edit(self):
         """FLUX.1 Kontext on Together documents a single image_url string."""
         config = {"endpoint": "https://api.together.xyz", "model": "black-forest-labs/FLUX.1-kontext-pro"}
         client = LlmClient(config, MockContext())

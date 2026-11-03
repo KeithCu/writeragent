@@ -352,9 +352,9 @@ class PanelVoiceController:
 
         self._panel._stt_inflight = True
         try:
-            # Spawn-time scope. Do not call resolve_stop_checker inside the
+            # Spawn-time scope. Do not read _send_cancellation inside the
             # worker: Stop's drain clears the field and the next send replaces it.
-            cancel_scope, _unused = capture_send_stop(self._panel)
+            cancel_scope = capture_send_stop(self._panel)
             if is_cancelled(cancel_scope):
                 assign_send_outcome(self._panel, "Stopped")
                 return ""

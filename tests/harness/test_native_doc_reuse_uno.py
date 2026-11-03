@@ -45,7 +45,7 @@ def test_calc_reuse_next_test_sees_empty_sheet(ctx, doc):
 @native_test
 @with_native_doc("writer", reuse=True)
 def test_writer_reuse_writes_then_leaves_dirt(ctx, doc):
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     insert_content_at_position(
         doc,
@@ -74,7 +74,7 @@ def test_writer_reuse_next_test_sees_empty_text(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_writer_default_reuse_writes_then_leaves_dirt(ctx, doc):
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     insert_content_at_position(
         doc,

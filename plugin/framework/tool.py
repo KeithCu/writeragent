@@ -38,7 +38,10 @@ import logging
 import queue
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Callable, ClassVar, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, NamedTuple, cast
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.framework.errors import (
     WriterAgentException,
@@ -97,7 +100,6 @@ class ToolContext:
         python_tool_domain: Optional domain string for Python execution scopes.
         status_callback: Optional callback for status updates (Writer tools).
         append_thinking_callback: Optional callback for thinking text (Writer tools).
-        stop_checker: Optional callable () -> bool; if present and returns True, tool should stop.
         approval_callback: Optional callable for human-in-the-loop approval.
         chat_append_callback: Optional callable(str) to append plain text to the chat response.
         set_active_domain_callback: Optional callable to update the active domain.
@@ -116,14 +118,13 @@ class ToolContext:
     active_page_index: int | None
     status_callback: Callable[[str], None] | None
     append_thinking_callback: Callable[[str], None] | None
-    stop_checker: Callable[[], bool] | None
     approval_callback: Callable[[str], bool] | None
     chat_append_callback: Callable[[str], None] | None
     set_active_domain_callback: Callable[[str | None], None] | None
     active_domain: str | None
     python_tool_domain: str | None
     read_only_target: bool
-    send_cancellation: Any | None
+    send_cancellation: SendCancellation | None
     uno_services_supported: frozenset[str]
 
     __slots__: ClassVar[tuple[str, ...]] = (
@@ -135,7 +136,6 @@ class ToolContext:
         "active_page_index",
         "status_callback",
         "append_thinking_callback",
-        "stop_checker",
         "approval_callback",
         "chat_append_callback",
         "set_active_domain_callback",
@@ -156,14 +156,13 @@ class ToolContext:
         active_page_index: int | None = None,
         status_callback: Any = None,
         append_thinking_callback: Any = None,
-        stop_checker: Any = None,
         approval_callback: Any = None,
         chat_append_callback: Any = None,
         set_active_domain_callback: Any = None,
         active_domain: str | None = None,
         python_tool_domain: str | None = None,
         read_only_target: bool = False,
-        send_cancellation: Any = None,
+        send_cancellation: SendCancellation | None = None,
         uno_services_supported: Any = None,
     ) -> None:
         # crosshair: off
@@ -175,7 +174,6 @@ class ToolContext:
         self.active_page_index = active_page_index
         self.status_callback = status_callback
         self.append_thinking_callback = append_thinking_callback
-        self.stop_checker = stop_checker
         self.approval_callback = approval_callback
         self.chat_append_callback = chat_append_callback
         self.set_active_domain_callback = set_active_domain_callback
@@ -189,11 +187,9 @@ class ToolContext:
             from plugin.framework import doc_type as _doc_type
 
             self.uno_services_supported = _doc_type.uno_services_for_doc_type_label(doc_type)
-        if send_cancellation is not None and stop_checker is None:
-            self.stop_checker = send_cancellation.is_cancelled
 
     def derive(self, **overrides: Any) -> ToolContext:
-        """Derive a new context copying every slot then applying overrides, with __init__ applying uno_services_supported and stop_checker rules."""
+        """Derive a new context copying every slot then applying overrides, with __init__ applying uno_services_supported rules."""
         values = {name: getattr(self, name) for name in self.__slots__}
         values.update(overrides)
         return ToolContext(**values)

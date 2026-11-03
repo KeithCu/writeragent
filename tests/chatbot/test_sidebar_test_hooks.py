@@ -32,7 +32,7 @@ pytestmark = pytest.mark.xdist_group("audio_recorder_control")
 from plugin.chatbot.audio_recorder_state import AudioRecorderState, AudioStatus
 from plugin.chatbot.send_state import ButtonAction, SendButtonState, SendEventKind, SendMode
 from plugin.chatbot.sidebar_state import SidebarCompositeState
-from plugin.chatbot.rich_text_control import _debug_env_active
+from plugin.chatbot.rich_text_control import debug_env_active
 from plugin.chatbot.sidebar_test_hooks import (
     approval_active,
     audio_status,
@@ -183,7 +183,7 @@ def fake_listener() -> _FakeListener:
 
 
 def test_debug_hooks_available_in_dev_tree() -> None:
-    assert _debug_env_active() is True
+    assert debug_env_active() is True
 
 
 class _Panel:

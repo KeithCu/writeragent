@@ -44,7 +44,7 @@ import json
 import logging
 import re
 import urllib.parse
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from .base_provider_shim import BaseProviderShim
@@ -59,7 +59,7 @@ from plugin.framework.stream_delta import accumulate_delta, coalesce_split_tool_
 from plugin.framework.constants import USER_AGENT
 from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation, is_cancelled
 
-from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
+from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
 from plugin.framework.errors import NetworkError, WriterAgentException, is_disposal
 from plugin.framework.url_utils import get_api_version_suffix, get_url_path_and_query, normalize_endpoint_url
@@ -210,7 +210,6 @@ class LlmClient:
     ctx: Any
     _transport: LlmHttpTransport
     _owned: SendCancellation
-    _inflight: SendCancellation | None
 
     def __init__(self, config: dict[str, Any], ctx: Any, cancel: SendCancellation | None = None, *, register_with_send: bool = True) -> None:
         self.config = config
@@ -220,7 +219,6 @@ class LlmClient:
         # Stop before the first byte: close() alone is a no-op when sock is None;
         # the worker must not open a new connection (B13 / llm_request_lane).
         self._owned = SendCancellation()
-        self._inflight = None
         scope = cancel
         if scope is None and register_with_send:
             scope = get_current_send_cancellation()
@@ -228,14 +226,56 @@ class LlmClient:
             scope.register_client(self)
 
     def stopped(self) -> bool:
-        return is_cancelled(self._owned)
+        return self._owned.is_cancelled()
 
-    def _activate(self, cancel: SendCancellation | None) -> SendCancellation:
-        if is_cancelled(self._owned):
-            return self._owned
-        if cancel is not None:
-            return cancel
-        return self._owned
+    def _request_scope(self, cancel: SendCancellation | None) -> SendCancellation:
+        """Link caller's cancellation scope with this client's owned scope.
+
+        What was wrong: Stop could fire after _activate returned a caller scope
+        but before _inflight was assigned. stop() cancelled _owned only, leaving
+        the active scope uncancelled so reconnect was attempted.
+        Fix: register a late-cancellation hook directly on _owned so stop() cancels
+        both the client and caller scope in a single pass without needing _inflight.
+        """
+        owned = self._owned
+        if cancel is None or cancel is owned:
+            return owned
+        # stop() cancels owned. The hook below cancels the caller's scope in that
+        # same cancel(), including when stop() already ran (late hook).
+        # Do not register self.stop on cancel: scope.cancel() must not latch the client.
+        owned.register_on_cancel(cancel.cancel)
+        if owned.is_cancelled():
+            return owned
+        return cancel
+
+    def _release_request_scope(self, cancel: SendCancellation | None) -> None:
+        """Unregister caller cancellation hook when request ends."""
+        if cancel is not None and cancel is not self._owned:
+            self._owned.unregister_on_cancel(cancel.cancel)
+
+    def _effort_on_bad_request(self, scope: SendCancellation, slot: dict[str, Any]) -> Callable[[bytes], bytes | None]:
+        """Build bad-request callback for effort 400 retries.
+
+        What was wrong: the 400-effort retry callback was duplicated between
+        _exchange_json and _run_streaming_loop.
+        Fix: single helper closure updating the caller's mutable slot dict.
+        """
+        def on_bad_request(body_bytes: bytes) -> bytes | None:
+            if scope.is_cancelled():
+                return None
+            if slot["pending"] is None:
+                from .base_provider_shim import effort_retry_bodies
+
+                slot["pending"] = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
+            if not slot["pending"]:
+                return None
+            log.warning("HTTP 400 rejected reasoning effort; retrying with another effort")
+            slot["used"] = True
+            next_body = slot["pending"].pop(0)
+            slot["body"] = next_body
+            return next_body
+
+        return on_bad_request
 
     def _get_shim(self) -> BaseProviderShim:
         """Get the provider shim for this client."""
@@ -300,9 +340,6 @@ class LlmClient:
         """
         log.debug("LlmClient.stop() called")
         self._owned.cancel()
-        inflight = self._inflight
-        if inflight is not None and inflight is not self._owned:
-            inflight.cancel()
         self._close_connection()
 
     def clear_stop(self) -> None:
@@ -343,11 +380,14 @@ class LlmClient:
 
     def _send_request(self, method: str, path: str, body: Any, headers: dict[str, str], *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
         """Send through the transport with cancellation scope."""
-        active = self._activate(cancel)
-        if is_cancelled(active):
-            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+        active = self._request_scope(cancel)
+        try:
+            if is_cancelled(active):
+                raise NetworkError("LLM request aborted by Stop", code="STOPPED")
 
-        return self._transport.send(method, path, body, headers, cancel=active, status_callback=status_callback)
+            return self._transport.send(method, path, body, headers, cancel=active, status_callback=status_callback)
+        finally:
+            self._release_request_scope(cancel)
 
     def make_chat_request(
         self,
@@ -388,7 +428,6 @@ class LlmClient:
             messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice
         )
 
-        init_logging(self.ctx)
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
         log.debug("URL: %s" % _path_without_query(path))
         if log.isEnabledFor(logging.DEBUG):
@@ -412,69 +451,52 @@ class LlmClient:
         failure_log: str = "JSON request failed",
     ) -> tuple[str, Any]:
         """One non-streaming JSON exchange with the shared retry budget."""
-        active = self._activate(cancel)
-        self._inflight = active
-        if is_cancelled(active):
-            self._close_connection()
-            return "stop", None
-        api_key = str(self.config.get("api_key") or "").strip()
-        effort_pending: list[bytes] | None = None
-        first_body = body if isinstance(body, (bytes, bytearray)) else body
-        effort_used = False
-
-        def on_bad_request(body_bytes: bytes) -> bytes | None:
-            nonlocal effort_pending, body, first_body, effort_used
-            if is_cancelled(active):
-                return None
-            if effort_pending is None:
-                from .base_provider_shim import effort_retry_bodies
-
-                effort_pending = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
-            if not effort_pending:
-                return None
-            log.warning("HTTP 400 rejected reasoning effort; retrying with another effort")
-            effort_used = True
-            next_body = effort_pending.pop(0)
-            body = next_body
-            return next_body
-
+        active = self._request_scope(cancel)
         try:
-            # Same exchange as catalog and speech. Stop, timeout, retry, and
-            # redaction are not a second loop here.
-            result = self._transport.exchange(
-                method,
-                path,
-                body,
-                headers,
-                cancel=active,
-                status_callback=status_callback,
-                parse_json=False,
-                sender=self._send_request,
-                secrets=self._wire_secrets(),
-                on_retry=on_retry,
-                after_read=self._close_if_connection_close,
-                observe_http_error=self._observe_provider_http_error,
-                retry_log_message=retry_log_message,
-                on_bad_request=on_bad_request,
-            )
-        except NetworkError as exc:
-            if getattr(exc, "code", None) == "STOPPED":
+            if is_cancelled(active):
+                self._close_connection()
                 return "stop", None
-            raise
-        except Exception as exc:
-            if not wrap_unexpected:
+            api_key = str(self.config.get("api_key") or "").strip()
+            first_body = body if isinstance(body, (bytes, bytearray)) else body
+            slot: dict[str, Any] = {"pending": None, "body": body, "used": False}
+            on_bad_request = self._effort_on_bad_request(active, slot)
+
+            try:
+                # Same exchange as catalog and speech. Stop, timeout, retry, and
+                # redaction are not a second loop here.
+                result = self._transport.exchange(
+                    method,
+                    path,
+                    body,
+                    headers,
+                    cancel=active,
+                    status_callback=status_callback,
+                    parse_json=False,
+                    sender=self._send_request,
+                    secrets=self._wire_secrets(),
+                    on_retry=on_retry,
+                    after_read=self._close_if_connection_close,
+                    observe_http_error=self._observe_provider_http_error,
+                    retry_log_message=retry_log_message,
+                    on_bad_request=on_bad_request,
+                )
+            except NetworkError as exc:
+                if getattr(exc, "code", None) == "STOPPED":
+                    return "stop", None
                 raise
-            err_msg = format_error_message(exc)
-            log.exception(failure_log)
-            raise NetworkError(err_msg, details={"url": path}) from exc
+            except Exception as exc:
+                if not wrap_unexpected:
+                    raise
+                err_msg = format_error_message(exc)
+                log.exception(failure_log)
+                raise NetworkError(err_msg, details={"url": path}) from exc
+            if slot["used"] and isinstance(first_body, (bytes, bytearray)):
+                fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
+                lb = bytes(slot["body"]) if isinstance(slot["body"], bytearray) else slot["body"]
+                remember_accepted_effort(self._endpoint(), fb, lb)
+            return "ok", _parse_provider_envelope(result.body, path, api_key=api_key)
         finally:
-            if self._inflight is active:
-                self._inflight = None
-        if effort_used and isinstance(first_body, (bytes, bytearray)):
-            fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
-            lb = bytes(body) if isinstance(body, bytearray) else body
-            remember_accepted_effort(self._endpoint(), fb, lb)
-        return "ok", _parse_provider_envelope(result.body, path, api_key=api_key)
+            self._release_request_scope(cancel)
 
     def _request_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
         """Blocking JSON call on the persistent transport.
@@ -500,7 +522,6 @@ class LlmClient:
             url = path
 
         # log.debug...
-        init_logging(self.ctx)
         log.debug("=== Image Request ===")
         # Path/query must not include API keys.
         log.debug("URL: %s" % urllib.parse.urlunparse(urllib.parse.urlparse(url)._replace(query="", fragment="")))
@@ -631,35 +652,21 @@ class LlmClient:
 
     def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None, reset_unemitted_attempt: Any = None) -> Any:
         """Common low-level streaming engine."""
-        init_logging(self.ctx)
         log.info("=== Starting streaming loop (persistent) ===")
         log.debug("Request Path: %s" % path)
 
         # Do not clear cancellation here — that races with stop() on another thread
         # (B13). UI clears via ``clear_stop()`` at the start of a new send.
-        active = self._activate(cancel)
-        self._inflight = active
+        active = self._request_scope(cancel)
         if active.is_cancelled():
             log.debug("streaming_loop: Stop already requested before connect")
             self._close_connection()
+            self._release_request_scope(cancel)
             return "stop"
 
         first_body = body
-        effort_pending: list[bytes] | None = None
-
-        def on_bad_request(body_bytes: bytes) -> bytes | None:
-            nonlocal effort_pending, body
-            if active.is_cancelled():
-                return None
-            if effort_pending is None:
-                from .base_provider_shim import effort_retry_bodies
-
-                effort_pending = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
-            if not effort_pending:
-                return None
-            log.warning("HTTP 400 rejected reasoning effort; retrying with another effort")
-            body = effort_pending.pop(0)
-            return body
+        slot: dict[str, Any] = {"pending": None, "body": body, "used": False}
+        on_bad_request = self._effort_on_bad_request(active, slot)
 
         budget = RetryBudget(
             self._transport,
@@ -931,8 +938,8 @@ class LlmClient:
                         self._close_connection()
                     except Exception:
                         log.debug("stream close after non-clean finish failed", exc_info=True)
-            if effort_pending is not None:
-                remember_accepted_effort(self._endpoint(), first_body, body)
+            if slot["pending"] is not None:
+                remember_accepted_effort(self._endpoint(), first_body, slot["body"])
             if last_finish_reason is None and self.stopped():
                 last_finish_reason = "stop"
             return last_finish_reason
@@ -950,8 +957,7 @@ class LlmClient:
             log.exception("streaming_loop: Unexpected error")
             raise NetworkError(err_msg, details={"url": path}) from e
         finally:
-            if self._inflight is active:
-                self._inflight = None
+            self._release_request_scope(cancel)
 
 
     def stream_chat_response(
@@ -1001,7 +1007,6 @@ class LlmClient:
 
         Returns a dict: {role, content, tool_calls, finish_reason, images, usage}
         """
-        init_logging(self.ctx)
         requested_model = model or self.config.get("model") or "default"
         n_tool_defs = len(tools) if isinstance(tools, list) else 0
         log.info("Sending LLM chat request: provider=%s requested_model=%r stream=%s n_messages=%d n_tool_defs=%d", self._get_provider(), requested_model, stream, len(messages), n_tool_defs)
@@ -1081,8 +1086,7 @@ class LlmClient:
         else:
             # Sync path (nested smol / specialized). Same Stop-before-connect latch as stream.
             stopped_result: dict[str, Any] = {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-            active = self._activate(cancel)
-            if active.is_cancelled():
+            if (cancel is not None and cancel.is_cancelled()) or self.stopped():
                 log.debug("request_with_tools sync: Stop already requested before connect")
                 self._close_connection()
                 return stopped_result
@@ -1144,7 +1148,7 @@ class LlmClient:
         # (caller cancel= or this client's owned scope): a Stop that already
         # delivered a partial tool-call delta must not look like a call the UI
         # should run.
-        request_cancelled = is_cancelled(self._activate(cancel))
+        request_cancelled = (cancel is not None and cancel.is_cancelled()) or self.stopped()
         if last_finish_reason == "stop" and tool_calls:
             if request_cancelled:
                 tool_calls = None

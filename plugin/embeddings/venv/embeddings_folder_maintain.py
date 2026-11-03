@@ -10,7 +10,15 @@ import logging
 import time
 from typing import Any, Callable, Literal
 
-from plugin.embeddings.embeddings_cache import _load_meta_object, clear_folder_cache, corpus_db_path, corpus_meta_path, ensure_corpus_meta, index_is_empty, maybe_upgrade_legacy_index, needs_cold_rebuild, write_row_count_meta
+from plugin.embeddings.embeddings_cache import (
+    CorpusMeta,
+    SearchMode,
+    clear_folder_cache,
+    corpus_db_path,
+    corpus_meta_path,
+    folder_store,
+    maybe_upgrade_legacy_index,
+)
 from plugin.embeddings.embeddings_fs import WriterFileEntry, chunk_to_index_row, guess_indexable_paths, indexable_chunks_from_path
 from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 from plugin.embeddings.venv.embeddings_sqlite import (
@@ -29,44 +37,36 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     sync_file_paragraph_state_in_db,
 )
 from plugin.embeddings.venv.heartbeat_throttle import HeartbeatThrottle
-from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION
 
 log = logging.getLogger(__name__)
 
 MaintainMode = Literal["auto", "cold", "incremental"]
-SearchMode = Literal["fts", "embeddings", "hybrid"]
 
 __all__ = ["MaintainMode", "SearchMode", "maintain_folder_corpus", "maintain_folder_index"]
 
 
 def _build_flags(search_mode: str) -> tuple[bool, bool]:
-    mode = str(search_mode or "").strip().lower()
-    build_fts = mode in ("fts", "hybrid", "llama_index", "zvec", "lancedb")
-    build_vectors = mode in ("embeddings", "hybrid", "llama_index", "zvec", "lancedb")
+    build_fts = search_mode in ("fts", "hybrid", "llama_index", "zvec", "lancedb")
+    build_vectors = search_mode in ("embeddings", "hybrid", "llama_index", "zvec", "lancedb")
     return build_fts, build_vectors
 
 
 def _resolve_mode(listing_root: str, embedding_model: str, mode: MaintainMode, *, build_vectors: bool, search_mode: str = "") -> MaintainMode:
     meta_path = corpus_meta_path(listing_root, create_parent=False)
     db_path = corpus_db_path(listing_root, create_parent=False)
-    # Model change must cold-rebuild even when the caller asked for incremental.
-    # Staying incremental rewrites embedding_model onto a vec table that is
-    # empty, partial, or still the previous dimension.
-    if build_vectors and needs_cold_rebuild(meta_path, embedding_model):
+    store = folder_store(listing_root, meta_path, db_path, mode=search_mode)
+    if build_vectors and store.meta.needs_cold_rebuild(embedding_model):
+        # Model change must cold-rebuild even when the caller asked for incremental.
         return "cold"
     if mode != "auto":
         return mode
-    # corpus.db is absent for zvec/lancedb. Pass the backend so that absence
-    # is not read as an empty sqlite corpus (which cold-wipes the collection).
-    if index_is_empty(meta_path, db_path, search_mode=search_mode, listing_root=listing_root):
+    if store.is_empty:
+        # corpus.db is absent for zvec/lancedb; folder_store probes the backend dir.
         return "cold"
-    loaded = _load_meta_object(meta_path)
-    if loaded is None:
-        # Unreadable or non-object meta is not a schema mismatch. A mismatch
-        # here would cold-wipe the corpus. #1153 stopped the decode-error wipe;
-        # a JSON list still crashed on .get or looked like the wrong version.
+    if not store.meta.is_valid:
+        # Non-object meta is not a schema mismatch (#1153); do not cold-wipe.
         return "incremental"
-    if str(loaded.get("schema_version", "")) != EMBEDDINGS_SCHEMA_VERSION:
+    if not store.meta.schema_matches():
         return "cold"
     return "incremental"
 
@@ -81,7 +81,7 @@ def _ingest_rows(
         # LlamaIndex uses that same table. Its empty ingest returns before
         # any embed, so this call always uses the sqlite graph.
         return ingest_paragraphs(db_path, meta_path, embedding_model, rows, delete_keys=list(delete_keys or []), build_fts=build_fts, build_vectors=True, fill_vector_gaps=True, heartbeat_fn=heartbeat_fn)
-    if str(search_mode).strip().lower() == "llama_index":
+    if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
 
         return llama_index_ingest(db_path, meta_path, embedding_model, rows, delete_keys=delete_keys, build_fts=build_fts, build_vectors=build_vectors, heartbeat_fn=heartbeat_fn)
@@ -94,7 +94,7 @@ def _ingest_rows(
         delete_paragraph_keys(conn, list(delete_keys or []), with_fts=build_fts, with_vec=False)
         inserted = insert_paragraph_rows(conn, rows, with_fts=build_fts)
         count = corpus_chunk_count(conn)
-        write_row_count_meta(listing_root, count)
+        CorpusMeta.write_row_count(listing_root, count)
         return {"indexed": inserted, "dim": 0, "storage_backend": "sqlite_vec", "upserted": inserted}
     finally:
         conn.close()
@@ -108,7 +108,7 @@ def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any] | None]
 def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileEntry], hb: HeartbeatThrottle, *, build_fts: bool, build_vectors: bool, search_mode: str = "embeddings") -> dict[str, Any]:
     clear_folder_cache(listing_root)
     if build_vectors:
-        ensure_corpus_meta(corpus_meta_path(listing_root), embedding_model=embedding_model)
+        CorpusMeta.ensure(corpus_meta_path(listing_root), embedding_model=embedding_model)
     db_path = corpus_db_path(listing_root)
     indexed = 0
     upserted = 0
@@ -140,7 +140,7 @@ def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileE
         row_count = corpus_chunk_count(conn)
     finally:
         conn.close()
-    write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
+    CorpusMeta.write_row_count(listing_root, row_count, embedding_model=embedding_model)
 
     return {"mode": "cold", "indexed_paragraphs": indexed, "files": total, "upserted": upserted, "row_count": row_count}
 
@@ -242,7 +242,7 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
         if has_missing:
             _ingest_rows(listing_root, embedding_model, [], build_fts=False, build_vectors=True, search_mode=search_mode, fill_vector_gaps=True, heartbeat_fn=lambda p: hb.emit(p, immediate=True))
 
-    write_row_count_meta(listing_root, row_count, embedding_model=embedding_model)
+    CorpusMeta.write_row_count(listing_root, row_count, embedding_model=embedding_model)
 
     return {"mode": "incremental", "indexed_paragraphs": indexed, "deleted_paragraphs": deleted, "files_touched": files_touched, "files": total, "row_count": row_count}
 
@@ -262,8 +262,7 @@ def maintain_folder_corpus(listing_root: str, *, embedding_model: str = "", sear
     hb = HeartbeatThrottle(heartbeat_fn)
     hb.emit({"phase": "start", "mode": resolved_mode, "listing_root": root, "search_mode": search_mode}, immediate=True)
 
-    backend = str(search_mode or "").strip().lower()
-    if backend in ("zvec", "lancedb"):
+    if search_mode in ("zvec", "lancedb"):
         # These stores ignore MaintainMode and reopen the existing collection.
         # Its vector dimension is fixed at create time. A cold resolution
         # (model change, empty collection, schema) must delete that store
@@ -271,7 +270,7 @@ def maintain_folder_corpus(listing_root: str, *, embedding_model: str = "", sear
         # corpus.db is not a cold signal: zvec and lancedb never create it.
         if resolved_mode == "cold":
             clear_folder_cache(root)
-        if backend == "zvec":
+        if search_mode == "zvec":
             from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
 
             return maintain_folder_zvec(root, model, mode=resolved_mode, heartbeat_fn=heartbeat_fn, hb=hb)

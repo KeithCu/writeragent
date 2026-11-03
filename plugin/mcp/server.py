@@ -57,7 +57,7 @@ import threading
 import time
 import weakref
 from http.server import BaseHTTPRequestHandler
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, cast
 from plugin.framework.url_utils import get_url_path
 from plugin.framework.errors import AgentParsingError, WriterAgentException, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
@@ -100,14 +100,10 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
         pass
 
 
-def _body_error(status: int, message: str, **details: Any) -> tuple[None, tuple[int, AgentParsingError]]:
-    return None, (status, AgentParsingError(message, details=details))
+def read_json_body(handler: Any, reply: Callable[..., Any] = write_http_json) -> Any:
+    """Parse a JSON object body, or return None after calling reply(handler, status, error_payload) when refused.
 
-
-def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]:
-    """Parse a JSON object body, or ``(None, (status, error))`` when it is refused.
-
-    The caller writes the error response. A Transfer-Encoding containing
+    On refusal, calls ``reply(handler, status, payload)`` and returns None. A Transfer-Encoding containing
     chunked is HTTP 400 and is not read, including when Content-Length is
     missing, zero, or set. Negative Content-Length stays 400. A length above
     :data:`MCP_HTTP_MAX_BODY_BYTES` is 413 and is not read. A socket timeout
@@ -115,6 +111,11 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
     under the cap is 408. An empty body with no
     chunked coding is still ``{}`` and does not touch ``rfile``.
     """
+    def _fail(status: int, message: str, **details: Any) -> None:
+        err = AgentParsingError(message, details=details)
+        reply(handler, status, format_error_payload(err))
+        return None
+
     raw_te = handler.headers.get("Transfer-Encoding", "")
     if isinstance(raw_te, str) and "chunked" in raw_te.lower():
         # What was wrong: a missing or zero Content-Length returned {}
@@ -128,7 +129,7 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
         # the leftover bytes as the next request. No chunk parser.
         handler.close_connection = True
         log.warning("Rejecting chunked Transfer-Encoding")
-        return _body_error(
+        return _fail(
             400,
             "Chunked transfer encoding is not supported",
             transfer_encoding=handler.headers.get("Transfer-Encoding"),
@@ -138,37 +139,37 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
     try:
         content_length = int(raw_length)
     except (TypeError, ValueError):
-        return _body_error(400, "Invalid Content-Length in HTTP request", length=raw_length)
+        return _fail(400, "Invalid Content-Length in HTTP request", length=raw_length)
     if content_length < 0:
         # BaseHTTPRequestHandler / rfile.read treats a negative size as "read
         # until EOF". Content-Length: -1 would block the worker until the
         # socket closed. Reject before any read.
         log.warning("Invalid negative Content-Length: %s", content_length)
-        return _body_error(400, "Invalid negative Content-Length in HTTP request", length=content_length)
+        return _fail(400, "Invalid negative Content-Length in HTTP request", length=content_length)
     if content_length == 0:
-        return {}, None
+        return {}
     if content_length > MCP_HTTP_MAX_BODY_BYTES:
         # A trusted Content-Length with no ceiling pins the worker on the
         # allocation, and a stalled body with no socket timeout pins it
         # forever. Refuse the length before the read. The handler/server
         # timeout covers a stall whose declared length is still under the cap.
         log.warning("Rejecting oversized Content-Length: %s", content_length)
-        return _body_error(413, "HTTP body exceeds %s bytes" % MCP_HTTP_MAX_BODY_BYTES, length=content_length, max=MCP_HTTP_MAX_BODY_BYTES)
+        return _fail(413, "HTTP body exceeds %s bytes" % MCP_HTTP_MAX_BODY_BYTES, length=content_length, max=MCP_HTTP_MAX_BODY_BYTES)
     try:
         raw_bytes = handler.rfile.read(content_length)
     # Before Python 3.10 socket.timeout is a distinct class (same rule as http_server.handle_error).
     except (TimeoutError, socket.timeout):
         log.warning("Timed out reading HTTP body (%s bytes declared)", content_length)
-        return _body_error(408, "Timed out reading HTTP body", length=content_length)
+        return _fail(408, "Timed out reading HTTP body", length=content_length)
     try:
         raw = raw_bytes.decode("utf-8")
     except UnicodeDecodeError:
-        return _body_error(400, "HTTP body is not UTF-8", length=content_length)
+        return _fail(400, "HTTP body is not UTF-8", length=content_length)
     data = safe_json_loads(raw, default=None, strict=True)
     if data is None and raw.strip():
         log.warning("Invalid JSON body: %s", raw[:200])
-        return _body_error(400, "Invalid JSON body in HTTP request", raw=raw[:200])
-    return (data if data is not None else {}), None
+        return _fail(400, "Invalid JSON body in HTTP request", raw=raw[:200])
+    return data if data is not None else {}
 
 
 def write_http_empty(handler: Any, status: int, extra_headers: Any = None) -> None:
@@ -350,12 +351,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                     pass
 
     def _read_body(self) -> Any:
-        data, rejected = read_json_body(self)
-        if rejected is not None:
-            status, err = rejected
-            write_http_json(self, status, format_error_payload(err))
-            return None
-        return data
+        return read_json_body(self)
 
     def log_message(self, format: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], format % args)
@@ -428,10 +424,8 @@ class HttpServer:
                 # wait for them to exit after their sockets are closed. POST handler threads
                 # are daemon threads and are not joined (joining POST threads on the main thread
                 # while they await the main-thread queue causes deadlocks/freezes).
-                sse = getattr(self._server, "sse_registry", None)
-                if sse is not None:
-                    with sse.lock:
-                        threads_to_join = list(sse.threads)
+                with self._server.sse_registry.lock:
+                    threads_to_join = list(self._server.sse_registry.threads)
                 self._server.shutdown()
                 self._server.server_close()
                 log.info("HTTP server stopped")
@@ -439,9 +433,7 @@ class HttpServer:
             # shutdown() does not join request threads. SSE keepalives are
             # still blocked in select until their sockets are closed.
             if self._server:
-                sse = getattr(self._server, "sse_registry", None)
-                if sse is not None:
-                    sse.stop_all()
+                self._server.sse_registry.stop_all()
 
             # Join in-flight SSE keepalive threads within a single 2s deadline.
             deadline = time.monotonic() + 2.0
@@ -480,9 +472,7 @@ class HttpServer:
                 try:
                     server.server_close()
                 finally:
-                    sse = getattr(server, "sse_registry", None)
-                    if sse is not None:
-                        sse.stop_all()
+                    server.sse_registry.stop_all()
 
     def is_running(self) -> bool:
         return self._running

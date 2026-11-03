@@ -20,7 +20,7 @@ Constraints for any follow-up (from `plugin/chatbot/AGENTS.md` and the root `AGE
 - Do not merge smol or librarian into the main chat FSM. No second HTTP client. Smol stays on `WriterAgentSmolModel` → `LlmClient.request_with_tools`.
 - Send and the tool loop refresh through `ChatSession.refresh_document_context`. They must not import `get_document_context_for_chat` or `panel_factory`.
 - The factory resolves the document from the frame only and must not import `get_document_context_for_chat`.
-- Stop uses `resolve_stop_checker()`. Queue items start with a `StreamQueueKind` enum member. No raw threads.
+- Stop uses `SendCancellation` (`capture_send_stop`). Queue items start with a `StreamQueueKind` enum member. No raw threads.
 - Do not split `panel.py` or `dialog_views.py` just because they are long. Prefer one existing function over a new module.
 
 ## Fix these first
@@ -186,8 +186,8 @@ These remove a second copy of a fact. None of them need a new file.
 Verified and not a fix:
 
 - Both `next_state` functions stay pure. Stop cannot emit a spawn (`stop_effects_exclude_spawns`, `stopped_effects_exclude_tool_spawns`). Side effects stay in the interpreters.
-- Stop uses `resolve_stop_checker()` bound to the `SendCancellation` created in `StartSendEffect`. `disposing` cancels that same scope and sets `_panel_teardown` so the `finally` does not write status, arm the mic, or clear `_send_cancellation`. MCP `mcp:request` / `mcp:result` unsubscribe from the services bus saved as `_mcp_event_bus`. `grammar:status` stays on `get_event_bus()`. MCP result UI, Ask text changes, and audio auto-stop callbacks no-op once teardown has started or `ctx` is `None`. Approval chrome is restored from `_approval_ui_backup`.
-- Queue items are `StreamQueueKind`. LLM and async tools use `run_in_background(..., dedicated=True)`. The UI thread drains. Sync tools run on the drain on purpose. The sync `execute_fn` path does receive `resolve_stop_checker()` via the default argument. A long sync tool still blocks Stop until it returns. That is the shape of sync work on the UI thread. Do not add a thread for it.
+- Stop uses `SendCancellation` created in `StartSendEffect`. `disposing` cancels that same scope and sets `_panel_teardown` so the `finally` does not write status, arm the mic, or clear `_send_cancellation`. MCP `mcp:request` / `mcp:result` unsubscribe from the services bus saved as `_mcp_event_bus`. `grammar:status` stays on `get_event_bus()`. MCP result UI, Ask text changes, and audio auto-stop callbacks no-op once teardown has started or `ctx` is `None`. Approval chrome is restored from `_approval_ui_backup`.
+- Queue items are `StreamQueueKind`. LLM and async tools use `run_in_background(..., dedicated=True)`. The UI thread drains. Sync tools run on the drain on purpose. The sync `execute_fn` path checks `cancel.is_cancelled()`. A long sync tool still blocks Stop until it returns. That is the shape of sync work on the UI thread. Do not add a thread for it.
 - Chat send and a successful mutating tool refresh through `ChatSession.refresh_document_context`. This area does not import `get_document_context_for_chat` or call `uno.getComponentContext()`. The document comes from the frame.
 - Tool-loop history writes go through `persist_*_on_turn`. `compact_session` aborts if `session.messages` was replaced. `messages_for_llm` always runs `sanitize_tool_pairs`.
 - `SEND_CLICKED` while busy is ignored. `STOP_CLICKED` keeps `is_busy` until completion. Image and agent Stop are not overwritten to Ready when status is Error or Stopped.

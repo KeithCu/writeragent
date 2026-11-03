@@ -65,6 +65,10 @@ def mcp_server():
 
     import plugin.framework.config as config_mod
 
+    old_resolved = config_mod._resolved_config_path
+    if not config_mod._resolved_config_path:
+        config_mod._resolved_config_path = "/tmp/writeragent.json"
+
     orig_get_config = config_mod.get_config
     config_values = {
         "mcp.mcp_enabled": True,
@@ -129,6 +133,7 @@ def mcp_server():
         yield url
     finally:
         http_module.shutdown()
+        config_mod._resolved_config_path = old_resolved
         config_patcher.stop()
         mcp_config_patcher.stop()
 

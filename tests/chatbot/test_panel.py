@@ -239,11 +239,9 @@ class TestSendDispose:
         listener = _make_send_listener()
         scope = SendCancellation()
         listener._send_cancellation = scope
-        checker = listener.resolve_stop_checker()
-        assert not (checker())
+        assert not (scope.is_cancelled())
         listener.disposing(None)
         assert (scope.is_cancelled())
-        assert (checker())
         assert (listener._stop_requested_fallback)
         assert (listener.ctx) is None
         assert (listener.panel) is None
@@ -419,11 +417,9 @@ class TestSendDispose:
     ) -> None:
         from plugin.chatbot.panel_events import PanelEventsController
 
-        fake_main = MagicMock()
-        fake_main._bootstrap_state = bootstrap_state
         with (
-            patch.dict(sys.modules, {"plugin.main": fake_main}),
-            patch("plugin.framework.thread_guard.on_python_main_thread", return_value=py_main),
+            patch("plugin.main.bootstrap_complete", return_value=(bootstrap_state is BootstrapState.INITIALIZED)),
+            patch("plugin.framework.queue_executor.MainThread.on_python_main_thread", return_value=py_main),
         ):
             assert PanelEventsController._mcp_subscribe_must_defer() is expected
 

@@ -14,3 +14,9 @@ actions:
     title: "◀ Prev"
   review_next:
     title: "Next ▶"
+  insert_latex_dialog:
+    title: "Insert LaTeX Math..."
+  review_accept_all:
+    title: "Accept all"
+  review_reject_all:
+    title: "Reject all"

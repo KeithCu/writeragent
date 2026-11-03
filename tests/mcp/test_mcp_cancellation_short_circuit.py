@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
 from plugin.framework.tool import ToolContext
 
@@ -7,8 +8,9 @@ def test_mcp_protocol_short_circuits_if_stopped_after_gate():
     protocol = MCPProtocolHandler(services_mock)
 
     ctx_mock = MagicMock(spec=ToolContext)
-    # Stop checker evaluates to True immediately after wait
-    ctx_mock.stop_checker = lambda: True
+    scope = SendCancellation()
+    scope.cancel()
+    ctx_mock.send_cancellation = scope
 
     prepared = _PreparedMcpCall(
         tool=MagicMock(),
@@ -31,7 +33,9 @@ def test_invoke_prepared_short_circuits_when_stop_checker_is_latched():
     protocol.tool_registry = MagicMock()
 
     ctx_mock = MagicMock(spec=ToolContext)
-    ctx_mock.stop_checker = lambda: True
+    scope = SendCancellation()
+    scope.cancel()
+    ctx_mock.send_cancellation = scope
 
     prepared = _PreparedMcpCall(
         tool=MagicMock(),

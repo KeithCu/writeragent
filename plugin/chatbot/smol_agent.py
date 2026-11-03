@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from plugin.chatbot.chat_sidebar_mode import SidebarMode
+    from plugin.framework.send_cancellation import SendCancellation
     from plugin.framework.tool import ToolBase
     from plugin.framework.tool import ToolContext
 
@@ -177,14 +178,14 @@ class WriterAgentSmolModel(Model):
     max_tokens: int
     model_id: str | None
     _status_callback: Any
-    _cancel: Any
+    _cancel: SendCancellation | None
 
     def __init__(
         self,
         llm_client: LlmClient,
         max_tokens: int = 1024,
         status_callback: Any = None,
-        cancel: Any = None,
+        cancel: SendCancellation | None = None,
     ) -> None:
         # Note: Model.kwargs are intentionally ignored; request_with_tools defines wire keys.
         super().__init__()
@@ -257,7 +258,9 @@ class SmolAgentExecutor:
         self.ctx = ctx
 
     def _abort_if_stopped(self, agent: Any) -> None:
-        if self.ctx.stop_checker and self.ctx.stop_checker():
+        from plugin.framework.send_cancellation import is_cancelled
+
+        if is_cancelled(self.ctx.send_cancellation):
             agent.interrupt()
             raise ToolExecutionError("Task stopped by user.", code="USER_STOPPED")
 
@@ -364,7 +367,7 @@ def create_smol_model(
     client: LlmClient | None = None,
     max_tokens: int | None = None,
     status_callback: object | None = None,
-    cancel: Any = None,
+    cancel: SendCancellation | None = None,
 ) -> WriterAgentSmolModel:
     """Construct a WriterAgentSmolModel with configured client, max tokens, and callbacks."""
     if max_tokens is None:

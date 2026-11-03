@@ -59,12 +59,10 @@ from typing import Any
 from . import (
     grammar_proofread_locale,
 )
-from .grammar_obs import emit_grammar_status, grammar_obs
+from .grammar_obs import get_grammar_status, grammar_obs, slice_preview_debug
 from .grammar_proofread_locale import (
     looks_complete_sentence,
 )
-from .grammar_proofread_text import slice_preview_debug
-
 
 
 log = logging.getLogger("writeragent.grammar")
@@ -86,9 +84,6 @@ class GrammarWorkItem:
     n_start: int = 0
     checker_identity: str = ""
     paragraph_text: str = ""
-
-
-
 
 
 def grammar_inflight_key(a_document_identifier: str, loc_key: str, sent_text: str, is_complete: bool) -> str:
@@ -126,13 +121,7 @@ def enqueue_misses(
     count = len(uncached_spans)
     if count:
         label = f"{count} sentence" if count == 1 else f"{count} sentences"
-        emit_grammar_status(
-            "start",
-            label,
-            result="queued",
-            preview_source=label,
-            length_hint=sum(len(text) for _start, _end, text in uncached_spans),
-        )
+        get_grammar_status().start(label, result="queued")
     for sent_start, sent_end, sent_text in uncached_spans:
         seq = next_enqueue_seq()
         complete_sentence = looks_complete_sentence(sent_text)

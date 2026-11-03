@@ -32,7 +32,7 @@ from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import create_property_value
 
-from plugin.writer.format import content_has_markup
+from plugin.writer.html_import import content_has_markup
 from plugin.writer.specialized_base import (
     ToolWriterIndexBase,
     enum_param,
@@ -871,7 +871,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         dry_run: bool,
     ) -> dict[str, Any]:
         from ..edit_review import collapsed_anchor
-        from ..format import replace_preserving_format
+        from ..html_import import replace_preserving_format
         from ..hyperlink_fixup import (
             capture_outline_hyperlinks,
             restore_outline_hyperlinks,

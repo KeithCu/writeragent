@@ -34,6 +34,7 @@ from .grammar_proofread_locale import (
     GRAMMAR_CACHE_MAX_CHARS,
     GRAMMAR_CACHE_VERSION,
     GRAMMAR_DOC_CACHE_UDPROP,
+    normalize_for_sentence_cache,
 )
 
 # v2 blobs with LLM-style errors have no model id. First `llm:…` identity to
@@ -82,7 +83,6 @@ _SNIFF_PREFIXES: tuple[tuple[str, str], ...] = (
     ("languagetool||", "languagetool"),
     ("vale||", "vale"),
 )
-
 
 
 from plugin.framework.uno_listeners import BaseDocumentEventListener
@@ -187,9 +187,7 @@ class GrammarRegistry:
             dp._teardown()
 
     def get_cached_language(self, text: str) -> str | None:
-        from .grammar_proofread_cache import _normalize_for_sentence_cache
-
-        norm = _normalize_for_sentence_cache(text)
+        norm = normalize_for_sentence_cache(text)
         with self.lock:
             if norm in self.lang_detect_cache:
                 self.lang_detect_cache.move_to_end(norm)
@@ -197,18 +195,13 @@ class GrammarRegistry:
         return None
 
     def put_cached_language(self, text: str, lang: str) -> None:
-        from .grammar_proofread_cache import _normalize_for_sentence_cache
-
-        norm = _normalize_for_sentence_cache(text)
+        norm = normalize_for_sentence_cache(text)
         with self.lock:
             self.lang_detect_cache[norm] = lang
             if len(self.lang_detect_cache) > 1000:
                 self.lang_detect_cache.popitem(last=False)
 
 grammar_registry = GrammarRegistry()
-
-
-
 
 
 def get_document_model_for_id(doc_id: str) -> Any | None:

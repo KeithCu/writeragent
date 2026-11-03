@@ -7,7 +7,7 @@ import pytest
 from plugin.framework.client.http_transport import LlmHttpTransport
 from plugin.framework.send_cancellation import SendCancellation
 
-from plugin.framework.client.request_controls import enable_local_unverified, reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
+from plugin.framework.client.request_controls import RetryBudget, enable_local_unverified, reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError
 
 
@@ -632,6 +632,36 @@ def test_exchange_error_body_read_failure_costs_one_retry():
     ):
         result = transport.exchange("GET", "/v1/models", None, {}, sender=sender, parse_json=True)
     assert result.parsed == {"ok": True}
+    assert calls["n"] == 3
+    assert attempts == [1, 2]
+
+
+def test_stream_error_body_read_failure_costs_one_retry():
+    """A reset while reading a streaming non-200 body is one attempt, so the third try still runs."""
+    import http.client
+
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    budget = RetryBudget(transport)
+    read_error = http.client.IncompleteRead(b"partial", 40)
+    ok = _status_response(200, body=b'{"ok": true}', content_type="application/json")
+    sender, calls = _exchange_sender([
+        _status_response(500, read_error=read_error),
+        _status_response(500, read_error=read_error),
+        ok,
+    ])
+    transport.send = sender  # type: ignore[assignment]
+    attempts: list[int] = []
+
+    def _delay(*, attempt: int = 1, **_kwargs):
+        attempts.append(attempt)
+        return 0.0
+
+    with (
+        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
+        patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=_delay),
+    ):
+        result = budget.run_stream("POST", "/v1/chat/completions", b"{}", {}, lambda _resp: "finished")
+    assert result == "finished"
     assert calls["n"] == 3
     assert attempts == [1, 2]
 

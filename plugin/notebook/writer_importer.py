@@ -53,18 +53,21 @@ from plugin.notebook.cell_registry import (
 )
 from plugin.notebook.layout import (
     CODE_FONT_NAME,
+    PARAGRAPH_BREAK,
+    STYLE_NOTEBOOK_IN,
+    STYLE_NOTEBOOK_OUT,
     cap_from_style,
     coerce_notebook_text,
     format_in_prompt,
     insert_code_input_in_flow,
     insert_run_button_in_flow,
+    log_shape_add,
     mono_ms,
     page_style,
     prepare_display_text,
     text_area_width_units,
     text_width_from_style,
 )
-from plugin.notebook.notebook_controls import _log_shape_add
 from plugin.writer.images.image_tools import insert_embedded_image, insert_image_at_locator
 
 log = logging.getLogger("writeragent.notebook")
@@ -86,18 +89,11 @@ _STYLE_MD_H2 = "Heading 2"
 _STYLE_OUTPUT = "Preformatted Text"
 _STYLE_BODY = "Text Body"
 
-# Auto-created on import for Jupyter-like In [n]: gutter (1/100 mm margins).
-_STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
-# Used only when Preformatted Text is not in the document. Stdout left as
-# Text Body is a cell boundary, so a re-run would keep the old paragraph.
-_STYLE_NOTEBOOK_OUT = "WriterAgent Notebook Output"
-
 _MD_BLOCK_PARA_STYLE = {"h1": _STYLE_MD_H1, "h2": _STYLE_MD_H2, "pre": _STYLE_BODY}
 _NOTEBOOK_IN_CHAR_HEIGHT = 9
 _NOTEBOOK_IN_MARGIN_TOP = 200
 _NOTEBOOK_IN_MARGIN_BOTTOM = 40
 
-_PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _HTML_TAG_RE = re.compile(r"<\s*[a-zA-Z]", re.DOTALL)
 # CommonMark ATX: 1–6 hashes, space, title, optional closing hashes.
 _ATX_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
@@ -257,7 +253,7 @@ def _apply_no_spellcheck_for_import(doc: Any) -> None:
         return
     # Cell chrome no longer writes Heading 3 / Heading 4; zxx stays because a raw HTML cell
     # can still produce them through StarWriter, and File -> Open is a fresh document.
-    for style_name in ("Standard", _STYLE_BODY, _STYLE_MD_H1, _STYLE_MD_H2, "Heading 3", "Heading 4", _STYLE_OUTPUT, _STYLE_NOTEBOOK_IN):
+    for style_name in ("Standard", _STYLE_BODY, _STYLE_MD_H1, _STYLE_MD_H2, "Heading 3", "Heading 4", _STYLE_OUTPUT, STYLE_NOTEBOOK_IN):
         resolved = resolve_para_style(doc, style_name)
         if not resolved:
             continue
@@ -322,16 +318,16 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
         **_locale_props(no_lang),
     }
 
-    _create_import_para_style(doc, para_styles, _STYLE_NOTEBOOK_IN, parent_style=parent_body, property_updates=property_updates)
+    _create_import_para_style(doc, para_styles, STYLE_NOTEBOOK_IN, parent_style=parent_body, property_updates=property_updates)
     # Re-import into a document that already has this style must still drop the
     # old KeepTogether glue (create-if-missing would leave True in place).
     def drop_keep() -> None:
-        if para_styles.hasByName(_STYLE_NOTEBOOK_IN):
-            existing = para_styles.getByName(_STYLE_NOTEBOOK_IN)
+        if para_styles.hasByName(STYLE_NOTEBOOK_IN):
+            existing = para_styles.getByName(STYLE_NOTEBOOK_IN)
             existing.setPropertyValue("ParaKeepTogether", False)
 
     best_effort(drop_keep, "notebook import could not update In keep properties")
-    return resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
+    return resolve_para_style(doc, STYLE_NOTEBOOK_IN)
 
 
 def output_para_style(doc: Any) -> str | None:
@@ -354,7 +350,7 @@ def output_para_style(doc: Any) -> str | None:
     _create_import_para_style(
         doc,
         para_styles,
-        _STYLE_NOTEBOOK_OUT,
+        STYLE_NOTEBOOK_OUT,
         parent_style=parent_body,
         property_updates={
             "CharFontName": CODE_FONT_NAME,
@@ -362,7 +358,7 @@ def output_para_style(doc: Any) -> str | None:
             **_locale_props(no_lang),
         },
     )
-    return resolve_para_style(doc, _STYLE_NOTEBOOK_OUT)
+    return resolve_para_style(doc, STYLE_NOTEBOOK_OUT)
 
 
 # ---------------------------------------------------------------------------
@@ -397,7 +393,7 @@ def _cursor_for_append(doc: Any, *, lead_break: bool) -> Any:
     text = doc.getText()
     cursor = _cursor_at_end(text)
     if lead_break and _doc_body_nonempty(doc):
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
         cursor.gotoEnd(False)
     return cursor
 
@@ -406,7 +402,7 @@ def _append_paragraph_break_at_end(doc: Any) -> None:
     """Insert a paragraph break at body end so following in-flow shapes are not in the previous para."""
     text = doc.getText()
     cursor = _cursor_at_end(text)
-    text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
 
 
 def _unglue_last_paragraph(doc: Any) -> None:
@@ -1253,12 +1249,12 @@ def _insert_image_in_flow(
             graphic = image
         # AS_CHARACTER already in-flow; pin wrap off so plots do not float beside text.
         _set_prop_map(graphic, {"TextWrap": 0, "SurroundContour": False}, "notebook image wrap property %s not applied")
-        _log_shape_add(step="image", text_chars=len(raw), shape_h=h_units, shapes_before=images_before, create_ms=mono_ms(t0), add_ms=mono_ms(t_add))
+        log_shape_add(step="image", text_chars=len(raw), shape_h=h_units, shapes_before=images_before, create_ms=mono_ms(t0), add_ms=mono_ms(t_add))
         return True
     except Exception as exc:
         reraise_if_disposed(exc)
         log.exception("Failed to insert notebook image in document flow")
-        _log_shape_add(step="image", shapes_before=images_before, create_ms=mono_ms(t0), add_ms=0, ok=False)
+        log_shape_add(step="image", shapes_before=images_before, create_ms=mono_ms(t0), add_ms=0, ok=False)
         return False
     finally:
         if tmp_path and os.path.exists(tmp_path):

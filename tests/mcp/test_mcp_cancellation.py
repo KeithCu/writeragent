@@ -25,7 +25,7 @@ def test_mcp_protocol_threads_send_cancellation():
         prepared = protocol._prepare_mcp_execution("some_tool", {}, None, send_cancellation=cancellation)
         assert prepared.context.send_cancellation is cancellation
         assert prepared.context.send_cancellation is not ambient
-        assert prepared.context.stop_checker() is True
+        assert prepared.context.send_cancellation.is_cancelled() is True
     finally:
         _current_send_cancellation.reset(token)
 
@@ -104,10 +104,10 @@ def test_cancellation_isolated_by_session():
 
     # Verify stop_checker isolation
     prepared_a = protocol._prepare_mcp_execution("tool", {}, req_id=1, session=session_a, send_cancellation=None)
-    assert hasattr(prepared_a, "context") and prepared_a.context.stop_checker() is True
+    assert hasattr(prepared_a, "context") and prepared_a.context.send_cancellation.is_cancelled() is True
 
     prepared_b = protocol._prepare_mcp_execution("tool", {}, req_id=1, session=session_b, send_cancellation=None)
-    assert hasattr(prepared_b, "context") and prepared_b.context.stop_checker() is False
+    assert hasattr(prepared_b, "context") and prepared_b.context.send_cancellation.is_cancelled() is False
 
     # Client A attempting to cancel Client B's request 2 (which Client A does not have) is dropped
     protocol._in_flight_requests[(session_b, 2)] = 1
@@ -115,6 +115,34 @@ def test_cancellation_isolated_by_session():
     protocol._process_jsonrpc(cancel_item_2, session=session_a)
     assert (session_b, 2) not in protocol._cancelled_requests
     assert (session_a, 2) not in protocol._cancelled_requests
+
+
+def test_mcp_notification_after_prepare_cancels_running_tool():
+    services_mock = MagicMock()
+    doc_mock = MagicMock()
+    services_mock.document.resolve_document_by_url.return_value = (doc_mock, "writer")
+    services_mock.document.detect_doc_type.return_value = "writer"
+
+    protocol = MCPProtocolHandler(services_mock)
+    tool_mock = MagicMock()
+    tool_mock.is_async.return_value = False
+    tool_mock.requires_document_lock.return_value = False
+    protocol.tool_registry.get.return_value = tool_mock
+
+    session = "client_session"
+    req_id = 1
+    protocol._in_flight_requests[(session, req_id)] = 1
+
+    prepared = protocol._prepare_mcp_execution("tool", {}, req_id=req_id, session=session, send_cancellation=None)
+    assert prepared.context.send_cancellation.is_cancelled() is False
+
+    # Mid-call notification arrives
+    cancel_item = {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": req_id}}
+    protocol._process_jsonrpc(cancel_item, session=session)
+
+    assert prepared.context.send_cancellation.is_cancelled() is True
+    result = protocol._invoke_prepared_mcp_tool(prepared, "tool", {})
+    assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
 
 
 def test_mcp_protocol_async_tool_no_timeout_runs():

@@ -68,10 +68,8 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
             return master.Name if hasattr(master, "Name") else ""
         except Exception as exc:
             # Prefer the previous slide, then the following one. Returning
-            # here stopped on the first failure. is_disposal only:
-            # a live-doc RuntimeException must try the next neighbor.
-            # is_disposal treats that name as disposal, and
-            # add_slide would then delete the new slide.
+            # here stopped on the first failure. Only disposal escapes;
+            # a live-document RuntimeException tries the next neighbor.
             if is_disposal(exc):
                 raise
             log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
@@ -138,9 +136,7 @@ class AddSlide(ToolBase):
                 # is AUTOLAYOUT_OBJ and grew a title plus an OLE placeholder.
                 result["layout"] = apply_slide_layout(new_page, layout_name)
         except Exception as exc:
-            # What was wrong: is_disposal matched bare RuntimeException by name, skipping cleanup on live documents.
-            # How it happened: is_disposal checks _has_runtime_teardown_name which matches RuntimeException.
-            # Why this change: use is_disposal so only real disposal skips cleanup, while live RuntimeException removes new_page.
+            # Only disposal escapes; a live-document RuntimeException removes the new page and reports the error.
             if is_disposal(exc):
                 raise
             cleanup_failed = False

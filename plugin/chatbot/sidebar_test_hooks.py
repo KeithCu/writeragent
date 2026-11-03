@@ -34,7 +34,7 @@ from plugin.chatbot.panel import (
     notify_record_mouse_released,
     notify_stop_mouse_pressed,
 )
-from plugin.chatbot.rich_text_control import _debug_env_active
+from plugin.chatbot.rich_text_control import debug_env_active
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.errors import best_effort, uno_read
@@ -87,7 +87,7 @@ def iter_live_chat_panels() -> list[Any]:
 
 
 def _require_debug() -> None:
-    if not _debug_env_active():
+    if not debug_env_active():
         raise RuntimeError(_HOOKS_UNAVAILABLE)
 
 
@@ -963,10 +963,10 @@ def _apply_fake_tts(mode: str) -> None:
 
             setattr(fake_popen, "_writeragent_fake_tts", True)
 
-            def fake_end_utterance(cancel: Any) -> bool:
+            def fake_end_utterance(utt: Any) -> bool:
                 # Paired with fake_stop_speech: the check must not run until the scope restore is published.
                 with _FAKE_TTS_LOCK:
-                    return orig_end_utterance(cancel)
+                    return orig_end_utterance(utt)
 
             setattr(fake_end_utterance, "_writeragent_fake_tts", True)
 
@@ -980,10 +980,10 @@ def _apply_fake_tts(mode: str) -> None:
                 # fake_end_utterance takes the same lock, so the worker observes the restored scope.
                 with _FAKE_TTS_LOCK:
                     try:
-                        cur_cancel = getattr(tts_service, "_speech_cancel", None)
+                        cur_utt = getattr(tts_service, "_current", None)
                         orig_stop_speech(*args, **kwargs)
-                        if cur_cancel is not None:
-                            tts_service._speech_cancel = cur_cancel
+                        if cur_utt is not None:
+                            tts_service._current = cur_utt
                     finally:
                         for p in _FAKE_TTS_PROCS.values():
                             if p.poll() is None:

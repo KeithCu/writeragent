@@ -178,7 +178,7 @@ def test_ppt_master_session_delegates_to_venv():
     ctx.doc = "anthropic/claude-sonnet-4"
     ctx.status_callback = None
     ctx.append_thinking_callback = None
-    ctx.stop_checker = None
+    ctx.send_cancellation = None
 
     fake_doc = MagicMock()
     fake_doc.getURL.return_value = "file:///deck.odp"
@@ -194,7 +194,7 @@ def test_ppt_master_session_delegates_to_venv():
         out = tool.execute(ctx, query="Build a deck")
         mock_run.assert_called_once()
         assert mock_run.call_args.kwargs["model"] is None
-        assert mock_run.call_args.kwargs["cancellation_scope"] is ctx.send_cancellation
+        assert mock_run.call_args.kwargs["cancellation_scope"] is None
         assert out["status"] == "ok"
         assert "done" in out["result"]
 

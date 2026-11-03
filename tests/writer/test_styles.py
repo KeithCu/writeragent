@@ -24,6 +24,7 @@ from plugin.writer.styles import (
     StyleList, StyleGetInfo, ApplyStyle, StyleCreate, StyleClone, StyleImport, StyleUpdate,
     _close_style_names, _STYLE_KEEPALIVE, keep_style_alive,
 )
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.tests.testing_utils import TestingFactory, WriterDocStub
 
 
@@ -860,13 +861,13 @@ def test_plain_properties_use_set_property_value():
 
 # ---- D2: apply_style all_matches / occurrence -------------------------------
 
-def _style_ctx(stop_checker=None):
+def _style_ctx(send_cancellation=None):
     ctx = MagicMock()
     fam = MagicMock()
     fam.hasByName.return_value = True
     ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
-    if stop_checker is not None:
-        ctx.stop_checker = stop_checker
+    if send_cancellation is not None:
+        ctx.send_cancellation = send_cancellation
     return ctx
 
 
@@ -876,10 +877,10 @@ def test_apply_style_all_matches_applies_to_each():
     ranges = [MagicMock(), MagicMock(), MagicMock()]
     with patch("plugin.writer.search.find_all_ranges", return_value=ranges), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
          patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
-        res = ApplyStyle().execute(_style_ctx(stop_checker=lambda: False), style="Heading 1", target="search",
+        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "ok" and res["applied_count"] == 3
     assert ap.call_count == 3
@@ -888,17 +889,15 @@ def test_apply_style_all_matches_does_not_abort_on_stop_checker():
     from plugin.writer.styles import ApplyStyle
 
     ranges = [MagicMock(), MagicMock(), MagicMock()]
-    calls = []
-    def _stop():
-        calls.append(1)
-        return len(calls) > 1
+    stop_scope = SendCancellation()
+    stop_scope.cancel()
 
     with patch("plugin.writer.search.find_all_ranges", return_value=ranges), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
          patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
-        res = ApplyStyle().execute(_style_ctx(stop_checker=_stop), style="Heading 1", target="search",
+        res = ApplyStyle().execute(_style_ctx(send_cancellation=stop_scope), style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "ok"
     assert res["applied_count"] == 3
@@ -911,7 +910,7 @@ def test_apply_style_occurrence_out_of_range():
 
     with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False):
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
                                    old_content="Title", occurrence=5)
     assert res["status"] == "error" and "out of range" in res["message"]
@@ -943,14 +942,13 @@ def test_apply_style_all_matches_does_not_stop_early() -> None:
     undo_mgr.isLocked.return_value = False
     doc.getUndoManager = MagicMock(return_value=undo_mgr)
 
-    ctx = ToolContext(doc, MagicMock(), "writer", MagicMock(), "test")
+    stop_scope = SendCancellation()
+    stop_scope.cancel()
+    ctx = ToolContext(doc, MagicMock(), "writer", MagicMock(), "test", send_cancellation=stop_scope)
     ctx.services.get = MagicMock(return_value=None)
 
-    # Stop checker returns True, but document mutation must not abort early
+    # Stop scope is cancelled, but document mutation must not abort early
     applied_count = 0
-    def stop_checker():
-        return True
-    ctx.stop_checker = stop_checker
 
     # Fake 4 find results
     ranges = [MagicMock(), MagicMock(), MagicMock(), MagicMock()]

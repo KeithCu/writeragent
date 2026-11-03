@@ -33,7 +33,6 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
 
     from plugin.framework.errors import ToolExecutionError
     from plugin.framework.queue_executor import main
-    from plugin.framework.send_cancellation import send_stopped
 
     # Build the client on the send cancellation scope so sidebar Stop closes
     # this call too. The scope registers the live client and must not be
@@ -61,7 +60,7 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(result, dict):
             raise TypeError("LLM response is not a dictionary")
 
-        is_stopped = send_stopped(cancellation_scope, client)
+        is_stopped = (cancellation_scope is not None and cancellation_scope.is_cancelled()) or client.stopped() is True
         if stop_checker is not None and stop_checker():
             is_stopped = True
 

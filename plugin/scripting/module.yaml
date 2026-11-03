@@ -7,6 +7,8 @@ actions:
     title: "Reset Python Session"
   edit_python_cell:
     title: "Edit Python in Cell..."
+  run_python_dialog:
+    title: "Run Python Script..."
 
 # Calc Python keys live in extension/Accelerators.xcu and extension-core/Accelerators.xcu.
 

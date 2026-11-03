@@ -26,9 +26,7 @@ _ext_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ext_root not in sys.path:
     sys.path.insert(0, _ext_root)
 
-import enum
 import logging
-import threading
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
@@ -43,12 +41,13 @@ ensure_plugin_on_path(
     also_add_vendor=True,           # root-level vendor/ when present (optional dev wheels)
 )
 
+# At import, config is not resolved, so the user-config half no-ops and only in-tree contrib/ is prepended.
 from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
 ensure_native_binaries_on_path()
 
 import unohelper
-from typing import TYPE_CHECKING, Any, ClassVar, Callable, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Callable
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -66,26 +65,15 @@ except ImportError:
     pass
 
 from plugin.framework.logging import init_logging, log_exception
-import uno
 
-from com.sun.star.task import XJobExecutor, XJob
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
-from plugin.framework.menu_icon_dpi import menu_icon_asset_url
 from plugin.framework.uno_context import (
     get_active_document,
-    get_extension_url,
     get_ctx,
-    get_service_manager,
-    set_fallback_ctx,
-    set_package_extension_id,
-    uno_same,
 )
-from plugin.framework.thread_guard import background
-from plugin.framework.url_utils import dispatch_command_from_url
 
 EXTENSION_ID = EXTENSION_ID_WRITERAGENT
-_DISPATCH_PROTOCOL = EXTENSION_ID + ":"
 
 # ---------------------------------------------------------------------------
 # Bootstrapping (Dynamic discovery from loaded manifest)
@@ -94,17 +82,16 @@ _DISPATCH_PROTOCOL = EXTENSION_ID + ":"
 _services = None
 log = logging.getLogger(__name__)
 
+from plugin.bootstrap import (
+    BootstrapState,
+    bootstrap_extension,
+    MainBootstrapJob as BaseMainBootstrapJob,
+)
 from plugin.framework.main_shared import ExtensionProtocolHandler, get_action_handler, report_action_failure
 
 
 _tools: ToolRegistry | None = None
 _modules: list[ModuleBase] = []
-
-
-class BootstrapState(enum.Enum):
-    UNINITIALIZED = "uninitialized"
-    BOOTSTRAPPING = "bootstrapping"
-    INITIALIZED = "initialized"
 
 
 # What was wrong: _bootstrap_state remained INITIALIZED even if module loading or
@@ -146,11 +133,6 @@ def _install_terminate_listener(ctx: Any) -> None:
                     # UNO boundary: XTerminateListener.notifyTermination callback
                     log.exception("Error shutting down Kokoro pool on desktop termination")
 
-                # shutdown_all kill_trees registered children and does not signal
-                # register=False venv workers. Do not call
-                # PythonWorkerManager.shutdown_all here either: it joins the reap on
-                # this thread. Idle children exit on stdin EOF. Linux native stalls
-                # use PR_SET_PDEATHSIG in the harness.
                 try:
                     from plugin.framework.managed_subprocess import shutdown_all
 
@@ -165,6 +147,100 @@ def _install_terminate_listener(ctx: Any) -> None:
     except Exception:
         # UNO boundary: desktop.addTerminateListener registration
         log.exception("Failed to install terminate listener")
+
+
+def _register_writeragent_prompt_hooks() -> None:
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
+
+
+def _writeragent_bootstrap_finish(ctx: Any) -> None:
+    global _services, _tools, _modules, _bootstrap_state, _bootstrap_error
+
+    from plugin.framework.queue_executor import Policy, main
+
+    from plugin.framework.service import ServiceRegistry
+
+    _services = ServiceRegistry()
+    _services.register("uno", ctx)
+
+    # Skip terminate listener when running under the eval harness.
+    # The eval client already has a remote Desktop; this listener would shut down client subprocesses on office teardown.
+    if main.policy is not Policy.eval_harness:
+        _install_terminate_listener(ctx)
+
+    from plugin.doc.document_helpers import DocumentService
+    from plugin.framework.event_bus import get_event_bus
+
+    _services.register("document", DocumentService())
+    _services.register("events", get_event_bus())
+
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writeragent_hooks import register_writeragent_tool_filters
+
+    _tools = ToolRegistry(_services)
+    register_writeragent_tool_filters(_tools)
+    _services.register("tools", _tools)
+    _services.register("main_thread", main)
+
+    _bootstrap_state = BootstrapState.INITIALIZED
+
+    from plugin.framework.module_base import ModuleLoader
+
+    module_phase_failed = False
+    try:
+        _modules.extend(ModuleLoader.load_modules(_services))
+    except Exception as exc:
+        module_phase_failed = True
+        log.exception("bootstrap failed while loading modules")
+        _bootstrap_error = exc
+        if not _modules:
+            _bootstrap_state = BootstrapState.UNINITIALIZED
+            return
+
+    for mod in _modules:
+        try:
+            mod.start_background(_services)
+        except Exception as exc:
+            module_phase_failed = True
+            log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
+            if _bootstrap_error is None:
+                _bootstrap_error = exc
+
+    try:
+        # Subscribe to menu:update for dynamic menu text + icons.
+        # execute runs this @background function on the main thread;
+        # dispatch already queues it with run_in_background.
+        from plugin.framework.worker_pool import run_in_background
+
+        _services.get("events").subscribe(
+            "menu:update", lambda **kw: run_in_background(menu_status.publish)
+        )
+
+        if main.policy is Policy.production:
+            # Pre-load icons into ImageManager so first menu display has them.
+            # Eval harness is headless with no VCL pump — posting icons to "main"
+            # trips the UNO thread guard and can segfault soffice (issue #402 family).
+            run_in_background(menu_icons.post_apply)
+
+        # Headless eval connects via UNO pipe; menu/context-menu install
+        # calls get_desktop() in this process and can segfault soffice.
+        if main.policy is not Policy.eval_harness:
+            register_core_handlers()
+    except Exception as exc:
+        log.exception("bootstrap failed after the init flag was set")
+        if _bootstrap_error is None:
+            _bootstrap_error = exc
+        return
+
+    if not module_phase_failed:
+        _bootstrap_error = None
+
+
+def bootstrap_complete() -> bool:
+    """Return True if bootstrap has fully completed and initialized."""
+    return _bootstrap_state is BootstrapState.INITIALIZED
 
 
 def get_services() -> Any:
@@ -214,7 +290,6 @@ def tests_bundled() -> bool:
 def _show_tests_unavailable(test_name: str) -> None:
     """Show a message when test suites are not bundled (release builds)."""
     from plugin.chatbot.dialogs import msgbox
-    from plugin.framework.uno_context import get_ctx
 
     msgbox(get_ctx(), test_name, "This WriterAgent build was packaged without the optional `plugin.tests` test modules.")
 
@@ -232,7 +307,6 @@ def _run_test_suite(module_name: str, test_name: str) -> None:
         return
 
     from plugin.framework.i18n import _
-    from plugin.framework.uno_context import get_ctx
 
     ctx = get_ctx()
     try:
@@ -257,7 +331,7 @@ def register_core_handlers() -> None:
     from plugin.chatbot.dialog_views import settings_box
     from plugin.chatbot.eval_dashboard_ui import show_eval_dashboard
     from plugin.framework.main_shared import open_dialog_safely, register_action_handler
-    from plugin.framework.uno_context import get_active_document, get_ctx
+    from plugin.framework.uno_context import get_active_document
 
     def _install_optional(fn: Callable[..., Any], *args: Any, message: str, level: int = logging.DEBUG) -> None:
         try:
@@ -294,30 +368,6 @@ def register_core_handlers() -> None:
         open_dialog_safely(show_import_dialog, "Failed to open Convert Sheet to Python dialog")
 
     register_action_handler("calc", "convert_spreadsheet_to_python", _convert_spreadsheet)
-
-    def _install_calc_menus() -> None:
-        from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
-        from plugin.notebook.notebook_controls import install_notebook_run_button_wiring
-
-        install_calc_cell_context_menu(get_ctx())
-        install_notebook_run_button_wiring(get_ctx())
-
-    _install_optional(_install_calc_menus, message="Calc cell context menu install failed", level=logging.DEBUG)
-
-    # Import inside the callable so ImportError is caught by _install_optional.
-    def _install_excel_py_auto_convert() -> None:
-        from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
-
-        install_excel_py_auto_convert(get_ctx())
-
-    _install_optional(_install_excel_py_auto_convert, message="Excel PY auto-convert on open install failed", level=logging.DEBUG)
-
-    def _install_geometric_recalc() -> None:
-        from plugin.calc.python.geometric_recalc import install_geometric_recalc
-
-        install_geometric_recalc()
-
-    _install_optional(_install_geometric_recalc, message="Geometric recalc install failed", level=logging.DEBUG)
 
     def _open_search_dialog() -> None:
         from plugin.embeddings.search_ui import show_search_dialog
@@ -404,167 +454,21 @@ def bootstrap(ctx: Any | None = None) -> None:
     MCP server starts automatically in headless mode. We could make this lazy
     again in the future if startup performance becomes a concern.
     """
-    global _services, _tools, _modules, _bootstrap_state, _bootstrap_error
-
-    # Off-thread get_menu_text and _get_menu_icon depend on returning early
-    # when initialized, before the on_python_main_thread check raises BOOTSTRAP_OFF_THREAD.
-    if _bootstrap_state is BootstrapState.INITIALIZED:
-        return
-
-    from plugin.framework.thread_guard import on_python_main_thread
-
-    # A status-listener Dummy upcall is allowed to touch UNO, and it must not enter bootstrap.
-    if not on_python_main_thread():
-        from plugin.framework.errors import WriterAgentException
-
-        raise WriterAgentException(
-            "WriterAgent bootstrap must run on the main thread before tools or services are used.",
-            code="BOOTSTRAP_OFF_THREAD",
-        )
-
-    if _bootstrap_state is BootstrapState.BOOTSTRAPPING:
-        return
-
-    # What was wrong: _init_lock wrapped only the _initialized recheck, then
-    # released before any init work.
-    # How it happened: _bootstrapping was added around the old with-block and
-    # the body was dedented out of the lock (bd07cb792).
-    # Why this change: bootstrap() already raises BOOTSTRAP_OFF_THREAD on any
-    # other thread, and a nested call on this thread returns at _bootstrapping.
-    # The lock excluded nobody. It is also not reentrant, so putting the body
-    # back under it would deadlock if a nested call ever reached it.
-    _bootstrap_state = BootstrapState.BOOTSTRAPPING
-    try:
-        # 1. Basic UNO context
-        from plugin.framework.queue_executor import install_from_environ, main
-
-        if ctx is None:
-            ctx = get_ctx()
-
-        if ctx is not None:
-            # get_ctx() prefers this over uno.getComponentContext(). LibrePy
-            # already pins it; without it WriterAgent lookups can hit a
-            # different context (no VCL, wrong package, Desktop segfault).
-            set_fallback_ctx(ctx)
-            install_from_environ()
-            main.set_context(ctx)
-
-        set_package_extension_id(EXTENSION_ID)
-
-        from plugin.bootstrap_ui_hooks import register_framework_ui_hooks
-        from plugin.writeragent_hooks import (
-            register_writeragent_prompt_hooks,
-            register_writeragent_tool_filters,
-        )
-
-        register_framework_ui_hooks()
-        register_writeragent_prompt_hooks()
-
-        from plugin.framework.config import init_config
-
-        init_config(ctx)
-
-        # 2. Service Container
-        from plugin.framework.service import ServiceRegistry
-
-        _services = ServiceRegistry()
-        _services.register("uno", ctx)
-
-        # Skip terminate listener when running under the eval harness.
-        # The eval client already has a remote Desktop; this listener would shut down client subprocesses on office teardown.
-        if os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
-            _install_terminate_listener(ctx)
-
-        # 3. Core Services (Framework)
-        from plugin.doc.document_helpers import DocumentService
-        from plugin.framework.event_bus import get_event_bus
-
-        _services.register("document", DocumentService())
-        _services.register("events", get_event_bus())
-
-        # 4. Tool Registry
-        from plugin.framework.tool import ToolRegistry
-
-        _tools = ToolRegistry(_services)
-        register_writeragent_tool_filters(_tools)
-        _services.register("tools", _tools)
-
-        # 4b. Main Thread Execution Service
-        _services.register("main_thread", main)
-
-        # Initialize i18n
-        from plugin.framework.i18n import init_i18n
-
-        init_i18n(ctx)
-
-        # Set initialized early to prevent recursive calls from re-running bootstrap
-        # but after _services and _tools are created.
-        _bootstrap_state = BootstrapState.INITIALIZED
-
-        # 5. Load manifest and initialize modules
-        from plugin.framework.module_base import ModuleLoader
-
-        module_phase_failed = False
-        try:
-            _modules.extend(ModuleLoader.load_modules(_services))
-        except Exception as exc:
-            module_phase_failed = True
-            log.exception("bootstrap failed while loading modules")
-            _bootstrap_error = exc
-            if not _modules:
-                _bootstrap_state = BootstrapState.UNINITIALIZED
-                return
-            # Fall through so core handlers still register; the kept error makes an
-            # unhandled command raise BOOTSTRAP_FAILED.
-
-        # 6. Background phase: modules that start listeners/servers (e.g. McpModule when MCP enabled).
-        # Isolate each module: one failed start must not keep later servers/listeners from starting.
-        for mod in _modules:
-            try:
-                mod.start_background(_services)
-            except Exception as exc:
-                module_phase_failed = True
-                log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
-                if _bootstrap_error is None:
-                    _bootstrap_error = exc
-
-        try:
-            # Subscribe to menu:update for dynamic menu text + icons.
-            # execute runs this @background function on the main thread;
-            # dispatch already queues it with run_in_background.
-            from plugin.framework.worker_pool import run_in_background
-
-            _services.get("events").subscribe(
-                "menu:update", lambda **kw: run_in_background(notify_menu_update)
-            )
-
-            if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
-                # Pre-load icons into ImageManager so first menu display has them.
-                # Eval harness is headless with no VCL pump — posting icons to "main"
-                # trips the UNO thread guard and can segfault soffice (issue #402 family).
-                run_in_background(_update_menu_icons)
-
-            # Headless eval connects via UNO pipe; menu/context-menu install
-            # calls get_desktop() in this process and can segfault soffice.
-            if os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
-                register_core_handlers()
-        except Exception as exc:
-            log.exception("bootstrap failed after the init flag was set")
-            if _bootstrap_error is None:
-                _bootstrap_error = exc
-            return
-
-        if not module_phase_failed:
-            _bootstrap_error = None
-    finally:
-        if _bootstrap_state is BootstrapState.BOOTSTRAPPING:
-            _bootstrap_state = BootstrapState.UNINITIALIZED
+    bootstrap_extension(
+        ctx,
+        extension_id=EXTENSION_ID,
+        register_prompt_hooks=_register_writeragent_prompt_hooks,
+        finish=_writeragent_bootstrap_finish,
+        owner=sys.modules[__name__],
+    )
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
 
-_status_listeners: list[tuple[Any, Any]] = []  # [(listener, url)]
-_status_lock = threading.Lock()
+from plugin.menu_state import MenuIcons, MenuStatusPublisher, command_from_dispatch_url
+
+menu_icons = MenuIcons()
+menu_status = MenuStatusPublisher(menu_icons)
 
 
 def _module_for_command(command: str) -> tuple[ModuleBase | None, str]:
@@ -578,7 +482,7 @@ def _module_for_command(command: str) -> tuple[ModuleBase | None, str]:
     return None, action
 
 
-def _dispatch_command(command: str) -> None:
+def dispatch_command(command: str) -> None:
     """Dispatch command using handler registry, falling back to module actions."""
     bootstrap()
     if command.startswith("chatbot.debug_sidebar"):
@@ -622,46 +526,6 @@ def _dispatch_command(command: str) -> None:
     log.warning("No handler or module found for command: %s", command)
 
 
-# Hardcoded fallback for static Addons.xcu items so they get translated
-# without needing dynamic state in their respective modules.
-# Translate at lookup because the locale is not ready at import.
-_STATIC_MENU_TITLES: dict[str, str] = {
-    "chatbot.extend_selection": "Extend Selection",
-    "chatbot.edit_selection": "Edit Selection",
-    "main.settings": "Settings",
-    "main.report_bug": "Report bug...",
-    "mcp.toggle_server": "Toggle MCP Server",
-    "mcp.server_status": "MCP Server Status",
-    # addStatusListener pushes get_menu_text() via FeatureStateEvent.
-    # Returning None leaves the en-US Addons.xcu string (Vision OCR was
-    # absent from this map). A raw English literal overwrites the catalog
-    # ("Debug"). Use the same literal map as the other WriterAgent
-    # menu titles so the JA msgstrs apply.
-    "vision.open_settings": "Vision OCR Settings...",
-    "main.NoOp": "Debug",
-    "main.RunFormatTests": "Run format tests",
-    "main.RunCalcTests": "Run calc tests",
-    "main.RunCalcIntegrationTests": "Run Calc API integration tests",
-    "main.RunDrawTests": "Run draw tests",
-    "main.EvaluationDashboard": "Evaluation Dashboard",
-    "scripting.run_python_dialog": "Run Python Script...",
-    "scripting.edit_python_cell": "Edit Python in Cell...",
-    "scripting.reset_python_session": "Reset Python Session",
-    "notebook.run_all": "Run All",
-    "notebook.run_from_here": "Run From Here",
-    "notebook.stop": "Stop",
-    "writer.insert_latex_dialog": "Insert LaTeX Math...",
-    # None would leave the en-US toolbar title; map these so translations apply
-    "writer.review_prev": "◀ Prev",
-    "writer.review_next": "Next ▶",
-    "writer.review_accept_all": "Accept all",
-    "writer.review_reject_all": "Reject all",
-    "embeddings.search_dialog": "Search Nearby Files...",
-    "textanalytics.open_dialog": "Text Analytics...",
-    "calc.convert_spreadsheet_to_python": "Convert Sheet to Python...",
-}
-
-
 def get_menu_text(command: str) -> str | None:
     """Get dynamic menu text for a command, or None for default."""
     bootstrap()
@@ -673,330 +537,32 @@ def get_menu_text(command: str) -> str | None:
 
     text = mod.get_menu_text(action) if mod is not None else None
     if text is None:
-        text = _STATIC_MENU_TITLES.get(command)
+        # Titles are translated at lookup (locale is not ready at import). None keeps
+        # the en-US Addons.xcu string; a raw English literal overwrites the catalog.
+        from plugin._manifest import MENU_TITLES, MODULES
+
+        if "." in command:
+            mod_name, action_name = command.split(".", 1)
+            for m in MODULES:
+                if isinstance(m, dict) and m.get("name") == mod_name:
+                    action_titles = m.get("action_titles")
+                    if isinstance(action_titles, dict):
+                        text = action_titles.get(action_name)
+                    break
+        if text is None:
+            text = MENU_TITLES.get(command)
     if text is not None:
         return _(text)
     return None
 
 
-def _command_from_dispatch_url(url: Any) -> str:
-    """Extract command from a WriterAgent dispatch URL.
-
-    Debug sidebar record URL: ``org.extension.writeragent:chatbot.debug_sidebar?RECORD_CLICKED``.
-    LO may put the debug op in ``Query``, or in ``Path`` as ``chatbot.debug_sidebar?OP``.
-    """
-    # What was wrong: dispatch command extraction read url.Path directly, ignoring Complete-only URLs and double-appending queries.
-    # How it happened: Path and Query handling was duplicated across dispatch and status listeners without Complete-only fallback.
-    # Why this change: delegate base extraction to dispatch_command_from_url and append Query only when ? is not already in command.
-    command = dispatch_command_from_url(url)
-    query = getattr(url, "Query", None) or ""
-    if query and "?" not in command:
-        return "%s.%s" % (command, query)
-    return command
-
-
-def _lookup_menu_text(url: Any, where: str) -> tuple[str, str | None] | None:
-    try:
-        command = _command_from_dispatch_url(url)
-        return command, get_menu_text(command)
-    except Exception:
-        log.exception("%s: menu text failed for %s", where, getattr(url, "Complete", ""))
-        return None
-
-
-def _drop_status_listeners(pairs: list[tuple[Any, Any]]) -> None:
-    # Caller holds _status_lock.
-    # What was wrong: 'is' never matched PyUNO listener proxies.
-    # How it happened: each UNO upcall is a new proxy for the same object.
-    # Why this change: uno_same plus Complete is the match used for documents.
-    _status_listeners[:] = [
-        (lstnr, u)
-        for lstnr, u in _status_listeners
-        if not any(uno_same(lstnr, fl) and u.Complete == fu.Complete for fl, fu in pairs)
-    ]
-
-
-def _prune_failed_status_listeners(failed: list[tuple[Any, Any]]) -> None:
-    with _status_lock:
-        _drop_status_listeners(failed)
-
-
-@background
-def notify_menu_update() -> None:
-    """Push current menu text and icons to all registered status listeners.
-
-    Called by modules when state changes (e.g. server start/stop).
-    """
-    # Snapshot the listeners under the lock, then fire OUTSIDE it. _fire_status_event ->
-    # listener.statusChanged is a UNO call to a UI control that marshals to the main thread, so
-    # holding _status_lock across it deadlocks: the main thread, while rebinding a toolbar
-    # controller (addStatusListener), waits for the same lock this background thread holds. (This is
-    # what froze LibreOffice on the toolbar's Accept all.) addStatusListener already fires outside
-    # the lock; this makes notify_menu_update consistent.
-    with _status_lock:
-        snapshot = list(_status_listeners)
-    failed = []
-    for listener, url in snapshot:
-        # What was wrong: menu text retrieval and statusChanged were grouped in a single try block, so text errors treated the listener as dead.
-        # How it happened: get_menu_text exception caused the listener to be appended to failed and pruned from listeners.
-        # Why this change: isolate command/text lookup; log and skip on text failure without marking listener failed or pruning it.
-        looked_up = _lookup_menu_text(url, "notify_menu_update")
-        if looked_up is None:
-            continue
-        command, text = looked_up
-        try:
-            _fire_status_event(listener, url, text, command)
-        except Exception as e:
-            # UNO boundary: listener.statusChanged callback
-            failed.append((listener, url))
-            log.warning(
-                "notify_menu_update: failed to fire status event for %s: %s",
-                command,
-                e,
-            )
-    if failed:
-        # What was wrong: this prune called uno_same on the pool worker.
-        # uno_same is @main_thread_only, so a dev build raised before the
-        # list was filtered and the icon refresh below never ran.
-        # How it happened: notify_menu_update is @background and is only
-        # started with run_in_background. The unit test calls it on the
-        # main thread, where the guard does not fire.
-        # Why this change: post the comparison to the main thread. A direct
-        # call that is already on the main thread still prunes before return.
-        # post, not call: a blocking marshal during startup deadlocks
-        # AsyncCallback lazy-init, same as _update_menu_icons.
-        from plugin.framework.queue_executor import main
-
-        if main.is_current():
-            _prune_failed_status_listeners(failed)
-        else:
-            try:
-                # What was wrong: prune post defaulted to the current send scope and was cancelled if user clicked Stop.
-                # How it happened: main.post omitted bound_scope, inheriting the worker thread's copied contextvar.
-                # Why this change: pass bound_scope=None because listener cleanup is UI maintenance, not send work.
-                main.post(_prune_failed_status_listeners, list(failed), bound_scope=None)
-            except Exception:
-                # UNO boundary: notify_menu_update post to main thread
-                log.exception("notify_menu_update: failed to post listener prune")
-    if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
-        # Update icons in a background thread (avoids blocking UI)
-        from plugin.framework.worker_pool import run_in_background
-
-        run_in_background(_update_menu_icons)
-
-
-def _fire_status_event(listener: Any, url: Any, text: str | None, command: str) -> None:
-    """Send a FeatureStateEvent to one listener."""
-    ev = cast("Any", uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent"))
-    ev.FeatureURL = url
-    ev.IsEnabled = True
-    if command in {"main.RunFormatTests", "main.RunCalcTests", "main.RunCalcIntegrationTests", "main.RunDrawTests"}:
-        ev.IsEnabled = tests_bundled()
-    ev.Requery = False
-    if text is not None:
-        ev.State = text
-    listener.statusChanged(ev)
-
-
-# ── Dynamic menu icons via XImageManager ──────────────────────────────
-
-# LO document modules that have their own ImageManager
-_IMAGE_MANAGER_MODULES = ("com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.presentation.PresentationDocument", "com.sun.star.drawing.DrawingDocument")
-
-
-def _get_menu_icon(command: str) -> str | None:
+def get_menu_icon(command: str) -> str | None:
     """Get dynamic icon prefix for a command, or None."""
     bootstrap()
     mod, action = _module_for_command(command)
     if mod is None:
         return None
     return mod.get_menu_icon(action)
-
-
-def _collect_icon_commands() -> dict[str, tuple[str, str]]:
-    """Collect all command URLs that declare icons in their manifest.
-
-    Returns {command_url: (module_name, icon_prefix)} for the current state.
-    """
-    try:
-        from plugin._manifest import MODULES
-    except ImportError:
-        return {}
-
-    result: dict[str, tuple[str, str]] = {}
-
-    for m in cast("list[dict[str, Any]]", MODULES):
-        mod_name = str(m["name"])
-        action_icons = cast("dict[str, str]", m.get("action_icons", {}))
-        for action_name, default_icon in action_icons.items():
-            cmd_url = "%s%s.%s" % (_DISPATCH_PROTOCOL, mod_name, action_name)
-            # Ask the module for dynamic icon (may override the default)
-            dynamic = _get_menu_icon("%s.%s" % (mod_name, action_name))
-            result[cmd_url] = (mod_name, dynamic or default_icon)
-    return result
-
-
-_loaded_icon_graphics: dict[tuple[str, int], Any] = {}
-_icon_apply_stamp: tuple[tuple[tuple[str, str], ...], int] | None = None
-
-
-def _icon_apply_signature(
-    icon_cmds: dict[str, tuple[str, str]], px: int
-) -> tuple[tuple[tuple[str, str], ...], int]:
-    return (tuple(sorted((url, prefix) for url, (_mod, prefix) in icon_cmds.items())), px)
-
-
-def _load_icon_graphic(module_name: str, icon_filename: str, ctx: Any) -> Any:
-    """Load a PNG icon from OXT assets/ as XGraphic."""
-    try:
-        from com.sun.star.beans import PropertyValue
-
-        ctx_any = cast("Any", ctx)
-        # What was wrong: getattr fallback evaluated getServiceManager on every call, and assert smgr is not None disappears under -O.
-        # How it happened: ad-hoc getattr ladder was used instead of the standard get_service_manager helper.
-        # Why this change: call get_service_manager and safely return None with a warning if missing.
-        smgr = get_service_manager(ctx_any)
-        if smgr is None:
-            log.warning("_load_icon_graphic: get_service_manager returned None for %s/%s", module_name, icon_filename)
-            return None
-        gp = cast("Any", smgr).createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx_any)
-        ext_url = get_extension_url(ctx_any)
-        if not ext_url:
-            return None
-        pv = PropertyValue()
-        pv.Name = "URL"
-        pv.Value = menu_icon_asset_url(ext_url, icon_filename)
-        graphic = gp.queryGraphic((pv,))
-        if graphic is None:
-            log.warning("_load_icon_graphic: GraphicProvider returned None for %s (%s)", pv.Value, module_name)
-        return graphic
-    except Exception as e:  # UNO boundary: GraphicProvider.queryGraphic
-        log.warning("_load_icon_graphic failed for %s/%s: %s", module_name, icon_filename, e)
-        return None
-
-
-def _update_menu_icons_impl() -> None:
-    """Push current-state icons into every module's ImageManager (UNO main thread)."""
-    global _icon_apply_stamp
-    try:
-        # A bootstrap-less uno.getComponentContext() is a different context
-        # (no VCL, wrong package). get_ctx() is the context bootstrap stored.
-        ctx = get_ctx()
-        if ctx is None:
-            log.warning("_update_menu_icons_impl: get_ctx() returned None")
-            return
-
-        icon_cmds = _collect_icon_commands()
-        if not icon_cmds:
-            return
-
-        from plugin.framework.menu_icon_dpi import (
-            image_type_for_pixel_size,
-            menu_icon_filename,
-            resolve_menu_icon_pixel_size,
-        )
-
-        # One-shot DPI probe → pixel size (16 at 1×, 32 on HiDPI).
-        # A probe miss caches 32 until a real VCL DPI reading. Warm
-        # StyleSettings so startup does not stick on that weak reading.
-        from plugin.framework.appearance import get_style_window
-
-        get_style_window(ctx=ctx)
-        icon_px = resolve_menu_icon_pixel_size(ctx)
-        image_type = image_type_for_pixel_size(icon_px)
-
-        # Each dispatch used to re-query every PNG and rewrite four image
-        # managers; the stamp skips that when the command-to-prefix map and the
-        # pixel size are unchanged, and it stays unset when a load or replace
-        # failed so the next click retries.
-        if _icon_apply_signature(icon_cmds, icon_px) == _icon_apply_stamp:
-            return
-
-        # Group by (module, prefix) to avoid loading the same graphic twice
-        key_cmds: dict[tuple[str, str], list[str]] = {}  # (mod_name, prefix) -> [cmd_urls]
-        for cmd_url, (mod_name, prefix) in icon_cmds.items():
-            key_cmds.setdefault((mod_name, prefix), []).append(cmd_url)
-
-        # Load graphics
-        apply_failed = False
-        key_graphics = {}
-        for key in key_cmds:
-            mod_name, prefix = key
-            cache_key = (prefix, icon_px)
-            graphic = _loaded_icon_graphics.get(cache_key)
-            if graphic is None:
-                filename = menu_icon_filename(prefix, icon_px, ctx)
-                graphic = _load_icon_graphic(mod_name, filename, ctx)
-                if graphic is not None:
-                    _loaded_icon_graphics[cache_key] = graphic
-            if graphic is not None:
-                key_graphics[key] = graphic
-            else:
-                apply_failed = True
-                log.warning("Icon graphic is None for assets/%s (module %s)", prefix, mod_name)
-
-        if not key_graphics:
-            return
-
-        smgr = get_service_manager(ctx)
-        if smgr is None:
-            log.warning("_update_menu_icons_impl: get_service_manager returned None")
-            return
-
-        supplier = cast("Any", smgr).createInstanceWithContext("com.sun.star.ui.ModuleUIConfigurationManagerSupplier", ctx)
-        for mod_id in _IMAGE_MANAGER_MODULES:
-            try:
-                cfg_mgr = supplier.getUIConfigurationManager(mod_id)
-                img_mgr = cfg_mgr.getImageManager()
-                for key, cmds in key_cmds.items():
-                    graphic = key_graphics.get(key)
-                    if not graphic:
-                        continue
-                    # Menus usually fetch SIZE_DEFAULT; also stamp LARGE/32 when we
-                    # chose a bigger asset so HiDPI/toolbars can pick either.
-                    type_set = {0, int(image_type)}
-                    for cmd in cmds:
-                        for itype in sorted(type_set):
-                            try:
-                                if img_mgr.hasImage(itype, cmd):
-                                    img_mgr.replaceImages(itype, (cmd,), (graphic,))
-                                else:
-                                    img_mgr.insertImages(itype, (cmd,), (graphic,))
-                            except Exception as e:
-                                # UNO boundary: XImageManager image insertion/replacement
-                                apply_failed = True
-                                log.warning(
-                                    "_update_menu_icons: failed to insert/replace image for %s type=%s: %s",
-                                    cmd,
-                                    itype,
-                                    e,
-                                )
-            except Exception as e:
-                # UNO boundary: ModuleUIConfigurationManagerSupplier / getImageManager
-                apply_failed = True
-                log.warning("_update_menu_icons: failed to process ImageManager for %s: %s", mod_id, e)
-
-        if not apply_failed:
-            _icon_apply_stamp = _icon_apply_signature(icon_cmds, icon_px)
-    except Exception:
-        # UNO boundary: outer ImageManager update
-        log.exception("_update_menu_icons: outer exception")
-
-
-@background
-def _update_menu_icons() -> None:
-    """Background entrypoint: marshal UNO icon updates onto the main thread.
-
-    Use post (not blocking execute): at startup the UI thread may be inside
-    ``set_context`` / ``init_config``, and a blocking marshal can deadlock
-    with AsyncCallback lazy-init.
-    """
-    from plugin.framework.queue_executor import main
-
-    # What was wrong: icon updates inherited the worker thread's send scope and were cancelled when Stop was clicked.
-    # How it happened: main.post omitted bound_scope, binding to the active send task contextvar.
-    # Why this change: pass bound_scope=None because menu icon application is UI maintenance, not send work.
-    main.post(_update_menu_icons_impl, bound_scope=None)
 
 
 _LEGACY_FRAMEWORK_COMMANDS: dict[str, str] = {
@@ -1014,18 +580,11 @@ _LEGACY_FRAMEWORK_COMMANDS: dict[str, str] = {
 
 # Bootstrapper replaces the previous monolithic MainJob.
 # It acts as an OnStartApp hook (triggered on office startup) and a proxy for legacy toolbar triggers.
-class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
-    ctx: Any
+class MainBootstrapJob(BaseMainBootstrapJob):
+    def init_logging(self, ctx: Any) -> None:
+        init_logging(ctx)
 
-    def __init__(self, ctx: Any) -> None:
-        self.ctx = ctx
-
-    def execute(self, Arguments: Any) -> tuple[()]:
-        """Called by the Jobs framework on OnStartApp."""
-        try:
-            init_logging(self.ctx)
-        except Exception:  # UNO boundary: XJob.execute entry point
-            log.exception("MainBootstrapJob.execute: init_logging failed")
+    def on_start(self, ctx: Any) -> None:
         try:
             bootstrap(self.ctx)
         except Exception as e:  # UNO boundary: XJob.execute entry point
@@ -1036,7 +595,6 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             ensure_writeragent_proofreader_configured(self.ctx)
         except Exception as e:  # UNO boundary: XJob.execute entry point
             log.warning("[grammar] OnStartApp: could not load or run grammar proofreader bootstrap: %s", e, exc_info=True)
-        return ()
 
     def trigger(self, Event: str) -> None:
         try:
@@ -1047,12 +605,12 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         try:
             if Event and ("." in Event or Event.startswith("plugin.")):
                 cmd = Event[7:] if Event.startswith("plugin.") else Event
-                _dispatch_command(cmd)
+                dispatch_command(cmd)
                 return
 
             legacy = _LEGACY_FRAMEWORK_COMMANDS.get(Event)
             if legacy is not None:
-                _dispatch_command(legacy)
+                dispatch_command(legacy)
                 return
 
             model = get_active_document(self.ctx)
@@ -1084,15 +642,15 @@ class DispatchHandler(ExtensionProtocolHandler):
     # ── XDispatch ────────────────────────────────────────────────
 
     def dispatch(self, URL: UnoURL, Arguments: Any) -> None:
-        command = _command_from_dispatch_url(URL)
+        command = command_from_dispatch_url(URL)
         try:
             init_logging(self.ctx)
             log.info(f"Dispatch entered: {command}")
-            _dispatch_command(command)
+            dispatch_command(command)
             # After action, push updated menu text
             from plugin.framework.worker_pool import run_in_background
 
-            run_in_background(notify_menu_update)
+            run_in_background(menu_status.publish)
         except Exception as e:  # UNO boundary: XDispatch.dispatch entry point
             log_exception(e, context="Dispatch")
             from plugin.chatbot.dialogs import msgbox_with_report
@@ -1108,27 +666,10 @@ class DispatchHandler(ExtensionProtocolHandler):
             )
 
     def addStatusListener(self, Control: Any, URL: UnoURL) -> None:
-        with _status_lock:
-            # What was wrong: re-registering a status listener for the same control and URL added duplicates.
-            # How it happened: addStatusListener unconditionally appended without deduplication.
-            # Why this change: drop existing entries matching uno_same and Complete URL before appending.
-            _drop_status_listeners([(Control, URL)])
-            _status_listeners.append((Control, URL))
-        # Send current state immediately
-        looked_up = _lookup_menu_text(URL, "addStatusListener")
-        if looked_up is None:
-            return
-        command, text = looked_up
-
-        if text is not None:
-            try:
-                _fire_status_event(Control, URL, text, command)
-            except Exception as e:  # UNO boundary: initial statusChanged callback
-                log.warning("addStatusListener: failed to fire initial status event for %s: %s", command, e)
+        menu_status.add(Control, URL)
 
     def removeStatusListener(self, Control: Any, URL: UnoURL) -> None:
-        with _status_lock:
-            _drop_status_listeners([(Control, URL)])
+        menu_status.remove(Control, URL)
 
 
 # pythonloader loads a static g_ImplementationHelper variable
