@@ -7,6 +7,8 @@
 Product commands include Tier 1 presets (rewrite / answer / local), plus
 ``/help``, ``/clear``, and ``/stop``. Echo-only ``[mock]`` stubs register only
 through ``enable_mock_slash_commands()`` for the debug sidebar harness.
+Ranking is prefix match, then ``slash_command_lru`` in ``writeragent.json``.
+Do not implement the consider-list in ``docs/chat/slash-commands.md`` here.
 """
 
 from __future__ import annotations
@@ -14,16 +16,18 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Sequence
 
 from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.i18n import N_, _
-from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 
 log = logging.getLogger("writeragent.slash_commands")
 
+# Persist via the same LRU helper as model/prompt history (not a sidecar file).
 SLASH_LRU_KEY = "slash_command_lru"
 
+# com.sun.star.awt.Key — integers so unit tests need no soffice.
 KEY_DOWN = 1024
 KEY_UP = 1025
 KEY_RETURN = 1280
@@ -31,9 +35,12 @@ KEY_ESCAPE = 1281
 KEY_TAB = 1282
 KEY_MODIFIER_SHIFT = 1
 
-_KIND_LOCAL = "local"
-_KIND_REWRITE = "rewrite"
-_KIND_ANSWER = "answer"
+
+class SlashKind(str, Enum):
+    LOCAL = "local"
+    REWRITE = "rewrite"
+    ANSWER = "answer"
+
 
 _POPUP_IMMEDIATE = frozenset({"help", "clear", "stop"})
 
@@ -44,7 +51,7 @@ class SlashCommand:
 
     name: str
     description: str
-    kind: str = _KIND_LOCAL
+    kind: SlashKind = SlashKind.LOCAL
     instruction: str = ""
     requires_arg: bool = False
     usage: str = ""
@@ -57,35 +64,35 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "summarize",
         N_("Summarize the selection or document in the sidebar"),
-        kind=_KIND_ANSWER,
-        instruction=N_("Summarize the following text concisely."),
+        kind=SlashKind.ANSWER,
+        instruction=N_("Summarize the selected text, or the whole document if nothing is selected."),
         usage="/summarize [focus]",
     ),
     SlashCommand(
         "proofread",
         N_("Fix spelling, grammar, and punctuation without restyling"),
-        kind=_KIND_REWRITE,
+        kind=SlashKind.REWRITE,
         instruction=N_("Fix spelling, grammar, and punctuation only. Do not change style, tone, or meaning."),
         usage="/proofread",
     ),
     SlashCommand(
         "shorten",
         N_("Shorten the selection"),
-        kind=_KIND_REWRITE,
+        kind=SlashKind.REWRITE,
         instruction=N_("Make the text shorter while preserving the meaning."),
         usage="/shorten [target]",
     ),
     SlashCommand(
         "expand",
         N_("Expand the selection with more detail"),
-        kind=_KIND_REWRITE,
+        kind=SlashKind.REWRITE,
         instruction=N_("Expand the text with more detail and clarity."),
         usage="/expand [what]",
     ),
     SlashCommand(
         "tone",
         N_("Rewrite the selection to match a described tone"),
-        kind=_KIND_REWRITE,
+        kind=SlashKind.REWRITE,
         instruction=N_("Rewrite the text to match this tone or style: {arg}"),
         requires_arg=True,
         usage="/tone <description>",
@@ -93,7 +100,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "translate",
         N_("Translate the selection (sidebar when nothing is selected in Writer)"),
-        kind=_KIND_REWRITE,
+        kind=SlashKind.REWRITE,
         instruction=N_("Translate the text into {arg}. Keep formatting and structure."),
         requires_arg=True,
         usage="/translate <language>",
@@ -101,25 +108,28 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "explain",
         N_("Explain the selection or active Calc formula"),
-        kind=_KIND_ANSWER,
+        kind=SlashKind.ANSWER,
         instruction=N_("Explain the following in plain language."),
         usage="/explain",
     ),
     SlashCommand(
         "remember",
         N_("Save a fact to persistent memory"),
-        kind=_KIND_LOCAL,
+        kind=SlashKind.LOCAL,
         requires_arg=True,
         usage="/remember <fact>",
     ),
     SlashCommand(
         "compact",
         N_("Compact older chat history now"),
-        kind=_KIND_LOCAL,
+        kind=SlashKind.LOCAL,
         usage="/compact [focus]",
     ),
 )
 
+# Echo-only stubs for the mock-LLM sidebar harness and prefix/LRU tests.
+# Never in the product list: only ``enable_mock_slash_commands()`` (called by
+# the debug-only sidebar test hooks) adds them to ``registered_slash_commands``.
 MOCK_SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("mock-alpha", N_("Mock command (echo only)")),
     SlashCommand("mock-bravo", N_("Mock command (echo only)")),
@@ -176,7 +186,12 @@ def filter_slash_commands(
     typed: str,
     lru: Sequence[str] | None = None,
 ) -> list[SlashCommand]:
-    """Prefix-filter ``commands`` and rank by LRU then registry order."""
+    """Prefix-filter ``commands`` and rank by LRU then registry order.
+
+    ``typed`` is raw Ask-box text (``/he``). Recently used names float to
+    the top when the filter is empty and as a tie-break among equal
+    prefix matches.
+    """
     registry = registered_slash_commands()
     prefix = slash_typed_prefix(typed)
     if prefix is None:
@@ -210,10 +225,16 @@ def command_usage_hint(cmd: SlashCommand) -> str:
     return "/%s" % cmd.name
 
 
+def _popup_shows_usage_hint(cmd: SlashCommand) -> bool:
+    return command_usage_hint(cmd) != ("/%s" % cmd.name)
+
+
 def format_slash_item(cmd: SlashCommand) -> str:
     tag = " [mock]" if cmd in MOCK_SLASH_COMMANDS else ""
-    hint = command_usage_hint(cmd)
-    return "/%s%s — %s (%s)" % (cmd.name, tag, _(cmd.description), hint)
+    desc = _(cmd.description)
+    if _popup_shows_usage_hint(cmd):
+        return "/%s%s — %s (%s)" % (cmd.name, tag, desc, command_usage_hint(cmd))
+    return "/%s%s — %s" % (cmd.name, tag, desc)
 
 
 def format_help_text() -> str:
@@ -225,11 +246,6 @@ def format_help_text() -> str:
 
 def format_usage_line(cmd: SlashCommand) -> str:
     return _("Usage: {0}").format(command_usage_hint(cmd))
-
-
-def slash_command_continues_chat_turn(cmd: SlashCommand) -> bool:
-    """True when ``run_slash_command`` starts a normal chat stream (answer presets)."""
-    return cmd.kind == _KIND_ANSWER
 
 
 def load_slash_lru() -> list[str]:
@@ -263,13 +279,6 @@ def _format_instruction(cmd: SlashCommand, arg: str) -> str:
     return base
 
 
-def _truncate_context(text: str) -> str:
-    limit = CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 1)] + "…"
-
-
 def _writer_has_selection(model: Any) -> bool:
     from plugin.doc.text_helpers import get_selection_text, selected_text_range
 
@@ -285,96 +294,54 @@ def _writer_has_selection(model: Any) -> bool:
     return bool(text and str(text).strip())
 
 
-def _writer_body_text(model: Any) -> str:
-    from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks
+def _calc_active_cell_explain_line(model: Any) -> str:
+    """One short line for Calc /explain: cell address and formula text."""
+    from plugin.calc.address_utils import index_to_column
 
-    body = model.getText()
-    cursor = body.createTextCursor()
-    cursor.gotoStart(False)
-    cursor.gotoEnd(True)
-    return _truncate_context(normalize_linebreaks(get_string_without_tracked_deletions(cursor)))
-
-
-def _calc_used_range_text(model: Any) -> str:
-    sheet = model.CurrentController.ActiveSheet
-    cursor = sheet.createCursor()
-    cursor.gotoStartOfUsedArea(False)
-    cursor.gotoEndOfUsedArea(True)
-    used = cursor.getRangeAddress()
-    sel = model.CurrentController.Selection
-    area = sel.getRangeAddress()
-    start_col = max(area.StartColumn, used.StartColumn)
-    end_col = min(area.EndColumn, used.EndColumn)
-    start_row = max(area.StartRow, used.StartRow)
-    end_row = min(area.EndRow, used.EndRow)
-    if start_col > end_col or start_row > end_row:
-        start_col, end_col = used.StartColumn, used.EndColumn
-        start_row, end_row = used.StartRow, used.EndRow
-    cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
-    return _truncate_context(str(cell_range.getString() or ""))
-
-
-def _calc_active_cell_explain_block(model: Any) -> str:
     view = model.CurrentController
     sheet = view.ActiveSheet
     selection = view.getSelection()
     addr = selection.getCellAddress()
     cell = sheet.getCellByPosition(addr.Column, addr.Row)
     formula = str(cell.getFormula() or "")
-    col = addr.Column
-    row = addr.Row
-
-    def col_letters(c: int) -> str:
-        letters = ""
-        n = c + 1
-        while n:
-            n, rem = divmod(n - 1, 26)
-            letters = chr(65 + rem) + letters
-        return letters
-
-    address = "%s%d" % (col_letters(col), row + 1)
+    address = "%s%d" % (index_to_column(addr.Column), addr.Row + 1)
     if formula:
-        return _("Cell {0} formula:\n{1}").format(address, formula)
+        return _("Cell {0} formula: {1}").format(address, formula)
     display = str(cell.getString() or cell.getValue())
-    return _("Cell {0} value:\n{1}").format(address, display)
+    return _("Cell {0} value: {1}").format(address, display)
 
 
-def quote_slash_answer_target(model: Any, command_name: str) -> str:
-    """Build the quoted block appended to an answer preset instruction."""
-    doc_type = get_document_type(model)
-    if doc_type == DocumentType.CALC and command_name == "explain":
-        return _calc_active_cell_explain_block(model)
-
-    from plugin.doc.text_helpers import get_selection_text
-
-    selection = get_selection_text(model)
-    if selection and str(selection).strip():
-        body = _truncate_context(str(selection).strip())
-        return _("Selected text:\n{0}").format(body)
-
-    if doc_type == DocumentType.WRITER:
-        body = _writer_body_text(model)
-        if body.strip():
-            return _("Whole document:\n{0}").format(body)
-        return _("The document is empty.")
-
-    if doc_type == DocumentType.CALC:
-        body = _calc_used_range_text(model)
-        if body.strip():
-            return _("Used range:\n{0}").format(body)
-        return _("The sheet has no data in the used range.")
-
-    if selection:
-        return _("Selected text:\n{0}").format(_truncate_context(str(selection)))
-    return _("No selection text is available for this document type.")
+def effective_slash_kind(cmd: SlashCommand, model: Any | None) -> SlashKind:
+    if (
+        cmd.name == "translate"
+        and cmd.kind == SlashKind.REWRITE
+        and model is not None
+        and get_document_type(model) == DocumentType.WRITER
+        and not _writer_has_selection(model)
+    ):
+        return SlashKind.ANSWER
+    return cmd.kind
 
 
 def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
+    """Instruction-only user message; document snapshot is appended at send time."""
     instruction = _format_instruction(cmd, arg)
-    if cmd.name == "summarize" and arg and "{arg}" not in _(cmd.instruction):
-        instruction = _("Summarize the following text. Focus on: {0}").format(arg)
-    quoted = quote_slash_answer_target(model, cmd.name)
-    return instruction + "\n\n" + quoted
+    if cmd.name == "explain" and get_document_type(model) == DocumentType.CALC:
+        return instruction + "\n\n" + _calc_active_cell_explain_line(model)
+    return instruction
+
+
+def slash_send_continues_after_begin(cmd: SlashCommand, host: Any | None = None) -> bool:
+    """True when Send must call ``_begin_send_turn`` before finishing the command."""
+    if cmd.name == "compact":
+        return True
+    if cmd.kind == SlashKind.ANSWER:
+        return True
+    if cmd.name == "translate" and host is not None:
+        model = host.slash_document_model()
+        if model is not None and effective_slash_kind(cmd, model) == SlashKind.ANSWER:
+            return True
+    return False
 
 
 def _remember_key(fact: str) -> str:
@@ -386,17 +353,30 @@ def _complete_ask_draft(host: Any, name: str) -> None:
     from plugin.chatbot.dialogs import set_control_text
     from plugin.chatbot.send_state import SendEvent, SendEventKind
 
-    query = getattr(host, "query_control", None)
+    query = host.query_control
     if query is not None:
         set_control_text(query, "/" + name + " ")
-    dispatch = getattr(host, "dispatch", None)
-    if callable(dispatch):
-        dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
+    host.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
+
+
+def _run_help(host: Any) -> None:
+    host.clear_ask()
+    host.append_output("\n" + format_help_text() + "\n")
+
+
+def _run_clear(host: Any) -> None:
+    host.clear_ask()
+    host.clear_chat()
+
+
+def _run_stop(host: Any) -> None:
+    host.stop_in_flight()
 
 
 def _run_remember(host: Any, fact: str) -> None:
     from plugin.chatbot.memory import MemoryStore
 
+    host.clear_ask()
     try:
         store = MemoryStore()
     except Exception as exc:
@@ -407,6 +387,30 @@ def _run_remember(host: Any, fact: str) -> None:
         host.append_output("\n" + str(result.get("message", _("Failed to save memory."))) + "\n")
         return
     host.append_output("\n" + _("Saved to memory: {0}").format(fact) + "\n")
+
+
+def _run_mock_echo(host: Any, cmd: SlashCommand) -> None:
+    host.clear_ask()
+    host.append_output("\nslash: /%s\n" % cmd.name)
+
+
+def _run_rewrite(host: Any, cmd: SlashCommand, arg: str) -> None:
+    host.clear_ask()
+    host.slash_run_rewrite(_format_instruction(cmd, arg))
+
+
+def _run_compact(host: Any, arg: str) -> None:
+    host.clear_ask()
+    host.run_slash_compact(arg.strip())
+
+
+_LOCAL_HANDLERS: dict[str, Any] = {
+    "help": lambda host, _cmd, _arg: _run_help(host),
+    "clear": lambda host, _cmd, _arg: _run_clear(host),
+    "stop": lambda host, _cmd, _arg: _run_stop(host),
+    "remember": lambda host, _cmd, arg: _run_remember(host, arg.strip()),
+    "compact": lambda host, _cmd, arg: _run_compact(host, arg),
+}
 
 
 def _compact_result_line(result: Any) -> str:
@@ -429,7 +433,18 @@ def run_slash_command(
     *,
     from_popup: bool = False,
 ) -> bool:
-    """Run a registry command. Returns False when ``name`` is unknown."""
+    """Run a registry command.
+
+    Returns ``False`` when ``name`` is unknown, or when Send must continue after
+    ``_begin_send`` (answer presets and ``/compact``). Returns ``True`` when the
+    command is fully handled (including usage lines and rewrites).
+
+    Mocks echo ``slash: /name`` so the popup can be exercised. ``/help``
+    prints the static list. ``/clear`` uses ClearButtonListener. Those and
+    mocks clear Ask. ``/stop`` does not: it runs ``StopButtonListener`` (TTS,
+    inline web approval, hands-free, and ``STOP_CLICKED``), same as the Stop
+    button, and leaves the draft.
+    """
     clean = name.lstrip("/").strip().lower()
     cmd = _registry_map().get(clean)
     if cmd is None:
@@ -445,141 +460,77 @@ def run_slash_command(
         host.append_output("\n" + format_usage_line(cmd) + "\n")
         return True
 
-    if cmd.name == "stop":
-        host.stop_in_flight()
+    if cmd in MOCK_SLASH_COMMANDS:
+        _run_mock_echo(host, cmd)
         return True
 
-    if cmd.name in _POPUP_IMMEDIATE or cmd in MOCK_SLASH_COMMANDS:
-        if cmd.name == "help":
-            host.clear_ask()
-            host.append_output("\n" + format_help_text() + "\n")
-            return True
-        if cmd.name == "clear":
-            host.clear_ask()
-            host.clear_chat()
-            return True
-        if cmd in MOCK_SLASH_COMMANDS:
-            host.clear_ask()
-            host.append_output("\nslash: /%s\n" % cmd.name)
-            return True
-
-    if cmd.name == "remember":
-        host.clear_ask()
-        _run_remember(host, arg.strip())
+    if cmd.name in _LOCAL_HANDLERS and cmd.name != "compact":
+        _LOCAL_HANDLERS[cmd.name](host, cmd, arg)
         return True
 
-    if cmd.name == "compact":
-        host.clear_ask()
-        run_compact = getattr(host, "run_slash_compact", None)
-        if not callable(run_compact):
-            host.append_output("\n" + _("Compaction is unavailable.") + "\n")
-            return True
-        run_compact(arg.strip())
+    if cmd.kind == SlashKind.REWRITE:
+        model = host.slash_document_model()
+        if effective_slash_kind(cmd, model) == SlashKind.ANSWER:
+            return False
+        _run_rewrite(host, cmd, arg)
         return True
 
-    model_fn = getattr(host, "slash_document_model", None)
-    model = model_fn() if callable(model_fn) else None
-
-    effective_kind = cmd.kind
-    if (
-        cmd.name == "translate"
-        and effective_kind == _KIND_REWRITE
-        and model is not None
-        and get_document_type(model) == DocumentType.WRITER
-        and not _writer_has_selection(model)
-    ):
-        effective_kind = _KIND_ANSWER
-
-    if effective_kind == _KIND_ANSWER:
-        host.clear_ask()
-        if model is None:
-            host.append_output("\n" + _("No document is open.") + "\n")
-            return True
-        query = build_slash_answer_query(cmd, arg, model)
-        send_answer = getattr(host, "slash_send_answer", None)
-        if not callable(send_answer):
-            host.append_output("\n" + query + "\n")
-            return True
-        send_answer(query)
-        return True
-
-    if effective_kind == _KIND_REWRITE:
-        host.clear_ask()
-        instruction = _format_instruction(cmd, arg)
-        rewrite = getattr(host, "slash_run_rewrite", None)
-        if not callable(rewrite):
-            host.append_output("\n" + instruction + "\n")
-            return True
-        rewrite(instruction)
-        return True
+    if cmd.kind == SlashKind.ANSWER or cmd.name == "compact":
+        return False
 
     host.clear_ask()
     host.append_output("\nslash: /%s\n" % cmd.name)
     return True
 
 
-def run_slash_compact_worker(
+def run_slash_compact_sync(
     host: Any,
     *,
     focus: str,
     session: Any,
     ctx: Any,
-) -> None:
-    """Background job: ``compact_session(force=True)`` under ``llm_request_lane``."""
+    cancel: Any,
+) -> str:
+    """Run ``compact_session(force=True)`` off-thread; return one status line."""
     from plugin.chatbot.compaction import compact_session
     from plugin.chatbot.selection import create_validated_client
     from plugin.framework.config import get_config
     from plugin.framework.client.model_fetcher import resolve_context_window
     from plugin.framework.llm_lanes import llm_request_lane
-    from plugin.framework.queue_executor import main
+    from plugin.framework.send_cancellation import is_cancelled
     from plugin.main import get_tools
 
     title = _("WriterAgent")
     client = create_validated_client(ctx, title)
     if client is None:
-        main.post(lambda: host.append_output("\n" + _("Configure an API key to compact.") + "\n"))
-        return
+        return "\n" + _("Configure an API key to compact.") + "\n"
 
     if not get_config("chat_compaction_enabled"):
-        main.post(lambda: host.append_output("\n" + _("Nothing to compact.") + "\n"))
-        return
+        return "\n" + _("Chat compaction is disabled in settings.") + "\n"
 
     tools = get_tools()
 
     def status_cb(text: str) -> None:
         log.debug("slash compact status: %s", text)
 
-    result_holder: list[Any] = []
+    if is_cancelled(cancel):
+        return "\n" + _("Compaction cancelled.") + "\n"
 
-    def worker() -> None:
-        try:
-            with llm_request_lane(status_callback=status_cb, resume_status=_("Thinking...")):
-                result_holder.append(
-                    compact_session(
-                        session,
-                        client,
-                        window=resolve_context_window(client),
-                        tools=tools,
-                        force=True,
-                        focus=focus or None,
-                    )
-                )
-        except Exception:
-            log.exception("slash /compact failed")
-            result_holder.append(None)
+    try:
+        with llm_request_lane(status_callback=status_cb, resume_status=_("Thinking...")):
+            result = compact_session(
+                session,
+                client,
+                window=resolve_context_window(client),
+                tools=tools,
+                force=True,
+                focus=focus or None,
+                cancel=cancel,
+            )
+    except Exception:
+        log.exception("slash /compact failed")
+        return "\n" + _("Compaction failed.") + "\n"
 
-        def finish() -> None:
-            if not result_holder:
-                host.append_output("\n" + _("Compaction failed.") + "\n")
-                return
-            item = result_holder[0]
-            if item is None:
-                host.append_output("\n" + _("Compaction failed.") + "\n")
-            else:
-                host.append_output("\n" + _compact_result_line(item) + "\n")
-
-        main.post(finish)
-
-    from plugin.framework.worker_pool import run_in_background
-
-    run_in_background(worker, name="slash-compact", dedicated=True)
+    if is_cancelled(cancel):
+        return "\n" + _("Compaction cancelled.") + "\n"
+    return "\n" + _compact_result_line(result) + "\n"

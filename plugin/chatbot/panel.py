@@ -516,16 +516,6 @@ class SendButtonListener(BaseActionListener):
     def slash_document_model(self) -> Any:
         return self._get_document_model(log_failure=False)
 
-    def slash_send_answer(self, query_text: str) -> None:
-        """Start a normal chat turn for a slash answer preset (send already begun)."""
-        model = self._get_document_model(log_failure=True)
-        if not model or self.cached_doc_type is None:
-            from plugin.framework.i18n import _
-
-            self._fail_send(_("[No compatible LibreOffice document found.]"), set_status_text=False)
-            return
-        self._tool_calling._do_send_chat_with_tools(query_text, model, self.cached_doc_type)
-
     def slash_run_rewrite(self, instruction: str) -> None:
         """Edit Selection with a preset instruction (sidebar frame document)."""
         from plugin.chatbot.selection import do_selection_action_for_document
@@ -543,14 +533,29 @@ class SendButtonListener(BaseActionListener):
             allow_whole_document=True,
         )
 
-    def run_slash_compact(self, focus: str) -> None:
-        from plugin.chatbot.slash_commands import run_slash_compact_worker
+    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
+        from plugin.chatbot.slash_commands import run_slash_compact_sync
+        from plugin.framework.blocking_wait import run_blocking_in_thread
         from plugin.framework.i18n import _
 
         if self.sidebar_state.tool_loop is not None:
             self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
             return
-        run_slash_compact_worker(self, focus=focus, session=self.session, ctx=self.ctx)
+        if cancel is None:
+            cancel = self._send_cancellation
+        self._set_status(_("Thinking..."))
+
+        def worker() -> str:
+            return run_slash_compact_sync(
+                self,
+                focus=focus,
+                session=self.session,
+                ctx=self.ctx,
+                cancel=cancel,
+            )
+
+        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
+        self.append_output(line)
 
     def _set_status(self, text: str) -> None:
         """Update the status field in the sidebar (read-only TextField).
@@ -1261,10 +1266,12 @@ class SendButtonListener(BaseActionListener):
             return
 
         from plugin.chatbot.slash_commands import (
-            format_usage_line,
+            SlashKind,
+            build_slash_answer_query,
+            effective_slash_kind,
             parse_slash_text,
             run_slash_command,
-            slash_command_continues_chat_turn,
+            slash_send_continues_after_begin,
         )
 
         parsed = parse_slash_text(query_text)
@@ -1272,14 +1279,10 @@ class SendButtonListener(BaseActionListener):
         slash_arg = ""
         if parsed is not None:
             slash_cmd, slash_arg = parsed
-            if slash_cmd.requires_arg and not slash_arg.strip():
-                self.append_output("\n" + format_usage_line(slash_cmd) + "\n")
-                self._terminal_status = "Ready"
-                return
-            if not slash_command_continues_chat_turn(slash_cmd):
-                run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False)
-                self._terminal_status = "Ready"
-                return
+            if not slash_send_continues_after_begin(slash_cmd, self):
+                if run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False):
+                    self._terminal_status = "Ready"
+                    return
 
         doc_info = self._begin_send()
         if not doc_info:
@@ -1287,7 +1290,12 @@ class SendButtonListener(BaseActionListener):
         model, doc_type_label = doc_info
 
         if slash_cmd is not None:
-            if run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False):
+            if slash_cmd.name == "compact":
+                self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
+                return
+            if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
+                query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
+            else:
                 return
 
         try:
