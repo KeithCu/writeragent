@@ -1380,17 +1380,14 @@ def reset_python_session(session_id: str, *, timeout_sec: int | None = None) -> 
 
     # What was wrong: OnUnload calls reset_python_session on the UNO thread,
     # which holds the SolarMutex. With no live child, execute() warmed a new
-    # worker and blocked in _start_child's job.done.wait() on venv-worker-spawn.
+    # worker via _io_session (supervisor spawn + handshake) and blocked there.
     # How it happened: every Calc open registers this listener
     # (auto_open._geometric_open_job), and reset always called execute().
-    # _ensure_warmed_unlocked then spawns via a prime request (action is None)
-    # whenever _proc is missing or already exited. The spawn thread's Popen
-    # can GC a leftover Calc cell-range proxy; that destructor blocks on the
-    # SolarMutex the waiting main thread still holds.
+    # The spawn path can GC a leftover Calc cell-range proxy; that destructor
+    # blocks on the SolarMutex the waiting main thread still holds.
     # Why this change: the sandbox session lives only in the child. A dead
     # child has nothing to drop, so return ok and do not call execute().
-    # A live child still resets in place; _ensure_running does not call
-    # _start_child when poll() is None.
+    # A live child still resets in place.
     if not manager._is_worker_alive():
         return {"status": "ok"}
 
