@@ -1921,9 +1921,7 @@ class TestingFactory:
 
                         leftover_open = _windows_leftover_open()
                         if _windows_should_skip_draw_family_close():
-                            from plugin.testing_runner import (
-                                request_office_recycle_after_suite,
-                            )
+                            from plugin.testing_runner import current_office
 
                             # Do not close(True) while leftover Writer is
                             # open (35450779692). Drop the proxy; leftover
@@ -1935,7 +1933,7 @@ class TestingFactory:
                                 % leftover_open
                             )
                             doc = None
-                            request_office_recycle_after_suite()
+                            current_office().request_recycle()
                             _log_office_health_after_close(ctx, doc_type)
                         else:
                             _progress(

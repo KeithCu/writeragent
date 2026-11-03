@@ -433,6 +433,19 @@ def test_report_action_failure_survives_dialog_exceptions(monkeypatch):
     report_action_failure("test.action", ValueError("original problem"))
 
 
+def test_report_action_failure_survives_unregistered_ui(monkeypatch, caplog):
+    """report_action_failure logs warning with detail and does not raise when action error UI is unregistered."""
+    import plugin.framework.main_shared as main_shared
+
+    monkeypatch.setattr(main_shared, "_action_error_ui", None)
+    with caplog.at_level(logging.WARNING):
+        report_action_failure("test.action", ValueError("original problem"))
+    assert any(
+        "action error UI is not registered" in record.message and "original problem" in record.message
+        for record in caplog.records
+    )
+
+
 # --- Bug 5 tests: DispatchHandler.dispatch catches dialog failures ---
 
 

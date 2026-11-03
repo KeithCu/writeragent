@@ -7,12 +7,12 @@
 from __future__ import annotations
 
 from plugin.notebook.notebook_controls import _page_style, _text_area_width_units
-from plugin.testing_runner import native_test, show_window
+from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import with_native_doc
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_page_style_follows_first_paragraph_not_document(ctx, doc):
     """Code-field sizing reads PageDescName on the first paragraph.
 
