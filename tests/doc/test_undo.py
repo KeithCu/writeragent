@@ -106,6 +106,34 @@ def test_commit_or_rollback_locked_or_missing_raises_undo_unavailable():
     mgr.enterUndoContext.assert_not_called()
 
 
+def test_commit_or_rollback_missing_islocked_enters():
+    from plugin.doc.undo import commit_or_rollback
+
+    class _MinimalUndoManager:
+        def __init__(self):
+            self.entered = False
+
+        def enterUndoContext(self, title: str) -> None:
+            self.entered = True
+            self.title = title
+
+        def leaveUndoContext(self) -> None:
+            pass
+
+        def getAllUndoActionTitles(self):
+            return ()
+
+    mgr = _MinimalUndoManager()
+    doc = MagicMock()
+    doc.getUndoManager.return_value = mgr
+
+    called = []
+    res = commit_or_rollback(doc, "Title", lambda: called.append(1))
+    assert res is None
+    assert called == [1]
+    assert mgr.entered is True
+
+
 def test_commit_or_rollback_magicmock_islocked_enters_and_mutates():
     from plugin.doc.undo import commit_or_rollback
 
