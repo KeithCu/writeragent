@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -422,12 +423,29 @@ def test_child_script_missing_package_is_json() -> None:
     assert "faster-whisper" in payload["message"]
 
 
+def _wait_grandchild_gone(gpid: int, deadline: float) -> bool:
+    while time.monotonic() < deadline:
+        try:
+            os.kill(gpid, 0)
+        except ProcessLookupError:
+            return True
+        stat_path = Path(f"/proc/{gpid}/stat")
+        if stat_path.is_file():
+            state = stat_path.read_text().split()[2]
+            if state == "Z":
+                return True
+        time.sleep(0.05)
+    return False
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX session groups")
-def test_terminate_stt_tree_kills_session_group() -> None:
+def test_terminate_stt_tree_kills_session_group(tmp_path: Path) -> None:
+    gpid_file = tmp_path / "gpid.txt"
+    pid_path = str(gpid_file)
     child_code = (
-        "import os, subprocess, sys, time\n"
-        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], "
-        "start_new_session=True)\n"
+        "import subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c', "
+        f"\"import os, time; open({pid_path!r}, 'w').write(str(os.getpid())); time.sleep(120)\"])\n"
         "time.sleep(3600)\n"
     )
     holder: list[stt_service.ManagedSubprocess] = []
@@ -442,27 +460,32 @@ def test_terminate_stt_tree_kills_session_group() -> None:
     thread.start()
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        if holder:
+        if holder and gpid_file.is_file():
             break
         time.sleep(0.05)
     assert holder, "STT child did not spawn in time"
+    assert gpid_file.is_file(), "grandchild did not write pid"
+    gpid = int(gpid_file.read_text().strip())
     managed = holder[0]
     proc = managed.popen
     assert proc is not None
     stt_service.terminate_stt_process(managed)
     proc.wait(timeout=5.0)
-    # Grandchild in its own session should die with the tree kill.
     assert proc.returncode is not None
+    assert _wait_grandchild_gone(gpid, time.monotonic() + 5.0), "grandchild in STT session group should die with kill_tree"
 
 
 def test_running_stt_killed_by_shutdown_all() -> None:
     holder: list[stt_service.ManagedSubprocess] = []
+    result_holder: list[stt_service.SttCommandResult] = []
 
     def on_spawn(managed: stt_service.ManagedSubprocess) -> None:
         holder.append(managed)
 
     def run_stt() -> None:
-        stt_service._run_cmd([sys.executable, "-c", "import time; time.sleep(3600)"], 3600.0, on_spawn=on_spawn)
+        result_holder.append(
+            stt_service._run_cmd([sys.executable, "-c", "import time; time.sleep(3600)"], 3600.0, on_spawn=on_spawn)
+        )
 
     thread = threading.Thread(target=run_stt, daemon=True)
     thread.start()
@@ -479,3 +502,8 @@ def test_running_stt_killed_by_shutdown_all() -> None:
         time.sleep(0.05)
     assert not holder[0].is_alive()
     thread.join(timeout=5.0)
+    assert not thread.is_alive()
+    assert result_holder
+    result = result_holder[0]
+    assert result.returncode != 0
+    assert result.timed_out is False

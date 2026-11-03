@@ -19,6 +19,7 @@ mentions that download only when those weights are not already cached.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import functools
 import json
 import logging
 import os
@@ -237,11 +238,6 @@ def _reap_stt_process(proc: subprocess.Popen[Any]) -> None:
     best_effort(lambda: proc.wait(timeout=1.0), "STT reap failed")
 
 
-def _finish_stt_managed(managed: ManagedSubprocess) -> None:
-    """Drop a finished STT run from the quit-time registry."""
-    best_effort(managed.unregister, "STT unregister failed")
-
-
 def _close_stt_pipe(stream: Any) -> None:
     if stream is not None:
         best_effort(stream.close, "STT pipe close failed")
@@ -263,12 +259,7 @@ def _run_cmd(
     managed = ManagedSubprocess(
         cmd,
         base_env=scrubbed_env,
-        command_wrapper=lambda wrapped_cmd, env=None, cwd=None: wrap_command_for_sandbox(
-            wrapped_cmd,
-            env=env,
-            cwd=cwd,
-            watch_bus=True,
-        ),
+        command_wrapper=functools.partial(wrap_command_for_sandbox, watch_bus=True),
         text=True,
         stdin=subprocess.DEVNULL,
         drain_stderr=False,
@@ -283,8 +274,7 @@ def _run_cmd(
         return SttCommandResult(None, "", str(exc), spawn_failed=True)
 
     proc = managed.popen
-    if proc is None:
-        return SttCommandResult(None, "", "STT child did not start", spawn_failed=True)
+    assert proc is not None
 
     if on_spawn is not None:
         try:
@@ -350,7 +340,7 @@ def _run_cmd(
         # pipe so GC never closes it. Closing the read end unblocks the thread.
         _close_stt_pipe(proc.stdout)
         _close_stt_pipe(proc.stderr)
-        _finish_stt_managed(managed)
+        best_effort(managed.unregister, "STT unregister failed")
         if managed.is_alive():
             best_effort(managed.abandon, "STT abandon failed")
 

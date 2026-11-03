@@ -49,6 +49,8 @@ class ManagedSubprocess:
     """A managed child process providing explicit start, safe shutdown, and stderr tailing.
 
     The default constructor is the worker (pipes, drain, registry).
+    On the worker path, ``stdin`` may be ``PIPE`` or ``DEVNULL`` and ``stderr`` may be
+    ``PIPE`` or ``DEVNULL``; ``stdout`` is always ``PIPE``.
     raw_spawn=True is the TTS path and does not do those things. Callers of raw mode
     own stop and reap. run does not create an instance.
     Callers own the stdout and stdin pipes (e.g. for JSON-RPC or custom framing).

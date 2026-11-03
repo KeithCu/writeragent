@@ -1239,7 +1239,7 @@ def test_raw_spawn_drain_stderr_false_starts(monkeypatch: pytest.MonkeyPatch) ->
     assert managed not in ms._instances
 
 
-def test_worker_start_ignores_raw_stdio_arguments(
+def test_worker_start_honours_stdin_ignores_stdout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import plugin.framework.managed_subprocess as ms
