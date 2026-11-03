@@ -269,7 +269,7 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
 
 
 def test_dispatch_command_unhandled_raises_when_bootstrap_failed():
-    """_dispatch_command raises BOOTSTRAP_FAILED only when a command is unhandled."""
+    """dispatch_command raises BOOTSTRAP_FAILED only when a command is unhandled."""
     main._bootstrap_state = BootstrapState.INITIALIZED
     main._bootstrap_error = RuntimeError("fatal startup error")
 
@@ -282,12 +282,12 @@ def test_dispatch_command_unhandled_raises_when_bootstrap_failed():
 
     register_action_handler("test", "handled_action", handler)
     try:
-        main._dispatch_command("test.handled_action")
+        main.dispatch_command("test.handled_action")
         assert handled_ran is True
 
         # Unhandled command raises BOOTSTRAP_FAILED
         with pytest.raises(WriterAgentException) as exc_info:
-            main._dispatch_command("test.unhandled_command")
+            main.dispatch_command("test.unhandled_command")
         assert exc_info.value.code == "BOOTSTRAP_FAILED"
     finally:
         _ACTION_HANDLERS.pop("test.handled_action", None)
@@ -389,7 +389,7 @@ def test_menu_update_subscriber_runs_in_background(monkeypatch):
 
 
 def test_dispatch_command_handler_exception_reported_safely(monkeypatch):
-    """Handler exceptions in _dispatch_command are caught and reported; command does not raise."""
+    """Handler exceptions in dispatch_command are caught and reported; command does not raise."""
     reported: list[tuple[str, BaseException]] = []
     monkeypatch.setattr("plugin.main.report_action_failure", lambda cmd, exc: reported.append((cmd, exc)))
 
@@ -398,7 +398,7 @@ def test_dispatch_command_handler_exception_reported_safely(monkeypatch):
 
     register_action_handler("test", "failing", faulty_handler)
     try:
-        main._dispatch_command("test.failing")
+        main.dispatch_command("test.failing")
         assert len(reported) == 1
         assert reported[0][0] == "test.failing"
         assert isinstance(reported[0][1], ValueError)
@@ -407,7 +407,7 @@ def test_dispatch_command_handler_exception_reported_safely(monkeypatch):
 
 
 def test_dispatch_command_module_on_action_propagates():
-    """Module on_action exceptions are not caught in _dispatch_command and propagate."""
+    """Module on_action exceptions are not caught in dispatch_command and propagate."""
     main._bootstrap_state = BootstrapState.INITIALIZED
     mock_mod = MagicMock()
     mock_mod.name = "mod_prefix"
@@ -415,7 +415,7 @@ def test_dispatch_command_module_on_action_propagates():
 
     main._modules = [mock_mod]
     with pytest.raises(RuntimeError, match="module on_action exploded"):
-        main._dispatch_command("mod_prefix.run")
+        main.dispatch_command("mod_prefix.run")
 
 
 def test_report_action_failure_survives_dialog_exceptions(monkeypatch):
@@ -447,7 +447,7 @@ def test_show_error_report_returns_when_ui_unregistered():
 def test_dispatch_handler_shows_error_report(monkeypatch):
     """DispatchHandler.dispatch shows error report when command fails."""
     monkeypatch.setattr(
-        "plugin.main._dispatch_command",
+        "plugin.main.dispatch_command",
         MagicMock(side_effect=RuntimeError("command dispatch failure")),
     )
     mock_report = MagicMock()
@@ -841,7 +841,7 @@ def test_main_bootstrap_job_trigger_logging_failure():
     job = main.MainBootstrapJob(MagicMock())
     with (
         patch("plugin.main.init_logging", side_effect=RuntimeError("logging failed")),
-        patch("plugin.main._dispatch_command") as mock_disp,
+        patch("plugin.main.dispatch_command") as mock_disp,
     ):
         job.trigger("main.settings")
         mock_disp.assert_called_once_with("main.settings")
@@ -864,7 +864,7 @@ def test_main_bootstrap_job_trigger_extend_selection_none_model():
 def test_main_bootstrap_job_trigger_test_types_and_noop():
     """TestTypes is ignored and does not dispatch; NoOp still dispatches."""
     job = main.MainBootstrapJob(MagicMock())
-    with patch("plugin.main._dispatch_command") as mock_disp:
+    with patch("plugin.main.dispatch_command") as mock_disp:
         # TestTypes is no longer recognized as framework action
         job.trigger("TestTypes")
         mock_disp.assert_not_called()
@@ -889,7 +889,7 @@ def test_trigger_body_exception_is_reported():
     job = main.MainBootstrapJob(MagicMock())
     err = RuntimeError("dispatch exploded")
     with (
-        patch("plugin.main._dispatch_command", side_effect=err),
+        patch("plugin.main.dispatch_command", side_effect=err),
         patch("plugin.main.report_action_failure") as mock_report,
     ):
         job.trigger("main.settings")
@@ -934,9 +934,9 @@ def test_command_from_dispatch_url_and_dispatch(monkeypatch):
             self.Complete = complete
             self.Protocol = protocol
 
-    # Path="main.settings", Query="" -> main.settings; dispatch passes to _dispatch_command
+    # Path="main.settings", Query="" -> main.settings; dispatch passes to dispatch_command
     dispatched = []
-    monkeypatch.setattr(main, "_dispatch_command", lambda cmd: dispatched.append(cmd))
+    monkeypatch.setattr(main, "dispatch_command", lambda cmd: dispatched.append(cmd))
     monkeypatch.setattr(main, "init_logging", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda _fn: None)
 

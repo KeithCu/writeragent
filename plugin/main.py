@@ -119,6 +119,11 @@ _bootstrap_error: BaseException | None = None
 _terminate_listener: Any | None = None
 
 
+def bootstrap_complete() -> bool:
+    """Return True if bootstrap has fully completed and initialized."""
+    return _bootstrap_state is BootstrapState.INITIALIZED
+
+
 def _install_terminate_listener(ctx: Any) -> None:
     """Register a desktop XTerminateListener to clean up child processes on app exit."""
     global _terminate_listener
@@ -382,7 +387,7 @@ def bootstrap(ctx: Any | None = None) -> None:
     """
     global _services, _tools, _modules, _bootstrap_state, _bootstrap_error
 
-    # Off-thread get_menu_text and _get_menu_icon depend on returning early
+    # Off-thread get_menu_text and get_menu_icon depend on returning early
     # when initialized, before the on_python_main_thread check raises BOOTSTRAP_OFF_THREAD.
     if _bootstrap_state is BootstrapState.INITIALIZED:
         return
@@ -554,7 +559,7 @@ def _module_for_command(command: str) -> tuple[ModuleBase | None, str]:
     return None, action
 
 
-def _dispatch_command(command: str) -> None:
+def dispatch_command(command: str) -> None:
     """Dispatch command using handler registry, falling back to module actions."""
     bootstrap()
     if command.startswith("chatbot.debug_sidebar"):
@@ -781,7 +786,7 @@ def _fire_status_event(listener: Any, url: Any, text: str | None, command: str) 
 _IMAGE_MANAGER_MODULES = ("com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.presentation.PresentationDocument", "com.sun.star.drawing.DrawingDocument")
 
 
-def _get_menu_icon(command: str) -> str | None:
+def get_menu_icon(command: str) -> str | None:
     """Get dynamic icon prefix for a command, or None."""
     bootstrap()
     mod, action = _module_for_command(command)
@@ -808,7 +813,7 @@ def _collect_icon_commands() -> dict[str, tuple[str, str]]:
         for action_name, default_icon in action_icons.items():
             cmd_url = "%s%s.%s" % (_DISPATCH_PROTOCOL, mod_name, action_name)
             # Ask the module for dynamic icon (may override the default)
-            dynamic = _get_menu_icon("%s.%s" % (mod_name, action_name))
+            dynamic = get_menu_icon("%s.%s" % (mod_name, action_name))
             result[cmd_url] = (mod_name, dynamic or default_icon)
     return result
 
@@ -1024,12 +1029,12 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         try:
             if Event and ("." in Event or Event.startswith("plugin.")):
                 cmd = Event[7:] if Event.startswith("plugin.") else Event
-                _dispatch_command(cmd)
+                dispatch_command(cmd)
                 return
 
             legacy = _LEGACY_FRAMEWORK_COMMANDS.get(Event)
             if legacy is not None:
-                _dispatch_command(legacy)
+                dispatch_command(legacy)
                 return
 
             model = get_active_document(self.ctx)
@@ -1065,7 +1070,7 @@ class DispatchHandler(ExtensionProtocolHandler):
         try:
             init_logging(self.ctx)
             log.info(f"Dispatch entered: {command}")
-            _dispatch_command(command)
+            dispatch_command(command)
             # After action, push updated menu text
             from plugin.framework.worker_pool import run_in_background
 

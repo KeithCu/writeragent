@@ -36,7 +36,7 @@ class TestHamburgerMenu:
 
         with patch("plugin.chatbot.hamburger_menu.get_action_handler", return_value=mock_handler) as mock_get_handler:
             with patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True), patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False), patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False):
-                with patch("plugin.main._dispatch_command") as dispatch:
+                with patch("plugin.main.dispatch_command") as dispatch:
                     show_hamburger_menu(ctx, frame, button_ctrl)
                 mock_get_handler.assert_called_with("chatbot.extend_selection")
                 mock_handler.assert_called_once_with(frame)
@@ -74,7 +74,7 @@ class TestHamburgerMenu:
                 patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
                 patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
                 patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
-                patch("plugin.main._dispatch_command") as dispatch,
+                patch("plugin.main.dispatch_command") as dispatch,
                 patch("plugin.librepy.sidebar_menus.invoke_action_handler") as invoke,
             ):
                 show_hamburger_menu(ctx, frame, button_ctrl)
@@ -280,7 +280,7 @@ class TestHamburgerMenu:
         with (
             patch("plugin.main.tests_bundled", return_value=True),
             patch("plugin.main.get_menu_text", return_value="Toggle MCP Server"),
-            patch("plugin.main._get_menu_icon", return_value="stopped"),
+            patch("plugin.main.get_menu_icon", return_value="stopped"),
             patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_calc", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_draw", return_value=True),
@@ -322,7 +322,7 @@ def test_mcp_status_failure_still_builds_and_executes_hamburger():
 
     with (
         patch("plugin.main.get_menu_text", side_effect=RuntimeError("mcp text failure")),
-        patch("plugin.main._get_menu_icon", side_effect=RuntimeError("mcp icon failure")),
+        patch("plugin.main.get_menu_icon", side_effect=RuntimeError("mcp icon failure")),
         patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
         patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
         patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
