@@ -756,3 +756,17 @@ def test_get_document_length_non_writer_is_zero():
     model.getText.assert_not_called()
 
 
+def test_iter_elements_limited_leaves_enum_when_cap_hit():
+    """Capped walks must not consume past the limit before record_walk_cap checks."""
+    from plugin.doc.text_helpers import iter_elements_limited
+
+    enum = MagicMock()
+    rest = ["a", "b", "c"]
+    enum.hasMoreElements.side_effect = lambda: bool(rest)
+    enum.nextElement.side_effect = lambda: rest.pop(0)
+    seen = 0
+    for _item in iter_elements_limited(enum, 1):
+        seen += 1
+    assert seen == 1
+    assert enum.hasMoreElements() is True
+

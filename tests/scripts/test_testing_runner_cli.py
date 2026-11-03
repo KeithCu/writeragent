@@ -281,19 +281,19 @@ def test_parse_cli_repeat_and_soak_env(monkeypatch) -> None:
     monkeypatch.delenv("WRITERAGENT_UNO_SOAK", raising=False)
     rest = tr._parse_cli_args(["--repeat", "7", "test_draw_uno"])
     assert rest == ["test_draw_uno"]
-    assert tr._soak_repeat == 7
+    assert tr._run_options.soak_repeat == 7
 
     rest = tr._parse_cli_args(["--repeat=3", "test_get_draw_tree"])
     assert rest == ["test_get_draw_tree"]
-    assert tr._soak_repeat == 3
+    assert tr._run_options.soak_repeat == 3
 
     monkeypatch.setenv("WRITERAGENT_UNO_SOAK", "11")
     rest = tr._parse_cli_args(["test_draw_uno"])
     assert rest == ["test_draw_uno"]
-    assert tr._soak_repeat == 11
+    assert tr._run_options.soak_repeat == 11
 
     rest = tr._parse_cli_args(["--repeat", "2", "test_draw_uno"])
-    assert tr._soak_repeat == 2
+    assert tr._run_options.soak_repeat == 2
 
     # K160 moved CLI parsing to argparse: a non-integer --repeat is a usage error.
     with pytest.raises(SystemExit):
@@ -301,27 +301,29 @@ def test_parse_cli_repeat_and_soak_env(monkeypatch) -> None:
 
     rest = tr._parse_cli_args(["--pair", "tree-math", "--repeat", "4"])
     assert rest == ["test_get_draw_tree", "test_insert_math_draw"]
-    assert tr._soak_repeat == 4
+    assert tr._run_options.soak_repeat == 4
     rest = tr._parse_cli_args(["--pair=dup-move"])
     assert rest == [
         "test_duplicate_slide_copies_shapes",
         "test_duplicate_rename_move_slide",
     ]
-    assert tr._cli_exact_function_names == [
+    assert tr._run_options.exact_function_names == [
         "test_duplicate_slide_copies_shapes",
         "test_duplicate_rename_move_slide",
     ]
     rest = tr._parse_cli_args(["--pair", "tree-math"])
     assert rest == ["test_get_draw_tree", "test_insert_math_draw"]
-    assert tr._cli_exact_function_names == ["test_get_draw_tree", "test_insert_math_draw"]
-    assert "test_get_draw_tree_marks_blank_and_label_hint" not in tr._cli_exact_function_names
-    tr._cli_exact_function_names = []
+    assert tr._run_options.exact_function_names == ["test_get_draw_tree", "test_insert_math_draw"]
+    assert "test_get_draw_tree_marks_blank_and_label_hint" not in tr._run_options.exact_function_names
+    tr._run_options.filters = []
+    tr._run_options.exact_function_names = []
 
 
 def test_run_module_suite_pair_exact_skips_draw_tree_prefix_bleed() -> None:
     """--pair tree-math must not run test_get_draw_tree_marks_blank_and_label_hint."""
     tr.reset_lifecycle_breadcrumb()
-    tr._cli_exact_function_names = ["test_get_draw_tree", "test_insert_math_draw"]
+    tr._run_options.filters = []
+    tr._run_options.exact_function_names = ["test_get_draw_tree", "test_insert_math_draw"]
     ran: list[str] = []
 
     def test_get_draw_tree(ctx=None):
@@ -345,13 +347,14 @@ def test_run_module_suite_pair_exact_skips_draw_tree_prefix_bleed() -> None:
     module.test_get_draw_tree_marks_blank_and_label_hint = test_get_draw_tree_marks_blank_and_label_hint
     module.test_insert_math_draw = test_insert_math_draw
 
-    tr._urp_bridge_dead = False
+    tr._office.urp_bridge_dead = False
     passed, failed, _suite_log = tr.run_module_suite(object(), module, "draw.pair")
     assert ran == ["tree", "math"]
     assert passed == 2
     assert failed == 0
-    tr._cli_exact_function_names = []
-    tr._urp_bridge_dead = False
+    tr._run_options.filters = []
+    tr._run_options.exact_function_names = []
+    tr._office.urp_bridge_dead = False
     tr.reset_lifecycle_breadcrumb()
 
 
@@ -359,7 +362,9 @@ def test_run_module_suite_fails_ok_test_on_application_error(capsys) -> None:
     """Harness attribution: TEST returned OK but SalAbort already printed."""
     tr.reset_lifecycle_breadcrumb()
     tr.reset_office_death_signals(clear_proc=True)
-    tr._cli_exact_function_names = []
+    tr._run_options.filters = []
+    tr._run_options.filters = []
+    tr._run_options.exact_function_names = []
     ran: list[str] = []
 
     def test_ok(ctx=None):
@@ -379,16 +384,16 @@ def test_run_module_suite_fails_ok_test_on_application_error(capsys) -> None:
     module.test_ok = test_ok
     module.test_second = test_second
 
-    tr._urp_bridge_dead = False
+    tr._office.urp_bridge_dead = False
     passed, failed, suite_log = tr.run_module_suite(object(), module, "draw.salabort")
     assert ran == ["ok"]
     assert passed == 0
     assert failed == 1
-    assert tr._urp_bridge_dead is True
+    assert tr._office.urp_bridge_dead is True
     err = capsys.readouterr().err
     assert "LIFECYCLE application error after TEST returned draw.salabort.test_ok" in err
     assert any("Unspecified Application Error" in line for line in suite_log)
-    tr._urp_bridge_dead = False
+    tr._office.urp_bridge_dead = False
     tr.reset_office_death_signals(clear_proc=True)
     tr.reset_lifecycle_breadcrumb()
 
@@ -414,8 +419,9 @@ def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:
     module.test_ok = test_ok
     module.test_victim = test_victim
 
-    tr._urp_bridge_dead = False
-    tr._cli_exact_function_names = []
+    tr._office.urp_bridge_dead = False
+    tr._run_options.filters = []
+    tr._run_options.exact_function_names = []
     passed, failed, suite_log = tr.run_module_suite(object(), module, "draw.crumb")
     assert passed == 1
     assert failed == 1
@@ -425,7 +431,7 @@ def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:
     assert "current=draw.crumb.test_victim" in err
     assert "LIFECYCLE URP dispose at draw.crumb.test_victim" in err
     assert any("LIFECYCLE" in line and "previous=draw.crumb.test_ok" in line for line in suite_log)
-    tr._urp_bridge_dead = False
+    tr._office.urp_bridge_dead = False
     tr.reset_lifecycle_breadcrumb()
 
 
@@ -460,17 +466,18 @@ def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return(capsys) ->
     module.test_second = test_second
 
     ctx = _Ctx()
-    tr._urp_bridge_dead = False
-    tr._cli_exact_function_names = []
+    tr._office.urp_bridge_dead = False
+    tr._run_options.filters = []
+    tr._run_options.exact_function_names = []
     passed, failed, suite_log = tr.run_module_suite(ctx, module, "draw.teardown")
     assert ran == ["ok"]
     assert passed == 0
     assert failed == 1
-    assert tr._urp_bridge_dead is True
+    assert tr._office.urp_bridge_dead is True
     err = capsys.readouterr().err
     assert "LIFECYCLE office dead after TEST returned draw.teardown.test_ok" in err
     assert any("office dead after TEST returned" in line for line in suite_log)
-    tr._urp_bridge_dead = False
+    tr._office.urp_bridge_dead = False
     tr.reset_lifecycle_breadcrumb()
 
 
@@ -494,15 +501,16 @@ def test_run_module_suite_stops_after_urp_dispose() -> None:
     module.test_first = test_first
     module.test_second = test_second
 
-    tr._urp_bridge_dead = False
-    tr._cli_exact_function_names = []
+    tr._office.urp_bridge_dead = False
+    tr._run_options.filters = []
+    tr._run_options.exact_function_names = []
     passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.urp")
     assert ran == ["first"]
     assert passed == 0
     assert failed == 1
-    assert tr._urp_bridge_dead is True
+    assert tr._office.urp_bridge_dead is True
     assert any("ABORT" in line or "disposed" in line.lower() for line in suite_log)
-    tr._urp_bridge_dead = False
+    tr._office.urp_bridge_dead = False
 
 
 def test_user_profile_child_env_disables_uno_thread_guard(monkeypatch) -> None:
@@ -571,7 +579,7 @@ def test_run_module_suite_verbose_pids_only_with_ci_debug(capsys, monkeypatch) -
     """WRITERAGENT_CI_DEBUG=1 restores TEST start, pid dumps, and SUITE selected."""
     monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "42")
-    tr._cli_filters = ["test_ok"]
+    tr._run_options.filters = ["test_ok"]
 
     def test_ok(ctx=None):
         return None
@@ -591,7 +599,7 @@ def test_run_module_suite_verbose_pids_only_with_ci_debug(capsys, monkeypatch) -
     try:
         passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.verbose")
     finally:
-        tr._cli_filters = []
+        tr._run_options.filters = []
     assert passed == 1
     assert failed == 0
     err = capsys.readouterr().err

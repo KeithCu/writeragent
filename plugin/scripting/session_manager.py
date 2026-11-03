@@ -50,11 +50,11 @@ def _msgbox_reset_failure(ctx: Any, res: dict[str, Any], default: str) -> bool:
     return True
 
 
-def _call_reset_python_session(ctx: Any, session_id: str) -> dict[str, Any]:
+def _call_reset_python_session(session_id: str) -> dict[str, Any]:
     """Lazy: LibrePy sidebar and document_scripts import this module for ids only."""
     from plugin.scripting.venv_worker import reset_python_session
 
-    return reset_python_session(ctx, session_id)
+    return reset_python_session(session_id)
 
 
 def _has_notebook_registry(doc: Any) -> bool:
@@ -199,11 +199,8 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
     if not is_unsaved_document_key(str(existing)):
         return
     try:
-        from plugin.framework.uno_context import get_ctx
-
-        ctx = get_ctx()
         for kind in DOCUMENT_KINDS:
-            _call_reset_python_session(ctx, SessionKey.of(kind, str(existing)).wire())
+            _call_reset_python_session(SessionKey.of(kind, str(existing)).wire())
     except Exception:
         log.debug("session_manager: cleanup of unsaved session failed", exc_info=True)
 
@@ -395,7 +392,7 @@ def reset_notebook_python_session(ctx: Any, doc: Any | None = None) -> None:
         _msgbox(ctx, _("This notebook has no Python worker session yet. The execution counter was reset."))
         return
 
-    res = _call_reset_python_session(ctx, SessionKey.of(SessionKind.NOTEBOOK, key).wire())
+    res = _call_reset_python_session(SessionKey.of(SessionKind.NOTEBOOK, key).wire())
     # Restart Kernel: next In count is 1 even if the worker reset fails (timeout).
     _reset_notebook_exec_count(target)
     if _msgbox_reset_failure(ctx, res, _("Could not reset Python session.")):
@@ -418,16 +415,16 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
 
     base_key = SessionKey.of(SessionKind.CALC, key)
     session_id = base_key.wire()
-    res = _call_reset_python_session(ctx, session_id)
+    res = _call_reset_python_session(session_id)
     # Also reset the persistent :init session so worker state from previous init script is cleared
-    res_init = _call_reset_python_session(ctx, base_key.with_init_suffix().wire())
+    res_init = _call_reset_python_session(base_key.with_init_suffix().wire())
     from plugin.calc.python.function import clear_python_addin_cache
 
     clear_python_addin_cache()
     # What was wrong: only the base res was tested, so a failed :init reset still
     # reseeded and showed "Python session reset" / the isolated-mode text.
     # How: the :init call's return value was discarded.
-    # Why: init state lives in the :init session, and a non-ok reset means that
+    # Why: init state lives in the :init session, and a non-non reset means that
     # state is still there, so the dialog must be the error and the reseed must not run.
     failed = next((r for r in (res, res_init) if r.get("status") != "ok"), None)
     if failed is not None and _msgbox_reset_failure(ctx, failed, _("Could not reset Python session.")):
@@ -439,7 +436,7 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     if init_kwargs:
         from plugin.scripting.venv_worker import run_code_in_user_venv
 
-        seed = run_code_in_user_venv(ctx, "None", session_id=session_id if python_session_mode() == "shared" else None, **init_kwargs)
+        seed = run_code_in_user_venv("None", session_id=session_id if python_session_mode() == "shared" else None, **init_kwargs)
         if _msgbox_reset_failure(ctx, seed, _("Could not restore the initialization script.")):
             return
 
@@ -460,12 +457,7 @@ def _reset_rps_python_session(ctx: Any, doc: Any, *, notify: bool = True) -> Non
             _msgbox(ctx, _("This document has no Python worker session yet."))
         return
     sid = SessionKey.of(SessionKind.RPS, key).wire()
-    res = _call_reset_python_session(ctx, sid)
-    if not notify:
-        return
-    if _msgbox_reset_failure(ctx, res, _("Could not reset Python session.")):
-        return
-    _msgbox(ctx, _("Python session reset for this document."))
+    res = _call_reset_python_session(sid)
     if not notify:
         return
     if _msgbox_reset_failure(ctx, res, _("Could not reset Python session.")):

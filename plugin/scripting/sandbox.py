@@ -17,7 +17,7 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Container, Sequence
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_ARGV,
@@ -120,6 +120,7 @@ _VENV_PACKAGES: tuple[str, ...] = (
     "writeragent",
     "plugin.scripting.writeragent_api",
     "plugin.scripting.writeragent_api.*",
+    "plugin.scripting.host_tool_call",
     "plugin.scripting.writeragent_namespace",
     "plugin.scripting.writeragent_namespace.*",
     "plugin.scripting.payload_codec",

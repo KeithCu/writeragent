@@ -17,7 +17,7 @@ class TestPythonRunnerConfig:
     @patch('plugin.scripting.python_runner.get_user_scripts', return_value={})
     @patch('plugin.scripting.document_scripts.config.get_config')
     @patch('plugin.scripting.document_scripts.resolve_run_script_name_config_key')
-    @patch('plugin.scripting.python_runner.execute_and_insert_result')
+    @patch('plugin.scripting.python_runner.start_native_script_run')
     @patch('plugin.scripting.document_scripts.save_user_script')
     @patch('plugin.scripting.python_runner.show_python_input_dialog', return_value=(True, None))
     def test_run_python_dialog_keys(

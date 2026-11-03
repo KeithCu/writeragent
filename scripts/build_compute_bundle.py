@@ -68,6 +68,7 @@ COMPUTE_PLUGIN_FILES = (
     "plugin/scripting/helper_domain.py",
     "plugin/scripting/helper_registry.py",
     "plugin/framework/ipc.py",
+    "plugin/scripting/host_tool_call.py",
     "plugin/scripting/named_scripts.py",
     "plugin/scripting/payload_codec.py",
     "plugin/scripting/sandbox.py",

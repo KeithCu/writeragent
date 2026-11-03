@@ -97,8 +97,7 @@ def test_run_trusted_worker_action_builds_packet() -> None:
         )
     assert out == {"helper": "x"}
     mock_run.assert_called_once()
-    args, kwargs = mock_run.call_args
-    assert args[0] is ctx
+    kwargs = mock_run.call_args.kwargs
     assert kwargs["code"] is None
     assert kwargs["action"] == "run_trusted_action"
     assert kwargs["session_id"] == "writeragent:analysis"

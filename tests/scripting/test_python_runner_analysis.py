@@ -9,7 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from plugin.scripting.analysis import get_analysis_script_templates
-from plugin.scripting.python_runner import execute_and_insert_result
+from tests.scripting.python_runner_test_support import execute_and_insert_result
 
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")

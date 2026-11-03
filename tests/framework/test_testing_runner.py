@@ -21,7 +21,7 @@ import plugin.testing_runner as tr
 
 from plugin.testing_runner import (
     _APPLICATION_ERROR_MARKER,
-    _cli_filters,
+    _run_options,
     _exit_after_summary,
     _fail_reason,
     _fail_reason_with_lifecycle,
@@ -123,7 +123,8 @@ def test_module_matches_filters_by_packet_letter(tmp_path: Path) -> None:
 
 
 def test_cli_filters_default_empty() -> None:
-    assert isinstance(_cli_filters, list)
+    assert isinstance(_run_options.filters, list)
+    assert _run_options.filters == []
 
 
 def test_lifecycle_breadcrumb_names_previous_and_current(monkeypatch) -> None:
@@ -241,7 +242,7 @@ def test_collect_post_test_death_soffice_exit() -> None:
 
     reset_lifecycle_breadcrumb()
     reset_office_death_signals(clear_proc=True)
-    tr._soffice_proc = _DeadProc()
+    tr._office.soffice_proc = _DeadProc()
     assert soffice_exit_code() == 1
     reason = collect_post_test_death(None)
     assert reason is not None
@@ -522,7 +523,7 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) ->
     )
 
     monkeypatch.setattr(tr, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_cli_filters", [])
+    monkeypatch.setattr(tr._run_options, "filters", [])
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
@@ -563,9 +564,9 @@ def test_mark_urp_dead_prints_office_log_tail(monkeypatch, tmp_path):
     cfg.mkdir(parents=True)
     (cfg / "writeragent_debug.log").write_text("\n".join("line %d" % i for i in range(50)) + "\n", encoding="utf-8")
     seen: list[str] = []
-    monkeypatch.setattr(tr, "_throwaway_profile_dir", tmp_path)
+    monkeypatch.setattr(tr._office, "throwaway_profile_dir", tmp_path)
     monkeypatch.setattr(tr, "_progress", seen.append)
-    monkeypatch.setattr(tr, "_urp_bridge_dead", False)
+    monkeypatch.setattr(tr._office, "urp_bridge_dead", False)
     tr._mark_urp_dead(RuntimeError("gone"), "t")
     tail = [s for s in seen if s.startswith("OFFICE LOG | ")]
     assert tail[0] == "OFFICE LOG | line 10"
@@ -611,7 +612,7 @@ def test_dead_office_still_probes_pids(monkeypatch) -> None:
         def poll(self):
             return 1
 
-    monkeypatch.setattr(tr, "_soffice_proc", DeadProc())
+    monkeypatch.setattr(tr._office, "soffice_proc", DeadProc())
     reason = collect_post_test_death(None)
     assert reason is not None
     assert len(calls) > 0
@@ -648,8 +649,8 @@ def test_typo_filter_fails_the_run(monkeypatch, tmp_path) -> None:
     )
 
     monkeypatch.setattr(tr, "use_user_profile", False)
-    monkeypatch.setattr(tr, "_cli_filters", ["no_such_test_zzz"])
-    monkeypatch.setattr(tr, "_soak_repeat", 1)
+    monkeypatch.setattr(tr._run_options, "filters", ["no_such_test_zzz"])
+    monkeypatch.setattr(tr._run_options, "soak_repeat", 1)
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
@@ -698,9 +699,9 @@ def test_parse_cli_args_visible_and_filters(monkeypatch) -> None:
 
 def test_parse_cli_args_repeat_forms() -> None:
     assert tr._parse_cli_args(["--repeat", "3"]) == []
-    assert tr._soak_repeat == 3
+    assert tr._run_options.soak_repeat == 3
     assert tr._parse_cli_args(["--repeat=3"]) == []
-    assert tr._soak_repeat == 3
+    assert tr._run_options.soak_repeat == 3
 
 
 def test_parse_cli_args_rejects_bad_repeat() -> None:
@@ -710,12 +711,12 @@ def test_parse_cli_args_rejects_bad_repeat() -> None:
 
 def test_parse_cli_args_pair_expands(monkeypatch) -> None:
     # _parse_cli_args sets this module global; restore it so later run_module_suite tests on the same xdist worker are not filtered.
-    monkeypatch.setattr(tr, "_cli_exact_function_names", [])
+    monkeypatch.setattr(tr._run_options, "exact_function_names", [])
     assert tr._parse_cli_args(["--pair", "tree-math"]) == [
         "test_get_draw_tree",
         "test_insert_math_draw",
     ]
-    assert tr._cli_exact_function_names == [
+    assert tr._run_options.exact_function_names == [
         "test_get_draw_tree",
         "test_insert_math_draw",
     ]

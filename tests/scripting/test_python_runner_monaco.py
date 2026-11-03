@@ -66,7 +66,7 @@ def test_run_python_dialog_falls_back_to_native_dialog():
                                 with patch.object(pr, "_run_python_monaco") as mock_monaco:
                                     with patch.object(pr, "show_python_input_dialog") as mock_native:
                                         with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
-                                            with patch.object(pr, "execute_and_insert_result") as mock_execute:
+                                            with patch.object(pr, "start_native_script_run") as mock_execute:
                                                 pr.run_python_dialog()
 
     mock_monaco.assert_not_called()
@@ -370,7 +370,7 @@ def test_run_python_monaco_on_save_persists_and_executes():
 
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch("plugin.scripting.document_scripts.save_user_script", return_value=None) as mock_save:
-            with patch.object(pr, "execute_and_insert_result") as mock_execute:
+            with patch.object(pr, "start_native_script_run") as mock_execute:
                 with patch.object(pr, "get_config", return_value="Prime Numbers"):
                     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Prime Numbers": "print(1)"}):
                         ok = pr._run_python_monaco(
@@ -439,7 +439,7 @@ def test_run_python_monaco_reopen_refuses_second_run():
             pr, "get_runtime_uid", return_value="doc-1"
         ):
             with patch("plugin.scripting.document_scripts.save_user_script", return_value=None):
-                with patch.object(pr, "execute_and_insert_result") as mock_execute:
+                with patch.object(pr, "start_native_script_run") as mock_execute:
                     with patch.object(pr, "get_config", return_value="Prime Numbers"):
                         with patch(
                             "plugin.scripting.document_scripts.get_user_scripts",
@@ -617,7 +617,7 @@ def test_run_python_monaco_on_save_does_not_upsert_unknown_user_name(return_valu
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
             with patch("plugin.scripting.document_scripts.save_document_script") as mock_doc_save:
-                with patch.object(pr, "execute_and_insert_result", return_value={"ok": True}):
+                with patch.object(pr, "start_native_script_run", return_value={"ok": True}):
                     with patch.object(pr, "get_config", return_value=return_value):
                         with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
                             with patch("plugin.scripting.document_scripts._load_document_script_map", return_value=({"Regional": "old"}, None)):
@@ -677,7 +677,7 @@ def test_run_python_monaco_on_save_builtin_still_runs():
 
     with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
         with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
-            with patch.object(pr, "execute_and_insert_result") as mock_execute:
+            with patch.object(pr, "start_native_script_run") as mock_execute:
                 with patch.object(pr, "get_config", return_value="[Vision] extract_text"):
                     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
                         with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}):
@@ -699,10 +699,12 @@ def test_run_python_monaco_on_save_builtin_still_runs():
 
 
 def test_execute_and_insert_result_returns_error_on_failure():
+    from tests.scripting.python_runner_test_support import execute_and_insert_result
+
     ctx = MagicMock()
     with patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "t0": 0.0, "py_data": None, "bindings": None, "doc": MagicMock(), "ctx": ctx, "code": "bad()"}):
         with patch.object(pr, "_run_prepared_rps", return_value={"status": "error", "message": "boom"}):
-            outcome = pr.execute_and_insert_result(ctx, MagicMock(), "bad()")
+            outcome = execute_and_insert_result(ctx, MagicMock(), "bad()")
     assert outcome["ok"] is False
     assert outcome["message"].startswith("boom")
 

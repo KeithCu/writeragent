@@ -22,10 +22,10 @@ from typing import Any, Literal
 from plugin.framework.i18n import N_, _
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
+    ScriptFacts,
     build_helper_script_template,
     format_elapsed_time,
     is_status_helper_result,
-    parse_helper_script_header,
     plot_insert_ok_outcome,
     preview_insert_ok_outcome,
     rps_ok_outcome,
@@ -210,7 +210,7 @@ class DomainWiring:
     def parse_header(self, code: str) -> HelperScriptMeta | None:
         tag = self.header_tag or self.id
         h_names = names(self.helper_domain) if self.helper_domain else None
-        return parse_helper_script_header(code, tag=tag, helper_names=h_names)
+        return ScriptFacts.from_source(code).header(tag=tag, helper_names=h_names)
 
     def template_for(self, helper: str) -> str | None:
         if not self.helper_domain:

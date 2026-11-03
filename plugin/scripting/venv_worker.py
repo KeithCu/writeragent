@@ -1447,7 +1447,6 @@ def _get_worker_manager(
 
 
 def run_code_in_user_venv(
-    uno_ctx: Any,
     code: str | None = None,
     *,
     data: Any = None,
@@ -1468,9 +1467,6 @@ def run_code_in_user_venv(
     sandbox_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute *code* or handle *action* via :class:`PythonWorkerManager` (warm process).
-
-    *uno_ctx* is unused. Config is process-global; the argument stays so
-    existing callers can keep passing a context.
 
     Without *session_id*, each call uses an isolated namespace in the child. With
     *session_id*, the child reuses one namespace per workbook (shared kernel).
@@ -1528,12 +1524,10 @@ def run_code_in_user_venv(
     )
 
 
-def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | None = None) -> dict[str, Any]:
+def reset_python_session(session_id: str, *, timeout_sec: int | None = None) -> dict[str, Any]:
     """Drop the shared-kernel executor for *session_id* in the warm worker.
 
     A missing or exited child returns {"status": "ok"} and does not spawn.
-    *uno_ctx* is unused. Config is process-global; the argument stays so
-    existing callers can keep passing a context.
     """
     if not (session_id or "").strip():
         return _worker_error("WORKER_IPC_ERROR", "No session_id provided.")
@@ -1571,12 +1565,8 @@ def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | No
 
 
 @background
-def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
-    """Pre-warm a specific venv subprocess pool (spawn + trigger auto-imports + load embedding model if embeddings pool). Safe to call from a background thread.
-
-    *uno_ctx* is unused. Config is process-global; the argument stays so
-    existing callers can keep passing a context.
-    """
+def warm_venv_worker(pool: str = WORKER_POOL_DEFAULT) -> None:
+    """Pre-warm a specific venv subprocess pool (spawn + trigger auto-imports + load embedding model if embeddings pool). Safe to call from a background thread."""
     manager, err = _get_worker_manager(pool=pool)
     if manager is None:
         log.warning("warm_venv_worker skipped for pool %s: %s", pool, (err or {}).get("message"))

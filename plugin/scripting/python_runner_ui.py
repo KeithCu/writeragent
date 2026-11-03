@@ -261,7 +261,7 @@ class NativePythonScriptDialog:
             # How it happened: this call sits in _open's try without its own handler.
             # Why this change: pre-warm is optional, so catch and log scheduling failures.
             try:
-                run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
+                run_in_background(warm_venv_worker, name="warm-venv-worker", dedicated=False)
             except Exception:
                 log.exception("native script dialog: venv warm-up was not scheduled")
 

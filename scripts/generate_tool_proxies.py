@@ -164,7 +164,7 @@ def _param_default(schema: dict) -> str:
     Only called when "default" in schema. There is no per-type default table
     because a boolean True made apply_document_content(..., dry_run=True) a
     silent no-op. Optionals without a schema default stay None in
-    schema_to_signature so _rpc_call can drop them.
+    schema_to_signature so call_host_tool can drop them.
     """
     return repr(schema["default"])
 
@@ -496,49 +496,18 @@ def generate_module(tools: list["ToolBase"]) -> str:
         'per-tool classes are the public script API (IDE jump and types). Change this',
         'generator if the file is too large; do not slim the generated module by hand.',
         '"""',
-        'import os',
         'from typing import Any',
         'from plugin.framework.constants import WORKFLOW_TASK_PREFIXES as _WORKFLOW_TASK_PREFIXES',
         '',
         '# Re-export so venv scripts and tests share the comment-scan prefix tuple.',
         'WORKFLOW_TASK_PREFIXES = _WORKFLOW_TASK_PREFIXES',
         '',
-        '',
-        '# Detect if running in-process (LibreOffice host) or out-of-process (Venv worker)',
-        'IS_WORKER = os.environ.get("WRITERAGENT_IS_WORKER") == "1"',
-        '',
-        '',
-        'def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:',
-        '    """Send a tool call to the LibreOffice host and block for the result.',
-        '    Strips None kwargs so tool defaults apply.',
-        '    """',
-        '    kwargs = {k: v for k, v in kwargs.items() if v is not None}',
-        '    # Compute workers set this before importing plugin code. They have no',
-        '    # office and no host pipe. The branch below would call get_ctx();',
-        '    # exchange_tool_call would write a tool frame onto the pool stdio pipe.',
-        '    if os.environ.get("WRITERAGENT_COMPUTE_WORKER") == "1":',
-        '        raise RuntimeError("WriterAgent document tools are not available in the Python compute service.")',
-        '    if not IS_WORKER:',
-        '        try:',
-        '            from plugin.scripting.host_rpc import execute_tool',
-        '',
-        '            return execute_tool(tool_name, kwargs, caller="script")',
-        '        except Exception as e:',
-        '            # Keep error .code from the RPC exception instead of dropping it',
-        '            code = getattr(e, "code", None)',
-        '            err = RuntimeError(f"Failed to execute tool in-process: {e}")',
-        '            if code is not None:',
-        '                setattr(err, "code", code)',
-        '            raise err from e',
-        '',
-        '    from plugin.framework.ipc import exchange_tool_call',
-        '',
-        '    return exchange_tool_call(tool_name, kwargs)',
+        'from plugin.scripting.host_tool_call import call_host_tool',
         '',
         '',
         'def get_active_document_type() -> str:',
         '    """Return the active document\'s type (\'writer\', \'calc\', \'draw\', or \'unknown\')."""',
-        '    res = _rpc_call("list_open_documents")',
+        '    res = call_host_tool("list_open_documents")',
         '    for doc in res.get("documents", []):',
         '        if doc.get("is_active"):',
         '            return doc.get("doc_type", "unknown")',
@@ -644,7 +613,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
 
             lines.append(f"    def {short_name}({all_params}) -> dict[str, Any]:")
             _append_docstring(lines, _method_doc_lines(tool, params=params))
-            lines.append(f'        return _rpc_call("{tool.name}"{kwargs_body})')
+            lines.append(f'        return call_host_tool("{tool.name}"{kwargs_body})')
             lines.append("")
 
         # Singleton instance (keep DOMAIN_TOOLS key as registered domain string)

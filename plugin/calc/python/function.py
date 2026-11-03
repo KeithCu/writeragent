@@ -1774,7 +1774,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
                 in_sync_host_dispatch(),
             )
             res = run_code_in_user_venv(
-                ctx,
                 code,
                 data=worker_data,
                 bindings=_py_scoped_dir_bindings(target_doc),

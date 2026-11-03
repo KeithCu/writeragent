@@ -34,6 +34,10 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+# Same one-second lift as ``plugin.framework.process_worker.Deadline.run_for``;
+# LibrePy does not ship ``process_worker`` (compute-only IPC stack).
+_EXECUTOR_ALARM_MIN_SEC = 1.0
+
 from plugin.contrib.smolagents.local_python_executor import (
     ExecutionTimeoutError,
     InterpreterError,
@@ -178,6 +182,7 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     try:
         from plugin.scripting.venv.duckdb_sql import (
             invalidate_session_tables,
+            query_folder_df,
             run_sql,
             session_duckdb,
         )
@@ -197,23 +202,38 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     def run_sql_bound(
         sql: str,
         con: Any | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        return run_sql(sql, con, **kwargs)
+
+    def query_folder_df_bound(
+        sql: str,
         files: list[str] | dict[str, str] | None = None,
         scoped_dir: str | None = None,
+        *,
+        preloaded: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Any:
         del scoped_dir
-        return run_sql(sql, con, files, scoped_dir=host_scoped_dir, **kwargs)
+        return query_folder_df(
+            sql,
+            files=files,
+            scoped_dir=host_scoped_dir,
+            preloaded=preloaded,
+            **kwargs,
+        )
 
     helpers = {
         "session_duckdb": session_duckdb,
         "invalidate_session_tables": invalidate_session_tables,
         "run_sql": run_sql_bound,
+        "query_folder_df": query_folder_df_bound,
     }
     executor.send_variables(helpers)
     executor.custom_tools.update(helpers)
 
 
-_DUCKDB_HELPER_NAMES = ("session_duckdb", "invalidate_session_tables", "run_sql")
+_DUCKDB_HELPER_NAMES = ("session_duckdb", "invalidate_session_tables", "run_sql", "query_folder_df")
 _CELL_OWNED_NAMES = (
     "result",
     "data",
@@ -694,17 +714,18 @@ def _seed_shared_executor_once(
 
 
 
-def _seconds_left(deadline: float) -> int | None:
-    """Whole seconds still inside *deadline*, or None when the budget is spent.
+def _executor_alarm_seconds(timeout_sec: int, deadline_end: float) -> int | None:
+    """Whole seconds for the child executor alarm, or None when the budget is spent.
 
-    ``signal.alarm`` is one-second granularity and ``alarm(0)`` cancels, so a
-    leftover fraction of a second still uses 1. The host read adds
-    ``HOST_IPC_READ_GRACE_SEC`` and still wins if the child never returns.
+    Matches ``Deadline.from_absolute(timeout_sec, deadline_end).run_for()`` (at least
+    one second; ``alarm(0)`` cancels). *timeout_sec* is the request budget;
+    *deadline_end* is when it ends.
     """
-    left = deadline - time.monotonic()
+    del timeout_sec  # budget is stored on Deadline; alarm uses end time only
+    left = deadline_end - time.monotonic()
     if left <= 0:
         return None
-    return max(1, math.ceil(left))
+    return math.ceil(max(left, _EXECUTOR_ALARM_MIN_SEC))
 
 
 def _budget_timeout_error(timeout_sec: int) -> dict[str, Any]:
@@ -754,7 +775,7 @@ def _ensure_init_executed(
     # Init and the cell used to each get a fresh alarm for the full budget, so
     # a slow init plus a slow cell outlived the single host read and killed
     # the worker (every other workbook on that process).
-    left = _seconds_left(deadline)
+    left = _executor_alarm_seconds(timeout_sec, deadline)
     if left is None:
         return _budget_timeout_error(timeout_sec)
     init_executor.timeout_seconds = left
@@ -1217,7 +1238,7 @@ def run_sandboxed_code(
             if init_sid:
                 ns.seed(init_sid, copy=True)
 
-        left = _seconds_left(deadline)
+        left = _executor_alarm_seconds(timeout_sec, deadline)
         if left is None:
             err = _budget_timeout_error(timeout_sec)
             if session_id:

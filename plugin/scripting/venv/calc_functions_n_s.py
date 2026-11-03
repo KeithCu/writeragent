@@ -172,11 +172,7 @@ def nominal(effect_rate: Any, npery: Any) -> float:
     # Excel NOMINAL(0, npery) is 0. Only a negative effective rate is #NUM!.
     if er < 0 or np_y < 1:
         return float("nan")
-    # What was wrong: NOMINAL(inf, n) returned inf.
-    # How it happened: er < 0 is false for +inf, and the power is outside the
-    # conversion try. getNominal returns finiteOrThrow. Rate 0 stays 0 (Excel);
-    # LibreOffice rejects rate <= 0, and this helper does not.
-    # base ≥ 1, exponent ≤ 1: the power cannot overflow; isfinite below covers the product.
+    # NOMINAL(inf, n) returns NaN (getNominal returns finiteOrThrow).
     res = np_y * ((er + 1) ** (1.0 / np_y) - 1)
     return _finite_or_nan(res)
 
@@ -244,19 +240,7 @@ def npv(rate: Any, *args: Any) -> float:
     vals = []
     for arg in args:
         for v in np.asarray(arg, dtype=object).ravel():
-            # What was wrong: NPV skipped a NaN cash flow, so a range that
-            # contained NA() returned a finite discount.
-            # How it happened: is_missing_value() is true for float nan, and
-            # the isnan check below dropped it again. ScNPV walks
-            # ScHorizontalValueIterator, which yields a formula error;
-            # SetError then stops the call. Excel NPV of a cash-flow error
-            # returns that error. na() is float nan. A pure-numeric
-            # split_grid blank is also nan (docs/calc/py-data-shapes.md);
-            # there is no blank-vs-error bit, so this helper treats that
-            # nan as the error. None and "" stay blanks and do not take a
-            # period. Error-token strings stay on the is_missing_value skip.
-            # Why this change fixes it: a float or numpy nan returns nan
-            # before the missing-value skip.
+            # ScNPV: a NaN cash flow propagates rather than skipping like an empty blank.
             if isinstance(v, (float, np.floating)) and math.isnan(float(v)):
                 return float("nan")
             if v is None or is_missing_value(v) or isinstance(v, (bool, np.bool_)):
@@ -365,16 +349,7 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     # issue and first_coupon are float()-converted and then unused. A
     # non-numeric date is NaN from that conversion. They are not range-checked,
     # and they do not change this price.
-    # What was wrong: ODDFPRICE with frequency 1e7 hung, and frequency 3 or
-    # basis 9 returned a price.
-    # How it happened: only f == 0 was rejected. n = years * f, and the coupon
-    # sum is range(1, int(n) + 1). _days_between treats any basis other than
-    # 0 or 4 as actual days, so basis 9 was not #NUM!.
-    # Why this change fixes it: isFreqInvalid (analysisdefs.hxx) is
-    # nFreq != 1 && != 2 && != 4, and duration() already rejects that set
-    # plus basis outside 0..4. An illegal frequency never enters the loop.
-    # Dates _serial_to_date accepts lie in year 1..9999, so f in {1, 2, 4}
-    # keeps int(n) on the order of 1e4. Do not add a second iteration cap.
+    # isFreqInvalid (analysisdefs.hxx): frequency must be 1, 2, or 4; basis in 0..4.
     parsed = _parse_odd_args(
         settlement, maturity,
         (issue, first_coupon, rate, yld, redemption),
@@ -409,12 +384,7 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
     # Y = (C + (F-P)/n) / ((F+P)/2). GetOddfyield throws unconditionally.
     # A legal frequency does not enter this approximation.
-    # What was wrong: ODDFYIELD(frequency=3) and basis 9 returned a yield.
-    # How it happened: only f == 0 was rejected, and _days_between does not
-    # reject basis outside 0..4. The formula never reads frequency.
-    # Why this change fixes it: same isFreqInvalid / basis pair as oddfprice
-    # and duration(). The approximation is unchanged for frequency in {1, 2, 4}
-    # and basis in 0..4.
+    # isFreqInvalid (analysisdefs.hxx): frequency must be 1, 2, or 4; basis in 0..4.
     parsed = _parse_odd_args(
         settlement, maturity,
         (issue, first_coupon, rate, pr, redemption),
@@ -437,13 +407,7 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
 
 
 def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
-    # What was wrong: ODDLPRICE(frequency=3) returned a price.
-    # How it happened: only f == 0 was rejected. GetOddlprice cancels
-    # frequency (fDCi * rate / fFreq), and this formula already did too,
-    # so an illegal frequency looked like a successful call.
-    # Why this change fixes it: isFreqInvalid still applies. Basis outside
-    # 0..4 is NaN here, before yearfrac, which already rejected it.
-    # Frequency in {1, 2, 4} does not change the number.
+    # isFreqInvalid (analysisdefs.hxx): frequency must be 1, 2, or 4; basis in 0..4.
     parsed = _parse_odd_args(
         settlement, maturity,
         (last_interest, rate, yld, redemption),
@@ -528,18 +492,7 @@ def permut(n: Any, k: Any) -> float:
     k_val = int(float(k))
     if n_val < 0 or k_val < 0 or n_val < k_val:
         return float("nan")
-    # What was wrong: PERMUT(1e6, 1e6) stalled the shared venv worker
-    # for seconds, and PERMUT(1e7, 1e7) for minutes.
-    # How it happened: math.perm builds n!/(n-k)! as a Python int
-    # before float() raises OverflowError. ScPermut multiplies in
-    # double and PushDouble turns the overflow into #NUM!. Excel
-    # PERMUT of that overflow is #NUM!.
-    # Why this change fixes it: P(n,k) = n!/(n-k)!, so the log is
-    # lgamma(n+1)-lgamma(n-k+1). The same pre-check as _binom_float
-    # rejects a log that is not finite or is above
-    # log(sys.float_info.max) before math.perm runs. Do not call
-    # _binom_float: that also subtracts lgamma(k+1). 170! fits;
-    # 171! does not.
+    # ScPermut: reject via lgamma before math.perm to prevent large factorial stalls.
     log_p = math.lgamma(n_val + 1) - math.lgamma(n_val - k_val + 1)
     if not math.isfinite(log_p) or log_p > math.log(sys.float_info.max):
         return float("nan")
@@ -566,13 +519,7 @@ def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
     if st is None:
         return float("nan")
 
-    # What was wrong: POISSON(2, 2, "0") returned the CDF, and
-    # POISSON(2, 2, "abc") returned the CDF instead of NaN.
-    # How it happened: `if cumulative:` is Python truthiness. Any
-    # non-empty string is true. ScPoissonDist uses GetBool()
-    # (GetDouble() != 0).
-    # Why this change fixes it: _as_nonzero is that check. "0" is false.
-    # "abc" raises ValueError, which the handler turns into NaN.
+    # ScPoissonDist: cumulative uses GetBool (GetDouble() != 0) rather than Python truthiness.
     if _as_nonzero(cumulative):
         return float(st.poisson.cdf(k, m))
     return float(st.poisson.pmf(k, m))
@@ -606,17 +553,7 @@ def quartile(r: Any, q: Any) -> float | str:
         return float("nan")
     if qi < 0 or qi > 4:
         return float("nan")
-    # What was wrong: QUARTILE of a text range returned nan, so the sheet
-    # showed #NUM!.
-    # How it happened: dtype=float raises ValueError on a text cell. The
-    # handler returned nan. ScQuartile's empty number sequence is
-    # PushNoValue (FormulaError::NoValue, #VALUE!). Excel QUARTILE of a
-    # text range is #VALUE!.
-    # Why this change fixes it: the handler returns the "#VALUE!" token.
-    # Any text still fails the conversion; this does not start skipping
-    # text the way GetNumberSequenceArray does. A raise would show #VALUE!
-    # too, and would drop the rest of a spill. Blanks and numeric NaNs
-    # still become nan and are stripped below; an all-NaN range stays nan.
+    # ScQuartile: non-numeric cell raises #VALUE! rather than returning NaN.
     try:
         arr = np.asarray(r, dtype=float).ravel()
     except (ValueError, TypeError):
@@ -643,12 +580,7 @@ def rank(val: Any, r: Any, order: int | float = 0) -> float | str:
     arr = _extract_numeric_array(r, propagate_nan=False)
     if arr.size == 0:
         return float("nan")
-    # What was wrong: RANK of a number that is not in the list returned
-    # nan, so the sheet showed #NUM!.
-    # How it happened: arr.index raises ValueError and this handler
-    # returned nan. ScRank PushError(NotAvailable) is #N/A. Excel RANK
-    # of a missing number is #N/A.
-    # Why this change fixes it: the token "#N/A" is the real #N/A.
+    # ScRank: missing value returns #N/A (PushError(NotAvailable)).
     if not (arr == target).any():
         return "#N/A"
     if descending:
@@ -731,11 +663,7 @@ def rept(text: Any, n: Any) -> str | float:
     if count < 0:
         return float("nan")
     body = str(text)
-    # What was wrong: REPT allowed 2**31//8 characters per call.
-    # How it happened: the constant copied LO ScRept's kScInterpreterMaxStrLen
-    # (SAL_MAX_INT32 / 8). That ceiling is hundreds of MB; the IPC frame is 16 MiB.
-    # Why this stays: the cap is Excel's 32767. Failure stays nan, same as a
-    # negative count. Length is Python len (code points). Check before allocating.
+    # Cap at Excel's 32767 string length to avoid memory blowups.
     if count and body and count > 32767 // len(body):
         return float("nan")
     return body * count
@@ -859,17 +787,7 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
     if order != 1.0 and order != -1.0:
         return float("nan")
     asc = order > 0.0
-    # What was wrong: sort([3, 1, 2], 99) returned [1, 2, 3].
-    # How it happened: the 1-D branch returned before the index checks used
-    # for a 2-D range, so the parsed index was ignored.
-    # Why this stays: a flat vector is one column of arr.size rows. Reshape
-    # it and use the same index check. by_col false keys that only column,
-    # which must be index 1. by_col true is ScSort's "No need to sort" path
-    # (!bByRow && nsC == 1): one row after the axis swap, so the original
-    # order is returned. A flat vector stays a flat list; a 2-D range stays
-    # nested.
-    # Excel SORT(..., by_col=TRUE) orders columns by the sort_index-th ROW
-    # (1-based). An index outside that axis is #VALUE!, returned here as NaN.
+    # Reshape 1D vector to 2D column to share dimension bounds checks (ScSort).
     flat_input = arr.ndim == 1
     if flat_input:
         arr = arr.reshape(-1, 1)
@@ -978,11 +896,7 @@ def sqrtpi(number: Any) -> float:
     n = float(number)
     if n < 0:
         return float("nan")
-    # What was wrong: SQRTPI(1e308) returned inf.
-    # How it happened: n * pi overflows to inf, and math.sqrt(inf) does
-    # not raise, so the OverflowError handler never ran.
-    # Why this change fixes it: AnalysisAddIn::getSqrtpi returns
-    # finiteOrThrow. A non-finite root is NaN.
+    # AnalysisAddIn::getSqrtpi returns finiteOrThrow; non-finite root is NaN.
     res = math.sqrt(n * math.pi)
     return _finite_or_nan(res)
 
@@ -1073,15 +987,7 @@ def subtotal(fn_num: Any, r: Any) -> float:
             return float("nan")
         if v is None:
             continue
-        # What was wrong: SUBTOTAL skipped a numeric NaN, so SUM of an
-        # error cell matched SUM of a blank.
-        # How it happened: math.isnan(v) continued. ScSubTotal does not
-        # set IgnoreErrVal, so SUM/AVERAGE/MAX/MIN/PRODUCT/STDEV/VAR
-        # SetError on a formula error. COUNT (2) does not count it.
-        # COUNTA (3) counts it in the flat scan below. Excel matches that
-        # split. A split_grid blank is also nan; see npv. Do not change
-        # _cell_number. Error-token strings are still None from that helper.
-        # Why this change fixes it: functions other than 2 and 3 return nan.
+        # ScSubTotal: formula errors (NaN) propagate for functions other than COUNT/COUNTA.
         if math.isnan(v):
             if fn == 2 or fn == 3:
                 continue
@@ -1106,11 +1012,7 @@ def subtotal(fn_num: Any, r: Any) -> float:
         # STDEV.S needs two samples. One point or none is #DIV/0!.
         return float(np.std(arr, ddof=1)) if len(arr) > 1 else float("nan")
     if fn == 8:
-        # What was wrong: SUBTOTAL STDEV.P of an empty range returned 0.
-        # How it happened: the empty guard was copied from PRODUCT, which
-        # really is 0. np.std([]) is NaN, so the guard hid that and also
-        # disagreed with ScStDevP (nValCount == 0 is #DIV/0!).
-        # Why this change fixes it: no numbers is NaN; one number stays 0.
+        # ScStDevP: empty sample is #DIV/0! (NaN).
         return float(np.std(arr, ddof=0)) if len(arr) else float("nan")
     if fn == 9:
         return float(np.sum(arr))
@@ -1118,10 +1020,7 @@ def subtotal(fn_num: Any, r: Any) -> float:
         # VAR.S needs two samples. One point or none is #DIV/0!.
         return float(np.var(arr, ddof=1)) if len(arr) > 1 else float("nan")
     if fn == 11:
-        # What was wrong: SUBTOTAL VAR.P of an empty range returned 0.
-        # How it happened: same empty-product guard as function 8.
-        # ScVarP divides by the count, and an empty count is #DIV/0!.
-        # Why this change fixes it: no numbers is NaN; one number stays 0.
+        # ScVarP: empty sample is #DIV/0! (NaN).
         return float(np.var(arr, ddof=0)) if len(arr) else float("nan")
     return float("nan")
 
@@ -1172,13 +1071,7 @@ def sumproduct(*args: Any) -> float:
                 break
             prod *= val
         total += prod
-    # What was wrong: SUMPRODUCT(1e200, 1e200) returned inf.
-    # How it happened: the product of two finite floats overflows without
-    # raising. The OverflowError handler only sees float() of a huge int
-    # inside _cell_number. ScSumProduct's PushDouble goes through
-    # TreatDoubleError, which rejects a non-finite total.
-    # Why this change fixes it: a non-finite total is NaN. A numeric NaN
-    # still fails isfinite, so it stays NaN.
+    # ScSumProduct (TreatDoubleError): overflow produces NaN.
     return _finite_or_nan(float(total))
 
 
@@ -1190,23 +1083,11 @@ def sumsq(*args: Any) -> float:
             num = _cell_number(val)
             if num is None:
                 continue
-            # What was wrong: SUMSQ skipped a numeric NaN, so an error cell
-            # dropped out of the sum of squares.
-            # How it happened: math.isnan(num) continued. ScSumSQ
-            # (IterateParameters ifSUMSQ) SetError on a formula error.
-            # Excel SUMSQ of a reference that contains an error returns
-            # the error. None from _cell_number is still a blank or text,
-            # including an error-token string. A split_grid blank is also
-            # nan; see npv. Do not change _cell_number.
-            # Why this change fixes it: a nan number returns nan.
+            # ScSumSQ: formula errors (NaN) propagate rather than skipping like blanks.
             if math.isnan(num):
                 return float("nan")
             total += num * num
-    # What was wrong: SUMSQ(1e200) returned inf.
-    # How it happened: the square overflows without raising. SUMSQ reaches
-    # PushDouble, and TreatDoubleError rejects a non-finite total.
-    # Why this change fixes it: a non-finite total is NaN. The huge-int
-    # OverflowError path above is unchanged.
+    # TreatDoubleError: overflow produces NaN.
     return _finite_or_nan(float(total))
 
 

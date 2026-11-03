@@ -26,6 +26,7 @@ from plugin.scripting.venv.duckdb_sql import (
     SqlError,
     invalidate_session_tables,
     persistable_duckdb_session_id,
+    query_folder_df,
     query_folder_sql,
     reset_session_duckdb,
     run_sql,
@@ -108,16 +109,19 @@ def test_query_folder_sql_missing_package(monkeypatch, tmp_path):
     assert "query_folder_sql" in res["message"]
 
 
-def test_run_sql_missing_package_names_run_sql(monkeypatch, tmp_path):
+def test_query_folder_df_missing_package_names_helper(monkeypatch, tmp_path):
     real = __import__
     def fake_import(name, *a, **k):
         if name == "duckdb":
             raise ImportError("no duckdb")
         return real(name, *a, **k)
     monkeypatch.setattr("builtins.__import__", fake_import)
-    with pytest.raises(SqlError, match="run_sql") as exc_info:
-        run_sql("select 1", files=["a.csv"], scoped_dir=str(tmp_path))
+    with pytest.raises(SqlError, match="query_folder_df") as exc_info:
+        query_folder_df("select 1", files=["a.csv"], scoped_dir=str(tmp_path))
     assert "query_folder_sql" not in str(exc_info.value)
+    with pytest.raises(SqlError, match="run_sql") as exc_info_run:
+        run_sql("select 1")
+    assert "query_folder_sql" not in str(exc_info_run.value)
 
 
 def test_query_folder_sql_requires_scoped_and_files(tmp_path):
@@ -445,7 +449,7 @@ def test_pretty_demo_join_results_code_runs_via_run_sql():
     ]
     ns: dict[str, object] = {
         "data": data,
-        "run_sql": run_sql,
+        "query_folder_df": query_folder_df,
         "scoped_dir": str(csv_path.parent),
     }
     exec(duckdb_join_from_cell_code("sales", ZIP_INCOME_CSV_NAME), ns)  # noqa: S102
@@ -466,7 +470,7 @@ def test_run_sql_registers_calcrange_preloaded(tmp_path: Path):
 
     income = tmp_path / "zip_income.csv"
     _write_csv(income, "code,median_household_income\nNORTH,50000\n")
-    df = run_sql(
+    df = query_folder_df(
         "SELECT z.median_household_income AS inc FROM sales s JOIN zip_income z ON s.code = z.code",
         preloaded={"sales": CalcRange([["code"], ["NORTH"]])},
         files={"zip_income": "zip_income.csv"},
@@ -481,7 +485,7 @@ def test_run_sql_returns_dataframe_for_preloaded_and_sibling_csv(tmp_path: Path)
     _write_csv(sales, "zip,amount\n02116,10\n")
     income = tmp_path / "zip_income.csv"
     _write_csv(income, "zip,median_household_income\n02116,120000\n")
-    df = run_sql(
+    df = query_folder_df(
         "SELECT s.amount, z.median_household_income FROM sales s JOIN zip_income z ON s.zip = z.zip",
         preloaded={"sales": [["zip", "amount"], ["02116", 10]]},
         files={"zip_income": "zip_income.csv"},
@@ -495,7 +499,7 @@ def test_run_sql_returns_dataframe_for_preloaded_and_sibling_csv(tmp_path: Path)
 
 def test_run_sql_raises_when_scoped_dir_missing_for_files():
     with pytest.raises(RuntimeError, match="scoped_dir"):
-        run_sql(
+        query_folder_df(
             "SELECT 1",
             files={"zip_income": "zip_income.csv"},
             scoped_dir=None,
@@ -504,7 +508,7 @@ def test_run_sql_raises_when_scoped_dir_missing_for_files():
 
 def test_run_sql_raises_on_query_error():
     with pytest.raises(RuntimeError):
-        run_sql("SELECT * FROM definitely_missing", preloaded={"sales": [["x"], [1]]})
+        query_folder_df("SELECT * FROM definitely_missing", preloaded={"sales": [["x"], [1]]})
 
 
 # --- Phase D: shared-kernel DuckDB session cache ---
@@ -682,18 +686,17 @@ def test_isolated_cell_session_duckdb_does_not_persist(_clean_duckdb_sessions):
     assert second["status"] == "error"
 
 
-def test_injected_run_sql_joins_preloaded_to_sibling_csv(_clean_duckdb_sessions, tmp_path: Path):
-    """=PY() injects run_sql + scoped_dir; the join payload must not NameError."""
+def test_injected_query_folder_df_joins_preloaded_to_sibling_csv(_clean_duckdb_sessions, tmp_path: Path):
+    """=PY() injects query_folder_df + scoped_dir; the join payload must not NameError."""
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     income = tmp_path / "zip_income.csv"
     _write_csv(income, "zip,median_household_income\n02116,99000\n")
     res = run_sandboxed_code(
-        "df = run_sql("
+        "df = query_folder_df("
         "'SELECT z.median_household_income AS inc FROM sales s JOIN zip_income z ON s.zip = z.zip',"
-        "{'sales': [['zip'], ['02116']]},"
-        "{'zip_income': 'zip_income.csv'},"
-        "scoped_dir)\n"
+        "files={'zip_income': 'zip_income.csv'},"
+        "preloaded={'sales': [['zip'], ['02116']]})\n"
         "result = int(df.iloc[0, 0])",
         None,
         bindings={"scoped_dir": str(tmp_path)},
@@ -702,20 +705,20 @@ def test_injected_run_sql_joins_preloaded_to_sibling_csv(_clean_duckdb_sessions,
     assert res["result"] == 99000
 
 
-def test_injected_run_sql_ignores_caller_scoped_dir(tmp_path, monkeypatch):
+def test_injected_query_folder_df_ignores_caller_scoped_dir(tmp_path, monkeypatch):
     from plugin.scripting.venv import venv_sandbox
     seen = {}
-    def _fake_run_sql(sql, con=None, files=None, scoped_dir=None, **kwargs):
+    def _fake_query_folder_df(sql, files=None, scoped_dir=None, **kwargs):
         seen["scoped_dir"] = scoped_dir
         seen["sql"] = sql
         return {"status": "ok"}
-    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.run_sql", _fake_run_sql)
+    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.query_folder_df", _fake_query_folder_df)
     executor = MagicMock()
     executor.state = {"scoped_dir": str(tmp_path)}
     executor.custom_tools = {}
     venv_sandbox._inject_session_duckdb(executor)
-    # binding is both send_variables helpers and custom_tools. Read the function and assert the run_sql that was actually installed.
-    bound = executor.custom_tools["run_sql"]
+    # binding is both send_variables helpers and custom_tools. Read the function and assert the query_folder_df that was actually installed.
+    bound = executor.custom_tools["query_folder_df"]
     bound("select 1", scoped_dir="/etc", files=["passwd"])
     assert seen["scoped_dir"] == str(tmp_path)
     # Assignment after inject must not replace the host folder.
@@ -1065,10 +1068,10 @@ def test_defense_in_depth_external_access_lock(tmp_path: Path):
 
 
 def test_run_sql_folder_join_uncapped_dataframe(tmp_path: Path):
-    """run_sql folder join returns full DataFrame without capping at MAX_TABLE_ROWS."""
+    """query_folder_df returns full DataFrame without capping at MAX_TABLE_ROWS."""
     n = MAX_TABLE_ROWS + 25
     rows = [["id", "val"]] + [[i, i * 10] for i in range(n)]
-    df = run_sql(
+    df = query_folder_df(
         "SELECT * FROM big_table ORDER BY id",
         preloaded={"big_table": {"grid": rows, "headers": True}},
         scoped_dir=str(tmp_path),
@@ -1079,9 +1082,9 @@ def test_run_sql_folder_join_uncapped_dataframe(tmp_path: Path):
 
 
 def test_run_sql_folder_join_raises_sql_error_with_code():
-    """run_sql folder join raises SqlError preserving error code."""
+    """query_folder_df raises SqlError preserving error code."""
     with pytest.raises(SqlError) as exc_info:
-        run_sql("SELECT * FROM missing_table", preloaded={"t": [["x"], [1]]})
+        query_folder_df("SELECT * FROM missing_table", preloaded={"t": [["x"], [1]]})
     assert exc_info.value.code == "DUCKDB_ERROR"
     assert isinstance(exc_info.value, RuntimeError)
 
@@ -1150,8 +1153,8 @@ def test_host_duckdb_sql_exports_and_constants():
     assert "SqlError" in host_duckdb._SQL_VENV_EXPORTS
 
 
-def test_run_sql_scoped_dir_alone_is_honesty_dict(tmp_path: Path):
-    res = run_sql("SELECT 1 AS n", scoped_dir=str(tmp_path))
+def test_run_sql_scoped_dir_alone_is_honesty_dict():
+    res = run_sql("SELECT 1 AS n")
     assert isinstance(res, dict)
     assert res["status"] == "ok"
     assert res["helper"] == "run_sql"
@@ -1193,7 +1196,7 @@ result = [out["status"], out["code"], out["helper"]]
 
 
 def test_folder_mode_ignores_caller_connection(tmp_path: Path):
-    df = run_sql("SELECT 1 AS n", con=object(), files=[], scoped_dir=str(tmp_path))
+    df = query_folder_df("SELECT 1 AS n", files=[], scoped_dir=str(tmp_path))
     assert len(df) == 1
     assert int(df.iloc[0, 0]) == 1
 
@@ -1209,7 +1212,7 @@ try:
     leaked = True
 except Exception:
     leaked = False
-df = run_sql("SELECT val FROM sales", files=["sales.csv"])
+df = query_folder_df("SELECT val FROM sales", files=["sales.csv"])
 result = [leaked, int(df.iloc[0, 0])]
 """
     res = run_sandboxed_code(

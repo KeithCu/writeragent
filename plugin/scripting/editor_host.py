@@ -99,7 +99,7 @@ def selected_editor_backend() -> str:
 
 def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
     """Environment for editor subprocess (venv python + GUI session variables)."""
-    env = scrub_subprocess_env(dict(os.environ))
+    env = scrub_subprocess_env(dict(os.environ), keep=("LD_LIBRARY_PATH",))
     env["WRITERAGENT_EDITOR_ASSETS"] = assets_dir or _ASSETS_DIR
     env["WRITERAGENT_EDITOR_BACKEND"] = selected_editor_backend()
     for key in (
@@ -108,7 +108,6 @@ def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
         "WAYLAND_DISPLAY",
         "XDG_RUNTIME_DIR",
         "DBUS_SESSION_BUS_ADDRESS",
-        "LD_LIBRARY_PATH",
     ):
         if key in os.environ and key not in env:
             env[key] = os.environ[key]
@@ -207,7 +206,7 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
     """Start editor_main.py through ManagedSubprocess.start and return that Popen; the host stderr thread is the drain; terminate owns shutdown."""
     # base_env is the full child environment from build_editor_child_env.
     # env= would overlay that onto os.environ and put scrubbed secrets back.
-    # scrub_env=True would drop LD_LIBRARY_PATH, which that builder restores.
+    # scrub_env=True is not used: build_editor_child_env already scrubbed the environment while keeping LD_LIBRARY_PATH.
     # drain_stderr stays false: _stderr_drain_loop is already the stderr reader.
     # register stays false: shutdown_all must not kill_tree this child.
     # log_start_failure stays false: launch_monaco_editor catches the original OSError.
@@ -1335,7 +1334,7 @@ def launch_monaco_editor(
         # Finite pre-warm, same as the native script dialog; the shared daemon pool
         # is for this; dedicated=True is for servers, pipe drains, and jobs another
         # thread joins.
-        run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
+        run_in_background(warm_venv_worker, name="warm-venv-worker", dedicated=False)
 
     if not session.is_running:
         detail = _PERSISTENT_EDITOR.read_stderr_tail()

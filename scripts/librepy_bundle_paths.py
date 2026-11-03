@@ -103,6 +103,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/doc/udprops.py",
     "plugin/doc/visual_helpers.py",
     "plugin/doc/compound_undo.py",
+    "plugin/doc/temp_files.py",
     "plugin/writer/format.py",
     "plugin/writer/html_export.py",
     "plugin/writer/html_import.py",

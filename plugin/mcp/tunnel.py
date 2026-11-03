@@ -544,6 +544,7 @@ class TunnelManager:
         self._session = object()
         self._pending_start = None
         self._providers = {cls.name: cls() for cls in PROVIDER_CLASSES}
+        self.tested_provider_tunnel_urls: dict[str, str] = {}
 
     @property
     def public_url(self) -> Optional[str]:

@@ -69,7 +69,7 @@ def test_unload_listener_resets_worker_session():
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
         mock_reset.return_value = {"status": "ok"}
         listener.on_document_event(MagicMock(EventName="OnUnload"))
-        mock_reset.assert_called_once_with(ctx, "calc:wb-1")
+        mock_reset.assert_called_once_with("calc:wb-1")
         listener.on_document_event(MagicMock(EventName="OnUnload"))
         mock_reset.assert_called_once()
 
@@ -80,7 +80,7 @@ def test_on_disposing_runs_teardown():
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
         mock_reset.return_value = {"status": "ok"}
         listener.on_disposing(MagicMock())
-        mock_reset.assert_called_once_with(ctx, "calc:wb-disposing")
+        mock_reset.assert_called_once_with("calc:wb-disposing")
         listener.on_disposing(MagicMock())
         mock_reset.assert_called_once()
 
@@ -99,7 +99,7 @@ def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.Mo
         mock_reset.return_value = {"status": "ok"}
         listener.on_document_event(MagicMock(EventName="OnUnload"))
     assert mock_reset.call_count == 2
-    assert {call.args[1] for call in mock_reset.call_args_list} == {
+    assert {call.args[0] for call in mock_reset.call_args_list} == {
         "rps:file:///a.odt",
         "notebook:file:///a.odt",
     }
@@ -172,7 +172,7 @@ def test_save_notes_new_session_id_reset_on_unload():
                 ensure_calc_workbook_unload_resets_python(ctx, doc)
                 assert len(doc._document_event_listeners) == 1
                 doc._document_event_listeners[0].on_document_event(MagicMock(EventName="OnUnload"))
-    reset_ids = {call.args[1] for call in mock_reset.call_args_list}
+    reset_ids = {call.args[0] for call in mock_reset.call_args_list}
     assert reset_ids == {"calc:uuid-1", "calc:file:///saved.ods"}
     assert "uid-save" not in lifecycle._LISTENERS
 
@@ -182,7 +182,7 @@ def test_unload_resets_worker_when_busy():
     listener = _CalcPythonUnloadListener(ctx, "calc:wb-1", "key-busy", doc_url="")
 
     seen = []
-    def mock_reset_side_effect(_ctx, sid):
+    def mock_reset_side_effect(sid):
         seen.append(sid)
         if len(seen) == 1:
             return {"status": "error", "code": "WORKER_REENTRY"}
@@ -373,7 +373,7 @@ def test_runtime_uid_upgrade_keeps_one_listener(monkeypatch: pytest.MonkeyPatch)
             assert lifecycle._LISTENERS == {}
             assert lifecycle_key_if_known(doc) == ""
             assert list(lifecycle._LIFECYCLE_KEYS.values()) == []
-            mock_reset.assert_called_once_with(ctx, "calc:unsaved:1")
+            mock_reset.assert_called_once_with("calc:unsaved:1")
 
         ensure_calc_workbook_unload_resets_python(ctx, doc)
         assert len(doc._document_event_listeners) == 2

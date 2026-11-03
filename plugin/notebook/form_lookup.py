@@ -50,10 +50,14 @@ def control_lookup_scope(doc: Any) -> Generator[None, None, None]:
         _local.index = prev
 
 
-def _enum_has_more(enum: Any) -> bool:
+def enum_has_more(enum: Any) -> bool:
     """``hasMoreElements`` is True or 1 on UNO; a MagicMock return is neither."""
     more = enum.hasMoreElements()
     return more is True or more == 1
+
+
+def _enum_has_more(enum: Any) -> bool:
+    return enum_has_more(enum)
 
 
 def build_control_index(doc: Any) -> ControlIndex:

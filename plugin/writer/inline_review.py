@@ -48,6 +48,12 @@ class ResolveStatus(Enum):
     PARTIAL = auto()
 
 
+class ResolvePolicy(Enum):
+    EXACT_THEN_PARAGRAPH = auto()
+    EXACT_ONLY = auto()
+    PARAGRAPH_ONLY = auto()
+
+
 class ResolveResult(NamedTuple):
     status: ResolveStatus
     resolved_count: int = 0
@@ -632,11 +638,8 @@ def resolve_agent_change(
     ctx: Any,
     token: str,
     accept: bool,
-    refuse_sibling_agent: bool = True,
-    prefer_exact: bool = True,
+    policy: ResolvePolicy = ResolvePolicy.EXACT_THEN_PARAGRAPH,
     before: RedlineView | None = None,
-    *,
-    allow_paragraph_fallback: bool = True,
 ) -> tuple[ResolveResult, RedlineView]:
     """Accept/reject ONE agent change by token.
 
@@ -661,9 +664,10 @@ def resolve_agent_change(
         text = left.getText()
         controller = model.getCurrentController()
         view_cursor = controller.getViewCursor()
+        refuse_sibling = (policy is ResolvePolicy.EXACT_THEN_PARAGRAPH)
 
         # 1) Precise path: select EXACTLY this change's marks and dispatch -- resolves only it.
-        if prefer_exact:
+        if policy is not ResolvePolicy.PARAGRAPH_ONLY:
             exact = text.createTextCursorByRange(left)
             exact.gotoRange(right, True)
             strict_siblings: set[str] = set()
@@ -672,7 +676,7 @@ def resolve_agent_change(
                 text,
                 exact,
                 token,
-                refuse_sibling_agent,
+                refuse_sibling,
                 "inline",
                 strict_sibling_edges=True,
                 sibling_tokens=strict_siblings,
@@ -698,7 +702,7 @@ def resolve_agent_change(
                             token, removed, after.reliable, foreign_safe)
                 return ResolveResult(ResolveStatus.PARTIAL), after
 
-            if not allow_paragraph_fallback:
+            if policy is ResolvePolicy.EXACT_ONLY:
                 log.debug("inline_review: exact resolve of %s was no-op (fallback disabled)", token)
                 return ResolveResult(ResolveStatus.NO_OP), after
 
@@ -718,7 +722,7 @@ def resolve_agent_change(
             text,
             para_span,
             token,
-            refuse_sibling_agent,
+            refuse_sibling,
             "paragraph",
         )
         if refusal is not None:
@@ -919,7 +923,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
             before_count = len(cur_tokens)
             # Resolve-all wants sibling agent changes resolved together; only a user redline blocks it.
             res, next_view = resolve_agent_change(
-                model, ctx, token, accept, refuse_sibling_agent=False, prefer_exact=False, before=cur_view
+                model, ctx, token, accept, policy=ResolvePolicy.PARAGRAPH_ONLY, before=cur_view
             )
             if res.status == ResolveStatus.REFUSED_FOREIGN and not exact_unsupported:
                 # Tip: retry exact bounds; valid only while paragraph REFUSED_FOREIGN is pre-dispatch.
@@ -928,10 +932,8 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
                     ctx,
                     token,
                     accept,
-                    refuse_sibling_agent=False,
-                    prefer_exact=True,
+                    policy=ResolvePolicy.EXACT_ONLY,
                     before=cur_view,
-                    allow_paragraph_fallback=False,
                 )
                 if exact_res.status == ResolveStatus.NO_OP:
                     exact_unsupported = True

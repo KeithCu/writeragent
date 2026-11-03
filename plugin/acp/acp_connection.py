@@ -226,7 +226,7 @@ class ACPConnection:
         """
         with self._lock:
             self._running = False
-            self._fail_waiters(message, only_unanswered=False)
+        self._fail(message, only_unanswered=False)
 
     def _complete_null_id(self, msg: dict[str, Any]) -> None:
         """Deliver a JSON-RPC error whose id is null.
@@ -241,31 +241,35 @@ class ACPConnection:
             log.debug("ACP response with null id and no error")
             return
         text = error.get("message", str(error)) if isinstance(error, dict) else str(error)
-        with self._lock:
-            waiting = self._fail_waiters(text, only_unanswered=True)
+        waiting = self._fail(text, only_unanswered=True)
         if not waiting:
             log.debug("ACP null-id error with no waiter: %s", text)
             return
         if waiting > 1:
             log.warning("ACP null-id error applied to %s in-flight requests", waiting)
 
-    def _fail_waiters(self, message: str, *, only_unanswered: bool) -> int:
-        """Store ``message`` on waiters that have no response. Caller holds ``_lock``.
-
-        ``_wake_pending`` also sets the event on a waiter that already has a
-        response, so a stop cannot leave that caller blocked. A null-id error
-        leaves those waiters alone.
-        """
-        failed = 0
-        for entry in self._pending.values():
-            if entry.response is None:
-                entry.response = {"error": {"message": message}}
-                entry.event.set()
-                failed += 1
-            elif not only_unanswered:
-                entry.event.set()
-        self._notify_idle()
-        return failed
+    def _fail(self, message: str, *req_ids: int, only_unanswered: bool = False) -> int:
+        """Store ``message`` on matching waiters. Takes ``_lock``."""
+        with self._lock:
+            failed = 0
+            if req_ids:
+                for req_id in req_ids:
+                    entry = self._pending.get(req_id)
+                    if entry is not None and entry.response is None:
+                        entry.response = {"error": {"message": message}}
+                        entry.event.set()
+                        failed += 1
+            else:
+                for entry in self._pending.values():
+                    if entry.response is None:
+                        entry.response = {"error": {"message": message}}
+                        entry.event.set()
+                        failed += 1
+                    elif not only_unanswered:
+                        entry.event.set()
+                        failed += 1
+            self._notify_idle()
+            return failed
 
     def stop(self) -> None:
         """Terminate the subprocess and unblock in-flight ``send_request`` calls.
@@ -335,26 +339,18 @@ class ACPConnection:
                 self._start_writer_unlocked()
                 self._write_queue.put(item)
         if fail_id is not None:
-            self._fail_request(fail_id, "Failed to write to ACP: connection closed")
+            self._fail("Failed to write to ACP: connection closed", fail_id)
 
     def _fail_writes_behind_stop(self) -> None:
         """Fail request writes queued after the stop item. The writer has set ``_closed``."""
+        closed_msg = "Failed to write to ACP: connection closed"
         while True:
             try:
                 leftover = self._write_queue.get_nowait()
             except queue.Empty:
                 return
             if isinstance(leftover, _QueuedWrite) and leftover.fail_req_id is not None:
-                self._fail_request(leftover.fail_req_id, "Failed to write to ACP: connection closed")
-
-    def _fail_request(self, req_id: int, message: str) -> None:
-        """Unblock one ``send_request`` after its stdin write failed."""
-        with self._lock:
-            entry = self._pending.get(req_id)
-            if entry is not None and entry.response is None:
-                entry.response = {"error": {"message": message}}
-                entry.event.set()
-        self._notify_idle()
+                self._fail(closed_msg, leftover.fail_req_id)
 
     @background
     def _writer_drain_loop(self) -> None:
@@ -392,7 +388,7 @@ class ACPConnection:
                 stdin = item.proc.stdin if item.proc is not None else None
                 if stdin is None or item.data is None:
                     if item.fail_req_id is not None:
-                        self._fail_request(item.fail_req_id, "Failed to write to ACP: stdin is closed")
+                        self._fail("Failed to write to ACP: stdin is closed", item.fail_req_id)
                     else:
                         log.debug("ACP stdin write skipped: stdin is closed or data is None")
                     continue
@@ -407,11 +403,11 @@ class ACPConnection:
                     # raises ValueError, which is not an OSError.
                     log.debug("ACP stdin write failed", exc_info=True)
                     if item.fail_req_id is not None:
-                        self._fail_request(item.fail_req_id, f"Failed to write to ACP: {exc}")
+                        self._fail(f"Failed to write to ACP: {exc}", item.fail_req_id)
                 except Exception:
                     log.exception("ACP stdin writer failed")
                     if item.fail_req_id is not None:
-                        self._fail_request(item.fail_req_id, "Failed to write to ACP: stdin writer failed")
+                        self._fail("Failed to write to ACP: stdin writer failed", item.fail_req_id)
         finally:
             with self._lock:
                 self._writer_thread = None

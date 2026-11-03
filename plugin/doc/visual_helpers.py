@@ -26,12 +26,10 @@ from plugin.framework.doc_type import (
     doc_type_label_for_enum,
     get_document_type,
 )
+from plugin.doc.text_helpers import FAILED
 from plugin.framework.errors import is_real_disposal, reraise_if_disposed, uno_read
 
 log = logging.getLogger(__name__)
-
-# uno_read default where None is a real UNO result (an attribute that exists but is None).
-_FAILED: Any = object()
 
 WRITER_GRAPHIC_SERVICE = "com.sun.star.text.TextGraphicObject"
 _TEXT_GRAPHIC_SERVICE = "com.sun.star.text.GraphicObject"
@@ -370,8 +368,8 @@ def is_graphic_object(obj: Any) -> bool:
 
 def _controller_selection(model: Any) -> Any | None:
     # Callers catch Exception. uno_read covers getCurrentController and getSelection.
-    controller = uno_read(lambda: model.getCurrentController(), _FAILED)
-    if controller is _FAILED:
+    controller = uno_read(lambda: model.getCurrentController(), FAILED)
+    if controller is FAILED:
         controller = getattr(model, "CurrentController", None)
     if controller is None:
         return None
@@ -523,8 +521,8 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
     inside = doc_type or get_visual_doc_type(doc)
     # A closed document raises DocumentDisposedError (uno_read) so execute_safe reports
     # DOCUMENT_DISPOSED; any other failure stays on the missing-page path.
-    controller = uno_read(lambda: doc.CurrentController, _FAILED)
-    if controller is _FAILED:
+    controller = uno_read(lambda: doc.CurrentController, FAILED)
+    if controller is FAILED:
         controller = uno_read(lambda: doc.getCurrentController(), None)
 
     def _writer_draw_page() -> Any | None:
@@ -542,22 +540,22 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
             sheet = uno_read(lambda: controller.getActiveSheet(), None)
         if sheet is None:
             return None
-        page = uno_read(lambda: sheet.getDrawPage(), _FAILED)
-        return uno_read(lambda: sheet.DrawPage, None) if page is _FAILED else page
+        page = uno_read(lambda: sheet.getDrawPage(), FAILED)
+        return uno_read(lambda: sheet.DrawPage, None) if page is FAILED else page
 
     page = uno_read(lambda: controller.CurrentPage, None)
     if page is not None:
         return page
-    page = uno_read(lambda: controller.getCurrentPage(), _FAILED)
-    if page is not _FAILED:
+    page = uno_read(lambda: controller.getCurrentPage(), FAILED)
+    if page is not FAILED:
         return page
 
     def first_page() -> Any:
         pages = doc.getDrawPages()
-        return pages.getByIndex(0) if pages.getCount() > 0 else _FAILED
+        return pages.getByIndex(0) if pages.getCount() > 0 else FAILED
 
-    page = uno_read(first_page, _FAILED)
-    return _writer_draw_page() if page is _FAILED else page
+    page = uno_read(first_page, FAILED)
+    return _writer_draw_page() if page is FAILED else page
 
 
 # Bugfix: Calc ignored page_index entirely and always returned the active sheet's

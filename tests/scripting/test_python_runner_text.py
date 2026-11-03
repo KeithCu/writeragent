@@ -12,7 +12,7 @@ import pytest
 
 from tests.harness.strip_bundle import requires_asserts
 
-from plugin.scripting.python_runner import execute_and_insert_result
+from tests.scripting.python_runner_test_support import execute_and_insert_result
 from plugin.scripting.text_analytics import get_text_analytics_script_templates
 
 
@@ -42,7 +42,7 @@ def test_execute_and_insert_text_skips_fast_path(mock_venv, mock_insert):
     assert outcome["ok"] is True
     assert "Text analytics" in outcome["status_ok_text"]
     mock_venv.assert_called_once()
-    assert mock_venv.call_args.args[1] == code
+    assert mock_venv.call_args.args[0] == code
     assert mock_venv.call_args.kwargs["bindings"] == {
         "text": "Sample document text.",
         "document_context": {},
@@ -77,7 +77,7 @@ def test_execute_and_insert_text_uses_body_helper(mock_venv, mock_insert):
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
-    assert mock_venv.call_args.args[1] == code
+    assert mock_venv.call_args.args[0] == code
     assert mock_venv.call_args.kwargs["bindings"] == {
         "text": "section text",
         "document_context": {"lang": "en"},
@@ -133,7 +133,7 @@ def test_topics_and_sentiment_bind_section_list(mock_venv, mock_insert):
         ):
             outcome = execute_and_insert_result(ctx, doc, code)
         assert outcome["ok"] is True
-        assert mock_venv.call_args.args[1] == code
+        assert mock_venv.call_args.args[0] == code
         assert mock_venv.call_args.kwargs["bindings"] == {
             "text": sections,
             "document_context": {"lang": "en"},

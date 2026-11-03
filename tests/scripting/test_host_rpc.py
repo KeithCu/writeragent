@@ -469,10 +469,10 @@ def test_handle_tool_call_frame_unpicklable_result():
 def test_rpc_call_drops_none_kwargs():
     import plugin.scripting.writeragent_api as api
 
-    with patch.object(api, "IS_WORKER", True), patch(
+    with patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "1", "WRITERAGENT_COMPUTE_WORKER": "0"}), patch(
         "plugin.framework.ipc.exchange_tool_call", return_value={}
     ) as mock_exchange:
-        api._rpc_call("apply_document_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
+        api.call_host_tool("apply_document_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
     mock_exchange.assert_called_once_with(
         "apply_document_content",
         {"content": ["<p>Hi</p>"], "target": "end"},
@@ -482,12 +482,11 @@ def test_rpc_call_drops_none_kwargs():
 def test_run_code_in_user_venv_forwards_python_tool_domain():
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
-    ctx = MagicMock()
     with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr:
         manager = MagicMock()
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
-        run_code_in_user_venv(ctx, "result = 1", python_tool_domain="writer")
+        run_code_in_user_venv("result = 1", python_tool_domain="writer")
         assert manager.execute.call_args.kwargs.get("python_tool_domain") == "writer"
 
 
@@ -679,15 +678,14 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
         code = "USER_STOPPED"
 
     with (
-        patch.object(api, "IS_WORKER", False),
-        patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "0"}),
+        patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "0", "WRITERAGENT_COMPUTE_WORKER": "0"}),
     ):
         with patch(
             "plugin.scripting.host_rpc.execute_tool",
             side_effect=StoppedError("operation stopped"),
         ):
             try:
-                api._rpc_call("test_tool")
+                api.call_host_tool("test_tool")
             except RuntimeError as exc:
                 assert "operation stopped" in str(exc)
                 assert getattr(exc, "code", None) == "USER_STOPPED"
@@ -699,7 +697,7 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
 
         with patch("plugin.scripting.host_rpc.execute_tool", side_effect=CustomError("denied")):
             try:
-                api._rpc_call("test_tool")
+                api.call_host_tool("test_tool")
             except RuntimeError as exc:
                 assert "denied" in str(exc)
                 assert getattr(exc, "code", None) == "PERMISSION_DENIED"

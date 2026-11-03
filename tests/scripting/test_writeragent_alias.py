@@ -122,8 +122,8 @@ def test_sandboxed_code_resolves_writeragent_imports():
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     code = (
-        "from writeragent.scripting.analysis import coerce_to_dataframe\n"
-        "result = callable(coerce_to_dataframe)\n"
+        "from writeragent.scripting.analysis import grid_to_dataframe\n"
+        "result = callable(grid_to_dataframe)\n"
     )
     # The function itself cannot cross the pickle boundary. callable() proves the import bound.
     response = run_sandboxed_code(code)
@@ -146,18 +146,22 @@ def test_writeragent_api_in_process_rpc():
         mock_get_ctx.return_value = MagicMock()
         mock_get_doc.return_value = MagicMock()
 
-        with patch("writeragent.IS_WORKER", False):
+        from plugin.scripting.host_tool_call import ROLE_HOST, set_process_role
+
+        set_process_role(ROLE_HOST)
+        try:
             res = writeragent.sheet.list_sheets()
             assert res == "mocked_sheets_list"
             mock_registry.execute.assert_called_once()
             call_args = mock_registry.execute.call_args[0]
             assert call_args[0] == "list_sheets"
             assert call_args[1].__class__.__name__ == "ToolContext"
+        finally:
+            set_process_role(None)
 
 
 def test_venv_worker_bidirectional_tool_call():
     from plugin.scripting.venv_worker import run_code_in_user_venv
-    from plugin.framework.uno_context import get_ctx
 
     code = (
         "import writeragent\n"
@@ -182,8 +186,7 @@ def test_venv_worker_bidirectional_tool_call():
 
         PythonWorkerManager.shutdown_all()
         try:
-            ctx = get_ctx()
-            res = run_code_in_user_venv(ctx, code)
+            res = run_code_in_user_venv(code)
             assert res.get("status") == "ok", res.get("message")
             assert res.get("result") == "mocked_bookmarks_list"
         finally:
@@ -244,8 +247,8 @@ def test_sandboxed_code_writeragent_analysis_without_api():
 
     _clear_writeragent_modules()
     code = (
-        "from writeragent.scripting.analysis import coerce_to_dataframe\n"
-        "result = callable(coerce_to_dataframe)\n"
+        "from writeragent.scripting.analysis import grid_to_dataframe\n"
+        "result = callable(grid_to_dataframe)\n"
     )
     with patch("importlib.util.find_spec", side_effect=_find_spec_without_writeragent_api):
         register_alias_importer()

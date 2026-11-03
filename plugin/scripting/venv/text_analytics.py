@@ -71,21 +71,14 @@ def _sentiment_pipeline(model: str) -> Any:
     The worker is warm and handles one text call at a time; store only
     the last successful pipeline; do not store failures.
     """
-    # What was wrong: pipeline("sentiment-analysis", model=model) was called on every invocation, reloading heavy models.
-    # How it happened: there was no cache holding the pipeline across calls within the warm worker.
-    # Why this change: cache the last successfully loaded pipeline for that exact model string.
+    # Cache pipeline for model string across calls within warm worker.
     from transformers import pipeline
 
     return pipeline("sentiment-analysis", model=model)
 
 
 def _model_candidates(lang: Any) -> list[str]:
-    # What was wrong: xx_sent_ud_sm was appended inside the lang block and again
-    # in the multilingual list, so a known language tried it twice.
-    # How it happened: both the per-language candidate builder and the general
-    # fallback list independently appended xx_sent_ud_sm.
-    # Why this change: xx_sent_ud_sm is tried once; xx_ent_wiki_sm stays last
-    # because it is NER-only.
+    # xx_sent_ud_sm is tried once; xx_ent_wiki_sm stays last (NER-only).
     code = _lang_prefix(lang)
     return [*_LANG_MODELS.get(code, ()), "xx_sent_ud_sm", "xx_ent_wiki_sm"]
 
@@ -150,9 +143,7 @@ def _nlp_result(text: str, lang: str | None, context: dict[str, Any] | None, ext
     if lang is None:
         lang = _get_lang_from_context(context)
     nlp = _load_nlp(lang)
-    # What was wrong: long text raised ValueError inside nlp(text).
-    # How it happened: there was no input cap; spaCy's default nlp.max_length is 1,000,000.
-    # Why this change: cap input to bound work and report what was analyzed in the truncated note.
+    # Cap input at _MAX_ANALYZED_CHARS to bound work and stay below spaCy's max_length.
     truncated: dict[str, Any] | None = None
     if len(text) > _MAX_ANALYZED_CHARS:
         truncated = {
@@ -169,9 +160,7 @@ def _nlp_result(text: str, lang: str | None, context: dict[str, Any] | None, ext
 
 
 def _extract_meta(nlp: Any, doc: Any, lang: str | None) -> dict[str, Any]:
-    # What was wrong: doc._.lang is not standard spaCy and doc.lang_ was ignored, reporting "unknown".
-    # How it happened: doc._ was checked for an unregistered attribute instead of standard doc.lang_.
-    # Why this change: inspect doc.lang_ first before falling back to lang or "unknown".
+    # Prefer doc.lang_ before falling back to requested lang or 'unknown'.
     return {
         "model": nlp.meta.get("name") or getattr(nlp, "path", None) or "unknown",
         "lang": getattr(doc, "lang_", None) or (lang or "unknown"),
@@ -180,11 +169,7 @@ def _extract_meta(nlp: Any, doc: Any, lang: str | None) -> dict[str, Any]:
 
 
 def _sentence_count(doc: Any) -> int:
-    # What was wrong: Doc.sents raises ValueError E030 when SENT_START is unset.
-    # How it happened: xx_ent_wiki_sm leaves SENT_START unset, and the readability
-    # fallback called list(doc.sents) inside the except, so the fallback crashed too.
-    # Why this change: inspect doc.has_annotation("SENT_START") first, returning 0
-    # when sentence annotations are absent without catching broad exceptions.
+    # Only read doc.sents when SENT_START is annotated (xx_ent_wiki_sm omits it).
     if doc.has_annotation("SENT_START"):
         return len(list(doc.sents))
     return 0
@@ -196,11 +181,7 @@ def _extract_readability(doc: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     textdescriptives >=2 returns a flat dict (after the components have run on the doc).
     We split it into the groups the rest of the code expects.
     """
-    # What was wrong: the full-analysis copy of these sets had already dropped the n_* keys
-    # and named the fallback n_sents, while readability used n_sentences.
-    # How it happened: duplicate copies of key sets diverged across helpers.
-    # Why this change: share module-level _READABILITY_KEYS and _DESCRIPTIVE_KEYS, and use
-    # n_sentences with _sentence_count.
+    # Share _READABILITY_KEYS and _DESCRIPTIVE_KEYS across helpers.
     try:
         import textdescriptives as td
 
@@ -209,9 +190,7 @@ def _extract_readability(doc: Any) -> tuple[dict[str, Any], dict[str, Any]]:
             m = m[0]
         rd = {k: v for k, v in m.items() if k in _READABILITY_KEYS}
         ds = {k: v for k, v in m.items() if k in _DESCRIPTIVE_KEYS or k.startswith("n_")}
-        # What was wrong: _extract_readability returned extra groups that were always empty in textdescriptives >= 2.0.
-        # How it happened: textdescriptives flattens metrics to top-level keys rather than nested group dicts.
-        # Why this change: return only (readability_dict, descriptive_stats_dict) without unused empty extra groups.
+        # Return (readability_dict, descriptive_stats_dict) without unused empty extra groups.
         return rd, ds
     except Exception:
         # textdescriptives not available or failed to extract — fall back to basic spaCy stats.
@@ -226,11 +205,7 @@ def _extract_entities(doc: Any) -> list[dict[str, Any]]:
 
 
 def _extract_key_phrases(doc: Any) -> list[dict[str, Any]]:
-    # What was wrong: Doc.noun_chunks raises ValueError E029 when the English iterator
-    # sees no DEP, and NotImplementedError E894 when noun_chunks_iterator is None (xx models).
-    # How it happened: xx_ent_wiki_sm is NER-only and lacks a parser/DEP annotation.
-    # Why this change: guard with has_annotation("DEP") and handle NotImplementedError
-    # or ValueError on noun_chunks iteration without catching Exception.
+    # Guard noun_chunks with has_annotation("DEP") for NER-only models.
     if not doc.has_annotation("DEP"):
         return []
     try:
@@ -282,23 +257,13 @@ def _extract_topics(text: str | list[str], n_topics: Any = 4) -> dict[str, Any]:
     if not docs:
         return {"topics": [], "note": "no text"}
 
-    # What was wrong: n_topics was capped by len(docs) before the 8-word filter,
-    # and NMF init="nndsvd" raises when n_components > min(n_samples, n_features),
-    # turning into topic_model_failed instead of fitting fewer topics.
-    # The assignment index was enumerate(W), so a dropped short section renumbered
-    # every later section.
-    # How it happened: the cap used len(docs) rather than len(filtered), did not
-    # cap n_components against feature count, and ignored input section indexes.
-    # Why this change: filter while tracking input indexes, cap n_topics by len(filtered),
-    # cap n_components by min(n_topics, X.shape[1]) (n_topics is <= row count), and use the input index.
+    # Filter short sections, cap n_topics by filtered count, and cap components by feature count.
     filtered = [(idx, d) for idx, d in enumerate(docs) if len(d.split()) >= 8]
     if not filtered:
         filtered = [(0, docs[0])]
 
     try:
-        # What was wrong: non-numeric n_topics (e.g. "auto" or a list) raised ValueError or TypeError outside the fit try, crashing the analysis.
-        # How it happened: int(n_topics or 4) conversion happened before the try block that catches fit errors.
-        # Why this change: moving int conversion inside the fit try routes conversion failures through the topic_model_failed envelope.
+        # Route n_topics coercion errors into the topic_model_failed envelope.
         n_topics = max(1, min(int(n_topics or 4), len(filtered), 8))
 
         # Multilingual-friendly: no hardcoded English stop_words (users can have mixed docs).
@@ -451,13 +416,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
         raw_label = str(res.get("label", "neutral"))
         sc = float(res.get("score", 0.0))
         label = _normalize_sentiment_label(raw_label, num_labels)
-        # What was wrong: LABEL_0/1/2 fell through to neutral for any override model
-        # whose id2label is still the default, and a neutral section stored +confidence
-        # in per_section while the average added 0.
-        # How it happened: label matching only handled fixed strings and per_section["score"]
-        # used sc directly for positive/neutral labels.
-        # Why this change: normalize LABEL_n and star ratings with num_labels, and use
-        # a single signed polarity score for both per_section and overall average.
+        # Normalize LABEL_n / star ratings with num_labels to a signed polarity score.
         signed = sc if label == "positive" else (-sc if label == "negative" else 0.0)
         scores.append(signed)
         per_section.append({
@@ -480,9 +439,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
             "label": overall_label,
         }
     else:
-        # What was wrong: single-string sentiment included section_index in the overall dictionary.
-        # How it happened: overall was assigned per_section[0] directly, which contained section_index.
-        # Why this change: copy only score and label to overall so section_index is present only in per_section.
+        # Single-string sentiment puts section_index only in per_section, not overall.
         overall = {"score": per_section[0]["score"], "label": per_section[0]["label"]}
 
     res: dict[str, Any] = {"overall": overall}
@@ -509,9 +466,7 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     def _full(doc: Any) -> dict[str, Any]:
         rd, ds = _extract_readability(doc)
         # --- Linguistic profile (always useful) ---
-        # What was wrong: models like xx_ent_wiki_sm leave token.pos_ empty, adding "" to pos_proportions.
-        # How it happened: pos_ was added to counts without checking whether it was non-empty.
-        # Why this change: skip empty pos tags.
+        # Skip empty pos_ tags (some models leave token.pos_ empty).
         pos_counts = Counter(
             token.pos_ for token in doc
             if token.pos_ and not (token.is_punct or token.is_space)
@@ -559,9 +514,7 @@ def check_diagnostics(lang: Any = None) -> dict[str, Any]:
     import sys
     python_exe = sys.executable
 
-    # What was wrong: non-string lang raised AttributeError on .lower() before the try block, returning a raw worker crash instead of diagnostics.
-    # How it happened: check_diagnostics assumed lang was always a string or None.
-    # Why this change: _lang_prefix treats non-string lang as None.
+    # _lang_prefix treats non-string lang as None to avoid AttributeError.
     lang = _lang_prefix(lang)
     recommended_model = _LANG_MODELS.get(lang, ("xx_sent_ud_sm",))[0]
 
@@ -660,12 +613,7 @@ def dispatch_text_analytics(
         # Normalize into the same result envelope the rest of the system expects.
         if topic_data.get("error") == "MISSING_PACKAGE":
             return _text_analytics_error(helper, "install scikit-learn for topics", topic_data)
-        # What was wrong: meta.n_topics was n_sections, the filtered row count,
-        # so the dialog's meta line showed the section count.
-        # How it happened: n_topics was computed as n_sections or len(topics),
-        # and topic_data note/error were omitted from the result dict.
-        # Why this change: build meta with n_topics as len(topics) and n_sections
-        # when an int, and forward note/error from topic_data onto result.
+        # Report actual topic count in meta["n_topics"] and section count in meta["n_sections"].
         topics = topic_data.get("topics", [])
         meta: dict[str, Any] = {"n_topics": len(topics)}
         if isinstance(topic_data.get("n_sections"), int):

@@ -226,17 +226,17 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
     """A shared executor must not treat a previous cell's scoped_dir as the host folder."""
     seen: list[str | None] = []
 
-    def _fake_run_sql(sql, con=None, files=None, scoped_dir=None, **kwargs):
-        del sql, con, files, kwargs
+    def _fake_query_folder_df(sql, files=None, scoped_dir=None, **kwargs):
+        del sql, files, kwargs
         seen.append(scoped_dir)
         return 1
 
-    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.run_sql", _fake_run_sql)
+    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.query_folder_df", _fake_query_folder_df)
     sid = "calc:scoped-dir-leak"
     host = str(tmp_path)
     try:
         first = run_sandboxed_code(
-            "scoped_dir = '/tmp/not-the-host'\nresult = run_sql('select 1', files=['a.csv'])",
+            "scoped_dir = '/tmp/not-the-host'\nresult = query_folder_df('select 1', files=['a.csv'])",
             bindings={"scoped_dir": host},
             session_id=sid,
             timeout_sec=10,
@@ -245,7 +245,7 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
         assert seen == [host]
 
         second = run_sandboxed_code(
-            "result = run_sql('select 1', files=['a.csv'])",
+            "result = query_folder_df('select 1', files=['a.csv'])",
             session_id=sid,
             timeout_sec=10,
         )
@@ -257,7 +257,7 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
 
         other = str(tmp_path / "other")
         rebound = run_sandboxed_code(
-            "scoped_dir = '/tmp/still-not-host'\nresult = run_sql('select 1', files=['a.csv'])",
+            "scoped_dir = '/tmp/still-not-host'\nresult = query_folder_df('select 1', files=['a.csv'])",
             bindings={"scoped_dir": other},
             session_id=sid,
             timeout_sec=10,

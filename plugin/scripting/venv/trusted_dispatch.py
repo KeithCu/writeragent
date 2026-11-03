@@ -61,18 +61,10 @@ def parse_trusted_spec(
 
     Returns ``(helper, params, headers, header_row, context)`` or an error dict.
     """
-    if isinstance(spec, str):
-        spec_dict: dict[str, Any] = {"helper": spec}
-    elif isinstance(spec, dict):
-        spec_dict = spec
-    else:
-        return error_result("INVALID_SPEC", "spec must be a dict or helper name string")
-
-    helper = str(spec_dict.get("helper") or "").strip()
-    if not helper:
-        return error_result("MISSING_HELPER", "spec.helper is required")
-    if helper not in helper_names:
-        return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
+    resolved = resolve_spec_helper(spec, helper_names=helper_names)
+    if isinstance(resolved, dict):
+        return resolved
+    helper, spec_dict = resolved
 
     params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
     layout = _sheet_layout_flags(spec_dict)
@@ -94,11 +86,11 @@ def resolve_spec_helper(
     elif isinstance(spec, dict):
         spec_dict = spec
     else:
-        return error_result("INVALID_SPEC", "spec must be a dict or helper name")
+        return error_result("INVALID_SPEC", "spec must be a dict or helper name string")
 
     helper = str(spec_dict.get("helper") or "").strip()
     if not helper:
-        return error_result("MISSING_HELPER", "helper is required")
+        return error_result("MISSING_HELPER", "spec.helper is required")
     if helper not in helper_names:
         return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
     return helper, spec_dict

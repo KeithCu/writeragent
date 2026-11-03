@@ -113,9 +113,10 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
 
     payload = '<?xml version="1.0" encoding="UTF-8"?>\n' + root
     try:
-        from plugin.writer.format import _with_temp_buffer, create_property_value
+        from plugin.doc.temp_files import with_temp_buffer
+        from plugin.framework.uno_context import create_property_value
 
-        with _with_temp_buffer(content=payload, ext=".mml") as (_path, url):
+        with with_temp_buffer(content=payload, ext=".mml") as (_path, url):
             desktop = get_desktop(ctx)
             hidden = (create_property_value("Hidden", True),)
             doc = desktop.loadComponentFromURL(url, "_blank", 0, hidden)

@@ -47,23 +47,22 @@ from plugin.audio.kokoro_g2p import (  # noqa: E402
 )
 
 # (model_path, voices_path), Kokoro instance, soundfile module.
-# Replaced when the paths change. ImportError stays sticky for this process.
+# Replaced when the paths change.
 _loaded: tuple[tuple[str, str], Any, Any] | None = None
-_import_failure: BaseException | None = None
 
 
 def _import_audio() -> tuple[Any, Any]:
-    global _import_failure
-    if isinstance(_import_failure, ImportError):
-        raise _import_failure
     try:
         from kokoro_onnx import Kokoro  # type: ignore[import-not-found, ty:unresolved-import]
         import soundfile as sf  # type: ignore[import-not-found, ty:unresolved-import]
 
         return Kokoro, sf
     except ImportError as exc:
-        _import_failure = exc
-        raise
+        from plugin.audio.kokoro_g2p import KOKORO_PIP_INSTALL
+
+        raise ImportError(
+            f"Kokoro dependency missing ({exc}). Install with: {KOKORO_PIP_INSTALL}"
+        ) from exc
 
 
 def run_kokoro_stdio_loop(handler: Any) -> int:

@@ -100,7 +100,7 @@ def test_generate_module_output_is_valid_python():
     
     assert "class _FootnoteProxy:" in code
     assert "def insert(self, text: str) -> dict[str, Any]:" in code
-    assert 'return _rpc_call("footnotes_insert", text=text)' in code
+    assert 'return call_host_tool("footnotes_insert", text=text)' in code
     assert "footnote = _FootnoteProxy()" in code
     assert "DOMAIN_TOOLS =" in code
 
@@ -151,7 +151,7 @@ def test_generate_module_escapes_python_keyword_method_names():
     code = generate_module(tools)
     compile(code, "<generated>", "exec")
     assert "def import_(self, file_path: str) -> dict[str, Any]:" in code
-    assert 'return _rpc_call("style_import", file_path=file_path)' in code
+    assert 'return call_host_tool("style_import", file_path=file_path)' in code
     assert "def import(self" not in code
     ns: dict[str, Any] = {}
     exec(code, ns)
@@ -328,7 +328,7 @@ def test_group_tools_drops_llm_orchestration_tools():
     for name in API_EXCLUDED_TOOLS:
         assert f"def {name}(" not in code
         assert f"'{name}'" not in code
-        assert f'_rpc_call("{name}"' not in code
+        assert f'call_host_tool("{name}"' not in code
     assert "delegate_to_specialized_calc_toolset(domain='sheets')" in code
     assert "def apply_sheet_filter(" in code
 
@@ -391,7 +391,7 @@ def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
     for name in orchestration:
         assert f"def {name}(" not in source
         assert f"'{name}'" not in source
-        assert f'_rpc_call("{name}"' not in source
+        assert f'call_host_tool("{name}"' not in source
     # Copied sheet-filter descriptions; not a method.
     assert "delegate_to_specialized_calc_toolset(domain='sheets')" in source
 
@@ -412,7 +412,7 @@ def test_range_schema_becomes_range_name_python_param():
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
     assert "def read_cell_range(self, range_name: list[str]) -> dict[str, Any]:" in code
-    assert 'return _rpc_call("read_cell_range", range=range_name)' in code
+    assert 'return call_host_tool("read_cell_range", range=range_name)' in code
 
 
 def test_schema_to_signature_parameterizes_object_and_array():
@@ -438,11 +438,8 @@ def test_schema_to_signature_parameterizes_object_and_array():
 def test_rpc_call_logic_in_generated_code():
     tools = [_as_tool(MockTool("t", "d", {}))]
     code = generate_module(tools)
-    assert "def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:" in code
-    assert "kwargs = {k: v for k, v in kwargs.items() if v is not None}" in code
-    assert "from plugin.scripting.host_rpc import execute_tool" in code
-    assert "from plugin.framework.ipc import exchange_tool_call" in code
-    assert "return exchange_tool_call(tool_name, kwargs)" in code
+    assert "from plugin.scripting.host_tool_call import call_host_tool" in code
+    assert "call_host_tool(" in code
 
 
 def test_indexes_domain_becomes_index():
@@ -581,7 +578,7 @@ def test_keyword_parameter_compiles_and_uses_splat():
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
     assert "def keyword_tool(self, class_: str, *, reg: int | None = None) -> dict[str, Any]:" in code
-    assert 'return _rpc_call("keyword_tool", **{"class": class_}, reg=reg)' in code
+    assert 'return call_host_tool("keyword_tool", **{"class": class_}, reg=reg)' in code
 
 
 def test_namespace_collision_raises():
@@ -651,5 +648,5 @@ def test_scripting_only_extra_in_signature_doc_and_rpc():
     compile(code, "<generated>", "exec")
     assert "def set_style(self, range_name: str, *, number_format: str | None = None) -> dict[str, Any]:" in code
     assert "number_format (optional): Scripting-only parameter." in code
-    assert 'return _rpc_call("set_style", range_name=range_name, number_format=number_format)' in code
+    assert 'return call_host_tool("set_style", range_name=range_name, number_format=number_format)' in code
 

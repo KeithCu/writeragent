@@ -34,9 +34,9 @@ def supports_vision_manual(doc: Any) -> bool:
 
 def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     """Extract vision insertion kwargs (merged params) from script code."""
-    from plugin.scripting.helper_domain import parse_run_import_call_spec
+    from plugin.scripting.helper_domain import ScriptFacts
 
-    call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
+    call_spec = ScriptFacts.from_source(code).first_run_spec("run_vision") or {}
     raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
     return {"params": merge_vision_params(ctx, raw_params)}
 

@@ -150,7 +150,6 @@ class RunVenvPythonScript(ToolCalcPythonBase):
 
         try:
             res = run_code_in_user_venv(
-                ctx.ctx,
                 code,
                 data=py_data,
                 python_tool_domain=ctx.python_tool_domain,

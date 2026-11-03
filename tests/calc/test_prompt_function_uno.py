@@ -46,7 +46,6 @@ def test_python_addin_execution(ctx, doc):
             res = func.py(doc, "result = 21 * 2")
             assert res == 42.0
             mock_run.assert_called_with(
-                func.ctx,
                 "result = 21 * 2",
                 data=None,
                 bindings={"scoped_dir": None},
@@ -59,7 +58,6 @@ def test_python_addin_execution(ctx, doc):
             res = func.python(doc, "result = 21 * 2")
             assert res == 42.0
             mock_run.assert_called_with(
-                func.ctx,
                 "result = 21 * 2",
                 data=None,
                 bindings={"scoped_dir": None},
@@ -73,7 +71,7 @@ def test_python_addin_execution(ctx, doc):
             assert res == 6.0
             mock_run.assert_called_once()
             call_kw = mock_run.call_args
-            assert call_kw[0][1] == "result = float(np.sum(data))"
+            assert call_kw[0][0] == "result = float(np.sum(data))"
             from plugin.scripting.calc_range import is_calc_range_payload
 
             wire = call_kw[1]["data"]
@@ -98,7 +96,7 @@ def test_python_addin_execution(ctx, doc):
             assert res == 7919.0
             mock_run.assert_called_once()
             call_kw = mock_run.call_args
-            assert call_kw[0][1] == "result = sp.prime(int(data.values[0][0]))"
+            assert call_kw[0][0] == "result = sp.prime(int(data.values[0][0]))"
             wire = call_kw[1]["data"]
             assert is_calc_range_payload(wire)
             assert wire["shape"] == [1, 1]
@@ -127,7 +125,6 @@ def test_python_addin_execution(ctx, doc):
             res = func.python(doc, "[sp.prime(x) for x in range(1000, 1006)]")
             assert res == 7919.0
             mock_run.assert_called_with(
-                func.ctx,
                 "[sp.prime(x) for x in range(1000, 1006)]",
                 data=None,
                 bindings={"scoped_dir": None},

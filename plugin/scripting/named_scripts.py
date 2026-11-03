@@ -18,7 +18,6 @@ import ast
 import hashlib
 import keyword
 import logging
-import os
 import re
 import sys
 from contextvars import ContextVar
@@ -28,6 +27,7 @@ from typing import Any, Callable
 log = logging.getLogger(__name__)
 
 from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
+from plugin.scripting.host_tool_call import call_host_tool
 
 _NAMED_SCRIPT_MAX_BYTES = 200_000
 _IDENT_NON_ALNUM = re.compile(r"[^0-9A-Za-z]+")
@@ -279,30 +279,6 @@ def extract_library_source(code: str) -> str:
         raise ValueError("Named script is too deeply nested to load as a library") from exc
 
 
-def _rpc_named(tool_name: str, **kwargs: Any) -> Any:
-    kwargs = {k: v for k, v in kwargs.items() if v is not None}
-    # Same fail-closed path as writeragent_api._rpc_call. The ImportError
-    # branch below would otherwise call exchange_tool_call with no host.
-    if os.environ.get("WRITERAGENT_COMPUTE_WORKER") == "1":
-        raise RuntimeError("WriterAgent document tools are not available in the Python compute service.")
-    if os.environ.get("WRITERAGENT_IS_WORKER") == "1":
-        # Catch ImportError only around the import. Wrapping _rpc_call too
-        # turned an ImportError raised during the call into a second
-        # exchange_tool_call, so the RPC was sent twice.
-        try:
-            from plugin.scripting.writeragent_api import _rpc_call
-        except ImportError:
-            # LibrePy omits writeragent_api. Same locked, id-checked pipe as _rpc_call.
-            from plugin.framework.ipc import exchange_tool_call
-
-            return exchange_tool_call(tool_name, kwargs)
-        return _rpc_call(tool_name, **kwargs)
-
-    from plugin.scripting.host_rpc import execute_tool
-
-    return execute_tool(tool_name, kwargs, caller="script")
-
-
 def _executor_slot(executor: Any, attr: str, factory: Callable[[], Any]) -> Any:
     value = getattr(executor, attr, None)
     if value is None:
@@ -356,7 +332,7 @@ def load_named_script(origin: str, name: str, executor: Any | None = None) -> An
     if key in cache and key in checked:
         return cache[key][1]
     known_hash = cache[key][0] if key in cache else None
-    payload = _rpc_named(
+    payload = call_host_tool(
         GET_NAMED_PYTHON_SCRIPT,
         name=name,
         origin=origin,
@@ -405,7 +381,7 @@ class ScriptLibrary:
         executor = self._resolve_executor()
         listing_cache = getattr(executor, "_named_script_listing", None) if executor is not None else None
         if listing_cache is None:
-            listing_cache = _rpc_named(LIST_NAMED_PYTHON_SCRIPTS)
+            listing_cache = call_host_tool(LIST_NAMED_PYTHON_SCRIPTS)
             if executor is not None:
                 executor._named_script_listing = listing_cache
         return list(listing_cache.get(self._origin) or [])

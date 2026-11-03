@@ -31,7 +31,26 @@ log = logging.getLogger("writeragent.mcp.routes")
 
 class Route(NamedTuple):
     handler: Callable[..., Any]
-    raw: bool
+
+
+def json_route(fn: Callable[..., tuple[int, Any]]) -> Callable[..., None]:
+    """Wrap ``(body, headers, query) -> (status, dict)`` for HTTP dispatch."""
+
+    def wrapped(handler: Any) -> None:
+        from plugin.framework.errors import format_error_payload
+        from plugin.framework.url_utils import get_url_query_dict
+        from plugin.mcp.server import read_json_body, write_http_json
+
+        data, rejected = read_json_body(handler)
+        if rejected is not None:
+            status, err = rejected
+            write_http_json(handler, status, format_error_payload(err))
+            return
+        query = get_url_query_dict(handler.path)
+        status, payload = fn(data, handler.headers, query)
+        write_http_json(handler, status, payload)
+
+    return wrapped
 
 
 class HttpRouteRegistry:
@@ -50,19 +69,18 @@ class HttpRouteRegistry:
         self._routes: dict[tuple[str, str], Route] = {}  # (method, path) -> Route
         self.lock: threading.RLock = threading.RLock()
 
-    def add(self, method: str, path: str, handler: Callable[..., Any], raw: bool = False) -> None:
+    def add(self, method: str, path: str, handler: Callable[..., Any]) -> None:
         """Register a route handler.
 
         Args:
             method:      HTTP method (GET, POST, DELETE, ...).
             path:        Exact path (e.g. "/health"). No path params.
-            handler:     Callable. See ``raw`` for signature.
-            raw:         If False (default): fn(body, headers, query) -> (status, dict).
-                         If True: fn(http_handler) -> None (writes directly).
+            handler:     ``fn(http_handler) -> None`` (writes the response).
+                         JSON routes use :func:`json_route` on ``(body, headers, query) -> (status, dict)``.
         """
         key = (method, path)
         with self.lock:
-            self._routes[key] = Route(handler=handler, raw=raw)
+            self._routes[key] = Route(handler=handler)
 
     def remove(self, method: str, path: str) -> None:
         """Unregister a route."""
@@ -71,7 +89,7 @@ class HttpRouteRegistry:
             self._routes.pop(key, None)
 
     def match(self, method: str, path: str) -> Route | None:
-        """Return Route(handler, raw) or None."""
+        """Return Route(handler) or None."""
         with self.lock:
             return self._routes.get((method, path))
 

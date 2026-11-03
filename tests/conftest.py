@@ -62,7 +62,7 @@ def _isolate_worker_env_vars():
     What was wrong: compute_service/formula_worker.py and vision.py set these
     env vars at import time. Test modules import them during collection, so the
     whole pytest (xdist) process looked like a worker and fail-closed guards
-    such as named_scripts._rpc_named raised in unrelated tests.
+    such as call_host_tool raised in unrelated tests.
     Why this fix: clear before each test (tests that need the markers set them
     explicitly) and clean up afterwards so worker modes never leak to other tests.
     """
