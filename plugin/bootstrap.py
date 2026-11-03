@@ -70,6 +70,9 @@ def bootstrap_extension(
             set_fallback_ctx(ctx)
             install_from_environ()
             main.set_context(ctx)
+            from plugin.framework import gc_policy
+
+            gc_policy.install(main)
 
         set_package_extension_id(extension_id)
 

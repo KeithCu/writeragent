@@ -158,14 +158,26 @@ def stream_completion_tasks(
         raise
 
 
-def do_selection_action_for_document(ctx: Any, model: Any, is_edit: bool) -> None:
+def do_selection_action_for_document(
+    ctx: Any,
+    model: Any,
+    is_edit: bool,
+    *,
+    preset_instruction: str | None = None,
+    allow_whole_document: bool = False,
+) -> None:
     """Dispatch Extend/Edit Selection to the document-specific implementation."""
     doc_type = get_document_type(model)
     if doc_type == DocumentType.WRITER:
         from plugin.writer.editselection import do_edit_selection, do_extend_selection
 
         if is_edit:
-            do_edit_selection(ctx, model)
+            do_edit_selection(
+                ctx,
+                model,
+                preset_instruction=preset_instruction,
+                allow_whole_document=allow_whole_document,
+            )
         else:
             do_extend_selection(ctx, model)
         return
@@ -173,7 +185,7 @@ def do_selection_action_for_document(ctx: Any, model: Any, is_edit: bool) -> Non
     if doc_type == DocumentType.CALC:
         from plugin.calc.editselection import do_calc_extend_edit
 
-        do_calc_extend_edit(ctx, model, is_edit)
+        do_calc_extend_edit(ctx, model, is_edit, preset_instruction=preset_instruction)
         return
 
     action = _("Edit") if is_edit else _("Extend")

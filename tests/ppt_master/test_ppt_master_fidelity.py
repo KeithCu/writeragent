@@ -313,3 +313,25 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
     assert doc3.closed is True
     assert any("reference PNG rasterize failed" in err for err in res3.errors)
 
+
+def test_soffice_convert_to_pdf_timeout_returns_none(monkeypatch, tmp_path: Path):
+    import subprocess
+
+    from plugin.ppt_master import fidelity
+
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def fake_run(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise subprocess.TimeoutExpired(cmd=list(args[0]), timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(fidelity.ManagedSubprocess, "run", fake_run)
+
+    source = tmp_path / "deck.odp"
+    source.write_text("x", encoding="utf-8")
+    out_dir = tmp_path / "pdf_out"
+
+    assert fidelity.soffice_convert_to_pdf("soffice", source, out_dir, timeout_sec=1) is None
+    assert len(calls) == 1
+    assert calls[0][1]["timeout"] == 1
+    assert calls[0][1]["kill_tree"] is True

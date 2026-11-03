@@ -1,174 +1,130 @@
 # Sidebar slash commands (research)
 
-**UI status:** The Ask-box `/` completion popup is wired but parked (`ENABLE_SLASH = False` in `plugin/chatbot/slash_popup.py`). Ask text and key listeners stay attached; while the flag is false they do not call the overlay. `[SLASH-OV]` breadcrumbs emit only when `SLASH_OV_VERBOSE_DEBUG` is true, at DEBUG (same pattern as `RICH_SCROLL_VERBOSE_DEBUG`). When the flag is on, typing `/` opens a toolkit `listbox` window parented to the Ask field's peer (tall overlay above Ask, over the transcript). `Dropdown=True` + `togglePopup` did not open without a click (headed 575). Further typing filters; Esc dismisses; Up/Down moves the selection; Tab completes the selected name; Enter accepts it without sending a chat turn; a row click accepts that command (not a closed-combo arrow). Ranking uses LRU persisted as `slash_command_lru` in `writeragent.json`. The XDL placeholder is `dlg:menulist` (dialog.dtd has no `listbox`) and stays hidden. **Commands are still mostly stubs** — mocks echo `slash: /name` in the response pane. `/help` prints the static list; `/clear` wipes the active transcript; `/stop` runs the Stop button listener (in-flight send, speech, inline web approval, and hands-free) and does not clear the Ask draft. `/help`, `/clear`, and mocks clear Ask. Frame and toolkit key handlers only navigate; the listbox listener is the one that inserts typed characters. Accept and Esc dispose the toolkit window on a later main-thread turn. Ask text changes post hide and show the same way; a failed post is logged and is not run inline. The menu is positioned once, before it is shown. Esc dispatches `TEXT_UPDATED` from the text still in Ask so Send is not left disabled. Keith will pick the real set later. Do not treat the consider-list below as shipped behavior.
+**UI status:** The Ask-box `/` completion popup is wired but parked (`ENABLE_SLASH = False` in `plugin/chatbot/slash_popup.py`). Ask text and key listeners stay attached; while the flag is false they do not call the overlay. `[SLASH-OV]` breadcrumbs emit only when `SLASH_OV_VERBOSE_DEBUG` is true, at DEBUG (same pattern as `RICH_SCROLL_VERBOSE_DEBUG`). When the flag is on, typing `/` opens a toolkit `listbox` window parented to the Ask field's peer (tall overlay above Ask, over the transcript). `Dropdown=True` + `togglePopup` did not open without a click (headed 575). Further typing filters; Esc dismisses; Up/Down moves the selection; Tab completes the selected name; Enter accepts it without sending a chat turn; a row click accepts that command (not a closed-combo arrow). Ranking uses LRU persisted as `slash_command_lru` in `writeragent.json`. The XDL placeholder is `dlg:menulist` (dialog.dtd has no `listbox`) and stays hidden. Accept on `/help`, `/clear`, and `/stop` runs immediately; other commands insert `/name ` into Ask for the user to finish and Send. **Tier 1 presets run on Send** even while the popup is parked (`ENABLE_SLASH = False`). `/help` prints the static list; `/clear` wipes the active transcript; `/stop` runs the Stop button listener (in-flight send, speech, inline web approval, and hands-free) and does not clear the Ask draft. `/help`, `/clear`, and mocks clear Ask when run immediately. Frame and toolkit key handlers only navigate; the listbox listener is the one that inserts typed characters. Accept and Esc dispose the toolkit window on a later main-thread turn. Ask text changes post hide and show the same way; a failed post is logged and is not run inline. The menu is positioned once, before it is shown. Esc dispatches `TEXT_UPDATED` from the text still in Ask so Send is not left disabled. `/undo` and `/formula` are planned next on the same router.
 
-**Status:** product command implementations are not done. Candidate list only.
+**Status:** Shipped on Send (and immediate popup accept for `/help`, `/clear`, `/stop` only): `/help`, `/clear`, `/stop`, `/summarize`, `/proofread`, `/shorten`, `/expand`, `/tone`, `/translate`, `/explain`, `/remember`, and `/compact` (`plugin/chatbot/slash_commands.py`). `/undo` and `/formula` are the next Tier 1 follow-up. The table below still describes intent for all Tier 1 verbs; rows marked M stay unimplemented until that follow-up.
 
-Typed in the **chat sidebar** Ask box (Aider/Cursor style). Not a LibreOffice menu, not LibrePy, not a skills system.
+Typed in the **chat sidebar** Ask box. Not a LibreOffice menu, not LibrePy, not a skills system.
 
-Gold source: [Aider-AI/aider](https://github.com/Aider-AI/aider) `aider/commands.py` and [in-chat commands](https://aider.chat/docs/usage/commands.html). [KeithCu/aider](https://github.com/KeithCu/aider) matches that inventory (same `commands.py`). Steal the *shape* of `/` as in-chat control — do not copy Aider’s system prompt or few-shots.
+## Rules for picking commands
 
-Aider is a git coding agent. WriterAgent is a document + chat assistant (Writer / Calc / Draw). Candidates below are what that would mean *here*, including **new** product behavior, not aliases for buttons that already exist.
+- **New verbs, not aliases.** A command should do something a user can't already do with one click. The mode dropdown, model combobox, Record, Stop, Clear, the hamburger menu, and the review toolbar already exist.
+- **Skip `/model` and `/mode`** (and per-mode launchers such as `/web`, `/deep`, `/image`, `/brainstorm`, `/plan`, `/ppt`, `/librarian`): the dropdowns cover them.
+- **Nested pickers are low priority.** A command that opens a second list (pick a document, a language, a tone) is worth less than one that takes a free-text argument.
+- **Keep `/help`, `/clear`, `/stop`.**
+- **For writers and spreadsheet users first**, not just developers.
 
----
+## What other apps do
 
-## What Aider ships
+| App | How `/` works | Commands people use most |
+|-----|---------------|--------------------------|
+| Notion | `/` inserts blocks; Space on an empty line or `/ai` opens Notion AI | `/summarize`, `/action items`, Improve writing, Translate, `/toc`, `/today` |
+| Google Docs (Gemini) | `@` menu for chips; "Help me write" / Refine on a selection | Rephrase, Shorten, Elaborate, tone (formal / casual), custom refine |
+| Microsoft Word (Copilot) | `/` in the Copilot prompt lists files to reference | Reference a file (up to three), rewrite, summarize |
+| ChatGPT | `/` in the composer picks a tool | `/image`, `/search`, `/canvas`, `/reason`, deep research |
+| Claude Code | `/` lists built-ins and user commands | `/clear`, `/compact`, `/memory`, `/rewind` (alias `/undo`), `/context`, `/init` |
+| GitHub Copilot Chat | `/` verbs act on the selection; `@` and `#` add context | `/explain`, `/fix`, `/tests`, `/doc` |
+| Cursor | `@` attaches files, docs, diffs; `/` runs built-in and `.cursor/commands/*.md` commands | `@file` / `@docs`, reset context, side chats |
+| Aider | `/` controls the CLI session | `/ask`, `/undo`, `/diff`, `/web`, `/tokens`, `/copy`, `/clear` |
+| Slack / Discord | `/` runs app or bot commands in the message box | `/remind`, `/me`, `/giphy` (app), polls (bots) |
+| Obsidian | Core "Slash commands" plugin exposes the command palette at `/` with fuzzy match | Any palette command |
+| Coda | `/` inserts blocks and opens Coda AI; `=` opens the formula builder | AI write, "describe a formula in plain English" |
 
-| Command | Purpose |
-|---------|---------|
-| `/help` | List commands, or ask a help coder about Aider |
-| `/clear` | Wipe chat history |
-| `/reset` | Drop chat files **and** wipe history |
-| `/model` `/models` | Switch or search the main LLM |
-| `/editor-model` `/weak-model` | Switch architect/editor helper models |
-| `/chat-mode` `/ask` `/code` `/architect` `/context` `/ok` | Switch edit format / mode; `/ok` means “go ahead and edit” |
-| `/settings` | Print current settings |
-| `/tokens` | Approximate context-window use |
-| `/think-tokens` `/reasoning-effort` | Reasoning budget |
-| `/voice` | Record and transcribe into the prompt |
-| `/web` | Scrape one URL into the chat |
-| `/copy` `/copy-context` `/paste` | Clipboard last reply / repo context / image-or-text |
-| `/editor` `/edit` | Open an external editor to write the next prompt |
-| `/multiline-mode` | Swap Enter vs Meta+Enter |
-| `/report` | Open a GitHub issue |
-| `/add` `/drop` `/read-only` `/ls` | Chat file set (what the model may edit) |
-| `/save` `/load` | Persist / replay that file set |
-| `/map` `/map-refresh` | Repository map |
-| `/commit` `/undo` `/diff` `/git` | Git on the repo Aider is editing |
-| `/lint` `/run` `/test` | Lint dirty files; run a shell command (`!` alias) |
-| `/exit` `/quit` | Leave the CLI |
+**Patterns worth copying:**
 
-Aider interrupts a run with **Ctrl-C**, not `/stop`.
+1. **Verb presets on the selection** are what document users love most: summarize, shorten, rephrase, change tone, translate, fix grammar, find action items (Notion, Gemini, Copilot). Each is a fixed prompt plus a target, so they are cheap to build.
+2. **Explain what I'm looking at** (`/explain` in Copilot Chat) maps well to Calc formulas and dense prose.
+3. **Session control** for long chats: `/compact`, `/clear`, and `/undo` or `/rewind` (Claude Code, Aider).
+4. **Memory** you can write to directly (`/memory` in Claude Code).
+5. **Reference another file** (`/file` in Word Copilot, `@` in Cursor). Useful, but it's a picker, so it costs more.
+6. Tool launchers (`/image`, `/search`) are common in ChatGPT. WriterAgent already has them in the mode dropdown.
 
-**Skip unless a real office analog exists:** `/add` `/drop` `/read-only` `/ls` `/save` `/load` `/map` `/map-refresh` `/commit` `/git` `/lint` `/test` and Aider’s **git** `/undo` `/diff`. Those are repo file-map and VCS ops. WriterAgent does not have a chat file set or a project git repo. Nearby / open LibreOffice documents are the analog — see `/attach` below — not a fake `/add`.
+## Prioritized commands
 
-Also skip: `/exit` `/quit` (no process to leave), `/editor-model` `/weak-model` (no dual architect/editor models), `/multiline-mode` (Ask box is already multiline).
+**Effort:** S = a row in a preset table plus a prompt, reusing an existing path. M = new routing or a small new helper. L = new product work.
 
----
+Most Tier 1 verbs share one mechanism: a table of `(name, instruction, target)` presets. A **rewrite** preset runs the existing Edit Selection path (`plugin/chatbot/selection.py`), so Writer edits land as reviewable tracked changes. An **answer** preset sends a normal chat turn with the instruction prepended and the selection quoted. One table and one router cover all of them. Each preset should fall back to the whole document (or the used range in Calc) when nothing is selected.
 
-## Candidates
+### Tier 1: build these first
 
-**Source:** Aider = named after an Aider command. WA-native = no Aider counterpart (or only a loose analogy).
+| # | Command | What it does in WriterAgent | Why users want it | Inspired by | Effort |
+|---|---------|-----------------------------|-------------------|-------------|--------|
+| 1 | `/summarize [focus]` | Answer preset: summarize the selection, or the whole document, in the sidebar. In Calc, summarize the selected range ("what does this data say"). | The most-used AI verb in every document app. | Notion `/summarize`, Word Copilot, Gemini | S |
+| 2 | `/proofread` | Rewrite preset: fix spelling, grammar, and punctuation only, without restyling. In Writer, changes show as tracked changes the user can accept or reject. | A safe, low-risk first edit. Complements Harper (which catches rules) with an LLM pass on meaning. | Notion "Fix spelling & grammar", Copilot `/fix` | S |
+| 3 | `/shorten [target]` and `/expand [what]` | Rewrite presets: tighten the selection (optional target such as "half" or "100 words"), or elaborate it. | Length is the most common thing writers adjust. | Gemini Refine (Shorten / Elaborate), Notion | S |
+| 4 | `/tone <description>` | Rewrite preset with free text: "formal", "friendly", "plain English", "for a 10-year-old". | Tone changes are the other top Refine action. A free-text argument avoids a picker. | Gemini tone (Formal / Casual), Notion "Change tone" | S |
+| 5 | `/translate <language>` | Rewrite preset: translate the selection in place, keeping formatting. With no selection, answer in the sidebar instead of overwriting the document. | Office users translate constantly; LibreOffice has no built-in translator. | Notion Translate, Word Copilot | S |
+| 6 | `/explain` | Answer preset. Calc: explain the active cell's formula or `=PY()` code in plain language, including referenced ranges. Writer: explain the selected passage (jargon, legal, technical). | Inherited spreadsheets full of formulas nobody understands. | Copilot Chat `/explain` | S |
+| 7 | `/undo` | Undo the last **agent** edit as one step (compound undo, `plugin/doc/compound_undo.py`). First version: undo only when the agent edit is on top of the undo stack; otherwise say the user has edited since. | Trust: users try more when backing out is one command. Ctrl+Z may need many presses after a streamed edit. | Claude Code `/rewind` (alias `/undo`), Aider `/undo` | M |
+| 8 | `/remember <fact>` | Write the fact straight into `USER.md` through the same store as `upsert_memory`, with no LLM round trip, and echo what was saved. | "Always use British spelling", "my company is Acme". Users want to tell it once without hoping the model calls the tool. | Claude Code `/memory`, ChatGPT memory | S |
+| 9 | `/formula <description>` | Calc: write a formula for the active cell from a plain-English description, show it in the sidebar, and insert it. | The top spreadsheet AI request. Faster than typing it into chat and copying the result. | Coda AI formula writing, Copilot in Excel | M |
+| 10 | `/compact [focus]` | Summarize older chat history now using the existing compaction path (`force_compact` in `tool_loop.py`), optionally keeping a focus. | Long sessions get slow and lose track. Keeps the thread without `/clear`. | Claude Code `/compact` | S |
 
-**Priority:** obvious = worth doing if `/` lands. stretch = new product work; do not build `/` just to justify it.
+### Tier 2: worth doing after Tier 1 ships
 
-### Chat control
+| Command | What it does | Why | Inspired by | Effort |
+|---------|--------------|-----|-------------|--------|
+| `/actions` | Answer preset: list action items, owners, and dates from the selection or document (meeting notes). Optional: insert as a checklist. | Meeting notes are a top document type. | Notion "Find action items" | S |
+| `/ask <question>` | One read-only turn: mutating tools are withheld, so the model only answers in the sidebar. | Users want to ask about a document without worrying it will be edited. | Aider `/ask` | M (tool filtering by turn) |
+| `/chart [description]` | Calc / Writer table: create a chart from the selected range using the existing chart tools. | Charts are hard to set up by hand in LibreOffice. | Copilot in Excel, Gemini in Sheets | M |
+| `/clean` | Calc: tidy the selected range (trim, dedupe, fix types and dates) using `clean_and_prepare`, as a reviewable or undoable step. | Messy imported data is the common spreadsheet chore. | Excel / Sheets AI cleanup | M |
+| `/attach <document>` | Add another open LibreOffice document (or a nearby file) as read-only context for this chat. Free text matches by title; a picker is optional. | Comparing, merging, or citing across files. | Word Copilot `/file`, Cursor `@file` | L ([multi-document-dev-plan.md](multi-document-dev-plan.md)) |
+| `/title` | Suggest a title or headline for the selection or document. | Common small ask. | Notion AI | S |
 
-| Command | In WriterAgent | Source | Priority |
-|---------|----------------|--------|----------|
-| `/help` | Print this command list in the response pane (static; not Aider’s help-coder RAG). | Aider | obvious |
-| `/clear` | New chat: wipe the **active** sidebar transcript (Chat / Web / Librarian session, not all three). | Aider | obvious |
-| `/stop` | Cancel the in-flight send / tool loop / research run. | WA-native (Aider: Ctrl-C) | obvious |
-| `/model [id]` | Switch the chat model for this sidebar; empty = show current + recent LRU. | Aider | obvious |
-| `/models [query]` | Search the endpoint catalog (same list Settings already fetches). | Aider | stretch |
-| `/mode [name]` | Switch Chat, Image, Web Research, Deep Research, Brainstorming, Writing Plan, PPT-Master, Librarian. Empty = list modes valid for this document type. | Aider `/chat-mode` | obvious |
-| `/ask [text]` | This turn (or until `/mode chat`): answer in the sidebar only — no `apply_document_content` / mutating tools. | Aider `/ask` | obvious |
-| `/ok` | “Go ahead”: apply the last approved outline / research / draft into the document (Writing Plan, Brainstorming, or last chat draft). | Aider `/ok` | stretch |
-| `/tokens` | Show rough context use: system + `[DOCUMENT CONTENT]` + history. | Aider | stretch |
-| `/copy` | Copy the last assistant reply (HTML or plain) to the clipboard. | Aider | stretch |
-| `/paste` | Append clipboard text (or a clipboard image, if Image mode) into the Ask box. | Aider | stretch |
-| `/voice` | Start / stop sidebar mic capture (same path as Record / Stop Rec on Send). | Aider | obvious |
-| `/settings` | Open WriterAgent Settings. | Aider (they print; we open the dialog) | obvious |
-| `/report [title]` | Open the existing Report bug flow. | Aider | stretch |
-| `/export [chat\|doc]` | Save the sidebar transcript, or export the document / selection (Markdown / HTML / plain). | WA-native (Aider `/copy-context` is the closest) | stretch |
+### Tier 3: low priority
 
-### Document and selection
+| Command | What it does | Why low | Inspired by | Effort |
+|---------|--------------|---------|-------------|--------|
+| `/copy` | Copy the last reply to the clipboard as plain text or HTML. | Selecting text in the response pane already works. | Aider `/copy` | S |
+| `/tokens` | Show context use: system prompt, `[DOCUMENT CONTENT]`, history, headroom. | Mostly a developer need. | Aider `/tokens`, Claude Code `/context` | S |
+| `/fetch <url>` | Pull one web page into the chat as context (not a research run). | Web Research covers most uses. | Aider `/web`, Cursor `@web` | M |
+| `/export` | Save the transcript as Markdown or HTML. | Rarely needed. | Aider `/copy-context` | S |
+| `/py <code>` | Run a Python one-liner in the document session and show the result. | Run Python Script and `=PY()` exist; power users only. | Aider `/run` | M |
 
-| Command | In WriterAgent | Source | Priority |
-|---------|----------------|--------|----------|
-| `/apply` | Apply the last assistant draft into the **active** document (`apply_document_content` path). Optional target: selection / cursor / end. | WA-native | obvious |
-| `/undo` | Undo the last **agent** edit (grouped LibreOffice undo for `apply_document_content` / streamed rewrite). Not git. | Loose Aider `/undo` | obvious |
-| `/diff` | Show what the last agent edit changed (redlines / before–after), without accepting or rejecting. | Loose Aider `/diff` | stretch |
-| `/review [off\|record\|wait]` | Set `doc.agent_edit_review_mode` (Writer tracked-change review). Empty = show current. | WA-native | stretch |
-| `/edit [instruction]` | Rewrite the current **selection** (existing Edit Selection path). | WA-native (Aider `/edit` opens a prompt editor) | obvious |
-| `/extend [instruction]` | Continue writing from the current **selection** (existing Extend Selection path). | WA-native | obvious |
-| `/selection` | Pin the current selection as the target for the next `/apply` / `/edit` / chat turn (range + char count in the status line). | WA-native | stretch |
-| `/attach [name]` | Pin an **open** LibreOffice document or a **nearby** sibling file as extra read context for this chat (MCP already has `list_open_documents`; Phase 0 `document_research` lists the folder). Empty = list attachable docs. Drop with `/attach -name` or `/clear`. | Loose Aider `/add` — office docs, not a git tree | stretch |
+### Considered and skipped
 
-### Research, images, modes
+- `/model`, `/models`, `/mode`, and per-mode launchers (`/web`, `/deep`, `/image`, `/brainstorm`, `/plan`, `/ppt`, `/librarian`): dropdowns exist.
+- `/edit`, `/extend`, `/settings`, `/report`, `/reset-py`, `/voice`: one-click menu items or buttons already do this.
+- `/accept`, `/reject`, `/review`: the review toolbar already has bulk accept and reject, and review mode is a setting.
+- Aider repo commands (`/add`, `/drop`, `/ls`, `/map`, `/commit`, `/git`, `/lint`, `/test`) and `/exit`: there is no repo or process to leave.
+- `/remind`, `/poll`, `/giphy`: chat-app social features with no document meaning.
 
-| Command | In WriterAgent | Source | Priority |
-|---------|----------------|--------|----------|
-| `/web [query]` | Run **Web Research** for this query (or switch to that mode if no query). Not Aider’s single-URL Playwright scrape. | Loose Aider `/web` | obvious |
-| `/deep [query]` | Same for **Deep Research**. | WA-native | stretch |
-| `/image [prompt]` | Switch to Image mode, or generate/insert with the image model. | WA-native | stretch |
-| `/librarian` | Switch to Librarian (global transcript, not per-document). | WA-native | stretch |
-| `/brainstorm [topic]` | Start Brainstorming (Writer). | WA-native | stretch |
-| `/plan [topic]` | Start Writing Plan (Writer). | WA-native | stretch |
-| `/ppt [topic]` | Start PPT-Master (Draw / Impress). | WA-native | stretch |
+## Ask-box UX and arguments
 
-### Python, Calc, notebooks
+The popup completes a single word (`accept_selected()` on Enter). Commands with arguments need two changes:
 
-| Command | In WriterAgent | Source | Priority |
-|---------|----------------|--------|----------|
-| `/py [code\|name]` | Run a named document/user script, or a one-liner, and insert the result (Run Python Script path). | Loose Aider `/run` (they run a shell) | stretch |
-| `/reset-py` | Reset Python Session (venv / `=PY()` / `notebook:…` kernel for this document). | WA-native | obvious |
-| `/cell` | Calc: open Edit Python in Cell for the active `=PY()` cell. | WA-native | stretch |
-| `/notebook [run\|run-all]` | Writer `.ipynb` import: run the current code cell, or all cells. **Run All is not shipped** (notebook Phase 2) — mark as future if `/notebook` is built. | WA-native | stretch |
+- **Tab or Enter on a command that takes arguments** inserts `/name ` and leaves focus in the Ask box instead of running it.
+- **Send interception:** on Send, if the first token is a registered command, route to `run_slash_command(name, host, args)` instead of a chat turn. Unknown `/words` go to the model as normal text.
 
----
-
-## Developer-focused prioritization & roadmap
-
-> [!NOTE]
-> **UI overlap rationale:** Model selection is already prominent and discoverable in the sidebar UI (status line + combobox). Modes (Chat, Image, Web Research, Deep Research, Brainstorming, Writing Plan, PPT-Master, Librarian) are cleanly managed by the mode dropdown. Consequently, `/model`, `/models`, and mode-switching commands (`/mode`, `/web`, `/deep`, etc.) are de-prioritized.
->
-> Focus is instead placed on **keyboard-driven developer workflows**, **LibrePy / Python scripting**, and **context/mutation transparency**.
-
-### Tiered recommendations
-
-#### Tier 1: The Agentic Document Loop (Highest Impact)
-- **`/apply` `[selection | cursor | end]`**: Inserts the assistant's last proposed code, table, or draft directly into the active document (`apply_document_content` or `edit_review.py`). Avoids manual mouse copy-pasting when the model drafts in chat.
-- **`/undo`**: Reverts the agent's last document mutation or `/apply` via grouped LibreOffice undo (`model.getUndoManager().undo()`). Analogous to Aider's `/undo`, but for document state rather than git commits.
-- **`/diff`**: Previews proposed changes in the sidebar as a unified diff, or highlights redlines in the document before/after an agent edit.
-- **`/review` `[off | record | wait]`**: Fast keyboard toggle for `doc.agent_edit_review_mode` (tracked changes review).
-
-#### Tier 2: Developer & Scripting / LibrePy
-- **`/py` `[code | script]`**: Evaluates a Python snippet or named script directly inside the document venv / UNO session, printing output to the chat pane (Aider `/run` / `!` equivalent via `plugin/scripting/`).
-- **`/reset-py`**: Restarts/clears the Python kernel and venv session for this document (Calc `=PY()` cached namespaces, imports, and notebook state).
-- **`/cell`** (Calc): Grabs the active cell's formula / `=PY()` code into the Ask box, or shows evaluated cell payload/type diagnostics.
-
-#### Tier 3: Context & Token Transparency
-- **`/tokens`**: Displays a granular breakdown of context window usage (System prompt, `[DOCUMENT CONTENT]`, chat history, and remaining model headroom). Essential for debugging large documents or sheet context blowups.
-- **`/attach` `[doc_name | path]`**: Pins a second open LibreOffice document or a sibling file (CSV, reference markdown) as read-only context (reuses `list_open_documents` / MCP).
-- **`/ask` `[prompt]`**: Enforces a strict read-only chat turn barring any mutating tools.
-
-#### Tier 4: Fast Sidebar Utilities
-- **`/copy`**: Copies the last assistant response (or code block) to the clipboard.
-- **`/export` `[chat | doc]`**: Dumps the transcript to Markdown or scratch buffer.
-- **`/settings`**: Opens the WriterAgent Settings dialog via keyboard.
-
-### Implementation phases
-
-| Phase | Commands | Rationale |
-|---|---|---|
-| **Phase 1 (Quick Wins)** | `/tokens`, `/copy`, `/ask` | Pure read-only queries with immediate utility; zero document mutation risk. |
-| **Phase 2 (Doc Loop)** | `/apply`, `/undo`, `/review` | Completes the keyboard-driven drafting and editing workflow. |
-| **Phase 3 (Scripting / Dev)** | `/py`, `/reset-py` | Unlocks LibrePy and Calc power-user scripting directly from the sidebar. |
-| **Phase 4 (Multi-Doc Context)** | `/attach` | Expands prompt context across multiple open files. |
-
-### Ask-box UX & argument handling
-
-The current popup expects single-word completion (`accept_selected()` on Enter).
-For commands taking arguments (e.g. `/py <code>`, `/apply selection`, `/ask <query>`):
-- **Tab completion:** Completing a command that takes arguments should append a trailing space (e.g., `/py `) and keep keyboard focus in the Ask box so the user can type arguments.
-- **Send handler interception:** When Enter is pressed in the Ask box, the send listener should inspect whether the first token is a registered slash command. If so, parse arguments and route to `run_slash_command(name, host, args)` instead of submitting a normal chat turn to the LLM.
-
----
+`SlashCommand` would need a `takes_args` flag and a preset kind (`answer` or `rewrite`), so Tier 1 stays a data table, not ten handlers.
 
 ## Do not
 
-- Skills / `SKILL.md` catalogs, user-defined `/` plugins, or a second prompt library.
-- New tools invented only to give a command something to call. `/apply` and `/attach` should reuse `apply_document_content` and document-research / open-document listing.
+- Skills / `SKILL.md` catalogs, user-defined `/` plugins, or a second prompt library. (The humanizer `SKILL.md` in `plugin/chatbot/skills.py` is ambient prompt guidance, not a command system.)
+- New tools invented only to give a command something to call. Presets reuse Edit Selection and normal chat turns; `/remember` reuses the memory store; `/undo` reuses compound undo; `/attach` reuses document research and open-document listing.
+- Commands that only duplicate a dropdown, button, or menu item.
 - LibreOffice native menus or a WriterAgent menu item that *is* the feature. `/` lives in the Ask box.
-- Copy Aider’s system prompt, help-coder few-shots, or architect/editor split into WriterAgent prompts.
-- Port `/add` `/drop` `/commit` `/git` `/map` as coding-agent file ops.
-
----
+- Copy another product's system prompt or few-shots (Aider's help coder, architect/editor split) into WriterAgent prompts.
 
 ## Sources
 
-- Aider `aider/commands.py` (`cmd_*` docstrings; `get_help_md()`).
-- WriterAgent sidebar: `extension/Dialogs/ChatPanelDialog.xdl`, `plugin/chatbot/chat_sidebar_mode.py`, `plugin/chatbot/panel.py` (`ClearButtonListener`, `StopButtonListener`, model combobox, Record on Send).
-- Related: [sidebar-implementation.md](sidebar-implementation.md), [reviewable-agent-edits.md](../writer/reviewable-agent-edits.md), [multi-document-dev-plan.md](multi-document-dev-plan.md), [jupyter-notebook-import.md](../writer/jupyter-notebook-import.md), [audio-architecture.md](audio-architecture.md).
+Other apps (fetched 2026-11; several are third-party guides, so check exact names in the apps):
 
+- Notion: [Using slash commands](https://www.notion.com/help/guides/using-slash-commands), [Everything you can do with Notion AI](https://www.notion.com/help/guides/everything-you-can-do-with-notion-ai), [Notion AI for docs](https://www.notion.com/help/guides/notion-ai-for-docs)
+- Google Docs: [Write with Gemini in Google Docs](https://support.google.com/docs/answer/13951448), [9to5Google, Docs Gemini upgrade (2026-03)](https://9to5google.com/2026/03/10/google-docs-gemini-upgrade/), [TechRadar on the `@` menu](https://techradar.com/pro/google-docs-is-getting-an-even-smarter-way-to-help-craft-the-document-of-your-dreams)
+- Word Copilot: [DataCamp, Copilot in Word](https://www.datacamp.com/tutorial/copilot-in-word)
+- ChatGPT: [OpenAI education hub, basic commands](https://sites.google.com/openai.com/education-hub/home/students/2-features-basic-commands), [BGR on the composer refresh](https://bgr.com/?p=6316982)
+- Claude Code: [alexcloudstar cheat sheet](https://alexcloudstar.com/blog/claude-code-commands-cheat-sheet-2026/), [DataCamp, Claude Code slash commands](https://www.datacamp.com/tutorial/claude-code-slash-commands)
+- GitHub Copilot Chat: [Microsoft Learn module](https://learn.microsoft.com/en-gb/training/modules/github-copilot-across-environments/3-git-hub-copilot-chat), [GitHub cheat sheet (mirror)](https://huggingface.co/AbdulElahGwaith/github-docs-arabic-enhanced/blob/main/content/copilot/reference/cheat-sheet.md)
+- Cursor: [toolsbase command reference](https://toolsbase.dev/en/reference/cursor-commands), [forum: `/summarize` removed](https://forum.cursor.com/t/what-happened-to-the-view-summarized-chat-command/143556)
+- Aider: [in-chat commands](https://aider.chat/docs/usage/commands.html), `aider/commands.py` in [Aider-AI/aider](https://github.com/Aider-AI/aider)
+- Slack: [Zapier, Slack slash commands](https://zapier.com/blog/slack-slash-commands/)
+- Obsidian: [Slash commands core plugin](https://obsidian.md/help/plugins/slash-commands)
+- Coda: [The slash command](https://help.superhuman.com/hc/en-us/articles/46210104421005-The-slash-command), [Coda AI](https://help.coda.io/en/articles/7988177-coda-ai)
+
+WriterAgent:
+
+- `plugin/chatbot/slash_commands.py` (registry, `/help` `/clear` `/stop`), `plugin/chatbot/slash_popup.py` (overlay, `ENABLE_SLASH`).
+- Sidebar: `extension/Dialogs/ChatPanelDialog.xdl`, `plugin/chatbot/chat_sidebar_mode.py`, `plugin/chatbot/panel.py`, `plugin/chatbot/hamburger_menu.py`.
+- Reused paths: `plugin/chatbot/selection.py` (Edit Selection), `plugin/chatbot/memory.py`, `plugin/chatbot/compaction.py`, `plugin/doc/compound_undo.py`, `plugin/writer/inline_review.py`.
+- Related: [sidebar-implementation.md](sidebar-implementation.md), [reviewable-agent-edits.md](../writer/reviewable-agent-edits.md), [compaction-dev-plan.md](compaction-dev-plan.md), [multi-document-dev-plan.md](multi-document-dev-plan.md).

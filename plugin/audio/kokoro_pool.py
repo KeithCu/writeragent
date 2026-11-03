@@ -200,3 +200,14 @@ def get_kokoro_pool() -> KokoroProcessPool | None:
             _POOL = KokoroProcessPool(py)
         _POOL_CONFIG_VENV = venv_str
         return _POOL
+
+
+def shutdown_kokoro_pool() -> None:
+    """Tests and interpreter shutdown. Safe to call when the pool was never used."""
+    global _POOL, _POOL_CONFIG_VENV
+    with _POOL_LOCK:
+        pool = _POOL
+        _POOL = None
+        _POOL_CONFIG_VENV = None
+    if pool is not None:
+        pool.shutdown()
