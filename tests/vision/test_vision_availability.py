@@ -5,6 +5,8 @@
 """Tests for vision availability checking and schema/tool filtering."""
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.framework.errors import ConfigError
 from plugin.vision.vision_availability import (
     filter_vision_delegate_schemas,
@@ -20,10 +22,10 @@ class _Tool:
 
 
 def test_vision_venv_configured_catches_config_error():
-    # What was wrong: pytest escape hatch returned False unconditionally in tests, hiding real config behavior.
-    # Why this change: verify ConfigError is caught, logged, and returns False safely.
+    # Why this change: config typos must propagate ConfigError rather than being swallowed as False.
     with patch("plugin.vision.vision_availability.get_config", side_effect=ConfigError("broken config")):
-        assert vision_venv_configured() is False
+        with pytest.raises(ConfigError):
+            vision_venv_configured()
 
 
 def test_vision_venv_configured_success():
