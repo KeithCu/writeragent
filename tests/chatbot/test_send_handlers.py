@@ -11,6 +11,7 @@ from plugin.chatbot.chat_sidebar_mode import (
 )
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import StreamQueue
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.chatbot.send_handlers import SendHandlersMixin
 from plugin.tests.testing_utils import MockContext, MockDocument
 import pytest
@@ -182,7 +183,7 @@ def test_run_web_research_stores_raw_answer_and_rerenders():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -265,7 +266,7 @@ def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -347,7 +348,7 @@ def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -416,7 +417,7 @@ def test_do_send_direct_image():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -499,7 +500,7 @@ def _run_direct_image_send(panel, model, execute_return, selected_graphic=None):
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -661,7 +662,7 @@ def test_do_send_direct_image_error():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -703,7 +704,7 @@ def _drive_unified_drain(panel, worker_fn, handler_type: str) -> None:
     def fake_run_bg(func, **kwargs):
         func()
 
-    def fake_drain_loop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+    def fake_drain_loop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
         if kwargs.get("on_drain_started"):
             kwargs["on_drain_started"]()
         while not drain_q.empty():
@@ -1201,7 +1202,7 @@ def test_run_web_research_invalid_json():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -1293,7 +1294,7 @@ def test_run_web_research_uses_session_history_not_response_control():
 
                 with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
 
-                    def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                    def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                         if kwargs.get("on_drain_started"):
                             kwargs["on_drain_started"]()
                         while not q.empty():
@@ -1370,7 +1371,7 @@ def test_run_librarian_keeps_panel_flag_until_switch():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -1449,7 +1450,7 @@ def test_run_librarian_clears_panel_flag_on_switch_mode():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -1521,7 +1522,7 @@ def test_run_librarian_switch_mode_calls_finished_callback():
             mock_run_bg.side_effect = fake_run_bg
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
-                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
                     while not q.empty():
@@ -1702,7 +1703,7 @@ def test_on_error_after_stopped_or_done_writes_no_history_row():
         begin_send_turn(panel)
         q = StreamQueue()
 
-        def fake_drain_loop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+        def fake_drain_loop(drain_q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
             on_error(RuntimeError("late error"))
             outcome.done = True
 
@@ -1727,7 +1728,7 @@ def test_thinking_chunk_reaches_append_as_thinking():
 
 
 def _collecting_drain(kinds):
-    def _drain(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+    def _drain(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
         if kwargs.get("on_drain_started"):
             kwargs["on_drain_started"]()
         while not q.empty():
@@ -2148,7 +2149,7 @@ class TestSTTClientReset:
             patch("plugin.chatbot.panel_voice.get_api_config"),
             patch("plugin.chatbot.panel_voice.LlmClient") as mock_llm_client,
             patch("plugin.chatbot.panel_voice.run_blocking_in_thread"),
-            patch("plugin.chatbot.panel_voice.capture_send_stop", return_value=(MagicMock(), lambda: False))
+            patch("plugin.chatbot.panel_voice.capture_send_stop", return_value=(SendCancellation(), lambda: False))
         ):
             host._voice._transcribe_audio("fake.wav", "stt-model")
             assert mock_llm_client.called
@@ -2163,7 +2164,7 @@ class TestSTTClientReset:
             patch("plugin.chatbot.panel_voice.LlmClient") as mock_llm_client,
             patch("plugin.chatbot.panel_voice.run_blocking_in_thread", side_effect=_run_blocking_now),
             patch("plugin.audio.stt_service.transcribe", return_value="hi"),
-            patch("plugin.chatbot.panel_voice.capture_send_stop", return_value=(MagicMock(), lambda: False)),
+            patch("plugin.chatbot.panel_voice.capture_send_stop", return_value=(SendCancellation(), lambda: False)),
         ):
             res = host._voice._transcribe_audio("fake.wav", "stt-model")
             assert res == "hi"

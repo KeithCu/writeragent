@@ -1057,7 +1057,7 @@ class ToolCallingMixin:
                 on_stopped=self._handle_stream_stopped,
                 on_error=self._handle_stream_error,
                 on_status_fn=self._panel._set_status,
-                stop_checker=self._panel.resolve_stop_checker(),
+                cancel=getattr(self._panel, "_send_cancellation", None),
                 show_search_thinking=show_search_thinking,
                 on_approval_required=self._on_tool_loop_approval_required,
                 flush_pending=turn.batcher.flush,
