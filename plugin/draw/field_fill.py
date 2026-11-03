@@ -136,8 +136,7 @@ def _write(fn: Any, ok: str, fail: str) -> tuple[bool, str]:
         fn()
         return True, ok
     except Exception as exc:
-        # is_disposal matches DisposedException,
-        # which would abort remaining fields; only real disposal escapes.
+        # Only disposal escapes; a live-document RuntimeException fails the field.
         if is_disposal(exc):
             raise
         return False, fail % exc

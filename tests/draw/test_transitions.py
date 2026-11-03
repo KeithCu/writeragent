@@ -67,6 +67,8 @@ def test_apply_slide_layout_sets_page_and_returns_canonical():
 def test_apply_slide_layout_unknown_raises():
     with pytest.raises(ValueError, match="Unknown layout"):
         apply_slide_layout(MagicMock(), "not_a_layout")
+    with pytest.raises(ValueError, match="Unknown layout"):
+        apply_slide_layout(MagicMock(), "999")
 
 
 def test_layout_name_and_available():

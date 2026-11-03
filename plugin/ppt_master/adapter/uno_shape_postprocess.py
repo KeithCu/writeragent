@@ -30,13 +30,15 @@ def copy_shapes_to_page(source_page: Any, target_doc: Any, target_page: Any, uno
                 raise
             log.warning("clone_shape failed: %s", exc)
             continue
+        if result.empty_group_message is not None:
+            try:
+                target_page.remove(result.shape)
+            except Exception as exc:
+                if is_disposal(exc):
+                    raise
+            log.warning("clone_shape empty group: %s", result.empty_group_message)
+            continue
         if result.graphic_shapes > result.graphic_reimports:
             log.warning("PPTX picture reimport failed; left Graphic unset rather than alias the hidden source pool")
         copied += 1
     return copied
-
-
-def clear_page_shapes(page: Any) -> None:
-    """Remove all shapes from a draw page (for re-export)."""
-    while page.getCount() > 0:
-        page.remove(page.getByIndex(page.getCount() - 1))

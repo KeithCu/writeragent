@@ -40,7 +40,7 @@ def test_clone_shape_sets_geometry_after_add():
 def test_clone_shape_rejects_non_uno_type():
     src = MagicMock()
     src.ShapeType = "not.a.sun.star.shape"
-    with pytest.raises(RuntimeError, match="Unsupported master shape type"):
+    with pytest.raises(RuntimeError, match="Unsupported shape type"):
         clone_shape(MagicMock(), MagicMock(), src)
 
 
