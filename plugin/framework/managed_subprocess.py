@@ -80,6 +80,7 @@ class ManagedSubprocess:
     _text: bool
     _stderr_name_with_pid: bool
     _raw_spawn: bool
+    _worker_stdin: Any
     _raw_stdin: Any
     _raw_stdout: Any
     _raw_stderr: Any
@@ -134,8 +135,15 @@ class ManagedSubprocess:
             else:
                 raise ValueError("stderr must be subprocess.PIPE or subprocess.DEVNULL")
             self._stderr = worker_stderr
+            if stdin is None:
+                self._worker_stdin = subprocess.PIPE
+            elif stdin == subprocess.PIPE or stdin == subprocess.DEVNULL:
+                self._worker_stdin = stdin
+            else:
+                raise ValueError("stdin must be subprocess.PIPE or subprocess.DEVNULL")
         else:
             self._stderr = subprocess.PIPE
+            self._worker_stdin = subprocess.PIPE
         self._cmd_line = cmd_line
         self._cwd = cwd
         self._env = env
@@ -392,7 +400,7 @@ class ManagedSubprocess:
                     "subprocess.Popen[bytes]",
                     subprocess.Popen(
                         cmd,
-                        stdin=subprocess.PIPE,
+                        stdin=self._worker_stdin,
                         stdout=subprocess.PIPE,
                         stderr=self._stderr,
                         env=merged_env,

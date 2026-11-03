@@ -1272,7 +1272,7 @@ def test_worker_start_ignores_raw_stdio_arguments(
         subp.start()
         assert drain_called
         kwargs = captured_kwargs[0]
-        assert kwargs["stdin"] == subprocess.PIPE
+        assert kwargs["stdin"] == subprocess.DEVNULL
         assert kwargs["stdout"] == subprocess.PIPE
         assert kwargs["stderr"] == subprocess.PIPE
         assert kwargs["bufsize"] == 0

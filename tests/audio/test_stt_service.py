@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -16,6 +18,7 @@ import pytest
 
 from plugin.audio import stt_service
 from plugin.framework.errors import ConfigError
+from plugin.framework.managed_subprocess import _instances, shutdown_all
 
 _REPO = Path(__file__).resolve().parents[2]
 
@@ -340,7 +343,10 @@ def test_run_cmd_closes_pipes(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_proc.stdout = mock_stdout
     mock_proc.stderr = mock_stderr
 
-    monkeypatch.setattr(stt_service.subprocess, "Popen", lambda *args, **kwargs: mock_proc)
+    def fake_start(self: stt_service.ManagedSubprocess) -> None:
+        self._proc = mock_proc  # type: ignore[assignment]
+
+    monkeypatch.setattr(stt_service.ManagedSubprocess, "start", fake_start)
     res = stt_service._run_cmd([sys.executable, "-c", "pass"], 5)
     assert isinstance(res, stt_service.SttCommandResult)
     mock_stdout.close.assert_called_once()
@@ -351,10 +357,10 @@ def test_spawn_failure_reports_could_not_start(monkeypatch: pytest.MonkeyPatch) 
     py_exe = "/opt/venv/bin/python"
     monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
 
-    def fake_popen(*_args: object, **_kwargs: object):
+    def fake_start(self: object) -> None:
         raise FileNotFoundError("interpreter not found")
 
-    monkeypatch.setattr(stt_service.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(stt_service.ManagedSubprocess, "start", fake_start)
     with pytest.raises(ConfigError) as exc_info:
         stt_service._transcribe_local("/tmp/a.wav", "base")
     msg = str(exc_info.value)
@@ -414,3 +420,62 @@ def test_child_script_missing_package_is_json() -> None:
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
     assert payload["status"] == "error"
     assert "faster-whisper" in payload["message"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX session groups")
+def test_terminate_stt_tree_kills_session_group() -> None:
+    child_code = (
+        "import os, subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], "
+        "start_new_session=True)\n"
+        "time.sleep(3600)\n"
+    )
+    holder: list[stt_service.ManagedSubprocess] = []
+
+    def on_spawn(managed: stt_service.ManagedSubprocess) -> None:
+        holder.append(managed)
+
+    def run_stt() -> None:
+        stt_service._run_cmd([sys.executable, "-c", child_code], 3600.0, on_spawn=on_spawn)
+
+    thread = threading.Thread(target=run_stt, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if holder:
+            break
+        time.sleep(0.05)
+    assert holder, "STT child did not spawn in time"
+    managed = holder[0]
+    proc = managed.popen
+    assert proc is not None
+    stt_service.terminate_stt_process(managed)
+    proc.wait(timeout=5.0)
+    # Grandchild in its own session should die with the tree kill.
+    assert proc.returncode is not None
+
+
+def test_running_stt_killed_by_shutdown_all() -> None:
+    holder: list[stt_service.ManagedSubprocess] = []
+
+    def on_spawn(managed: stt_service.ManagedSubprocess) -> None:
+        holder.append(managed)
+
+    def run_stt() -> None:
+        stt_service._run_cmd([sys.executable, "-c", "import time; time.sleep(3600)"], 3600.0, on_spawn=on_spawn)
+
+    thread = threading.Thread(target=run_stt, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if holder and holder[0].is_alive():
+            break
+        time.sleep(0.05)
+    assert holder and holder[0].is_alive()
+    assert holder[0] in _instances
+    shutdown_all()
+    deadline = time.monotonic() + 3.0
+    while holder[0].is_alive() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not holder[0].is_alive()
+    thread.join(timeout=5.0)
