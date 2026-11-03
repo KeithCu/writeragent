@@ -85,7 +85,6 @@ log = logging.getLogger(__name__)
 from plugin.bootstrap import (
     BootstrapState,
     bootstrap_extension,
-    resolve_bootstrap_owner,
     MainBootstrapJob as BaseMainBootstrapJob,
 )
 from plugin.framework.main_shared import ExtensionProtocolHandler, get_action_handler, report_action_failure
@@ -476,7 +475,7 @@ def bootstrap(ctx: Any | None = None) -> None:
         extension_id=EXTENSION_ID,
         register_prompt_hooks=_register_writeragent_prompt_hooks,
         finish=_writeragent_bootstrap_finish,
-        owner=resolve_bootstrap_owner(globals()),
+        state=globals(),
     )
 
 

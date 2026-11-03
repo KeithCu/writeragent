@@ -41,7 +41,6 @@ log = logging.getLogger(__name__)
 from plugin.bootstrap import (
     BootstrapState,
     bootstrap_extension,
-    resolve_bootstrap_owner,
     MainBootstrapJob as BaseMainBootstrapJob,
 )
 
@@ -81,7 +80,7 @@ def bootstrap(ctx: Any | None = None) -> None:
         ctx,
         extension_id=EXTENSION_ID,
         finish=_librepy_bootstrap_finish,
-        owner=resolve_bootstrap_owner(globals()),
+        state=globals(),
     )
 
 
