@@ -107,7 +107,7 @@ def _snippet_url(snippet: MagicMock) -> str:
 
 
 def _reset_tunnel_url_cache() -> None:
-    mcp_ui._standalone_tunnel.tested_provider_tunnel_urls.clear()
+    mcp_ui._tested_provider_tunnel_urls.clear()
     mcp_ui._active_settings_dialog_ref = None
 
 
@@ -159,17 +159,17 @@ def test_tunnel_stop_and_failure_clear_snippet_cache(monkeypatch) -> None:
         ):
             mgr = TunnelManager()
             assert mgr.start(18765, "cloudflare") is True
-            assert mcp_ui._standalone_tunnel.tested_provider_tunnel_urls["cloudflare"] == "https://live.trycloudflare.com/mcp"
+            assert mcp_ui._tested_provider_tunnel_urls["cloudflare"] == "https://live.trycloudflare.com/mcp"
             sync_mcp_config_snippet(dlg)
             assert _snippet_url(snippet) == "https://live.trycloudflare.com/mcp"
 
             mgr.stop()
-            assert "cloudflare" not in mcp_ui._standalone_tunnel.tested_provider_tunnel_urls
+            assert "cloudflare" not in mcp_ui._tested_provider_tunnel_urls
             sync_mcp_config_snippet(dlg)
             assert _snippet_url(snippet) == "https://<subdomain>.trycloudflare.com/mcp"
 
             assert mgr.start(18765, "cloudflare") is True
-            assert mcp_ui._standalone_tunnel.tested_provider_tunnel_urls["cloudflare"] == "https://live.trycloudflare.com/mcp"
+            assert mcp_ui._tested_provider_tunnel_urls["cloudflare"] == "https://live.trycloudflare.com/mcp"
             exit_fn = exit_cb["fn"]
             assert callable(exit_fn)
             exit_fn(1)
@@ -178,7 +178,7 @@ def test_tunnel_stop_and_failure_clear_snippet_cache(monkeypatch) -> None:
             if timer is not None:
                 timer.cancel()
             assert mgr.public_url is None
-            assert "cloudflare" not in mcp_ui._standalone_tunnel.tested_provider_tunnel_urls
+            assert "cloudflare" not in mcp_ui._tested_provider_tunnel_urls
             sync_mcp_config_snippet(dlg)
             assert _snippet_url(snippet) == "https://<subdomain>.trycloudflare.com/mcp"
             mgr.stop()
@@ -187,7 +187,7 @@ def test_tunnel_stop_and_failure_clear_snippet_cache(monkeypatch) -> None:
             remember = TunnelManager()
             mcp_ui.remember_tested_tunnel_url("cloudflare", "https://stale.trycloudflare.com/mcp")
             assert remember.start(18765, "cloudflare") is False
-            assert "cloudflare" not in mcp_ui._standalone_tunnel.tested_provider_tunnel_urls
+            assert "cloudflare" not in mcp_ui._tested_provider_tunnel_urls
             sync_mcp_config_snippet(dlg)
             assert _snippet_url(snippet) == "https://<subdomain>.trycloudflare.com/mcp"
     finally:
@@ -205,7 +205,7 @@ def test_idle_stop_keeps_a_fresh_test_url(monkeypatch) -> None:
         TunnelManager().stop()
         sync_mcp_config_snippet(dlg)
         assert _snippet_url(snippet) == "https://tested.trycloudflare.com/mcp"
-        assert mcp_ui._standalone_tunnel.tested_provider_tunnel_urls["cloudflare"] == "https://tested.trycloudflare.com/mcp"
+        assert mcp_ui._tested_provider_tunnel_urls["cloudflare"] == "https://tested.trycloudflare.com/mcp"
     finally:
         _reset_tunnel_url_cache()
 
@@ -354,7 +354,7 @@ class _CountingLock:
 
 
 def test_remember_holds_the_cache_lock_across_both_updates() -> None:
-    orig_tested = mcp_ui._standalone_tunnel.tested_provider_tunnel_urls
+    orig_tested = mcp_ui._tested_provider_tunnel_urls
     orig_lock = mcp_ui._active_settings_dialog_lock
     orig_ref = mcp_ui._active_settings_dialog_ref
 
@@ -369,7 +369,7 @@ def test_remember_holds_the_cache_lock_across_both_updates() -> None:
 
     stalling_dict = _StallingDict()
     lock = _CountingLock()
-    mcp_ui._standalone_tunnel.tested_provider_tunnel_urls = stalling_dict
+    mcp_ui._tested_provider_tunnel_urls = stalling_dict
     mcp_ui._active_settings_dialog_lock = lock  # type: ignore[assignment]
     t = threading.Thread(
         target=remember_tested_tunnel_url,
@@ -389,18 +389,18 @@ def test_remember_holds_the_cache_lock_across_both_updates() -> None:
     finally:
         release_event.set()
         t.join(timeout=1.0)
-        mcp_ui._standalone_tunnel.tested_provider_tunnel_urls = orig_tested
+        mcp_ui._tested_provider_tunnel_urls = orig_tested
         mcp_ui._active_settings_dialog_lock = orig_lock
         mcp_ui._active_settings_dialog_ref = orig_ref
 
 
 def test_clear_refreshes_after_the_cache_lock_is_released(monkeypatch: Any) -> None:
-    orig_tested = mcp_ui._standalone_tunnel.tested_provider_tunnel_urls
+    orig_tested = mcp_ui._tested_provider_tunnel_urls
     orig_lock = mcp_ui._active_settings_dialog_lock
     orig_ref = mcp_ui._active_settings_dialog_ref
 
     lock = _CountingLock()
-    mcp_ui._standalone_tunnel.tested_provider_tunnel_urls = {"cloudflare": "https://live.example/mcp"}
+    mcp_ui._tested_provider_tunnel_urls = {"cloudflare": "https://live.example/mcp"}
     mcp_ui._active_settings_dialog_lock = lock  # type: ignore[assignment]
 
     refresh_calls: list[tuple[int, bool]] = []
@@ -420,18 +420,18 @@ def test_clear_refreshes_after_the_cache_lock_is_released(monkeypatch: Any) -> N
         rel_count, can_acquire = refresh_calls[0]
         assert rel_count >= 1
         assert can_acquire is True
-        assert "cloudflare" not in mcp_ui._standalone_tunnel.tested_provider_tunnel_urls
+        assert "cloudflare" not in mcp_ui._tested_provider_tunnel_urls
 
         clear_tested_provider_tunnel_url("")
         assert len(refresh_calls) == 1
     finally:
-        mcp_ui._standalone_tunnel.tested_provider_tunnel_urls = orig_tested
+        mcp_ui._tested_provider_tunnel_urls = orig_tested
         mcp_ui._active_settings_dialog_lock = orig_lock
         mcp_ui._active_settings_dialog_ref = orig_ref
 
 
 def test_sync_pops_a_retired_url_under_the_cache_lock(monkeypatch: Any) -> None:
-    orig_tested = mcp_ui._standalone_tunnel.tested_provider_tunnel_urls
+    orig_tested = mcp_ui._tested_provider_tunnel_urls
     orig_lock = mcp_ui._active_settings_dialog_lock
     orig_ref = mcp_ui._active_settings_dialog_ref
 
@@ -446,7 +446,7 @@ def test_sync_pops_a_retired_url_under_the_cache_lock(monkeypatch: Any) -> None:
 
     stalling_dict = _StallingGetDict({"cloudflare": "https://old.example/mcp"})
     lock = _CountingLock()
-    mcp_ui._standalone_tunnel.tested_provider_tunnel_urls = stalling_dict
+    mcp_ui._tested_provider_tunnel_urls = stalling_dict
     mcp_ui._active_settings_dialog_lock = lock  # type: ignore[assignment]
 
     dlg, snippet = _snippet_dialog()
@@ -467,7 +467,7 @@ def test_sync_pops_a_retired_url_under_the_cache_lock(monkeypatch: Any) -> None:
     finally:
         release_event.set()
         t.join(timeout=1.0)
-        mcp_ui._standalone_tunnel.tested_provider_tunnel_urls = orig_tested
+        mcp_ui._tested_provider_tunnel_urls = orig_tested
         mcp_ui._active_settings_dialog_lock = orig_lock
         mcp_ui._active_settings_dialog_ref = orig_ref
 

@@ -428,10 +428,8 @@ class HttpServer:
                 # wait for them to exit after their sockets are closed. POST handler threads
                 # are daemon threads and are not joined (joining POST threads on the main thread
                 # while they await the main-thread queue causes deadlocks/freezes).
-                sse = getattr(self._server, "sse_registry", None)
-                if sse is not None:
-                    with sse.lock:
-                        threads_to_join = list(sse.threads)
+                with self._server.sse_registry.lock:
+                    threads_to_join = list(self._server.sse_registry.threads)
                 self._server.shutdown()
                 self._server.server_close()
                 log.info("HTTP server stopped")
@@ -439,9 +437,7 @@ class HttpServer:
             # shutdown() does not join request threads. SSE keepalives are
             # still blocked in select until their sockets are closed.
             if self._server:
-                sse = getattr(self._server, "sse_registry", None)
-                if sse is not None:
-                    sse.stop_all()
+                self._server.sse_registry.stop_all()
 
             # Join in-flight SSE keepalive threads within a single 2s deadline.
             deadline = time.monotonic() + 2.0
@@ -480,9 +476,7 @@ class HttpServer:
                 try:
                     server.server_close()
                 finally:
-                    sse = getattr(server, "sse_registry", None)
-                    if sse is not None:
-                        sse.stop_all()
+                    server.sse_registry.stop_all()
 
     def is_running(self) -> bool:
         return self._running

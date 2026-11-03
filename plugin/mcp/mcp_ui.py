@@ -7,8 +7,7 @@
 
 Concurrency:
 Tunnel line, exit, and retry threads and the UI thread share
-the active :class:`~plugin.mcp.tunnel.TunnelManager` ``tested_provider_tunnel_urls``.
-``_active_settings_dialog_lock`` covers
+``_tested_provider_tunnel_urls``. ``_active_settings_dialog_lock`` covers
 that URL cache plus the dialog pointer. ``_refresh_active_snippet`` runs
 only after that lock is released because inline dispatch on the main thread
 re-acquires the lock.
@@ -31,7 +30,6 @@ from plugin.framework.errors import suppress_disposed
 from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from plugin.chatbot.dialogs import copy_to_clipboard, get_checkbox_state, get_control_text, get_optional, set_checkbox_state, set_control_text
-from plugin.mcp.tunnel import TunnelManager
 
 log = logging.getLogger("writeragent.mcp.ui")
 
@@ -40,19 +38,8 @@ _active_settings_dialog_ref: Any = None
 # runs after the lock is released because post can invoke it inline and that
 # path takes the lock again.
 _active_settings_dialog_lock = threading.Lock()
-# Settings snippet cache when McpModule is not loaded yet (unit tests, early UI).
-_standalone_tunnel = TunnelManager()
-
-
-def _tested_tunnel_urls() -> dict[str, str]:
-    from plugin.mcp import current_tunnel
-
-    tunnel = current_tunnel()
-    if tunnel is not None:
-        cache = getattr(tunnel, "tested_provider_tunnel_urls", None)
-        if isinstance(cache, dict):
-            return cache
-    return _standalone_tunnel.tested_provider_tunnel_urls
+# Settings snippet cache of tested public URLs per provider.
+_tested_provider_tunnel_urls: dict[str, str] = {}
 
 _PROVIDER_DEFAULT_URLS = {"cloudflare": "https://<subdomain>.trycloudflare.com/mcp", "bore": "http://bore.pub:<remote-port>/mcp", "ngrok": "https://<domain>.ngrok-free.app/mcp", "tailscale": "https://<machine>.<tailnet>.ts.net/mcp"}
 
@@ -156,7 +143,7 @@ def remember_tested_tunnel_url(provider: str, url: str) -> None:
     if not p or not url:
         return
     with _active_settings_dialog_lock:
-        _tested_tunnel_urls()[p] = url
+        _tested_provider_tunnel_urls[p] = url
 
 
 def clear_tested_provider_tunnel_url(provider: str) -> None:
@@ -171,7 +158,7 @@ def clear_tested_provider_tunnel_url(provider: str) -> None:
         p = provider.strip().lower()
         if not p:
             return
-        _tested_tunnel_urls().pop(p, None)
+        _tested_provider_tunnel_urls.pop(p, None)
     _refresh_active_snippet()
 
 
@@ -204,7 +191,7 @@ def sync_mcp_config_snippet(dlg: Any) -> None:
     # Same lock as remember and clear. A stop cannot drop the URL mid-read,
     # and a connect cannot publish into a gap.
     with _active_settings_dialog_lock:
-        cached = _tested_tunnel_urls().get(selected_provider)
+        cached = _tested_provider_tunnel_urls.get(selected_provider)
         active_url = cached if isinstance(cached, str) and cached else None
     if not active_url:
         from plugin.mcp import current_tunnel

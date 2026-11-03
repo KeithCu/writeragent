@@ -32,18 +32,12 @@ from plugin.testing_runner import (
     _native_suite_sort_key,
     _test_function_filters,
     collect_post_test_death,
-    consume_application_error,
-    consume_office_recycle_request,
+    current_office,
     expand_soak_pair,
     format_lifecycle_breadcrumb,
-    note_office_stderr_line,
     probe_uno_bridge,
     record_test_end,
     record_test_start,
-    request_office_recycle_after_suite,
-    reset_lifecycle_breadcrumb,
-    reset_office_death_signals,
-    soffice_exit_code,
 )
 
 
@@ -130,7 +124,7 @@ def test_cli_filters_default_empty() -> None:
 def test_lifecycle_breadcrumb_names_previous_and_current(monkeypatch) -> None:
     """DisposedException on the next open must name the last TEST end, not only the victim."""
     monkeypatch.setattr("plugin.testing_runner._soffice_pids", lambda: "4242")
-    reset_lifecycle_breadcrumb()
+    current_office().reset_lifecycle_breadcrumb()
     assert "previous=-" in format_lifecycle_breadcrumb()
     assert "current=-" in format_lifecycle_breadcrumb()
 
@@ -159,7 +153,7 @@ def test_lifecycle_breadcrumb_marks_pid_change_and_last_ok(monkeypatch) -> None:
         return pids[0]
 
     monkeypatch.setattr("plugin.testing_runner._soffice_pids", fake_pids)
-    reset_lifecycle_breadcrumb()
+    current_office().reset_lifecycle_breadcrumb()
     record_test_end("suite.test_ok", "OK")
     pids[0] = "-"
     record_test_start("suite.test_victim")
@@ -211,26 +205,28 @@ def test_function_name_matches_draw_tree_prefix_bleed() -> None:
 
 
 def test_note_office_stderr_line_sets_salabort_flag() -> None:
-    reset_office_death_signals(clear_proc=True)
-    assert consume_application_error() is False
-    note_office_stderr_line("warn: something else")
-    assert consume_application_error() is False
-    note_office_stderr_line("  %s  " % _APPLICATION_ERROR_MARKER)
-    assert consume_application_error() is True
-    assert consume_application_error() is False
-    reset_office_death_signals(clear_proc=True)
+    office = current_office()
+    office.reset_death_signals(clear_proc=True)
+    assert office.consume_application_error() is False
+    office.note_stderr_line("warn: something else")
+    assert office.consume_application_error() is False
+    office.note_stderr_line("  %s  " % _APPLICATION_ERROR_MARKER)
+    assert office.consume_application_error() is True
+    assert office.consume_application_error() is False
+    office.reset_death_signals(clear_proc=True)
 
 
 def test_collect_post_test_death_application_error() -> None:
-    reset_lifecycle_breadcrumb()
-    reset_office_death_signals(clear_proc=True)
-    note_office_stderr_line(_APPLICATION_ERROR_MARKER)
+    office = current_office()
+    office.reset_lifecycle_breadcrumb()
+    office.reset_death_signals(clear_proc=True)
+    office.note_stderr_line(_APPLICATION_ERROR_MARKER)
     reason = collect_post_test_death(None)
     assert reason is not None
     assert "Unspecified Application Error" in reason
     assert "Binary URP bridge" in reason
     assert "VCL SalAbort" in reason
-    reset_office_death_signals(clear_proc=True)
+    office.reset_death_signals(clear_proc=True)
 
 
 def test_collect_post_test_death_soffice_exit() -> None:
@@ -240,15 +236,16 @@ def test_collect_post_test_death_soffice_exit() -> None:
         def poll(self) -> int:
             return 1
 
-    reset_lifecycle_breadcrumb()
-    reset_office_death_signals(clear_proc=True)
+    office = current_office()
+    office.reset_lifecycle_breadcrumb()
+    office.reset_death_signals(clear_proc=True)
     tr._office.soffice_proc = _DeadProc()
-    assert soffice_exit_code() == 1
+    assert office.soffice_exit_code() == 1
     reason = collect_post_test_death(None)
     assert reason is not None
     assert "soffice exited 1" in reason
     assert "Binary URP bridge" in reason
-    reset_office_death_signals(clear_proc=True)
+    office.reset_death_signals(clear_proc=True)
 
 
 def test_native_suite_sort_key_windows_puts_peer_last(monkeypatch) -> None:
@@ -360,13 +357,12 @@ def test_native_suite_sort_key_posix_keeps_path_order(monkeypatch) -> None:
 
 def test_office_recycle_request_is_consumed_once() -> None:
     """Windows Impress teardown asks the runner to recycle after the suite."""
-    import plugin.testing_runner as tr
-
-    tr._recycle_office_after_suite = False
-    assert consume_office_recycle_request() is False
-    request_office_recycle_after_suite()
-    assert consume_office_recycle_request() is True
-    assert consume_office_recycle_request() is False
+    office = current_office()
+    office.recycle_after_suite = False
+    assert office.consume_recycle_request() is False
+    office.request_recycle()
+    assert office.consume_recycle_request() is True
+    assert office.consume_recycle_request() is False
 
 
 def test_alias_runner_module_points_package_name_at_main(monkeypatch) -> None:
@@ -492,7 +488,7 @@ def test_native_suite_save_review_mode_keeps_mapped_event_key(monkeypatch) -> No
 
 
 def test_fail_reason_with_lifecycle_keeps_crumb_after_cap() -> None:
-    reset_lifecycle_breadcrumb()
+    current_office().reset_lifecycle_breadcrumb()
     record_test_end("suite.test_ok", "OK")
     record_test_start("suite.test_victim")
     long_exc = AssertionError("n" * 500)
@@ -522,7 +518,7 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) ->
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr._run_options, "use_user_profile", False)
     monkeypatch.setattr(tr._run_options, "filters", [])
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
@@ -582,8 +578,8 @@ def test_clean_test_does_not_probe_pids(monkeypatch) -> None:
         return "1"
 
     monkeypatch.setattr(tr, "_soffice_pids", counting_pids)
-    reset_office_death_signals(clear_proc=True)
-    reset_lifecycle_breadcrumb()
+    current_office().reset_death_signals(clear_proc=True)
+    current_office().reset_lifecycle_breadcrumb()
     record_test_start("s.a")
     assert len(calls) == 1
     record_test_end("s.a", "OK")
@@ -648,7 +644,7 @@ def test_typo_filter_fails_the_run(monkeypatch, tmp_path) -> None:
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr._run_options, "use_user_profile", False)
     monkeypatch.setattr(tr._run_options, "filters", ["no_such_test_zzz"])
     monkeypatch.setattr(tr._run_options, "soak_repeat", 1)
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
@@ -670,7 +666,7 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
     plugin_dir = tmp_path / "plugin"
     plugin_dir.mkdir()
 
-    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr._run_options, "use_user_profile", False)
     monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
@@ -689,12 +685,12 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
 def test_parse_cli_args_visible_and_filters(monkeypatch) -> None:
     monkeypatch.delenv("WRITERAGENT_UNO_USER_PROFILE", raising=False)
     monkeypatch.delenv("WRITERAGENT_UNO_SOAK", raising=False)
-    monkeypatch.setattr(tr, "show_window", False)
+    monkeypatch.setattr(tr._run_options, "show_window", False)
     assert tr._parse_cli_args(["--visible", "tests/x/test_cells_uno.py", "E"]) == [
         "tests/x/test_cells_uno.py",
         "E",
     ]
-    assert tr.show_window is True
+    assert tr._run_options.show_window is True
 
 
 def test_parse_cli_args_repeat_forms() -> None:
@@ -724,9 +720,9 @@ def test_parse_cli_args_pair_expands(monkeypatch) -> None:
 
 def test_parse_cli_args_user_profile_sets_env(monkeypatch) -> None:
     monkeypatch.delenv("WRITERAGENT_UNO_USER_PROFILE", raising=False)
-    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr._run_options, "use_user_profile", False)
     tr._parse_cli_args(["--user-profile"])
-    assert tr.use_user_profile is True
+    assert tr._run_options.use_user_profile is True
     assert os.environ["WRITERAGENT_UNO_USER_PROFILE"] == "1"
 
 

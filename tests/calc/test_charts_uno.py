@@ -10,7 +10,7 @@
 
 import unittest
 
-from plugin.testing_runner import native_test, show_window
+from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import (
     TestingFactory,
     execute_calc_tool as _execute_calc_tool,
@@ -79,7 +79,7 @@ def test_charts_creation_and_listing(ctx, doc):
     assert len(res_list_after_delete.get("charts", [])) == 0, "Chart not deleted"
 
 
-@unittest.skipIf(not show_window, "Writer/Calc array test requires visible window for event execution")
+@unittest.skipIf(not current_office().options.show_window, "Writer/Calc array test requires visible window for event execution")
 @native_test
 @with_native_doc("calc")
 def test_charts_validation_and_writer_arrays(ctx, doc):
@@ -103,7 +103,7 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
     assert "Parameter 'data_range' is required when action is 'create' in Calc" in res.get("message", "")
 
     # 2. Writer chart creation and array mapping validation
-    writer_doc = TestingFactory.create_native_doc(ctx, "writer", hidden=not show_window)
+    writer_doc = TestingFactory.create_native_doc(ctx, "writer", hidden=not current_office().options.show_window)
     try:
         from plugin.main import get_tools, get_services
 
