@@ -309,3 +309,34 @@ def test_pump_idle_true_leaves_gc_alone(gc_enabled_restored):
     with patch("plugin.framework.blocking_wait.pump_ui_idle"):
         assert run_blocking_in_thread(ctx, worker) == "ok"
     assert seen == [True]
+
+
+def test_automatic_gc_suspended_under_active_gc_policy_keeps_gc_disabled(gc_enabled_restored):
+    from plugin.framework import gc_policy
+
+    class _FakeExecutor:
+        def _get_async_callback(self):
+            return object()
+
+        def post(self, fn, /, *args, **kwargs):
+            pass
+
+    prev_main = gc_policy._main_ident
+    try:
+        assert gc_policy.install(_FakeExecutor()) is True
+        assert not gc.isenabled()
+        collect_calls: list[bool] = []
+        original = gc.collect
+
+        def spy_collect(*args, **kwargs):
+            collect_calls.append(True)
+            return original(*args, **kwargs)
+
+        with patch.object(gc, "collect", spy_collect):
+            with automatic_gc_suspended():
+                assert not gc.isenabled()
+        assert not gc.isenabled()
+        assert not collect_calls
+    finally:
+        gc_policy._main_ident = prev_main
+        gc.enable()
