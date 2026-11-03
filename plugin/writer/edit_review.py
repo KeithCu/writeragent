@@ -803,62 +803,32 @@ def next_agent_edit_undo_title() -> str:
     return "%s#%d" % (_AGENT_EDIT_UNDO_TITLE, next(_surgical_batch_counter))
 
 
-def close_surgical_context(group: Any, session: EditReviewSession, changes_before: int,
-                           applied_ok: bool) -> bool:
-    """Close the surgical undo context and, on failure, roll the partial batch back."""
-    close_ok = group.close()
-    if applied_ok:
-        return True
-
-    undone = False
-    if close_ok:
-        undone = group.rollback_if_top()
-
-    # Trim records when the document mutations were reverted, or when nothing was applied at all
-    # (empty context -> changes unchanged). Keep them when undo() demonstrably failed (or couldn't
-    # run because the context wouldn't close) so a live partial edit keeps a reviewable record.
-    kept = len(session.changes) - changes_before
-    if undone or kept == 0:
-        try:
-            session.discard_changes_since(changes_before)
-        except Exception:
-            log.debug("edit_review: discarding partial surgical change records failed", exc_info=True)
-        return True
-    else:
-        log.warning("edit_review: surgical rollback could not undo a partial batch; keeping %d change "
-                    "record(s) so the partial edit stays reviewable", kept)
-        return False
-
-
-@contextlib.contextmanager
-def _undo_batch(doc: Any, session: EditReviewSession, undo_title: str) -> Generator[Any | None, None, None]:
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
-    group = WriterCompoundUndo.try_enter(doc, undo_title)
-    if group is None:
-        yield None
-        return
-    changes_before = len(session.changes)
-    applied_ok = False
-    try:
-        yield group
-        applied_ok = True
-    finally:
-        close_surgical_context(group, session, changes_before, applied_ok)
-
-
 def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callable[[], Any],
                            **record_kwargs: Any) -> Any:
     """Record an HTML/import mutation that DELETES before it inserts."""
+    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+
     undo_title = next_agent_edit_undo_title()
-    with _undo_batch(doc, session, undo_title) as mgr:
-        if mgr is None:
-            # The helper already caught the undo-manager error and returned None.
-            # Raising RuntimeError only to catch it did not add a cause.
-            raise ToolExecutionError(
-                "Cannot apply this content edit atomically (no usable undo context); "
-                "refusing rather than risk a half-applied edit.")
-        return session.record_mutation(mutate, **record_kwargs)
+    changes_before = len(session.changes)
+    result_holder: list[Any] = []
+
+    def do_mutate() -> None:
+        res = session.record_mutation(mutate, **record_kwargs)
+        result_holder.append(res)
+
+    try:
+        commit_or_rollback(
+            doc,
+            undo_title,
+            do_mutate,
+            on_fail=lambda: session.discard_changes_since(changes_before),
+        )
+    except UndoUnavailable:
+        raise ToolExecutionError(
+            "Cannot apply this content edit atomically (no usable undo context); "
+            "refusing rather than risk a half-applied edit.")
+
+    return result_holder[0] if result_holder else None
 
 
 # --- post-edit echo (edited_context) ---------------------------------------
@@ -931,20 +901,53 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
     each its own tracked Delete+Insert with its own accept/reject outcome.
     """
     from .html_import import replace_preserving_format
+    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 
     split_author = split and _SPLIT_AUTHOR_COLORS
 
     def _whole() -> None:
         original = found.getString()
-        ctx_mgr = _undo_batch(doc, session, next_surgical_undo_title()) if split_author else contextlib.nullcontext()
-        with ctx_mgr as mgr:
-            if split_author and mgr is None:
+        if split_author:
+            changes_before = len(session.changes)
+            whole_exc: list[Exception] = []
+
+            def do_mutate() -> None:
+                try:
+                    session.record_mutation(
+                        lambda: replace_preserving_format(
+                            doc, found, new_text, uno_ctx,
+                            in_undo_context=True, split_author=split_author),
+                        original_preview=_preview(original), proposed_preview=_preview(new_text))
+                except Exception as exc:
+                    whole_exc.append(exc)
+                    raise
+
+            try:
+                err = commit_or_rollback(
+                    doc,
+                    next_surgical_undo_title(),
+                    do_mutate,
+                    on_fail=lambda: session.discard_changes_since(changes_before),
+                )
+            except UndoUnavailable:
                 log.debug("edit_review: no usable/unlocked undo manager; split-author whole-block edit falls back "
                           "to the single atomic op (one color)")
+                session.record_mutation(
+                    lambda: replace_preserving_format(
+                        doc, found, new_text, uno_ctx,
+                        in_undo_context=False, split_author=split_author),
+                    original_preview=_preview(original), proposed_preview=_preview(new_text))
+                return
+
+            if err is not None and err.get("code") == "ROLLBACK_FAILED":
+                if whole_exc:
+                    raise whole_exc[0]
+                raise RuntimeError(err.get("message"))
+        else:
             session.record_mutation(
                 lambda: replace_preserving_format(
                     doc, found, new_text, uno_ctx,
-                    in_undo_context=(mgr is not None), split_author=split_author),
+                    in_undo_context=False, split_author=split_author),
                 original_preview=_preview(original), proposed_preview=_preview(new_text))
 
     result = None
@@ -985,12 +988,10 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
             return
 
     undo_title = next_surgical_undo_title()
-    with _undo_batch(doc, session, undo_title) as undo_mgr:
-        if undo_mgr is None:
-            log.debug("edit_review: no usable/unlocked undo manager; surgical edit falls back to whole-block "
-                      "for atomicity")
-            _whole()
-            return
+    changes_before = len(session.changes)
+    surgical_exc: list[Exception] = []
+
+    def do_surgical() -> None:
         for se in sorted(result.sub_edits, key=lambda e: e.old_start, reverse=True):
             def apply_se(se: Any = se) -> None:
                 sub = _select_verified(se)
@@ -1001,10 +1002,32 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                                           in_undo_context=True,
                                           split_author=split_author)
 
-            session.record_mutation(
-                apply_se,
-                original_preview=_preview(se.old_text),
-                proposed_preview=_preview(se.new_text))
+            try:
+                session.record_mutation(
+                    apply_se,
+                    original_preview=_preview(se.old_text),
+                    proposed_preview=_preview(se.new_text))
+            except Exception as exc:
+                surgical_exc.append(exc)
+                raise
+
+    try:
+        err = commit_or_rollback(
+            doc,
+            undo_title,
+            do_surgical,
+            on_fail=lambda: session.discard_changes_since(changes_before),
+        )
+    except UndoUnavailable:
+        log.debug("edit_review: no usable/unlocked undo manager; surgical edit falls back to whole-block "
+                  "for atomicity")
+        _whole()
+        return
+
+    if err is not None and err.get("code") == "ROLLBACK_FAILED":
+        if surgical_exc:
+            raise surgical_exc[0]
+        raise RuntimeError(err.get("message"))
 
 
 def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:

@@ -43,9 +43,8 @@ from plugin.writer.edit_review import (
     selection_anchor,
     attach_edited_context,
     next_agent_edit_undo_title,
-    close_surgical_context,
 )
-from plugin.doc.compound_undo import WriterCompoundUndo
+from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
@@ -539,35 +538,47 @@ class ApplyDocumentContent(ToolBase):
         The HTML path and a surgical review replace each close their own undo context
         before returning. Without this outer step the URL write would be a second undo.
         """
-        group = WriterCompoundUndo.try_enter(doc, next_agent_edit_undo_title())
-        if group is None:
+        changes_before = len(session.changes)
+        reports_holder: list[list[dict[str, Any]]] = []
+        rolled_back: list[bool] = []
+
+        def mutate() -> None:
+            reports = run()
+            if reports is not None:
+                reports_holder.append(reports)
+
+        def on_fail() -> None:
+            rolled_back.append(True)
+            session.discard_changes_since(changes_before)
+
+        try:
+            err = commit_or_rollback(
+                doc,
+                next_agent_edit_undo_title(),
+                mutate,
+                on_fail=on_fail,
+            )
+        except UndoUnavailable:
             return None, self._tool_error(
                 "Cannot update the outline hyperlink atomically (no usable undo context); "
                 "refusing rather than risk a text change that leaves the link stale.",
-                code="UNDO_UNAVAILABLE")
-        changes_before = len(session.changes)
-        applied_ok = False
-        reports = None
-        error_exc = None
-        rolled_back = True
-        try:
-            reports = run()
-            applied_ok = True
+                code="UNDO_UNAVAILABLE",
+            )
         except Exception as exc:
             reraise_if_disposed(exc)
             log.exception("apply_document_content: outline hyperlink update failed")
-            error_exc = exc
-        finally:
-            rolled_back = close_surgical_context(group, session, changes_before, applied_ok)
+            if rolled_back or len(session.changes) == changes_before:
+                msg = f"Outline hyperlink update failed; the text change was rolled back ({exc})."
+            else:
+                msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({exc})."
+            return None, self._tool_error(msg, code="HYPERLINK_UPDATE_FAILED")
 
-        if applied_ok:
-            return reports, None
+        if err is not None and err.get("code") == "ROLLBACK_FAILED":
+            msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({err.get('message')})."
+            return None, self._tool_error(msg, code="HYPERLINK_UPDATE_FAILED")
 
-        if rolled_back:
-            msg = "Outline hyperlink update failed; the text change was rolled back (%s)." % error_exc
-        else:
-            msg = "Outline hyperlink update failed; the text change could not be rolled back and may still be in the document (%s)." % error_exc
-        return None, self._tool_error(msg, code="HYPERLINK_UPDATE_FAILED")
+        reports = reports_holder[0] if reports_holder else []
+        return reports, None
 
     def _finish_search_miss(
         self,
@@ -592,28 +603,43 @@ class ApplyDocumentContent(ToolBase):
                     "message": search_mod.shape_only_search_message("old_content", shape_name, review=True),
                     "replaced_count": 0,
                 }
-            group = WriterCompoundUndo.try_enter(doc, next_agent_edit_undo_title())
-            if group is None:
+            # A False from replace_text_in_shape used to leave a partial setString in
+            # the document because the context was closed and never undone.
+            def mutate() -> dict[str, Any] | None:
+                edited = replace_text_in_shape(shape, search_string, new_text)
+                if not edited:
+                    return {"status": "error", "code": "SHAPE_REPLACE_FAILED"}
+                return None
+
+            try:
+                err = commit_or_rollback(
+                    doc,
+                    next_agent_edit_undo_title(),
+                    mutate,
+                )
+                if err is not None and err.get("code") == "ROLLBACK_FAILED":
+                    return err
+                if err is not None and err.get("code") == "SHAPE_REPLACE_FAILED":
+                    return search_mod.build_search_not_found_response(shape_name=shape_name)
+            except UndoUnavailable:
                 return self._tool_error(
                     "Cannot edit text inside the drawing shape '%s' atomically "
                     "(no usable undo context); refusing rather than leave an edit "
                     "that is not one Ctrl+Z." % shape_name,
                     code="UNDO_UNAVAILABLE",
                 )
-            try:
-                edited = replace_text_in_shape(shape, search_string, new_text)
-            finally:
-                group.close()
-            if edited:
-                result = attach_edited_context(
-                    {"status": "ok",
-                      "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
-                                  "shape's own text directly — NOT a tracked change; surrounding "
-                                  "formatting preserved)." % shape_name),
-                      "replaced_count": 1, "review_bypassed": True},
-                    None)
-                return annotate_review_status(result)
-            return search_mod.build_search_not_found_response(shape_name=shape_name)
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                return {"status": "error", "message": f"Failed to update shape text: {exc}"}
+
+            result = attach_edited_context(
+                {"status": "ok",
+                  "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
+                              "shape's own text directly — NOT a tracked change; surrounding "
+                              "formatting preserved)." % shape_name),
+                  "replaced_count": 1, "review_bypassed": True},
+                None)
+            return annotate_review_status(result)
         return search_mod.build_search_not_found_response(
             all_matches=all_matches, tracked_deletions=document_has_tracked_deletions(doc))
 
@@ -1134,18 +1160,19 @@ class ApplyDocumentContent(ToolBase):
                 anchor = collapsed_anchor(anchor_range) if anchor_range is not None else None
             else:
                 anchor = collapsed_anchor(ranges[0])
-            group = WriterCompoundUndo.try_enter(doc, next_agent_edit_undo_title())
-            if group is None:
-                return self._tool_error(
-                    "Cannot apply all_matches atomically (no usable undo context); "
-                    "refusing rather than risk a half-applied edit.",
-                    code="UNDO_UNAVAILABLE"), session
             changes_before = len(session.changes)
             count = 0
-            link_failure: dict[str, Any] | None = None
+            link_failure_holder: list[dict[str, Any] | None] = [None]
             link_reports: list[dict[str, Any]] = []
-            tracked_delete = False
-            try:
+            tracked_delete_box = [False]
+            rolled_back: list[bool] = []
+
+            def on_fail() -> None:
+                rolled_back.append(True)
+                session.discard_changes_since(changes_before)
+
+            def mutate() -> None:
+                nonlocal count
                 with session:
                     for found in reversed(ranges):
                         if doomed_names and _table_and_name(found)[1] in doomed_names:
@@ -1159,26 +1186,38 @@ class ApplyDocumentContent(ToolBase):
                             track_reviewable=track_reviewable, override=override, batch=True,
                             plain=plain)
                         if link_err:
-                            link_failure = link_err
+                            link_failure_holder[0] = link_err
                             raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
                         if reports:
                             link_reports.extend(reports)
                         count += 1
                     if doomed:
-                        tracked_delete = record_table_deletions(session, doc, ctx, doomed)
+                        tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
+
+            try:
+                err = commit_or_rollback(
+                    doc,
+                    next_agent_edit_undo_title(),
+                    mutate,
+                    on_fail=on_fail,
+                )
+            except UndoUnavailable:
+                return self._tool_error(
+                    "Cannot apply all_matches atomically (no usable undo context); "
+                    "refusing rather than risk a half-applied edit.",
+                    code="UNDO_UNAVAILABLE"), session
             except Exception as e:
                 log.exception("apply_document_content all_matches failed mid-batch")
-                rolled_back = close_surgical_context(group, session, changes_before, False)
-                # Invariant: disposal re-raises after the rollback; every other failure keeps its code.
                 reraise_if_disposed(e)
                 payload: dict[str, Any]
                 if isinstance(e, ToolExecutionError):
                     payload = format_error_payload(e)
-                elif link_failure is not None:
-                    payload = dict(link_failure)
+                elif link_failure_holder[0] is not None:
+                    payload = dict(link_failure_holder[0])
                 else:
                     payload = {"status": "error", "code": "TOOL_EXECUTION_ERROR"}
-                if rolled_back:
+                is_rolled_back = bool(rolled_back or len(session.changes) == changes_before)
+                if is_rolled_back:
                     payload["message"] = "all_matches aborted after %d replacement(s); document rolled back (%s)." % (count, e)
                 else:
                     payload["message"] = "all_matches aborted after %d replacement(s); the document could not be rolled back and may be partially edited (%s)." % (count, e)
@@ -1186,8 +1225,25 @@ class ApplyDocumentContent(ToolBase):
                 payload["partial_failure"] = True
                 payload["attempted"] = count
                 return payload, session
-            else:
-                close_surgical_context(group, session, changes_before, True)
+
+            if err is not None and err.get("code") == "ROLLBACK_FAILED":
+                is_rolled_back = bool(rolled_back or len(session.changes) == changes_before)
+                cause_msg = err.get("message", "unknown error")
+                if is_rolled_back:
+                    msg = "all_matches aborted after %d replacement(s); document rolled back (%s)." % (count, cause_msg)
+                else:
+                    msg = "all_matches aborted after %d replacement(s); the document could not be rolled back and may be partially edited (%s)." % (count, cause_msg)
+                payload = {
+                    "status": "error",
+                    "code": "TOOL_EXECUTION_ERROR",
+                    "message": msg,
+                    "replaced_count": 0,
+                    "partial_failure": True,
+                    "attempted": count,
+                }
+                return payload, session
+
+            tracked_delete = tracked_delete_box[0]
             if doomed and count == 0:
                 resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
             else:

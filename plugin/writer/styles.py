@@ -1322,48 +1322,51 @@ class ApplyStyle(FrameworkToolBase):
                 ranges = [ranges[occ_raw]]
             reports = []
 
-            group = None
             if len(ranges) > 1:
                 from .edit_review import next_agent_edit_undo_title
-                from plugin.doc.compound_undo import WriterCompoundUndo
+                from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 
                 title = next_agent_edit_undo_title()
-                group = WriterCompoundUndo.try_enter(ctx.doc, title)
-                if group is None:
-                    return self._tool_error("Cannot apply the style to every match in one undo step. Nothing was changed.")
+                rolled_back: list[bool] = []
 
-            error: Exception | None = None
-            for found in ranges:
+                def on_fail() -> None:
+                    rolled_back.append(True)
+
+                def mutate() -> None:
+                    for found in ranges:
+                        c = cursor_spanning_range(found)
+                        reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
+
                 try:
-                    c = cursor_spanning_range(found)
-                    reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
-                except Exception as e:
-                    if group is None:
-                        raise
-                    error = e
-                    break
-
-            if group is not None:
-                undone = False
-                left = group.close()
-                if left:
-                    if error is not None:
-                        undone = group.rollback_if_top()
-                if error is not None:
-                    if is_disposal(error):
-                        raise error
-                    if undone:
+                    err = commit_or_rollback(ctx.doc, title, mutate, on_fail=on_fail)
+                except UndoUnavailable:
+                    return self._tool_error("Cannot apply the style to every match in one undo step. Nothing was changed.")
+                except Exception as error:
+                    reraise_if_disposed(error)
+                    if rolled_back:
                         return self._tool_error("Nothing was changed: %s" % (error,))
                     return self._tool_error(
                         "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
                         % (len(reports), len(ranges), error)
                     )
-                if not left:
-                    return self._tool_error(
-                        "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
-                        "The changes are in the document and the undo context is still open."
-                        % (style_name, len(reports), group.leave_error)
-                    )
+
+                if err is not None:
+                    if err.get("code") == "UNDO_CONTEXT_LEAK":
+                        return self._tool_error(
+                            "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
+                            "The changes are in the document and the undo context is still open."
+                            % (style_name, len(reports), err.get("message")),
+                            code="TOOL_EXECUTION_ERROR",
+                        )
+                    if err.get("code") == "ROLLBACK_FAILED" or not rolled_back:
+                        return self._tool_error(
+                            "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                            % (len(reports), len(ranges), err.get("message"))
+                        )
+            else:
+                for found in ranges:
+                    c = cursor_spanning_range(found)
+                    reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
 
             return _finish_success({
                 "status": "ok",

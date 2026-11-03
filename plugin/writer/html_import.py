@@ -721,14 +721,11 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
     cursor.gotoEnd(True)
 
     from .edit_review import next_agent_edit_undo_title
-    from plugin.doc.compound_undo import WriterCompoundUndo
+    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
 
     title = next_agent_edit_undo_title()
-    group = WriterCompoundUndo.try_enter(model, title)
-    if group is None:
-        raise ToolExecutionError("Could not enter undo context for header/footer import.")
 
-    try:
+    def mutate() -> None:
         cursor.setString("")
         cursor.gotoStart(False)
         insert_html_fragment_at_cursor(
@@ -755,10 +752,10 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
                         try:
                             # To actually remove the trailing break, select from the end of the previous paragraph
                             # to the end of the document, and set String to empty.
-                            cursor = text_obj.createTextCursorByRange(prev)
-                            cursor.gotoEndOfParagraph(False)
-                            cursor.gotoRange(last.getEnd(), True)
-                            cursor.setString("")
+                            c = text_obj.createTextCursorByRange(prev)
+                            c.gotoEndOfParagraph(False)
+                            c.gotoRange(last.getEnd(), True)
+                            c.setString("")
                         except Exception as e:
                             reraise_if_disposed(e)
                             log.debug("Failed to remove trailing paragraph break via cursor: %s", e)
@@ -771,15 +768,16 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
         except Exception as e:
             reraise_if_disposed(e)
             log.debug("Failed to inspect trailing paragraph: %s", e)
-    except Exception as exc:
-        left = group.close()
-        if not (left and group.rollback_if_top()):
-            raise ToolExecutionError(
-                f"the header/footer was written and could not be rolled back: {exc}"
-            ) from exc
-        raise
 
-    group.close()
+    try:
+        err = commit_or_rollback(model, title, mutate)
+    except UndoUnavailable:
+        raise ToolExecutionError("Could not enter undo context for header/footer import.")
+
+    if err is not None and err.get("code") == "ROLLBACK_FAILED":
+        raise ToolExecutionError(
+            f"the header/footer was written and could not be rolled back: {err.get('message')}"
+        )
 
 
 def content_has_markup(content: str | None) -> bool:

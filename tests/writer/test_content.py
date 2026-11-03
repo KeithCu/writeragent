@@ -825,21 +825,28 @@ def test_outline_undo_says_when_rollback_fails():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     doc = MagicMock()
-    doc.getUndoManager.return_value.isLocked.return_value = False
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
     session = MagicMock()
-    session.changes = []
+    session.changes = ["change1"]
 
     def failing_run():
+        session.changes.append("change2")
         raise RuntimeError("boom")
 
-    with patch("plugin.writer.apply_document_content.close_surgical_context", return_value=False):
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Agent Edit",)]
+    mgr.undo.side_effect = RuntimeError("undo failed")
+    with patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
         _, err = ApplyDocumentContent()._outline_undo(doc, session, failing_run)
     assert err is not None
     assert err["code"] == "HYPERLINK_UPDATE_FAILED"
     assert "could not be rolled back" in err["message"]
     assert "boom" in err["message"]
 
-    with patch("plugin.writer.apply_document_content.close_surgical_context", return_value=True):
+    mgr.undo.side_effect = None
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Agent Edit",)]
+    with patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
         _, err2 = ApplyDocumentContent()._outline_undo(doc, session, failing_run)
     assert err2 is not None
     assert err2["code"] == "HYPERLINK_UPDATE_FAILED"
@@ -848,18 +855,23 @@ def test_outline_undo_says_when_rollback_fails():
 
 
 def test_outline_undo_propagates_disposed_document():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
     doc = MagicMock()
-    doc.getUndoManager.return_value.isLocked.return_value = False
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Agent Edit",)]
+    doc.getUndoManager.return_value = mgr
     session = MagicMock()
     session.changes = []
 
     def disposed_run():
         raise type("DisposedException", (Exception,), {})("gone")
 
-    with patch("plugin.writer.apply_document_content.close_surgical_context", return_value=True) as close:
+    with patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
         with pytest.raises(DocumentDisposedError):
             ApplyDocumentContent()._outline_undo(doc, session, disposed_run)
-    close.assert_called_once()
+    mgr.undo.assert_called_once()
 
 
 def test_get_document_content_warns_when_redlines_are_not_listed():
