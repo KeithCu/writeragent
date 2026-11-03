@@ -292,12 +292,13 @@ def soffice_convert_to_pdf(soffice: str, source: Path, out_dir: Path, *, timeout
         str(source),
     ]
     try:
-        proc = ManagedSubprocess.run_with_process_tree(
+        proc = ManagedSubprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=timeout_sec,
             check=False,
+            kill_tree=True,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         log.warning("soffice pdf convert failed for %s: %s", source, exc)
